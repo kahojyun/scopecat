@@ -765,35 +765,6 @@ class InstrumentConfiguredDefaultsApplyCommand(_WireModel):
     operation_id: NonEmptyText
 
 
-class InstrumentConfiguredDefaultsApplyReceipt(_WireModel):
-    session_id: NonEmptyText
-    operation_id: NonEmptyText
-    instrument_id: NonEmptyText
-    config_entry_id: NonEmptyText
-    status: Literal["applied", "unchanged", "rejected"]
-    problems: tuple[Problem, ...] = ()
-    state: InstrumentStateSnapshot | None = None
-
-    @model_validator(mode="after")
-    def validate_outcome(self) -> InstrumentConfiguredDefaultsApplyReceipt:
-        if self.status in {"applied", "unchanged"}:
-            if self.problems:
-                raise ValueError(
-                    "successful configured-default apply cannot contain problems"
-                )
-            if self.state is None:
-                raise ValueError(
-                    "successful configured-default apply requires synchronized state"
-                )
-        elif not self.problems:
-            raise ValueError("rejected configured-default apply requires a problem")
-        elif self.state is not None:
-            raise ValueError("rejected configured-default apply cannot report state")
-        if self.state is not None and self.state.instrument_id != self.instrument_id:
-            raise ValueError("configured-default state must match instrument_id")
-        return self
-
-
 class InstrumentSessionEndReceipt(_WireModel):
     session_id: NonEmptyText
     status: Literal["closed", "aborted"]
@@ -850,7 +821,6 @@ __all__ = [
     "ExecutorLease",
     "ExecutorStartRequest",
     "InstrumentConfiguredDefaultsApplyCommand",
-    "InstrumentConfiguredDefaultsApplyReceipt",
     "InstrumentContractCatalogRequest",
     "InstrumentDriverProbeCommand",
     "InstrumentDriverProbeReceipt",

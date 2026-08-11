@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 import httpx2
 import pytest
 from pydantic import BaseModel
+from scopecat_testkit.workflow_fixtures import load_config
 
 from scopecat.config.inventory import InstrumentInventoryRekey
 from scopecat.config.registry.records import (
@@ -32,7 +33,6 @@ from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
     InstrumentConfiguredDefaultsApplyCommand,
-    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentContractCatalogRequest,
     InstrumentDriverProbeCommand,
     InstrumentDriverProbeReceipt,
@@ -63,12 +63,12 @@ from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.commands import (
+    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentOperationArgument,
     InvokeCommand,
     InvokeReceipt,
 )
 from scopecat.sdk.instruments.contracts import InstrumentDescription
-from tests.testkit.workflow_fixtures import load_config
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 _HASH = f"sha256:{'a' * 64}"

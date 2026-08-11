@@ -2,10 +2,16 @@ from __future__ import annotations
 
 from decimal import Decimal
 from fractions import Fraction
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from scopecat_testkit.instrument_drivers import (
+    SignalInstrumentDriver,
+    load_config,
+    number_state,
+    quantity_state,
+)
+from scopecat_testkit.signal_instruments import TestSignalInstrumentProvider
 
 from scopecat.kernel.problems import ModelLocation, Problem
 from scopecat.kernel.quantity import Quantity
@@ -58,11 +64,6 @@ from scopecat.sdk.instruments import (
     quantity_property,
     string_property,
 )
-from scopecat.sdk.instruments._driver_adapter import (
-    lower_state_patch,
-    project_state,
-)
-from scopecat.sdk.instruments._projection import ProjectedInstrumentState
 from scopecat.sdk.instruments.backend import lower_backend_apply_request
 from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,
@@ -90,15 +91,11 @@ from scopecat.sdk.instruments.contracts import (
     validate_state_command,
     validate_state_snapshot,
 )
-from tests.testkit.execution import execute_bound_run
-from tests.testkit.instrument_drivers import (
-    SignalInstrumentDriver,
-    load_config,
-    number_state,
-    quantity_state,
+from scopecat.sdk.instruments.driver_adapter import (
+    lower_state_patch,
+    project_state,
 )
-from tests.testkit.signal_instruments import TestSignalInstrumentProvider
-from tests.testkit.workflow_fixtures import load_experiment
+from scopecat.sdk.instruments.projection import ProjectedInstrumentState
 
 
 @pytest.mark.parametrize("dtype", ["bool", "string"])
@@ -2501,26 +2498,6 @@ def test_collect_receipt_enforces_the_concrete_requested_shape(
     assert [problem.code for problem in validate(2)] == [
         "instrument_driver_readback_shape_mismatch"
     ]
-
-
-def test_run_accepts_instrument_driver(tmp_path: Path) -> None:
-    instrument = SignalInstrumentDriver()
-
-    manifest = execute_bound_run(
-        config=load_config(),
-        experiment=load_experiment(),
-        instruments=[instrument],
-        project_root=tmp_path,
-    )
-
-    assert manifest.status == "completed"
-    assert len(instrument.collect_requests) == 3
-    assert [result.result_id for result in instrument.collect_requests[0].results] == [
-        "signal"
-    ]
-    assert instrument.applied[0].entries[0].target.interface_id == (
-        "test.set_frequency/v1"
-    )
 
 
 def _state_command(

@@ -5,9 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { getEvents, getHealth } from "./data/project-api";
 import {
-  getEvents,
-  getHealth,
   getMeasurementPreview,
   getMeasurementSlice,
   getMeasurementTracePreview,
@@ -16,14 +15,18 @@ import {
   getRunAnalyses,
   getRunEvents,
   getRuns,
-} from "./api";
+} from "./features/runs/run-api";
 import type { MeasurementDatasetSchema, MeasurementRecord } from "./api-contract";
 import type { ProjectRun } from "./types";
 
-vi.mock("./api", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./api")>()),
+vi.mock("./data/project-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./data/project-api")>()),
   getEvents: vi.fn(),
   getHealth: vi.fn(),
+}));
+
+vi.mock("./features/runs/run-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./features/runs/run-api")>()),
   getMeasurementPreview: vi.fn(),
   getMeasurementSlice: vi.fn(),
   getMeasurementTracePreview: vi.fn(),

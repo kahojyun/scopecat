@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from scopecat_testkit.authoring import bind_invocation, load_config
+from scopecat_testkit.domain import domain_call
 
 import scopecat as sc
 from scopecat.kernel.errors import ProviderContractError
@@ -37,8 +39,6 @@ from scopecat.sdk.domain.runtime import (
     DomainExecutionReceipt,
     DomainExecutionResult,
 )
-from tests.testkit.authoring import bind_invocation, load_config
-from tests.testkit.domain import domain_call
 
 type _ResultBinding = DomainResultBinding[str]
 

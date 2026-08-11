@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Annotated, cast
 
 import pytest
+from scopecat_testkit.authoring import bind_invocation, load_config
+from scopecat_testkit.expressions import evaluate_scalar
 
 import scopecat as sc
 from scopecat.authoring.experiments import ExperimentInvocation
@@ -22,8 +24,6 @@ from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.value_graph import OperationId
 from scopecat.program.value_refs import internal_value_ref_source_id
 from scopecat.records.config import ConfigProfileSnapshot
-from tests.testkit.authoring import bind_invocation, load_config
-from tests.testkit.expressions import evaluate_scalar
 
 
 def _bind_program(

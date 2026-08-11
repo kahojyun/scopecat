@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
+from scopecat_testkit.authoring import bind_invocation
+from scopecat_testkit.local_materialization import materialize_local_execution
+from scopecat_testkit.materialized_effects import config_with_physical_resources
 
 import scopecat as sc
 from scopecat.authoring._module_context import DefinitionResource
@@ -19,9 +22,6 @@ from scopecat.program.bindings import EnsureStateIntent
 from scopecat.program.logical import LogicalEnsureState
 from scopecat.program.state import StateBinding
 from scopecat.sdk.instruments import InterfaceRef, PropertyRef
-from tests.testkit.authoring import bind_invocation
-from tests.testkit.local_materialization import materialize_local_execution
-from tests.testkit.materialized_effects import config_with_physical_resources
 
 _SOURCE = InterfaceRef("test.state_effect_source/v1")
 _SOURCE_LEVEL = _SOURCE.property("level")

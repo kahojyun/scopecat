@@ -13,7 +13,8 @@ import type { InstrumentSession, InstrumentSessionLease, InstrumentView } from "
 import { errorMessage } from "../../lib/presentation";
 import { classes, eyebrow, iconButton } from "../../ui/styles";
 import { InstrumentConfigDialog } from "./InstrumentConfigDialog";
-import { AvailabilityBadge, InstrumentInspector } from "./InstrumentInspector";
+import { AvailabilityBadge } from "./InstrumentInterfaceControls";
+import { InstrumentInspector } from "./InstrumentInspector";
 import {
   abortInstrumentSession,
   closeInstrumentSession,

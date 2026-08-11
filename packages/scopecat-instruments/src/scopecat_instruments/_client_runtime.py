@@ -6,11 +6,10 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import cast
 
-from scopecat.api._instruments import (
+from scopecat.api.instruments import (
     InstrumentClientChannel,
     OperationArgumentValue,
 )
-from scopecat.daemon.wire import InstrumentConfiguredDefaultsApplyReceipt
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.state import StateLiteral, StateValue
 from scopecat.kernel.value_types import ValueType
@@ -25,6 +24,7 @@ from scopecat.sdk.instruments import (
     AcquisitionResultRef,
     ApplyReceipt,
     InstrumentCollectFailure,
+    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentDescription,
     InvokeReceipt,
     OperationArgumentRef,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from scopecat_testkit.workflow_fixtures import load_config
+
 from scopecat.config.drafts import ConfigDraft
 from scopecat.kernel.problems import ModelLocation
 from scopecat.kernel.quantity import Quantity
@@ -20,7 +22,6 @@ from scopecat.records.parameter import (
     ScalarParameterValue,
     TableParameterValue,
 )
-from tests.testkit.workflow_fixtures import load_config
 
 
 def test_draft_builds_candidate_and_deltas() -> None:

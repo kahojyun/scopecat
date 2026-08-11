@@ -4,12 +4,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from scopecat_testkit.authoring import bind_invocation, load_config
 
 import scopecat as sc
 from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.results import MeasurementValue
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import bind_invocation, load_config
 
 _SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
 _SCALAR_SIGNAL_SAMPLE_RAW = _SCALAR_SIGNAL.acquisition("sample").result("raw")

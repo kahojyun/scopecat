@@ -97,13 +97,13 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareCollectBinding,
     RunHardwareInvoke,
 )
-from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
-from tests.testkit.payload_codecs import json_payload_codecs
+from scopecat_testkit.instrument_drivers import SignalInstrumentDriver, load_config
+from scopecat_testkit.payload_codecs import json_payload_codecs
 
 from scopecat_server import LocalDaemonRuntime
 from scopecat_server.errors import BackendConflict
-from scopecat_server.instrument_backend import LocalInstrumentBackendEndpoint
-from scopecat_server.instrument_service import InstrumentService
+from scopecat_server.instruments.backend import LocalInstrumentBackendEndpoint
+from scopecat_server.instruments.service import InstrumentService
 
 type _FailAction = (
     Literal[

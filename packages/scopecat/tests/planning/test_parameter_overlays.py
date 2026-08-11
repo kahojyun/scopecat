@@ -1,6 +1,24 @@
 from dataclasses import replace
 from typing import Never, cast
 
+from scopecat_testkit.bound_program import (
+    DomainExecutionFixture,
+    bind_program_facts,
+    overlay_parameter_cell,
+    program_fixture,
+)
+from scopecat_testkit.expressions import state_property
+from scopecat_testkit.local_materialization import materialize_local_execution
+from scopecat_testkit.materialized_effects import (
+    config_with_physical_resources,
+    materialized_state_properties,
+)
+from scopecat_testkit.parameter_fixtures import (
+    PARAMETER_TYPES,
+    READOUT_FREQUENCY_LOOKUP,
+    parameters,
+)
+
 from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
 )
@@ -34,23 +52,6 @@ from scopecat.program.point_domain import (
     point_axis_values,
 )
 from scopecat.program.table_values import ParameterTableSource
-from tests.testkit.bound_program import (
-    DomainExecutionFixture,
-    bind_program_facts,
-    overlay_parameter_cell,
-    program_fixture,
-)
-from tests.testkit.expressions import state_property
-from tests.testkit.local_materialization import materialize_local_execution
-from tests.testkit.materialized_effects import (
-    config_with_physical_resources,
-    materialized_state_properties,
-)
-from tests.testkit.parameter_fixtures import (
-    PARAMETER_TYPES,
-    READOUT_FREQUENCY_LOOKUP,
-    parameters,
-)
 
 _PARAMETER_TYPES = PARAMETER_TYPES
 _DEVICE_ID = Scalar(String())

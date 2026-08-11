@@ -9,9 +9,9 @@ from typing import Self
 
 from scopecat.api._config import LabConfigOperations
 from scopecat.api._control import LabControlOperations
-from scopecat.api._instruments import LabInstrumentOperations
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
+from scopecat.api.instruments import LabInstrumentOperations
 from scopecat.api.run import RunHandle, run_handle_id
 from scopecat.authoring.experiments import Experiment, ExperimentInvocation
 from scopecat.config.candidates import CandidateConfig

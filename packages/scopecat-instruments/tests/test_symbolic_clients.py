@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# pyright: reportPrivateUsage=false
 from typing import assert_type
 
 import pytest

@@ -10,13 +10,14 @@ from typing import Literal, overload, override
 
 from scopecat.authoring import (
     EachEntity,
+    InstrumentRecorder,
     OneEntity,
     PerEntity,
+    ProductBundle,
     ProductRef,
     ResourceRoleInput,
     Symbolic,
 )
-from scopecat.authoring._module_results import ProductBundle
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.measurement_types import MeasurementArrayData
 from scopecat.records.measurement import MeasurementValue
@@ -43,7 +44,6 @@ from scopecat_instruments._symbolic_runtime import (
     DeclaredStateSymbolicGroupBase,
     SymbolicInstrumentClientBase,
     SymbolicInstrumentGroupBase,
-    _SymbolicInstrumentRecorder,
 )
 from scopecat_instruments.interface_declarations import (
     DCBiasState,
@@ -456,7 +456,7 @@ class SymbolicTemperatureReadoutClient(SymbolicInstrumentClientBase):
 
     def __init__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -491,7 +491,7 @@ class SymbolicTemperatureReadoutGroup(
 
     def __init__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -571,7 +571,7 @@ class SymbolicRFOutputClient(DeclaredStateSymbolicClientBase[RFOutputTarget]):
 
     def __init__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -625,7 +625,7 @@ class SymbolicRFOutputGroup(
 
     def __init__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -751,7 +751,7 @@ class SymbolicDCBiasClient(DeclaredStateSymbolicClientBase[DCBiasTarget]):
 
     def __init__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -815,7 +815,7 @@ class SymbolicDCBiasGroup(
 
     def __init__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -949,7 +949,7 @@ class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[DCSourceTarget]):
 
     def __init__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -1034,7 +1034,7 @@ class SymbolicDCSourceGroup(
 
     def __init__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -1207,7 +1207,7 @@ class SymbolicDCMonitorClient(DeclaredStateSymbolicClientBase[DCMonitorTarget]):
 
     def __init__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -1282,7 +1282,7 @@ class SymbolicDCMonitorGroup(
 
     def __init__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -1431,7 +1431,7 @@ class SymbolicDCSourceMonitorClient(
 
     def __init__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -1513,7 +1513,7 @@ class SymbolicDCSourceMonitorGroup(
 
     def __init__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -1657,7 +1657,7 @@ class SymbolicNetworkSweepClient(DeclaredStateSymbolicClientBase[NetworkSweepTar
 
     def __init__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -1724,7 +1724,7 @@ class SymbolicNetworkSweepGroup(
 
     def __init__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,

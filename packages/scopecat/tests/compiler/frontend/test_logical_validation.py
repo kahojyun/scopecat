@@ -7,6 +7,8 @@ from __future__ import annotations
 from typing import Annotated
 
 import pytest
+from scopecat_testkit.authoring import bind_invocation, load_config
+from scopecat_testkit.domain import domain_call
 
 import scopecat as sc
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
@@ -38,8 +40,6 @@ from scopecat.program.products import (
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import bind_invocation, load_config
-from tests.testkit.domain import domain_call
 
 _PLAY_WAVEFORMS = InterfaceRef("test.play_waveforms/v1")
 _PLAY_WAVEFORMS_PLAY = _PLAY_WAVEFORMS.operation("play")

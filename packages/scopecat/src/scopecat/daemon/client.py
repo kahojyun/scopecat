@@ -55,7 +55,6 @@ from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
     InstrumentConfiguredDefaultsApplyCommand,
-    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentContractCatalogRequest,
     InstrumentDriverProbeCommand,
     InstrumentDriverProbeReceipt,
@@ -102,6 +101,7 @@ from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectReceipt,
+    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentStateCommand,
     InteractiveCollectIntent,
     InvokeCommand,

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-# pyright: reportPrivateUsage=false
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import assert_type, cast
 
 import pytest
-from scopecat.api._instruments import (
+from scopecat.api.instruments import (
     InstrumentClientChannel,
     InstrumentRef,
     OperationArgumentValue,

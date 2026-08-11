@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getRunAnalyses } from "../../api";
+import { getRunAnalyses } from "../runs/run-api";
 import {
   activateConfigEntry,
   getConfigRegistry,
@@ -15,8 +15,8 @@ import { ConfigWorkspace } from "./ConfigWorkspace";
 import type { ConfigProfileSnapshot, ConfigRegistryEntry } from "../../api-contract";
 import { getRunParameterProposals } from "../../data/parameter-proposals/api";
 
-vi.mock("../../api", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../api")>()),
+vi.mock("../runs/run-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../runs/run-api")>()),
   getRunAnalyses: vi.fn(),
 }));
 

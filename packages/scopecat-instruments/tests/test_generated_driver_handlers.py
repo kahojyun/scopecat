@@ -16,12 +16,11 @@ from scopecat.sdk.instruments import (
     InstrumentDescription,
     InstrumentDriver,
 )
-
-from client_codegen_fixture_declarations import (
+from scopecat_testkit.instrument_codegen_fixtures.declarations import (
     DriverMonitorState,
     DriverSourceState,
 )
-from generated_driver_handler_fixture import (
+from scopecat_testkit.instrument_codegen_fixtures.generated_driver_handlers import (
     DriverFixedAcquisitionAcquireDriverReadback,
     DriverFixedAcquisitionDriverAdapter,
     DriverMonitorMonitorDriverReadback,
@@ -34,8 +33,10 @@ from generated_driver_handler_fixture import (
     PayloadOperationDriverAdapter,
     ScalarOperationDriverAdapter,
 )
-from generated_driver_state_catalog_fixture import DriverSourceDriverPatch
-from generated_member_catalog_fixture import (
+from scopecat_testkit.instrument_codegen_fixtures.generated_driver_states import (
+    DriverSourceDriverPatch,
+)
+from scopecat_testkit.instrument_codegen_fixtures.generated_members import (
     DRIVER_FIXED_ACQUISITION_ACQUIRE,
     DRIVER_FIXED_ACQUISITION_RESPONSE_RESULT,
     DRIVER_MONITOR_ACQUISITION,

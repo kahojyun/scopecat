@@ -1,0 +1,26 @@
+[project]
+name = "scopecat-testkit"
+version = "0.1.0"
+description = "Private shared test support for the Scopecat workspace."
+requires-python = ">=3.14"
+dependencies = [
+  "pydantic>=2,<3",
+  "scopecat",
+]
+
+[project.optional-dependencies]
+server = [
+  "scopecat-server",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.20,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+src = ["src"]
+
+[tool.uv.sources]
+scopecat = { workspace = true }
+scopecat-server = { workspace = true }

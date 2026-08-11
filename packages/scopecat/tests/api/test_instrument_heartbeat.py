@@ -5,7 +5,7 @@ from threading import Event
 
 import httpx2
 
-import scopecat.api._instruments as instrument_api
+import scopecat.api.instruments as instrument_api
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.wire import (
     InstrumentSessionLeaseReceipt,

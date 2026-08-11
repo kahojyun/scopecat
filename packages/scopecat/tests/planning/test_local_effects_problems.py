@@ -1,4 +1,19 @@
 import pytest
+from scopecat_testkit.bound_program import (
+    instrument_acquisition,
+    instrument_acquisitions,
+    observable_product,
+    program_fixture,
+)
+from scopecat_testkit.expressions import (
+    state_property as set_state_property,
+)
+from scopecat_testkit.expressions import (
+    verified_scalar_expr,
+)
+from scopecat_testkit.local_materialization import operations_of_type
+from scopecat_testkit.materialized_effects import materialized_effects_contract
+from scopecat_testkit.parameter_fixtures import parameters
 
 from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
@@ -23,21 +38,6 @@ from scopecat.program.point_domain import (
     point_axis_linear,
     point_axis_values,
 )
-from tests.testkit.bound_program import (
-    instrument_acquisition,
-    instrument_acquisitions,
-    observable_product,
-    program_fixture,
-)
-from tests.testkit.expressions import (
-    state_property as set_state_property,
-)
-from tests.testkit.expressions import (
-    verified_scalar_expr,
-)
-from tests.testkit.local_materialization import operations_of_type
-from tests.testkit.materialized_effects import materialized_effects_contract
-from tests.testkit.parameter_fixtures import parameters
 
 _SOURCE_REQUIREMENTS = (
     LogicalResourceRequirement(

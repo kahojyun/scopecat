@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import cast
 
 import pytest
+from scopecat_testkit.expressions import evaluate_scalar
 
 import scopecat as sc
 from scopecat.compiler.relations.context import EvalContext
@@ -12,7 +13,6 @@ from scopecat.compiler.relations.verification import ExpressionTypeBindings
 from scopecat.program.expression_operators import runtime_values_equal
 from scopecat.program.value_refs import internal_lower_scalar_value_ref
 from scopecat.program.values import input as program_input
-from tests.testkit.expressions import evaluate_scalar
 
 
 def _input_bindings(**inputs: sc.ValueType) -> ExpressionTypeBindings:

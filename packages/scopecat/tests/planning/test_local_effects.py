@@ -1,3 +1,29 @@
+from scopecat_testkit.bound_program import (
+    ComputeNodeFixture,
+    compute_result,
+    instrument_acquisition,
+    instrument_invocation,
+    observable_product,
+    overlay_parameter_cell,
+    program_fixture,
+)
+from scopecat_testkit.expressions import (
+    state_property as set_state_property,
+)
+from scopecat_testkit.local_materialization import operations_of_type
+from scopecat_testkit.materialized_effects import (
+    config_with_physical_resources,
+    materialized_effects_contract,
+    materialized_state_properties,
+    measurement_projection_contract,
+)
+from scopecat_testkit.parameter_fixtures import (
+    READOUT_FREQUENCY_LOOKUP,
+)
+from scopecat_testkit.parameter_fixtures import (
+    parameters as _parameters,
+)
+
 from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
     product_axis,
@@ -33,31 +59,6 @@ from scopecat.program.value_graph import (
     ComputeOutput,
     OperationId,
     operation_result_id,
-)
-from tests.testkit.bound_program import (
-    ComputeNodeFixture,
-    compute_result,
-    instrument_acquisition,
-    instrument_invocation,
-    observable_product,
-    overlay_parameter_cell,
-    program_fixture,
-)
-from tests.testkit.expressions import (
-    state_property as set_state_property,
-)
-from tests.testkit.local_materialization import operations_of_type
-from tests.testkit.materialized_effects import (
-    config_with_physical_resources,
-    materialized_effects_contract,
-    materialized_state_properties,
-    measurement_projection_contract,
-)
-from tests.testkit.parameter_fixtures import (
-    READOUT_FREQUENCY_LOOKUP,
-)
-from tests.testkit.parameter_fixtures import (
-    parameters as _parameters,
 )
 
 

@@ -6,6 +6,7 @@ from typing import Literal, cast
 
 import pytest
 from pydantic import ValidationError
+from scopecat_testkit.execution_fakes import FakeExecutionJournal
 
 from scopecat.kernel.errors import (
     DomainExecutionFailed,
@@ -29,7 +30,6 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareBatch,
     RunHardwareBatchReceipt,
 )
-from tests.testkit.runtime import FakeExecutionJournal
 
 type _Invocation = ClosedDomainInvocation[str, dict[str, str]]
 

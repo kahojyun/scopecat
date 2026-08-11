@@ -17,7 +17,6 @@ import httpx2
 import psutil
 import pytest
 from fastapi.testclient import TestClient
-from scopecat.adapters.sqlite import SQLiteControlPlane, SQLiteDatabase
 from scopecat.api.lab import LabClient
 from scopecat.authoring import (
     ExperimentContext,
@@ -53,19 +52,20 @@ from scopecat.sdk.instruments.backend import (
     BackendPropertyWrite,
 )
 from scopecat.sdk.instruments.commands import InvokeCommand
-from tests.testkit.instrument_drivers import load_config
+from scopecat_testkit.instrument_drivers import load_config
 
 from scopecat_server.errors import BackendConflict
-from scopecat_server.instrument_backend import (
+from scopecat_server.instruments.backend import (
     InstrumentBackendError,
     InstrumentBackendRejected,
     InstrumentBackendUnavailable,
     InstrumentHandleInvalid,
 )
-from scopecat_server.instrument_worker import (
+from scopecat_server.instruments.worker import (
     SubprocessInstrumentBackendEndpoint,
 )
 from scopecat_server.runtime import LocalDaemonRuntime
+from scopecat_server.storage.sqlite import SQLiteControlPlane, SQLiteDatabase
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "instrument_worker_project"
 _BACKEND = "worker_fixture.backend:create_backend"

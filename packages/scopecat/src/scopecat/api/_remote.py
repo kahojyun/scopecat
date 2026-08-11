@@ -41,10 +41,10 @@ from scopecat.daemon.wire import (
     AnalysisTableOutputPayload,
     RunAttachmentCommand,
 )
-from scopecat.records._metadata import validate_json_metadata
 from scopecat.records.analysis import AnalysisExecution
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.metadata import validate_json_metadata
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest

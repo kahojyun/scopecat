@@ -12,13 +12,20 @@ dependencies = [
   "scopecat[polars]",
 ]
 
+[dependency-groups]
+test = [
+  "pytest>=9",
+  "scopecat-server",
+  "scopecat-testkit[server]",
+]
+
 [build-system]
 requires = ["uv_build>=0.11.20,<0.12.0"]
 build-backend = "uv_build"
 
 [tool.pytest]
+addopts = ["--import-mode=importlib"]
 minversion = "9.0"
-pythonpath = ["../../packages/scopecat"]
 strict_config = true
 strict_markers = true
 testpaths = ["tests"]
@@ -34,3 +41,5 @@ exclude = [
 scopecat = { workspace = true }
 scopecat-instruments = { workspace = true }
 scopecat-quantum = { workspace = true }
+scopecat-server = { workspace = true }
+scopecat-testkit = { workspace = true }

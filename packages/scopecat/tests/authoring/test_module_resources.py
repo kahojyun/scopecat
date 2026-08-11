@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from scopecat_testkit.authoring import bind_invocation, load_config
+from scopecat_testkit.domain import domain_call
+from scopecat_testkit.materialized_effects import config_with_physical_resources
 
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
@@ -18,9 +21,6 @@ from scopecat.program.logical import (
     LogicalStateAssignment,
 )
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import bind_invocation, load_config
-from tests.testkit.domain import domain_call
-from tests.testkit.materialized_effects import config_with_physical_resources
 
 _SET_FREQUENCY = InterfaceRef("test.set_frequency/v1")
 _SET_FREQUENCY_VALUE_PATH = _SET_FREQUENCY.property("value.path")

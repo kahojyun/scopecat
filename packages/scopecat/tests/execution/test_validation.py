@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
+from scopecat_testkit.local_materialization import (
+    LocalEffectInspection,
+    effects_at_point,
+)
 
 from scopecat.execution.local.program import (
     CollectionResultBinding,
@@ -30,10 +34,6 @@ from scopecat.sdk.instruments.contracts import (
     acquisition,
     acquisition_result,
     interface,
-)
-from tests.testkit.local_materialization import (
-    LocalEffectInspection,
-    effects_at_point,
 )
 
 

@@ -25,7 +25,6 @@ from pydantic import (
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.units import compatible_units, is_supported_unit
-from scopecat.records._metadata import JsonMetadata, validate_json_metadata
 from scopecat.records.analysis import (
     MAX_ANALYSIS_FIGURE_POINTS,
     MAX_ANALYSIS_TABLE_ROWS,
@@ -35,6 +34,7 @@ from scopecat.records.analysis import (
     AnalysisTableColumn,
     project_analysis_rows,
 )
+from scopecat.records.metadata import JsonMetadata, validate_json_metadata
 
 if TYPE_CHECKING:
     import pandas as pd

@@ -6,6 +6,11 @@ from datetime import UTC, datetime
 from typing import cast
 
 import pytest
+from scopecat_testkit.measurement_assembly import (
+    MeasurementAssemblyScenario,
+    measurement_assembly_scenario,
+    measurement_value_candidates,
+)
 
 from scopecat.compiler.bound_facts import (
     BoundMeasurementCompute,
@@ -33,11 +38,6 @@ from scopecat.measurements.values import (
     seal_measurement_values,
 )
 from scopecat.program.logical import MeasurementComputeId
-from tests.testkit.measurement_assembly import (
-    MeasurementAssemblyScenario,
-    measurement_assembly_scenario,
-    measurement_value_candidates,
-)
 
 
 def _compute(

@@ -11,7 +11,6 @@ from typing import Literal, override
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
-from scopecat.adapters.sqlite.object_store import ImmutableObjectStore
 from scopecat.control.models import RunPlanSummary, RunResourceRequirement
 from scopecat.daemon.client import DaemonClient, DaemonConflictError
 from scopecat.daemon.wire import (
@@ -50,16 +49,17 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareInvoke,
 )
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
-from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
+from scopecat_testkit.instrument_drivers import SignalInstrumentDriver, load_config
 
 from scopecat_server import LocalDaemonRuntime
-from scopecat_server.instrument_backend import LocalInstrumentBackendEndpoint
-from scopecat_server.instrument_worker import SubprocessInstrumentBackendEndpoint
-from scopecat_server.payload_service import (
+from scopecat_server.instruments.backend import LocalInstrumentBackendEndpoint
+from scopecat_server.instruments.worker import SubprocessInstrumentBackendEndpoint
+from scopecat_server.services.payloads import (
     DEFAULT_MAX_PAYLOAD_OBJECT_BYTES,
     CommandPayloadService,
     CommandPayloadTooLarge,
 )
+from scopecat_server.storage.sqlite.object_store import ImmutableObjectStore
 
 _PAYLOAD_BYTES = b"\x00\xff\x80SCPI\x00program\n"
 _MEDIA_TYPE = "application/octet-stream"

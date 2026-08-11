@@ -3,6 +3,13 @@ from __future__ import annotations
 from typing import cast, override
 
 import pytest
+from scopecat_testkit.execution_fakes import (
+    FakeExecutionJournal,
+    FakeMeasurementDatasetRepository,
+)
+from scopecat_testkit.measurement_assembly import (
+    assembled_measurement_values_for_all_uses,
+)
 
 from scopecat.execution.measurement_recording import (
     append_measurement_dataset,
@@ -22,11 +29,6 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetReceipt,
 )
 from scopecat.sdk.journal import ExecutionJournal
-from tests.testkit.measurement_assembly import assembled_measurement_values_for_all_uses
-from tests.testkit.runtime import (
-    FakeExecutionJournal,
-    FakeMeasurementDatasetRepository,
-)
 
 
 def _projected(*, run_id: str = "recording-run") -> ProjectedMeasurementDataset:

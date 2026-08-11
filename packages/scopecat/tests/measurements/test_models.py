@@ -7,6 +7,8 @@ from typing import Literal, cast
 import numpy as np
 import pytest
 from pydantic import ValidationError
+from scopecat_testkit.measurement_models import signal_point_schema, signal_record
+from scopecat_testkit.records import assert_model_round_trip
 
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
@@ -19,8 +21,6 @@ from scopecat.records.measurement import (
     MeasurementUnavailableReason,
     MeasurementVariable,
 )
-from tests.testkit.measurement_models import signal_point_schema, signal_record
-from tests.testkit.records import assert_model_round_trip
 
 
 def test_measurement_values_round_trip_through_one_record() -> None:

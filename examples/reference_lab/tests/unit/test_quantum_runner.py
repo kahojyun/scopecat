@@ -19,8 +19,8 @@ from scopecat.records.execution import InstrumentStateEvidence
 from scopecat_quantum.measurement_computes import (
     BinaryIqProbabilityProducts,
 )
-from tests.testkit.in_process_lab import in_process_lab
-from tests.testkit.instrument_host import compose_test_instruments
+from scopecat_testkit.instrument_host import compose_test_instruments
+from scopecat_testkit.server.in_process_lab import in_process_lab
 
 from reference_lab.bench_interfaces import (
     ANALOG_WAVEFORM_OUTPUT,

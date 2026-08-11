@@ -151,6 +151,14 @@ uv run ruff format --check .
 The default test run includes the complete reference-lab gallery suite and all
 package tests.
 
+Run one member's tests with its declared test dependency group:
+
+```sh
+uv run --locked --package scopecat --group test pytest packages/scopecat/tests
+uv run --locked --package scopecat-server --group test pytest packages/scopecat-server/tests
+uv run --locked --package reference-lab --group test pytest examples/reference_lab/tests
+```
+
 To assemble release artifacts without modifying either source tree:
 
 ```sh

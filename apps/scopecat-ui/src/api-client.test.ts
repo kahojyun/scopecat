@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getHealth } from "./api";
+import { getHealth } from "./data/project-api";
 import { ApiError } from "./api-client";
 
 afterEach(() => {

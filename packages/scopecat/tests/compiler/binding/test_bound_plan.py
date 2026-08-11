@@ -4,6 +4,20 @@ from dataclasses import replace
 from typing import cast
 
 import pytest
+from scopecat_testkit.authoring import load_config
+from scopecat_testkit.bound_program import (
+    DomainExecutionFixture,
+    ProgramFixture,
+    instrument_acquisition,
+    observable_product,
+    program_fixture,
+    verified_logical_program_for,
+)
+from scopecat_testkit.expressions import state_property, verified_scalar_expr
+from scopecat_testkit.local_materialization import (
+    materialize_local_execution,
+    operations_of_type,
+)
 
 from scopecat.compiler.bind import BoundPlan, _bind_program_facts
 from scopecat.compiler.bound_facts import (
@@ -56,20 +70,6 @@ from scopecat.program.point_domain import (
     point_axis_values,
 )
 from scopecat.records.config import DomainTargetBinding
-from tests.testkit.authoring import load_config
-from tests.testkit.bound_program import (
-    DomainExecutionFixture,
-    ProgramFixture,
-    instrument_acquisition,
-    observable_product,
-    program_fixture,
-    verified_logical_program_for,
-)
-from tests.testkit.expressions import state_property, verified_scalar_expr
-from tests.testkit.local_materialization import (
-    materialize_local_execution,
-    operations_of_type,
-)
 
 _FLOAT = Scalar(Float())
 _FREQUENCY = Scalar(QuantityType(unit="GHz"))

@@ -95,7 +95,6 @@ def test_generator_does_not_resolve_driver_implementation_symbols() -> None:
         "import runpy\n"
         "import sys\n"
         f"generator = {str(GENERATOR)!r}\n"
-        "sys.path.insert(0, generator.rsplit('/', 1)[0])\n"
         "sys.argv = [generator, '--check']\n"
         "runpy.run_path(generator, run_name='__main__')\n"
         f"forbidden = {_DRIVER_MODULES!r}\n"

@@ -8,6 +8,7 @@ from typing import Literal
 import pyarrow as pa
 import pytest
 from pydantic import ValidationError
+from scopecat_testkit.workflow_fixtures import load_config
 
 from scopecat.analysis.datasets import DerivedDataset
 from scopecat.config.changes import parameter_change_proposal_from_updates
@@ -45,7 +46,6 @@ from scopecat.daemon.wire import (
     ExecutionTransitionClaim,
     ExecutorLease,
     InstrumentConfiguredDefaultsApplyCommand,
-    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
     InstrumentSessionLeaseReceipt,
@@ -77,10 +77,12 @@ from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
-from scopecat.sdk.instruments import InstrumentDescription
+from scopecat.sdk.instruments import (
+    InstrumentConfiguredDefaultsApplyReceipt,
+    InstrumentDescription,
+)
 from scopecat.sdk.instruments.commands import InstrumentStateAssignment
 from scopecat.sdk.instruments.execution import RunHardwareApply, RunHardwareBatch
-from tests.testkit.workflow_fixtures import load_config
 
 
 def _request() -> RunRequest:

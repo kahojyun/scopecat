@@ -2,6 +2,20 @@
 
 from __future__ import annotations
 
+from scopecat_testkit.bound_program import (
+    ComputeNodeFixture,
+    DomainExecutionFixture,
+    program_fixture,
+)
+from scopecat_testkit.expressions import (
+    state_property,
+    verified_scalar_expr,
+)
+from scopecat_testkit.parameter_fixtures import (
+    READOUT_FREQUENCY_LOOKUP,
+    parameters,
+)
+
 from scopecat.compiler.bound_specialization import (
     specialize_bound_facts,
 )
@@ -43,19 +57,6 @@ from scopecat.program.value_graph import (
     ComputeOutput,
     OperationId,
     operation_result_id,
-)
-from tests.testkit.bound_program import (
-    ComputeNodeFixture,
-    DomainExecutionFixture,
-    program_fixture,
-)
-from tests.testkit.expressions import (
-    state_property,
-    verified_scalar_expr,
-)
-from tests.testkit.parameter_fixtures import (
-    READOUT_FREQUENCY_LOOKUP,
-    parameters,
 )
 
 

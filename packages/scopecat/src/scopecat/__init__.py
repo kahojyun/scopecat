@@ -22,18 +22,18 @@ if TYPE_CHECKING:
         derived_dataset,
     )
     from scopecat.analysis.facts import AnalysisFactSchema
-    from scopecat.api._instruments import (
-        InstrumentClientFactory,
-        InstrumentRef,
-        TemporaryInstrumentRef,
-        instrument,
-        temporary_instrument,
-    )
     from scopecat.api.analysis import (
         Analysis,
         AnalysisContext,
         AnalysisField,
         analysis_step,
+    )
+    from scopecat.api.instruments import (
+        InstrumentClientFactory,
+        InstrumentRef,
+        TemporaryInstrumentRef,
+        instrument,
+        temporary_instrument,
     )
     from scopecat.api.published_analysis import (
         PublishedAnalysis,
@@ -229,20 +229,20 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "PublishedAnalysisArtifact",
     ),
     "InstrumentClientFactory": (
-        "scopecat.api._instruments",
+        "scopecat.api.instruments",
         "InstrumentClientFactory",
     ),
-    "InstrumentRef": ("scopecat.api._instruments", "InstrumentRef"),
+    "InstrumentRef": ("scopecat.api.instruments", "InstrumentRef"),
     "TemporaryInstrumentRef": (
-        "scopecat.api._instruments",
+        "scopecat.api.instruments",
         "TemporaryInstrumentRef",
     ),
     "Quantity": ("scopecat.kernel.quantity", "Quantity"),
     "open_project": ("scopecat.project", "open_project"),
     "analysis_step": ("scopecat.api.analysis", "analysis_step"),
-    "instrument": ("scopecat.api._instruments", "instrument"),
+    "instrument": ("scopecat.api.instruments", "instrument"),
     "temporary_instrument": (
-        "scopecat.api._instruments",
+        "scopecat.api.instruments",
         "temporary_instrument",
     ),
 }

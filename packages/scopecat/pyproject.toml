@@ -20,11 +20,19 @@ polars = [
   "polars>=1",
 ]
 
+[dependency-groups]
+test = [
+  "hypothesis>=6.155.7",
+  "pytest>=9",
+  "scopecat-testkit",
+]
+
 [build-system]
 requires = ["uv_build>=0.11.20,<0.12.0"]
 build-backend = "uv_build"
 
 [tool.pytest]
+addopts = ["--import-mode=importlib"]
 minversion = "9.0"
 strict_config = true
 strict_markers = true
@@ -33,3 +41,6 @@ testpaths = ["tests"]
 [tool.ruff]
 extend = "../../pyproject.toml"
 src = ["src", "tests"]
+
+[tool.uv.sources]
+scopecat-testkit = { workspace = true }

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, GitCompareArrows, LoaderCircle, SlidersHorizontal } from "lucide-react";
-import { getRunAnalyses } from "../../api";
+import { getRunAnalyses } from "../runs/run-api";
 import type { ConfigProfileSnapshot, ConfigRegistryEntry } from "../../api-contract";
 import { getRunParameterProposals } from "../../data/parameter-proposals/api";
 import type { ParameterProposal } from "../../data/parameter-proposals/types";

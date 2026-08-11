@@ -1838,17 +1838,20 @@ export interface components {
         InstrumentConfiguredDefaultsApplyCommand: {
             operation_id: components["schemas"]["NonEmptyText"];
         };
-        /** InstrumentConfiguredDefaultsApplyReceipt */
+        /**
+         * InstrumentConfiguredDefaultsApplyReceipt
+         * @description Outcome of reconciling a live session with configured defaults.
+         */
         InstrumentConfiguredDefaultsApplyReceipt: {
-            config_entry_id: components["schemas"]["NonEmptyText"];
-            instrument_id: components["schemas"]["NonEmptyText"];
-            operation_id: components["schemas"]["NonEmptyText"];
+            config_entry_id: components["schemas"]["_NonEmptyId"];
+            instrument_id: components["schemas"]["_NonEmptyId"];
+            operation_id: components["schemas"]["_NonEmptyId"];
             /**
              * Problems
              * @default []
              */
             problems: components["schemas"]["Problem-Output"][];
-            session_id: components["schemas"]["NonEmptyText"];
+            session_id: components["schemas"]["_NonEmptyId"];
             state?: components["schemas"]["InstrumentStateSnapshot"] | null;
             /**
              * Status

@@ -12,7 +12,7 @@ from scopecat.execution.program import RunCoverageEffect
 from scopecat.kernel.resource_identity import ResourceRequirement
 from scopecat.planning.compilation import compile_run_program
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
-from tests.testkit.instrument_host import compose_test_instruments
+from scopecat_testkit.instrument_host import compose_test_instruments
 
 from reference_lab.bench_interfaces import (
     ANALOG_WAVEFORM_OUTPUT,

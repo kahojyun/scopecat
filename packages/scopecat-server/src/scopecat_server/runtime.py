@@ -12,13 +12,6 @@ from typing import Self
 
 from fastapi import FastAPI
 from filelock import FileLock, Timeout
-from scopecat.adapters.sqlite import (
-    SQLiteConfigRegistryStore,
-    SQLiteControlPlane,
-    SQLiteDatabase,
-    SQLiteProjectStore,
-    SQLiteRunRepository,
-)
 from scopecat.application.lab import BootstrapConfigFactory
 from scopecat.config.resolution import validate_config_profile
 from scopecat.daemon.wire import (
@@ -29,9 +22,18 @@ from scopecat.project import load_application_factory
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 
-from .instrument_actor import InstrumentActorRegistry
-from .instrument_backend import InstrumentBackendEndpoint
-from .instrument_worker import SubprocessInstrumentBackendEndpoint
+from scopecat_server.storage.sqlite import (
+    SQLiteConfigRegistryStore,
+    SQLiteControlPlane,
+    SQLiteDatabase,
+    SQLiteProjectStore,
+    SQLiteRunRepository,
+)
+
+from .http.transport import create_app
+from .instruments.actors import InstrumentActorRegistry
+from .instruments.backend import InstrumentBackendEndpoint
+from .instruments.worker import SubprocessInstrumentBackendEndpoint
 from .services import (
     AdmissionService,
     CommandPayloadService,
@@ -42,7 +44,6 @@ from .services import (
     OwnershipLeaseSupervisor,
     RunService,
 )
-from .transport import create_app
 
 _DEFAULT_INSTRUMENT_SHUTDOWN_GRACE = timedelta(seconds=5)
 _DEFAULT_INSTRUMENT_SESSION_LEASE_TTL = timedelta(seconds=90)

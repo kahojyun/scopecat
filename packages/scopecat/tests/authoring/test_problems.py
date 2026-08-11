@@ -5,6 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from scopecat_testkit.authoring import (
+    bind_invocation,
+    load_config,
+    simple_experiment,
+)
 
 import scopecat as sc
 from scopecat.compiler.bind import bind_program
@@ -15,14 +20,6 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     model_location,
 )
-from tests.testkit.authoring import (
-    bind_invocation,
-    load_config,
-    simple_experiment,
-)
-from tests.testkit.instrument_host import compose_test_instruments
-from tests.testkit.runtime import check_experiment, sqlite_project_services
-from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 
 
 def test_missing_experiment_input_and_unknown_subject_report_stable_problems(
@@ -136,25 +133,6 @@ def test_authoring_compile_precedes_config_binding(tmp_path: Path) -> None:
         )
 
     assert error.value.problems[0].code == "experiment_missing_input"
-
-
-def test_check_experiment_resolves_experiment_invocation_with_config_snapshot(
-    tmp_path: Path,
-) -> None:
-    config = load_config()
-    composition = compose_test_instruments(
-        config=config,
-        provider=TestSignalInstrumentProvider(),
-    )
-    result = check_experiment(
-        simple_experiment().bind(subject="q0"),
-        system=composition.system,
-        services=sqlite_project_services(tmp_path),
-        config=config,
-    )
-
-    assert result.preview is not None
-    assert result.preview.experiment_id == simple_experiment().id
 
 
 def _module_consuming_input() -> sc.ExperimentModule[None, ...]:

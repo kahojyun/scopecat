@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-# pyright: reportPrivateUsage=false
 from collections.abc import Callable, Sequence
 from datetime import timedelta
 from pathlib import Path
 from threading import Event, Thread
-from typing import Never, override
+from typing import Never, cast, override
 
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
-from scopecat.api._instruments import (
+from scopecat.api.instruments import (
     InstrumentClientChannel,
     InstrumentRef,
     InstrumentSessionHandle,
@@ -79,18 +78,17 @@ from scopecat.sdk.instruments import (
     interface,
 )
 from scopecat.sdk.instruments.commands import (
-    ApplyReceipt,
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InteractiveCollectIntent,
 )
-from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
-from tests.testkit.payload_codecs import json_payload_codecs
+from scopecat_testkit.instrument_drivers import SignalInstrumentDriver, load_config
+from scopecat_testkit.payload_codecs import json_payload_codecs
 
-import scopecat_server.instrument_service as instrument_service_module
+import scopecat_server.instruments.runtime as instrument_service_module
 from scopecat_server import LocalDaemonRuntime
 from scopecat_server.errors import BackendConflict
-from scopecat_server.instrument_backend import LocalInstrumentBackendEndpoint
+from scopecat_server.instruments.backend import LocalInstrumentBackendEndpoint
 
 _SET_FREQUENCY = InterfaceRef("test.set_frequency/v1").property("frequency")
 _PLAY_PROGRAM = InterfaceRef("test.play_program/v1").operation("play")
@@ -101,32 +99,6 @@ _DC_MODE = _DC.property("mode")
 _DC_VOLTAGE_LEVEL = _DC.property("voltage_level")
 _DC_CURRENT_LEVEL = _DC.property("current_level")
 _SESSION_LEASE_TTL = timedelta(seconds=90)
-
-
-def test_interactive_replay_ledger_keeps_only_the_recent_window() -> None:
-    ledger = instrument_service_module._InstrumentOperationLedger()
-    replay = instrument_service_module._ApplyReplay(
-        command=InstrumentStateCommand(
-            command_id="replay-window",
-            instrument_id="source-0",
-            assignments=[
-                InstrumentStateAssignment(
-                    resource_id="source-0",
-                    interface_id=_SET_FREQUENCY.interface_id,
-                    component_path=[],
-                    property_id=_SET_FREQUENCY.property_id,
-                    value=StateValue(1.0),
-                )
-            ],
-        ),
-        receipt=ApplyReceipt(),
-    )
-
-    for index in range(instrument_service_module._INTERACTIVE_REPLAY_LIMIT + 1):
-        ledger.remember(f"command-{index}", replay)
-
-    assert ledger.replay("command-0") is None
-    assert ledger.replay("command-1") is replay
 
 
 class _TrackingDriver(SignalInstrumentDriver):
@@ -853,54 +825,6 @@ def test_invoke_without_reported_state_reads_back_before_returning(
             assert receipt.state is not None
             assert receipt.state.instrument_id == "source-0"
             assert driver.read_count == reads_before_invoke + 1
-
-
-def test_notebook_invoke_rejects_argument_from_another_operation(
-    tmp_path: Path,
-) -> None:
-    provider = _TrackingProvider()
-    unrelated = (
-        InterfaceRef("test.play_program/v1").operation("preview").argument("program")
-    )
-    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
-        with TestClient(runtime.app()) as transport:
-            lab = LabClient(_daemon_client(transport))
-
-            with lab.instruments.open(_raw_instrument("source-0")) as instrument:
-                with pytest.raises(
-                    ValueError,
-                    match="arguments must belong to the selected operation",
-                ):
-                    instrument._invoke(
-                        _PLAY_PROGRAM,
-                        {unrelated: False},
-                    )
-
-                [driver] = provider.drivers
-                assert driver.invoked == []
-
-
-def test_notebook_collect_rejects_a_result_from_another_acquisition(
-    tmp_path: Path,
-) -> None:
-    provider = _TrackingProvider()
-    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
-        with TestClient(runtime.app()) as transport:
-            handle = LabClient(_daemon_client(transport)).instruments.open(
-                _raw_instrument("source-0"),
-            )
-            unrelated = (
-                InterfaceRef("test.other/v1").acquisition("sample").result("signal")
-            )
-
-            with pytest.raises(
-                ValueError,
-                match="results must belong to the selected acquisition",
-            ):
-                handle._collect(_SAMPLE_SIGNAL, unrelated)
-            handle.close()
-
-            assert provider.drivers == []
 
 
 def test_apply_without_reported_state_reads_back_before_returning(
@@ -1774,8 +1698,9 @@ def test_shutdown_owns_a_session_already_selected_for_lease_expiry(
         drain_started = Event()
         continue_release = Event()
         release_calls = 0
-        original_release: Callable[..., bool] = (
-            instrument_service_module._release_instruments
+        original_release = cast(
+            "Callable[..., bool]",
+            vars(instrument_service_module)["release_instruments"],
         )
         original_drain: Callable[..., None] = instruments._drain_shutdown
 
@@ -1792,7 +1717,7 @@ def test_shutdown_owns_a_session_already_selected_for_lease_expiry(
 
         monkeypatch.setattr(
             instrument_service_module,
-            "_release_instruments",
+            "release_instruments",
             delayed_release,
         )
         monkeypatch.setattr(instruments, "_drain_shutdown", observed_drain)

@@ -8,6 +8,7 @@ from typing import Annotated, assert_type
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from scopecat_testkit.domain import domain_call
 
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
@@ -20,7 +21,6 @@ from scopecat.measurements.results import (
 )
 from scopecat.program.domain import domain_program
 from scopecat.program.products import ProductAxis
-from tests.testkit.domain import domain_call
 
 
 @dataclass(frozen=True, slots=True)

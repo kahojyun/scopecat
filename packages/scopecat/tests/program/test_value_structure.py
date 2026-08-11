@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from scopecat_testkit.expressions import evaluate_scalar
 
 import scopecat as sc
 from scopecat.compiler.relations.context import EvalContext
@@ -26,7 +27,6 @@ from scopecat.program.value_refs import (
 from scopecat.program.value_transforms import internal_bind_value_ref_inputs
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
-from tests.testkit.expressions import evaluate_scalar
 
 
 def test_value_structure_identifies_external_execution_and_point_dependencies() -> None:

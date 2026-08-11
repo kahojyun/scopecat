@@ -16,7 +16,6 @@ from pydantic import (
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.program.measurement_types import MeasurementDType
-from scopecat.records._metadata import JsonMetadata
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.instrument import (
     CommandChannelBinding as _CommandChannelBinding,
@@ -33,6 +32,7 @@ from scopecat.records.instrument import (
 from scopecat.records.instrument import (
     validate_entity_target as _validate_entity_target,
 )
+from scopecat.records.metadata import JsonMetadata
 from scopecat.sdk.problems import Problem
 
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
@@ -99,6 +99,39 @@ class ApplyReceipt(BaseModel):
             raise ValueError("an applied receipt cannot contain problems")
         if self.status != "applied" and not self.problems:
             raise ValueError("a negative or unknown apply receipt requires a problem")
+        return self
+
+
+class InstrumentConfiguredDefaultsApplyReceipt(BaseModel):
+    """Outcome of reconciling a live session with configured defaults."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
+
+    session_id: _NonEmptyId
+    operation_id: _NonEmptyId
+    instrument_id: _NonEmptyId
+    config_entry_id: _NonEmptyId
+    status: Literal["applied", "unchanged", "rejected"]
+    problems: tuple[Problem, ...] = ()
+    state: _InstrumentStateSnapshot | None = None
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> InstrumentConfiguredDefaultsApplyReceipt:
+        if self.status in {"applied", "unchanged"}:
+            if self.problems:
+                raise ValueError(
+                    "successful configured-default apply cannot contain problems"
+                )
+            if self.state is None:
+                raise ValueError(
+                    "successful configured-default apply requires synchronized state"
+                )
+        elif not self.problems:
+            raise ValueError("rejected configured-default apply requires a problem")
+        elif self.state is not None:
+            raise ValueError("rejected configured-default apply cannot report state")
+        if self.state is not None and self.state.instrument_id != self.instrument_id:
+            raise ValueError("configured-default state must match instrument_id")
         return self
 
 

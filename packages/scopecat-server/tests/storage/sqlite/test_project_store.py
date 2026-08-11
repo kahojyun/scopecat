@@ -1,0 +1,79 @@
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+
+import pytest
+
+from scopecat_server.storage.sqlite import (
+    SchemaVersionError,
+    SQLiteDatabase,
+    SQLiteProjectStore,
+)
+
+
+def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "control.sqlite3"
+    store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
+
+    store.bootstrap()
+    store.bootstrap()
+
+    store.schema_version()
+    with sqlite3.connect(database) as connection:
+        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_schema WHERE type = 'table'"
+            )
+        }
+        event_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(durable_events)")
+        }
+        instrument_session_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(instrument_sessions)")
+        }
+        scheduler_run_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(scheduler_runs)")
+        }
+    assert journal_mode == ("wal",)
+    assert {
+        "project_schema",
+        "scheduler_runs",
+        "durable_events",
+        "run_repository_refs",
+        "config_registry_entries",
+        "config_registry_activations",
+    } <= tables
+    assert {"run_sequence", "deduplication_key"} <= event_columns
+    assert {"renewed_at", "expires_at"} <= instrument_session_columns
+    assert "cancellation_requested_at" in scheduler_run_columns
+
+
+@pytest.mark.parametrize("version", (0, 99))
+def test_bootstrap_refuses_a_noncurrent_project_schema(
+    tmp_path: Path,
+    version: int,
+) -> None:
+    database = tmp_path / "control.sqlite3"
+    store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
+    store.bootstrap()
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE project_schema SET version = ?", (version,))
+
+    with pytest.raises(SchemaVersionError, match=f"version: {version}"):
+        store.bootstrap()
+
+
+def test_bootstrap_refuses_tables_without_a_project_schema(tmp_path: Path) -> None:
+    database = tmp_path / "control.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE old_state (value TEXT)")
+
+    store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
+    with pytest.raises(SchemaVersionError, match="rebuild it explicitly"):
+        store.bootstrap()

@@ -10,6 +10,7 @@ dependencies = [
   "scopecat-instruments",
   "scopecat-quantum",
   "scopecat-server",
+  "scopecat-testkit[server]",
 ]
 
 [dependency-groups]
@@ -39,6 +40,7 @@ include = [
   "examples/reference_lab/notebooks",
   "examples/reference_lab/tests",
   "scripts",
+  "testing/scopecat-testkit/src",
 ]
 exclude = [
   "**/__pycache__",
@@ -59,6 +61,7 @@ extraPaths = [
   "packages/scopecat-quantum/src",
   "examples/reference_lab",
   "examples/reference_lab/src",
+  "testing/scopecat-testkit/src",
 ]
 reportMissingImports = "error"
 reportMissingTypeStubs = "none"
@@ -89,6 +92,14 @@ reportUnknownMemberType = "none"
 reportUnknownVariableType = "none"
 
 [[tool.basedpyright.executionEnvironments]]
+root = "testing/scopecat-testkit/src"
+reportAny = "none"
+reportExplicitAny = "none"
+reportPrivateUsage = "none"
+reportUnknownMemberType = "none"
+reportUnknownVariableType = "none"
+
+[[tool.basedpyright.executionEnvironments]]
 root = "packages/scopecat-server/src"
 reportUnusedFunction = "none"
 
@@ -108,6 +119,7 @@ root_packages = [
   "scopecat_instruments",
   "scopecat_quantum",
   "scopecat_server",
+  "scopecat_testkit",
 ]
 exclude_type_checking_imports = true
 
@@ -116,6 +128,7 @@ name = "Scopecat core remains domain neutral"
 type = "forbidden"
 source_modules = ["scopecat"]
 forbidden_modules = [
+  "scopecat_instruments",
   "scopecat_quantum",
   "scopecat_server",
 ]
@@ -130,14 +143,12 @@ source_modules = [
   "scopecat.records",
 ]
 forbidden_modules = [
-  "scopecat.adapters",
   "scopecat.api",
   "scopecat.application",
   "scopecat.config.registry",
   "scopecat.execution",
   "scopecat.planning",
   "scopecat.runs",
-  "scopecat_server",
 ]
 allow_indirect_imports = true
 
@@ -161,19 +172,61 @@ forbidden_modules = ["scopecat.authoring"]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
-name = "Application layers do not select concrete adapters"
+name = "Server does not depend on optional domain packages"
+type = "forbidden"
+source_modules = ["scopecat_server"]
+forbidden_modules = [
+  "scopecat_instruments",
+  "scopecat_quantum",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Instrument package remains independent of server and quantum domains"
+type = "forbidden"
+source_modules = ["scopecat_instruments"]
+forbidden_modules = [
+  "scopecat_quantum",
+  "scopecat_server",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Quantum package remains independent of server and instruments"
+type = "forbidden"
+source_modules = ["scopecat_quantum"]
+forbidden_modules = [
+  "scopecat_instruments",
+  "scopecat_server",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Extension packages do not use private authoring implementation modules"
 type = "forbidden"
 source_modules = [
-  "scopecat.analysis",
-  "scopecat.api",
-  "scopecat.application",
-  "scopecat.config",
-  "scopecat.execution",
-  "scopecat.measurements",
-  "scopecat.planning",
-  "scopecat.runs",
+  "scopecat_instruments",
+  "scopecat_quantum",
+  "scopecat_server",
 ]
-forbidden_modules = ["scopecat.adapters"]
+forbidden_modules = [
+  "scopecat.authoring._experiment_module",
+  "scopecat.authoring._module_context",
+  "scopecat.authoring._module_invocation",
+  "scopecat.authoring._module_results",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Server storage remains independent of orchestration"
+type = "forbidden"
+source_modules = ["scopecat_server.storage"]
+forbidden_modules = [
+  "scopecat_server.http",
+  "scopecat_server.instruments",
+  "scopecat_server.runtime",
+  "scopecat_server.services",
+]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
@@ -186,17 +239,47 @@ ancestors = [
 # Check concrete top-level module dependencies without aggregating deeper siblings.
 depth = 0
 
+[[tool.importlinter.contracts]]
+name = "Core test support remains server independent"
+type = "forbidden"
+source_modules = [
+  "scopecat_testkit.authoring",
+  "scopecat_testkit.bound_program",
+  "scopecat_testkit.config_registry",
+  "scopecat_testkit.domain",
+  "scopecat_testkit.execution_fakes",
+  "scopecat_testkit.expressions",
+  "scopecat_testkit.instrument_drivers",
+  "scopecat_testkit.instrument_host",
+  "scopecat_testkit.local_materialization",
+  "scopecat_testkit.materialized_effects",
+  "scopecat_testkit.measurement_assembly",
+  "scopecat_testkit.measurement_models",
+  "scopecat_testkit.parameter_fixtures",
+  "scopecat_testkit.paths",
+  "scopecat_testkit.payload_codecs",
+  "scopecat_testkit.planning",
+  "scopecat_testkit.project_loading",
+  "scopecat_testkit.records",
+  "scopecat_testkit.routing",
+  "scopecat_testkit.run_operations",
+  "scopecat_testkit.signal_instruments",
+  "scopecat_testkit.workflow_fixtures",
+]
+forbidden_modules = [
+  "scopecat_server",
+  "scopecat_testkit.server",
+]
+allow_indirect_imports = true
+
 [tool.pytest]
 addopts = [
   "-n",
   "auto",
   "--maxprocesses=4",
+  "--import-mode=importlib",
 ]
 minversion = "9.0"
-pythonpath = [
-  "packages/scopecat",
-  "packages/scopecat-instruments/src",
-]
 strict_config = true
 strict_markers = true
 testpaths = [
@@ -223,6 +306,7 @@ src = [
   "examples/reference_lab/notebooks",
   "examples/reference_lab/tests",
   "scripts",
+  "testing/scopecat-testkit/src",
 ]
 
 [tool.ruff.lint]
@@ -233,8 +317,6 @@ ignore = [
   "A004",
   # Assertions express test expectations and trusted internal invariants.
   "S101",
-  # Public package facades derive their export lists from internal registries.
-  "PLE0605",
 ]
 select = [
   "A",
@@ -265,6 +347,7 @@ select = [
   "S",
   "SIM",
   "T10",
+  "TID251",
   "TC006",
   "TRY203",
   "TRY400",
@@ -273,17 +356,39 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"apps/scopecat-ui/scripts/export-openapi.py" = ["TID251"]
+"examples/reference_lab/tests/**/*.py" = ["TID251"]
+"packages/scopecat-server/**/*.py" = ["TID251"]
 "packages/scopecat/src/scopecat/program/point_domain.py" = [
   # PEP 695 has no explicit variance syntax; PointAxis[Never] needs covariance.
   "UP046",
 ]
+"packages/scopecat-instruments/src/scopecat_instruments/__init__.py" = [
+  "PLE0605"
+]
+"packages/scopecat-instruments/src/scopecat_instruments/drivers/__init__.py" = [
+  "PLE0605"
+]
+"packages/scopecat-instruments/src/scopecat_instruments/virtual/__init__.py" = [
+  "PLE0605"
+]
+"packages/scopecat/src/scopecat/__init__.py" = ["PLE0605"]
+"packages/scopecat/src/scopecat/application/__init__.py" = ["PLE0605"]
+"packages/scopecat/src/scopecat/config/registry/__init__.py" = ["PLE0605"]
+"packages/scopecat/src/scopecat/sdk/instruments/__init__.py" = ["PLE0605"]
 "**/tests/**/*.py" = [
   "ARG001",
-  "S101",
 ]
-"examples/reference_lab/notebooks/*.py" = [
-  "S101",
+"testing/scopecat-testkit/src/scopecat_testkit/**/*.py" = [
+  "ARG001",
 ]
+"testing/scopecat-testkit/src/scopecat_testkit/server/**/*.py" = [
+  "TID251",
+]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"scopecat_server".msg = "Only server-owned integration code may depend on scopecat_server"
+"scopecat_testkit.server".msg = "Core tests must use server-independent test support"
 
 [tool.ruff.lint.mccabe]
 max-complexity = 20
@@ -299,9 +404,11 @@ scopecat = { workspace = true }
 scopecat-instruments = { workspace = true }
 scopecat-quantum = { workspace = true }
 scopecat-server = { workspace = true }
+scopecat-testkit = { workspace = true }
 
 [tool.uv.workspace]
 members = [
   "packages/*",
   "examples/reference_lab",
+  "testing/*",
 ]

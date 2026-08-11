@@ -19,7 +19,7 @@ import {
   getRunEvents,
   getRuns,
   resolveAttention,
-} from "../../api";
+} from "./run-api";
 import { errorMessage, formatRelative, shorten, titleCase } from "../../lib/presentation";
 import type { ProjectHealth, ProjectRun, ProjectRunPage } from "../../types";
 import { useConfirmationDialog, type ConfirmationRequest } from "../../ui/ConfirmationDialog";

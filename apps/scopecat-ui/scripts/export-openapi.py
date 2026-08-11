@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 from typing import cast
 
-from scopecat_server.application import DaemonApplication
-from scopecat_server.transport import create_app
+from scopecat_server.http.transport import create_app
+from scopecat_server.services.application import DaemonApplication
 
 OUTPUT = Path(__file__).parent.parent / ".generated" / "ui-api.openapi.json"
 

@@ -46,9 +46,10 @@ package-manager output are excluded; their producing tools remain authoritative.
 `src/api-schema.d.ts` is generated from the UI-used subset of the daemon's
 OpenAPI contract. Run
 `pnpm run generate:api` after changing a UI-used transport model; CI runs
-`pnpm run check:api` so the generated contract cannot drift. Keep presentation
-mapping in `src/api.ts`, keep stable application aliases in `src/api-contract.ts`,
-and treat the generated daemon contract as authoritative.
+`pnpm run check:api` so the generated contract cannot drift. Keep endpoint calls
+and presentation mapping beside their owning feature or data domain, keep shared
+transport behavior in `src/api-client.ts`, keep stable application aliases in
+`src/api-contract.ts`, and treat the generated daemon contract as authoritative.
 
 ## Browser end-to-end test
 

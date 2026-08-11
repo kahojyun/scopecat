@@ -65,7 +65,7 @@ from scopecat.records.instrument import (
 from scopecat.records.instrument import (
     state_target_scope_identity as _state_target_scope_identity,
 )
-from scopecat.sdk.instruments._projection import (
+from scopecat.sdk.instruments.projection import (
     ProjectedInstrumentState as _ProjectedInstrumentState,
 )
 from scopecat.sdk.problems import (

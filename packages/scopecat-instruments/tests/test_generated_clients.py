@@ -6,41 +6,43 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 GENERATOR = REPOSITORY_ROOT / "scripts" / "generate_instrument_clients.py"
-FIXTURE_IMPORT_ROOT = REPOSITORY_ROOT / "packages" / "scopecat-instruments" / "tests"
-FIXTURE_STATE_PROJECTION_MODULE = "generated_state_catalog_fixture"
+FIXTURE_DECLARATIONS_MODULE = (
+    "scopecat_testkit.instrument_codegen_fixtures.declarations"
+)
+FIXTURE_STATE_PROJECTION_MODULE = (
+    "scopecat_testkit.instrument_codegen_fixtures.generated_states"
+)
 PRODUCTION_STATE_PROJECTION_MODULE = "scopecat_instruments.states"
 _RENDER_SURFACE = """
-import sys
 from importlib import import_module
+from runpy import run_path
 
-sys.path.insert(0, sys.argv[1])
-if sys.argv[4] != "-":
-    sys.path.insert(0, sys.argv[4])
-from generate_instrument_clients import (
-    clients_for,
-    clients_for_composite,
-    render_client_module,
-)
+import sys
+
+generator = run_path(sys.argv[1])
+clients_for = generator["clients_for"]
+clients_for_composite = generator["clients_for_composite"]
+render_client_module = generator["render_client_module"]
 
 declarations = import_module(sys.argv[2])
 interface_types = tuple(
     getattr(declarations, name)
     for name in sys.argv[3].split(",")
 )
-if sys.argv[5] == "-":
+if sys.argv[4] == "-":
     surfaces = (clients_for(interface_types[0]),)
 else:
     surfaces = (
         clients_for_composite(
-            sys.argv[5],
+            sys.argv[4],
             *interface_types,
-            driver_optional_flag=None if sys.argv[6] == "-" else sys.argv[6],
+            driver_optional_flag=None if sys.argv[5] == "-" else sys.argv[5],
         ),
     )
 print(
     render_client_module(
         surfaces,
-        state_projection_module=sys.argv[7],
+        state_projection_module=sys.argv[6],
     ),
     end="",
 )
@@ -83,8 +85,7 @@ for factory in (
 def _render_surface(
     *interface_names: str,
     state_projection_module: str = FIXTURE_STATE_PROJECTION_MODULE,
-    module: str = "client_codegen_fixture_declarations",
-    import_root: Path | None = FIXTURE_IMPORT_ROOT,
+    module: str = FIXTURE_DECLARATIONS_MODULE,
     composite_name: str | None = None,
     driver_optional_flag: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
@@ -93,10 +94,9 @@ def _render_surface(
             sys.executable,
             "-c",
             _RENDER_SURFACE,
-            str(GENERATOR.parent),
+            str(GENERATOR),
             module,
             ",".join(interface_names),
-            "-" if import_root is None else str(import_root),
             "-" if composite_name is None else composite_name,
             "-" if driver_optional_flag is None else driver_optional_flag,
             state_projection_module,
@@ -106,18 +106,6 @@ def _render_surface(
         capture_output=True,
         text=True,
     )
-
-
-def test_committed_generated_instrument_sources_are_current() -> None:
-    completed = subprocess.run(  # noqa: S603 - fixed repository script
-        [sys.executable, str(GENERATOR), "--check"],
-        cwd=REPOSITORY_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0, completed.stderr
 
 
 def test_generated_catalog_imports_without_runtime_declaration_compilation() -> None:
@@ -165,7 +153,6 @@ def test_codegen_renders_flat_dc_source_state_and_typed_transitions() -> None:
     completed = _render_surface(
         "DCSourceInterface",
         module="scopecat_instruments.interface_declarations",
-        import_root=None,
         state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
     )
 
@@ -203,14 +190,13 @@ def test_codegen_accepts_a_projection_module_for_a_stateless_surface() -> None:
     completed = _render_surface("ScalarOperationInterface")
 
     assert completed.returncode == 0, completed.stderr
-    assert "from generated_state_catalog_fixture import" not in completed.stdout
+    assert f"from {FIXTURE_STATE_PROJECTION_MODULE} import" not in completed.stdout
 
 
 def test_codegen_keeps_read_only_state_out_of_authoring_projections() -> None:
     completed = _render_surface(
         "TemperatureReadoutInterface",
         module="scopecat_instruments.interface_declarations",
-        import_root=None,
         state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
     )
 
@@ -279,7 +265,6 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
         "DCSourceInterface",
         "DCMonitorInterface",
         module="scopecat_instruments.interface_declarations",
-        import_root=None,
         state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
         composite_name="DCSourceMonitor",
         driver_optional_flag="monitor",

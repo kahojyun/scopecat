@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ApiError } from "../../api";
+import { ApiError } from "../../api-client";
 import { getConfigRegistry, getConfigRegistryEntry } from "./config-api";
 import { filterConfigEntries } from "./config-utils";
 

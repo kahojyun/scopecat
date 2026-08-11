@@ -7,26 +7,27 @@ from scopecat.sdk.instruments import (
     PropertyRef,
 )
 from scopecat.sdk.instruments.declarations import state_projection_assignments
-
-from client_codegen_fixture_declarations import (
+from scopecat_testkit.instrument_codegen_fixtures.declarations import (
     CatalogProjectionState as DeclaredCatalogProjectionState,
 )
-from client_codegen_fixture_declarations import (
+from scopecat_testkit.instrument_codegen_fixtures.declarations import (
     SharedFixtureState as DeclaredSharedFixtureState,
 )
-from generated_driver_state_catalog_fixture import (
+from scopecat_testkit.instrument_codegen_fixtures.generated_driver_states import (
     encode_shared_state_first_state,
     encode_shared_state_second_state,
 )
-from generated_interface_catalog_fixture import catalog_projection_interface
-from generated_member_catalog_fixture import (
+from scopecat_testkit.instrument_codegen_fixtures.generated_interfaces import (
+    catalog_projection_interface,
+)
+from scopecat_testkit.instrument_codegen_fixtures.generated_members import (
     CATALOG_PROJECTION,
     CATALOG_PROJECTION_ENABLED,
     CATALOG_PROJECTION_STATUS,
     SHARED_STATE_FIRST_ENABLED,
     SHARED_STATE_SECOND_ENABLED,
 )
-from generated_state_catalog_fixture import (
+from scopecat_testkit.instrument_codegen_fixtures.generated_states import (
     CatalogProjectionGroupTarget,
     CatalogProjectionPatch,
     CatalogProjectionState,
@@ -35,6 +36,7 @@ from generated_state_catalog_fixture import (
     SharedStateFirstPatch,
     SharedStateSecondPatch,
 )
+
 from scopecat_instruments.interface_declarations import (
     TemperatureReadoutState as DeclaredTemperatureReadoutState,
 )

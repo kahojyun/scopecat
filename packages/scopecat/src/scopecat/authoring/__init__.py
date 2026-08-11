@@ -39,6 +39,12 @@ from scopecat.authoring.entity_selection import (
 from scopecat.authoring.experiments import (
     ExperimentInvocation,
 )
+from scopecat.authoring.instrument_recorder import (
+    InstrumentRecorder,
+    InstrumentResource,
+    InstrumentStateTarget,
+    instrument_recorder,
+)
 from scopecat.authoring.parameters import (
     ParameterAssignment,
     ParameterCell,
@@ -141,6 +147,9 @@ __all__ = [
     "ExperimentModule",
     "FloatType",
     "Input",
+    "InstrumentRecorder",
+    "InstrumentResource",
+    "InstrumentStateTarget",
     "IntType",
     "MetadataValue",
     "ModuleContext",
@@ -187,6 +196,7 @@ __all__ = [
     "ensure_state_targets",
     "experiment",
     "input_ref",
+    "instrument_recorder",
     "module",
     "one",
     "parameter",
