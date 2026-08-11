@@ -34,6 +34,7 @@ from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.analysis import (
     MAX_ANALYSIS_OUTPUTS,
     AnalysisExecution,
+    AnalysisExecutionOutputReference,
     AnalysisFact,
     AnalysisFigureView,
     AnalysisTableView,
@@ -197,7 +198,7 @@ class AnalysisFactOutputPayload(_WireModel):
     id: NonEmptyText
     title: NonEmptyText
     content: AnalysisFact
-    produced_by: NonEmptyText | None = None
+    produced_by: AnalysisExecutionOutputReference | None = None
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
@@ -206,7 +207,7 @@ class AnalysisDatasetOutputPayload(_WireModel):
     id: NonEmptyText
     title: NonEmptyText
     content: DerivedDatasetPayload
-    produced_by: NonEmptyText | None = None
+    produced_by: AnalysisExecutionOutputReference | None = None
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
@@ -314,10 +315,28 @@ class AnalysisSaveCommand(_WireModel):
             )
         )
         if any(
-            output.produced_by is not None and output.produced_by not in execution_ids
+            output.produced_by is not None
+            and output.produced_by.execution_id not in execution_ids
             for output in materialized_outputs
         ):
             raise ValueError("analysis output producer must identify an execution")
+        execution_outputs = {
+            (execution.id, output.name)
+            for execution in self.executions
+            for output in execution.outputs
+        }
+        if any(
+            output.produced_by is not None
+            and (
+                output.produced_by.execution_id,
+                output.produced_by.output_name,
+            )
+            not in execution_outputs
+            for output in materialized_outputs
+        ):
+            raise ValueError(
+                "analysis output producer must identify an execution output"
+            )
         dataset_ids = {
             output.id
             for output in self.outputs

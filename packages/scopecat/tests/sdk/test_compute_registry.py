@@ -59,6 +59,55 @@ def test_custom_compute_output_codec_requires_an_encoder() -> None:
         )
 
 
+def test_registered_compute_declares_named_result_paths() -> None:
+    registry = sc.ComputeRegistry()
+
+    @registry.implementation(
+        "test.fit",
+        "1",
+        outputs={
+            "score": "score",
+            "first_residual": ("residuals", 0),
+        },
+    )
+    def fit(*, value: float) -> dict[str, object]:
+        return {"score": value, "residuals": [value - 1]}
+
+    contract = registry.contract("registry:test.fit@1")
+
+    assert contract.outputs == {
+        "score": ("score",),
+        "first_residual": ("residuals", 0),
+    }
+    assert registry.resolve("registry:test.fit@1") is fit
+
+
+def test_structured_compute_outputs_reject_one_root_encoder() -> None:
+    registry = sc.ComputeRegistry()
+
+    def encode(result: dict[str, float]) -> dict[str, float]:
+        return {"score": result["score"]}
+
+    with pytest.raises(ValueError, match="cannot use one root output encoder"):
+        registry.implementation(
+            "test.encoded-fit",
+            "1",
+            outputs={"score": "score"},
+            encode_output=encode,
+        )
+
+
+def test_structured_compute_outputs_require_unique_paths() -> None:
+    registry = sc.ComputeRegistry()
+
+    with pytest.raises(ValueError, match="paths must be unique"):
+        registry.implementation(
+            "test.duplicate-output",
+            "1",
+            outputs={"first": "score", "second": "score"},
+        )
+
+
 def test_registered_compute_rejects_hidden_nonlocal_inputs() -> None:
     registry = sc.ComputeRegistry()
     scale = 2.0

@@ -488,6 +488,13 @@ class AnalysisExecutionOutput(_AnalysisContentModel):
     codec: _NonEmptyText
 
 
+class AnalysisExecutionOutputReference(_AnalysisContentModel):
+    """Exact named result of one analysis execution."""
+
+    execution_id: _NonEmptyText
+    output_name: _NonEmptyText
+
+
 class AnalysisExecution(_AnalysisContentModel):
     """Optional execution evidence retained by an analysis publication."""
 
@@ -590,13 +597,13 @@ class AnalysisParameterProposalRecordOutput(_AnalysisRecordOutput):
 class AnalysisFactRecordOutput(_AnalysisRecordOutput):
     kind: Literal["fact"]
     content: AnalysisFact
-    produced_by: _NonEmptyText | None = None
+    produced_by: AnalysisExecutionOutputReference | None = None
 
 
 class AnalysisDatasetRecordOutput(_AnalysisRecordOutput):
     kind: Literal["dataset"]
     content: AnalysisDatasetReference
-    produced_by: _NonEmptyText | None = None
+    produced_by: AnalysisExecutionOutputReference | None = None
 
 
 class AnalysisArtifactRecordOutput(_AnalysisRecordOutput):
@@ -670,7 +677,7 @@ class AnalysisRecord(BaseModel):
             )
         )
         unknown_producers = {
-            output.produced_by
+            output.produced_by.execution_id
             for output in materialized_outputs
             if output.produced_by is not None
         } - set(executions_by_id)
@@ -679,7 +686,18 @@ class AnalysisRecord(BaseModel):
         for output in materialized_outputs:
             if output.produced_by is None:
                 continue
-            execution = executions_by_id[output.produced_by]
+            producer = output.produced_by
+            execution = executions_by_id[producer.execution_id]
+            try:
+                execution_output = next(
+                    item
+                    for item in execution.outputs
+                    if item.name == producer.output_name
+                )
+            except StopIteration:
+                raise ValueError(
+                    "analysis output producer must identify an execution output"
+                ) from None
             if isinstance(output, AnalysisDatasetRecordOutput):
                 kind = "derived_dataset"
                 content_hash = output.content.content_hash
@@ -688,14 +706,11 @@ class AnalysisRecord(BaseModel):
                 kind = "value"
                 content_hash = f"sha256:{stable_content_hash(output.content.value)}"
                 codec = output.content.codec
-            matches = tuple(
-                execution_output
-                for execution_output in execution.outputs
-                if execution_output.kind == kind
-                and execution_output.content_hash == content_hash
-                and execution_output.codec == codec
-            )
-            if len(matches) != 1:
+            if (
+                execution_output.kind != kind
+                or execution_output.content_hash != content_hash
+                or execution_output.codec != codec
+            ):
                 raise ValueError(
                     "analysis output content must match its producing execution"
                 )

@@ -65,6 +65,7 @@ from scopecat.records.analysis import (
     AnalysisExecution,
     AnalysisExecutionInput,
     AnalysisExecutionOutput,
+    AnalysisExecutionOutputReference,
     AnalysisFigure,
     AnalysisFigureAxis,
     AnalysisFigureSeries,
@@ -293,7 +294,10 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
                 kind="dataset",
                 id="fits",
                 title="fit data",
-                produced_by="fit",
+                produced_by=AnalysisExecutionOutputReference(
+                    execution_id="fit",
+                    output_name="fit",
+                ),
                 content=dataset.to_payload(),
             ),
             AnalysisFigureOutputPayload(
@@ -349,6 +353,23 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
                     content=proposal.model_copy(
                         update={"analysis_record_id": "analysis-other"}
                     ),
+                ),
+            ),
+        )
+    with pytest.raises(
+        ValidationError,
+        match="producer must identify an execution output",
+    ):
+        AnalysisSaveCommand(
+            **command.model_dump(exclude={"outputs"}),
+            outputs=(
+                command.outputs[0].model_copy(
+                    update={
+                        "produced_by": AnalysisExecutionOutputReference(
+                            execution_id="fit",
+                            output_name="missing",
+                        )
+                    }
                 ),
             ),
         )

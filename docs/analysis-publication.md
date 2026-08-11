@@ -97,10 +97,10 @@ round-trip contract and tests against the native library.
 
 The record identifies exact input snapshots and every published output. A
 traced analysis execution may additionally retain implementation, named input
-bindings, codecs, access mode, and the content identity of its result. Use
-`context.trace(...)` only when that execution evidence or bounded batch access
-is valuable; ordinary library code does not need a wrapper in order to publish
-results.
+bindings, codecs, access mode, and the content identities of its named results.
+Use `context.trace(...)` only when that execution evidence or bounded batch
+access is valuable; ordinary library code does not need a wrapper in order to
+publish results.
 
 Executions and outputs are intentionally separate. Calling `trace(...)` returns
 the native Python value and appends execution evidence to the analysis record;
@@ -111,6 +111,54 @@ content and codec identity, a fact or dataset records its producing execution
 automatically, so authors do not pass provenance handles through their
 numerical code. Views instead identify their published source dataset; their
 projection is analysis authoring, not the traced numerical result itself.
+
+A registered implementation may expose several meaningful leaves from one
+native result instead of forcing the result into one JSON blob. The function
+still returns its ordinary dataclass, mapping, or sequence. `outputs` assigns a
+stable result name to an attribute/key path; each selected leaf gets its own
+kind, codec, content hash, and provenance identity:
+
+```python
+@dataclass(frozen=True)
+class FitResult:
+    resonance: float
+    quality: float
+    residuals: pd.DataFrame
+
+
+@computes.implementation(
+    "resonator.fit",
+    "1",
+    outputs={
+        "resonance": "resonance",
+        "quality": "quality",
+        "residuals": "residuals",
+    },
+)
+def fit(*, dataset: Dataset) -> FitResult: ...
+
+
+fit_result = context.trace(id="fit", fn=fit, dataset=measurements)
+analysis = (
+    context.result("Fit review")
+    .fact("resonance", fit_result.resonance)
+    .fact("quality", fit_result.quality)
+    .dataset("residuals", fit_result.residuals)
+)
+```
+
+A string path selects one mapping key or attribute. A tuple such as
+`("residuals", 0)` traverses nested keys/attributes and sequence positions.
+Output names are durable provenance names, while result paths are only the
+adapter from the function's native return type. Root output encoders and named
+leaf outputs are mutually exclusive because one root codec cannot describe the
+independent identities of several leaves.
+
+Facts and datasets link to the one matching named result automatically. If two
+named results intentionally have identical content, content identity alone
+cannot choose one; pass `producer=("fit", "quality")` to `fact(...)` or
+`dataset(...)` to disambiguate. This escape hatch stays at the publication
+boundary rather than leaking provenance wrappers into numerical code.
 
 Experiment `compute(...)` is a different lifecycle: it is a node in the formal
 experiment program and may run before or during acquisition. Analysis

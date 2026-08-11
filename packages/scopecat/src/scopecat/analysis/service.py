@@ -38,6 +38,7 @@ from scopecat.records.analysis import (
     AnalysisDatasetRecordOutput,
     AnalysisDatasetReference,
     AnalysisExecution,
+    AnalysisExecutionOutputReference,
     AnalysisFact,
     AnalysisFactRecordOutput,
     AnalysisFigureRecordOutput,
@@ -110,7 +111,7 @@ class AnalysisFactOutput:
     title: str
     content: AnalysisFact
     metadata: Mapping[str, object]
-    produced_by: str | None = None
+    produced_by: AnalysisExecutionOutputReference | None = None
 
 
 @dataclass(frozen=True)
@@ -120,7 +121,7 @@ class AnalysisDatasetOutput:
     title: str
     content: DerivedDataset
     metadata: Mapping[str, object]
-    produced_by: str | None = None
+    produced_by: AnalysisExecutionOutputReference | None = None
 
 
 @dataclass(frozen=True)
@@ -752,7 +753,8 @@ def _validate_analysis_execution_outputs(
             continue
         if output.produced_by is None:
             continue
-        execution = execution_by_id.get(output.produced_by)
+        producer = output.produced_by
+        execution = execution_by_id.get(producer.execution_id)
         if execution is None:
             _raise_analysis_problem(
                 "analysis_output_producer_unknown",
@@ -767,14 +769,21 @@ def _validate_analysis_execution_outputs(
             content_hash = f"sha256:{stable_content_hash(output.content.value)}"
             expected_kind = "value"
             expected_codec = output.content.codec
-        matches = tuple(
-            execution_output
-            for execution_output in execution.outputs
-            if execution_output.kind == expected_kind
-            and execution_output.content_hash == content_hash
-            and execution_output.codec == expected_codec
+        execution_output = next(
+            (item for item in execution.outputs if item.name == producer.output_name),
+            None,
         )
-        if len(matches) != 1:
+        if execution_output is None:
+            _raise_analysis_problem(
+                "analysis_output_producer_unknown",
+                "analysis output producer must identify an execution output",
+                "outputs",
+            )
+        if (
+            execution_output.kind != expected_kind
+            or execution_output.content_hash != content_hash
+            or execution_output.codec != expected_codec
+        ):
             _raise_analysis_problem(
                 "analysis_output_execution_mismatch",
                 "analysis output content does not match its producing execution",

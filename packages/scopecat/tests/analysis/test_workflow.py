@@ -27,6 +27,7 @@ from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.measurements.results import Dataset
 from scopecat.records.analysis import (
     AnalysisDatasetRecordOutput,
+    AnalysisExecutionOutputReference,
     AnalysisFactRecordOutput,
     AnalysisFigureRecordOutput,
     AnalysisTableRecordOutput,
@@ -89,6 +90,46 @@ class _PresentedObservation:
         sc.AnalysisField(id="bias_mv", label="Bias", unit="mV"),
     ]
     response: Annotated[float, sc.AnalysisField(label="Response")]
+
+
+@dataclass(frozen=True, slots=True)
+class _StructuredFit:
+    resonance: float
+    quality: float
+    residuals: DerivedDataset
+
+
+@dataclass(frozen=True, slots=True)
+class _DuplicateScores:
+    first: float
+    second: float
+
+
+@_COMPUTES.implementation(
+    "test.structured-fit",
+    "1",
+    outputs={
+        "resonance": "resonance",
+        "quality": "quality",
+        "residuals": "residuals",
+    },
+)
+def _structured_fit(*, dataset: Dataset) -> _StructuredFit:
+    return _StructuredFit(
+        resonance=5.1,
+        quality=0.98,
+        residuals=_derived_signal_frame(dataset),
+    )
+
+
+@_COMPUTES.implementation(
+    "test.duplicate-scores",
+    "1",
+    outputs={"first": "first", "second": "second"},
+)
+def _duplicate_scores(*, dataset: Dataset) -> _DuplicateScores:
+    _ = dataset
+    return _DuplicateScores(first=0.5, second=0.5)
 
 
 @_COMPUTES.implementation(
@@ -256,6 +297,94 @@ def test_registered_batch_trace_reads_the_dataset_view_it_was_given(
     assert count == 1
 
 
+def test_registered_trace_publishes_named_structured_results(
+    tmp_path: Path,
+) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    context = sc.AnalysisContext(run=handle)
+
+    fit = context.trace(
+        id="fit",
+        fn=_structured_fit,
+        dataset=context.measurements(),
+    )
+    published = (
+        context.result("Structured fit", key="structured-fit")
+        .fact("resonance", fit.resonance)
+        .fact("quality", fit.quality)
+        .dataset("residuals", fit.residuals)
+        .save()
+    )
+
+    [execution] = published.executions
+    assert [output.name for output in execution.outputs] == [
+        "resonance",
+        "quality",
+        "residuals",
+    ]
+    resonance, quality, residuals = published.outputs
+    assert isinstance(resonance, AnalysisFactRecordOutput)
+    assert isinstance(quality, AnalysisFactRecordOutput)
+    assert isinstance(residuals, AnalysisDatasetRecordOutput)
+    assert resonance.produced_by == AnalysisExecutionOutputReference(
+        execution_id="fit",
+        output_name="resonance",
+    )
+    assert quality.produced_by == AnalysisExecutionOutputReference(
+        execution_id="fit",
+        output_name="quality",
+    )
+    assert residuals.produced_by == AnalysisExecutionOutputReference(
+        execution_id="fit",
+        output_name="residuals",
+    )
+    assert published.fact("resonance").value == 5.1
+    assert published.dataset("residuals").table.equals(
+        fit.residuals.table,
+        check_metadata=True,
+    )
+
+
+def test_equal_structured_results_require_an_explicit_producer(
+    tmp_path: Path,
+) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    context = sc.AnalysisContext(run=handle)
+    scores = context.trace(
+        id="scores",
+        fn=_duplicate_scores,
+        dataset=context.measurements(),
+    )
+
+    automatic = context.result().fact("automatic", scores.first)
+    explicit = context.result().fact(
+        "explicit",
+        scores.first,
+        producer=("scores", "first"),
+    )
+
+    [automatic_output] = automatic.outputs
+    [explicit_output] = explicit.outputs
+    assert isinstance(automatic_output, AnalysisFactOutput)
+    assert isinstance(explicit_output, AnalysisFactOutput)
+    assert automatic_output.produced_by is None
+    assert explicit_output.produced_by == AnalysisExecutionOutputReference(
+        execution_id="scores",
+        output_name="first",
+    )
+    assert explicit.save().fact("explicit").value == 0.5
+
+
 def test_native_dataframe_trace_returns_one_reusable_derived_dataset(
     tmp_path: Path,
 ) -> None:
@@ -296,13 +425,19 @@ def test_native_dataframe_trace_returns_one_reusable_derived_dataset(
     assert maximum == 2.0
     data_output, maximum_output, table_output, figure_output = outcome.outputs
     assert isinstance(data_output, AnalysisDatasetRecordOutput)
-    assert data_output.produced_by == "_derived_signal_frame"
+    assert data_output.produced_by == AnalysisExecutionOutputReference(
+        execution_id="_derived_signal_frame",
+        output_name="_derived_signal_frame",
+    )
     dataset_id = "analysis-native-derived-data-derived-signal"
     restored = handle.derived_dataset(dataset_id)
     assert restored.table.equals(derived.table, check_metadata=True)
     assert isinstance(maximum_output, AnalysisFactRecordOutput)
     assert maximum_output.content.value == 2.0
-    assert maximum_output.produced_by == "_derived_score_max"
+    assert maximum_output.produced_by == AnalysisExecutionOutputReference(
+        execution_id="_derived_score_max",
+        output_name="_derived_score_max",
+    )
     first_execution, execution = outcome.executions
     assert first_execution.id == "_derived_signal_frame"
     [derived_input] = execution.input_bindings
@@ -335,7 +470,10 @@ def test_native_dataframe_trace_returns_one_reusable_derived_dataset(
     assert isinstance(content, dict)
     assert content["codec"] == DERIVED_DATASET_CODEC
     assert persisted["id"] == "derived-signal"
-    assert persisted["produced_by"] == "_derived_signal_frame"
+    assert persisted["produced_by"] == {
+        "execution_id": "_derived_signal_frame",
+        "output_name": "_derived_signal_frame",
+    }
     assert content["dataset_id"] == dataset_id
     assert "value" not in content
     assert "arrow_ipc_base64" not in str(stored.content)
@@ -398,7 +536,10 @@ def test_analysis_trace_retains_native_dataframe_identity_until_publication(
     assert execution_output.codec == DERIVED_DATASET_CODEC
     [output] = outcome.outputs
     assert isinstance(output, AnalysisDatasetRecordOutput)
-    assert output.produced_by == "_native_signal_frame"
+    assert output.produced_by == AnalysisExecutionOutputReference(
+        execution_id="_native_signal_frame",
+        output_name="_native_signal_frame",
+    )
     assert (
         handle.published_analysis("native-frame")
         .dataset("fits")

@@ -23,6 +23,7 @@ from scopecat.records.analysis import (
     AnalysisExecution,
     AnalysisExecutionInput,
     AnalysisExecutionOutput,
+    AnalysisExecutionOutputReference,
     AnalysisFact,
     AnalysisFactRecordOutput,
     AnalysisField,
@@ -154,7 +155,10 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
                 kind="fact",
                 id="fitted-frequency",
                 title="Fitted frequency",
-                produced_by="fit",
+                produced_by=AnalysisExecutionOutputReference(
+                    execution_id="fit",
+                    output_name="fit",
+                ),
                 content=AnalysisFact(
                     schema_id="scopecat.scalar.v1",
                     codec="scopecat.python-json.v1",
@@ -213,7 +217,10 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
     restored = AnalysisRecord.model_validate_json(record.model_dump_json())
 
     assert isinstance(restored.outputs[0], AnalysisFactRecordOutput)
-    assert restored.outputs[0].produced_by == "fit"
+    assert restored.outputs[0].produced_by == AnalysisExecutionOutputReference(
+        execution_id="fit",
+        output_name="fit",
+    )
     assert restored.outputs[0].content.value == 5.1
     assert restored.executions[0].input_bindings[0].target == "measurement-dataset"
     assert isinstance(restored.outputs[1], AnalysisTableRecordOutput)
@@ -422,7 +429,56 @@ def test_analysis_record_rejects_unknown_output_producer() -> None:
                     kind="fact",
                     id="fact",
                     title="Fact",
-                    produced_by="missing",
+                    produced_by=AnalysisExecutionOutputReference(
+                        execution_id="missing",
+                        output_name="result",
+                    ),
+                    content=AnalysisFact(
+                        schema_id="scopecat.scalar.v1",
+                        codec="scopecat.python-json.v1",
+                        value=1,
+                    ),
+                )
+            ],
+        )
+
+
+def test_analysis_record_rejects_unknown_execution_output_producer() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="producer must identify an execution output",
+    ):
+        AnalysisRecord(
+            run_id="run-analysis",
+            title="Dangling execution output",
+            revision=1,
+            publication_hash=_PUBLICATION_HASH,
+            executions=[
+                AnalysisExecution(
+                    id="execution-1",
+                    implementation="registry:test.compute@1",
+                    deterministic=True,
+                    inputs=(),
+                    input_bindings=(),
+                    outputs=(
+                        AnalysisExecutionOutput(
+                            name="result",
+                            kind="value",
+                            content_hash=(f"sha256:{stable_content_hash(1)}"),
+                            codec="scopecat.python-json.v1",
+                        ),
+                    ),
+                )
+            ],
+            outputs=[
+                AnalysisFactRecordOutput(
+                    kind="fact",
+                    id="fact",
+                    title="Fact",
+                    produced_by=AnalysisExecutionOutputReference(
+                        execution_id="execution-1",
+                        output_name="missing",
+                    ),
                     content=AnalysisFact(
                         schema_id="scopecat.scalar.v1",
                         codec="scopecat.python-json.v1",

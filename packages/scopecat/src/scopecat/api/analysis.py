@@ -60,6 +60,7 @@ from scopecat.records.analysis import (
     AnalysisExecution,
     AnalysisExecutionInput,
     AnalysisExecutionOutput,
+    AnalysisExecutionOutputReference,
     AnalysisFact,
     AnalysisField,
     AnalysisFigure,
@@ -141,7 +142,10 @@ class Analysis:
     executions: tuple[AnalysisExecution, ...] = ()
     outputs: tuple[AnalysisOutput, ...] = ()
     parameter_proposals: tuple[ParameterChangeProposal, ...] = ()
-    _execution_ids_by_value_hash: dict[str, str] = field(
+    _execution_outputs_by_value_hash: dict[
+        str,
+        tuple[AnalysisExecutionOutputReference, ...],
+    ] = field(
         default_factory=dict,
         repr=False,
         compare=False,
@@ -158,8 +162,13 @@ class Analysis:
         index: PandasIndexPolicy = "auto",
         title: str | None = None,
         metadata: Mapping[str, object] | None = None,
+        producer: tuple[str, str] | None = None,
     ) -> Analysis:
-        """Publish familiar dataframe or array data as one reusable run dataset."""
+        """Publish familiar dataframe or array data as one reusable run dataset.
+
+        Pass ``producer=(execution_id, output_name)`` only when equal traced
+        results make automatic provenance ambiguous.
+        """
 
         if not id.strip():
             _raise_analysis_problem(
@@ -182,7 +191,7 @@ class Analysis:
                 title=title or selected_id,
                 content=dataset,
                 metadata=metadata or {},
-                produced_by=self._producer_for(dataset),
+                produced_by=self._producer_for(dataset, producer=producer),
             )
         )
 
@@ -194,8 +203,13 @@ class Analysis:
         schema_id: str | None = None,
         title: str | None = None,
         metadata: Mapping[str, object] | None = None,
+        producer: tuple[str, str] | None = None,
     ) -> Analysis:
-        """Publish one small typed conclusion without inventing a dataset."""
+        """Publish one small typed conclusion without inventing a dataset.
+
+        Pass ``producer=(execution_id, output_name)`` only when equal traced
+        results make automatic provenance ambiguous.
+        """
 
         selected_id = _analysis_output_id(id)
         if isinstance(value, Quantity):
@@ -217,7 +231,7 @@ class Analysis:
                     value=_analysis_json(value),
                 ),
                 metadata=metadata or {},
-                produced_by=self._producer_for(value),
+                produced_by=self._producer_for(value, producer=producer),
             )
         )
 
@@ -478,12 +492,23 @@ class Analysis:
             )
         return replace(self, outputs=(*self.outputs, output))
 
-    def _producer_for(self, value: object) -> str | None:
+    def _producer_for(
+        self,
+        value: object,
+        *,
+        producer: tuple[str, str] | None,
+    ) -> AnalysisExecutionOutputReference | None:
+        if producer is not None:
+            return AnalysisExecutionOutputReference(
+                execution_id=producer[0],
+                output_name=producer[1],
+            )
         try:
             content_hash = _analysis_value_hash(value)
         except TypeError:
             return None
-        return self._execution_ids_by_value_hash.get(content_hash)
+        candidates = self._execution_outputs_by_value_hash.get(content_hash, ())
+        return candidates[0] if len(candidates) == 1 else None
 
     @property
     def analysis_key(self) -> str:
@@ -613,12 +638,15 @@ class AnalysisContext:
         repr=False,
         compare=False,
     )
-    _execution_ids_by_value_hash: dict[str, str] = field(
+    _execution_outputs_by_value_hash: dict[
+        str,
+        tuple[AnalysisExecutionOutputReference, ...],
+    ] = field(
         default_factory=dict,
         repr=False,
         compare=False,
     )
-    _execution_targets_by_value_hash: dict[str, str] = field(
+    _execution_targets_by_value_hash: dict[str, tuple[str, ...]] = field(
         default_factory=dict,
         repr=False,
         compare=False,
@@ -761,22 +789,42 @@ class AnalysisContext:
             )
         result = fn(**call_inputs)
         encoder = compute_output_encoder_internal(fn)
-        output = result if encoder is None else encoder(result)
-        dataset_output = _analysis_dataset_value(output)
-        if dataset_output is not None:
-            if contract is not None and contract.output_codec != PYTHON_JSON_CODEC:
-                raise ValueError(
-                    "derived dataset trace outputs own their Arrow IPC codec"
-                )
-            encoded: JsonValue | None = None
-            output_codec = DERIVED_DATASET_CODEC
-            output_hash = sha256_content_hash(dataset_output.to_arrow_ipc())
-        else:
-            encoded = _analysis_json(output)
-            output_codec = (
-                PYTHON_JSON_CODEC if contract is None else contract.output_codec
+        if contract is not None and contract.outputs:
+            traced_values = tuple(
+                (name, _analysis_result_at_path(result, path))
+                for name, path in contract.outputs.items()
             )
-            output_hash = f"sha256:{stable_content_hash(encoded)}"
+            execution_outputs = tuple(
+                _analysis_native_execution_output(name=name, value=value)
+                for name, value in traced_values
+            )
+        else:
+            output = result if encoder is None else encoder(result)
+            dataset_output = _analysis_dataset_value(output)
+            if dataset_output is not None:
+                if contract is not None and contract.output_codec != PYTHON_JSON_CODEC:
+                    raise ValueError(
+                        "derived dataset trace outputs own their Arrow IPC codec"
+                    )
+                output_codec = DERIVED_DATASET_CODEC
+                output_hash = sha256_content_hash(dataset_output.to_arrow_ipc())
+                output_kind: Literal["derived_dataset", "value"] = "derived_dataset"
+            else:
+                encoded = _analysis_json(output)
+                output_codec = (
+                    PYTHON_JSON_CODEC if contract is None else contract.output_codec
+                )
+                output_hash = f"sha256:{stable_content_hash(encoded)}"
+                output_kind = "value"
+            traced_values = ((execution_id, result),)
+            execution_outputs = (
+                AnalysisExecutionOutput(
+                    name=execution_id,
+                    kind=output_kind,
+                    content_hash=output_hash,
+                    codec=output_codec,
+                ),
+            )
         execution_metadata = validate_json_metadata(
             {}
             if contract is None
@@ -792,29 +840,33 @@ class AnalysisContext:
             deterministic=deterministic,
             inputs=input_names,
             input_bindings=input_provenance,
-            outputs=(
-                AnalysisExecutionOutput(
-                    name=execution_id,
-                    kind=("derived_dataset" if dataset_output is not None else "value"),
-                    content_hash=output_hash,
-                    codec=output_codec,
-                ),
-            ),
+            outputs=execution_outputs,
             captures=captures,
             access=("full" if contract is None else contract.data_access),
             metadata=execution_metadata,
         )
         self._executions.append(execution)
-        try:
-            value_codec, value_hash = _analysis_value_identity(result)
-        except TypeError:
-            value_codec = None
-            value_hash = None
-        if value_codec == output_codec and value_hash == output_hash:
-            assert value_hash is not None
-            self._execution_ids_by_value_hash[value_hash] = execution.id
-            self._execution_targets_by_value_hash[value_hash] = (
-                f"execution:{execution.id}:{execution.outputs[0].name}"
+        for (output_name, value), execution_output in zip(
+            traced_values,
+            execution.outputs,
+            strict=True,
+        ):
+            try:
+                value_codec, value_hash = _analysis_value_identity(value)
+            except TypeError:
+                continue
+            if (
+                value_codec != execution_output.codec
+                or value_hash != execution_output.content_hash
+            ):
+                continue
+            reference = AnalysisExecutionOutputReference(
+                execution_id=execution.id,
+                output_name=output_name,
+            )
+            self._record_execution_value(
+                content_hash=value_hash,
+                reference=reference,
             )
         return result
 
@@ -829,7 +881,25 @@ class AnalysisContext:
             content_hash = _analysis_value_hash(value)
         except TypeError:
             return None
-        return self._execution_targets_by_value_hash.get(content_hash)
+        targets = self._execution_targets_by_value_hash.get(content_hash, ())
+        return targets[0] if len(targets) == 1 else None
+
+    def _record_execution_value(
+        self,
+        *,
+        content_hash: str,
+        reference: AnalysisExecutionOutputReference,
+    ) -> None:
+        references = self._execution_outputs_by_value_hash.get(content_hash, ())
+        if reference not in references:
+            self._execution_outputs_by_value_hash[content_hash] = (
+                *references,
+                reference,
+            )
+        target = f"execution:{reference.execution_id}:{reference.output_name}"
+        targets = self._execution_targets_by_value_hash.get(content_hash, ())
+        if target not in targets:
+            self._execution_targets_by_value_hash[content_hash] = (*targets, target)
 
     def result(self, title: str = "analysis", *, key: str | None = None) -> Analysis:
         return replace(
@@ -840,7 +910,9 @@ class AnalysisContext:
             ),
             inputs=tuple(self._accessed_inputs.values()),
             executions=tuple(self._executions),
-            _execution_ids_by_value_hash=dict(self._execution_ids_by_value_hash),
+            _execution_outputs_by_value_hash=dict(
+                self._execution_outputs_by_value_hash
+            ),
         )
 
 
@@ -898,6 +970,51 @@ def _analysis_value_identity(value: object) -> tuple[str, str]:
     if dataset is not None:
         return DERIVED_DATASET_CODEC, sha256_content_hash(dataset.to_arrow_ipc())
     return PYTHON_JSON_CODEC, f"sha256:{stable_content_hash(_analysis_json(value))}"
+
+
+def _analysis_native_execution_output(
+    *,
+    name: str,
+    value: object,
+) -> AnalysisExecutionOutput:
+    codec, content_hash = _analysis_value_identity(value)
+    return AnalysisExecutionOutput(
+        name=name,
+        kind=(
+            "derived_dataset" if _analysis_dataset_value(value) is not None else "value"
+        ),
+        content_hash=content_hash,
+        codec=codec,
+    )
+
+
+def _analysis_result_at_path(
+    result: object,
+    path: tuple[str | int, ...],
+) -> object:
+    selected = result
+    for item in path:
+        if isinstance(item, int):
+            if not isinstance(selected, Sequence) or isinstance(
+                selected,
+                str | bytes | bytearray,
+            ):
+                raise TypeError(
+                    f"analysis result path {path!r} cannot index "
+                    f"{type(selected).__qualname__} by position"
+                )
+            selected = selected[item]
+        elif isinstance(selected, Mapping):
+            selected = cast("Mapping[object, object]", selected)[item]
+        else:
+            try:
+                selected = cast("object", getattr(selected, item))
+            except AttributeError:
+                raise TypeError(
+                    f"analysis result path {path!r} cannot read field {item!r} "
+                    f"from {type(selected).__qualname__}"
+                ) from None
+    return selected
 
 
 def _analysis_dataset_value(value: object) -> DerivedDataset | None:

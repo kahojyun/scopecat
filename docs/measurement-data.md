@@ -672,6 +672,14 @@ and points to a published dataset when that scientific relation should be
 durable. Ordinary NumPy, pandas, Polars, or Xarray code can skip `trace(...)`
 entirely.
 
+When one registered function naturally returns a fit object with several
+publishable results, declare stable leaf names with
+`outputs={"resonance": "resonance", "residuals": "residuals"}` on its
+implementation. `trace(...)` still returns that native object, while each
+declared leaf receives an independent trace identity. Publishing a matching
+leaf links it automatically; only equal-valued leaves need the explicit
+`producer=(execution_id, output_name)` disambiguation argument.
+
 An analysis step returns that declarative `Analysis` value. Running the step
 publishes it and returns one durable outcome; there is no additional save call:
 

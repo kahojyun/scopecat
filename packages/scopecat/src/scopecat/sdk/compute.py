@@ -15,12 +15,20 @@ _CONTRACT_ATTRIBUTE = "__scopecat_compute_implementation__"
 _OUTPUT_ENCODER_ATTRIBUTE = "__scopecat_compute_output_encoder__"
 PYTHON_JSON_CODEC = "scopecat.python-json.v1"
 
+type ComputeResultPathItem = str | int
+type ComputeResultPath = tuple[ComputeResultPathItem, ...]
+type ComputeResultPathInput = ComputeResultPathItem | ComputeResultPath
+
 
 def _empty_codecs() -> dict[str, str]:
     return {}
 
 
 def _empty_resources() -> dict[str, JsonValue]:
+    return {}
+
+
+def _empty_outputs() -> dict[str, ComputeResultPath]:
     return {}
 
 
@@ -32,6 +40,7 @@ class ComputeImplementationContract:
     version: str
     input_codecs: Mapping[str, str] = field(default_factory=_empty_codecs)
     output_codec: str = PYTHON_JSON_CODEC
+    outputs: Mapping[str, ComputeResultPath] = field(default_factory=_empty_outputs)
     runtime: str = "python"
     capabilities: tuple[str, ...] = ()
     resources: Mapping[str, JsonValue] = field(default_factory=_empty_resources)
@@ -46,11 +55,15 @@ class ComputeImplementationContract:
             raise ValueError("compute output codec and runtime must be non-empty")
         if any(not name or not codec for name, codec in self.input_codecs.items()):
             raise ValueError("compute input codec names and ids must be non-empty")
+        normalized_outputs = _normalize_result_paths(self.outputs)
+        if normalized_outputs and self.output_codec != PYTHON_JSON_CODEC:
+            raise ValueError("structured compute outputs use their native codecs")
         if any(not capability for capability in self.capabilities):
             raise ValueError("compute capabilities must be non-empty")
         if self.batch_size <= 0:
             raise ValueError("compute batch size must be positive")
         object.__setattr__(self, "input_codecs", dict(self.input_codecs))
+        object.__setattr__(self, "outputs", normalized_outputs)
         object.__setattr__(self, "capabilities", tuple(self.capabilities))
         object.__setattr__(self, "resources", freeze_json_mapping(self.resources))
 
@@ -77,6 +90,7 @@ class ComputeRegistry:
         input_codecs: Mapping[str, str] | None = None,
         output_codec: str = PYTHON_JSON_CODEC,
         encode_output: Callable[..., JsonValue] | None = None,
+        outputs: Mapping[str, ComputeResultPathInput] | None = None,
         runtime: str = "python",
         capabilities: tuple[str, ...] = (),
         resources: Mapping[str, JsonValue] | None = None,
@@ -88,11 +102,16 @@ class ComputeRegistry:
             raise ValueError(
                 "custom compute output codecs require an encode_output function"
             )
+        if outputs and (output_codec != PYTHON_JSON_CODEC or encode_output is not None):
+            raise ValueError(
+                "structured compute outputs cannot use one root output encoder"
+            )
         contract = ComputeImplementationContract(
             id=id,
             version=version,
             input_codecs=input_codecs or {},
             output_codec=output_codec,
+            outputs=_normalize_result_paths(outputs or {}),
             runtime=runtime,
             capabilities=capabilities,
             resources=resources or {},
@@ -164,6 +183,24 @@ def compute_capture_names_internal(fn: ComputeFunction) -> tuple[str, ...]:
 
     code = getattr(fn, "__code__", None)
     return () if not isinstance(code, CodeType) else code.co_freevars
+
+
+def _normalize_result_paths(
+    outputs: Mapping[str, ComputeResultPathInput],
+) -> dict[str, ComputeResultPath]:
+    normalized: dict[str, ComputeResultPath] = {}
+    for name, selected in outputs.items():
+        if not name:
+            raise ValueError("compute output names must be non-empty")
+        path = selected if isinstance(selected, tuple) else (selected,)
+        if any(isinstance(item, str) and not item for item in path):
+            raise ValueError("compute output path items must be non-empty")
+        normalized[name] = path
+    if len(set(normalized.values())) != len(normalized):
+        raise ValueError("compute output paths must be unique")
+    if len(normalized) > 1 and any(not path for path in normalized.values()):
+        raise ValueError("the root compute result cannot be one of multiple outputs")
+    return normalized
 
 
 __all__ = ["ComputeImplementationContract", "ComputeRegistry"]
