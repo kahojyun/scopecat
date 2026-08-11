@@ -116,6 +116,7 @@ name = "Scopecat core remains domain neutral"
 type = "forbidden"
 source_modules = ["scopecat"]
 forbidden_modules = [
+  "scopecat_instruments",
   "scopecat_quantum",
   "scopecat_server",
 ]
@@ -130,14 +131,13 @@ source_modules = [
   "scopecat.records",
 ]
 forbidden_modules = [
-  "scopecat.adapters",
   "scopecat.api",
   "scopecat.application",
   "scopecat.config.registry",
   "scopecat.execution",
   "scopecat.planning",
   "scopecat.runs",
-  "scopecat_server",
+  "scopecat_server.storage",
 ]
 allow_indirect_imports = true
 
@@ -173,7 +173,51 @@ source_modules = [
   "scopecat.planning",
   "scopecat.runs",
 ]
-forbidden_modules = ["scopecat.adapters"]
+forbidden_modules = ["scopecat_server.storage"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Server does not depend on optional domain packages"
+type = "forbidden"
+source_modules = ["scopecat_server"]
+forbidden_modules = [
+  "scopecat_instruments",
+  "scopecat_quantum",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Instrument package remains independent of server and quantum domains"
+type = "forbidden"
+source_modules = ["scopecat_instruments"]
+forbidden_modules = [
+  "scopecat_quantum",
+  "scopecat_server",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Quantum package remains independent of server and instruments"
+type = "forbidden"
+source_modules = ["scopecat_quantum"]
+forbidden_modules = [
+  "scopecat_instruments",
+  "scopecat_server",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Extension packages do not use private authoring implementation modules"
+type = "forbidden"
+source_modules = [
+  "scopecat_instruments",
+  "scopecat_quantum",
+  "scopecat_server",
+]
+forbidden_modules = [
+  "scopecat.authoring._module_context",
+  "scopecat.authoring._module_results",
+]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
