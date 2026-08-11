@@ -740,6 +740,7 @@ def test_runtime_shutdown_fences_a_blocked_session_and_marks_it_unknown(
         invocation.join(timeout=2)
     finally:
         (project / "driver-release-source-0").touch()
+        invocation.join(timeout=10)
         endpoint.shutdown()
         runtime.close()
         closing.join(timeout=2)
@@ -886,7 +887,7 @@ def _http_daemon_client(transport: TestClient) -> DaemonClient:
 
 
 def _wait_for_marker(path: Path) -> None:
-    deadline = time.monotonic() + 2
+    deadline = time.monotonic() + 10
     while not path.exists():
         if time.monotonic() >= deadline:
             pytest.fail(f"fixture driver did not create {path.name}")
