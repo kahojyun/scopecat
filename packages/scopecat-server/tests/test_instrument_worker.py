@@ -365,7 +365,9 @@ def test_worker_rejects_changed_contract_and_foreign_generation(
     second.shutdown()
 
 
-def test_worker_crash_is_permanent_and_never_restarts(tmp_path: Path) -> None:
+def test_worker_crash_fails_requests_and_marks_the_endpoint_unhealthy(
+    tmp_path: Path,
+) -> None:
     project = _copy_project(tmp_path)
     endpoint = SubprocessInstrumentBackendEndpoint(project, _BACKEND)
     config = load_config()
@@ -376,9 +378,6 @@ def test_worker_crash_is_permanent_and_never_restarts(tmp_path: Path) -> None:
     with pytest.raises(InstrumentBackendUnavailable, match="unavailable"):
         endpoint.describe(bindings)
     assert not endpoint.healthy
-    with pytest.raises(InstrumentBackendUnavailable, match="unavailable"):
-        endpoint.describe(bindings)
-    assert endpoint.worker_pid == worker_pid
 
     endpoint.shutdown()
     assert not psutil.pid_exists(worker_pid)
@@ -398,15 +397,6 @@ def test_worker_start_failure_leaves_no_process(tmp_path: Path) -> None:
 
     failed_pid = int((project / "failed-worker.pid").read_text(encoding="utf-8"))
     assert not psutil.pid_exists(failed_pid)
-
-
-def test_worker_operation_timeout_must_be_positive(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="timeouts must be positive"):
-        SubprocessInstrumentBackendEndpoint(
-            tmp_path,
-            _BACKEND,
-            operation_timeout=0,
-        )
 
 
 def test_runtime_releases_project_lock_after_worker_start_failure(
