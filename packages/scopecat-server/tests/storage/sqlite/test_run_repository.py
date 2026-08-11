@@ -35,11 +35,9 @@ from scopecat.runs.repository import (
 from scopecat_testkit.authoring import load_config
 from scopecat_testkit.server.runtime import SQLiteTestRunRepository
 
-from scopecat_server.storage.sqlite import (
-    SQLiteDatabase,
-    SQLiteProjectStore,
-    SQLiteRunRepository,
-)
+from scopecat_server.storage.sqlite.connection import SQLiteDatabase
+from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
+from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 
 class _Record(BaseModel):

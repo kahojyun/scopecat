@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from scopecat.daemon.views import DaemonHealth
+from scopecat.daemon.health import DaemonHealth
 from scopecat.daemon.wire import (
     AttentionResolutionReceipt,
     RunAdmission,
@@ -13,7 +13,7 @@ from scopecat.daemon.wire import (
     RunSubmission,
 )
 
-from scopecat_server.storage.sqlite import SQLiteProjectStore
+from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
 
 from .admission import AdmissionService
 from .config import ConfigService

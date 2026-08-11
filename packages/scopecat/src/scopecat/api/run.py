@@ -30,21 +30,21 @@ from scopecat.daemon.views import (
     RunAnalysisView,
 )
 from scopecat.kernel.ids import artifact_slug
+from scopecat.measurements.dataset import (
+    Dataset,
+    ExperimentResultView,
+    StoredExperimentResultView,
+)
 from scopecat.measurements.datasets import (
     MAX_MEASUREMENT_PAGE_SIZE,
     MEASUREMENT_DATASET_KIND,
     RAW_MEASUREMENTS_DATASET_ID,
 )
-from scopecat.measurements.results import (
-    Dataset,
-    ExperimentResultView,
-    MeasurementDatasetSchema,
-    ProjectionSchema,
-    StoredExperimentResultView,
-)
+from scopecat.measurements.interop import ProjectionSchema
 from scopecat.records.analysis import AnalysisExecution
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest

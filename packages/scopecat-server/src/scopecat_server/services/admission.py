@@ -52,12 +52,12 @@ from scopecat.runs.repository import (
     TerminalRunCommit,
 )
 
-from scopecat_server.storage.sqlite import (
+from scopecat_server.storage.sqlite.control_plane import (
     ControlPlaneConflict,
     ControlPlaneNotFound,
     SQLiteControlPlane,
-    SQLiteRunRepository,
 )
+from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
 

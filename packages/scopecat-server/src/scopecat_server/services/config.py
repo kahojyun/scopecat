@@ -52,11 +52,9 @@ from scopecat.kernel.errors import (
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import config_content_hash
 
-from scopecat_server.storage.sqlite import (
-    SQLiteConfigRegistryStore,
-    SQLiteControlPlane,
-    SQLiteRunRepository,
-)
+from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
+from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
+from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
 from ..instruments.actors import (

@@ -122,17 +122,18 @@ from scopecat.sdk.domain.runtime import (
 )
 from scopecat_testkit.server.runtime import list_test_runs
 
-import scopecat_server.services as daemon_services
 import scopecat_server.services.leases as lease_supervisor_services
 from scopecat_server import BackendConflict, LocalDaemonRuntime
 from scopecat_server.instruments.actors import InstrumentActorRetirement
-from scopecat_server.storage.sqlite import (
+from scopecat_server.services.admission import AdmissionService
+from scopecat_server.services.leases import OwnershipLeaseSupervisor
+from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
+from scopecat_server.storage.sqlite.connection import SQLiteDatabase
+from scopecat_server.storage.sqlite.control_plane import (
     ControlPlaneConflict,
-    SQLiteConfigRegistryStore,
     SQLiteControlPlane,
-    SQLiteDatabase,
-    SQLiteRunRepository,
 )
+from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 _FIXTURE = (
     Path(__file__).parents[3]
@@ -412,7 +413,7 @@ def test_runtime_cleans_up_partially_started_supervisor(
             raise RuntimeError("startup reconciliation failed")
 
         monkeypatch.setattr(
-            daemon_services.OwnershipLeaseSupervisor,
+            OwnershipLeaseSupervisor,
             "_reconcile_startup",
             fail_reconciliation,
         )
@@ -1219,13 +1220,13 @@ def test_admission_is_durably_idempotent(tmp_path: Path) -> None:
     database = state / "control.sqlite3"
     with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
         client = TestClient(runtime.app())
-        admission_services: list[daemon_services.AdmissionService] = []
+        admission_services: list[AdmissionService] = []
         for _ in range(2):
             sqlite = SQLiteDatabase(database)
             runs = SQLiteRunRepository(sqlite, state / "objects")
             registry = SQLiteConfigRegistryStore(sqlite, runs=runs)
             admission_services.append(
-                daemon_services.AdmissionService(
+                AdmissionService(
                     control=SQLiteControlPlane(sqlite),
                     runs=runs,
                     services=ProjectStateServices(
@@ -1237,7 +1238,7 @@ def test_admission_is_durably_idempotent(tmp_path: Path) -> None:
         services = tuple(admission_services)
         barrier = Barrier(len(services))
 
-        def submit(service: daemon_services.AdmissionService) -> RunAdmission:
+        def submit(service: AdmissionService) -> RunAdmission:
             barrier.wait()
             return service.submit_run(submission)
 
@@ -1504,7 +1505,7 @@ def test_authority_failure_replays_a_concurrently_admitted_submission(
         sqlite = SQLiteDatabase(database)
         runs = SQLiteRunRepository(sqlite, state / "objects")
         registry = SQLiteConfigRegistryStore(sqlite, runs=runs)
-        racing = daemon_services.AdmissionService(
+        racing = AdmissionService(
             control=SQLiteControlPlane(sqlite),
             runs=runs,
             services=ProjectStateServices(

@@ -40,16 +40,18 @@ from scopecat.runs.repository import (
 )
 from scopecat.runs.terminal import merge_terminal_manifest
 
-from scopecat_server.storage.sqlite import (
+from scopecat_server.storage.sqlite.control_plane import (
     ControlPlaneConflict,
     ControlPlaneNotFound,
     ExecutorLeaseNotHeld,
     SQLiteControlPlane,
+)
+from scopecat_server.storage.sqlite.execution import (
+    ExecutionJournalConflict,
     SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
-    SQLiteRunRepository,
 )
-from scopecat_server.storage.sqlite.execution import ExecutionJournalConflict
+from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
 

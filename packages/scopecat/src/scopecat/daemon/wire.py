@@ -20,7 +20,7 @@ from pydantic import (
     model_validator,
 )
 
-from scopecat.analysis.datasets import DerivedDatasetPayload
+from scopecat.analysis.dataset_wire import DerivedDatasetPayload
 from scopecat.config.inventory import InstrumentInventoryChange
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry.records import (

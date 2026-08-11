@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from scopecat.execution.local.program import ComputeOperation, LocalOperation
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
-from scopecat.execution.program import RunHostBinding
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.problems import (
     LocationPathItem,
@@ -34,6 +33,9 @@ from scopecat.sdk.instruments.provider import (
 )
 
 from .provider_validation import preflight_problem_from_exception
+
+if TYPE_CHECKING:
+    from scopecat.execution.program import RunHostBinding
 
 
 def resolve_instrument_contract_catalog(

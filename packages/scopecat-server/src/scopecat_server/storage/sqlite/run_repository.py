@@ -42,10 +42,6 @@ from scopecat.runs.repository import RunContentPublication, TerminalRunCommit
 from scopecat.runs.terminal import merge_terminal_manifest
 
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
-from scopecat_server.storage.sqlite.measurement_arrow import (
-    MeasurementArrowCodecError,
-    decode_measurement_append,
-)
 from scopecat_server.storage.sqlite.object_store import (
     ImmutableObjectStore,
     ObjectCorruptError,
@@ -313,6 +309,11 @@ class SQLiteRunRepository:
         run_id: str,
         ref: str,
     ) -> list[MeasurementRecord]:
+        from scopecat_server.storage.sqlite.measurement_arrow import (
+            MeasurementArrowCodecError,
+            decode_measurement_append,
+        )
+
         _validate_identity(run_id, ref)
         header = self.read_model(
             run_id,

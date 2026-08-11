@@ -7,20 +7,8 @@ from __future__ import annotations
 from base64 import b64decode, b64encode
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
 
-import pyarrow as pa
-from scopecat.analysis.datasets import DerivedDataset
-from scopecat.analysis.service import (
-    AnalysisArtifactOutput,
-    AnalysisDatasetOutput,
-    AnalysisFactOutput,
-    AnalysisFigureOutput,
-    AnalysisInput,
-    AnalysisOutput,
-    AnalysisParameterProposalOutput,
-    AnalysisTableOutput,
-    prepare_analysis,
-)
 from scopecat.config.changes import (
     list_parameter_change_proposals,
     load_parameter_change_approval,
@@ -80,18 +68,13 @@ from scopecat.measurements.datasets import (
     product_grid_slice_indices,
     select_measurement_schema,
 )
-from scopecat.measurements.paging import project_measurement_page
-from scopecat.measurements.results import MeasurementDatasetSchema
-from scopecat.measurements.traces import (
-    MeasurementTraceProjection,
-    project_measurement_trace_preview,
-)
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import (
     MeasurementDataset,
+    MeasurementDatasetSchema,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
 )
@@ -112,21 +95,36 @@ from scopecat.runs.service import (
     read_run_measurement_dataset,
     read_run_record_json,
 )
-from scopecat.sdk.domain.invocation import DomainInvocationIntent
-from scopecat.sdk.domain.runtime import DomainExecutionId, DomainExecutionReceipt
 
-from scopecat_server.storage.sqlite import (
+from scopecat_server.storage.sqlite.control_plane import (
     ControlPlaneNotFound,
     SQLiteControlPlane,
+)
+from scopecat_server.storage.sqlite.execution import (
     SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
-    SQLiteRunRepository,
 )
+from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
 
+if TYPE_CHECKING:
+    import pyarrow as pa
+    from scopecat.analysis.service import AnalysisOutput
+    from scopecat.measurements.traces import MeasurementTraceProjection
+
 
 def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
+    from scopecat.analysis.datasets import DerivedDataset
+    from scopecat.analysis.service import (
+        AnalysisArtifactOutput,
+        AnalysisDatasetOutput,
+        AnalysisFactOutput,
+        AnalysisFigureOutput,
+        AnalysisParameterProposalOutput,
+        AnalysisTableOutput,
+    )
+
     if isinstance(item, AnalysisFactOutputPayload):
         return AnalysisFactOutput(
             kind="fact",
@@ -363,6 +361,8 @@ class RunService:
         run_id: str,
         command: AnalysisSaveCommand,
     ) -> AnalysisSaveReceipt:
+        from scopecat.analysis.service import AnalysisInput, prepare_analysis
+
         inputs = tuple(
             AnalysisInput(
                 target=item.target,
@@ -577,6 +577,8 @@ class RunService:
         query: MeasurementArrowQuery,
     ) -> tuple[pa.Table, int | None, int]:
         """Read and project one finite page from Arrow-backed measurement chunks."""
+
+        from scopecat.measurements.paging import project_measurement_page
 
         variable_ids = tuple(column.variable_id for column in query.columns)
         with self._config_errors():
@@ -813,6 +815,9 @@ class RunService:
 def _domain_execution_views(
     transitions: Sequence[ExecutionTransition],
 ) -> tuple[RunDomainExecutionView, ...]:
+    from scopecat.sdk.domain.invocation import DomainInvocationIntent
+    from scopecat.sdk.domain.runtime import DomainExecutionId, DomainExecutionReceipt
+
     projected: list[RunDomainExecutionView] = []
     positions: dict[str, int] = {}
     for transition in transitions:
@@ -919,6 +924,8 @@ def _project_trace_records(
     records: Sequence[MeasurementRecord],
     query: MeasurementTracePreviewQuery,
 ) -> MeasurementTraceProjection:
+    from scopecat.measurements.traces import project_measurement_trace_preview
+
     try:
         return project_measurement_trace_preview(
             MeasurementDataset(dataset_schema=schema, records=tuple(records)),

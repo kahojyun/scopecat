@@ -10,28 +10,8 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Annotated, Never
 
-import httpx2
 import typer
 from rich.console import Console
-from scopecat.config.resolution import validate_config_profile
-from scopecat.kernel.errors import ScopecatError
-from scopecat.project import ProjectManifestError, open_project
-from scopecat.records.config import config_content_hash
-
-from .config_commands import (
-    apply_project_config,
-    diff_project_config,
-    export_project_config,
-)
-from .lifecycle import (
-    DaemonLifecycleError,
-    initialize_project,
-    inspect_daemon,
-    open_project_gui,
-    serve_project,
-    start_project,
-    stop_project,
-)
 
 app = typer.Typer(
     name="scopecat",
@@ -49,17 +29,6 @@ error_console = Console(stderr=True)
 _CURRENT_DIRECTORY = Path()
 _DEFAULT_STATIC_DIR = Path(__file__).with_name("static")
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
-_PROJECT_CONFIG_ERRORS = (
-    ScopecatError,
-    ProjectManifestError,
-    httpx2.HTTPError,
-    ImportError,
-    AttributeError,
-    OSError,
-    RuntimeError,
-    TypeError,
-    ValueError,
-)
 
 
 def _validate_host(value: str) -> str:
@@ -76,6 +45,8 @@ def init_command(
     ] = _CURRENT_DIRECTORY,
 ) -> None:
     """Initialize a runnable local lab project."""
+
+    from .lifecycle import DaemonLifecycleError, initialize_project
 
     try:
         initialized = initialize_project(project)
@@ -125,13 +96,17 @@ def config_check(
 ) -> None:
     """Validate the application's lazy bootstrap configuration source."""
 
+    from scopecat.config.resolution import validate_config_profile
+    from scopecat.project import open_project
+    from scopecat.records.config import config_content_hash
+
     try:
         selected = open_project(project)
         bootstrap_config = selected.load_application().bootstrap_config
         if bootstrap_config is None:
             raise ValueError("project application does not define bootstrap_config")
         config = validate_config_profile(bootstrap_config())
-    except _PROJECT_CONFIG_ERRORS as error:
+    except _project_config_errors() as error:
         _fail(error)
 
     console.print(
@@ -150,9 +125,13 @@ def config_diff(
 ) -> None:
     """Compare executable project configuration with the daemon default."""
 
+    from scopecat.project import open_project
+
+    from .config_commands import diff_project_config
+
     try:
         result = diff_project_config(open_project(project))
-    except _PROJECT_CONFIG_ERRORS as error:
+    except _project_config_errors() as error:
         _fail(error)
 
     if not result.has_drift:
@@ -188,13 +167,17 @@ def config_apply(
 ) -> None:
     """Validate project configuration and make it the daemon default."""
 
+    from scopecat.project import open_project
+
+    from .config_commands import apply_project_config
+
     try:
         result = apply_project_config(
             open_project(project),
             actor=actor,
             note=note,
         )
-    except _PROJECT_CONFIG_ERRORS as error:
+    except _project_config_errors() as error:
         _fail(error)
 
     state = "[green]applied[/green]" if result.changed else "[green]in sync[/green]"
@@ -222,13 +205,17 @@ def config_export(
 ) -> None:
     """Export the complete daemon default as generated JSON."""
 
+    from scopecat.project import open_project
+
+    from .config_commands import export_project_config
+
     try:
         result = export_project_config(
             open_project(project),
             output,
             overwrite=force,
         )
-    except _PROJECT_CONFIG_ERRORS as error:
+    except _project_config_errors() as error:
         _fail(error)
 
     console.print(
@@ -275,6 +262,10 @@ def serve(
     ] = None,
 ) -> None:
     """Run the project daemon in the foreground."""
+
+    from scopecat.project import ProjectManifestError, open_project
+
+    from .lifecycle import DaemonLifecycleError, serve_project
 
     try:
         selected = open_project(project)
@@ -331,6 +322,10 @@ def start(
 ) -> None:
     """Start the project daemon in the background."""
 
+    from scopecat.project import ProjectManifestError, open_project
+
+    from .lifecycle import DaemonLifecycleError, start_project
+
     try:
         selected = open_project(project)
         selected_static_dir = _select_static_dir(
@@ -382,6 +377,10 @@ def stop(
 ) -> None:
     """Stop the project's recorded daemon process."""
 
+    from scopecat.project import ProjectManifestError, open_project
+
+    from .lifecycle import DaemonLifecycleError, stop_project
+
     try:
         selected = open_project(project)
         previous = stop_project(selected)
@@ -401,6 +400,10 @@ def status(
     ] = _CURRENT_DIRECTORY,
 ) -> None:
     """Show process identity and daemon health."""
+
+    from scopecat.project import ProjectManifestError, open_project
+
+    from .lifecycle import inspect_daemon
 
     try:
         selected = open_project(project)
@@ -434,6 +437,10 @@ def open_command(
 ) -> None:
     """Open the project GUI in the system browser."""
 
+    from scopecat.project import ProjectManifestError, open_project
+
+    from .lifecycle import DaemonLifecycleError, open_project_gui
+
     try:
         selected = open_project(project)
         endpoint = open_project_gui(selected)
@@ -457,6 +464,24 @@ def _fail(error: Exception) -> Never:
         soft_wrap=True,
     )
     raise typer.Exit(code=1) from error
+
+
+def _project_config_errors() -> tuple[type[Exception], ...]:
+    import httpx2
+    from scopecat.kernel.errors import ScopecatError
+    from scopecat.project import ProjectManifestError
+
+    return (
+        ScopecatError,
+        ProjectManifestError,
+        httpx2.HTTPError,
+        ImportError,
+        AttributeError,
+        OSError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+    )
 
 
 if __name__ == "__main__":

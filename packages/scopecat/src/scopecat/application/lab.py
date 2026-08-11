@@ -6,11 +6,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from scopecat.planning.system import ExperimentSystemBuilder
 from scopecat.records.config import ConfigProfileSnapshot
 
 if TYPE_CHECKING:
     from scopecat.api.lab import LabClient
+    from scopecat.planning.system import ExperimentSystemBuilder
 
 type BootstrapConfigFactory = Callable[[], ConfigProfileSnapshot]
 

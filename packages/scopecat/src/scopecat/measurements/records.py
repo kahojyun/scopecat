@@ -32,7 +32,13 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.measurements.products import ProductAxisDef, ProductDef
-from scopecat.measurements.results import (
+from scopecat.program.measurement_types import (
+    MeasurementDType,
+    MeasurementVariableRole,
+    measurement_value_spec_from_scalar,
+)
+from scopecat.program.recording import ExperimentResultField
+from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementPointCloudPointDomain,
@@ -44,12 +50,6 @@ from scopecat.measurements.results import (
     MeasurementScalar,
     MeasurementVariable,
 )
-from scopecat.program.measurement_types import (
-    MeasurementDType,
-    MeasurementVariableRole,
-    measurement_value_spec_from_scalar,
-)
-from scopecat.program.recording import ExperimentResultField
 
 
 def _empty_metadata() -> FrozenMapping[str, JsonValue]:

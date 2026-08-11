@@ -59,8 +59,8 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.kernel.quantity import Quantity
+from scopecat.measurements.dataset import Dataset, ExperimentResultView
 from scopecat.measurements.datasets import MEASUREMENT_DATASET_CODEC
-from scopecat.measurements.results import Dataset, ExperimentResultView
 from scopecat.records.analysis import (
     ANALYSIS_ARTIFACT_CODEC,
     AnalysisDatasetDerivation,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -21,6 +23,35 @@ _CONFIG_FIXTURE = (
     / "simple_scan"
     / "config-snapshot.json"
 )
+
+
+def test_cli_import_keeps_daemon_runtime_cold() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import sys
+import scopecat_server.cli
+
+forbidden = {
+    "fastapi",
+    "pandas",
+    "pyarrow",
+    "scopecat_server.runtime",
+    "xarray",
+}
+loaded = forbidden.intersection(sys.modules)
+if loaded:
+    raise SystemExit(f"CLI imported daemon runtime modules: {sorted(loaded)}")
+""",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_config_check_resolves_lazy_bootstrap_factory(
@@ -175,8 +206,8 @@ def test_hidden_executor_lease_ttl_option_reaches_start_and_serve(
         del project, host, port, static_dir
         serve_ttls.append(lease_ttl)
 
-    monkeypatch.setattr("scopecat_server.cli.start_project", start_selected)
-    monkeypatch.setattr("scopecat_server.cli.serve_project", serve_selected)
+    monkeypatch.setattr("scopecat_server.lifecycle.start_project", start_selected)
+    monkeypatch.setattr("scopecat_server.lifecycle.serve_project", serve_selected)
     runner = CliRunner()
 
     default_start = runner.invoke(app, ["start", str(tmp_path), "--api-only"])

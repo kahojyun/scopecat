@@ -11,12 +11,10 @@ from pathlib import Path
 from threading import RLock
 from typing import TYPE_CHECKING, cast
 
-from scopecat.application.lab import LabApplication
-from scopecat.daemon.endpoint import resolve_daemon_endpoint
-from scopecat.planning.system import ExperimentSystemBuilder
-
 if TYPE_CHECKING:
     from scopecat.api.lab import LabClient
+    from scopecat.application.lab import LabApplication
+    from scopecat.planning.system import ExperimentSystemBuilder
     from scopecat.sdk.instruments import InstrumentBackend
 
 type LabApplicationFactory = Callable[[Path], LabApplication]
@@ -50,6 +48,8 @@ class Project:
         """Load the version-controlled composition declared by this project."""
 
         if self.application_spec is None:
+            from scopecat.application.lab import LabApplication
+
             return LabApplication()
         return load_application_factory(self.application_spec, self.root)(self.root)
 
@@ -61,6 +61,8 @@ class Project:
         operator: str = "operator",
     ) -> LabClient:
         """Open the project's high-level notebook client."""
+
+        from scopecat.daemon.endpoint import resolve_daemon_endpoint
 
         endpoint = resolve_daemon_endpoint(self.root, explicit=daemon)
         application = self.load_application()

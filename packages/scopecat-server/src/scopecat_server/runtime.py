@@ -22,28 +22,24 @@ from scopecat.project import load_application_factory
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 
-from scopecat_server.storage.sqlite import (
-    SQLiteConfigRegistryStore,
-    SQLiteControlPlane,
-    SQLiteDatabase,
-    SQLiteProjectStore,
-    SQLiteRunRepository,
-)
+from scopecat_server.services.admission import AdmissionService
+from scopecat_server.services.application import DaemonApplication
+from scopecat_server.services.config import ConfigService
+from scopecat_server.services.executor import ExecutorService
+from scopecat_server.services.leases import OwnershipLeaseSupervisor
+from scopecat_server.services.payloads import CommandPayloadService
+from scopecat_server.services.runs import RunService
+from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
+from scopecat_server.storage.sqlite.connection import SQLiteDatabase
+from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
+from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
+from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from .http.transport import create_app
 from .instruments.actors import InstrumentActorRegistry
 from .instruments.backend import InstrumentBackendEndpoint
+from .instruments.service import InstrumentService
 from .instruments.worker import SubprocessInstrumentBackendEndpoint
-from .services import (
-    AdmissionService,
-    CommandPayloadService,
-    ConfigService,
-    DaemonApplication,
-    ExecutorService,
-    InstrumentService,
-    OwnershipLeaseSupervisor,
-    RunService,
-)
 
 _DEFAULT_INSTRUMENT_SHUTDOWN_GRACE = timedelta(seconds=5)
 _DEFAULT_INSTRUMENT_SESSION_LEASE_TTL = timedelta(seconds=90)
