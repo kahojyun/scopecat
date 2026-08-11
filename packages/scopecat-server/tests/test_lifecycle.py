@@ -30,7 +30,6 @@ from scopecat_server.cli import app
 from scopecat_server.lifecycle import (
     DaemonLifecycleError,
     DaemonStatus,
-    _windows_daemon_creation_flags,
     initialize_project,
     inspect_daemon,
     start_project,
@@ -224,18 +223,12 @@ def test_start_project_forwards_only_explicit_lease_ttl_to_detached_serve(
     else:
         option_index = command.index(option)
         assert command[option_index + 1] == expected_seconds
-    assert process_options[0]["start_new_session"] is (sys.platform != "win32")
-    assert process_options[0]["creationflags"] == _windows_daemon_creation_flags(
-        sys.platform
-    )
-
-
-def test_windows_daemon_uses_detached_process_group_creation_flags() -> None:
-    flags = _windows_daemon_creation_flags("win32")
-
-    assert flags & 0x00000008
-    assert flags & 0x00000200
-    assert _windows_daemon_creation_flags("linux") == 0
+    if sys.platform == "win32":
+        assert process_options[0]["start_new_session"] is False
+        assert process_options[0]["creationflags"] == subprocess.CREATE_NO_WINDOW
+    else:
+        assert process_options[0]["start_new_session"] is True
+        assert process_options[0]["creationflags"] == 0
 
 
 def test_cli_init_prints_copyable_next_steps_at_narrow_width(

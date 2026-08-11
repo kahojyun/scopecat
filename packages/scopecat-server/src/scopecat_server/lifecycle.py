@@ -38,10 +38,6 @@ type DaemonState = Literal["running", "stopped", "stale", "degraded"]
 
 _HEALTH_PATH = "/api/v1/health"
 _PROCESS_TIME_TOLERANCE_SECONDS = 0.01
-_DETACHED_PROCESS = cast("int", getattr(subprocess, "DETACHED_PROCESS", 0x00000008))
-_CREATE_NEW_PROCESS_GROUP = cast(
-    "int", getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
-)
 
 
 class DaemonLifecycleError(RuntimeError):
@@ -251,7 +247,9 @@ def start_project(
             stdout=log,
             stderr=subprocess.STDOUT,
             start_new_session=sys.platform != "win32",
-            creationflags=_windows_daemon_creation_flags(sys.platform),
+            creationflags=(
+                subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            ),
         )
 
     deadline = time.monotonic() + timeout
@@ -404,12 +402,6 @@ def _request_graceful_shutdown(record: DaemonEndpointRecord) -> None:
         process = _matching_process(record)
         if process is not None:
             process.terminate()
-
-
-def _windows_daemon_creation_flags(platform: str) -> int:
-    if platform != "win32":
-        return 0
-    return _DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP
 
 
 def _bind_listener(host: str, port: int) -> socket.socket:
