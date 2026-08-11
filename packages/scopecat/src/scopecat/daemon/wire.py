@@ -38,6 +38,7 @@ from scopecat.records.analysis import (
     AnalysisExecutionOutputReference,
     AnalysisFact,
     AnalysisFigureView,
+    AnalysisPublishedOutputReference,
     AnalysisTableView,
     validate_analysis_output_content_budget,
 )
@@ -178,12 +179,21 @@ class AnalysisInputPayload(_WireModel):
     """JSON-safe reference consumed by a durable analysis record."""
 
     target: NonEmptyText
-    kind: Literal["measurement_dataset"]
+    kind: Literal["measurement_dataset", "analysis_dataset"]
     content_hash: NonEmptyText
     codec: NonEmptyText
     role: NonEmptyText
     title: str | None = None
     metadata: dict[str, JsonValue] | None = None
+    source: AnalysisPublishedOutputReference | None = None
+
+    @model_validator(mode="after")
+    def validate_source(self) -> AnalysisInputPayload:
+        if (self.kind == "analysis_dataset") != (self.source is not None):
+            raise ValueError(
+                "analysis dataset inputs require one published analysis output source"
+            )
+        return self
 
 
 class AnalysisTableOutputPayload(_WireModel):

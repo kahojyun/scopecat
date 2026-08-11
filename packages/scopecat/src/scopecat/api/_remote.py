@@ -276,6 +276,7 @@ def _analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
         metadata=(
             None if value.metadata is None else validate_json_metadata(value.metadata)
         ),
+        source=value.source,
     )
 
 

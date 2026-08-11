@@ -401,6 +401,7 @@ class RunService:
                 role=item.role,
                 title=item.title,
                 metadata=item.metadata,
+                source=item.source,
             )
             for item in command.inputs
         )

@@ -612,16 +612,32 @@ class AnalysisArtifactReference(_AnalysisContentModel):
     filename: _NonEmptyText
 
 
+class AnalysisPublishedOutputReference(_AnalysisContentModel):
+    """Exact output revision consumed from an earlier analysis on this run."""
+
+    analysis_record_id: _NonEmptyText
+    output_id: _NonEmptyText
+
+
 class AnalysisRecordInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     target: _NonEmptyText
-    kind: Literal["measurement_dataset"]
+    kind: Literal["measurement_dataset", "analysis_dataset"]
     content_hash: _NonEmptyText
     codec: _NonEmptyText
     role: _NonEmptyText
     title: str | None = None
     metadata: JsonMetadata | None = None
+    source: AnalysisPublishedOutputReference | None = None
+
+    @model_validator(mode="after")
+    def validate_source(self) -> AnalysisRecordInput:
+        if (self.kind == "analysis_dataset") != (self.source is not None):
+            raise ValueError(
+                "analysis dataset inputs require one published analysis output source"
+            )
+        return self
 
 
 class _AnalysisRecordOutput(BaseModel):

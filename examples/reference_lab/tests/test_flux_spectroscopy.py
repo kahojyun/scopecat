@@ -14,6 +14,7 @@ from scopecat.records.analysis import (
     AnalysisDatasetRecordOutput,
     AnalysisExecutionOutputReference,
     AnalysisFactRecordOutput,
+    AnalysisPublishedOutputReference,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.measurement import (
@@ -46,10 +47,12 @@ from reference_lab.workflows.flux_spectroscopy import (
     flux_spectroscopy,
 )
 from reference_lab.workflows.flux_spectroscopy_analysis import (
+    FLUX_SPECTROSCOPY_FIT_REVIEW_SCHEMA,
     RESONATOR_TRACE_FIT_SCHEMA,
     fit_flux_spectroscopy,
     fit_resonator_trace,
     flux_spectroscopy_analysis,
+    flux_spectroscopy_fit_review,
 )
 
 
@@ -63,6 +66,8 @@ class _FluxNotebookSummary(TypedDict):
     measurement_records: int
     analysis_id: str
     analysis_revision: int
+    fit_review_id: str
+    fit_review_accepted: bool
     candidate_config_id: str
 
 
@@ -319,6 +324,24 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     active_frequency = _readout_quantity(lab.resolve_config(), RESONANCE_FREQUENCY.id)
     assert float(active_frequency.to("GHz").value) == pytest.approx(5.0)
 
+    review = run.analyze(flux_spectroscopy_fit_review())
+    assert review.id == "analysis-reference_lab-flux_spectroscopy-fit-review"
+    quality = review.fact_as(
+        "quality-review",
+        FLUX_SPECTROSCOPY_FIT_REVIEW_SCHEMA,
+    )
+    assert quality.accepted
+    assert quality.worst_complex_rmse < 0.02
+    [review_input] = review.inputs
+    assert review_input.source == AnalysisPublishedOutputReference(
+        analysis_record_id=analysis.id,
+        output_id="fit-by-bias",
+    )
+    assert review_input.target == fit_output.content.dataset_id
+    [review_execution] = review.executions
+    [review_binding] = review_execution.input_bindings
+    assert review_binding.target == fit_output.content.dataset_id
+
 
 def test_direct_control_notebook_completes_through_the_project_daemon(
     reference_lab_daemon: _ReferenceLabDaemon,
@@ -355,6 +378,10 @@ def test_flux_spectroscopy_notebook_completes_through_the_project_daemon(
         "analysis-reference_lab-flux_spectroscopy-analysis"
     )
     assert summary["analysis_revision"] == 1
+    assert summary["fit_review_id"] == (
+        "analysis-reference_lab-flux_spectroscopy-fit-review"
+    )
+    assert summary["fit_review_accepted"]
     assert summary["candidate_config_id"] == "candidate-readout-resonator-fit"
 
 

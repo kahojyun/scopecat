@@ -47,6 +47,7 @@ from scopecat.records.analysis import (
     AnalysisFigureView,
     AnalysisParameterProposalRecordOutput,
     AnalysisParameterProposalReference,
+    AnalysisPublishedOutputReference,
     AnalysisRecord,
     AnalysisRecordInput,
     AnalysisRecordOutput,
@@ -71,12 +72,13 @@ from scopecat.runs.repository import (
 @dataclass(frozen=True)
 class AnalysisInput:
     target: str
-    kind: Literal["measurement_dataset"]
+    kind: Literal["measurement_dataset", "analysis_dataset"]
     content_hash: str
     codec: str
     role: str
     title: str | None = None
     metadata: Mapping[str, object] | None = None
+    source: AnalysisPublishedOutputReference | None = None
 
 
 @dataclass(frozen=True)
@@ -211,6 +213,11 @@ def prepare_analysis(
     base_record_id = f"analysis-{analysis_key}"
     _validate_analysis_output_ids(outputs)
     _validate_analysis_execution_outputs(executions, outputs)
+    _validate_analysis_inputs(
+        services=services,
+        run_id=run_id,
+        inputs=inputs,
+    )
     output_proposals = tuple(
         output.content
         for output in outputs
@@ -353,6 +360,78 @@ class _ExistingAnalysis:
     record: AnalysisRecord
 
 
+def _validate_analysis_inputs(
+    *,
+    services: ProjectStateServices,
+    run_id: str,
+    inputs: Sequence[AnalysisInput],
+) -> None:
+    storage = services.runs
+    analysis_entries = {
+        entry.id: entry
+        for entry in list_records(storage.read_manifest(run_id), kind="analysis")
+    }
+    for index, input_ref in enumerate(inputs):
+        source = input_ref.source
+        if input_ref.kind == "measurement_dataset":
+            if source is not None:
+                _raise_analysis_problem(
+                    "analysis_input_source_invalid",
+                    "measurement dataset inputs cannot identify an analysis output",
+                    "inputs",
+                    index,
+                )
+            continue
+        if source is None:
+            _raise_analysis_problem(
+                "analysis_input_source_missing",
+                "analysis dataset inputs require an exact published output source",
+                "inputs",
+                index,
+            )
+        if source.analysis_record_id not in analysis_entries:
+            _raise_analysis_problem(
+                "analysis_input_source_unknown",
+                "analysis dataset input must identify an earlier analysis on this run",
+                "inputs",
+                index,
+            )
+        source_record = storage.read_model(
+            run_id,
+            record_content_ref(
+                record_id=source.analysis_record_id,
+                kind="analysis",
+            ),
+            AnalysisRecord,
+        )
+        source_output = next(
+            (
+                output
+                for output in source_record.outputs
+                if output.id == source.output_id
+            ),
+            None,
+        )
+        if not isinstance(source_output, AnalysisDatasetRecordOutput):
+            _raise_analysis_problem(
+                "analysis_input_source_not_dataset",
+                "analysis dataset input source must identify a dataset output",
+                "inputs",
+                index,
+            )
+        if (
+            input_ref.target != source_output.content.dataset_id
+            or input_ref.content_hash != source_output.content.content_hash
+            or input_ref.codec != source_output.content.codec
+        ):
+            _raise_analysis_problem(
+                "analysis_input_content_mismatch",
+                "analysis dataset input must match its exact published output content",
+                "inputs",
+                index,
+            )
+
+
 def _latest_analysis(
     *,
     services: ProjectStateServices,
@@ -450,6 +529,7 @@ def _analysis_publication_hash(
                 "role": item.role,
                 "title": item.title,
                 "metadata": validate_json_metadata(item.metadata or {}),
+                "source": item.source,
             }
             for item in inputs
         ],
@@ -515,6 +595,7 @@ def _analysis_record_inputs(
                 metadata=(
                     validate_json_metadata(metadata) if metadata is not None else None
                 ),
+                source=input_ref.source,
             )
         )
     return record_inputs

@@ -381,8 +381,18 @@ function AnalysisCard({
                         >
                           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                             <strong>{input.title ?? input.target}</strong>
-                            <span className="text-text-dim">{input.role}</span>
+                            <span className="text-text-dim">
+                              {input.role} · {titleCase(input.kind)}
+                            </span>
                           </div>
+                          {input.source ? (
+                            <code
+                              className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
+                              title={`${input.source.analysis_record_id}:${input.source.output_id}`}
+                            >
+                              {input.source.analysis_record_id}:{input.source.output_id}
+                            </code>
+                          ) : null}
                           <code
                             className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
                             title={input.target}

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Annotated, cast
 
@@ -20,6 +20,7 @@ from scopecat.analysis.datasets import DERIVED_DATASET_CODEC, DerivedDataset
 from scopecat.analysis.service import (
     AnalysisFactOutput,
     AnalysisFigureOutput,
+    AnalysisInput,
     AnalysisTableOutput,
 )
 from scopecat.config.registry import service as config_registry_service
@@ -34,6 +35,7 @@ from scopecat.records.analysis import (
     AnalysisExecutionOutputReference,
     AnalysisFactRecordOutput,
     AnalysisFigureRecordOutput,
+    AnalysisPublishedOutputReference,
     AnalysisTableRecordOutput,
 )
 from scopecat.records.run import RunManifest
@@ -916,6 +918,137 @@ def test_analysis_key_appends_only_changed_publication_revisions(
         "analysis-fit-result",
         "analysis-fit-result-r2",
     ]
+
+
+def test_analysis_dataset_input_freezes_the_exact_same_run_output_revision(
+    tmp_path: Path,
+) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    source_dataset = _derived_signal_frame(handle.measurements())
+
+    source_v1 = (
+        handle.analysis("Source fit", key="source-fit")
+        .dataset("fits", source_dataset, metadata={"review": 1})
+        .save()
+    )
+    first_context = sc.AnalysisContext(run=handle)
+    first_fits = first_context.analysis_dataset(
+        "source-fit",
+        "fits",
+        metadata={"purpose": "quality review"},
+    )
+    first_score = first_context.trace(
+        id="review-score",
+        fn=_derived_score_max,
+        dataset=first_fits,
+    )
+    review_v1 = (
+        first_context.result("Fit quality review", key="fit-quality-review")
+        .fact("maximum-score", first_score)
+        .save()
+    )
+
+    [first_input] = review_v1.inputs
+    source_v1_output = source_v1.output("fits")
+    assert isinstance(source_v1_output, AnalysisDatasetRecordOutput)
+    assert first_input.kind == "analysis_dataset"
+    assert first_input.target == source_v1_output.content.dataset_id
+    assert first_input.content_hash == source_v1_output.content.content_hash
+    assert first_input.codec == DERIVED_DATASET_CODEC
+    assert first_input.source == AnalysisPublishedOutputReference(
+        analysis_record_id=source_v1.id,
+        output_id="fits",
+    )
+    assert first_input.metadata == {"purpose": "quality review"}
+    [first_execution] = review_v1.executions
+    [first_binding] = first_execution.input_bindings
+    assert first_binding.kind == "derived_dataset"
+    assert first_binding.target == source_v1_output.content.dataset_id
+
+    source_v2 = (
+        handle.analysis("Source fit", key="source-fit")
+        .dataset("fits", source_dataset, metadata={"review": 2})
+        .save()
+    )
+    second_context = sc.AnalysisContext(run=handle)
+    second_fits = second_context.analysis_dataset("source-fit", "fits")
+    second_score = second_context.trace(
+        id="review-score",
+        fn=_derived_score_max,
+        dataset=second_fits,
+    )
+    review_v2 = (
+        second_context.result("Fit quality review", key="fit-quality-review")
+        .fact("maximum-score", second_score)
+        .save()
+    )
+
+    assert source_v2.id == "analysis-source-fit-r2"
+    source_v2_output = source_v2.output("fits")
+    assert isinstance(source_v2_output, AnalysisDatasetRecordOutput)
+    assert (
+        source_v1_output.content.content_hash == source_v2_output.content.content_hash
+    )
+    assert review_v2.id == "analysis-fit-quality-review-r2"
+    assert review_v2.fact("maximum-score").value == first_score
+    [second_input] = review_v2.inputs
+    assert second_input.source == AnalysisPublishedOutputReference(
+        analysis_record_id=source_v2.id,
+        output_id="fits",
+    )
+    assert second_input.target != first_input.target
+    assert review_v2.publication_hash != review_v1.publication_hash
+
+
+def test_analysis_dataset_input_rejects_a_source_from_another_run(
+    tmp_path: Path,
+) -> None:
+    first_run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    lab = in_process_lab(tmp_path, config=load_config())
+    first_handle = lab.get_run(first_run.run_id)
+    source = (
+        first_handle.analysis("Source fit", key="source-fit")
+        .dataset("fits", _derived_signal_frame(first_handle.measurements()))
+        .save()
+    )
+    source_output = source.output("fits")
+    assert isinstance(source_output, AnalysisDatasetRecordOutput)
+    second_run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    second_handle = lab.get_run(second_run.run_id)
+    invalid = replace(
+        second_handle.analysis("Invalid consumer", key="invalid-consumer"),
+        inputs=(
+            AnalysisInput(
+                target=source_output.content.dataset_id,
+                kind="analysis_dataset",
+                content_hash=source_output.content.content_hash,
+                codec=source_output.content.codec,
+                role="data",
+                source=AnalysisPublishedOutputReference(
+                    analysis_record_id=source.id,
+                    output_id="fits",
+                ),
+            ),
+        ),
+    ).fact("score", 1.0)
+
+    with pytest.raises(CheckFailed) as rejected:
+        invalid.save()
+
+    assert rejected.value.problems[0].code == "analysis_input_source_unknown"
 
 
 def test_analysis_revision_owns_its_parameter_proposal_identity(tmp_path: Path) -> None:

@@ -1090,6 +1090,14 @@ export interface components {
             proposal_id: components["schemas"]["_NonEmptyText"];
             record_ref: components["schemas"]["_NonEmptyText"];
         };
+        /**
+         * AnalysisPublishedOutputReference
+         * @description Exact output revision consumed from an earlier analysis on this run.
+         */
+        AnalysisPublishedOutputReference: {
+            analysis_record_id: components["schemas"]["_NonEmptyText"];
+            output_id: components["schemas"]["_NonEmptyText"];
+        };
         /** AnalysisRecord */
         AnalysisRecord: {
             /** Executions */
@@ -1112,11 +1120,12 @@ export interface components {
             content_hash: components["schemas"]["_NonEmptyText"];
             /**
              * Kind
-             * @constant
+             * @enum {string}
              */
-            kind: "measurement_dataset";
+            kind: "measurement_dataset" | "analysis_dataset";
             metadata?: components["schemas"]["JsonMetadata-Output"] | null;
             role: components["schemas"]["_NonEmptyText"];
+            source?: components["schemas"]["AnalysisPublishedOutputReference"] | null;
             target: components["schemas"]["_NonEmptyText"];
             /** Title */
             title?: string | null;

@@ -21,6 +21,7 @@ from reference_lab.parameters import (
 from reference_lab.workflows.flux_spectroscopy import FLUX_SPECTROSCOPY
 
 FLUX_SPECTROSCOPY_ANALYSIS_ID = "reference_lab.flux_spectroscopy.analysis"
+FLUX_SPECTROSCOPY_FIT_REVIEW_ID = "reference_lab.flux_spectroscopy.fit-review"
 FLUX_SPECTROSCOPY_PROPOSAL_ID = "readout-resonator-fit"
 _FIT_MODEL_ID = "reference_lab.complex_s21_notch.v1"
 _FREQUENCY_SCALE_HZ = 1.0e6
@@ -96,6 +97,21 @@ class FluxSpectroscopyAnalysisResult:
 
     fits: tuple[ResonatorTraceFit, ...]
     sweet_spot: ResonatorTraceFit
+
+
+@dataclass(frozen=True, slots=True)
+class FluxSpectroscopyFitReview:
+    """Quality gate derived from the durable fit dataset."""
+
+    worst_complex_rmse: float
+    median_complex_rmse: float
+    accepted: bool
+
+
+FLUX_SPECTROSCOPY_FIT_REVIEW_SCHEMA = sc.AnalysisFactSchema(
+    "reference_lab.flux_spectroscopy.fit-review.v1",
+    FluxSpectroscopyFitReview,
+)
 
 
 class _LeastSquaresResult(Protocol):
@@ -375,6 +391,47 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     )
 
 
+@_COMPUTES.implementation(
+    "reference-lab.flux-spectroscopy-fit-review",
+    "1",
+    input_codecs={"fits": "scopecat.derived-dataset.arrow-ipc.v2"},
+    capabilities=("polars",),
+    deterministic=True,
+)
+def _review_flux_spectroscopy_fits(
+    fits: sc.DerivedDataset,
+) -> FluxSpectroscopyFitReview:
+    frame = fits.to_polars()
+    complex_rmse = frame["complex_rmse"]
+    worst = float(cast("SupportsFloat", complex_rmse.max()))
+    median = float(cast("SupportsFloat", complex_rmse.median()))
+    return FluxSpectroscopyFitReview(
+        worst_complex_rmse=worst,
+        median_complex_rmse=median,
+        accepted=worst <= 0.02,
+    )
+
+
+@sc.analysis_step(id=FLUX_SPECTROSCOPY_FIT_REVIEW_ID)
+def flux_spectroscopy_fit_review(context: sc.AnalysisContext) -> sc.Analysis:
+    """Review a prior fit publication through its exact durable dataset."""
+
+    fits = context.analysis_dataset(
+        FLUX_SPECTROSCOPY_ANALYSIS_ID,
+        "fit-by-bias",
+    )
+    review = context.trace(
+        id="review-fit-quality",
+        fn=_review_flux_spectroscopy_fits,
+        fits=fits,
+    )
+    return context.result("Flux spectroscopy fit quality").fact(
+        "quality-review",
+        review,
+        schema=FLUX_SPECTROSCOPY_FIT_REVIEW_SCHEMA,
+    )
+
+
 def _smooth_power(power: NDArray[np.float64]) -> NDArray[np.float64]:
     padded = np.pad(power, (1, 1), mode="edge")
     return np.convolve(padded, np.full(3, 1.0 / 3.0), mode="valid")
@@ -532,9 +589,13 @@ def _quantity_value(value: sc.Quantity, unit: str) -> float:
 
 __all__ = [
     "FLUX_SPECTROSCOPY_ANALYSIS_ID",
+    "FLUX_SPECTROSCOPY_FIT_REVIEW_ID",
+    "FLUX_SPECTROSCOPY_FIT_REVIEW_SCHEMA",
     "FLUX_SPECTROSCOPY_PROPOSAL_ID",
+    "FluxSpectroscopyFitReview",
     "ResonatorTraceFit",
     "fit_flux_spectroscopy",
     "fit_resonator_trace",
     "flux_spectroscopy_analysis",
+    "flux_spectroscopy_fit_review",
 ]

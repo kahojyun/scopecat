@@ -134,6 +134,21 @@ Use `context.trace(...)` only when that execution evidence or bounded batch
 access is valuable; ordinary library code does not need a wrapper in order to
 publish results.
 
+An analysis may consume a dataset already published by an earlier analysis on
+the same run:
+
+```python
+fits = context.analysis_dataset("resonator-fit", "fit-by-bias")
+frame = fits.to_polars()
+```
+
+The logical analysis key is resolved while authoring. The saved input freezes
+the exact analysis record revision, output ID, dataset content entry, hash, and
+codec. Consequently, publishing a new source revision is a provenance change
+for the consumer even when its Arrow bytes happen to be identical. The source
+must already exist on this run; this API does not schedule steps, read across
+runs, or create workflow-owned state.
+
 Executions and outputs are intentionally separate. Calling `trace(...)` returns
 the native Python value and appends execution evidence to the analysis record;
 it does not decide that the value is a durable user-facing output. Facts,

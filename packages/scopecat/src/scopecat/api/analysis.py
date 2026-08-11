@@ -66,6 +66,7 @@ from scopecat.records._metadata import validate_json_metadata
 from scopecat.records.analysis import (
     ANALYSIS_ARTIFACT_CODEC,
     AnalysisDatasetDerivation,
+    AnalysisDatasetRecordOutput,
     AnalysisDatasetViewSource,
     AnalysisExecution,
     AnalysisExecutionInput,
@@ -78,6 +79,7 @@ from scopecat.records.analysis import (
     AnalysisFigureProjection,
     AnalysisFigureSeries,
     AnalysisFigureView,
+    AnalysisPublishedOutputReference,
     AnalysisTable,
     AnalysisTableCell,
     AnalysisTableColumn,
@@ -768,6 +770,11 @@ class AnalysisContext:
         repr=False,
         compare=False,
     )
+    _execution_targets_by_object_id: dict[int, tuple[object, str]] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def config(self) -> ConfigProfileSnapshot:
@@ -793,6 +800,51 @@ class AnalysisContext:
                 title=dataset.entry.id,
             ),
         )
+        return dataset
+
+    def analysis_dataset(
+        self,
+        analysis: str,
+        output: str,
+        *,
+        role: str = "data",
+        title: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> DerivedDataset:
+        """Load an earlier same-run analysis dataset and retain its exact revision."""
+
+        if not role.strip():
+            _raise_analysis_problem(
+                "analysis_input_role_invalid",
+                "analysis input role must be a non-empty string",
+                "role",
+            )
+        published = self.run.published_analysis(analysis)
+        selected = published.output(output)
+        if not isinstance(selected, AnalysisDatasetRecordOutput):
+            raise TypeError(
+                f"analysis output {published.id!r}:{output!r} is not a dataset"
+            )
+        dataset = published.dataset(output)
+        reference = selected.content
+        source = AnalysisPublishedOutputReference(
+            analysis_record_id=published.id,
+            output_id=selected.id,
+        )
+        self._accessed_inputs.setdefault(
+            reference.dataset_id,
+            AnalysisInput(
+                target=reference.dataset_id,
+                kind="analysis_dataset",
+                content_hash=reference.content_hash,
+                codec=reference.codec,
+                role=role,
+                title=title or selected.title,
+                metadata=metadata,
+                source=source,
+            ),
+        )
+        self._record_input_value(dataset, target=reference.dataset_id)
         return dataset
 
     @overload
@@ -966,12 +1018,22 @@ class AnalysisContext:
         return base if count == 1 else f"{base}-{count}"
 
     def _execution_target_for(self, value: object) -> str | None:
+        retained_target = self._execution_targets_by_object_id.get(id(value))
+        if retained_target is not None and retained_target[0] is value:
+            return retained_target[1]
         try:
             content_hash = _analysis_value_hash(value)
         except TypeError:
             return None
         targets = self._execution_targets_by_value_hash.get(content_hash, ())
         return targets[0] if len(targets) == 1 else None
+
+    def _record_input_value(self, value: object, *, target: str) -> None:
+        self._execution_targets_by_object_id[id(value)] = (value, target)
+        content_hash = _analysis_value_hash(value)
+        targets = self._execution_targets_by_value_hash.get(content_hash, ())
+        if target not in targets:
+            self._execution_targets_by_value_hash[content_hash] = (*targets, target)
 
     def _record_execution_value(
         self,

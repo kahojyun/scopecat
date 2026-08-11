@@ -41,6 +41,7 @@ from scopecat.records.analysis import (
     AnalysisFigureView,
     AnalysisParameterProposalRecordOutput,
     AnalysisParameterProposalReference,
+    AnalysisPublishedOutputReference,
     AnalysisRecord,
     AnalysisRecordInput,
     AnalysisTable,
@@ -460,6 +461,40 @@ def test_analysis_record_rejects_empty_required_text_like_the_wire_contract() ->
             id="table",
             title="",
             content=AnalysisTableView(preview=AnalysisTable.from_rows([{"value": 1}])),
+        )
+
+
+def test_analysis_record_input_requires_source_only_for_analysis_datasets() -> None:
+    source = AnalysisPublishedOutputReference(
+        analysis_record_id="analysis-fit-r2",
+        output_id="fits",
+    )
+    retained = AnalysisRecordInput(
+        target="analysis-fit-r2-fits",
+        kind="analysis_dataset",
+        content_hash=f"sha256:{'0' * 64}",
+        codec="scopecat.derived-dataset.arrow-ipc.v2",
+        role="data",
+        source=source,
+    )
+
+    assert retained.source == source
+    with pytest.raises(ValidationError, match="require one published analysis"):
+        AnalysisRecordInput(
+            target="analysis-fit-r2-fits",
+            kind="analysis_dataset",
+            content_hash=f"sha256:{'0' * 64}",
+            codec="scopecat.derived-dataset.arrow-ipc.v2",
+            role="data",
+        )
+    with pytest.raises(ValidationError, match="require one published analysis"):
+        AnalysisRecordInput(
+            target="raw-measurements",
+            kind="measurement_dataset",
+            content_hash=f"sha256:{'0' * 64}",
+            codec="scopecat.measurement-dataset.v8",
+            role="data",
+            source=source,
         )
 
 
