@@ -703,7 +703,16 @@ class AnalysisContext:
         inputs: Mapping[str, object] | None = None,
         **input_bindings: object,
     ) -> object:
-        """Run ordinary analysis code while retaining optional execution evidence."""
+        """Run eager Python while retaining optional execution evidence.
+
+        The function receives its named inputs directly and returns one native
+        value. Scopecat records dataset/input identities, captured nonlocal
+        names, a diagnostic local-Python implementation identity, and encoded
+        output identity. It does not publish, cache, replay, batch, or remotely
+        deploy the call. A later fact, dataset, or artifact publication links
+        to the execution when its content matches exactly; first-party dataset
+        normalization instead records a derived relation.
+        """
 
         duplicate_inputs = set(inputs or {}) & set(input_bindings)
         if duplicate_inputs:

@@ -94,7 +94,7 @@ The present architecture provides a direct end-to-end baseline:
 - domain compilation uses a backend-declared point capacity;
 - one SQLite writer owns durable ordering while immutable object storage carries
   large content;
-- notebook measurement batches and GUI previews provide bounded read paths.
+- projected Arrow readers and GUI previews provide bounded read paths.
 
 The dense spectroscopy profile measures when eager planning should evolve. The
 other profiles establish whether acquisition volume or history reaches its

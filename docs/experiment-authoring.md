@@ -206,10 +206,90 @@ unit, bound, entity kind, payload schema, array shape, or table schema matters.
 Persistent lab configuration remains a parameter rather than an input because
 it has different ownership, review, and history semantics.
 
-For the normal Cartesian point domain, `experiment.scan(...)` creates the
-coordinate and adds its axis in one call. Use separate `coordinate`, `axis`,
-`grid`, or `points` objects only when an invocation must edit the plan, axes are
-shared externally, or the point cloud is sparse or correlated.
+## Choose and edit the point domain
+
+For the normal Cartesian point domain, each `experiment.scan(...)` call creates
+one typed coordinate, appends its axis in declaration order, and returns the
+symbolic value used by the experiment body:
+
+```python
+bias = experiment.scan("bias", (-0.2, 0.0, 0.2), unit="V")
+power = experiment.scan(
+    "source_power",
+    start=sc.Quantity(-30, "dBm"),
+    stop=sc.Quantity(-10, "dBm"),
+    points=41,
+)
+```
+
+Independent axes form a Cartesian product. Generated axes include both
+endpoints. They may instead use `center` and `span`, where `span` is the full
+coordinate width. Coordinate values remain in their declared unit, including
+logarithmic units such as dBm.
+
+Use separate `coordinate`, `axis`, and `grid` objects when an invocation must
+edit the plan or axes are shared externally:
+
+```python
+power = sc.coordinate("source_power", sc.QuantityType(unit="dBm"))
+experiment.grid(
+    sc.axis(bias, (-0.2, 0.0, 0.2), unit="V"),
+    sc.axis(power, (-30.0, -25.0, -20.0), unit="dBm"),
+    repeat=4,
+    repeat_mode="point",
+    traversal="snake",
+)
+```
+
+`repeat_mode="point"` measures all repeats of one base point before advancing;
+`"sweep"` repeats the complete sweep. Counts above one add a typed `repeat`
+coordinate. Snake traversal reduces retracing but changes only physical
+execution order: logical point identities and durable row order stay canonical.
+
+Use explicit rows when coordinates are correlated, sparse, duplicated, or do
+not form a rectangular product:
+
+```python
+experiment.points(
+    (
+        {bias: sc.Quantity(-0.20, "V"), power: sc.Quantity(-30, "dBm")},
+        {bias: sc.Quantity(-0.05, "V"), power: sc.Quantity(-24, "dBm")},
+        {bias: sc.Quantity(-0.05, "V"), power: sc.Quantity(-24, "dBm")},
+        {bias: sc.Quantity(0.18, "V"), power: sc.Quantity(-17, "dBm")},
+    )
+)
+```
+
+Every row has the same typed coordinate columns; row order and duplicates are
+preserved. For an empty point cloud, pass its columns explicitly with
+`experiment.points((), coordinates=(bias, power))`. A definition chooses either
+grid axes or explicit rows because they carry different domain semantics.
+
+Invocation edits are immutable and orthogonal:
+
+```python
+edited = (
+    spectroscopy()
+    .bind(sample="q0")
+    .with_axis(sc.axis(power, (-35.0, -30.0, -25.0), unit="dBm"))
+    .without_axis(bias)
+    .with_repeat(3, mode="sweep")
+    .with_traversal("snake")
+)
+definition_default = edited.reset_points()
+```
+
+`.grid(...)` and `.points(...)` replace the complete domain while retaining
+repeat policy. Grid replacement retains traversal; explicit rows restore
+forward traversal. `.with_axis(...)` replaces an axis in place or appends one,
+and `.without_axis(...)` applies only to a grid. `reset_points()` discards all
+invocation point-plan edits.
+
+Point plans are materialized before execution. When new points depend on
+measurements, analyze the completed run and submit another ordinary run.
+Durable multi-run state belongs to a future workflow model; adapting points
+inside an executing run requires a separate adaptive-plan abstraction rather
+than hidden mutation of this static plan.
 
 ## Compute scalar and array data uniformly
 
@@ -346,48 +426,12 @@ replay promise. Put every value that affects the scientific result on the
 explicit input graph with a symbolic reference or `constant(...)`; captures are
 diagnostic evidence, not a second input or execution mechanism.
 
-Completed-data analysis keeps its derived result model as the durable dataset
-and presentation schema. Annotate scalar dataclass fields once, then publish
-those objects directly without constructing a dataframe:
-
-```python
-@dataclass(frozen=True, slots=True)
-class FitPoint:
-    bias: Annotated[
-        sc.Quantity,
-        sc.AnalysisField(id="bias_v", label="Bias", unit="V"),
-    ]
-    resonance: Annotated[
-        sc.Quantity,
-        sc.AnalysisField(id="resonance_ghz", label="Resonance", unit="GHz"),
-    ]
-
-
-context = run.analysis("Resonator fit")
-fits = fit_resonances(context.measurements())
-published = (
-    context.result()
-    .dataset("fits", fits)
-    .table(dataset="fits")
-    .figure(
-        dataset="fits",
-        kind="line",
-        x="bias_v",
-        y="resonance_ghz",
-    )
-    .save()
-)
-```
-
-The shared row projector converts quantities to the declared units and persists
-the selected fields as an Arrow-backed dataset. Table and figure outputs retain
-that dataset relation; publication generates their bounded presentation previews
-and explicit truncation status. Views never own an
-independent copy of scientific data: dynamic analysis should first publish a
-dataset with an explicit field mapping, then project table or figure views from
-that dataset. Ordinary typed fit code does not maintain a second column
-declaration, rebuild aligned x/y arrays, or manually map its rows into pandas or
-Polars.
+Completed-data analysis is ordinary eager Python over a durable run snapshot,
+not another experiment compute placement. It publishes native-library results
+as datasets, then derives bounded table or figure views from those datasets.
+The [analysis publication guide](analysis-publication.md) owns that workflow,
+including annotated rows, dataframe field mappings, artifacts, facts, and
+parameter proposals.
 
 ## Inspect placement and liveness before running
 

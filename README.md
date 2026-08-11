@@ -122,8 +122,9 @@ my-lab/
 See the [lab daemon model](docs/lab-daemon.md) and
 [`scopecat-server` setup](packages/scopecat-server/README.md), then continue
 with [the reference lab gallery](examples/reference_lab/README.md). The
-[measurement data workflow](docs/measurement-data.md) covers explicit point
-rows, ragged results, notebook slicing, ecosystem exports, and automatic GUI
+[experiment authoring guide](docs/experiment-authoring.md) covers grids and
+explicit point rows; the [measurement data workflow](docs/measurement-data.md)
+covers ragged results, notebook selection, ecosystem exports, and automatic GUI
 plots. The package READMEs
 describe the smaller public entry points for
 [`scopecat`](packages/scopecat/README.md) and

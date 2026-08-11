@@ -41,6 +41,67 @@ artifacts live as separate run content entries; the record stores typed
 references. This keeps one atomic publication without embedding every payload
 in one JSON record.
 
+## Publish ordinary Python results
+
+Exploratory analysis starts from a run context, performs numerical work in its
+native library, and publishes only the outputs worth retaining:
+
+```python
+context = run.analysis("Resonator fit", key="resonator-fit")
+measurements = context.measurements()
+
+frame = measurements.project(
+    {"bias": "dc_bias", "response": "signal"},
+    units={"bias": "V"},
+    identity=False,
+).to_polars()
+fits = fit_with_polars(frame)
+
+published = (
+    context.result()
+    .dataset(
+        "fits",
+        fits,
+        fields={
+            "bias": sc.AnalysisField(role="coordinate", unit="V"),
+            "resonance": sc.AnalysisField(unit="GHz"),
+        },
+    )
+    .table(dataset="fits", columns=("bias", "resonance"))
+    .figure(dataset="fits", kind="line", x="bias", y="resonance")
+    .fact("fit-quality", float(fits["quality"].mean()))
+    .artifact("report", text=render_report(fits), filename="fit.md")
+    .save()
+)
+```
+
+Tables and figures project the published dataset; they do not own another copy
+of the scientific values. Reopen the same typed boundary by logical key or exact
+record ID:
+
+```python
+published = run.published_analysis("resonator-fit")
+fits = published.dataset("fits").to_polars()
+quality = published.fact("fit-quality").value
+report = published.artifact("report").text()
+```
+
+A reusable step returns the same declarative result and lets `run.analyze(...)`
+publish it:
+
+```python
+@sc.analysis_step(id="resonator-fit")
+def resonator_fit(context: sc.AnalysisContext) -> sc.Analysis:
+    fits = fit_with_scipy(context.measurements())
+    return context.result("Resonator fit").dataset("fits", fits)
+
+
+published = run.analyze(resonator_fit())
+```
+
+Both paths return `PublishedAnalysis`; there is no separate immediate outcome
+model.
+
 ## Logical keys and immutable revisions
 
 The author supplies one logical analysis `key`, not a version number. The first
@@ -169,68 +230,32 @@ runs, or create workflow-owned state.
 
 ### Optional execution evidence
 
-A traced analysis execution may retain a diagnostic Python implementation
-identity, captures, named input bindings, and the content identity of its one
-native return value. Use `context.trace(...)` only when that evidence is useful;
-it is not part of the basic publication path, a batch-processing API, or a
-deployable compute contract. The function receives the full durable dataset and
-runs as ordinary eager Python.
+A traced call retains optional evidence about one ordinary eager Python call:
+its named inputs, captured names, diagnostic implementation identity, and the
+content identity of one native return value. `context.trace(...)` returns that
+value but does not publish, cache, batch, replay, or remotely deploy it.
 
-Calling `trace(...)` returns the native value and appends execution evidence; it
-does not publish the value. Facts, datasets, views, artifacts, and proposals
-remain explicit choices. When a published fact, dataset, or artifact exactly
-matches the traced value's content identity, Scopecat records `produced_by`
-automatically. Applying the first-party dataset adapter with field mappings or
-a different pandas index policy records `derived_from` and its adapter
-arguments instead. Authors do not pass provenance handles through numerical
-code, while the record still distinguishes exact production from normalization.
+When a published fact, dataset, or artifact exactly matches the traced output,
+Scopecat records `produced_by`. First-party dataset normalization, such as a
+field mapping or pandas index policy, records `derived_from` instead. Publication
+remains explicit, and numerical code never passes provenance handles.
 
-The execution output stores a codec and content hash, not the intermediate
-value. It is audit evidence and a provenance target, not a cache, checkpoint,
-replay promise, or remote implementation registry. A richer execution system
-needs explicit environment, deployment, streaming-window, checkpoint, and
-recovery semantics and belongs to a future workflow design.
-
-A traced function may return exact `bytes` or a file `Path`. Publishing the
-same content with `artifact(...)` retains the execution link while filename and
-media type remain publication choices. Returning text remains a normal value;
-encoding it as a file is a conversion rather than exact production.
-
-A parameter proposal may add `evidence=("selected-fit", "fit-quality")` to cite
-authoritative outputs already published by the same analysis builder. The
-proposal stores those analysis-local output IDs, so review can navigate to the
-exact durable facts, datasets, or artifacts behind the change. Table and figure
-views are deliberately not evidence targets because their previews are bounded
-presentation caches; cite their source dataset instead. This is a shallow
-publication relation, not a general-purpose analysis DAG.
+A parameter proposal may cite authoritative facts, datasets, or artifacts from
+the same publication with `evidence=("selected-fit", "fit-quality")`. Views are
+bounded presentation caches, so cite their source dataset instead.
 
 Experiment `compute(...)` is a different lifecycle: it is a node in the formal
 experiment program and may run before or during acquisition. Analysis
 `trace(...)` is an optional record of ordinary eager code over a run snapshot.
 The similar function call does not make them one placement or deployment model.
 
-Views refer to datasets, and proposals may refer to authoritative outputs inside
-their producing analysis. Future relations should likewise use stable output IDs
-rather than display titles or tuple positions. Titles and labels remain
-presentation metadata.
-
 ## Structured fact contract
 
-A structured fact has a versioned domain `schema_id`, an explicit Scopecat
-`schema_codec`, a fingerprint of that codec's structural schema, and canonical
-JSON content. The schema ID says what the conclusion means; the codec defines
-how its shape is described; the fingerprint detects accidental reuse of that ID
-for a different shape. The durable record deliberately does not contain a
-Python module or import path.
-
-The first structural codec owns a deliberately small JSON type system: null,
-boolean, integer, float, string, literal, union, array, tuple, string-keyed
-mapping, object, and quantity. Dataclass and Pydantic types are local validation
-and reconstruction adapters for that type system. Python class names,
-docstrings, default values, Pydantic's generated JSON Schema, and
-`AnalysisField` projection metadata do not affect the fingerprint. This keeps a
-refactor or dependency upgrade from creating a false schema change while still
-making a real field or type change visible.
+A structured fact has a versioned domain `schema_id`, canonical JSON content,
+and a fingerprint of Scopecat's structural schema. Dataclass and Pydantic types
+are local validation and reconstruction adapters; the durable record never
+depends on their import paths. The exact structural identity rules belong to
+`AnalysisFactSchema` itself.
 
 Define the local type and its schema descriptor together, then reuse the
 descriptor for publication and typed reading:

@@ -62,7 +62,7 @@ identity. An explicit `id=` distinguishes definitions when needed, while
 Every invocation resolves to one `PointPlan`: a grid or ordered point cloud,
 plus repeat and traversal policy. Invocation edits replace or adjust that plan
 without changing the experiment definition. The
-[measurement data guide](measurement-data.md#repeat-traverse-and-edit-a-point-plan)
+[experiment authoring guide](experiment-authoring.md#choose-and-edit-the-point-domain)
 is the canonical task guide; the `PointPlan` docstring defines its exact local
 contract. Point plans are static for an admitted run; measurement-dependent
 selection across runs belongs to a future workflow model.

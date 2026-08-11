@@ -1,4 +1,11 @@
-"""Transcript transports for driver tests and notebook prototyping."""
+"""Strict transcript transports for driver tests and notebook prototyping.
+
+Generated adapters own the generic driver envelopes and ref mapping; concrete
+drivers receive typed patches and operation/acquisition arguments. These helpers
+therefore exercise device policy at the transport boundary: ``ScriptedTransport``
+checks every command and response in order and ``assert_complete()`` verifies
+that the driver consumed the complete expected exchange.
+"""
 
 from __future__ import annotations
 
@@ -29,7 +36,7 @@ class TranscriptEntry:
 
 
 class ScriptedTransport:
-    """Strict ordered transcript used to test exact commands and parsing."""
+    """Transport that validates and records one ordered SCPI transcript."""
 
     def __init__(self, exchanges: list[ScriptedExchange]) -> None:
         self._exchanges = tuple(exchanges)

@@ -324,7 +324,7 @@ function emptyChartMessage({
     if (sliceError) return "The selected product-grid slice could not be read.";
     if (slicePending || !slice) return "Reading the selected product-grid slice before plotting.";
     if (slice.truncated) {
-      return "The selected slice is too large for an automatic plot. Use notebook batch reads for analysis.";
+      return "The selected slice is too large for an automatic plot. Use a projected Arrow reader for analysis.";
     }
     if (slice.items.length < slice.selectedPointCount) {
       return `The selected slice is incomplete: ${slice.items.length.toLocaleString()} of ${slice.selectedPointCount.toLocaleString()} points are durable. The plot will appear when the grid is complete.`;

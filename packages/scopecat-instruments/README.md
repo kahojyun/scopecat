@@ -225,22 +225,13 @@ Virtual drivers created by one provider share a deterministic virtual lab
 world, so bias, RF heating, temperature, and the VNA response interact across
 sessions.
 
-## Driver tests
+## Testing
 
-The worker exchanges generic `DriverState`, `DriverStatePatch`,
-`DriverOperation`, `DriverAcquisition`, and `DriverReadback` values with generated
-adapters. A concrete driver receives typed patches or composite patches, decoded
-operation arguments, and one typed hook per acquisition, and returns complete
-typed snapshots or readbacks inside `DriverSuccess`, `DriverRejected`, or
-`DriverUnknown`. Adapters own generic envelopes and ref mapping; SCPI sequencing,
-temporary output or measurement changes, hardware-profile checks, and
-device-specific validation remain driver policy.
-
-Transcript helpers live in the explicit testing module:
+The explicit testing module provides strict SCPI transcript helpers:
 
 ```python
 from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
 ```
 
-`ScriptedTransport` asserts an ordered command/response transcript and verifies
-that every expected exchange was consumed.
+Their docstrings define the transport contract; driver tests keep exact device
+sequences beside the implementations they verify.

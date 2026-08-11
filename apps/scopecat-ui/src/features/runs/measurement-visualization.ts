@@ -124,6 +124,7 @@ export interface MeasurementTableModel {
   rows: MeasurementTableRow[];
 }
 
+/** Derive only schema-safe automatic plots; unsupported shapes remain tabular. */
 export function planMeasurementCharts(
   records: MeasurementRecord[],
   schema?: MeasurementDatasetSchema,
@@ -140,6 +141,7 @@ export function planMeasurementCharts(
   return [...gridPlans, ...colorPlans, ...scalarPlans];
 }
 
+/** Choose bounded server projection axes for one product-grid slice. */
 export function measurementSlicePlan(
   schema?: MeasurementDatasetSchema,
 ): MeasurementSlicePlan | undefined {
@@ -186,6 +188,7 @@ export function measurementSlicePlan(
   };
 }
 
+/** Pair aligned rank-one coordinates and observables for trace previews. */
 export function measurementTraceQueryPlans(
   schema?: MeasurementDatasetSchema,
 ): MeasurementTraceQueryPlan[] {

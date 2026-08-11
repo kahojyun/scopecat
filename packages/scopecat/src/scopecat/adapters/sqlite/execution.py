@@ -571,7 +571,15 @@ class SQLiteMeasurementDatasetRepository:
         MeasurementDatasetSchema | None,
         int,
     ]:
-        """Read one record page against an append-stable finite snapshot."""
+        """Read one record page against an append-stable finite snapshot.
+
+        The first call may select the current append watermark; subsequent
+        calls pass it back as ``snapshot_size`` so concurrent appends never
+        extend the read. Storage is an ordered sequence of immutable Arrow IPC
+        append blobs. Only blobs intersecting ``[offset, offset + limit)`` are
+        opened, and ``variable_ids`` limits model decoding and transport even
+        though one intersecting blob remains the physical I/O unit.
+        """
 
         try:
             with closing(self._runs.sqlite.connect()) as connection:

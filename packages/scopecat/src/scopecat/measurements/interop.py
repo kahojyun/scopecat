@@ -452,7 +452,15 @@ class MeasurementDataProjection:
         }
 
     def to_record_batch_reader(self, *, batch_size: int = 100) -> pa.RecordBatchReader:
-        """Read this projection as one finite, snapshot-pinned Arrow stream."""
+        """Read this projection as one finite, snapshot-pinned Arrow stream.
+
+        A lazy run-backed dataset pushes the selected variables, names, units,
+        diagnostics, identity policy, and layout into daemon paging. The first
+        page pins the durable point count. A materialized or sliced dataset is
+        projected once locally and divided into batches. ``batch_size`` bounds
+        source points; observation layout can expand a point into multiple
+        returned rows, which are split again to keep Arrow batches bounded.
+        """
 
         if not 1 <= batch_size <= MAX_MEASUREMENT_PAGE_SIZE:
             raise ValueError(

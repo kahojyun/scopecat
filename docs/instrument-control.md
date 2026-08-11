@@ -104,8 +104,8 @@ Product namespaces derive from the capability and effect occurrence. Supply an
 explicit acquisition `id=` when an occurrence is part of a durable data
 contract. Returning a complete result bundle preserves its declared coordinate,
 observable, axis, and acquisition-group relationships. The
-[measurement data guide](measurement-data.md#return-what-should-be-recorded) is
-the canonical durable-result reference.
+[experiment authoring guide](experiment-authoring.md#return-the-result-you-mean-to-keep)
+is the canonical durable-result reference.
 
 ### Select equivalent resources by role
 
@@ -194,7 +194,29 @@ select the IQ sideband directly.
 
 The scanned LO is already a durable point coordinate. Record the derived carrier
 as another coordinate so plots and exports retain both the requested control and
-its physical meaning. The reference lab's
+its physical meaning:
+
+```python
+@dataclass(frozen=True)
+class SpectrumResult:
+    rf_frequency: Annotated[
+        sc.ValueRef[sc.Quantity],
+        sc.Result(
+            role="coordinate",
+            metadata={
+                "relation": "rf_frequency = lo_frequency + signed_if",
+                "signed_if_hz": -100_000_000.0,
+            },
+        ),
+    ]
+
+
+lo = experiment.scan("lo_frequency", (4.9, 5.0, 5.1), unit="GHz")
+rf = lo + sc.Quantity(-100, "MHz")
+return SpectrumResult(rf_frequency=rf)
+```
+
+The reference lab's
 [`xy_drive` workflow](../examples/reference_lab/src/reference_lab/workflows/xy_drive.py)
 shows this composition, and the
 [`fixed-IF quantum sweep`](../examples/reference_lab/notebooks/36_q0_fixed_if_lo_sweep.py)
