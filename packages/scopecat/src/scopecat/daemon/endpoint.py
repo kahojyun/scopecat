@@ -10,6 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 DAEMON_URL_ENV = "SCOPECAT_DAEMON_URL"
 DAEMON_RECORD_NAME = "daemon.json"
+DAEMON_SHUTDOWN_PATH = "/api/v1/shutdown"
+DAEMON_SHUTDOWN_TOKEN_HEADER = "X-Scopecat-Shutdown-Token"  # noqa: S105
 
 
 class DaemonEndpointError(RuntimeError):
@@ -25,6 +27,7 @@ class DaemonEndpointRecord(BaseModel):
     pid: int = Field(gt=0)
     process_create_time: float = Field(gt=0)
     base_url: str = Field(min_length=1)
+    shutdown_token: str = Field(min_length=32)
     started_at: datetime
 
 
@@ -80,6 +83,8 @@ def resolve_daemon_endpoint(
 
 __all__ = [
     "DAEMON_RECORD_NAME",
+    "DAEMON_SHUTDOWN_PATH",
+    "DAEMON_SHUTDOWN_TOKEN_HEADER",
     "DAEMON_URL_ENV",
     "DaemonEndpointError",
     "DaemonEndpointRecord",

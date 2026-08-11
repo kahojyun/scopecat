@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import suppress
 from datetime import timedelta
 from hashlib import sha256
@@ -191,8 +192,17 @@ class LocalDaemonRuntime:
             self._owner_lock.release()
             raise
 
-    def app(self, *, static_dir: str | Path | None = None) -> FastAPI:
-        return create_app(self.application, static_dir=static_dir)
+    def app(
+        self,
+        *,
+        static_dir: str | Path | None = None,
+        request_shutdown: Callable[[str], bool] | None = None,
+    ) -> FastAPI:
+        return create_app(
+            self.application,
+            static_dir=static_dir,
+            request_shutdown=request_shutdown,
+        )
 
     def close(self) -> None:
         with self._close_lock:
