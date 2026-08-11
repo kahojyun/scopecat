@@ -24,7 +24,7 @@ from scopecat.sdk.compute import compute_capture_names_internal
 
 type _BindingKind = Literal["input", "coordinate", "parameter"]
 type _BindingKey = tuple[_BindingKind, str]
-_BUNDLE_FIELD_IMPLEMENTATION = "registry:scopecat.bundle-field@1"
+_BUNDLE_FIELD_IMPLEMENTATION = "internal:scopecat.bundle-field@1"
 
 
 def build_run_program_preview(
@@ -186,13 +186,13 @@ def _preview_computes(program: RunProgram) -> tuple[ExperimentPreviewCompute, ..
             )
     observation_value_demands: dict[object, list[str]] = {}
     observation_product_demands: dict[object, list[str]] = {}
-    for postprocessor in program.measurement_postprocessors:
-        demand = f"compute:{postprocessor.id.qualified_name}"
-        for value_input in postprocessor.value_inputs:
+    for compute in program.measurement_computes:
+        demand = f"compute:{compute.id.qualified_name}"
+        for value_input in compute.value_inputs:
             observation_value_demands.setdefault(value_input.value_id, []).append(
                 demand
             )
-        for product_input in postprocessor.inputs:
+        for product_input in compute.inputs:
             observation_product_demands.setdefault(product_input.product_id, []).append(
                 demand
             )
@@ -276,11 +276,11 @@ def _preview_computes(program: RunProgram) -> tuple[ExperimentPreviewCompute, ..
             )
         )
 
-    for postprocessor in program.measurement_postprocessors:
+    for compute in program.measurement_computes:
         demands = tuple(
             dict.fromkeys(
                 demand
-                for output in postprocessor.outputs
+                for output in compute.outputs
                 for demand in (
                     *product_record_demands.get(output.product_id, ()),
                     *observation_product_demands.get(output.product_id, ()),
@@ -289,22 +289,21 @@ def _preview_computes(program: RunProgram) -> tuple[ExperimentPreviewCompute, ..
         )
         computes.append(
             ExperimentPreviewCompute(
-                id=postprocessor.id.qualified_name,
+                id=compute.id.qualified_name,
                 placement="observation",
                 implementation=(
-                    postprocessor.implementation
-                    or f"python:{postprocessor.id.qualified_name}"
+                    compute.implementation or f"python:{compute.id.qualified_name}"
                 ),
-                deterministic=postprocessor.deterministic,
+                deterministic=compute.deterministic,
                 inputs=(
-                    *(input.id for input in postprocessor.inputs),
-                    *(input.id for input in postprocessor.value_inputs),
+                    *(input.id for input in compute.inputs),
+                    *(input.id for input in compute.value_inputs),
                 ),
                 outputs=tuple(
-                    output.product_id.qualified_name for output in postprocessor.outputs
+                    output.product_id.qualified_name for output in compute.outputs
                 ),
                 demanded_by=demands,
-                captures=postprocessor.captures,
+                captures=compute.captures,
             )
         )
     return tuple(computes)

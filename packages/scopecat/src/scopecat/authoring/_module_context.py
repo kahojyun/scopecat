@@ -74,15 +74,15 @@ from scopecat.program.bindings import (
 from scopecat.program.bindings import bind_property as binding_property
 from scopecat.program.domain import DomainCall
 from scopecat.program.input_capture import capture_runtime_input
-from scopecat.program.measurement_contracts import SingleMeasurementPostprocessorKernel
+from scopecat.program.measurement_contracts import SingleMeasurementComputeKernel
 from scopecat.program.measurement_types import (
     MeasurementDType,
     measurement_value_spec_from_scalar,
 )
 from scopecat.program.measurements import (
-    MeasurementPostprocessor,
+    MeasurementCompute,
     create_measurement_compute_internal,
-    create_measurement_postprocessor_internal,
+    create_single_measurement_compute_internal,
 )
 from scopecat.program.module import (
     ModuleAcquireEffect,
@@ -132,19 +132,18 @@ from scopecat.records.measurement import (
     MeasurementValue,
 )
 from scopecat.sdk.compute import (
-    ComputeRegistry,
     compute_capture_names_internal,
-    compute_implementation_contract_internal,
+    compute_implementation_internal,
+    mark_compute_implementation_internal,
 )
 
 type BindingInput = StateBinding
 type InvocationInput = BindingInput | None
 
-_INTERNAL_COMPUTES = ComputeRegistry()
 _BUNDLE_FIELD_IMPLEMENTATION = "scopecat.bundle-field"
 
 
-@_INTERNAL_COMPUTES.implementation(_BUNDLE_FIELD_IMPLEMENTATION, "1")
+@mark_compute_implementation_internal(_BUNDLE_FIELD_IMPLEMENTATION, "1")
 def _bundle_field(
     *,
     bundle: object,
@@ -462,7 +461,7 @@ class ModuleContext:
         "_effect_namespaces",
         "_effects",
         "_local_value_ids",
-        "_measurement_postprocessors",
+        "_measurement_computes",
         "_operations",
         "_owner",
         "_product_declarations",
@@ -491,7 +490,7 @@ class ModuleContext:
         self._effects: list[ModuleEffect] = []
         self._operations: list[ModuleOperationDecl] = []
         self._python_implementations: list[ModulePythonImplementation] = []
-        self._measurement_postprocessors: list[MeasurementPostprocessor] = []
+        self._measurement_computes: list[MeasurementCompute] = []
         self._product_declarations: list[ModuleProductDecl] = []
 
     def append_invocation_internal[ResultT](
@@ -744,7 +743,7 @@ class ModuleContext:
         return ModuleBody(
             effects=tuple(self._effects),
             operations=tuple(self._operations),
-            measurement_postprocessors=tuple(self._measurement_postprocessors),
+            measurement_computes=tuple(self._measurement_computes),
             products=tuple(self._product_declarations),
         )
 
@@ -1444,8 +1443,8 @@ class ModuleContext:
                 for name, value_type in output_types.items()
             }
 
-        implementation = compute_implementation_contract_internal(fn)
-        self._measurement_postprocessors.append(
+        implementation = compute_implementation_internal(fn)
+        self._measurement_computes.append(
             create_measurement_compute_internal(
                 id,
                 inputs=product_inputs,
@@ -1465,18 +1464,18 @@ class ModuleContext:
             return create_product_bundle_internal(bundle_type, outputs)
         return ProductRefs(outputs) if structured else outputs["result"]
 
-    def _postprocess(
+    def _measurement_compute(
         self,
         id: str,
         *,
         input: ProductRef,
         outputs: Mapping[str, ProductRef],
-        kernel: SingleMeasurementPostprocessorKernel,
+        kernel: SingleMeasurementComputeKernel,
     ) -> None:
         """Register a typed producer's point-local measurement calculation."""
 
-        self._measurement_postprocessors.append(
-            create_measurement_postprocessor_internal(
+        self._measurement_computes.append(
+            create_single_measurement_compute_internal(
                 id,
                 input=input,
                 outputs=outputs,

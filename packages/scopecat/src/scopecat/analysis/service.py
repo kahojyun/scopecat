@@ -212,6 +212,7 @@ def prepare_analysis(
 
     base_record_id = f"analysis-{analysis_key}"
     _validate_analysis_output_ids(outputs)
+    _validate_analysis_views(outputs)
     _validate_analysis_execution_outputs(executions, outputs)
     _validate_analysis_inputs(
         services=services,
@@ -825,6 +826,45 @@ def _validate_analysis_output_ids(outputs: Sequence[AnalysisOutput]) -> None:
             "analysis output ids must be unique",
             "outputs",
         )
+
+
+def _validate_analysis_views(outputs: Sequence[AnalysisOutput]) -> None:
+    dataset_fields = {
+        output.id: {field.name for field in output.content.schema.fields}
+        for output in outputs
+        if isinstance(output, AnalysisDatasetOutput)
+    }
+    for index, output in enumerate(outputs):
+        if not isinstance(output, AnalysisTableOutput | AnalysisFigureOutput):
+            continue
+        source_id = output.content.source.output_id
+        available_fields = dataset_fields.get(source_id)
+        if available_fields is None:
+            _raise_analysis_problem(
+                "analysis_view_source_unknown",
+                "analysis view source must identify a dataset output",
+                "outputs",
+                index,
+                "content",
+                "source",
+            )
+        if isinstance(output, AnalysisTableOutput):
+            projected_fields = set(output.content.columns)
+        else:
+            projection = output.content.projection
+            projected_fields = {projection.x, projection.y}
+            if projection.series is not None:
+                projected_fields.add(projection.series)
+        unknown_fields = projected_fields - available_fields
+        if unknown_fields:
+            _raise_analysis_problem(
+                "analysis_view_projection_unknown",
+                "analysis view projection must identify dataset fields: "
+                + ", ".join(sorted(unknown_fields)),
+                "outputs",
+                index,
+                "content",
+            )
 
 
 def _validate_analysis_execution_outputs(

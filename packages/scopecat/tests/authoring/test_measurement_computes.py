@@ -39,15 +39,15 @@ def _identity(value: MeasurementValue) -> dict[str, MeasurementValue]:
     return {"result": value}
 
 
-def test_module_requires_postprocessor_products_and_unique_ids() -> None:
+def test_module_requires_compute_products_and_unique_ids() -> None:
     foreign = sc.ModuleContext()._product("raw")
 
     with pytest.raises(ValueError, match="outside this module"):
 
-        @sc.module(id="test.postprocessor.missing")
+        @sc.module(id="test.compute.missing")
         def missing(context: sc.ModuleContext) -> None:
             derived = context._product("derived")
-            context._postprocess(
+            context._measurement_compute(
                 "derive",
                 input=foreign,
                 outputs={"result": derived},
@@ -59,17 +59,17 @@ def test_module_requires_postprocessor_products_and_unique_ids() -> None:
         match="duplicate module measurement compute ids",
     ):
 
-        @sc.module(id="test.postprocessor.duplicate")
+        @sc.module(id="test.compute.duplicate")
         def duplicate(context: sc.ModuleContext) -> None:
             raw = context._product("raw")
             derived = context._product("derived")
-            context._postprocess(
+            context._measurement_compute(
                 "derive",
                 input=raw,
                 outputs={"result": derived},
                 kernel=_identity,
             )
-            context._postprocess(
+            context._measurement_compute(
                 "derive",
                 input=raw,
                 outputs={"result": derived},
@@ -77,44 +77,44 @@ def test_module_requires_postprocessor_products_and_unique_ids() -> None:
             )
 
 
-def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
-    @sc.module(id="test.postprocessor.source")
+def test_compute_reads_child_product_and_is_hygienically_scoped() -> None:
+    @sc.module(id="test.compute.source")
     def child(context: sc.ModuleContext) -> sc.ProductRef:
         return context._product("raw")
 
     nested = child.instantiate("nested")
 
-    @sc.module(id="test.postprocessor.parent")
+    @sc.module(id="test.compute.parent")
     def module(context: sc.ModuleContext) -> None:
         context.use(nested)
         derived = context._product("derived")
-        context._postprocess(
+        context._measurement_compute(
             "derive",
             input=nested.result,
             outputs={"result": derived},
             kernel=_identity,
         )
 
-    [lowered] = compose_module(module.definition).measurement_postprocessors
+    [lowered] = compose_module(module.definition).measurement_computes
     assert lowered.inputs[0][1].qualified_name == "nested/raw"
     assert lowered.outputs[0][1].qualified_name == "derived"
 
-    @sc.module(id="test.postprocessor.child")
+    @sc.module(id="test.compute.child")
     def nested_module(context: sc.ModuleContext) -> None:
         raw = context._product("raw")
         derived = context._product("derived")
-        context._postprocess(
+        context._measurement_compute(
             "derive",
             input=raw,
             outputs={"result": derived},
             kernel=_identity,
         )
 
-    @sc.module(id="test.postprocessor.root")
+    @sc.module(id="test.compute.root")
     def root(context: sc.ModuleContext) -> None:
         context.use(nested_module.instantiate("nested"))
 
-    [scoped] = compose_module(root.definition).measurement_postprocessors
+    [scoped] = compose_module(root.definition).measurement_computes
     assert scoped.id.qualified_name == "nested/derive"
     assert scoped.inputs[0][1].qualified_name == "nested/raw"
 
@@ -140,7 +140,7 @@ def test_compute_lowers_multiple_measured_inputs_to_the_observation_stage() -> N
 
     logical = compose_module(module.definition)
 
-    [compute] = logical.measurement_postprocessors
+    [compute] = logical.measurement_computes
     assert [(name, product.qualified_name) for name, product in compute.inputs] == [
         ("left", "left"),
         ("right", "right"),
@@ -190,7 +190,7 @@ def test_compute_joins_measured_products_with_earlier_compute_values() -> None:
     logical = compose_module(module.definition)
 
     [threshold] = logical.compute_nodes
-    [classify] = logical.measurement_postprocessors
+    [classify] = logical.measurement_computes
     assert classify.value_inputs == (("threshold", threshold.result_id),)
     result = classify.kernel(
         {
@@ -215,7 +215,7 @@ def test_convert_preserves_measurement_availability_and_converts_native_values()
 
     logical = compose_module(module.definition)
 
-    [conversion] = logical.measurement_postprocessors
+    [conversion] = logical.measurement_computes
     assert conversion.id.local_id == "convert_unit_value"
     assert [name for name, _binding in conversion.value_inputs] == [
         "source_unit",
@@ -249,7 +249,7 @@ def test_convert_preserves_local_array_shape() -> None:
         )
         return context.convert(trace, "mV")
 
-    [conversion] = compose_module(module.definition).measurement_postprocessors
+    [conversion] = compose_module(module.definition).measurement_computes
     result = conversion.kernel(
         {
             "value": MeasurementArray.create(
@@ -295,7 +295,7 @@ def test_compute_instantiates_an_annotated_product_bundle_schema() -> None:
         == "typed-structured-compute/probabilities/negative"
     )
 
-    [compute] = compose_module(module.definition).measurement_postprocessors
+    [compute] = compose_module(module.definition).measurement_computes
     output = compute.kernel(
         {
             "signal": MeasurementScalar.create(
@@ -331,13 +331,6 @@ def test_compute_instantiates_an_annotated_product_bundle_schema() -> None:
 
 
 def test_measured_compute_infers_bool_output_and_binds_keyword_inputs() -> None:
-    registry = sc.ComputeRegistry()
-
-    @registry.implementation(
-        "test.measurement.classify",
-        "1",
-        deterministic=False,
-    )
     def classify(*, signal: float, threshold: float) -> bool:
         return signal >= threshold
 
@@ -352,10 +345,10 @@ def test_measured_compute_infers_bool_output_and_binds_keyword_inputs() -> None:
         assert isinstance(result, sc.ProductRef)
         return result
 
-    [compute] = module.definition.body.measurement_postprocessors
+    [compute] = module.definition.body.measurement_computes
     assert [name for name, _product in compute.input_bindings] == ["signal"]
     assert [name for name, _value in compute.value_input_bindings] == ["threshold"]
-    assert compute.implementation == "registry:test.measurement.classify@1"
+    assert compute.implementation is None
     assert not compute.deterministic
     assert module().result.value_spec.dtype == "bool"
 
@@ -420,19 +413,19 @@ def test_compute_parameter_annotations_validate_array_dimension_identity() -> No
             context.compute(fn=peak, trace=trace)
 
 
-def test_postprocessor_chaining_is_sorted_by_dependency() -> None:
-    @sc.module(id="test.postprocessor.chain")
+def test_compute_chaining_is_sorted_by_dependency() -> None:
+    @sc.module(id="test.compute.chain")
     def module(context: sc.ModuleContext) -> None:
         raw = context._product("raw")
         middle = context._product("middle")
         derived = context._product("derived")
-        context._postprocess(
+        context._measurement_compute(
             "second",
             input=middle,
             outputs={"result": derived},
             kernel=_identity,
         )
-        context._postprocess(
+        context._measurement_compute(
             "first",
             input=raw,
             outputs={"result": middle},
@@ -442,12 +435,11 @@ def test_postprocessor_chaining_is_sorted_by_dependency() -> None:
     verified = verify_logical_program(compose_module(module.definition))
 
     assert [
-        postprocessor.id.qualified_name
-        for postprocessor in verified.program.measurement_postprocessors
+        compute.id.qualified_name for compute in verified.program.measurement_computes
     ] == ["first", "second"]
 
 
-def test_domain_and_postprocessor_cannot_own_the_same_product() -> None:
+def test_domain_and_compute_cannot_own_the_same_product() -> None:
     program = domain_program(
         "program",
         dialect_id="test",
@@ -456,11 +448,11 @@ def test_domain_and_postprocessor_cannot_own_the_same_product() -> None:
         results={"raw": None},
     )
 
-    @sc.module(id="test.postprocessor.owner")
+    @sc.module(id="test.compute.owner")
     def module(context: sc.ModuleContext) -> None:
         call = domain_call(program)
         source = context._product("source")
-        context._postprocess(
+        context._measurement_compute(
             "derive",
             input=source,
             outputs={"result": call.results.raw},

@@ -38,13 +38,17 @@ def test_candidate_config_resolves_proposal_and_runs_follow_up(
 ) -> None:
     lab = _lab(tmp_path)
     run = lab.prepare(load_invocation()).run()
-    analysis = run.analysis("manual readout review").propose(
-        "drive_frequency",
-        sc.replace_scalar_parameter(
+    analysis = (
+        run.analysis("manual readout review")
+        .result()
+        .propose(
             "drive_frequency",
-            sc.Quantity(5.5, "GHz"),
-        ),
-        confidence=0.9,
+            sc.replace_scalar_parameter(
+                "drive_frequency",
+                sc.Quantity(5.5, "GHz"),
+            ),
+            confidence=0.9,
+        )
     )
     outcome = analysis.save()
     candidate = outcome.candidate_config()
@@ -75,12 +79,16 @@ def test_candidate_checks_and_run_leave_source_run_unchanged(
 ) -> None:
     lab = _lab(tmp_path)
     source_run = lab.prepare(load_invocation()).run()
-    analysis = source_run.analysis("read-only candidate").propose(
-        "drive-frequency",
-        sc.replace_scalar_parameter(
-            "drive_frequency",
-            sc.Quantity(5.4, "GHz"),
-        ),
+    analysis = (
+        source_run.analysis("read-only candidate")
+        .result()
+        .propose(
+            "drive-frequency",
+            sc.replace_scalar_parameter(
+                "drive_frequency",
+                sc.Quantity(5.4, "GHz"),
+            ),
+        )
     )
     outcome = analysis.save()
     candidate = outcome.candidate_config()
@@ -112,6 +120,7 @@ def test_published_analysis_selects_one_of_multiple_durable_proposals(
     run = _lab(tmp_path).prepare(load_invocation()).run()
     published = (
         run.analysis("alternative fits")
+        .result()
         .propose(
             "first-fit",
             sc.replace_scalar_parameter(
@@ -161,7 +170,7 @@ def test_analysis_rejects_invalid_update_at_propose(
     run = _lab(tmp_path).prepare(load_invocation()).run()
 
     with pytest.raises(CheckFailed) as error:
-        run.analysis("invalid proposal").propose("invalid", update)
+        run.analysis("invalid proposal").result().propose("invalid", update)
 
     assert error.value.problems[0].code == "analysis_parameter_proposal_invalid"
 
@@ -172,6 +181,7 @@ def test_candidate_config_from_snapshot_rejects_stale_base_hash(
     run = _lab(tmp_path).prepare(load_invocation()).run()
     candidate = (
         run.analysis("stale hash")
+        .result()
         .propose(
             "drive-frequency",
             sc.replace_scalar_parameter(
@@ -201,6 +211,7 @@ def test_candidate_config_from_snapshot_rejects_stale_base_id(
     run = _lab(tmp_path).prepare(load_invocation()).run()
     proposal = (
         run.analysis("stale id")
+        .result()
         .propose(
             "drive-frequency",
             sc.replace_scalar_parameter(
@@ -234,6 +245,7 @@ def test_candidate_config_rejects_drifted_source_snapshot_before_publish(
     run = lab.prepare(load_invocation()).run()
     candidate = (
         run.analysis("stale fit")
+        .result()
         .propose(
             "drive-frequency",
             sc.replace_scalar_parameter(
@@ -271,14 +283,18 @@ def test_parameter_change_proposal_round_trips_and_is_persisted(
     tmp_path: Path,
 ) -> None:
     run = _lab(tmp_path).prepare(load_invocation()).run()
-    analysis = run.analysis("round trip fit").propose(
-        "drive-frequency",
-        sc.replace_scalar_parameter(
-            "drive_frequency",
-            sc.Quantity(5.4, "GHz"),
-        ),
-        reason="fit converged",
-        confidence=0.8,
+    analysis = (
+        run.analysis("round trip fit")
+        .result()
+        .propose(
+            "drive-frequency",
+            sc.replace_scalar_parameter(
+                "drive_frequency",
+                sc.Quantity(5.4, "GHz"),
+            ),
+            reason="fit converged",
+            confidence=0.8,
+        )
     )
     proposal = analysis.parameter_proposals[0]
 
@@ -301,6 +317,7 @@ def test_durable_proposal_validation_rejects_invalid_invariants(
     run = _lab(tmp_path).prepare(load_invocation()).run()
     proposal = (
         run.analysis("validated copy")
+        .result()
         .propose(
             "drive-frequency",
             sc.replace_scalar_parameter(
@@ -325,13 +342,17 @@ def test_durable_proposal_validation_rejects_invalid_invariants(
 def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
     lab = _lab(tmp_path)
     run = lab.prepare(load_invocation()).run()
-    first = run.analysis("first fit").propose(
-        "drive-frequency",
-        sc.replace_scalar_parameter(
-            "drive_frequency",
-            sc.Quantity(5.4, "GHz"),
-        ),
-        reason="first fit",
+    first = (
+        run.analysis("first fit")
+        .result()
+        .propose(
+            "drive-frequency",
+            sc.replace_scalar_parameter(
+                "drive_frequency",
+                sc.Quantity(5.4, "GHz"),
+            ),
+            reason="first fit",
+        )
     )
     first_outcome = first.save()
     first.save()
@@ -341,24 +362,32 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
         first_proposal.id,
         note="approval must survive an idempotent analysis-cell retry",
     )
-    rebuilt = run.analysis("first fit").propose(
-        "drive-frequency",
-        sc.replace_scalar_parameter(
-            "drive_frequency",
-            sc.Quantity(5.4, "GHz"),
-        ),
-        reason="first fit",
+    rebuilt = (
+        run.analysis("first fit")
+        .result()
+        .propose(
+            "drive-frequency",
+            sc.replace_scalar_parameter(
+                "drive_frequency",
+                sc.Quantity(5.4, "GHz"),
+            ),
+            reason="first fit",
+        )
     )
     rebuilt_proposal = rebuilt.parameter_proposals[0]
     assert rebuilt_proposal.proposed_at != first_proposal.proposed_at
     rebuilt.save()
-    second = run.analysis("second fit").propose(
-        "drive-frequency",
-        sc.replace_scalar_parameter(
-            "drive_frequency",
-            sc.Quantity(5.5, "GHz"),
-        ),
-        reason="second fit",
+    second = (
+        run.analysis("second fit")
+        .result()
+        .propose(
+            "drive-frequency",
+            sc.replace_scalar_parameter(
+                "drive_frequency",
+                sc.Quantity(5.5, "GHz"),
+            ),
+            reason="second fit",
+        )
     )
 
     with pytest.raises(Conflict) as error:

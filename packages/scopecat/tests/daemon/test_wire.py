@@ -1,3 +1,5 @@
+# pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -62,6 +64,7 @@ from scopecat.records.analysis import (
     MAX_ANALYSIS_OUTPUTS,
     MAX_ANALYSIS_TABLE_COLUMNS,
     MAX_ANALYSIS_TABLE_ROWS,
+    AnalysisDatasetViewSource,
     AnalysisExecution,
     AnalysisExecutionInput,
     AnalysisExecutionOutput,
@@ -69,6 +72,7 @@ from scopecat.records.analysis import (
     AnalysisField,
     AnalysisFigure,
     AnalysisFigureAxis,
+    AnalysisFigureProjection,
     AnalysisFigureSeries,
     AnalysisFigureView,
     AnalysisTable,
@@ -268,7 +272,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         executions=(
             AnalysisExecution(
                 id="fit",
-                implementation="registry:lab.fit@1",
+                implementation="python:lab.fit",
                 deterministic=True,
                 inputs=("dataset",),
                 input_bindings=(
@@ -306,6 +310,12 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
                 id="fit-curve",
                 title="fit curve",
                 content=AnalysisFigureView(
+                    source=AnalysisDatasetViewSource(output_id="fits"),
+                    projection=AnalysisFigureProjection(
+                        kind="line",
+                        x="bias",
+                        y="signal",
+                    ),
                     preview=AnalysisFigure(
                         kind="line",
                         x_axis=AnalysisFigureAxis(label="Bias", unit="V"),
@@ -391,7 +401,11 @@ def test_analysis_save_command_bounds_embedded_output_group() -> None:
         kind="table",
         id="large-table",
         title="large table",
-        content=AnalysisTableView(preview=table),
+        content=AnalysisTableView(
+            source=AnalysisDatasetViewSource(output_id="fits"),
+            columns=tuple(column.id for column in table.columns),
+            preview=table,
+        ),
     )
 
     with pytest.raises(ValidationError, match="total table cell count"):

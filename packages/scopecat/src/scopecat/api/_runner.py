@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from threading import Event, Lock, Thread
 from time import monotonic
@@ -46,7 +46,6 @@ from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
     RunConfigSource,
     RunManifest,
-    RunSequenceLineage,
 )
 
 
@@ -99,7 +98,6 @@ class _DaemonRunner:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
-        sequence: RunSequenceLineage | None = None,
         executor_id: str = "notebook",
         submission_id: str | None = None,
     ) -> RunManifest:
@@ -112,7 +110,6 @@ class _DaemonRunner:
             description=description,
             metadata=metadata,
             operator=operator,
-            sequence=sequence,
         )
         return self.execute(
             planned,
@@ -140,7 +137,6 @@ class _DaemonRunner:
             description=description,
             metadata=metadata,
             operator=operator,
-            sequence=None,
         )
         return build_run_program_preview(
             planned.program,
@@ -158,7 +154,6 @@ class _DaemonRunner:
         description: str | None,
         metadata: Mapping[str, MetadataValue] | None,
         operator: str | None,
-        sequence: RunSequenceLineage | None,
     ) -> PlannedRun:
         selected_source = config_source
         if config is None:
@@ -181,7 +176,7 @@ class _DaemonRunner:
             selected_config,
             instrument_catalog,
         )
-        planned = plan_experiment_invocation(
+        return plan_experiment_invocation(
             experiment,
             config=selected_config,
             system=selected_system,
@@ -191,12 +186,6 @@ class _DaemonRunner:
             description=description,
             metadata=metadata,
             operator=operator,
-        )
-        if sequence is None:
-            return planned
-        return replace(
-            planned,
-            request=planned.request.model_copy(update={"sequence": sequence}),
         )
 
 

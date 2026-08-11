@@ -27,7 +27,6 @@ from scopecat.records.parameter import (
     ScalarParameterValue,
     TableParameterValue,
 )
-from scopecat.records.run import RunSequenceLineage
 from scopecat.records.run_request import (
     AxisAroundSourceRecord,
     AxisRangeSourceRecord,
@@ -98,28 +97,6 @@ def test_run_request_records_operator_metadata() -> None:
     assert restored.description == "Exercise one durable request."
     assert restored.metadata == {"sample": "q0"}
     assert restored.point_plan == PointPlanRecord()
-
-
-def test_run_request_records_typed_sequence_lineage() -> None:
-    lineage = RunSequenceLineage(
-        sequence_id="adaptive-sequence",
-        run_index=2,
-        previous_run_id="run-2",
-        proposal_id="sha256:" + "0" * 64,
-    )
-
-    restored = assert_model_round_trip(RunRequest(sequence=lineage))
-
-    assert restored.sequence == lineage
-    assert restored.metadata == {}
-    with pytest.raises(ValidationError, match="first sequence run"):
-        RunSequenceLineage(
-            sequence_id="adaptive-sequence",
-            run_index=0,
-            previous_run_id="run-previous",
-        )
-    with pytest.raises(ValidationError, match="later sequence run"):
-        RunSequenceLineage(sequence_id="adaptive-sequence", run_index=1)
 
 
 def test_run_request_records_canonical_grid_axes_only() -> None:

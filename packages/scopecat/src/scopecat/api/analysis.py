@@ -44,7 +44,6 @@ from scopecat.analysis.service import (
     AnalysisTableOutput,
     SavedAnalysis,
 )
-from scopecat.api.data import Data
 from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.config.changes import (
     parameter_change_proposal_from_updates,
@@ -62,7 +61,6 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.datasets import MEASUREMENT_DATASET_CODEC
 from scopecat.measurements.results import Dataset, ExperimentResultView
-from scopecat.records._metadata import validate_json_metadata
 from scopecat.records.analysis import (
     ANALYSIS_ARTIFACT_CODEC,
     AnalysisDatasetDerivation,
@@ -74,16 +72,9 @@ from scopecat.records.analysis import (
     AnalysisExecutionOutputReference,
     AnalysisFact,
     AnalysisField,
-    AnalysisFigure,
-    AnalysisFigureAxis,
     AnalysisFigureProjection,
-    AnalysisFigureSeries,
     AnalysisFigureView,
     AnalysisPublishedOutputReference,
-    AnalysisTable,
-    AnalysisTableCell,
-    AnalysisTableColumn,
-    AnalysisTableRow,
     AnalysisTableView,
     is_analysis_rows,
 )
@@ -91,10 +82,7 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.sdk.compute import (
     PYTHON_JSON_CODEC,
-    ComputeImplementationContract,
     compute_capture_names_internal,
-    compute_implementation_contract_internal,
-    compute_output_encoder_internal,
 )
 
 
@@ -107,27 +95,11 @@ class _AnalysisRun(Protocol):
     @property
     def config(self) -> ConfigProfileSnapshot: ...
 
-    def data(self) -> Data: ...
-
-    def measurements(
-        self,
-        *,
-        selector: str = "raw-measurements",
-    ) -> Dataset: ...
-
     def _measurements_for_analysis(
         self,
         *,
         selector: str = "raw-measurements",
     ) -> Dataset: ...
-
-    def analysis(
-        self,
-        title: str,
-        *,
-        key: str | None = None,
-        step_id: str | None = None,
-    ) -> Analysis: ...
 
     def save_analysis(
         self,
@@ -323,18 +295,6 @@ class Analysis:
             )
         )
 
-    @overload
-    def table(
-        self,
-        content: DerivedDataset | AnalysisTable | Sequence[object],
-        *,
-        id: str = "table",
-        columns: Sequence[str] | None = None,
-        title: str = "table",
-        metadata: Mapping[str, object] | None = None,
-    ) -> Analysis: ...
-
-    @overload
     def table(
         self,
         *,
@@ -343,38 +303,13 @@ class Analysis:
         columns: Sequence[str] | None = None,
         title: str = "table",
         metadata: Mapping[str, object] | None = None,
-    ) -> Analysis: ...
-
-    def table(
-        self,
-        content: DerivedDataset | AnalysisTable | Sequence[object] | None = None,
-        *,
-        dataset: str | None = None,
-        id: str = "table",
-        columns: Sequence[str] | None = None,
-        title: str = "table",
-        metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
-        if (content is None) == (dataset is None):
-            raise TypeError(
-                "analysis table requires exactly one content or dataset source"
-            )
-        source = self._dataset(dataset) if dataset is not None else content
-        if isinstance(source, DerivedDataset):
-            table = source.to_analysis_table(columns=columns)
-        elif columns is not None:
-            raise TypeError("analysis table columns only apply to derived datasets")
-        elif isinstance(source, AnalysisTable):
-            table = source
-        else:
-            assert source is not None
-            table = AnalysisTable.from_objects(source)
-        source_ref = (
-            None
-            if dataset is None
-            else AnalysisDatasetViewSource(
-                output_id=artifact_slug(dataset, fallback="data")
-            )
+        """Publish a bounded table view of an authoritative analysis dataset."""
+
+        source = self._dataset(dataset)
+        table = source.to_analysis_table(columns=columns)
+        source_ref = AnalysisDatasetViewSource(
+            output_id=artifact_slug(dataset, fallback="data")
         )
         return self._append_output(
             AnalysisTableOutput(
@@ -383,43 +318,13 @@ class Analysis:
                 title=title,
                 content=AnalysisTableView(
                     source=source_ref,
-                    columns=(
-                        None
-                        if source_ref is None
-                        else tuple(column.id for column in table.columns)
-                    ),
+                    columns=tuple(column.id for column in table.columns),
                     preview=table,
                 ),
                 metadata=metadata or {},
             )
         )
 
-    @overload
-    def figure(
-        self,
-        content: AnalysisFigure,
-        *,
-        id: str = "figure",
-        title: str = "figure",
-        metadata: Mapping[str, object] | None = None,
-    ) -> Analysis: ...
-
-    @overload
-    def figure(
-        self,
-        content: DerivedDataset | AnalysisTable | Sequence[object],
-        *,
-        id: str = "figure",
-        kind: Literal["line", "scatter"],
-        x: str,
-        y: str,
-        series: str | None = None,
-        label: str | None = None,
-        title: str = "figure",
-        metadata: Mapping[str, object] | None = None,
-    ) -> Analysis: ...
-
-    @overload
     def figure(
         self,
         *,
@@ -432,60 +337,19 @@ class Analysis:
         label: str | None = None,
         title: str = "figure",
         metadata: Mapping[str, object] | None = None,
-    ) -> Analysis: ...
-
-    def figure(
-        self,
-        content: (
-            DerivedDataset | AnalysisFigure | AnalysisTable | Sequence[object] | None
-        ) = None,
-        *,
-        dataset: str | None = None,
-        id: str = "figure",
-        kind: Literal["line", "scatter"] | None = None,
-        x: str | None = None,
-        y: str | None = None,
-        series: str | None = None,
-        label: str | None = None,
-        title: str = "figure",
-        metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
-        if (content is None) == (dataset is None):
-            raise TypeError(
-                "analysis figure requires exactly one content or dataset source"
-            )
-        source = self._dataset(dataset) if dataset is not None else content
-        if isinstance(source, AnalysisFigure):
-            figure = source
-        else:
-            if kind is None or x is None or y is None:
-                raise TypeError(
-                    "analysis figures projected from rows require kind, x, and y"
-                )
-            if isinstance(source, DerivedDataset):
-                selected_columns = tuple(
-                    dict.fromkeys((x, y) if series is None else (x, y, series))
-                )
-                table = source.to_analysis_table(columns=selected_columns)
-            elif isinstance(source, AnalysisTable):
-                table = source
-            else:
-                assert source is not None
-                table = AnalysisTable.from_objects(source)
-            figure = AnalysisFigure.from_table(
-                table,
-                kind=kind,
-                x=x,
-                y=y,
-                series=series,
-                label=label,
-            )
-        source_ref = (
-            None
-            if dataset is None
-            else AnalysisDatasetViewSource(
-                output_id=artifact_slug(dataset, fallback="data")
-            )
+        """Publish a bounded figure view of an authoritative analysis dataset."""
+
+        source = self._dataset(dataset)
+        figure = source.to_analysis_figure(
+            kind=kind,
+            x=x,
+            y=y,
+            series=series,
+            label=label,
+        )
+        source_ref = AnalysisDatasetViewSource(
+            output_id=artifact_slug(dataset, fallback="data")
         )
         return self._append_output(
             AnalysisFigureOutput(
@@ -494,16 +358,12 @@ class Analysis:
                 title=title,
                 content=AnalysisFigureView(
                     source=source_ref,
-                    projection=(
-                        None
-                        if source_ref is None
-                        else AnalysisFigureProjection(
-                            kind=cast("Literal['line', 'scatter']", kind),
-                            x=cast("str", x),
-                            y=cast("str", y),
-                            series=series,
-                            label=label,
-                        )
+                    projection=AnalysisFigureProjection(
+                        kind=kind,
+                        x=x,
+                        y=y,
+                        series=series,
+                        label=label,
                     ),
                     preview=figure,
                 ),
@@ -604,35 +464,6 @@ class Analysis:
     @property
     def analysis_key(self) -> str:
         return _analysis_key(self.key, self.title)
-
-    def input(
-        self,
-        selector: str,
-        *,
-        role: str = "data",
-        title: str | None = None,
-        metadata: Mapping[str, object] | None = None,
-    ) -> Analysis:
-        if not role.strip():
-            _raise_analysis_problem(
-                "analysis_input_role_invalid",
-                "analysis input role must be a non-empty string",
-                "role",
-            )
-        dataset = self.run.data().dataset(
-            selector,
-            expected_kind="measurement_dataset",
-        )
-        analysis_input = AnalysisInput(
-            target=dataset.id,
-            kind="measurement_dataset",
-            content_hash=dataset.content_hash,
-            codec=MEASUREMENT_DATASET_CODEC,
-            role=role,
-            title=title or dataset.id,
-            metadata=metadata,
-        )
-        return replace(self, inputs=(*self.inputs, analysis_input))
 
     def propose(
         self,
@@ -740,6 +571,7 @@ class Analysis:
 @dataclass(frozen=True)
 class AnalysisContext:
     run: _AnalysisRun
+    default_title: str = "analysis"
     default_key: str | None = None
     step_id: str | None = None
     _executions: list[AnalysisExecution] = field(
@@ -884,42 +716,20 @@ class AnalysisContext:
         selected_inputs = {**(inputs or {}), **input_bindings}
         if not selected_inputs:
             raise TypeError("analysis trace requires at least one named input")
-        dataset_inputs: dict[
-            str,
-            Dataset | DerivedDataset | ExperimentResultView[object],
-        ] = {}
-        for name, value in selected_inputs.items():
-            if isinstance(value, Dataset | DerivedDataset):
-                dataset_inputs[name] = value
-            elif isinstance(value, ExperimentResultView):
-                dataset_inputs[name] = cast("ExperimentResultView[object]", value)
-            elif (dataset_value := _analysis_dataset_value(value)) is not None:
-                dataset_inputs[name] = dataset_value
-        if not dataset_inputs:
+        if not any(
+            isinstance(value, Dataset | ExperimentResultView)
+            or _analysis_dataset_value(value) is not None
+            for value in selected_inputs.values()
+        ):
             raise TypeError("analysis trace requires at least one dataset input")
-        contract = compute_implementation_contract_internal(fn)
         execution_id = self._allocate_execution_id(
             id or getattr(fn, "__name__", "analysis-execution")
         )
-        implementation = (
-            contract.reference if contract is not None else f"python:{execution_id}"
-        )
-        deterministic = False if contract is None else contract.deterministic
         captures = compute_capture_names_internal(fn)
-        if (
-            contract is not None
-            and contract.input_codecs
-            and set(contract.input_codecs) != set(selected_inputs)
-        ):
-            raise ValueError(
-                "registered analysis trace input codecs must exactly match "
-                "its named inputs"
-            )
         input_provenance = tuple(
             _analysis_execution_input(
                 name,
                 value,
-                codec=(None if contract is None else contract.input_codecs.get(name)),
                 execution_target=self._execution_target_for(value),
             )
             for name, value in selected_inputs.items()
@@ -940,51 +750,21 @@ class AnalysisContext:
                 ),
             )
 
-        call_inputs = dict(selected_inputs)
-        if contract is not None and contract.data_access == "batches":
-            if len(dataset_inputs) != 1:
-                raise ValueError(
-                    "batched analysis trace requires exactly one dataset input"
-                )
-            dataset_name, data = next(iter(dataset_inputs.items()))
-            if isinstance(data, DerivedDataset):
-                raise ValueError(
-                    "batched analysis trace requires a measurement dataset input"
-                )
-            dataset = data.dataset if isinstance(data, ExperimentResultView) else data
-            batches = dataset.batches(batch_size=contract.batch_size)
-            call_inputs[dataset_name] = (
-                (batch.bind(data.output) for batch in batches)
-                if isinstance(data, ExperimentResultView)
-                else batches
-            )
-        result = fn(**call_inputs)
-        encoder = compute_output_encoder_internal(fn)
+        result = fn(**selected_inputs)
         traced_values, execution_outputs = _analysis_trace_outputs(
             result,
             execution_id=execution_id,
-            contract=contract,
-            encoder=encoder,
-        )
-        execution_metadata = validate_json_metadata(
-            {}
-            if contract is None
-            else {
-                "runtime": contract.runtime,
-                "capabilities": list(contract.capabilities),
-                "resources": dict(contract.resources),
-            }
         )
         execution = AnalysisExecution(
             id=execution_id,
-            implementation=implementation,
-            deterministic=deterministic,
+            implementation=f"python:{execution_id}",
+            deterministic=False,
             inputs=input_names,
             input_bindings=input_provenance,
             outputs=execution_outputs,
             captures=captures,
-            access=("full" if contract is None else contract.data_access),
-            metadata=execution_metadata,
+            access="full",
+            metadata={},
         )
         self._executions.append(execution)
         for (output_name, value), execution_output in zip(
@@ -1052,13 +832,14 @@ class AnalysisContext:
         if target not in targets:
             self._execution_targets_by_value_hash[content_hash] = (*targets, target)
 
-    def result(self, title: str = "analysis", *, key: str | None = None) -> Analysis:
-        return replace(
-            self.run.analysis(
-                title,
-                key=key or self.default_key,
-                step_id=self.step_id,
-            ),
+    def result(self, title: str | None = None, *, key: str | None = None) -> Analysis:
+        """Start one publication with every input accessed through this context."""
+
+        return Analysis(
+            run=self.run,
+            title=self.default_title if title is None else title,
+            key=key or self.default_key,
+            step_id=self.step_id,
             inputs=tuple(self._accessed_inputs.values()),
             executions=tuple(self._executions),
             _execution_outputs_by_value_hash=dict(
@@ -1071,39 +852,23 @@ def _analysis_trace_outputs(
     result: object,
     *,
     execution_id: str,
-    contract: ComputeImplementationContract | None,
-    encoder: Callable[[object], object] | None,
 ) -> tuple[
     tuple[tuple[str, object], ...],
     tuple[AnalysisExecutionOutput, ...],
 ]:
-    if contract is not None and contract.outputs:
-        traced_values = tuple(
-            (name, _analysis_result_at_path(result, path))
-            for name, path in contract.outputs.items()
-        )
-        return traced_values, tuple(
-            _analysis_native_execution_output(name=name, value=value)
-            for name, value in traced_values
-        )
-    output = result if encoder is None else encoder(result)
-    artifact_output = _analysis_artifact_value(output)
-    dataset_output = _analysis_dataset_value(output)
+    artifact_output = _analysis_artifact_value(result)
+    dataset_output = _analysis_dataset_value(result)
     if artifact_output is not None:
-        if contract is not None and contract.output_codec != PYTHON_JSON_CODEC:
-            raise ValueError("artifact trace outputs own their bytes codec")
         output_codec = ANALYSIS_ARTIFACT_CODEC
         output_hash = sha256_content_hash(artifact_output)
         output_kind: Literal["derived_dataset", "artifact", "value"] = "artifact"
     elif dataset_output is not None:
-        if contract is not None and contract.output_codec != PYTHON_JSON_CODEC:
-            raise ValueError("derived dataset trace outputs own their Arrow IPC codec")
         output_codec = DERIVED_DATASET_CODEC
         output_hash = sha256_content_hash(dataset_output.to_arrow_ipc())
         output_kind = "derived_dataset"
     else:
-        encoded = _analysis_json(output)
-        output_codec = PYTHON_JSON_CODEC if contract is None else contract.output_codec
+        encoded = _analysis_json(result)
+        output_codec = PYTHON_JSON_CODEC
         output_hash = f"sha256:{stable_content_hash(encoded)}"
         output_kind = "value"
     return ((execution_id, result),), (
@@ -1120,13 +885,10 @@ def _analysis_execution_input(
     name: str,
     value: object,
     *,
-    codec: str | None,
     execution_target: str | None,
 ) -> AnalysisExecutionInput:
     artifact = _analysis_artifact_value(value)
     if artifact is not None:
-        if codec is not None and codec != ANALYSIS_ARTIFACT_CODEC:
-            raise ValueError("artifact trace inputs require the artifact bytes codec")
         content_hash = sha256_content_hash(artifact)
         return AnalysisExecutionInput(
             name=name,
@@ -1137,8 +899,6 @@ def _analysis_execution_input(
         )
     derived_value = _analysis_dataset_value(value)
     if derived_value is not None:
-        if codec is not None and codec != DERIVED_DATASET_CODEC:
-            raise ValueError("derived dataset trace inputs require the Arrow IPC codec")
         content_hash = sha256_content_hash(derived_value.to_arrow_ipc())
         return AnalysisExecutionInput(
             name=name,
@@ -1158,10 +918,8 @@ def _analysis_execution_input(
             kind="measurement_dataset",
             target=dataset.entry.id,
             content_hash=dataset.entry.content_hash,
-            codec=codec or MEASUREMENT_DATASET_CODEC,
+            codec=MEASUREMENT_DATASET_CODEC,
         )
-    if codec is not None and codec != PYTHON_JSON_CODEC:
-        raise ValueError("inline analysis trace inputs require the Python JSON codec")
     encoded = _analysis_json(cast("object", value))
     content_hash = f"sha256:{stable_content_hash(encoded)}"
     return AnalysisExecutionInput(
@@ -1186,55 +944,6 @@ def _analysis_value_identity(value: object) -> tuple[str, str]:
     if dataset is not None:
         return DERIVED_DATASET_CODEC, sha256_content_hash(dataset.to_arrow_ipc())
     return PYTHON_JSON_CODEC, f"sha256:{stable_content_hash(_analysis_json(value))}"
-
-
-def _analysis_native_execution_output(
-    *,
-    name: str,
-    value: object,
-) -> AnalysisExecutionOutput:
-    codec, content_hash = _analysis_value_identity(value)
-    artifact = _analysis_artifact_value(value)
-    dataset = _analysis_dataset_value(value)
-    return AnalysisExecutionOutput(
-        name=name,
-        kind=(
-            "artifact"
-            if artifact is not None
-            else ("derived_dataset" if dataset is not None else "value")
-        ),
-        content_hash=content_hash,
-        codec=codec,
-    )
-
-
-def _analysis_result_at_path(
-    result: object,
-    path: tuple[str | int, ...],
-) -> object:
-    selected = result
-    for item in path:
-        if isinstance(item, int):
-            if not isinstance(selected, Sequence) or isinstance(
-                selected,
-                str | bytes | bytearray,
-            ):
-                raise TypeError(
-                    f"analysis result path {path!r} cannot index "
-                    f"{type(selected).__qualname__} by position"
-                )
-            selected = selected[item]
-        elif isinstance(selected, Mapping):
-            selected = cast("Mapping[object, object]", selected)[item]
-        else:
-            try:
-                selected = cast("object", getattr(selected, item))
-            except AttributeError:
-                raise TypeError(
-                    f"analysis result path {path!r} cannot read field {item!r} "
-                    f"from {type(selected).__qualname__}"
-                ) from None
-    return selected
 
 
 def _analysis_dataset_value(value: object) -> DerivedDataset | None:
@@ -1270,8 +979,6 @@ def _analysis_dataset_source_kind(
 
 
 def _analysis_json(value: object) -> JsonValue:
-    if isinstance(value, DerivedDataset):
-        return value.to_json_value()
     if value is None or isinstance(value, bool | int | float | str):
         return value
     if isinstance(value, Quantity):
@@ -1495,17 +1202,10 @@ __all__ = [
     "AnalysisDefinition",
     "AnalysisFactSchema",
     "AnalysisField",
-    "AnalysisFigure",
-    "AnalysisFigureAxis",
-    "AnalysisFigureSeries",
     "AnalysisInput",
     "AnalysisInvocation",
     "AnalysisOutput",
     "AnalysisStep",
-    "AnalysisTable",
-    "AnalysisTableCell",
-    "AnalysisTableColumn",
-    "AnalysisTableRow",
     "DerivedDataset",
     "analysis_step",
 ]

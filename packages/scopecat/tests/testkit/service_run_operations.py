@@ -24,7 +24,6 @@ from scopecat.analysis.service import (
 )
 from scopecat.daemon.views import (
     MeasurementArrowQuery,
-    MeasurementPage,
     RunAnalysisListView,
     RunAnalysisView,
 )
@@ -97,31 +96,6 @@ class ServiceRunOperations:
             selector=selector,
             expected_kind=expected_kind,
             services=self.services,
-        )
-
-    def load_measurement_page(
-        self,
-        run_id: str,
-        *,
-        limit: int,
-        offset: int,
-        snapshot_size: int | None,
-    ) -> MeasurementPage:
-        items, next_offset, dataset_schema, selected_snapshot_size = (
-            SQLiteMeasurementDatasetRepository(
-                cast("SQLiteRunRepository", self.services.runs),
-                run_id=run_id,
-            ).measurement_page(
-                limit=limit,
-                offset=offset,
-                snapshot_size=snapshot_size,
-            )
-        )
-        return MeasurementPage(
-            items=items,
-            next_offset=next_offset,
-            snapshot_size=selected_snapshot_size,
-            dataset_schema=dataset_schema,
         )
 
     def load_measurement_arrow_page(

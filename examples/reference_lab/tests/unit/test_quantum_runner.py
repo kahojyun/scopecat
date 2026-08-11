@@ -192,10 +192,9 @@ def test_lab_runner_places_the_reusable_capture_module() -> None:
         "probability_0",
         "probability_1",
     ]
-    assert [
-        postprocessor.id.qualified_name
-        for postprocessor in logical.measurement_postprocessors
-    ] == ["capture/binary-iq-probability"]
+    assert [compute.id.qualified_name for compute in logical.measurement_computes] == [
+        "capture/binary-iq-probability"
+    ]
 
 
 def test_fixed_experiment_and_structural_runner_share_lab_measurement_policy() -> None:
@@ -218,12 +217,8 @@ def test_fixed_experiment_and_structural_runner_share_lab_measurement_policy() -
         "probabilities/probability_0",
         "probabilities/probability_1",
     ]
-    assert [
-        postprocessor.id.qualified_name
-        for postprocessor in direct.measurement_postprocessors
-    ] == [
-        postprocessor.id.qualified_name
-        for postprocessor in fixed.measurement_postprocessors
+    assert [compute.id.qualified_name for compute in direct.measurement_computes] == [
+        compute.id.qualified_name for compute in fixed.measurement_computes
     ]
 
 

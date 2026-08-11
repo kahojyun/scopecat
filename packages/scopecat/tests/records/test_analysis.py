@@ -36,6 +36,7 @@ from scopecat.records.analysis import (
     AnalysisField,
     AnalysisFigure,
     AnalysisFigureAxis,
+    AnalysisFigureProjection,
     AnalysisFigureRecordOutput,
     AnalysisFigureSeries,
     AnalysisFigureView,
@@ -53,6 +54,20 @@ from scopecat.records.analysis import (
 
 _PUBLICATION_HASH = f"sha256:{'0' * 64}"
 _FIT_VALUE_HASH = f"sha256:{stable_content_hash(5.1)}"
+_DATASET_HASH = f"sha256:{'1' * 64}"
+
+
+def _dataset_output(id: str = "fit-data") -> AnalysisDatasetRecordOutput:
+    return AnalysisDatasetRecordOutput(
+        kind="dataset",
+        id=id,
+        title="Fit data",
+        content=AnalysisDatasetReference(
+            dataset_id=f"analysis-{id}",
+            content_hash=_DATASET_HASH,
+            codec="scopecat.derived-dataset.arrow-ipc.v2",
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -136,7 +151,7 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
         executions=[
             AnalysisExecution(
                 id="fit",
-                implementation="registry:lab.fit@1",
+                implementation="python:lab.fit",
                 deterministic=True,
                 inputs=("dataset",),
                 input_bindings=(
@@ -175,11 +190,14 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
                     value=5.1,
                 ),
             ),
+            _dataset_output(),
             AnalysisTableRecordOutput(
                 kind="table",
                 id="fit-parameters",
                 title="Fit parameters",
                 content=AnalysisTableView(
+                    source=AnalysisDatasetViewSource(output_id="fit-data"),
+                    columns=("frequency", "converged"),
                     preview=AnalysisTable.from_rows(
                         [{"frequency": 5.1, "converged": True}],
                         columns=[
@@ -198,6 +216,12 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
                 id="fit-curve",
                 title="Fit curve",
                 content=AnalysisFigureView(
+                    source=AnalysisDatasetViewSource(output_id="fit-data"),
+                    projection=AnalysisFigureProjection(
+                        kind="line",
+                        x="bias",
+                        y="frequency",
+                    ),
                     preview=AnalysisFigure(
                         kind="line",
                         x_axis=AnalysisFigureAxis(label="Bias", unit="V"),
@@ -233,12 +257,13 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
     )
     assert restored.outputs[0].content.value == 5.1
     assert restored.executions[0].input_bindings[0].target == "measurement-dataset"
-    assert isinstance(restored.outputs[1], AnalysisTableRecordOutput)
-    assert restored.outputs[1].content.preview.rows[0].cells == [5.1, True]
-    assert isinstance(restored.outputs[2], AnalysisFigureRecordOutput)
-    assert restored.outputs[2].content.preview.series[0].y == [5.0, 5.1, 5.0]
-    assert isinstance(restored.outputs[3], AnalysisParameterProposalRecordOutput)
-    assert restored.outputs[3].content.proposal_id == "readout-fit"
+    assert isinstance(restored.outputs[1], AnalysisDatasetRecordOutput)
+    assert isinstance(restored.outputs[2], AnalysisTableRecordOutput)
+    assert restored.outputs[2].content.preview.rows[0].cells == [5.1, True]
+    assert isinstance(restored.outputs[3], AnalysisFigureRecordOutput)
+    assert restored.outputs[3].content.preview.series[0].y == [5.0, 5.1, 5.0]
+    assert isinstance(restored.outputs[4], AnalysisParameterProposalRecordOutput)
+    assert restored.outputs[4].content.proposal_id == "readout-fit"
 
 
 def test_analysis_dataset_derivation_round_trips_its_adapter_contract() -> None:
@@ -250,7 +275,7 @@ def test_analysis_dataset_derivation_round_trips_its_adapter_contract() -> None:
         executions=[
             AnalysisExecution(
                 id="fit",
-                implementation="registry:lab.fit@1",
+                implementation="python:lab.fit",
                 deterministic=True,
                 inputs=(),
                 input_bindings=(),
@@ -370,7 +395,11 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
         kind="table",
         id="large-table",
         title="large table",
-        content=AnalysisTableView(preview=table),
+        content=AnalysisTableView(
+            source=AnalysisDatasetViewSource(output_id="fit-data"),
+            columns=tuple(column.id for column in table.columns),
+            preview=table,
+        ),
     )
     with pytest.raises(ValidationError, match="total table cell count"):
         AnalysisRecord(
@@ -379,12 +408,15 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
             revision=1,
             publication_hash=_PUBLICATION_HASH,
             outputs=[
-                table_output.model_copy(update={"id": f"table-{index}"})
-                for index in range(
-                    MAX_ANALYSIS_TOTAL_TABLE_CELLS
-                    // (MAX_ANALYSIS_TABLE_COLUMNS * MAX_ANALYSIS_TABLE_ROWS)
-                    + 1
-                )
+                _dataset_output(),
+                *(
+                    table_output.model_copy(update={"id": f"table-{index}"})
+                    for index in range(
+                        MAX_ANALYSIS_TOTAL_TABLE_CELLS
+                        // (MAX_ANALYSIS_TABLE_COLUMNS * MAX_ANALYSIS_TABLE_ROWS)
+                        + 1
+                    )
+                ),
             ],
         )
 
@@ -394,6 +426,8 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
         id="large-figure",
         title="large figure",
         content=AnalysisFigureView(
+            source=AnalysisDatasetViewSource(output_id="fit-data"),
+            projection=AnalysisFigureProjection(kind="line", x="x", y="y"),
             preview=AnalysisFigure(
                 kind="line",
                 x_axis=AnalysisFigureAxis(label="x"),
@@ -409,10 +443,14 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
             revision=1,
             publication_hash=_PUBLICATION_HASH,
             outputs=[
-                figure_output.model_copy(update={"id": f"figure-{index}"})
-                for index in range(
-                    MAX_ANALYSIS_TOTAL_FIGURE_POINTS // MAX_ANALYSIS_FIGURE_POINTS + 1
-                )
+                _dataset_output(),
+                *(
+                    figure_output.model_copy(update={"id": f"figure-{index}"})
+                    for index in range(
+                        MAX_ANALYSIS_TOTAL_FIGURE_POINTS // MAX_ANALYSIS_FIGURE_POINTS
+                        + 1
+                    )
+                ),
             ],
         )
 
@@ -460,7 +498,11 @@ def test_analysis_record_rejects_empty_required_text_like_the_wire_contract() ->
             kind="table",
             id="table",
             title="",
-            content=AnalysisTableView(preview=AnalysisTable.from_rows([{"value": 1}])),
+            content=AnalysisTableView(
+                source=AnalysisDatasetViewSource(output_id="values"),
+                columns=("value",),
+                preview=AnalysisTable.from_rows([{"value": 1}]),
+            ),
         )
 
 
@@ -561,7 +603,7 @@ def test_analysis_record_rejects_unknown_execution_output_producer() -> None:
             executions=[
                 AnalysisExecution(
                     id="execution-1",
-                    implementation="registry:test.compute@1",
+                    implementation="python:test.compute",
                     deterministic=True,
                     inputs=(),
                     input_bindings=(),

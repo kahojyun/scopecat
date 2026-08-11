@@ -944,7 +944,7 @@ def test_run_skips_unchanged_state_properties(tmp_path: Path) -> None:
                 ),
             ),
         ),
-        measurement_postprocessors=base_bindings.measurement_postprocessors,
+        measurement_computes=base_bindings.measurement_computes,
         product_defs=base_bindings.product_defs,
         instrument_acquisitions=base_experiment.logical.program.acquisitions,
         product_uses=base_bindings.product_uses,

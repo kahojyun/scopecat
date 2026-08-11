@@ -68,7 +68,7 @@ def test_topological_order_is_declaration_independent() -> None:
         inputs=(("value", producer_result_id),),
     )
 
-    value_defs, compute_nodes, measurement_postprocessors = verify_logical_graph(
+    value_defs, compute_nodes, measurement_computes = verify_logical_graph(
         (),
         (consumer, independent, producer),
     )
@@ -79,7 +79,7 @@ def test_topological_order_is_declaration_independent() -> None:
         "producer",
         "consumer",
     ]
-    assert measurement_postprocessors == ()
+    assert measurement_computes == ()
 
 
 def test_operation_cycles_are_reported_in_identity_order() -> None:

@@ -101,7 +101,7 @@ def test_experiment_authors_root_device_operations_without_a_module() -> None:
             results={_DEVICE_SIGNAL: raw},
             metadata={"mode": "fast"},
         )
-        experiment._postprocess(
+        experiment._measurement_compute(
             "derive",
             input=raw,
             outputs={"derived": derived},
@@ -132,11 +132,10 @@ def test_experiment_authors_root_device_operations_without_a_module() -> None:
         "derived",
     ]
     assert [node.id.local_id for node in logical.compute_nodes] == ["build-trigger"]
-    postprocessor_ids = [
-        postprocessor.id.qualified_name
-        for postprocessor in logical.measurement_postprocessors
+    compute_ids = [
+        compute.id.qualified_name for compute in logical.measurement_computes
     ]
-    assert postprocessor_ids == ["derive"]
+    assert compute_ids == ["derive"]
     assert [type(effect) for effect in logical.effects] == [
         LogicalEnsureState,
         LogicalStateAssignment,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import cast
 
-from scopecat.compiler.bound_facts import BoundMeasurementPostprocessor
+from scopecat.compiler.bound_facts import BoundMeasurementCompute
 from scopecat.kernel.errors import ComputeExecutionError
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
@@ -17,13 +17,13 @@ from scopecat.measurements.values import (
     MeasurementValueCatalog,
 )
 from scopecat.program.measurement_contracts import (
-    MeasurementPostprocessorKernel,
+    MeasurementComputeKernel,
 )
 from scopecat.records.measurement import MeasurementUnavailable
 
 
-def execute_measurement_postprocessors(
-    postprocessors: Sequence[BoundMeasurementPostprocessor],
+def execute_measurement_computes(
+    computes: Sequence[BoundMeasurementCompute],
     candidates: Sequence[MeasurementValueCandidate],
     *,
     points: Sequence[RunPoint],
@@ -46,10 +46,10 @@ def execute_measurement_postprocessors(
     }
 
     derived: list[MeasurementValueCandidate] = []
-    for postprocessor in postprocessors:
+    for compute in computes:
         for point in points:
             sources: dict[str, MeasurementValueCandidate] = {}
-            for input_binding in postprocessor.inputs:
+            for input_binding in compute.inputs:
                 source = candidates_by_key.get(
                     (point.logical_id, input_binding.product_use_id),
                     [],
@@ -66,7 +66,7 @@ def execute_measurement_postprocessors(
                                 code,
                                 "point-local compute requires exactly one "
                                 "value for each named input and logical point",
-                                postprocessor=postprocessor,
+                                compute=compute,
                                 point_index=point.logical_ordinal,
                                 path=("inputs", input_binding.id),
                             ),
@@ -94,18 +94,18 @@ def execute_measurement_postprocessors(
                         ),
                         metadata=unavailable.metadata,
                     )
-                    for output in postprocessor.outputs
+                    for output in compute.outputs
                 }
             else:
                 try:
                     early_values = {
                         binding.id: values_by_key[(point.logical_id, binding.value_id)]
-                        for binding in postprocessor.value_inputs
+                        for binding in compute.value_inputs
                     }
                 except KeyError as error:
                     missing = next(
                         binding
-                        for binding in postprocessor.value_inputs
+                        for binding in compute.value_inputs
                         if (point.logical_id, binding.value_id) not in values_by_key
                     )
                     raise ComputeExecutionError(
@@ -114,14 +114,14 @@ def execute_measurement_postprocessors(
                                 "compute_value_input_missing",
                                 "point-local compute requires one value for "
                                 "each early input and logical point",
-                                postprocessor=postprocessor,
+                                compute=compute,
                                 point_index=point.logical_ordinal,
                                 path=("value_inputs", missing.id),
                             ),
                         )
                     ) from error
                 try:
-                    outputs = postprocessor.kernel(
+                    outputs = compute.kernel(
                         {
                             **{name: source.value for name, source in sources.items()},
                             **early_values,
@@ -133,8 +133,8 @@ def execute_measurement_postprocessors(
                             _execution_problem(
                                 "compute_kernel_failed",
                                 f"point-local compute "
-                                f"{postprocessor.id.qualified_name!r} raised",
-                                postprocessor=postprocessor,
+                                f"{compute.id.qualified_name!r} raised",
+                                compute=compute,
                                 point_index=point.logical_ordinal,
                                 details={
                                     "exception_type": (
@@ -146,7 +146,7 @@ def execute_measurement_postprocessors(
                         )
                     ) from error
 
-            for output in postprocessor.outputs:
+            for output in compute.outputs:
                 try:
                     value = outputs[output.id]
                 except (KeyError, TypeError) as error:
@@ -155,7 +155,7 @@ def execute_measurement_postprocessors(
                             _execution_problem(
                                 "compute_output_missing",
                                 f"point-local compute output {output.id!r} is missing",
-                                postprocessor=postprocessor,
+                                compute=compute,
                                 point_index=point.logical_ordinal,
                             ),
                         )
@@ -174,7 +174,7 @@ def execute_measurement_postprocessors(
                                 f"compute_output_{issue.code.value}",
                                 f"point-local compute output {output.id!r} "
                                 "does not satisfy its product contract",
-                                postprocessor=postprocessor,
+                                compute=compute,
                                 point_index=point.logical_ordinal,
                                 path=("outputs", output.id, *issue.path),
                                 details={
@@ -214,7 +214,7 @@ def _execution_problem(
     code: str,
     message: str,
     *,
-    postprocessor: BoundMeasurementPostprocessor,
+    compute: BoundMeasurementCompute,
     point_index: int,
     path: tuple[str | int, ...] = (),
     details: Mapping[str, JsonValue] | None = None,
@@ -224,12 +224,12 @@ def _execution_problem(
         message,
         phase=ProblemPhase.EXECUTION,
         location=model_location(
-            "computes",
-            postprocessor.id.qualified_name,
+            "measurement_computes",
+            compute.id.qualified_name,
             *path,
         ),
         details={
-            "compute_id": postprocessor.id.qualified_name,
+            "compute_id": compute.id.qualified_name,
             "point_index": point_index,
             **({} if details is None else details),
         },
@@ -245,6 +245,6 @@ def _problem_detail(value: object) -> JsonValue:
 
 
 __all__ = [
-    "MeasurementPostprocessorKernel",
-    "execute_measurement_postprocessors",
+    "MeasurementComputeKernel",
+    "execute_measurement_computes",
 ]

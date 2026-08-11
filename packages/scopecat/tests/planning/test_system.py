@@ -10,9 +10,9 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.bind import BoundPlan, bind_program
 from scopecat.compiler.bound_facts import (
-    BoundMeasurementPostprocessor,
-    BoundMeasurementPostprocessorInput,
-    BoundMeasurementPostprocessorOutput,
+    BoundMeasurementCompute,
+    BoundMeasurementComputeInput,
+    BoundMeasurementComputeOutput,
     LogicalResourceRequirement,
     record_product,
 )
@@ -67,7 +67,7 @@ from scopecat.program.expressions import (
     point_col,
 )
 from scopecat.program.logical import (
-    MeasurementPostprocessorId,
+    MeasurementComputeId,
 )
 from scopecat.program.point_domain import point_axis_values
 from scopecat.records.config import (
@@ -470,57 +470,57 @@ def _bound_program(
     return bind_program_facts(program, environment)
 
 
-def _postprocess_identity(
+def _measurement_compute_identity(
     value: MeasurementValue,
 ) -> dict[str, MeasurementValue]:
     return {"result": value}
 
 
-def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
+def _bound_instrument_fed_compute_program() -> BoundPlan:
     source = observable_product("source", unit="ratio")
     middle = observable_product("middle", unit="ratio")
     derived = observable_product("derived", unit="ratio")
     source_use = product_use(source.id)
     middle_use = product_use(middle.id)
     derived_use, derived_record = record_product(derived)
-    postprocessors = (
-        BoundMeasurementPostprocessor(
-            id=MeasurementPostprocessorId(SymbolId(local_id="normalize")),
+    computes = (
+        BoundMeasurementCompute(
+            id=MeasurementComputeId(SymbolId(local_id="normalize")),
             inputs=(
-                BoundMeasurementPostprocessorInput(
+                BoundMeasurementComputeInput(
                     id="input",
                     product_id=source.id,
                     product_use_id=source_use.id,
                 ),
             ),
             outputs=(
-                BoundMeasurementPostprocessorOutput(
+                BoundMeasurementComputeOutput(
                     id="result",
                     product_id=middle.id,
                     product_use_ids=(middle_use.id,),
                 ),
             ),
-            kernel=lambda values: _postprocess_identity(
+            kernel=lambda values: _measurement_compute_identity(
                 cast("MeasurementValue", values["input"])
             ),
         ),
-        BoundMeasurementPostprocessor(
-            id=MeasurementPostprocessorId(SymbolId(local_id="summarize")),
+        BoundMeasurementCompute(
+            id=MeasurementComputeId(SymbolId(local_id="summarize")),
             inputs=(
-                BoundMeasurementPostprocessorInput(
+                BoundMeasurementComputeInput(
                     id="input",
                     product_id=middle.id,
                     product_use_id=middle_use.id,
                 ),
             ),
             outputs=(
-                BoundMeasurementPostprocessorOutput(
+                BoundMeasurementComputeOutput(
                     id="result",
                     product_id=derived.id,
                     product_use_ids=(derived_use.id,),
                 ),
             ),
-            kernel=lambda values: _postprocess_identity(
+            kernel=lambda values: _measurement_compute_identity(
                 cast("MeasurementValue", values["input"])
             ),
         ),
@@ -540,7 +540,7 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
                 result_id="signal",
             ),
         ),
-        measurement_postprocessors=postprocessors,
+        measurement_computes=computes,
         product_defs=(source, middle, derived),
         product_uses=(source_use, middle_use, derived_use),
         record_uses=(derived_record,),
@@ -892,14 +892,14 @@ def test_system_builder_cannot_replace_daemon_catalog() -> None:
         )
 
 
-def test_planning_keeps_postprocessor_outputs_out_of_local_acquisition() -> None:
-    bound = _bound_instrument_fed_postprocessor_program()
+def test_planning_keeps_compute_outputs_out_of_local_acquisition() -> None:
+    bound = _bound_instrument_fed_compute_program()
 
     plan = ExperimentSystem(
         instrument_catalog=_catalog(bound, TestSignalInstrumentProvider())
     ).compile(bound)
 
-    first, second = plan.measurement_postprocessors
+    first, second = plan.measurement_computes
     assert [first.id.qualified_name, second.id.qualified_name] == [
         "normalize",
         "summarize",

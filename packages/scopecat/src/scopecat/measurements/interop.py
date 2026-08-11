@@ -89,6 +89,13 @@ class _ProjectionDataset(Protocol):
 
     def to_xarray(self) -> xr.Dataset: ...
 
+    def _read_projection_batches(
+        self,
+        projection: ProjectionSchema,
+        *,
+        batch_size: int,
+    ) -> pa.RecordBatchReader | None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class ProjectionField:
@@ -438,17 +445,21 @@ class MeasurementDataProjection:
             ).encode(),
         }
 
-    def to_record_batch_reader(
-        self, *, max_chunksize: int = 1024
-    ) -> pa.RecordBatchReader:
-        """Expose this materialized projection as bounded Arrow record batches."""
+    def to_record_batch_reader(self, *, batch_size: int = 100) -> pa.RecordBatchReader:
+        """Read this projection as one finite, snapshot-pinned Arrow stream."""
 
-        if max_chunksize <= 0:
-            raise ValueError("record batch max_chunksize must be positive")
+        if batch_size <= 0:
+            raise ValueError("record batch_size must be positive")
+        reader = self.dataset._read_projection_batches(  # pyright: ignore[reportPrivateUsage]
+            self.schema,
+            batch_size=batch_size,
+        )
+        if reader is not None:
+            return reader
         table = self.to_arrow()
         return pa.RecordBatchReader.from_batches(
             table.schema,
-            table.to_batches(max_chunksize=max_chunksize),
+            table.to_batches(max_chunksize=batch_size),
         )
 
     def to_xarray(self) -> xr.Dataset:

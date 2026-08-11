@@ -8,13 +8,13 @@ from typing import cast
 import pytest
 
 from scopecat.compiler.bound_facts import (
-    BoundMeasurementPostprocessor,
-    BoundMeasurementPostprocessorInput,
-    BoundMeasurementPostprocessorOutput,
-    BoundMeasurementPostprocessorValueInput,
+    BoundMeasurementCompute,
+    BoundMeasurementComputeInput,
+    BoundMeasurementComputeOutput,
+    BoundMeasurementComputeValueInput,
 )
-from scopecat.execution.measurement_postprocessors import (
-    execute_measurement_postprocessors,
+from scopecat.execution.measurement_computes import (
+    execute_measurement_computes,
 )
 from scopecat.kernel.errors import ComputeExecutionError
 from scopecat.kernel.graph_identity import ValueId
@@ -32,7 +32,7 @@ from scopecat.measurements.values import (
     MeasurementValueCandidate,
     seal_measurement_values,
 )
-from scopecat.program.logical import MeasurementPostprocessorId
+from scopecat.program.logical import MeasurementComputeId
 from tests.testkit.measurement_assembly import (
     MeasurementAssemblyScenario,
     measurement_assembly_scenario,
@@ -40,27 +40,27 @@ from tests.testkit.measurement_assembly import (
 )
 
 
-def _postprocessor(
+def _compute(
     scenario: MeasurementAssemblyScenario,
     kernel: Callable[[MeasurementValue], dict[str, MeasurementValue]],
     *,
     id: str = "normalize",
     input_index: int = 0,
     output_index: int = 1,
-) -> BoundMeasurementPostprocessor:
+) -> BoundMeasurementCompute:
     source = scenario.uses[input_index]
     output = scenario.uses[output_index]
-    return BoundMeasurementPostprocessor(
-        id=MeasurementPostprocessorId(SymbolId(local_id=id)),
+    return BoundMeasurementCompute(
+        id=MeasurementComputeId(SymbolId(local_id=id)),
         inputs=(
-            BoundMeasurementPostprocessorInput(
+            BoundMeasurementComputeInput(
                 id="input",
                 product_id=source.product_id,
                 product_use_id=source.id,
             ),
         ),
         outputs=(
-            BoundMeasurementPostprocessorOutput(
+            BoundMeasurementComputeOutput(
                 id="output",
                 product_id=output.product_id,
                 product_use_ids=(output.id,),
@@ -92,7 +92,7 @@ def _axis(id: str, size: int | None) -> ProductAxisDef:
     )
 
 
-def test_postprocessor_runs_one_direct_kernel_per_point() -> None:
+def test_compute_runs_one_direct_kernel_per_point() -> None:
     scenario = measurement_assembly_scenario(point_values=(2.0, 4.0), use_count=2)
     observed: list[float] = []
 
@@ -108,8 +108,8 @@ def test_postprocessor_runs_one_direct_kernel_per_point() -> None:
             )
         }
 
-    completed = execute_measurement_postprocessors(
-        (_postprocessor(scenario, kernel),),
+    completed = execute_measurement_computes(
+        (_compute(scenario, kernel),),
         measurement_value_candidates(scenario, (scenario.uses[0],)),
         points=scenario.points,
         catalog=scenario.catalog,
@@ -131,25 +131,25 @@ def test_postprocessor_runs_one_direct_kernel_per_point() -> None:
     ]
 
 
-def test_postprocessor_joins_multiple_named_inputs_per_point() -> None:
+def test_compute_joins_multiple_named_inputs_per_point() -> None:
     scenario = measurement_assembly_scenario(point_values=(2.0,), use_count=3)
     left, right, output = scenario.uses
-    postprocessor = BoundMeasurementPostprocessor(
-        id=MeasurementPostprocessorId(SymbolId(local_id="sum")),
+    compute = BoundMeasurementCompute(
+        id=MeasurementComputeId(SymbolId(local_id="sum")),
         inputs=(
-            BoundMeasurementPostprocessorInput(
+            BoundMeasurementComputeInput(
                 id="left",
                 product_id=left.product_id,
                 product_use_id=left.id,
             ),
-            BoundMeasurementPostprocessorInput(
+            BoundMeasurementComputeInput(
                 id="right",
                 product_id=right.product_id,
                 product_use_id=right.id,
             ),
         ),
         outputs=(
-            BoundMeasurementPostprocessorOutput(
+            BoundMeasurementComputeOutput(
                 id="result",
                 product_id=output.product_id,
                 product_use_ids=(output.id,),
@@ -169,8 +169,8 @@ def test_postprocessor_joins_multiple_named_inputs_per_point() -> None:
         },
     )
 
-    completed = execute_measurement_postprocessors(
-        (postprocessor,),
+    completed = execute_measurement_computes(
+        (compute,),
         measurement_value_candidates(scenario, (left, right)),
         points=scenario.points,
         catalog=scenario.catalog,
@@ -188,27 +188,27 @@ def test_postprocessor_joins_multiple_named_inputs_per_point() -> None:
     )
 
 
-def test_postprocessor_joins_an_early_value_by_logical_point() -> None:
+def test_compute_joins_an_early_value_by_logical_point() -> None:
     scenario = measurement_assembly_scenario(point_values=(2.0,), use_count=2)
     source, output = scenario.uses
     threshold_id = ValueId(SymbolId(local_id="threshold"))
-    postprocessor = BoundMeasurementPostprocessor(
-        id=MeasurementPostprocessorId(SymbolId(local_id="classify")),
+    compute = BoundMeasurementCompute(
+        id=MeasurementComputeId(SymbolId(local_id="classify")),
         inputs=(
-            BoundMeasurementPostprocessorInput(
+            BoundMeasurementComputeInput(
                 id="signal",
                 product_id=source.product_id,
                 product_use_id=source.id,
             ),
         ),
         value_inputs=(
-            BoundMeasurementPostprocessorValueInput(
+            BoundMeasurementComputeValueInput(
                 id="threshold",
                 value_id=threshold_id,
             ),
         ),
         outputs=(
-            BoundMeasurementPostprocessorOutput(
+            BoundMeasurementComputeOutput(
                 id="result",
                 product_id=output.product_id,
                 product_use_ids=(output.id,),
@@ -223,8 +223,8 @@ def test_postprocessor_joins_an_early_value_by_logical_point() -> None:
         },
     )
 
-    completed = execute_measurement_postprocessors(
-        (postprocessor,),
+    completed = execute_measurement_computes(
+        (compute,),
         measurement_value_candidates(scenario, (source,)),
         points=scenario.points,
         catalog=scenario.catalog,
@@ -249,7 +249,7 @@ def test_postprocessor_joins_an_early_value_by_logical_point() -> None:
     )
 
 
-def test_postprocessor_chain_feeds_derived_outputs_to_downstream_nodes() -> None:
+def test_compute_chain_feeds_derived_outputs_to_downstream_nodes() -> None:
     scenario = measurement_assembly_scenario(point_values=(2.0, 4.0), use_count=3)
     evidence = InstrumentAcquisitionEvidence(
         command_id="collect-signal",
@@ -290,16 +290,16 @@ def test_postprocessor_chain_feeds_derived_outputs_to_downstream_nodes() -> None
         replace(candidate, evidence=evidence)
         for candidate in measurement_value_candidates(scenario, (scenario.uses[0],))
     )
-    completed = execute_measurement_postprocessors(
+    completed = execute_measurement_computes(
         (
-            _postprocessor(
+            _compute(
                 scenario,
                 increment,
                 id="increment",
                 input_index=0,
                 output_index=1,
             ),
-            _postprocessor(
+            _compute(
                 scenario,
                 double,
                 id="double",
@@ -335,7 +335,7 @@ def test_postprocessor_chain_feeds_derived_outputs_to_downstream_nodes() -> None
     assert all(value.evidence == evidence for value in final_values)
 
 
-def test_postprocessor_retains_instrument_acquisition_evidence() -> None:
+def test_compute_retains_instrument_acquisition_evidence() -> None:
     scenario = measurement_assembly_scenario(point_values=(2.0,), use_count=2)
     evidence = InstrumentAcquisitionEvidence(
         command_id="collect-signal",
@@ -347,8 +347,8 @@ def test_postprocessor_retains_instrument_acquisition_evidence() -> None:
         completed_at=datetime(2026, 7, 29, 10, 0, 1, tzinfo=UTC),
     )
     [source] = measurement_value_candidates(scenario, (scenario.uses[0],))
-    [_, derived] = execute_measurement_postprocessors(
-        (_postprocessor(scenario, lambda value: {"output": value}),),
+    [_, derived] = execute_measurement_computes(
+        (_compute(scenario, lambda value: {"output": value}),),
         (replace(source, evidence=evidence),),
         points=scenario.points,
         catalog=scenario.catalog,
@@ -357,7 +357,7 @@ def test_postprocessor_retains_instrument_acquisition_evidence() -> None:
     assert derived.evidence == evidence
 
 
-def test_postprocessor_chain_propagates_unavailable_without_running_kernels() -> None:
+def test_compute_chain_propagates_unavailable_without_running_kernels() -> None:
     scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=3)
     [source] = measurement_value_candidates(scenario, (scenario.uses[0],))
     unavailable = MeasurementUnavailable.create(
@@ -371,16 +371,16 @@ def test_postprocessor_chain_propagates_unavailable_without_running_kernels() ->
     def kernel(_value: MeasurementValue) -> dict[str, MeasurementValue]:
         raise AssertionError("unavailable inputs must not reach user kernels")
 
-    completed = execute_measurement_postprocessors(
+    completed = execute_measurement_computes(
         (
-            _postprocessor(
+            _compute(
                 scenario,
                 kernel,
                 id="first",
                 input_index=0,
                 output_index=1,
             ),
-            _postprocessor(
+            _compute(
                 scenario,
                 kernel,
                 id="second",
@@ -409,7 +409,7 @@ def test_postprocessor_chain_propagates_unavailable_without_running_kernels() ->
     )
 
 
-def test_postprocessor_chain_propagates_unknown_ragged_extent_without_kernels() -> None:
+def test_compute_chain_propagates_unknown_ragged_extent_without_kernels() -> None:
     scenario = _with_product_axes(
         measurement_assembly_scenario(point_values=(0.0,), use_count=3),
         {
@@ -429,16 +429,16 @@ def test_postprocessor_chain_propagates_unknown_ragged_extent_without_kernels() 
     def kernel(_value: MeasurementValue) -> dict[str, MeasurementValue]:
         raise AssertionError("unavailable inputs must not reach user kernels")
 
-    completed = execute_measurement_postprocessors(
+    completed = execute_measurement_computes(
         (
-            _postprocessor(
+            _compute(
                 scenario,
                 kernel,
                 id="first",
                 input_index=0,
                 output_index=1,
             ),
-            _postprocessor(
+            _compute(
                 scenario,
                 kernel,
                 id="second",
@@ -465,7 +465,7 @@ def test_postprocessor_chain_propagates_unknown_ragged_extent_without_kernels() 
     assert propagated.shape == (None,)
 
 
-def test_postprocessor_propagates_mixed_fixed_and_ragged_output_shape() -> None:
+def test_compute_propagates_mixed_fixed_and_ragged_output_shape() -> None:
     scenario = _with_product_axes(
         measurement_assembly_scenario(point_values=(0.0,), use_count=2),
         {1: (_axis("channel", 2), _axis("sample", None))},
@@ -482,8 +482,8 @@ def test_postprocessor_propagates_mixed_fixed_and_ragged_output_shape() -> None:
     def kernel(_value: MeasurementValue) -> dict[str, MeasurementValue]:
         raise AssertionError("unavailable inputs must not reach user kernels")
 
-    [_, derived] = execute_measurement_postprocessors(
-        (_postprocessor(scenario, kernel),),
+    [_, derived] = execute_measurement_computes(
+        (_compute(scenario, kernel),),
         (
             MeasurementValueCandidate(
                 logical_point_id=source.logical_point_id,
@@ -524,15 +524,15 @@ def test_postprocessor_propagates_mixed_fixed_and_ragged_output_shape() -> None:
         ),
     ],
 )
-def test_postprocessor_validates_each_output_product_contract(
+def test_compute_validates_each_output_product_contract(
     value: MeasurementValue,
     code: str,
 ) -> None:
     scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=2)
 
     with pytest.raises(ComputeExecutionError) as caught:
-        execute_measurement_postprocessors(
-            (_postprocessor(scenario, lambda _source: {"output": value}),),
+        execute_measurement_computes(
+            (_compute(scenario, lambda _source: {"output": value}),),
             measurement_value_candidates(scenario, (scenario.uses[0],)),
             points=scenario.points,
             catalog=scenario.catalog,
@@ -541,15 +541,15 @@ def test_postprocessor_validates_each_output_product_contract(
     assert [problem.code for problem in caught.value.problems] == [code]
 
 
-def test_postprocessor_kernel_exception_becomes_one_execution_problem() -> None:
+def test_compute_kernel_exception_becomes_one_execution_problem() -> None:
     scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=2)
 
     def fail(_value: MeasurementValue) -> dict[str, MeasurementValue]:
         raise RuntimeError("classification failed")
 
     with pytest.raises(ComputeExecutionError) as caught:
-        execute_measurement_postprocessors(
-            (_postprocessor(scenario, fail),),
+        execute_measurement_computes(
+            (_compute(scenario, fail),),
             measurement_value_candidates(scenario, (scenario.uses[0],)),
             points=scenario.points,
             catalog=scenario.catalog,

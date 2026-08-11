@@ -25,10 +25,10 @@ class _DerivedProducts:
     right: sc.ProductRef
 
 
-def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
+def test_record_demand_retains_source_use_and_prunes_dead_compute(
     tmp_path: Path,
 ) -> None:
-    @sc.module(id="test.postprocessor.lowering")
+    @sc.module(id="test.compute.lowering")
     def module(context: sc.ModuleContext) -> sc.ProductRef:
         source = context._resource("source", requires=(_SCALAR_SIGNAL,))
         raw = context._product("raw")
@@ -36,25 +36,25 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
         second = context._product("second")
         derived = context._product("derived")
         dead = context._product("dead")
-        context._postprocess(
+        context._measurement_compute(
             "final",
             input=second,
             outputs={"result": derived},
             kernel=_kernel,
         )
-        context._postprocess(
+        context._measurement_compute(
             "dead",
             input=raw,
             outputs={"result": dead},
             kernel=_kernel,
         )
-        context._postprocess(
+        context._measurement_compute(
             "middle",
             input=first,
             outputs={"result": second},
             kernel=_kernel,
         )
-        context._postprocess(
+        context._measurement_compute(
             "first",
             input=raw,
             outputs={"result": first},
@@ -67,7 +67,7 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
         )
         return derived
 
-    @sc.experiment(id="test.postprocessor.lowering", kind="postprocessor")
+    @sc.experiment(id="test.compute.lowering", kind="compute")
     def experiment(experiment: sc.ExperimentContext) -> None:
         result = experiment.use(module())
         experiment.alias(result, record_id="first")
@@ -76,11 +76,12 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
     resolved = bind_invocation(experiment(), config_profile=load_config())
     program = resolved.bindings
 
-    first, middle, final = program.measurement_postprocessors
-    assert [
-        postprocessor.id.qualified_name
-        for postprocessor in program.measurement_postprocessors
-    ] == ["lowering/first", "lowering/middle", "lowering/final"]
+    first, middle, final = program.measurement_computes
+    assert [compute.id.qualified_name for compute in program.measurement_computes] == [
+        "lowering/first",
+        "lowering/middle",
+        "lowering/final",
+    ]
     assert first.inputs[0].product_id.qualified_name == "lowering/raw"
     assert first.outputs[0].product_use_ids == (middle.inputs[0].product_use_id,)
     assert middle.inputs[0].product_id.qualified_name == "lowering/first"
@@ -100,19 +101,16 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
         for acquisition in resolved.program.program.acquisitions
         for result in acquisition.results
     } == {"lowering/raw"}
-    assert all(
-        callable(postprocessor.kernel)
-        for postprocessor in program.measurement_postprocessors
-    )
+    assert all(callable(compute.kernel) for compute in program.measurement_computes)
 
 
 def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
-    @sc.module(id="test.postprocessor.hidden-id.child")
+    @sc.module(id="test.compute.hidden-id.child")
     def child(context: sc.ModuleContext) -> sc.ProductRef:
         source = context._resource("source", requires=(_SCALAR_SIGNAL,))
         raw = context._product("raw")
         derived = context._product("derived")
-        context._postprocess(
+        context._measurement_compute(
             "derive",
             input=raw,
             outputs={"result": derived},
@@ -128,13 +126,13 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
     left = child.instantiate("left")
     right = child.instantiate("right")
 
-    @sc.module(id="test.postprocessor.hidden-id.root")
+    @sc.module(id="test.compute.hidden-id.root")
     def root(context: sc.ModuleContext) -> _DerivedProducts:
         context.use(left)
         context.use(right)
         return _DerivedProducts(left=left.result, right=right.result)
 
-    @sc.experiment(id="test.postprocessor.hidden-id", kind="postprocessor")
+    @sc.experiment(id="test.compute.hidden-id", kind="compute")
     def experiment(experiment: sc.ExperimentContext) -> None:
         result = experiment.use(root())
         experiment.alias(result.left, record_id="left")
@@ -146,10 +144,8 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
             config_profile=load_config(),
         ).bindings
         return {
-            postprocessor.id.qualified_name: (
-                postprocessor.inputs[0].product_use_id.value
-            )
-            for postprocessor in program.measurement_postprocessors
+            compute.id.qualified_name: (compute.inputs[0].product_use_id.value)
+            for compute in program.measurement_computes
         }
 
     assert (
@@ -200,7 +196,7 @@ def test_measurement_compute_mints_one_live_use_for_each_named_input() -> None:
 
     bound = bind_invocation(experiment(), config_profile=load_config())
 
-    [compute] = bound.bindings.measurement_postprocessors
+    [compute] = bound.bindings.measurement_computes
     assert [(item.id, item.product_id.qualified_name) for item in compute.inputs] == [
         ("left", "lowering/left"),
         ("right", "lowering/right"),

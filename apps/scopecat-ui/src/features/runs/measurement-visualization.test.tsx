@@ -111,9 +111,6 @@ describe("measurement visualization", () => {
         slicePending={false}
         fixedAxisIndices={{}}
         onFixedAxisIndexChange={vi.fn()}
-        hasMore={false}
-        loadingMore={false}
-        onLoadMore={vi.fn()}
       />,
     );
     expect(
@@ -155,9 +152,6 @@ describe("measurement visualization", () => {
         slicePending={false}
         fixedAxisIndices={{}}
         onFixedAxisIndexChange={vi.fn()}
-        hasMore={false}
-        loadingMore={false}
-        onLoadMore={vi.fn()}
       />,
     );
     expect(
@@ -243,9 +237,6 @@ describe("measurement visualization", () => {
         slicePending={false}
         fixedAxisIndices={{ bias: 0 }}
         onFixedAxisIndexChange={vi.fn()}
-        hasMore={false}
-        loadingMore={false}
-        onLoadMore={vi.fn()}
       />,
     );
     expect(
@@ -291,9 +282,6 @@ describe("measurement visualization", () => {
         slicePending={false}
         fixedAxisIndices={{ bias: 0 }}
         onFixedAxisIndexChange={onFixedAxisIndexChange}
-        hasMore
-        loadingMore={false}
-        onLoadMore={vi.fn()}
       />,
     );
 
@@ -359,9 +347,6 @@ describe("measurement visualization", () => {
         tracePlans={tracePlans}
         selectedTracePlanId={tracePlans[0]!.id}
         tracePreview={boundedTrace}
-        hasMore={false}
-        loadingMore={false}
-        onLoadMore={vi.fn()}
       />,
     );
 
@@ -395,9 +380,6 @@ describe("measurement visualization", () => {
         slicePending={false}
         fixedAxisIndices={{ device: 0 }}
         onFixedAxisIndexChange={vi.fn()}
-        hasMore={false}
-        loadingMore={false}
-        onLoadMore={vi.fn()}
       />,
     );
 
@@ -440,9 +422,6 @@ describe("measurement visualization", () => {
         slicePending={false}
         fixedAxisIndices={{ opaque: 1 }}
         onFixedAxisIndexChange={vi.fn()}
-        hasMore={false}
-        loadingMore={false}
-        onLoadMore={vi.fn()}
       />,
     );
 
@@ -486,9 +465,6 @@ describe("measurement visualization", () => {
         tracePlans={tracePlans}
         selectedTracePlanId={tracePlans[0]!.id}
         tracePreview={boundedTrace}
-        hasMore={false}
-        loadingMore={false}
-        onLoadMore={vi.fn()}
       />,
     );
 
@@ -520,9 +496,6 @@ describe("measurement visualization", () => {
         slicePending={false}
         fixedAxisIndices={{ bias: 1 }}
         onFixedAxisIndexChange={vi.fn()}
-        hasMore={false}
-        loadingMore={false}
-        onLoadMore={vi.fn()}
       />,
     );
 
@@ -547,9 +520,6 @@ describe("measurement visualization", () => {
         slicePending={false}
         fixedAxisIndices={{ bias: 0 }}
         onFixedAxisIndexChange={vi.fn()}
-        hasMore={false}
-        loadingMore={false}
-        onLoadMore={vi.fn()}
       />,
     );
 
@@ -577,9 +547,6 @@ describe("measurement visualization", () => {
         slicePending={false}
         fixedAxisIndices={{ bias: 0 }}
         onFixedAxisIndexChange={vi.fn()}
-        hasMore={false}
-        loadingMore={false}
-        onLoadMore={vi.fn()}
       />,
     );
 
@@ -600,9 +567,6 @@ describe("measurement visualization", () => {
         slicePending={false}
         fixedAxisIndices={{ bias: 0 }}
         onFixedAxisIndexChange={vi.fn()}
-        hasMore={false}
-        loadingMore={false}
-        onLoadMore={vi.fn()}
       />,
     );
 
@@ -637,9 +601,6 @@ describe("measurement visualization", () => {
         slicePending={false}
         fixedAxisIndices={{ device: 0, enabled: 0 }}
         onFixedAxisIndexChange={vi.fn()}
-        hasMore={false}
-        loadingMore={false}
-        onLoadMore={vi.fn()}
       />,
     );
     expect(
@@ -717,9 +678,6 @@ describe("measurement visualization", () => {
         slicePending={false}
         fixedAxisIndices={{}}
         onFixedAxisIndexChange={vi.fn()}
-        hasMore={false}
-        loadingMore={false}
-        onLoadMore={vi.fn()}
       />,
     );
 
@@ -763,9 +721,6 @@ describe("measurement visualization", () => {
         slicePending={false}
         fixedAxisIndices={{}}
         onFixedAxisIndexChange={vi.fn()}
-        hasMore={false}
-        loadingMore={false}
-        onLoadMore={vi.fn()}
       />,
     );
 

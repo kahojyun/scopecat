@@ -184,17 +184,17 @@ def _compile_system_program(
         for product_use_ids in domain_use_ids_by_execution.values()
         for use_id in product_use_ids
     )
-    postprocessor_output_use_ids = frozenset(
+    compute_output_use_ids = frozenset(
         use_id
-        for postprocessor in bound.bindings.measurement_postprocessors
-        for output in postprocessor.outputs
+        for compute in bound.bindings.measurement_computes
+        for output in compute.outputs
         for use_id in output.product_use_ids
     )
     local_product_use_ids = tuple(
         use.id
         for use in bound.bindings.product_uses
         if use.id not in domain_owned_product_use_ids
-        and use.id not in postprocessor_output_use_ids
+        and use.id not in compute_output_use_ids
     )
     local_instrument_required = bool(
         local_product_use_ids
@@ -236,8 +236,8 @@ def _compile_system_program(
             bound_points,
             tuple(
                 binding.value_id
-                for postprocessor in bound.bindings.measurement_postprocessors
-                for binding in postprocessor.value_inputs
+                for compute in bound.bindings.measurement_computes
+                for binding in compute.value_inputs
             ),
         ),
     )
@@ -337,7 +337,7 @@ def _compile_system_program(
         success_state=local_success_state,
         points=point_catalog,
         measurements=measurements,
-        measurement_postprocessors=bound.bindings.measurement_postprocessors,
+        measurement_computes=bound.bindings.measurement_computes,
         resource_requirements=resource_requirements,
         domain_target_requirement=domain_target_requirement,
     )

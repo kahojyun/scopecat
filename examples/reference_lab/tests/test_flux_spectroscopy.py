@@ -273,7 +273,6 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
         "dataset",
         "fact",
         "table",
-        "table",
         "figure",
         "artifact",
         "parameter_change_proposal",

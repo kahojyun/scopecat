@@ -409,7 +409,7 @@ def test_repeated_program_calls_require_explicit_instances() -> None:
     assert right.results.iq.id == "right/iq"
 
 
-def test_parent_postprocessor_consumes_program_call_result() -> None:
+def test_parent_compute_consumes_program_call_result() -> None:
     @authoring.program(id="test.quantum.discriminate")
     def declaration(qubit: authoring.Qubit) -> authoring.QuantumFragment:
         return authoring.measure(qubit, result="iq_shots")
@@ -431,7 +431,7 @@ def test_parent_postprocessor_consumes_program_call_result() -> None:
             BinaryIqProbabilityProducts,
         )
 
-    [lowered] = discriminate.definition.body.measurement_postprocessors
+    [lowered] = discriminate.definition.body.measurement_computes
     assert lowered.input_bindings[0][1].qualified_name == "discriminate/iq_shots"
     assert {product.qualified_id for product in discriminate.definition.products} == {
         "discriminate/iq_shots",

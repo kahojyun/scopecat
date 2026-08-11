@@ -1,3 +1,5 @@
+# pyright: reportUnknownMemberType=false
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -401,10 +403,12 @@ def test_empty_measurement_batches_yield_one_schema_bearing_dataset(
 
     reader = cast(
         "_ArrowRecordBatchReader",
-        run.measurement_record_batches(  # pyright: ignore[reportUnknownMemberType]
-            columns={"frequency": "drive_frequency"},
-            batch_size=2,
-        ),
+        run.measurements()
+        .project(
+            {"frequency": "drive_frequency"},
+            diagnostics="reason",
+        )
+        .to_record_batch_reader(batch_size=2),
     )
     assert reader.schema.names == [
         "point_index",
@@ -420,11 +424,11 @@ def test_measurement_batch_converts_directly_to_arrow(tmp_path: Path) -> None:
 
     first_table = cast(
         "_ArrowTable",
-        first.to_arrow(),  # pyright: ignore[reportUnknownMemberType]
+        first.project().to_arrow(),
     )
     second_table = cast(
         "_ArrowTable",
-        second.to_arrow(),  # pyright: ignore[reportUnknownMemberType]
+        second.project().to_arrow(),
     )
 
     assert first_table.num_rows == 2
@@ -438,13 +442,15 @@ def test_run_projects_paged_measurements_into_one_arrow_reader(tmp_path: Path) -
 
     reader = cast(
         "_ArrowRecordBatchReader",
-        run.measurement_record_batches(  # pyright: ignore[reportUnknownMemberType]
-            columns={
+        run.measurements()
+        .project(
+            {
                 "frequency": "drive_frequency",
                 "response": "signal",
             },
-            batch_size=2,
-        ),
+            diagnostics="reason",
+        )
+        .to_record_batch_reader(batch_size=2),
     )
     batches = list(reader)
 
@@ -500,21 +506,18 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
     experiment = load_invocation()
 
     baseline = lab.prepare(experiment).run()
-    dataset = baseline.measurements()
-    analysis = (
-        baseline.analysis("manual best signal")
-        .input("raw-measurements")
-        .propose(
+    context = baseline.analysis("manual best signal")
+    dataset = context.measurements()
+    analysis = context.result().propose(
+        "drive_frequency",
+        sc.replace_scalar_parameter(
             "drive_frequency",
-            sc.replace_scalar_parameter(
+            _quantity_coordinate(
+                dataset.records[2],
                 "drive_frequency",
-                _quantity_coordinate(
-                    dataset.records[2],
-                    "drive_frequency",
-                ),
             ),
-            reason="manual notebook pick",
-        )
+        ),
+        reason="manual notebook pick",
     )
     outcome = analysis.save()
     candidate_config = outcome.candidate_config()
@@ -551,8 +554,9 @@ def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
     experiment = load_invocation()
 
     baseline = lab.prepare(experiment).run()
-    dataset = baseline.measurements()
-    analysis = baseline.analysis("manual center point").propose(
+    context = baseline.analysis("manual center point")
+    dataset = context.measurements()
+    analysis = context.result().propose(
         "drive_frequency",
         sc.replace_scalar_parameter(
             "drive_frequency",

@@ -65,7 +65,7 @@ _OPERATIONS = {
     ("/api/v1/runs/{run_id}/artifacts/{selector}/text", "get"),
     ("/api/v1/runs/{run_id}/attention", "post"),
     ("/api/v1/runs/{run_id}/datasets/{selector}", "get"),
-    ("/api/v1/runs/{run_id}/measurements", "get"),
+    ("/api/v1/runs/{run_id}/measurements/preview", "get"),
     ("/api/v1/runs/{run_id}/measurements/query", "post"),
     ("/api/v1/runs/{run_id}/measurements/traces/query", "post"),
     ("/api/v1/runs/{run_id}/parameter-proposals", "get"),

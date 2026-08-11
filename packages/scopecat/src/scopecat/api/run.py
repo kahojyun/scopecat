@@ -19,7 +19,6 @@ from scopecat.analysis.service import (
     SavedAnalysis,
 )
 from scopecat.api.analysis import (
-    Analysis,
     AnalysisContext,
     AnalysisStep,
 )
@@ -28,7 +27,6 @@ from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.daemon.views import (
     MeasurementArrowColumn,
     MeasurementArrowQuery,
-    MeasurementPage,
     RunAnalysisListView,
     RunAnalysisView,
 )
@@ -41,15 +39,10 @@ from scopecat.measurements.datasets import (
 from scopecat.measurements.results import (
     Dataset,
     ExperimentResultView,
-    MeasurementDataset,
     MeasurementDatasetSchema,
-    ProjectionDiagnostics,
-    ProjectionLayout,
+    ProjectionSchema,
     StoredExperimentResultView,
 )
-from scopecat.program.products import ProductRef
-from scopecat.program.record_refs import RecordRef
-from scopecat.program.value_refs import ValueRef
 from scopecat.records.analysis import AnalysisExecution
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
@@ -91,15 +84,6 @@ class RunOperations(Protocol):
         *,
         expected_kind: str | None,
     ) -> RunDatasetBytesResult: ...
-
-    def load_measurement_page(
-        self,
-        run_id: str,
-        *,
-        limit: int,
-        offset: int,
-        snapshot_size: int | None,
-    ) -> MeasurementPage: ...
 
     def load_measurement_arrow_page(
         self,
@@ -213,20 +197,7 @@ class RunHandle:
         *,
         selector: str = "raw-measurements",
     ) -> Dataset:
-        """Load one detached measurement dataset for notebook analysis."""
-
-        loaded = self.session.run_operations.load_measurement_dataset(
-            self.id,
-            selector=selector,
-        )
-        return Dataset(raw=loaded.dataset, entry=loaded.dataset_entry)
-
-    def _measurements_for_analysis(
-        self,
-        *,
-        selector: str = "raw-measurements",
-    ) -> Dataset:
-        """Open a source-backed dataset for one active analysis context."""
+        """Open one labeled measurement dataset for notebook analysis."""
 
         entry = require_dataset(
             manifest=self.manifest,
@@ -234,7 +205,11 @@ class RunHandle:
             expected_kind=MEASUREMENT_DATASET_KIND,
         )
         if entry.id != RAW_MEASUREMENTS_DATASET_ID or entry.data_schema is None:
-            return self.measurements(selector=entry.id)
+            loaded = self.session.run_operations.load_measurement_dataset(
+                self.id,
+                selector=entry.id,
+            )
+            return Dataset(raw=loaded.dataset, entry=loaded.dataset_entry)
         schema = MeasurementDatasetSchema.model_validate(entry.data_schema)
         return Dataset._from_source(  # pyright: ignore[reportPrivateUsage]
             schema=schema,
@@ -245,14 +220,20 @@ class RunHandle:
                     selector=entry.id,
                 ).dataset
             ),
-            load_batches=lambda batch_size: self._measurement_batches(
-                entry=entry,
-                batch_size=batch_size,
-            ),
+            load_projected_batches=self._measurement_projection_batches,
         )
 
-    def derived_dataset(self, selector: str) -> DerivedDataset:
-        """Load one analysis-authored dataset into its exact Arrow schema."""
+    def _measurements_for_analysis(
+        self,
+        *,
+        selector: str = "raw-measurements",
+    ) -> Dataset:
+        """Open a source-backed dataset for one active analysis context."""
+
+        return self.measurements(selector=selector)
+
+    def _load_analysis_dataset(self, selector: str) -> DerivedDataset:
+        """Load one published analysis dataset for the typed read facade."""
 
         loaded = self.session.run_operations.load_dataset_bytes(
             self.id,
@@ -297,74 +278,35 @@ class RunHandle:
             return dataset.result
         return dataset.bind(output)
 
-    def _measurement_batches(
+    def _measurement_projection_batches(
         self,
-        *,
-        entry: RunContentEntry,
+        projection: ProjectionSchema,
         batch_size: int,
-    ) -> Iterator[Dataset]:
-        offset = 0
-        snapshot_size: int | None = None
-        while True:
-            page = self.session.run_operations.load_measurement_page(
-                self.id,
-                limit=batch_size,
-                offset=offset,
-                snapshot_size=snapshot_size,
-            )
-            if snapshot_size is None:
-                snapshot_size = page.snapshot_size
-            elif page.snapshot_size != snapshot_size:
-                raise ValueError("measurement snapshot changed between pages")
-            schema = page.dataset_schema
-            if schema is None:
-                raise ValueError("measurement dataset page has no registered schema")
-            yield Dataset(
-                raw=MeasurementDataset(
-                    dataset_schema=schema,
-                    records=list(page.items),
-                    metadata={
-                        **entry.metadata,
-                        "scopecat_batch_offset": offset,
-                        "scopecat_snapshot_size": snapshot_size,
-                    },
-                ),
-                entry=entry,
-            )
-            if page.next_offset is None:
-                return
-            if page.next_offset <= offset:
-                raise ValueError("measurement page next_offset must advance")
-            offset = page.next_offset
-
-    def measurement_record_batches(
-        self,
-        *,
-        columns: Mapping[
-            str,
-            str | ProductRef | RecordRef | ValueRef[object],
-        ]
-        | None = None,
-        units: Mapping[str, str] | None = None,
-        diagnostics: ProjectionDiagnostics = "reason",
-        include_identity: bool = True,
-        layout: ProjectionLayout = "points",
-        batch_size: int = 100,
     ) -> pa.RecordBatchReader:
-        """Read a finite run through one server-projected Arrow stream."""
+        """Read one already-bound projection through the Arrow page transport."""
 
         if not 1 <= batch_size <= MAX_MEASUREMENT_PAGE_SIZE:
             raise ValueError(
                 "measurement batch_size must be between 1 and "
                 f"{MAX_MEASUREMENT_PAGE_SIZE}"
             )
-        query = self._measurement_arrow_query(
-            columns=columns,
-            units=units,
-            diagnostics=diagnostics,
-            include_identity=include_identity,
-            layout=layout,
-            batch_size=batch_size,
+        query = MeasurementArrowQuery(
+            columns=tuple(
+                MeasurementArrowColumn(
+                    name=field.name,
+                    variable_id=field.variable_id,
+                )
+                for field in projection.fields
+            ),
+            units={
+                field.name: field.unit
+                for field in projection.fields
+                if field.unit is not None
+            },
+            diagnostics=projection.diagnostics,
+            include_identity=projection.include_identity,
+            layout=projection.layout,
+            limit=batch_size,
         )
         first, next_offset, snapshot_size = (
             self.session.run_operations.load_measurement_arrow_page(
@@ -401,57 +343,6 @@ class RunHandle:
 
         return pa.RecordBatchReader.from_batches(first.schema, batches())
 
-    def _measurement_arrow_query(
-        self,
-        *,
-        columns: Mapping[
-            str,
-            str | ProductRef | RecordRef | ValueRef[object],
-        ]
-        | None,
-        units: Mapping[str, str] | None,
-        diagnostics: ProjectionDiagnostics,
-        include_identity: bool,
-        layout: ProjectionLayout,
-        batch_size: int,
-    ) -> MeasurementArrowQuery:
-        entry = require_dataset(
-            manifest=self.manifest,
-            selector=RAW_MEASUREMENTS_DATASET_ID,
-            expected_kind=MEASUREMENT_DATASET_KIND,
-        )
-        if entry.data_schema is None:
-            raise ValueError("measurement dataset has no registered schema")
-        schema = MeasurementDatasetSchema.model_validate(entry.data_schema)
-        projection = Dataset(
-            raw=MeasurementDataset(
-                dataset_schema=schema,
-                records=(),
-                metadata=entry.metadata,
-            ),
-            entry=entry,
-        ).project(
-            columns,
-            units=units,
-            diagnostics=diagnostics,
-            identity=include_identity,
-            layout=layout,
-        )
-        return MeasurementArrowQuery(
-            columns=tuple(
-                MeasurementArrowColumn(
-                    name=field.name,
-                    variable_id=field.variable_id,
-                )
-                for field in projection.schema.fields
-            ),
-            units=dict(units or {}),
-            diagnostics=diagnostics,
-            include_identity=include_identity,
-            layout=layout,
-            limit=batch_size,
-        )
-
     def data(self) -> Data:
         return Data(run=self)
 
@@ -460,11 +351,10 @@ class RunHandle:
         title: str,
         *,
         key: str | None = None,
-        step_id: str | None = None,
-    ) -> Analysis:
-        """Start an exploratory analysis draft that the caller may save."""
+    ) -> AnalysisContext:
+        """Start an exploratory analysis through the regular analysis context."""
 
-        return Analysis(run=self, title=title, key=key, step_id=step_id)
+        return AnalysisContext(run=self, default_title=title, default_key=key)
 
     def published_analyses(self) -> tuple[PublishedAnalysis, ...]:
         """Load every durable analysis publication in manifest order."""

@@ -13,6 +13,11 @@ import xarray as xr
 
 import scopecat as sc
 from scopecat.analysis.datasets import DERIVED_DATASET_CODEC, DerivedDataset
+from scopecat.records.analysis import (
+    MAX_ANALYSIS_FIGURE_POINTS,
+    MAX_ANALYSIS_TABLE_ROWS,
+    AnalysisTable,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +63,10 @@ def test_derived_dataset_round_trips_exact_arrow_and_semantic_schema() -> None:
             "score": sc.AnalysisField(unit="ratio", label="Fit score"),
         },
     )
-    restored = DerivedDataset.from_json_value(dataset.to_json_value())
+    restored = DerivedDataset.from_arrow_ipc(
+        dataset.to_arrow_ipc(),
+        schema=dataset.schema,
+    )
 
     assert dataset.schema.schema_id == "scopecat.derived-dataset.v3"
     assert dataset.schema.fields[0].source_name == "bias"
@@ -186,7 +194,7 @@ def test_derived_dataset_projects_annotated_rows_with_table_semantics() -> None:
     assert dataset.schema.fields[0].role == "coordinate"
     assert dataset.schema.fields[0].unit == "mV"
     assert dataset.schema.fields[0].label == "Bias"
-    assert dataset.to_analysis_table() == sc.AnalysisTable.from_objects(rows)
+    assert dataset.to_analysis_table() == AnalysisTable.from_objects(rows)
 
 
 def test_derived_dataset_annotated_rows_are_unbounded_and_own_their_fields() -> None:
@@ -204,6 +212,26 @@ def test_derived_dataset_annotated_rows_are_unbounded_and_own_their_fields() -> 
         )
     with pytest.raises(TypeError, match="share one dataclass type"):
         sc.derived_dataset((rows[0], _OtherFitRow(0.5)))
+
+
+def test_derived_dataset_presentation_previews_have_independent_budgets() -> None:
+    row_count = MAX_ANALYSIS_FIGURE_POINTS + 10
+    dataset = sc.derived_dataset(
+        pa.table(
+            {
+                "x": range(row_count),
+                "y": range(row_count),
+            }
+        )
+    )
+
+    table = dataset.to_analysis_table()
+    figure = dataset.to_analysis_figure(kind="line", x="x", y="y")
+
+    assert len(dataset.table) == row_count
+    assert len(table.rows) == MAX_ANALYSIS_TABLE_ROWS
+    assert len(figure.series[0].x) == MAX_ANALYSIS_FIGURE_POINTS
+    assert figure.series[0].x[-1] == MAX_ANALYSIS_FIGURE_POINTS - 1
 
 
 def test_derived_dataset_retains_only_meaningful_pandas_indexes() -> None:

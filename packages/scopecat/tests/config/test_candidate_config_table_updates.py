@@ -45,29 +45,33 @@ def test_candidate_config_activation_materializes_table_row_updates(
         instrument_backend=composition.backend,
     )
     run = lab.prepare(load_invocation()).run()
-    analysis = run.analysis("table update fixture").propose(
-        "drive-channel-update",
-        sc.update_parameter_rows(
-            "drive_channels",
-            key={"channel_id": "xy0"},
-            values={"gain": 0.75},
-        ),
-        sc.insert_parameter_rows(
-            "drive_channels",
-            rows=[
-                {
-                    "channel_id": "xy1",
-                    "resource_id": "drive-b",
-                    "gain": 0.25,
-                    "fixed_if": Quantity(value=120, unit="MHz"),
-                }
-            ],
-        ),
-        sc.delete_parameter_rows(
-            "drive_channels",
-            key={"channel_id": "remove-me"},
-        ),
-        reason="table row updates",
+    analysis = (
+        run.analysis("table update fixture")
+        .result()
+        .propose(
+            "drive-channel-update",
+            sc.update_parameter_rows(
+                "drive_channels",
+                key={"channel_id": "xy0"},
+                values={"gain": 0.75},
+            ),
+            sc.insert_parameter_rows(
+                "drive_channels",
+                rows=[
+                    {
+                        "channel_id": "xy1",
+                        "resource_id": "drive-b",
+                        "gain": 0.25,
+                        "fixed_if": Quantity(value=120, unit="MHz"),
+                    }
+                ],
+            ),
+            sc.delete_parameter_rows(
+                "drive_channels",
+                key={"channel_id": "remove-me"},
+            ),
+            reason="table row updates",
+        )
     )
     outcome = analysis.save()
     candidate = outcome.candidate_config()

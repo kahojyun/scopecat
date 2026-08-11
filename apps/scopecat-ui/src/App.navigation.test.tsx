@@ -2,7 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import {
@@ -244,96 +244,6 @@ describe("config provenance navigation", () => {
     expect(screen.queryByRole("button", { name: "Load older runs" })).not.toBeInTheDocument();
   });
 
-  it("groups loaded staged runs and finds them by sequence id", async () => {
-    window.history.replaceState(null, "", "/");
-    const stagedRuns = [
-      { ...stagedRun("run-stage-3", "adaptive-sequence", 2, "run-stage-2"), sequence: 30 },
-      { ...projectRun("run-regular"), sequence: 29 },
-      { ...stagedRun("run-stage-2", "adaptive-sequence", 1, "run-stage-1"), sequence: 28 },
-      { ...stagedRun("run-stage-1", "adaptive-sequence", 0), sequence: 27 },
-    ];
-    vi.mocked(getRuns).mockResolvedValue({ items: stagedRuns });
-    vi.mocked(getRun).mockImplementation(
-      async (runId) => stagedRuns.find((run) => run.runId === runId) ?? projectRun(runId),
-    );
-
-    renderApp();
-
-    const group = await screen.findByRole("region", {
-      name: "Sequence adaptive-sequence",
-    });
-    expect(screen.getAllByTestId("run-sequence-group")).toHaveLength(1);
-    expect(within(group).getByText("3 stages shown")).toBeVisible();
-    expect(within(group).getByText("Stage 3")).toBeVisible();
-    expect(within(group).getByText("Stage 2")).toBeVisible();
-    expect(within(group).getByText("Stage 1")).toBeVisible();
-    expect(screen.getByTitle("Inspect run run-regular")).toBeVisible();
-
-    fireEvent.change(screen.getByPlaceholderText("Search runs or sequences"), {
-      target: { value: "adaptive-sequence" },
-    });
-    expect(screen.queryByTitle("Inspect run run-regular")).not.toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Sequence adaptive-sequence" })).toBeVisible();
-    expect(getRuns).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(getRun).toHaveBeenCalledTimes(1));
-  });
-
-  it("merges one staged sequence across loaded run pages", async () => {
-    window.history.replaceState(null, "", "/");
-    vi.mocked(getRuns).mockResolvedValue({
-      items: [{ ...stagedRun("run-stage-2", "paged-sequence", 1, "run-stage-1"), sequence: 20 }],
-      nextCursor: 20,
-    });
-    vi.mocked(getOlderRuns).mockResolvedValue({
-      items: [{ ...stagedRun("run-stage-1", "paged-sequence", 0), sequence: 19 }],
-    });
-    vi.mocked(getRun).mockImplementation(async (runId) =>
-      runId === "run-stage-2"
-        ? stagedRun("run-stage-2", "paged-sequence", 1, "run-stage-1")
-        : stagedRun("run-stage-1", "paged-sequence", 0),
-    );
-
-    renderApp();
-
-    const initial = await screen.findByRole("region", { name: "Sequence paged-sequence" });
-    expect(within(initial).getByText("1 stage shown")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Load older runs" }));
-
-    await waitFor(() =>
-      expect(
-        within(screen.getByRole("region", { name: "Sequence paged-sequence" })).getByText(
-          "2 stages shown",
-        ),
-      ).toBeVisible(),
-    );
-    expect(screen.getAllByTestId("run-sequence-group")).toHaveLength(1);
-  });
-
-  it("opens an unloaded previous stage from run detail lineage", async () => {
-    window.history.replaceState(null, "", "/?run=run-stage-2");
-    const current = stagedRun("run-stage-2", "detail-sequence", 1, "run-stage-1-unloaded");
-    const previous = stagedRun("run-stage-1-unloaded", "detail-sequence", 0);
-    vi.mocked(getRuns).mockResolvedValue({ items: [current] });
-    vi.mocked(getRun).mockImplementation(async (runId) =>
-      runId === current.runId ? current : previous,
-    );
-
-    renderApp();
-
-    const lineage = await screen.findByTestId("run-stage-lineage");
-    expect(lineage).toHaveAttribute("title", "Sequence detail-sequence, stage 2");
-    expect(lineage).toHaveTextContent("Stage 2");
-    fireEvent.click(screen.getByRole("button", { name: "Previous stage" }));
-
-    await waitFor(() =>
-      expect(getRun).toHaveBeenCalledWith("run-stage-1-unloaded", expect.any(AbortSignal)),
-    );
-    expect(await screen.findByTitle("run-stage-1-unloaded")).toHaveTextContent(
-      "run-stage-1-unloaded",
-    );
-    expect(window.location.search).toBe("?run=run-stage-1-unloaded");
-  });
-
   it("discards loaded history when the latest page head moves", async () => {
     window.history.replaceState(null, "", "/");
     vi.mocked(getRuns)
@@ -434,57 +344,35 @@ describe("config provenance navigation", () => {
     expect(screen.getByText("33%")).toBeVisible();
   });
 
-  it("keeps distinct measurement records that share a point index", async () => {
+  it("keeps distinct records in one bounded measurement preview", async () => {
     window.history.replaceState(null, "", "/");
-    vi.mocked(getMeasurementPreview).mockImplementation(async (_runId, offset = 0) =>
-      offset === 0
-        ? {
-            items: [measurementRecord(0, 1, "dataset-a")],
-            nextOffset: 1,
-          }
-        : {
-            items: [measurementRecord(0, 2, "dataset-b")],
-          },
-    );
+    vi.mocked(getMeasurementPreview).mockResolvedValue({
+      items: [measurementRecord(0, 1, "dataset-a"), measurementRecord(0, 2, "dataset-b")],
+      truncated: true,
+    });
 
     renderApp();
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Load more measurements",
-      }),
-    );
-
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("button", { name: "Load more measurements" }),
-      ).not.toBeInTheDocument(),
-    );
-    expect(getMeasurementPreview).toHaveBeenCalledWith("run-1", 1, expect.any(AbortSignal));
+    expect(await screen.findByText(/2\+ records/)).toBeVisible();
+    expect(getMeasurementPreview).toHaveBeenCalledWith("run-1", expect.any(AbortSignal));
     expect(screen.getByTestId("measurement-preview")).toHaveTextContent(
       '"dataset_id": "dataset-b"',
     );
-    expect(screen.getByText(/2 records/)).toBeVisible();
   });
 
-  it("resets measurement pages for the event's run", async () => {
+  it("resets the bounded measurement preview for the event's run", async () => {
     window.history.replaceState(null, "", "/?run=run-1");
-    vi.mocked(getMeasurementPreview).mockImplementation(async (_runId, offset = 0) => ({
-      items: [measurementRecord(offset, offset)],
-      nextOffset: offset === 0 ? 1 : undefined,
-    }));
+    vi.mocked(getMeasurementPreview).mockResolvedValue({
+      items: [measurementRecord(0, 0)],
+      truncated: false,
+    });
 
     const queryClient = createQueryClient();
     renderApp(queryClient);
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Load more measurements",
-      }),
-    );
-    await waitFor(() => expect(getMeasurementPreview).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getMeasurementPreview).toHaveBeenCalledTimes(1));
     expect(projectEventListener).toBeDefined();
     queryClient.setQueryData(["measurements", "run-2"], {
-      pages: [{ items: [measurementRecord(9, 9)] }],
-      pageParams: [0],
+      items: [measurementRecord(9, 9)],
+      truncated: false,
     });
     queryClient.setQueryData(["measurement-trace", "run-2", "trace", "{}"], {
       stale: true,
@@ -497,16 +385,16 @@ describe("config provenance navigation", () => {
       expect(queryClient.getQueryData(["measurements", "run-2"])).toBeUndefined(),
     );
     expect(queryClient.getQueryData(["measurement-trace", "run-2", "trace", "{}"])).toBeUndefined();
-    expect(getMeasurementPreview).toHaveBeenCalledTimes(2);
+    expect(getMeasurementPreview).toHaveBeenCalledTimes(1);
 
     act(() => {
       emitProjectEvent("run-1", "measurements_sealed");
     });
-    await waitFor(() => expect(getMeasurementPreview).toHaveBeenCalledTimes(3));
-    expect(vi.mocked(getMeasurementPreview).mock.calls.map(([, offset]) => offset)).toEqual([
-      0, 1, 0,
+    await waitFor(() => expect(getMeasurementPreview).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(getMeasurementPreview).mock.calls.map(([runId]) => runId)).toEqual([
+      "run-1",
+      "run-1",
     ]);
-    expect(screen.getByRole("button", { name: "Load more measurements" })).toBeVisible();
   });
 
   it("queries only the selected bounded trace mode and authored slice", async () => {
@@ -644,18 +532,6 @@ function projectRun(runId: string): ProjectRun {
     },
     resources: [],
     contents: [],
-  };
-}
-
-function stagedRun(
-  runId: string,
-  sequenceId: string,
-  index: number,
-  previousRunId?: string,
-): ProjectRun {
-  return {
-    ...projectRun(runId),
-    stage: { sequenceId, index, previousRunId },
   };
 }
 

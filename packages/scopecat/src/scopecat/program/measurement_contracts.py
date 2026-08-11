@@ -8,13 +8,13 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from scopecat.records.measurement import MeasurementValue
 
-type MeasurementPostprocessorKernel = Callable[
+type MeasurementComputeKernel = Callable[
     [Mapping[str, object]],
     Mapping[str, "MeasurementValue"],
 ]
-type SingleMeasurementPostprocessorKernel = Callable[
+type SingleMeasurementComputeKernel = Callable[
     ["MeasurementValue"],
     Mapping[str, "MeasurementValue"],
 ]
 
-__all__ = ["MeasurementPostprocessorKernel", "SingleMeasurementPostprocessorKernel"]
+__all__ = ["MeasurementComputeKernel", "SingleMeasurementComputeKernel"]

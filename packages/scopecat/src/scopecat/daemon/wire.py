@@ -381,7 +381,7 @@ class AnalysisSaveCommand(_WireModel):
             ):
                 continue
             source = output.content.source
-            if source is not None and source.output_id not in dataset_ids:
+            if source.output_id not in dataset_ids:
                 raise ValueError("analysis view source must identify a dataset output")
         return self
 

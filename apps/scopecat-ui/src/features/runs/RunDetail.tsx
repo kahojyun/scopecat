@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
-  ArrowLeft,
   Atom,
   Box,
   CheckCircle2,
@@ -41,8 +40,6 @@ export function RunDetail({
   measurements,
   measurementsError,
   measurementsPending,
-  measurementsHasMore,
-  measurementsLoadingMore,
   measurementSlice,
   measurementSliceError,
   measurementSlicePending,
@@ -54,13 +51,11 @@ export function RunDetail({
   onTracePlanChange,
   measurementFixedAxisIndices,
   onMeasurementFixedAxisIndexChange,
-  onLoadMoreMeasurements,
   analyses,
   analysesError,
   analysesPending,
   attentionError,
   attentionPending,
-  onSelectRun,
   onResolveAttention,
 }: {
   run: ProjectRun;
@@ -70,8 +65,6 @@ export function RunDetail({
   measurements?: MeasurementPreview;
   measurementsError: Error | null;
   measurementsPending: boolean;
-  measurementsHasMore: boolean;
-  measurementsLoadingMore: boolean;
   measurementSlice?: MeasurementSlicePreview;
   measurementSliceError: Error | null;
   measurementSlicePending: boolean;
@@ -83,16 +76,13 @@ export function RunDetail({
   onTracePlanChange: (planId: string) => void;
   measurementFixedAxisIndices: Record<string, number>;
   onMeasurementFixedAxisIndexChange: (axisId: string, index: number) => void;
-  onLoadMoreMeasurements: () => void;
   analyses?: RunAnalysis[];
   analysesError: Error | null;
   analysesPending: boolean;
   attentionError: Error | null;
   attentionPending: boolean;
-  onSelectRun: (runId: string) => void;
   onResolveAttention: () => void;
 }) {
-  const previousRunId = run.stage?.previousRunId;
   return (
     <>
       <header
@@ -111,31 +101,6 @@ export function RunDetail({
               <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
               {run.stateLabel}
             </span>
-            {run.stage && (
-              <span
-                className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-[rgb(128_163_207_/_18%)] bg-accent-soft px-2 py-1 text-[0.62rem] font-bold text-accent"
-                data-testid="run-stage-lineage"
-                title={`Sequence ${run.stage.sequenceId}, stage ${run.stage.index + 1}`}
-              >
-                <span>Sequence</span>
-                <code className="max-w-40 overflow-hidden text-ellipsis whitespace-nowrap">
-                  {shorten(run.stage.sequenceId, 18)}
-                </code>
-                <span aria-hidden="true">·</span>
-                <span>Stage {run.stage.index + 1}</span>
-              </span>
-            )}
-            {previousRunId && (
-              <button
-                className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-[7px] border border-line bg-transparent px-2 text-[0.62rem] font-bold text-text-soft hover:border-line-strong hover:bg-panel-strong hover:text-text"
-                type="button"
-                title={`Open previous stage ${previousRunId}`}
-                onClick={() => onSelectRun(previousRunId)}
-              >
-                <ArrowLeft size={13} aria-hidden="true" />
-                Previous stage
-              </button>
-            )}
           </div>
           <h2 className="mb-[7px] text-[clamp(1.2rem,1.8vw,1.55rem)] font-[650] tracking-[-0.035em] [overflow-wrap:anywhere]">
             {run.displayName ?? run.experimentId}
@@ -232,8 +197,6 @@ export function RunDetail({
           measurements={measurements}
           error={measurementsError}
           pending={measurementsPending}
-          hasMoreMeasurements={measurementsHasMore}
-          loadingMoreMeasurements={measurementsLoadingMore}
           measurementSlice={measurementSlice}
           measurementSliceError={measurementSliceError}
           measurementSlicePending={measurementSlicePending}
@@ -245,7 +208,6 @@ export function RunDetail({
           onTracePlanChange={onTracePlanChange}
           measurementFixedAxisIndices={measurementFixedAxisIndices}
           onMeasurementFixedAxisIndexChange={onMeasurementFixedAxisIndexChange}
-          onLoadMoreMeasurements={onLoadMoreMeasurements}
         />
       </div>
     </>
@@ -602,8 +564,6 @@ function DataCard({
   measurements,
   error,
   pending,
-  hasMoreMeasurements,
-  loadingMoreMeasurements,
   measurementSlice,
   measurementSliceError,
   measurementSlicePending,
@@ -615,14 +575,11 @@ function DataCard({
   onTracePlanChange,
   measurementFixedAxisIndices,
   onMeasurementFixedAxisIndexChange,
-  onLoadMoreMeasurements,
 }: {
   run: ProjectRun;
   measurements?: MeasurementPreview;
   error: Error | null;
   pending: boolean;
-  hasMoreMeasurements: boolean;
-  loadingMoreMeasurements: boolean;
   measurementSlice?: MeasurementSlicePreview;
   measurementSliceError: Error | null;
   measurementSlicePending: boolean;
@@ -634,7 +591,6 @@ function DataCard({
   onTracePlanChange: (planId: string) => void;
   measurementFixedAxisIndices: Record<string, number>;
   onMeasurementFixedAxisIndexChange: (axisId: string, index: number) => void;
-  onLoadMoreMeasurements: () => void;
 }) {
   const [selectedContentKey, setSelectedContentKey] = useState<string>();
   useEffect(() => {
@@ -744,8 +700,6 @@ function DataCard({
         preview={measurements}
         error={error}
         pending={pending}
-        hasMore={hasMoreMeasurements}
-        loadingMore={loadingMoreMeasurements}
         slice={measurementSlice}
         sliceError={measurementSliceError}
         slicePending={measurementSlicePending}
@@ -757,7 +711,6 @@ function DataCard({
         onTracePlanChange={onTracePlanChange}
         fixedAxisIndices={measurementFixedAxisIndices}
         onFixedAxisIndexChange={onMeasurementFixedAxisIndexChange}
-        onLoadMore={onLoadMoreMeasurements}
       />
     </article>
   );
@@ -834,9 +787,6 @@ function MeasurementRecords({
   onFixedAxisIndexChange,
   error,
   pending,
-  hasMore,
-  loadingMore,
-  onLoadMore,
 }: {
   preview?: MeasurementPreview;
   slice?: MeasurementSlicePreview;
@@ -852,9 +802,6 @@ function MeasurementRecords({
   onFixedAxisIndexChange: (axisId: string, index: number) => void;
   error: Error | null;
   pending: boolean;
-  hasMore: boolean;
-  loadingMore: boolean;
-  onLoadMore: () => void;
 }) {
   if (error) {
     return (
@@ -891,9 +838,6 @@ function MeasurementRecords({
       onTracePlanChange={onTracePlanChange}
       fixedAxisIndices={fixedAxisIndices}
       onFixedAxisIndexChange={onFixedAxisIndexChange}
-      hasMore={hasMore}
-      loadingMore={loadingMore}
-      onLoadMore={onLoadMore}
     />
   );
 }

@@ -33,11 +33,12 @@ The return type follows availability, not shape. Authors normally receive a
 not construct either type themselves. A measured array is still a
 `ProductRef`, while a precomputed array is still a `ValueRef`.
 
-Measurement-dependent feedback cannot run earlier in the same invocation. If a
-new instrument state or compiled program depends on a measurement, use a
-bounded run sequence so the completed measurement is a durable input to the
-next invocation. Measurement-dependent points inside one executing run require
-a separate adaptive point-plan abstraction.
+Measurement-dependent feedback cannot run earlier in the same invocation. End
+the run, analyze its durable result, and start another ordinary run explicitly
+when a new instrument state or compiled program depends on that result. Owning
+that state across multiple runs belongs to a future workflow abstraction.
+Measurement-dependent points inside one executing run likewise require a
+separate adaptive point-plan abstraction.
 
 ## Return the result you mean to keep
 
@@ -314,8 +315,8 @@ schemas. The internal execution model still has separate host and observation
 stages, but that distinction is compiler-owned rather than a second authoring
 API.
 
-Earlier values can be bound directly beside measured products; no closure or
-parallel postprocessing API is required:
+Earlier values can be bound directly beside measured products; no closure-based
+or second compute API is required:
 
 ```python
 classified = experiment.compute(
@@ -341,8 +342,9 @@ probabilities = experiment.compute(
 The kernel receives the unwrapped discriminator value, while preview retains
 `discriminator` as a named input. Local Python functions may still close over
 nonlocal values, but preview exposes their names in `captures` and makes no
-replay promise. A registered compute implementation must express every
-nonlocal value as an input; hidden nonlocal captures are rejected.
+replay promise. Put every value that affects the scientific result on the
+explicit input graph with a symbolic reference or `constant(...)`; captures are
+diagnostic evidence, not a second input or execution mechanism.
 
 Completed-data analysis keeps its derived result model as the durable dataset
 and presentation schema. Annotate scalar dataclass fields once, then publish
@@ -361,8 +363,10 @@ class FitPoint:
     ]
 
 
-analysis = (
-    context.result("Resonator fit")
+context = run.analysis("Resonator fit")
+fits = fit_resonances(context.measurements())
+published = (
+    context.result()
     .dataset("fits", fits)
     .table(dataset="fits")
     .figure(
@@ -371,16 +375,18 @@ analysis = (
         x="bias_v",
         y="resonance_ghz",
     )
+    .save()
 )
 ```
 
 The shared row projector converts quantities to the declared units and persists
 the selected fields as an Arrow-backed dataset. Table and figure outputs retain
-that dataset relation and use bounded presentation previews. The explicit
-`AnalysisTable` and `AnalysisFigure` constructors remain available for dynamic
-or presentation-only schemas; ordinary typed fit code does not maintain a
-second column declaration, rebuild aligned x/y arrays, or manually map its rows
-into pandas or Polars.
+that dataset relation and use bounded presentation previews. Views never own an
+independent copy of scientific data: dynamic analysis should first publish a
+dataset with an explicit field mapping, then project table or figure views from
+that dataset. Ordinary typed fit code does not maintain a second column
+declaration, rebuild aligned x/y arrays, or manually map its rows into pandas or
+Polars.
 
 ## Inspect placement and liveness before running
 
@@ -414,13 +420,12 @@ keeps the compute live. Observation computes absent from this list were removed
 because no durable output or downstream compute needs them.
 
 Traced completed-run analysis uses `AnalysisExecution` for optional execution
-evidence: implementation, determinism, named content-identified inputs, one
-encoded result identity, and full-versus-batch access. It deliberately has no
+evidence: a local Python identity, named content-identified inputs, encoded
+result identities, and captured nonlocal names. It deliberately has no
 `placement`, because it is eager code over a run snapshot rather than a node in
-the experiment program. A `python:` implementation is local and makes no replay
-promise, while a `registry:` implementation identifies an explicit portable
-contract. Experiment computes and analysis traces share this lower-level
-implementation vocabulary without presenting one lifecycle to authors.
+the experiment program. This evidence makes no replay, caching, or remote
+execution promise. Ordinary analysis calls Python directly and only uses
+`context.trace(...)` when retaining that evidence is useful.
 
 `bindings` gives runtime inputs, scan coordinates, and parameter dependencies
 one common inspection shape without giving them one lifecycle. Its `owner`
@@ -452,9 +457,8 @@ path is not by itself an authoring feature.
 
 The baseline analysis in those paths uses ordinary Python over a recorded
 snapshot and publishes its selected facts, datasets, views, artifacts, and
-proposals. `trace(...)`, portable implementation registration, and named
-execution outputs are progressive audit or bounded-execution features; a user
-must not need them merely to fit data, attach a report, or propose a parameter.
+proposals. `trace(...)` is progressive audit evidence; a user must not need it
+merely to fit data, attach a report, or propose a parameter.
 
 ## Deliberate remaining boundaries
 
@@ -464,11 +468,10 @@ experiment semantics:
 - runtime inputs and persistent parameters have different owners and lifecycle;
 - scan coordinates describe the point domain, while local array dimensions
   describe data inside one point;
-- measurement-dependent configuration or program control requires a later run
-  in a run sequence;
+- measurement-dependent configuration or program control requires a later run;
 - an explicit `alias(...)` is an additional destination, not ordinary dataflow.
 
 Further convenience should be judged against complete experiments. New
 features should extend typed results, the shared compute model, or this
 ownership vocabulary instead of introducing another kind of value or another
-postprocessing API.
+experiment-data transformation API.

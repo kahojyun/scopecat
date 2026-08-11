@@ -29,8 +29,8 @@ kinds of output:
   convention. Published artifacts can be reopened through Python or downloaded
   from the run view.
 - **View** is a bounded table or figure projection for inspection. A view refers
-  to its source fact or dataset by output ID and may retain a preview cache. The
-  cache is presentation, not another authoritative scientific result.
+  to its source dataset by output ID and retains a preview cache. The cache is
+  presentation, not another authoritative scientific result.
 - **Proposal** is a decision output that proposes parameter changes and retains
   its validation and acceptance lineage. It may cite authoritative fact,
   dataset, or artifact outputs from the same analysis as structured evidence.
@@ -115,11 +115,11 @@ The first-party adapter intentionally supports a small, explicit matrix:
 | Annotated rows | A non-empty homogeneous sequence of dataclass rows with `Annotated[..., AnalysisField(...)]` fields | The annotation supplies stable field ID, role, label, and target unit; `Quantity` values are converted once and the selected values enter Arrow without a dataframe adapter | Unannotated fields are private implementation details and are omitted; empty or mixed row types have no inferable durable schema |
 | NumPy | Arrays inside an explicitly named dataframe/Xarray field | The owning container supplies field identity and topology | A bare ndarray is not a dataset because it has no durable field names or coordinate meaning |
 
-Annotated rows use the same projector as `AnalysisTable.from_objects(...)`, but
-dataset publication is not constrained by the bounded table-preview row limit.
-Because the dataclass already owns its field semantics, a second `fields=`
-mapping is rejected. Authors can publish the rows directly and let a table or
-figure refer to that durable dataset by output ID.
+Annotated rows enter the same bounded preview projector after publication, but
+dataset publication is not constrained by the preview row limit. Because the
+dataclass already owns its field semantics, a second `fields=` mapping is
+rejected. Authors publish the rows once and let tables or figures refer to that
+durable dataset by output ID.
 
 `DerivedDataset.to_pandas()` defaults to familiar pandas/NumPy dtypes. Use
 `dtype_backend="pyarrow"` when nullable integer and other exact Arrow dtype
@@ -168,24 +168,32 @@ runs, or create workflow-owned state.
 
 ### Optional execution evidence
 
-A traced analysis execution may additionally retain implementation, named
-input bindings, codecs, access mode, and the content identities of its named
-results. Use `context.trace(...)` only when that execution evidence or bounded
-batch access is itself valuable; it is not part of the basic publication path.
+A traced analysis execution may retain a diagnostic Python implementation
+identity, captures, named input bindings, and the content identity of its one
+native return value. Use `context.trace(...)` only when that evidence is useful;
+it is not part of the basic publication path, a batch-processing API, or a
+deployable compute contract. The function receives the full durable dataset and
+runs as ordinary eager Python.
 
-Executions and outputs are intentionally separate. Calling `trace(...)` returns
-the native Python value and appends execution evidence to the analysis record;
-it does not decide that the value is a durable user-facing output. Facts,
-datasets, tables, figures, artifacts, and proposals remain explicit publication
-choices. When an explicitly published fact, dataset, or artifact has exactly
-the traced result's content and codec identity, it records `produced_by`
+Calling `trace(...)` returns the native value and appends execution evidence; it
+does not publish the value. Facts, datasets, views, artifacts, and proposals
+remain explicit choices. When a published fact, dataset, or artifact exactly
+matches the traced value's content identity, Scopecat records `produced_by`
 automatically. Applying the first-party dataset adapter with field mappings or
-a different pandas index policy instead records `derived_from`, including the
-source execution output and adapter arguments. Authors therefore do not pass
-provenance handles through their numerical code, while the record still
-distinguishes exact production from normalization. Views identify their
-published source dataset; their projection is analysis authoring, not the
-traced numerical result itself.
+a different pandas index policy records `derived_from` and its adapter
+arguments instead. Authors do not pass provenance handles through numerical
+code, while the record still distinguishes exact production from normalization.
+
+The execution output stores a codec and content hash, not the intermediate
+value. It is audit evidence and a provenance target, not a cache, checkpoint,
+replay promise, or remote implementation registry. A richer execution system
+needs explicit environment, deployment, streaming-window, checkpoint, and
+recovery semantics and belongs to a future workflow design.
+
+A traced function may return exact `bytes` or a file `Path`. Publishing the
+same content with `artifact(...)` retains the execution link while filename and
+media type remain publication choices. Returning text remains a normal value;
+encoding it as a file is a conversion rather than exact production.
 
 A parameter proposal may add `evidence=("selected-fit", "fit-quality")` to cite
 authoritative outputs already published by the same analysis builder. The
@@ -195,82 +203,10 @@ views are deliberately not evidence targets because their previews are bounded
 presentation caches; cite their source dataset instead. This is a shallow
 publication relation, not a general-purpose analysis DAG.
 
-An `AnalysisExecutionOutput` retains a named codec and content hash, not the
-intermediate value itself. It is audit evidence and a provenance target, not a
-cache, checkpoint, or replay promise. Only explicitly published facts, datasets,
-and artifacts are durable content. Reusable intermediate caching would also
-need code and environment identity and therefore belongs to a later execution
-design rather than being implied by `trace(...)` today.
-
-A registered implementation may expose several meaningful leaves from one
-native result instead of forcing the result into one JSON blob. The function
-still returns its ordinary dataclass, mapping, or sequence. `outputs` assigns a
-stable result name to an attribute/key path; each selected leaf gets its own
-kind, codec, content hash, and provenance identity:
-
-```python
-@dataclass(frozen=True)
-class FitResult:
-    resonance: float
-    quality: float
-    residuals: pd.DataFrame
-
-
-@computes.implementation(
-    "resonator.fit",
-    "1",
-    outputs={
-        "resonance": "resonance",
-        "quality": "quality",
-        "residuals": "residuals",
-    },
-)
-def fit(*, dataset: Dataset) -> FitResult: ...
-
-
-fit_result = context.trace(id="fit", fn=fit, dataset=measurements)
-analysis = (
-    context.result("Fit review")
-    .fact("resonance", fit_result.resonance)
-    .fact("quality", fit_result.quality)
-    .dataset("residuals", fit_result.residuals)
-)
-```
-
-A string path selects one mapping key or attribute. A tuple such as
-`("residuals", 0)` traverses nested keys/attributes and sequence positions.
-Output names are durable provenance names, while result paths are only the
-adapter from the function's native return type. Root output encoders and named
-leaf outputs are mutually exclusive because one root codec cannot describe the
-independent identities of several leaves.
-
-The result-path declaration intentionally does not prescribe publication kind
-or bulk-publish every leaf. First-party scalar and structured JSON values,
-native datasets, and bytes or file paths determine execution-result identity;
-the later `fact(...)`, `dataset(...)`, or `artifact(...)` call remains the
-explicit durable interface. A richer result-spec abstraction should be added
-only when a real non-inferable durable type needs it, rather than duplicating
-publication metadata in the compute registry now.
-
-Facts, datasets, and artifacts link to the one matching named result
-automatically. If two named results intentionally have identical content,
-content identity alone cannot choose one; pass `source=("fit", "quality")` at
-the publication boundary to disambiguate. For a dataset, the same source
-override works whether the final relation is exact `produced_by` or adapter-
-backed `derived_from`; Scopecat determines that from the identities instead of
-asking the user to choose a provenance relation.
-
-Returning `bytes` or a file `Path` from `trace(...)` records an artifact result
-by the exact byte identity. Publishing those bytes with `artifact(...)` links
-the durable run artifact to that execution while filename and media type remain
-publication metadata. Returning text remains a normal value; encoding text to
-file bytes is a conversion rather than an exact artifact result.
-
 Experiment `compute(...)` is a different lifecycle: it is a node in the formal
 experiment program and may run before or during acquisition. Analysis
 `trace(...)` is an optional record of ordinary eager code over a run snapshot.
-They may share implementation descriptors, codec contracts, and provenance
-machinery without sharing one authoring concept or placement model.
+The similar function call does not make them one placement or deployment model.
 
 Views refer to datasets, and proposals may refer to authoritative outputs inside
 their producing analysis. Future relations should likewise use stable output IDs
@@ -330,7 +266,7 @@ JSON value directly.
 Analysis currently belongs to one completed run. Live checkpoints, retries,
 cross-run state, schedules, and recurring calibration belong to a future
 workflow model. They should not be encoded as hidden state in an analysis or as
-special run-sequence behavior before that workflow owner exists. Future
-streaming analysis may reuse the same execution and publication primitives, but
+special run behavior before that workflow owner exists. Future streaming
+analysis may reuse the same execution and publication primitives, but
 its cursors, windows, checkpoint state, and finalization policy belong to that
 workflow rather than to the analysis record.

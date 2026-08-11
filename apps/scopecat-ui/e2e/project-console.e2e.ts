@@ -143,36 +143,34 @@ import json
 from pathlib import Path
 import sys
 
+import pyarrow as pa
 import scopecat as sc
 
 project_root = Path(sys.argv[1])
 with sc.open_project(project_root).connect() as lab:
     baseline = lab.runs()[0]
     analysis = (
-        baseline.analysis("notebook repetition fit")
+        baseline.analysis("notebook repetition fit").result()
+        .dataset(
+            "fit",
+            pa.table({
+                "repetitions": [128, 256, 384],
+                "score": [0.73, 0.89, 0.98],
+            }),
+            fields={
+                "repetitions": sc.AnalysisField(label="Repetitions"),
+                "score": sc.AnalysisField(label="Fit score", unit="ratio"),
+            },
+        )
         .table(
-            sc.AnalysisTable.from_rows(
-                [{"repetitions": 384, "score": 0.98}],
-                columns=(
-                    sc.AnalysisTableColumn(id="repetitions", label="Repetitions"),
-                    sc.AnalysisTableColumn(id="score", label="Fit score", unit="ratio"),
-                ),
-            ),
+            dataset="fit",
             title="Candidate fit",
         )
         .figure(
-            sc.AnalysisFigure(
-                kind="line",
-                x_axis=sc.AnalysisFigureAxis(label="Repetitions"),
-                y_axis=sc.AnalysisFigureAxis(label="Fit score", unit="ratio"),
-                series=[
-                    sc.AnalysisFigureSeries.from_arrays(
-                        id="fit",
-                        x=[128, 256, 384],
-                        y=[0.73, 0.89, 0.98],
-                    )
-                ],
-            ),
+            dataset="fit",
+            kind="line",
+            x="repetitions",
+            y="score",
             title="Candidate fit curve",
         )
         .propose(

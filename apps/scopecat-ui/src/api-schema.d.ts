@@ -532,15 +532,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/runs/{run_id}/measurements": {
+    "/api/v1/runs/{run_id}/measurements/preview": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Measurements */
-        get: operations["measurements_api_v1_runs__run_id__measurements_get"];
+        /** Measurement Preview */
+        get: operations["measurement_preview_api_v1_runs__run_id__measurements_preview_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1080,12 +1080,12 @@ export interface components {
         };
         /**
          * AnalysisFigureView
-         * @description Bounded figure preview plus its optional authoritative dataset source.
+         * @description Bounded figure preview projected from an authoritative dataset.
          */
         AnalysisFigureView: {
             preview: components["schemas"]["AnalysisFigure"];
-            projection?: components["schemas"]["AnalysisFigureProjection"] | null;
-            source?: components["schemas"]["AnalysisDatasetViewSource"] | null;
+            projection: components["schemas"]["AnalysisFigureProjection"];
+            source: components["schemas"]["AnalysisDatasetViewSource"];
         };
         /** AnalysisParameterProposalRecordOutput */
         AnalysisParameterProposalRecordOutput: {
@@ -1190,13 +1190,13 @@ export interface components {
         };
         /**
          * AnalysisTableView
-         * @description Bounded table preview plus its optional authoritative dataset source.
+         * @description Bounded table preview projected from an authoritative dataset.
          */
         AnalysisTableView: {
             /** Columns */
-            columns?: components["schemas"]["_NonEmptyText"][] | null;
+            columns: components["schemas"]["_NonEmptyText"][];
             preview: components["schemas"]["AnalysisTable"];
-            source?: components["schemas"]["AnalysisDatasetViewSource"] | null;
+            source: components["schemas"]["AnalysisDatasetViewSource"];
         };
         /**
          * ApplyReceipt
@@ -2345,22 +2345,6 @@ export interface components {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
         };
         /**
-         * MeasurementPage
-         * @description Bounded typed-record preview for interactive browsing.
-         */
-        MeasurementPage: {
-            dataset_schema?: components["schemas"]["MeasurementDatasetSchema-Output"] | null;
-            /**
-             * Items
-             * @default []
-             */
-            items: components["schemas"]["MeasurementRecord-Output"][];
-            /** Next Offset */
-            next_offset?: number | null;
-            /** Snapshot Size */
-            snapshot_size: number;
-        };
-        /**
          * MeasurementPointCloudPointDomain
          * @description A point domain whose coordinate columns form explicit ordered rows.
          */
@@ -2393,6 +2377,23 @@ export interface components {
         MeasurementPointDomainColumn: {
             /** Id */
             id: string;
+        };
+        /**
+         * MeasurementPreview
+         * @description One bounded JSON preview for the operator UI, not a data paging API.
+         */
+        MeasurementPreview: {
+            dataset_schema?: components["schemas"]["MeasurementDatasetSchema-Output"] | null;
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["MeasurementRecord-Output"][];
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
         };
         /**
          * MeasurementProductGridPointDomain
@@ -3167,7 +3168,6 @@ export interface components {
             outcome?: components["schemas"]["RunOutcome-Output"] | null;
             /** Run Id */
             run_id: string;
-            sequence?: components["schemas"]["RunSequenceLineage"] | null;
         };
         /**
          * RunMeasurementDatasetResult
@@ -3264,25 +3264,6 @@ export interface components {
              */
             status: "required" | "active" | "quarantined" | "released";
         };
-        /**
-         * RunSequenceLineage
-         * @description Durable identity of one run within a notebook-driven sequence.
-         */
-        RunSequenceLineage: {
-            /**
-             * Max Runs
-             * @default 10
-             */
-            max_runs: number;
-            /** Previous Run Id */
-            previous_run_id?: string | null;
-            proposal_id?: components["schemas"]["RunSequenceProposalId"] | null;
-            /** Run Index */
-            run_index: number;
-            /** Sequence Id */
-            sequence_id: string;
-        };
-        RunSequenceProposalId: string;
         /**
          * RunSummary
          * @description Scheduler projection paired with the accepted run snapshot.
@@ -4581,13 +4562,10 @@ export interface operations {
             };
         };
     };
-    measurements_api_v1_runs__run_id__measurements_get: {
+    measurement_preview_api_v1_runs__run_id__measurements_preview_get: {
         parameters: {
             query?: {
-                include_schema?: boolean;
                 limit?: number;
-                offset?: number;
-                snapshot_size?: number | null;
             };
             header?: never;
             path: {
@@ -4603,7 +4581,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MeasurementPage"];
+                    "application/json": components["schemas"]["MeasurementPreview"];
                 };
             };
             /** @description Validation Error */

@@ -56,7 +56,7 @@ def test_binary_iq_discriminator_requires_finite_distinct_centroids() -> None:
         ("state_1", (0.5, 0.5)),
     ],
 )
-def test_binary_iq_postprocessor_classifies_one_point(
+def test_binary_iq_compute_classifies_one_point(
     tie_policy: Literal["state_0", "state_1"],
     expected: tuple[float, float],
 ) -> None:
@@ -106,21 +106,19 @@ def test_binary_iq_postprocessor_classifies_one_point(
         assert product.unit == "ratio"
         assert product.axes == ()
 
-    [postprocessor] = discriminate.definition.body.measurement_postprocessors
-    assert postprocessor.input_bindings[0][1].qualified_name == "kernel/iq_shots"
-    assert [name for name, _value in postprocessor.value_input_bindings] == [
-        "discriminator"
-    ]
-    assert postprocessor.captures == ()
+    [compute] = discriminate.definition.body.measurement_computes
+    assert compute.input_bindings[0][1].qualified_name == "kernel/iq_shots"
+    assert [name for name, _value in compute.value_input_bindings] == ["discriminator"]
+    assert compute.captures == ()
     assert tuple(
         (role, product_id.qualified_name)
-        for role, product_id in postprocessor.output_bindings
+        for role, product_id in compute.output_bindings
     ) == (
         ("probability_0", "discriminate/probability_0"),
         ("probability_1", "discriminate/probability_1"),
     )
 
-    outputs = postprocessor.kernel(
+    outputs = compute.kernel(
         {
             "iq_shots": _iq_shots(
                 -1.0 + 0.0j,
@@ -145,7 +143,7 @@ def test_binary_iq_postprocessor_classifies_one_point(
     }
 
 
-def test_binary_iq_postprocessor_rejects_non_iq_input() -> None:
+def test_binary_iq_compute_rejects_non_iq_input() -> None:
     @authoring.program(id="test.binary-iq.invalid-input")
     def acquire_iq(qubit: authoring.Qubit) -> authoring.QuantumFragment:
         return authoring.measure(qubit, result="iq_shots")
@@ -160,10 +158,10 @@ def test_binary_iq_postprocessor_rejects_non_iq_input() -> None:
             discriminator=_discriminator(),
         )
 
-    [postprocessor] = discriminate.definition.body.measurement_postprocessors
+    [compute] = discriminate.definition.body.measurement_computes
 
     with pytest.raises(ValueError, match="complex128"):
-        postprocessor.kernel(
+        compute.kernel(
             {
                 "iq_shots": MeasurementScalar.create(
                     dtype="float64",
@@ -175,7 +173,7 @@ def test_binary_iq_postprocessor_rejects_non_iq_input() -> None:
         )
 
 
-def test_binary_iq_postprocessor_uses_compute_identity_for_parallel_outputs() -> None:
+def test_binary_iq_compute_uses_compute_identity_for_parallel_outputs() -> None:
     @authoring.program(id="test.binary-iq.namespaced")
     def acquire_iq(qubit: authoring.Qubit) -> authoring.QuantumFragment:
         return authoring.measure(qubit, result="iq_shots")

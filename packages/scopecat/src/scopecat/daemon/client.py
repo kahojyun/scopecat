@@ -27,7 +27,6 @@ from scopecat.daemon.views import (
     InstrumentListView,
     InstrumentView,
     MeasurementArrowQuery,
-    MeasurementPage,
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
     ParameterProposalListView,
@@ -434,24 +433,6 @@ class DaemonClient:
             params["state"] = state
         return self._get_model(f"{_API_PREFIX}/runs", RunSummaryPage, params=params)
 
-    def list_run_sequences(
-        self,
-        *,
-        limit: int = 50,
-        before: int | None = None,
-        sequence_id: str | None = None,
-    ) -> RunSummaryPage:
-        params: dict[str, str | int] = {"limit": limit}
-        if before is not None:
-            params["before"] = before
-        if sequence_id is not None:
-            params["sequence_id"] = sequence_id
-        return self._get_model(
-            f"{_API_PREFIX}/run-sequences",
-            RunSummaryPage,
-            params=params,
-        )
-
     def get_run(self, run_id: str) -> RunDetail:
         return self._get_model(f"{_API_PREFIX}/runs/{run_id}", RunDetail)
 
@@ -640,28 +621,6 @@ class DaemonClient:
             f"{_API_PREFIX}/runs/{run_id}/attention",
         )
         return AttentionResolutionReceipt.model_validate_json(response.content)
-
-    def measurements(
-        self,
-        run_id: str,
-        *,
-        limit: int = 100,
-        offset: int = 0,
-        snapshot_size: int | None = None,
-    ) -> MeasurementPage:
-        return self._get_model(
-            f"{_API_PREFIX}/runs/{run_id}/measurements",
-            MeasurementPage,
-            params={
-                "limit": limit,
-                "offset": offset,
-                **(
-                    {"snapshot_size": snapshot_size}
-                    if snapshot_size is not None
-                    else {}
-                ),
-            },
-        )
 
     def measurement_arrow(
         self,

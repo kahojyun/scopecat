@@ -31,13 +31,13 @@ from scopecat.program.logical import (
     LogicalEnsureState,
     LogicalInvocation,
     LogicalInvocationArgument,
-    LogicalMeasurementPostprocessor,
+    LogicalMeasurementCompute,
     LogicalProgram,
     LogicalStateAssignment,
-    MeasurementPostprocessorId,
+    MeasurementComputeId,
     ValueDef,
 )
-from scopecat.program.measurements import MeasurementPostprocessor
+from scopecat.program.measurements import MeasurementCompute
 from scopecat.program.operations import (
     ComputeNodeInputValue,
     ModuleInputPort,
@@ -56,7 +56,7 @@ from scopecat.program.value_refs import (
     internal_value_ref_operation_id,
 )
 from scopecat.program.values import ComputeFunction
-from scopecat.sdk.compute import compute_implementation_contract_internal
+from scopecat.sdk.compute import compute_implementation_internal
 
 
 def logical_compute_node_id(symbol: SymbolId) -> OperationId:
@@ -78,7 +78,7 @@ class LogicalProgramBuilder:
     def __init__(self) -> None:
         self._definitions: dict[ValueId, ValueDef] = {}
         self._compute_nodes: dict[OperationId, LogicalComputeNode] = {}
-        self._measurement_postprocessors: list[LogicalMeasurementPostprocessor] = []
+        self._measurement_computes: list[LogicalMeasurementCompute] = []
         self._implementations: dict[OperationId, LocalPythonImplementation] = {}
 
     def add_authored_operation(
@@ -107,11 +107,11 @@ class LogicalProgramBuilder:
             result_type=declaration.output_type,
         )
         self._add_compute_node(operation)
-        contract = compute_implementation_contract_internal(implementation)
+        marker = compute_implementation_internal(implementation)
         self._implementations[operation_id] = LocalPythonImplementation(
             id=ImplementationId(
-                contract.reference
-                if contract is not None
+                marker.reference
+                if marker is not None
                 else (
                     "python:"
                     f"{declaration.declaration_key.value.hex}:"
@@ -119,7 +119,7 @@ class LogicalProgramBuilder:
                 )
             ),
             kernel=implementation,
-            deterministic=False if contract is None else contract.deterministic,
+            deterministic=False if marker is None else marker.deterministic,
         )
 
     def add_domain_execution(
@@ -255,13 +255,13 @@ class LogicalProgramBuilder:
         self._add_literal(value_id, value)
         return value_id
 
-    def add_measurement_postprocessor(
+    def add_measurement_compute(
         self,
-        declaration: MeasurementPostprocessor,
+        declaration: MeasurementCompute,
     ) -> None:
-        self._measurement_postprocessors.append(
-            LogicalMeasurementPostprocessor(
-                id=MeasurementPostprocessorId(declaration.symbol_id),
+        self._measurement_computes.append(
+            LogicalMeasurementCompute(
+                id=MeasurementComputeId(declaration.symbol_id),
                 inputs=declaration.input_bindings,
                 value_inputs=tuple(
                     (
@@ -339,7 +339,7 @@ class LogicalProgramBuilder:
             point_traversal=point_traversal,
             value_defs=tuple(self._definitions.values()),
             compute_nodes=tuple(self._compute_nodes.values()),
-            measurement_postprocessors=tuple(self._measurement_postprocessors),
+            measurement_computes=tuple(self._measurement_computes),
             implementations=MappingProxyType(dict(self._implementations)),
             effects=effects,
             success_state=success_state,

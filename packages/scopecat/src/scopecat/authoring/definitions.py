@@ -72,7 +72,7 @@ from scopecat.program.definitions import (
     create_experiment_def,
 )
 from scopecat.program.domain import DomainCall
-from scopecat.program.measurement_contracts import SingleMeasurementPostprocessorKernel
+from scopecat.program.measurement_contracts import SingleMeasurementComputeKernel
 from scopecat.program.measurement_types import (
     MeasurementDType,
     MeasurementVariableRole,
@@ -574,17 +574,17 @@ class ExperimentContext:
             **input_bindings,
         )
 
-    def _postprocess(
+    def _measurement_compute(
         self,
         id: str,
         *,
         input: ProductRef,
         outputs: Mapping[str, ProductRef],
-        kernel: SingleMeasurementPostprocessorKernel,
+        kernel: SingleMeasurementComputeKernel,
     ) -> None:
         """Register a typed producer's point-local measurement calculation."""
 
-        self._program._postprocess(
+        self._program._measurement_compute(
             id,
             input=input,
             outputs=outputs,

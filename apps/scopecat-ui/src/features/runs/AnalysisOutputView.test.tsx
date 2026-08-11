@@ -13,12 +13,14 @@ afterEach(cleanup);
 
 describe("AnalysisOutputView", () => {
   it("renders a typed table with authored labels, units, and scalar cells", () => {
-    const output: RunAnalysisOutput = {
+    const output = {
       kind: "table",
       id: "fit-parameters",
       title: "Fit parameters",
       metadata: { source: "notebook" },
       content: {
+        source: { kind: "dataset", output_id: "fits" },
+        columns: ["frequency", "converged"],
         preview: {
           columns: [
             { id: "frequency", label: "Frequency", unit: "GHz" },
@@ -27,7 +29,7 @@ describe("AnalysisOutputView", () => {
           rows: [{ cells: [5.1, true] }, { cells: [null, false] }],
         },
       },
-    };
+    } satisfies Extract<RunAnalysisOutput, { kind: "table" }>;
 
     render(<AnalysisOutputView output={output} runId="run-1" />);
 
@@ -41,18 +43,20 @@ describe("AnalysisOutputView", () => {
   });
 
   it("preserves neighboring large table numbers instead of tick-formatting them", () => {
-    const output: RunAnalysisOutput = {
+    const output = {
       kind: "table",
       id: "counters",
       title: "Counters",
       metadata: {},
       content: {
+        source: { kind: "dataset", output_id: "counts" },
+        columns: ["count"],
         preview: {
           columns: [{ id: "count", label: "Count" }],
           rows: [{ cells: [5_000_000_001] }, { cells: [5_000_000_002] }],
         },
       },
-    };
+    } satisfies Extract<RunAnalysisOutput, { kind: "table" }>;
 
     render(<AnalysisOutputView output={output} runId="run-1" />);
 
@@ -61,7 +65,7 @@ describe("AnalysisOutputView", () => {
   });
 
   it("renders a content-addressed analysis dataset reference", () => {
-    const output: RunAnalysisOutput = {
+    const output = {
       kind: "dataset",
       id: "fits",
       title: "Fit data",
@@ -71,7 +75,7 @@ describe("AnalysisOutputView", () => {
         codec: "scopecat.derived-dataset.arrow-ipc.v2",
         content_hash: `sha256:${"a".repeat(64)}`,
       },
-    };
+    } satisfies Extract<RunAnalysisOutput, { kind: "dataset" }>;
 
     render(<AnalysisOutputView output={output} runId="run-1" />);
 
@@ -118,12 +122,14 @@ describe("AnalysisOutputView", () => {
   });
 
   it("renders embedded multi-series figure data as an accessible ECharts figure", () => {
-    const output: RunAnalysisOutput = {
+    const output = {
       kind: "figure",
       id: "resonance-fit",
       title: "Resonance fit",
       metadata: {},
       content: {
+        source: { kind: "dataset", output_id: "fits" },
+        projection: { kind: "line", x: "bias", y: "frequency" },
         preview: {
           kind: "line",
           x_axis: { label: "Bias", unit: "V" },
@@ -134,7 +140,7 @@ describe("AnalysisOutputView", () => {
           ],
         },
       },
-    };
+    } satisfies Extract<RunAnalysisOutput, { kind: "figure" }>;
 
     render(<AnalysisOutputView output={output} runId="run-1" />);
 
@@ -147,12 +153,14 @@ describe("AnalysisOutputView", () => {
   });
 
   it("preserves opposite finite float extremes in the ECharts option", () => {
-    const output: RunAnalysisOutput = {
+    const output = {
       kind: "figure",
       id: "extreme-range",
       title: "Extreme range",
       metadata: {},
       content: {
+        source: { kind: "dataset", output_id: "extremes" },
+        projection: { kind: "line", x: "x", y: "y" },
         preview: {
           kind: "line",
           x_axis: { label: "x" },
@@ -160,7 +168,7 @@ describe("AnalysisOutputView", () => {
           series: [{ id: "extreme", x: [-1e308, 1e308], y: [1e308, -1e308] }],
         },
       },
-    };
+    } satisfies Extract<RunAnalysisOutput, { kind: "figure" }>;
 
     const option = analysisFigureOption(output.content.preview);
     const [series] = option.series as Array<{ data: number[][]; type: string }>;

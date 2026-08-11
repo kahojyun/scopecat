@@ -1,3 +1,5 @@
+# pyright: reportUnknownArgumentType=false
+
 from __future__ import annotations
 
 import sqlite3
@@ -40,6 +42,8 @@ from scopecat.daemon.views import (
     ConfigActivationHistoryView,
     ConfigDraftPreview,
     ConfigRegistryView,
+    MeasurementArrowColumn,
+    MeasurementArrowQuery,
     ParameterProposalListView,
     RunConfigView,
     RunControlView,
@@ -83,9 +87,11 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import (
+    AnalysisDatasetViewSource,
     AnalysisField,
     AnalysisFigure,
     AnalysisFigureAxis,
+    AnalysisFigureProjection,
     AnalysisFigureSeries,
     AnalysisFigureView,
     AnalysisTable,
@@ -341,7 +347,9 @@ def _analysis_command(proposal: ParameterChangeProposal) -> AnalysisSaveCommand:
                 id="fit-parameters",
                 title="fit parameters",
                 content=AnalysisTableView(
-                    preview=AnalysisTable.from_rows([{"frequency": 5.1}])
+                    source=AnalysisDatasetViewSource(output_id="fits"),
+                    columns=("bias",),
+                    preview=AnalysisTable.from_rows([{"bias": 1.0}]),
                 ),
             ),
             AnalysisDatasetOutputPayload(
@@ -358,6 +366,12 @@ def _analysis_command(proposal: ParameterChangeProposal) -> AnalysisSaveCommand:
                 id="fit-curve",
                 title="fit curve",
                 content=AnalysisFigureView(
+                    source=AnalysisDatasetViewSource(output_id="fits"),
+                    projection=AnalysisFigureProjection(
+                        kind="line",
+                        x="bias",
+                        y="signal",
+                    ),
                     preview=AnalysisFigure(
                         kind="line",
                         x_axis=AnalysisFigureAxis(label="Bias", unit="V"),
@@ -1762,8 +1776,8 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         assert analysis_record.json()["content"]["title"] == "fit"
         persisted_outputs = analysis_record.json()["content"]["outputs"]
         assert persisted_outputs[0]["content"]["preview"] == {
-            "columns": [{"id": "frequency", "label": None, "unit": None}],
-            "rows": [{"cells": [5.1]}],
+            "columns": [{"id": "bias", "label": None, "unit": None}],
+            "rows": [{"cells": [1.0]}],
         }
         assert persisted_outputs[1]["content"]["dataset_id"] == "analysis-fit-fits"
         restored_dataset = DerivedDataset.from_arrow_ipc(
@@ -2431,10 +2445,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
             ).model_dump(mode="json"),
         )
         detail = client.get(f"/api/v1/runs/{run_id}")
-        measurements = client.get(
-            f"/api/v1/runs/{run_id}/measurements",
-            params={"limit": 100},
-        )
+        measurement_preview = client.get(f"/api/v1/runs/{run_id}/measurements/preview")
         measurement_arrow = client.post(
             f"/api/v1/runs/{run_id}/measurements/arrow",
             json={
@@ -2545,8 +2556,12 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert detail.json()["control"]["state"] == "leased"
         assert detail.json()["manifest"]["outcome"] is None
         assert detail.json()["resources"][0]["status"] == "active"
-        assert measurements.json()["items"][0]["point_index"] == 0
-        assert measurements.json()["dataset_schema"]["dataset_id"] == "raw-measurements"
+        assert measurement_preview.json()["items"][0]["point_index"] == 0
+        assert (
+            measurement_preview.json()["dataset_schema"]["dataset_id"]
+            == "raw-measurements"
+        )
+        assert measurement_preview.json()["truncated"] is False
         assert measurement_arrow.status_code == 200
         assert measurement_arrow.headers["x-scopecat-next-offset"] == "2"
         assert measurement_arrow.headers["x-scopecat-snapshot-size"] == "4"
@@ -2769,14 +2784,13 @@ def test_effect_and_terminal_publication_roll_back_with_control(
                     ),
                 )
 
-        assert (
-            runtime.application.runs.measurements(
-                admission.run_id,
-                limit=100,
-                offset=0,
-            ).items
-            == ()
+        rolled_back, _, _ = runtime.application.runs.measurement_arrow(
+            admission.run_id,
+            MeasurementArrowQuery(
+                columns=(MeasurementArrowColumn(name="signal", variable_id="signal"),)
+            ),
         )
+        assert rolled_back.num_rows == 0
 
         outcome = RunOutcome(
             run_id=admission.run_id,

@@ -370,23 +370,57 @@ class AnalysisFigure(_AnalysisContentModel):
         series: str | None = None,
         label: str | None = None,
     ) -> Self:
-        """Project aligned numeric columns without rebuilding x/y lists."""
+        """Project aligned numeric columns from a bounded table."""
 
-        columns = {
-            column.id: (index, column) for index, column in enumerate(table.columns)
-        }
+        column_ids = tuple(column.id for column in table.columns)
+        return cls.from_rows(
+            (dict(zip(column_ids, row.cells, strict=True)) for row in table.rows),
+            columns=table.columns,
+            kind=kind,
+            x=x,
+            y=y,
+            series=series,
+            label=label,
+        )
+
+    @classmethod
+    def from_rows(
+        cls,
+        rows: Iterable[Mapping[str, object]],
+        *,
+        columns: Sequence[AnalysisTableColumn],
+        kind: Literal["line", "scatter"],
+        x: str,
+        y: str,
+        series: str | None = None,
+        label: str | None = None,
+    ) -> Self:
+        """Project a bounded scalar-row preview without a table row limit."""
+
+        column_by_id = {column.id: column for column in columns}
         try:
-            x_index, x_column = columns[x]
-            y_index, y_column = columns[y]
-            series_index = None if series is None else columns[series][0]
+            x_column = column_by_id[x]
+            y_column = column_by_id[y]
+            if series is not None:
+                column_by_id[series]
         except KeyError as error:
             raise KeyError(
                 f"analysis figure column is missing: {error.args[0]}"
             ) from None
-        grouped: dict[object, list[AnalysisTableRow]] = {}
-        for row in table.rows:
-            group = label or y if series_index is None else row.cells[series_index]
-            grouped.setdefault(group, []).append(row)
+        grouped: dict[object, tuple[list[float], list[float]]] = {}
+        for row in rows:
+            try:
+                group = label or y if series is None else row[series]
+                x_value = row[x]
+                y_value = row[y]
+            except KeyError as error:
+                raise KeyError(
+                    f"analysis figure column is missing: {error.args[0]}"
+                ) from None
+            normalized_group = _normalized_external_scalar(group)
+            grouped_x, grouped_y = grouped.setdefault(normalized_group, ([], []))
+            grouped_x.append(_figure_cell(x_value, column=x))
+            grouped_y.append(_figure_cell(y_value, column=y))
         return cls(
             kind=kind,
             x_axis=AnalysisFigureAxis(
@@ -399,10 +433,10 @@ class AnalysisFigure(_AnalysisContentModel):
                 AnalysisFigureSeries(
                     id=str(group),
                     label=str(group),
-                    x=[_figure_cell(row.cells[x_index], column=x) for row in rows],
-                    y=[_figure_cell(row.cells[y_index], column=y) for row in rows],
+                    x=grouped_x,
+                    y=grouped_y,
                 )
-                for group, rows in grouped.items()
+                for group, (grouped_x, grouped_y) in grouped.items()
             ],
         )
 
@@ -415,29 +449,23 @@ class AnalysisDatasetViewSource(_AnalysisContentModel):
 
 
 class AnalysisTableView(_AnalysisContentModel):
-    """Bounded table preview plus its optional authoritative dataset source."""
+    """Bounded table preview projected from an authoritative dataset."""
 
-    source: AnalysisDatasetViewSource | None = None
-    columns: Sequence[_NonEmptyText] | None = None
+    source: AnalysisDatasetViewSource
+    columns: Sequence[_NonEmptyText]
     preview: AnalysisTable
 
     @field_validator("columns")
     @classmethod
     def freeze_columns(
         cls,
-        value: Sequence[str] | None,
-    ) -> Sequence[str] | None:
-        return None if value is None else tuple(value)
+        value: Sequence[str],
+    ) -> Sequence[str]:
+        return tuple(value)
 
     @model_validator(mode="after")
     def validate_projection(self) -> AnalysisTableView:
-        if (self.source is None) != (self.columns is None):
-            raise ValueError(
-                "analysis table source and projected columns must be declared together"
-            )
-        if self.columns is not None and tuple(self.columns) != tuple(
-            column.id for column in self.preview.columns
-        ):
+        if tuple(self.columns) != tuple(column.id for column in self.preview.columns):
             raise ValueError(
                 "analysis table projected columns must match its preview columns"
             )
@@ -455,19 +483,15 @@ class AnalysisFigureProjection(_AnalysisContentModel):
 
 
 class AnalysisFigureView(_AnalysisContentModel):
-    """Bounded figure preview plus its optional authoritative dataset source."""
+    """Bounded figure preview projected from an authoritative dataset."""
 
-    source: AnalysisDatasetViewSource | None = None
-    projection: AnalysisFigureProjection | None = None
+    source: AnalysisDatasetViewSource
+    projection: AnalysisFigureProjection
     preview: AnalysisFigure
 
     @model_validator(mode="after")
     def validate_projection(self) -> AnalysisFigureView:
-        if (self.source is None) != (self.projection is None):
-            raise ValueError(
-                "analysis figure source and projection must be declared together"
-            )
-        if self.projection is not None and self.projection.kind != self.preview.kind:
+        if self.projection.kind != self.preview.kind:
             raise ValueError(
                 "analysis figure projection kind must match its preview kind"
             )
@@ -496,10 +520,11 @@ def _analysis_field_value(value: object, policy: AnalysisField) -> object:
     return value
 
 
-def _figure_cell(value: AnalysisTableCell, *, column: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float):
+def _figure_cell(value: object, *, column: str) -> float:
+    normalized = _normalized_external_scalar(value)
+    if isinstance(normalized, bool) or not isinstance(normalized, int | float):
         raise TypeError(f"analysis figure column {column!r} must contain numbers")
-    return float(value)
+    return float(normalized)
 
 
 class AnalysisParameterProposalReference(_AnalysisContentModel):
@@ -834,7 +859,7 @@ class AnalysisRecord(BaseModel):
             ):
                 continue
             source = output.content.source
-            if source is not None and source.output_id not in dataset_ids:
+            if source.output_id not in dataset_ids:
                 raise ValueError("analysis view source must identify a dataset output")
         validate_analysis_output_content_budget(
             output.content

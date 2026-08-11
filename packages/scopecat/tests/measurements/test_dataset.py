@@ -1,4 +1,5 @@
 # pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false
+# pyright: reportUnknownParameterType=false
 # pyright: reportUnknownVariableType=false
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import pytest
 import xarray as xr
 
 from scopecat.kernel.quantity import Quantity
-from scopecat.measurements.results import Dataset, PointMask, Variable
+from scopecat.measurements.results import Dataset, PointMask, ProjectionSchema, Variable
 from scopecat.program.measurement_types import MeasurementArrayData, MeasurementDType
 from scopecat.program.products import ModuleProductDecl, ProductRef, ProductValueSpec
 from scopecat.program.record_refs import RecordRef
@@ -77,11 +78,58 @@ def test_dataset_exposes_labeled_variables_and_raw_records() -> None:
     assert dataset["temperature"].availability == (None, "invalid", None)
     assert dataset.point_indices == (0, 1, 2)
     assert dataset.logical_point_ids == ("logical-0", "logical-1", "logical-2")
-    assert dataset.raw.records[2] == dataset.records[2]
-    assert dataset.raw.records[2] is dataset.records[2]
+    assert _snapshot(dataset).records[2] == dataset.records[2]
+    assert _snapshot(dataset).records[2] is dataset.records[2]
 
     with pytest.raises(KeyError, match="no variable 'missing'"):
         _ = dataset["missing"]
+
+
+def test_source_backed_dataset_stays_lazy_until_exact_rows_are_needed() -> None:
+    source = _dataset()
+    snapshot = MeasurementDataset(
+        dataset_schema=source.schema,
+        records=source.records,
+        metadata=source.metadata,
+    )
+    calls = {"raw": 0, "projected": 0}
+
+    def load_raw() -> MeasurementDataset:
+        calls["raw"] += 1
+        return snapshot
+
+    def load_projected(
+        projection: ProjectionSchema,
+        batch_size: int,
+    ) -> pa.RecordBatchReader:
+        calls["projected"] += 1
+        assert tuple(field.name for field in projection.fields) == ("voltage",)
+        return source.project({"voltage": "bias"}).to_record_batch_reader(
+            batch_size=batch_size
+        )
+
+    dataset = Dataset._from_source(
+        schema=source.schema,
+        entry=source.entry,
+        load_raw=load_raw,
+        load_projected_batches=load_projected,
+    )
+
+    assert dataset.dims["point"] is None
+    assert "points=?" in repr(dataset)
+    assert calls == {"raw": 0, "projected": 0}
+
+    batches = list(
+        dataset.project({"voltage": "bias"}).to_record_batch_reader(batch_size=2)
+    )
+    assert [batch.num_rows for batch in batches] == [2, 1]
+    assert calls == {"raw": 0, "projected": 1}
+
+    assert len(dataset) == 3
+    assert len(dataset) == 3
+    assert dataset.dims["point"] == 3
+    assert "points=3" in repr(dataset)
+    assert calls == {"raw": 1, "projected": 1}
 
 
 def test_typed_record_lookup_validates_schema_and_narrows_values() -> None:
@@ -151,7 +199,7 @@ def test_dataset_binds_an_experiment_result_to_typed_points() -> None:
     )
     schema_with_sources = base.schema.model_copy(update={"variables": variables})
     dataset = Dataset(
-        base.raw.model_copy(update={"dataset_schema": schema_with_sources}),
+        _snapshot(base).model_copy(update={"dataset_schema": schema_with_sources}),
         base.entry,
     )
     schema = ResultSchema(
@@ -219,7 +267,7 @@ def test_dataset_binds_an_experiment_result_to_typed_points() -> None:
         }
     )
     stored = Dataset(
-        base.raw.model_copy(update={"dataset_schema": stored_schema}),
+        _snapshot(base).model_copy(update={"dataset_schema": stored_schema}),
         base.entry,
     ).result
     stored_usable, stored_rejected = stored.partition_available("temperature")
@@ -460,8 +508,7 @@ def test_dataset_isel_combines_point_and_fixed_local_selection() -> None:
     _assert_array_values(selected["frequency"].values, ((15.0,), (11.0,)))
 
 
-def test_dataset_ecosystem_adapters_preserve_labels_shapes_and_availability() -> None:
-    pd = pytest.importorskip("pandas")
+def test_dataset_native_xarray_preserves_labels_shapes_and_availability() -> None:
     dataset = _dataset()
 
     xarray_dataset = dataset.to_xarray()
@@ -484,32 +531,6 @@ def test_dataset_ecosystem_adapters_preserve_labels_shapes_and_availability() ->
         xarray_dataset["bias"].attrs["scopecat_metadata_json"]
     )
     assert variable_metadata == {"calibration": {"revision": 2, "source": "smu"}}
-
-    arrow_table = dataset.to_arrow()
-    assert isinstance(arrow_table, pa.Table)
-    assert arrow_table.num_rows == 3
-    assert arrow_table["signal"][0].as_py() == [
-        {"imag": 0.0, "real": 1.0},
-        {"imag": -0.1, "real": 0.5},
-    ]
-    assert arrow_table["temperature"][1].as_py() is None
-    assert arrow_table.schema.metadata[b"scopecat.dataset_id"] == b"raw-measurements"
-
-    points = dataset.to_pandas()
-    assert isinstance(points, pd.DataFrame)
-    assert list(points["point_index"]) == [0, 1, 2]
-    np.testing.assert_array_equal(
-        points.loc[0, "signal"],
-        np.array([complex(1.0, 0.0), complex(0.5, -0.1)]),
-    )
-    assert points.loc[1, "temperature__unavailable_reason"] == "invalid"
-    assert points.attrs["scopecat"]["layout"] == "points"
-
-    long = dataset.to_pandas(layout="long")
-    signal_rows = long[long["variable"] == "signal"]
-    assert len(signal_rows) == 6
-    assert signal_rows.iloc[1]["local_index"] == (1,)
-    assert signal_rows.iloc[1]["value"] == complex(0.5, -0.1)
 
 
 def test_measurement_projection_controls_names_units_and_native_adapters() -> None:
@@ -594,7 +615,7 @@ def test_measurement_projection_controls_names_units_and_native_adapters() -> No
     assert "bias" not in labeled.variables
     assert "temperature" not in labeled.variables
 
-    batches = list(projection.to_record_batch_reader(max_chunksize=2))
+    batches = list(projection.to_record_batch_reader(batch_size=2))
     assert [batch.num_rows for batch in batches] == [2, 1]
     assert all(batch.schema == table.schema for batch in batches)
 
@@ -634,7 +655,7 @@ def test_observations_projection_aligns_ragged_arrays_and_broadcasts_scalars() -
         shape=(None,),
         metadata={"cause": "fit rejected"},
     )
-    raw = dataset.raw.model_copy(
+    raw = _snapshot(dataset).model_copy(
         update={
             "records": (
                 dataset.records[0],
@@ -748,7 +769,7 @@ def test_projection_pandas_nullable_dtypes_are_stable_across_batches(
         for position, record in enumerate(base.records)
     )
     dataset = Dataset(
-        base.raw.model_copy(
+        _snapshot(base).model_copy(
             update={
                 "dataset_schema": base.schema.model_copy(
                     update={"variables": variables}
@@ -791,9 +812,9 @@ def test_atomic_projection_options_resolve_or_reject_generated_names() -> None:
 
 def test_empty_arrow_export_keeps_declared_scientific_types() -> None:
     base = _dataset()
-    raw = base.raw.model_copy(update={"records": ()})
+    raw = _snapshot(base).model_copy(update={"records": ()})
 
-    table = Dataset(raw, base.entry).to_arrow()
+    table = Dataset(raw, base.entry).project().to_arrow()
     complex_type = pa.struct(
         [
             pa.field("real", pa.float64(), nullable=False),
@@ -819,7 +840,7 @@ def test_all_unavailable_arrow_column_keeps_declared_nested_type() -> None:
         shape=(2,),
         metadata={},
     )
-    raw = base.raw.model_copy(
+    raw = _snapshot(base).model_copy(
         update={
             "records": tuple(
                 _replace_record_values(
@@ -831,7 +852,7 @@ def test_all_unavailable_arrow_column_keeps_declared_nested_type() -> None:
         }
     )
 
-    table = Dataset(raw, base.entry).to_arrow()
+    table = Dataset(raw, base.entry).project(diagnostics="reason").to_arrow()
 
     complex_type = pa.struct(
         [
@@ -880,7 +901,7 @@ def test_product_grid_xarray_layout_rejects_partial_or_inconsistent_grids() -> N
     with pytest.raises(ValueError, match="every product-grid point exactly once"):
         dataset.isel(point=slice(0, 5)).to_xarray(layout="grid")
 
-    raw = dataset.raw.model_copy(
+    raw = _snapshot(dataset).model_copy(
         update={
             "records": (
                 _replace_record_values(
@@ -904,11 +925,10 @@ def test_product_grid_xarray_layout_rejects_partial_or_inconsistent_grids() -> N
 
 def test_dataset_shares_immutable_models_and_detaches_mutable_entry() -> None:
     original = _dataset()
-    source = original.raw
+    source = _snapshot(original)
     entry = original.entry
     dataset = Dataset(source, entry)
 
-    assert dataset.raw is source
     assert dataset.schema is source.dataset_schema
     assert dataset.records is source.records
     assert dataset["bias"].definition is source.dataset_schema.variables[0]
@@ -971,7 +991,7 @@ def test_xarray_snapshot_round_trips_through_netcdf(tmp_path: Path) -> None:
 def test_ragged_dataset_exports_nested_arrow_lists() -> None:
     dataset = _ragged_dataset()
 
-    arrow = dataset.to_arrow()
+    arrow = dataset.project().to_arrow()
     assert isinstance(arrow, pa.Table)
     assert [len(value.as_py()) for value in arrow["signal"]] == [2, 1, 3]
 
@@ -1037,7 +1057,7 @@ def test_ragged_unavailable_unknown_extent_uses_recording_group_layout() -> None
         shape=(None,),
         metadata={},
     )
-    raw = dataset.raw.model_copy(
+    raw = _snapshot(dataset).model_copy(
         update={
             "records": (
                 dataset.records[0],
@@ -1051,7 +1071,7 @@ def test_ragged_unavailable_unknown_extent_uses_recording_group_layout() -> None
     )
     dataset = Dataset(raw, dataset.entry)
 
-    arrow = dataset.to_arrow()
+    arrow = dataset.project(diagnostics="reason").to_arrow()
     xarray_dataset = dataset.to_xarray()
 
     assert isinstance(arrow, pa.Table)
@@ -1146,7 +1166,7 @@ def test_ragged_non_nullable_dtypes_mark_filled_observations_invalid(
             )
         )
 
-    raw = base.raw.model_copy(
+    raw = _snapshot(base).model_copy(
         update={"dataset_schema": schema, "records": tuple(records)}
     )
     xarray_dataset = Dataset(raw, base.entry).to_xarray()
@@ -1185,7 +1205,7 @@ def test_ungrouped_ragged_unavailable_preserves_unknown_extent_in_xarray() -> No
         shape=(None,),
         metadata={},
     )
-    raw = dataset.raw.model_copy(
+    raw = _snapshot(dataset).model_copy(
         update={
             "dataset_schema": schema,
             "records": (
@@ -1225,7 +1245,7 @@ def test_ungrouped_ragged_variables_keep_independent_xarray_observations() -> No
             )
         }
     )
-    raw = dataset.raw.model_copy(update={"dataset_schema": schema})
+    raw = _snapshot(dataset).model_copy(update={"dataset_schema": schema})
     dataset = Dataset(raw, dataset.entry)
 
     xarray_dataset = dataset.to_xarray()
@@ -1247,7 +1267,7 @@ def test_grouped_ragged_xarray_rejects_misaligned_point_local_shapes() -> None:
         dtype="complex128",
         unit="ratio",
     )
-    raw = dataset.raw.model_copy(
+    raw = _snapshot(dataset).model_copy(
         update={
             "records": (
                 dataset.records[0],
@@ -1370,7 +1390,9 @@ def _ragged_dataset() -> Dataset:
             zip(dataset.records, lengths, strict=True)
         )
     )
-    raw = dataset.raw.model_copy(update={"dataset_schema": schema, "records": records})
+    raw = _snapshot(dataset).model_copy(
+        update={"dataset_schema": schema, "records": records}
+    )
     return Dataset(raw, dataset.entry)
 
 
@@ -1481,6 +1503,14 @@ def _product_grid_dataset() -> Dataset:
         schema=schema.model_dump(mode="json"),
     )
     return Dataset(raw, entry)
+
+
+def _snapshot(dataset: Dataset) -> MeasurementDataset:
+    return MeasurementDataset(
+        dataset_schema=dataset.schema,
+        records=dataset.records,
+        metadata=dataset.metadata,
+    )
 
 
 def _dataset() -> Dataset:
@@ -1617,7 +1647,7 @@ def _dataset_with_record_sources() -> Dataset:
         for variable in dataset.schema.variables
     )
     schema = dataset.schema.model_copy(update={"variables": variables})
-    raw = dataset.raw.model_copy(update={"dataset_schema": schema})
+    raw = _snapshot(dataset).model_copy(update={"dataset_schema": schema})
     return Dataset(raw, dataset.entry)
 
 
@@ -1639,5 +1669,5 @@ def _dataset_with_value_source(
         for variable in dataset.schema.variables
     )
     schema = dataset.schema.model_copy(update={"variables": variables})
-    raw = dataset.raw.model_copy(update={"dataset_schema": schema})
+    raw = _snapshot(dataset).model_copy(update={"dataset_schema": schema})
     return Dataset(raw, dataset.entry)

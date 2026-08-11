@@ -4,7 +4,6 @@ import type { MeasurementTracePreview } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
 import type { MeasurementPreview, MeasurementSlicePreview } from "../../types";
 import { EChart } from "../../ui/EChart";
-import { classes, secondaryButton } from "../../ui/styles";
 import { measurementChartOption } from "./chart-options";
 import {
   measurementTable,
@@ -32,9 +31,6 @@ export function MeasurementDataPreview({
   tracePending = false,
   traceError = null,
   onTracePlanChange,
-  hasMore,
-  loadingMore,
-  onLoadMore,
 }: {
   preview: MeasurementPreview;
   slice?: MeasurementSlicePreview;
@@ -48,9 +44,6 @@ export function MeasurementDataPreview({
   tracePending?: boolean;
   traceError?: Error | null;
   onTracePlanChange?: (planId: string) => void;
-  hasMore: boolean;
-  loadingMore: boolean;
-  onLoadMore: () => void;
 }) {
   const slicePlan = useMemo(() => measurementSlicePlan(preview.schema), [preview.schema]);
   const chartSchema = slice?.schema ?? preview.schema;
@@ -80,8 +73,7 @@ export function MeasurementDataPreview({
         <strong className="text-[0.65rem] text-text-soft">Measurement data</strong>
         <span>
           {preview.items.length}
-          {preview.nextOffset !== undefined ? "+" : ""} records ·{" "}
-          {preview.schema ? "Schema" : "Live"}
+          {preview.truncated ? "+" : ""} records · {preview.schema ? "Schema" : "Live"}
         </span>
       </div>
 
@@ -286,20 +278,6 @@ export function MeasurementDataPreview({
           {JSON.stringify(preview.items, null, 2)}
         </pre>
       </details>
-
-      {hasMore && (
-        <div className="flex justify-center border-t border-line px-2.5 py-[9px]">
-          <button
-            className={classes(secondaryButton, "w-full")}
-            type="button"
-            disabled={loadingMore}
-            onClick={onLoadMore}
-          >
-            {loadingMore && <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />}
-            {loadingMore ? "Loading measurements…" : "Load more measurements"}
-          </button>
-        </div>
-      )}
     </div>
   );
 }

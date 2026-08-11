@@ -198,9 +198,6 @@ describe("measurement trace visualization", () => {
         tracePending={false}
         traceError={null}
         onTracePlanChange={onTracePlanChange}
-        hasMore={false}
-        loadingMore={false}
-        onLoadMore={vi.fn()}
       />,
     );
 

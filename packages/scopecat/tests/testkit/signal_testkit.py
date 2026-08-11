@@ -4,12 +4,15 @@ These helpers intentionally live outside the production package so core
 workflow code can be tested without depending on a bundled demo domain.
 """
 
+# pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeGuard, cast
 
+import pyarrow as pa
 from pydantic import BaseModel, ConfigDict
 
 import scopecat as sc
@@ -42,22 +45,22 @@ BEST_SIGNAL_INPUT_REF = "data/measurement_dataset/raw-measurements"
 BEST_SIGNAL_SCHEMA_REF = "data/measurement_dataset/raw-measurements.schema"
 RAW_MEASUREMENTS_DATASET_ID = "raw-measurements"
 TEST_STEP_METADATA = {"scope": "test"}
-_SUMMARY_TABLE_COLUMNS = (
-    sc.AnalysisTableColumn(id="observable", label="Observable"),
-    sc.AnalysisTableColumn(id="count", label="Count"),
-    sc.AnalysisTableColumn(id="min", label="Minimum"),
-    sc.AnalysisTableColumn(id="max", label="Maximum"),
-    sc.AnalysisTableColumn(id="mean", label="Mean"),
-    sc.AnalysisTableColumn(id="unit", label="Unit"),
-)
-_BEST_SIGNAL_TABLE_COLUMNS = (
-    sc.AnalysisTableColumn(id="parameter_id", label="Parameter"),
-    sc.AnalysisTableColumn(id="best_point_index", label="Point"),
-    sc.AnalysisTableColumn(id="best_signal", label="Signal", unit="ratio"),
-    sc.AnalysisTableColumn(id="old_value", label="Previous value"),
-    sc.AnalysisTableColumn(id="proposed_value", label="Proposed value"),
-    sc.AnalysisTableColumn(id="parameter_unit", label="Unit"),
-)
+_SUMMARY_FIELDS = {
+    "observable": sc.AnalysisField(label="Observable"),
+    "count": sc.AnalysisField(label="Count"),
+    "min": sc.AnalysisField(label="Minimum"),
+    "max": sc.AnalysisField(label="Maximum"),
+    "mean": sc.AnalysisField(label="Mean"),
+    "unit": sc.AnalysisField(label="Unit"),
+}
+_BEST_SIGNAL_FIELDS = {
+    "parameter_id": sc.AnalysisField(label="Parameter"),
+    "best_point_index": sc.AnalysisField(label="Point"),
+    "best_signal": sc.AnalysisField(label="Signal", unit="ratio"),
+    "old_value": sc.AnalysisField(label="Previous value"),
+    "proposed_value": sc.AnalysisField(label="Proposed value"),
+    "parameter_unit": sc.AnalysisField(label="Unit"),
+}
 
 
 class SummaryStatsObservable(BaseModel):
@@ -137,23 +140,25 @@ class SummaryStatsAnalysisStep:
             input_ref=input_ref,
             measurements=measurements,
         )
-        return context.result("summary stats").table(
-            sc.AnalysisTable.from_rows(
-                [
-                    {
-                        "observable": observable_id,
-                        "count": summary.count,
-                        "min": summary.min,
-                        "max": summary.max,
-                        "mean": summary.mean,
-                        "unit": summary.unit,
-                    }
-                    for observable_id, summary in result.observables.items()
-                ],
-                columns=_SUMMARY_TABLE_COLUMNS,
-            ),
-            title="summary stats result",
-            metadata=TEST_STEP_METADATA,
+        rows = [
+            {
+                "observable": observable_id,
+                "count": summary.count,
+                "min": summary.min,
+                "max": summary.max,
+                "mean": summary.mean,
+                "unit": summary.unit,
+            }
+            for observable_id, summary in result.observables.items()
+        ]
+        return (
+            context.result("summary stats")
+            .dataset("summary", pa.Table.from_pylist(rows), fields=_SUMMARY_FIELDS)
+            .table(
+                dataset="summary",
+                title="summary stats result",
+                metadata=TEST_STEP_METADATA,
+            )
         )
 
 
@@ -191,20 +196,22 @@ class BestSignalAnalysisStep:
         )
         return (
             context.result("best signal analysis")
-            .table(
-                sc.AnalysisTable.from_rows(
-                    [
-                        {
-                            "parameter_id": result.parameter_id,
-                            "best_point_index": result.best_point_index,
-                            "best_signal": _numeric_scalar_value(result.best_signal),
-                            "old_value": float(result.old_value.value),
-                            "proposed_value": float(result.proposed_value.value),
-                            "parameter_unit": result.proposed_value.unit,
-                        }
-                    ],
-                    columns=_BEST_SIGNAL_TABLE_COLUMNS,
+            .dataset(
+                "best-signal",
+                pa.table(
+                    {
+                        "parameter_id": [result.parameter_id],
+                        "best_point_index": [result.best_point_index],
+                        "best_signal": [_numeric_scalar_value(result.best_signal)],
+                        "old_value": [float(result.old_value.value)],
+                        "proposed_value": [float(result.proposed_value.value)],
+                        "parameter_unit": [result.proposed_value.unit],
+                    }
                 ),
+                fields=_BEST_SIGNAL_FIELDS,
+            )
+            .table(
+                dataset="best-signal",
                 title="best signal analysis result",
                 metadata=TEST_STEP_METADATA,
             )

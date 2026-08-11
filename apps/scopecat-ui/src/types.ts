@@ -43,12 +43,6 @@ export interface RunPlanSummary {
   recordIds: string[];
 }
 
-export interface RunStageLineage {
-  sequenceId: string;
-  index: number;
-  previousRunId?: string;
-}
-
 export interface ProjectRun {
   sequence?: number;
   runId: string;
@@ -65,7 +59,6 @@ export interface ProjectRun {
   result?: string;
   certainty?: string;
   progressCompleted?: number;
-  stage?: RunStageLineage;
   plan: RunPlanSummary;
   resources: RunResource[];
   contents: ContentEntry[];
@@ -95,7 +88,7 @@ export interface ProjectHealth {
 export interface MeasurementPreview {
   items: MeasurementRecord[];
   schema?: MeasurementDatasetSchema;
-  nextOffset?: number;
+  truncated?: boolean;
 }
 
 export interface MeasurementSlicePreview {

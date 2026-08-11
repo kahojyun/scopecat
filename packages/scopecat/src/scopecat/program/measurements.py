@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, cast
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.measurement_contracts import (
-    MeasurementPostprocessorKernel,
-    SingleMeasurementPostprocessorKernel,
+    MeasurementComputeKernel,
+    SingleMeasurementComputeKernel,
 )
 from scopecat.program.products import ProductRef
 from scopecat.program.values import ComputeInput, capture_compute_input_internal
@@ -20,13 +20,13 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, slots=True)
-class MeasurementPostprocessor:
+class MeasurementCompute:
     """One direct Python calculation from measured products."""
 
     id: str
     input_bindings: tuple[tuple[str, ProductId], ...]
     output_bindings: tuple[tuple[str, ProductId], ...]
-    kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
+    kernel: MeasurementComputeKernel = field(repr=False, compare=False)
     value_input_bindings: tuple[tuple[str, ComputeInput], ...] = ()
     implementation: str | None = None
     deterministic: bool = False
@@ -80,13 +80,13 @@ class MeasurementPostprocessor:
         return SymbolId(scope=self.scope, local_id=self.id)
 
 
-def create_measurement_postprocessor_internal(
+def create_single_measurement_compute_internal(
     id: str,
     *,
     input: ProductRef,
     outputs: Mapping[str, ProductRef],
-    kernel: SingleMeasurementPostprocessorKernel,
-) -> MeasurementPostprocessor:
+    kernel: SingleMeasurementComputeKernel,
+) -> MeasurementCompute:
     """Build the program IR recorded by a typed measurement producer."""
 
     def mapped_kernel(
@@ -111,14 +111,14 @@ def create_measurement_compute_internal(
     inputs: Mapping[str, ProductRef],
     value_inputs: Mapping[str, ComputeInput] | None = None,
     outputs: Mapping[str, ProductRef],
-    kernel: MeasurementPostprocessorKernel,
+    kernel: MeasurementComputeKernel,
     implementation: str | None = None,
     deterministic: bool = False,
     captures: tuple[str, ...] = (),
-) -> MeasurementPostprocessor:
+) -> MeasurementCompute:
     """Build a multi-input point-local measurement computation."""
 
-    return MeasurementPostprocessor(
+    return MeasurementCompute(
         id=id,
         input_bindings=tuple(
             (name, product.product_id) for name, product in inputs.items()

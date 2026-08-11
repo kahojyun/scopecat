@@ -156,10 +156,11 @@ Grid axes and explicit point rows cannot be mixed in one experiment because
 they describe two different domain semantics. For an empty explicit domain,
 pass its columns with `experiment.points((), coordinates=(bias, power))`.
 
-Explicit rows are materialized before execution. When each new run depends on
-earlier measurements, use a bounded, resumable [run sequence](run-sequences.md).
-Measurement-dependent points inside one executing run require a separate
-adaptive point-plan abstraction rather than a hidden control loop.
+Explicit rows are materialized before execution. When a new run depends on
+earlier measurements, analyze the completed run and submit the next ordinary
+run explicitly. Durable ownership of such multi-run state belongs to a future
+workflow model. Measurement-dependent points inside one executing run require
+a separate adaptive point-plan abstraction rather than a hidden control loop.
 
 The current planner materializes both explicit rows and product-grid points
 before admission. The [scalability benchmarks](scalability-benchmarks.md) track
@@ -225,8 +226,7 @@ definition default.
 
 For a deterministic randomized order, shuffle rows with an explicit seed and
 pass them to `.points(...)`. Measurement-dependent point selection inside one
-run is intentionally not modeled as a run sequence or another static point-plan
-control language.
+run is intentionally not modeled as another static point-plan control language.
 
 ## Represent variable-length results without padding
 
@@ -291,6 +291,13 @@ ragged_window = data.isel_ragged(
 valid = data.where(data["temperature"].is_available())
 groups = data.groupby("amplification")
 ```
+
+The facade binds the manifest schema immediately and loads exact records only
+when an operation needs them. Schema inspection and a bounded projected Arrow
+reader therefore do not materialize the complete run. Once row access has
+materialized the snapshot, it is detached from the session and reused by later
+operations. Until then, row access and Arrow iteration require the project
+connection that created the run handle to remain open.
 
 When analysis starts from the experiment's return value, the equivalent typed
 path does not require constructing masks:
@@ -416,35 +423,36 @@ This convenience does not reduce the memory needed to load the notebook
 snapshot. For a storage-bounded notebook read, project directly into Arrow:
 
 ```python
-reader = run.measurement_record_batches(
-    columns={
-        "bias_v": result.output.dc_bias,
-        "s21": result.output.trace.s_parameter,
-    },
-    units={"bias_v": "V"},
-    diagnostics="reason",
-    batch_size=500,
+reader = (
+    run.measurements()
+    .project(
+        {
+            "bias_v": result.output.dc_bias,
+            "s21": result.output.trace.s_parameter,
+        },
+        units={"bias_v": "V"},
+        diagnostics="reason",
+    )
+    .to_record_batch_reader(batch_size=500)
 )
 for record_batch in reader:
     analyze_arrow(record_batch)
 ```
 
-Each typed batch uses the same labeled `Dataset` facade, so slicing and
-ecosystem exports work unchanged. Its `point` dimension is the number of
-records in that batch, while durable `point_index` values remain absolute.
-Metadata exposes `scopecat_batch_offset` and `scopecat_snapshot_size`; the
-immutable schema continues to describe the complete planned point domain and
-its point count. An empty dataset yields one zero-row, schema-bearing batch so
-callers can still inspect variables and initialize downstream tables.
+`project(...)` remains the only ecosystem boundary for both materialized and
+bounded reads. Typed refs, external names, units, diagnostics, identity columns,
+and layout are bound once before the projection chooses its Arrow source. For a
+run-backed, unsliced dataset, `to_record_batch_reader(...)` requests projected
+Arrow pages from the daemon. For an already materialized or sliced dataset, it
+splits the local projected Arrow table. An empty run has a schema and no record
+batches.
 
-`measurement_record_batches(...)` is the Arrow-native bounded read. Typed refs
-and external names are resolved once against the manifest, and
-the aliases, units, diagnostics, identity columns, and layout travel as one
-projection request. The daemon decodes only the selected durable variables from
-the stored Arrow append chunks, performs the projection, and returns Arrow IPC
-streams rather than JSON measurement models. The first page establishes one
-`RecordBatchReader.schema`; later pages are fetched only as the reader advances.
-An empty run has a schema and no record batches.
+The daemon decodes only the selected durable variables from stored Arrow append
+chunks. The first page establishes one `RecordBatchReader.schema`; later pages
+are fetched only as the reader advances. `Dataset.batches(...)` intentionally
+does not have a second JSON paging protocol: it materializes the typed snapshot
+once and then yields local `Dataset` slices. Their durable `point_index` values
+remain absolute, and an empty dataset yields one schema-bearing zero-row slice.
 
 Column pushdown currently stops at the immutable append-blob boundary: an
 intersecting IPC blob is read as a unit, while unselected variables skip model
@@ -462,28 +470,29 @@ later read instead of silently extending the current one. Run-progress
 triggers, retries, and workflow-owned live analysis state remain part of a
 future workflow streaming contract.
 
-Xarray and Arrow are core dependencies and are available on every measurement
-view. Install `scopecat[pandas]` or `scopecat[polars]` for the corresponding
-tabular export:
+Xarray is the native labeled view and preserves Scopecat's product-grid and
+indexed-ragged layout. Arrow and dataframe exports always cross an explicit
+projection. Install `scopecat[pandas]` or `scopecat[polars]` for the
+corresponding tabular export:
 
 ```python
 xds = data.to_xarray()  # explicit conversion spelling
 another = data.xarray  # equivalent property shorthand
 assert xds is not another  # snapshots never share identity
 grid = data.to_xarray(layout="grid")  # complete product grids only
-table = data.to_arrow()
-frame = data.to_pandas()  # one row per experiment point
-long_frame = data.to_pandas(layout="long")
+external = data.project(
+    {"bias_v": "bias", "response": "signal"},
+    units={"bias_v": "V"},
+)
+table = external.to_arrow()
+frame = external.to_pandas()
 ```
 
 These complete conversions materialize the selected measurement snapshot and
 are intended for datasets that fit in notebook memory. For larger runs,
-`run.measurement_record_batches(...)` is the bounded projected notebook read
-path. Registered analysis implementations can instead declare
-`data_access="batches"`; `context.trace(...)` then supplies finite typed
-`Dataset` pages from the exact measurement input without materializing its full
-contents. `Dataset.batches(...)` only splits an already loaded detached
-snapshot when used directly.
+call `to_record_batch_reader(...)` on the same projection. This is a finite,
+non-following snapshot read; live analysis checkpoints and finalization belong
+to a future workflow streaming contract.
 
 The default Xarray layout keeps the durable `point` row dimension, which also
 works for point clouds, live batches, partial selections, and ragged results.
@@ -569,20 +578,15 @@ class FitPoint:
 
 
 fits = fit_resonator(measurements)
-fit_table = sc.AnalysisTable.from_objects(fits)
 result = (
     context.result("Resonator fit")
-    .table(
-        fit_table,
-        title="Fit parameters",
-    )
+    .dataset("fits", fits)
+    .table(dataset="fits", title="Fit parameters")
     .figure(
-        sc.AnalysisFigure.from_table(
-            fit_table,
-            kind="line",
-            x="bias_v",
-            y="frequency_ghz",
-        ),
+        dataset="fits",
+        kind="line",
+        x="bias_v",
+        y="frequency_ghz",
         title="Resonance fit",
     )
 )
@@ -651,16 +655,17 @@ publish it with `artifact(...)` until a lossless first-party layout exists.
 When a table or figure uses `dataset="fits"`, its durable view retains that
 analysis-local dataset ID and the selected column roles. The embedded table or
 figure is a bounded preview cache for immediate rendering, not a second
-authoritative scientific result. Passing rows directly still creates a
-standalone preview; publish a dataset first when the relation should remain
-queryable.
+authoritative scientific result. Views always project a published dataset, so
+the analysis never contains a second standalone copy with independent column
+semantics.
 
 Persistence writes one content-addressed Arrow IPC dataset and keeps only its
 reference in the analysis record. It can be loaded later without losing the
 Arrow schema:
 
 ```python
-fits = run.derived_dataset("analysis-fit-review-fits")
+published = run.published_analysis("fit-review")
+fits = published.dataset("fits")
 pandas_frame = fits.to_pandas()
 lossless_pandas_frame = fits.to_pandas(dtype_backend="pyarrow")
 polars_frame = fits.to_polars()
@@ -684,8 +689,8 @@ review = (
 )
 ```
 
-Use `context.trace(...)` when an analysis execution needs retained runtime
-metadata, registered codecs, deterministic provenance, or bounded batch access:
+Use `context.trace(...)` only when retaining the eager Python call's named
+inputs and output identity is useful provenance:
 
 ```python
 fits = context.trace(fn=fit_with_polars, measurements=measurements)
@@ -713,16 +718,7 @@ entirely.
 A traced function may return annotated rows directly. They are identified as a
 first-party derived dataset output rather than an opaque JSON list, so
 publishing the same rows with `.dataset("fits", fits)` records an exact
-`produced_by` relation. The same rows can still be passed to
-`AnalysisTable.from_objects(...)` for a standalone bounded preview.
-
-When one registered function naturally returns a fit object with several
-publishable results, declare stable leaf names with
-`outputs={"resonance": "resonance", "residuals": "residuals"}` on its
-implementation. `trace(...)` still returns that native object, while each
-declared leaf receives an independent trace identity. Publishing a matching
-leaf links it automatically; only equal-valued leaves need the explicit
-`source=(execution_id, output_name)` disambiguation argument.
+`produced_by` relation.
 
 A traced function may also return exact `bytes` or a file `Path`. Publishing
 that content with `artifact(...)` retains the execution link while keeping the
@@ -738,10 +734,11 @@ accepted = lab.config.accept(analysis)
 print(analysis.id)
 ```
 
-Use `run.analysis(...).save()` only for an exploratory notebook analysis assembled
-directly rather than through a reusable analysis step. Both paths return the same
-`PublishedAnalysis` handle used by `run.published_analysis(...)`, so immediate and
-historical code read tables, figures, derived data, proposals, and candidate
+For an exploratory notebook, `run.analysis(title)` returns the same
+`AnalysisContext` used by a reusable step. Read inputs through that context,
+assemble `context.result()`, and call `save()`. Both paths return the same
+`PublishedAnalysis` handle used by `run.published_analysis(...)`, so immediate
+and historical code read tables, figures, datasets, proposals, and candidate
 configuration through one durable interface.
 Use `fact(...)` for a small typed conclusion and `artifact(...)` for an exact
 file or byte sequence produced by the analysis. Both receive stable
@@ -776,10 +773,7 @@ supplying version numbers.
 Analysis trace accepts named inputs. Each dataset input records its durable
 target, content hash, and codec; JSON-safe inline inputs are embedded with their
 own content hash. Merely reading `context.measurements()` also makes that dataset
-an analysis input, so ordinary Python inspection does not require a matching
-manual `.input(...)` call. Registered custom output codecs require an encoder;
-the execution records the encoder's content identity rather than pretending the
-generic Python encoding used that codec.
+an analysis input, so ordinary Python inspection requires no second declaration.
 
 The analysis-level input reference itself retains the measurement dataset's
 content hash and codec, whether or not a trace is used. For completed runs that
@@ -787,8 +781,8 @@ immutable dataset hash is the snapshot boundary. Compute execution is an
 experiment-program concept; an analysis trace only adds optional named binding
 and implementation evidence to the same snapshot identity.
 
-`AnalysisTable.from_rows(...)` remains available for dynamic schemas. The
-durable models enforce finite, GUI-safe scalar, derived-data, and point budgets.
-The run view renders tables and SVG figures while retaining declared analysis
-inputs and optional content-addressed executions as provenance; proposal outputs
-remain typed references to their separately persisted proposal records.
+The durable view models enforce finite, GUI-safe scalar and point budgets. The
+run view renders bounded table and SVG figure previews while retaining their
+authoritative dataset references, declared analysis inputs, and optional
+content-addressed executions as provenance; proposal outputs remain typed
+references to their separately persisted proposal records.

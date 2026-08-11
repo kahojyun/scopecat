@@ -16,10 +16,10 @@ from scopecat.execution.evidence import (
     build_terminal_contents,
     instrument_state_evidence_ref,
 )
-from scopecat.execution.measurement_ordering import CanonicalMeasurementBuffer
-from scopecat.execution.measurement_postprocessors import (
-    execute_measurement_postprocessors,
+from scopecat.execution.measurement_computes import (
+    execute_measurement_computes,
 )
+from scopecat.execution.measurement_ordering import CanonicalMeasurementBuffer
 from scopecat.execution.measurement_recording import (
     append_measurement_dataset,
     initialize_measurement_dataset,
@@ -115,8 +115,8 @@ def _execute_run(
         value_candidates: tuple[ValueRecordCandidate, ...],
     ) -> None:
         nonlocal committed_measurement_count
-        completed_candidates = execute_measurement_postprocessors(
-            program.measurement_postprocessors,
+        completed_candidates = execute_measurement_computes(
+            program.measurement_computes,
             candidates,
             points=points,
             catalog=program.measurements.catalog,

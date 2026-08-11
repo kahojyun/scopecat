@@ -293,20 +293,6 @@ def test_one_unavailable_demod_channel_preserves_the_other_channel(
     }
 
 
-def test_adaptive_tuneup_rediscovers_and_resumes(
-    reference_lab_daemon: _ReferenceLabDaemon,
-) -> None:
-    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
-    namespace = run_path(str(NOTEBOOKS / "31_adaptive_tuneup.py"))
-    summary = cast("dict[str, object]", namespace["adaptive_summary"])
-
-    assert summary["initial_runs"] == 2
-    assert summary["initial_status"] == "awaiting_decision"
-    assert summary["rediscovered_runs"] == 2
-    assert summary["completed_runs"] == 3
-    assert summary["final_status"] == "stopped"
-
-
 def test_quantum_program_is_inspectable_without_hardware() -> None:
     namespace = run_path(str(NOTEBOOKS / "32_quantum_program_inspection.py"))
     summary = cast("dict[str, object]", namespace["program_inspection_summary"])
@@ -331,7 +317,6 @@ def test_drag_calibration_closes_the_reviewed_config_loop(
     assert summary["output_kinds"] == [
         "dataset",
         "fact",
-        "table",
         "table",
         "figure",
         "artifact",

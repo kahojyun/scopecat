@@ -112,8 +112,8 @@ def _product_demand_problems(
     )
     owned_products.update(
         output.product_id
-        for postprocessor in program.measurement_postprocessors
-        for output in postprocessor.outputs
+        for compute in program.measurement_computes
+        for output in compute.outputs
     )
     return tuple(
         _problem(

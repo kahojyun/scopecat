@@ -32,7 +32,6 @@ def build_run_admission(
             run_id=new_run_id(),
             config_content_hash=config_content_hash(config),
             config_source=config_source,
-            sequence=request.sequence,
         ),
         request=request,
         config=config,

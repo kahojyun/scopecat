@@ -139,14 +139,14 @@ def verify_logical_program(program: LogicalProgram) -> VerifiedLogicalProgram:
         verified_graph = verify_logical_graph(
             normalized.value_defs,
             normalized.compute_nodes,
-            normalized.measurement_postprocessors,
+            normalized.measurement_computes,
             effects=normalized.product_effects,
         )
     except CheckFailed as error:
         problems.extend(error.problems)
         verified_graph = None
     if verified_graph is not None:
-        _value_defs, compute_nodes, _measurement_postprocessors = verified_graph
+        _value_defs, compute_nodes, _measurement_computes = verified_graph
         operation_results = {
             operation.result_id: operation for operation in compute_nodes
         }
@@ -172,12 +172,12 @@ def verify_logical_program(program: LogicalProgram) -> VerifiedLogicalProgram:
         raise CheckFailed(problems)
     if verified_graph is None:
         raise AssertionError("successful logical verification requires graph proofs")
-    value_defs, compute_nodes, measurement_postprocessors = verified_graph
+    value_defs, compute_nodes, measurement_computes = verified_graph
     canonical = replace(
         normalized,
         value_defs=value_defs,
         compute_nodes=compute_nodes,
-        measurement_postprocessors=measurement_postprocessors,
+        measurement_computes=measurement_computes,
     )
     validate_consumed_inputs(canonical, inputs)
     return VerifiedLogicalProgram(

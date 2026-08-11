@@ -12,10 +12,9 @@ import operator
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field, fields, is_dataclass
-from importlib import import_module
 from itertools import product as cartesian_product
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Literal, Protocol, Self, cast, overload, override
+from typing import TYPE_CHECKING, Literal, Self, cast, overload, override
 
 import numpy as np
 import pyarrow as pa
@@ -24,7 +23,6 @@ import xarray as xr
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.quantity import Quantity
-from scopecat.measurements.arrow_values import measurement_values_to_arrow_array
 from scopecat.measurements.datasets import MAX_MEASUREMENT_PAGE_SIZE
 from scopecat.measurements.traces import Trace, measurement_traces
 from scopecat.program.measurement_types import (
@@ -60,12 +58,11 @@ from scopecat.records.measurement import (
 )
 
 if TYPE_CHECKING:
-    import pandas as pd  # pyright: ignore[reportMissingImports]
-
     from scopecat.measurements.interop import (
         MeasurementDataProjection,
         ProjectionDiagnostics,
         ProjectionLayout,
+        ProjectionSchema,
     )
 
 type NativeScalar = NativeMeasurementScalar
@@ -76,16 +73,7 @@ type DimensionIndexer = int | slice | Sequence[int] | Sequence[bool]
 type PointIndexer = DimensionIndexer
 type PointCondition = PointMask | xr.DataArray | Sequence[bool]
 type SelectionMethod = Literal["exact", "nearest"]
-type PandasLayout = Literal["points", "long"]
 type XarrayLayout = Literal["points", "grid"]
-
-
-class _PandasFrameFactory(Protocol):
-    def __call__(self, data: object = ...) -> pd.DataFrame: ...
-
-
-class _PandasModule(Protocol):
-    DataFrame: _PandasFrameFactory
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,9 +426,8 @@ class Variable[T = NativeAvailableValue]:
 class Dataset:
     """A labeled, sliceable measurement dataset for notebook workflows.
 
-    The durable Pydantic dataset remains available through :attr:`raw`; this
-    facade adds labeled variables and ecosystem adapters without changing the
-    persisted representation.
+    Durable persistence models stay behind this facade; labeled variables,
+    records, result contracts, and ecosystem projections form the notebook API.
     """
 
     _raw: MeasurementDataset | None
@@ -448,7 +435,9 @@ class Dataset:
     _load_raw: Callable[[], MeasurementDataset] | None = field(
         repr=False,
     )
-    _load_batches: Callable[[int], Iterator[Dataset]] | None = field(
+    _load_projected_batches: (
+        Callable[[ProjectionSchema, int], pa.RecordBatchReader] | None
+    ) = field(
         repr=False,
     )
     _schema_value: MeasurementDatasetSchema = field(repr=False)
@@ -471,7 +460,7 @@ class Dataset:
             entry=entry,
             schema=raw.dataset_schema,
             load_raw=None,
-            load_batches=None,
+            load_projected_batches=None,
             view_dimensions=view_dimensions,
         )
 
@@ -482,7 +471,7 @@ class Dataset:
         schema: MeasurementDatasetSchema,
         entry: RunContentEntry,
         load_raw: Callable[[], MeasurementDataset],
-        load_batches: Callable[[int], Iterator[Dataset]],
+        load_projected_batches: Callable[[ProjectionSchema, int], pa.RecordBatchReader],
     ) -> Self:
         dataset = cls.__new__(cls)
         dataset._initialize(
@@ -490,7 +479,7 @@ class Dataset:
             entry=entry,
             schema=schema,
             load_raw=load_raw,
-            load_batches=load_batches,
+            load_projected_batches=load_projected_batches,
             view_dimensions=None,
         )
         return dataset
@@ -502,13 +491,15 @@ class Dataset:
         entry: RunContentEntry,
         schema: MeasurementDatasetSchema,
         load_raw: Callable[[], MeasurementDataset] | None,
-        load_batches: Callable[[int], Iterator[Dataset]] | None,
+        load_projected_batches: (
+            Callable[[ProjectionSchema, int], pa.RecordBatchReader] | None
+        ),
         view_dimensions: Mapping[str, int | None] | None,
     ) -> None:
         object.__setattr__(self, "_raw", raw)
         object.__setattr__(self, "_entry", entry.model_copy(deep=True))
         object.__setattr__(self, "_load_raw", load_raw)
-        object.__setattr__(self, "_load_batches", load_batches)
+        object.__setattr__(self, "_load_projected_batches", load_projected_batches)
         object.__setattr__(self, "_schema_value", schema)
         dimensions = {dimension.id: dimension.size for dimension in schema.dimensions}
         dimensions["point"] = None if raw is None else len(raw.records)
@@ -575,12 +566,6 @@ class Dataset:
         return self._entry.model_copy(deep=True)
 
     @property
-    def raw(self) -> MeasurementDataset:
-        """Return the deeply immutable durable snapshot."""
-
-        return self._materialize()
-
-    @property
     def schema(self) -> MeasurementDatasetSchema:
         """Return the complete planned schema, independent of current view rows."""
 
@@ -622,23 +607,32 @@ class Dataset:
 
     @property
     def dims(self) -> Mapping[str, int | None]:
-        """Return dimensions of this view, independent of the planned schema."""
+        """Return known view dimensions without forcing source materialization."""
 
-        self._materialize()
         return self._view_dimensions
 
     def batches(self, *, batch_size: int = 100) -> Iterator[Dataset]:
-        """Iterate over this exact finite dataset snapshot in bounded batches."""
+        """Materialize this finite snapshot once, then split it into batches."""
 
         if not 1 <= batch_size <= MAX_MEASUREMENT_PAGE_SIZE:
             raise ValueError(
                 "measurement batch_size must be between 1 and "
                 f"{MAX_MEASUREMENT_PAGE_SIZE}"
             )
-        load_batches = self._load_batches
-        if load_batches is not None:
-            return load_batches(batch_size)
         return self._local_batches(batch_size=batch_size)
+
+    def _read_projection_batches(
+        self,
+        projection: ProjectionSchema,
+        *,
+        batch_size: int,
+    ) -> pa.RecordBatchReader | None:
+        """Use the source's bounded Arrow reader when this view is unsliced."""
+
+        load_projected_batches = self._load_projected_batches
+        if self._raw is not None or load_projected_batches is None:
+            return None
+        return load_projected_batches(projection, batch_size)
 
     def _local_batches(self, *, batch_size: int) -> Iterator[Dataset]:
         raw = self._materialize()
@@ -889,8 +883,10 @@ class Dataset:
     def __repr__(self) -> str:
         coordinates = ", ".join(self.coords)
         observables = ", ".join(self.data_vars)
+        point_count = self._view_dimensions["point"]
+        rendered_count = "?" if point_count is None else str(point_count)
         return (
-            f"Dataset(id={self._schema.dataset_id!r}, points={len(self)}, "
+            f"Dataset(id={self._schema.dataset_id!r}, points={rendered_count}, "
             f"coords=[{coordinates}], data_vars=[{observables}])"
         )
 
@@ -1508,59 +1504,6 @@ class Dataset:
             attrs=_dataset_attrs(self),
         )
 
-    def to_arrow(self) -> pa.Table:
-        """Convert to a point-row Arrow table with nested point-local arrays."""
-
-        columns: dict[str, pa.Array] = {
-            "point_index": pa.array(
-                (record.point_index for record in self._records),
-                type=pa.int64(),
-            ),
-            "logical_point_id": pa.array(
-                (record.logical_point_id for record in self._records),
-                type=pa.string(),
-            ),
-        }
-        for variable in self.variables.values():
-            columns[variable.id] = measurement_values_to_arrow_array(
-                variable._raw_values,
-                dtype=variable.dtype,
-                shape=variable.shape[1:],
-            )
-            if any(reason is not None for reason in variable.availability):
-                columns[_unavailable_reason_name(variable.id)] = pa.array(
-                    variable.availability,
-                    type=pa.string(),
-                )
-        table = pa.table(columns)
-        metadata = dict(table.schema.metadata or {})
-        metadata.update(
-            {
-                b"scopecat.dataset_id": self._schema.dataset_id.encode(),
-                b"scopecat.schema": self._schema.model_dump_json().encode(),
-                b"scopecat.metadata": _stable_json(self.metadata).encode(),
-            }
-        )
-        return table.replace_schema_metadata(metadata)
-
-    def to_pandas(self, *, layout: PandasLayout = "points") -> pd.DataFrame:
-        """Convert to a point-row or universal long-form pandas DataFrame."""
-
-        pd_module = cast("_PandasModule", _optional_module("pandas"))
-        if layout == "points":
-            frame = pd_module.DataFrame(self._point_columns())
-        elif layout == "long":
-            frame = pd_module.DataFrame(self._long_rows())
-        else:
-            raise ValueError("pandas layout must be 'points' or 'long'")
-        frame.attrs["scopecat"] = {
-            "dataset_id": self._schema.dataset_id,
-            "schema": self._schema.model_dump(mode="json"),
-            "metadata": thaw_json_value(self.metadata),
-            "layout": layout,
-        }
-        return frame
-
     def _require_scalar_coordinate(self, variable_id: str) -> Variable:
         try:
             variable = self.coords[variable_id]
@@ -1678,46 +1621,6 @@ class Dataset:
             metadata=self._materialize().metadata,
         )
         return type(self)(raw, self._entry, view_dimensions=view_dimensions)
-
-    def _point_columns(self) -> Mapping[str, Sequence[object]]:
-        columns: dict[str, Sequence[object]] = {
-            "point_index": tuple(record.point_index for record in self._records),
-            "logical_point_id": tuple(
-                record.logical_point_id for record in self._records
-            ),
-        }
-        for variable in self.variables.values():
-            columns[variable.id] = variable.values
-            if any(reason is not None for reason in variable.availability):
-                columns[_unavailable_reason_name(variable.id)] = variable.availability
-        return columns
-
-    def _long_rows(self) -> list[dict[str, object]]:
-        rows: list[dict[str, object]] = []
-        for record_position, record in enumerate(self._records):
-            for variable in self.variables.values():
-                value = variable._raw_values[record_position]
-                reason = (
-                    value.reason if isinstance(value, MeasurementUnavailable) else None
-                )
-                if isinstance(value, MeasurementArray):
-                    flattened = _flatten_native_array(value.values)
-                else:
-                    flattened = (((), _native_value(value)),)
-                for local_index, native in flattened:
-                    rows.append(
-                        {
-                            "point_index": record.point_index,
-                            "logical_point_id": record.logical_point_id,
-                            "variable": variable.id,
-                            "role": variable.role,
-                            "unit": variable.unit,
-                            "local_index": local_index or None,
-                            "value": native,
-                            "unavailable_reason": reason,
-                        }
-                    )
-        return rows
 
 
 @dataclass(frozen=True, slots=True)
@@ -2429,15 +2332,6 @@ def _array_values_equal(left: np.ndarray, right: np.ndarray) -> bool:
         return bool(np.array_equal(left, right))
 
 
-def _flatten_native_array(
-    value: MeasurementArrayData,
-) -> tuple[tuple[tuple[int, ...], NativeValue], ...]:
-    return tuple(
-        (tuple(index), cast("NativeValue", _native_leaf(item)))
-        for index, item in np.ndenumerate(value)
-    )
-
-
 def _slice_record_local_values(
     record: MeasurementRecord,
     *,
@@ -2958,17 +2852,6 @@ def _stable_json(value: object) -> str:
 
 def _unavailable_reason_name(variable_id: str) -> str:
     return f"{variable_id}__unavailable_reason"
-
-
-def _optional_module(name: str) -> object:
-    try:
-        return import_module(name)
-    except ModuleNotFoundError as error:
-        if error.name != name:
-            raise
-        raise ModuleNotFoundError(
-            f"{name} is required for this conversion; install scopecat[pandas]"
-        ) from error
 
 
 __all__ = ["Dataset", "NativeAvailableValue", "PointMask", "Variable"]

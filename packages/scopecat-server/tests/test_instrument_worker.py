@@ -290,6 +290,7 @@ def test_ragged_point_cloud_run_survives_daemon_and_worker_boundaries(
         persisted = lab.get_run(run_id)
         persisted_status = persisted.manifest.status
         dataset = persisted.measurements()
+        assert len(dataset) == 3
         batches = list(persisted.measurements().batches(batch_size=2))
 
     assert persisted_status == "completed"
@@ -318,7 +319,7 @@ def test_ragged_point_cloud_run_survives_daemon_and_worker_boundaries(
     )
 
     if find_spec("pyarrow") is not None:
-        table = cast("_ArrowTable", dataset.to_arrow())
+        table = cast("_ArrowTable", dataset.project().to_arrow())
         assert table["trace"].to_pylist() == [
             [2.0, 2.1],
             [4.0, 4.1, 4.2, 4.3],

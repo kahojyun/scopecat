@@ -22,8 +22,6 @@ reveal a clearer or more scalable way to serve the charter.
 - [Analysis publication](analysis-publication.md): the durable output ontology,
   stable identities, lossless conversion boundary, and deliberate separation
   from dataframe libraries and workflow execution.
-- [Run sequences](run-sequences.md): notebook-controlled linear run chains whose
-  next run depends on earlier measurements.
 - [Scalability benchmarks](scalability-benchmarks.md): current implementation
   boundaries, representative NISQ workloads, measurements, and target envelopes.
 

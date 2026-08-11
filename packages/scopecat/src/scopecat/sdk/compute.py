@@ -1,181 +1,66 @@
-"""Explicit deployment contracts for portable compute functions."""
+"""Private markers shared by authored compute lowering."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from types import CodeType
-from typing import Literal, cast
 
-from scopecat.kernel.frozen import freeze_json_mapping
-from scopecat.kernel.json_types import JsonValue
 from scopecat.program.values import ComputeFunction
 
-_CONTRACT_ATTRIBUTE = "__scopecat_compute_implementation__"
-_OUTPUT_ENCODER_ATTRIBUTE = "__scopecat_compute_output_encoder__"
+_IMPLEMENTATION_ATTRIBUTE = "__scopecat_compute_implementation__"
 PYTHON_JSON_CODEC = "scopecat.python-json.v1"
-
-type ComputeResultPathItem = str | int
-type ComputeResultPath = tuple[ComputeResultPathItem, ...]
-type ComputeResultPathInput = ComputeResultPathItem | ComputeResultPath
-
-
-def _empty_codecs() -> dict[str, str]:
-    return {}
-
-
-def _empty_resources() -> dict[str, JsonValue]:
-    return {}
-
-
-def _empty_outputs() -> dict[str, ComputeResultPath]:
-    return {}
 
 
 @dataclass(frozen=True, slots=True)
-class ComputeImplementationContract:
-    """Resolvable version, codecs, and execution requirements for a compute."""
+class _ComputeImplementation:
+    """Minimal identity retained for Scopecat-owned compute helpers."""
 
     id: str
     version: str
-    input_codecs: Mapping[str, str] = field(default_factory=_empty_codecs)
-    output_codec: str = PYTHON_JSON_CODEC
-    outputs: Mapping[str, ComputeResultPath] = field(default_factory=_empty_outputs)
-    runtime: str = "python"
-    capabilities: tuple[str, ...] = ()
-    resources: Mapping[str, JsonValue] = field(default_factory=_empty_resources)
-    deterministic: bool = True
-    data_access: Literal["full", "batches"] = "full"
-    batch_size: int = 100
-
-    def __post_init__(self) -> None:
-        if not self.id or not self.version:
-            raise ValueError("compute implementation id and version must be non-empty")
-        if not self.output_codec or not self.runtime:
-            raise ValueError("compute output codec and runtime must be non-empty")
-        if any(not name or not codec for name, codec in self.input_codecs.items()):
-            raise ValueError("compute input codec names and ids must be non-empty")
-        normalized_outputs = _normalize_result_paths(self.outputs)
-        if normalized_outputs and self.output_codec != PYTHON_JSON_CODEC:
-            raise ValueError("structured compute outputs use their native codecs")
-        if any(not capability for capability in self.capabilities):
-            raise ValueError("compute capabilities must be non-empty")
-        if self.batch_size <= 0:
-            raise ValueError("compute batch size must be positive")
-        object.__setattr__(self, "input_codecs", dict(self.input_codecs))
-        object.__setattr__(self, "outputs", normalized_outputs)
-        object.__setattr__(self, "capabilities", tuple(self.capabilities))
-        object.__setattr__(self, "resources", freeze_json_mapping(self.resources))
+    deterministic: bool
 
     @property
     def reference(self) -> str:
-        return f"registry:{self.id}@{self.version}"
+        return f"internal:{self.id}@{self.version}"
 
 
-class ComputeRegistry:
-    """In-process resolver for explicitly deployable compute implementations."""
+def mark_compute_implementation_internal[**P, ResultT](
+    id: str,
+    version: str,
+    *,
+    deterministic: bool = True,
+) -> Callable[[Callable[P, ResultT]], Callable[P, ResultT]]:
+    """Mark a Scopecat-owned helper with stable lowering identity."""
 
-    __slots__ = ("_implementations",)
-
-    def __init__(self) -> None:
-        self._implementations: dict[
-            str, tuple[ComputeImplementationContract, ComputeFunction]
-        ] = {}
-
-    def implementation[**P, ResultT](
-        self,
-        id: str,
-        version: str,
-        *,
-        input_codecs: Mapping[str, str] | None = None,
-        output_codec: str = PYTHON_JSON_CODEC,
-        encode_output: Callable[..., JsonValue] | None = None,
-        outputs: Mapping[str, ComputeResultPathInput] | None = None,
-        runtime: str = "python",
-        capabilities: tuple[str, ...] = (),
-        resources: Mapping[str, JsonValue] | None = None,
-        deterministic: bool = True,
-        data_access: Literal["full", "batches"] = "full",
-        batch_size: int = 100,
-    ) -> Callable[[Callable[P, ResultT]], Callable[P, ResultT]]:
-        if output_codec != PYTHON_JSON_CODEC and encode_output is None:
-            raise ValueError(
-                "custom compute output codecs require an encode_output function"
-            )
-        if outputs and (output_codec != PYTHON_JSON_CODEC or encode_output is not None):
-            raise ValueError(
-                "structured compute outputs cannot use one root output encoder"
-            )
-        contract = ComputeImplementationContract(
-            id=id,
-            version=version,
-            input_codecs=input_codecs or {},
-            output_codec=output_codec,
-            outputs=_normalize_result_paths(outputs or {}),
-            runtime=runtime,
-            capabilities=capabilities,
-            resources=resources or {},
-            deterministic=deterministic,
-            data_access=data_access,
-            batch_size=batch_size,
-        )
-
-        def register(fn: Callable[P, ResultT]) -> Callable[P, ResultT]:
-            if contract.reference in self._implementations:
-                raise ValueError(
-                    f"compute implementation is already registered: "
-                    f"{contract.reference}"
-                )
-            captures = compute_capture_names_internal(fn)
-            if captures:
-                raise ValueError(
-                    "registered compute implementations cannot capture nonlocal "
-                    f"values: {', '.join(captures)}"
-                )
-            setattr(fn, _CONTRACT_ATTRIBUTE, contract)
-            if encode_output is not None:
-                setattr(fn, _OUTPUT_ENCODER_ATTRIBUTE, encode_output)
-            self._implementations[contract.reference] = (contract, fn)
-            return fn
-
-        return register
-
-    def resolve(self, reference: str) -> ComputeFunction:
-        try:
-            return self._implementations[reference][1]
-        except KeyError:
-            raise KeyError(
-                f"compute implementation is not registered: {reference}"
-            ) from None
-
-    def contract(self, reference: str) -> ComputeImplementationContract:
-        try:
-            return self._implementations[reference][0]
-        except KeyError:
-            raise KeyError(
-                f"compute implementation is not registered: {reference}"
-            ) from None
-
-
-def compute_implementation_contract_internal(
-    fn: ComputeFunction,
-) -> ComputeImplementationContract | None:
-    """Read a trusted registry marker without changing the callable contract."""
-
-    value = getattr(fn, _CONTRACT_ATTRIBUTE, None)
-    return value if isinstance(value, ComputeImplementationContract) else None
-
-
-def compute_output_encoder_internal(
-    fn: ComputeFunction,
-) -> Callable[[object], JsonValue] | None:
-    """Read the runtime encoder paired with a custom output codec."""
-
-    value = getattr(fn, _OUTPUT_ENCODER_ATTRIBUTE, None)
-    return cast(
-        "Callable[[object], JsonValue] | None",
-        value if callable(value) else None,
+    if not id or not version:
+        raise ValueError("compute implementation id and version must be non-empty")
+    implementation = _ComputeImplementation(
+        id=id,
+        version=version,
+        deterministic=deterministic,
     )
+
+    def mark(fn: Callable[P, ResultT]) -> Callable[P, ResultT]:
+        captures = compute_capture_names_internal(fn)
+        if captures:
+            raise ValueError(
+                "internal compute implementations cannot capture nonlocal values: "
+                f"{', '.join(captures)}"
+            )
+        setattr(fn, _IMPLEMENTATION_ATTRIBUTE, implementation)
+        return fn
+
+    return mark
+
+
+def compute_implementation_internal(
+    fn: ComputeFunction,
+) -> _ComputeImplementation | None:
+    """Read a trusted internal implementation marker."""
+
+    value = getattr(fn, _IMPLEMENTATION_ATTRIBUTE, None)
+    return value if isinstance(value, _ComputeImplementation) else None
 
 
 def compute_capture_names_internal(fn: ComputeFunction) -> tuple[str, ...]:
@@ -185,22 +70,4 @@ def compute_capture_names_internal(fn: ComputeFunction) -> tuple[str, ...]:
     return () if not isinstance(code, CodeType) else code.co_freevars
 
 
-def _normalize_result_paths(
-    outputs: Mapping[str, ComputeResultPathInput],
-) -> dict[str, ComputeResultPath]:
-    normalized: dict[str, ComputeResultPath] = {}
-    for name, selected in outputs.items():
-        if not name:
-            raise ValueError("compute output names must be non-empty")
-        path = selected if isinstance(selected, tuple) else (selected,)
-        if any(isinstance(item, str) and not item for item in path):
-            raise ValueError("compute output path items must be non-empty")
-        normalized[name] = path
-    if len(set(normalized.values())) != len(normalized):
-        raise ValueError("compute output paths must be unique")
-    if len(normalized) > 1 and any(not path for path in normalized.values()):
-        raise ValueError("the root compute result cannot be one of multiple outputs")
-    return normalized
-
-
-__all__ = ["ComputeImplementationContract", "ComputeRegistry"]
+__all__: list[str] = []

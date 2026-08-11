@@ -20,8 +20,8 @@ from scopecat.program.logical import (
     AcquireEffect,
     LogicalComputeNode,
     LogicalDomainExecution,
-    LogicalMeasurementPostprocessor,
-    MeasurementPostprocessorId,
+    LogicalMeasurementCompute,
+    MeasurementComputeId,
     ValueDef,
 )
 from scopecat.program.value_graph import OperationId
@@ -30,19 +30,19 @@ from scopecat.program.value_graph import OperationId
 def verify_logical_graph(
     value_defs: Sequence[ValueDef],
     compute_nodes: Sequence[LogicalComputeNode],
-    measurement_postprocessors: Sequence[LogicalMeasurementPostprocessor] = (),
+    measurement_computes: Sequence[LogicalMeasurementCompute] = (),
     *,
     effects: Sequence[LogicalDomainExecution | AcquireEffect] = (),
 ) -> tuple[
     tuple[ValueDef, ...],
     tuple[LogicalComputeNode, ...],
-    tuple[LogicalMeasurementPostprocessor, ...],
+    tuple[LogicalMeasurementCompute, ...],
 ]:
     """Validate closure and normalize semantic dataflow."""
 
     definitions_in_order = tuple(value_defs)
     declared_compute_nodes = tuple(compute_nodes)
-    declared_postprocessors = tuple(measurement_postprocessors)
+    declared_computes = tuple(measurement_computes)
     domain_executions = tuple(
         effect for effect in effects if isinstance(effect, LogicalDomainExecution)
     )
@@ -51,8 +51,8 @@ def verify_logical_graph(
     )
     problems: list[Problem] = []
     definitions = {definition.id: definition for definition in definitions_in_order}
-    ambiguous_measurement_postprocessor_ids = _measurement_postprocessors_by_id(
-        declared_postprocessors,
+    ambiguous_measurement_compute_ids = _measurement_computes_by_id(
+        declared_computes,
         problems,
     )
     operation_results = {
@@ -67,8 +67,8 @@ def verify_logical_graph(
             for result_id, operation in operation_results.items()
         }
     )
-    _verify_measurement_postprocessor_values(
-        declared_postprocessors,
+    _verify_measurement_compute_values(
+        declared_computes,
         value_types,
         problems,
     )
@@ -80,19 +80,19 @@ def verify_logical_graph(
             problems,
             execution_index=execution_index,
         )
-    unambiguous_measurement_postprocessors = tuple(
-        postprocessor
-        for postprocessor in declared_postprocessors
-        if postprocessor.id not in ambiguous_measurement_postprocessor_ids
+    unambiguous_measurement_computes = tuple(
+        compute
+        for compute in declared_computes
+        if compute.id not in ambiguous_measurement_compute_ids
     )
     ambiguous_product_ids = _verify_product_owners(
         acquisitions,
         domain_executions,
-        unambiguous_measurement_postprocessors,
+        unambiguous_measurement_computes,
         problems,
     )
-    ordered_measurement_postprocessors = _topological_measurement_postprocessors(
-        unambiguous_measurement_postprocessors,
+    ordered_measurement_computes = _topological_measurement_computes(
+        unambiguous_measurement_computes,
         problems,
         ambiguous_product_ids=ambiguous_product_ids,
     )
@@ -109,17 +109,17 @@ def verify_logical_graph(
     return (
         ordered_defs,
         ordered_operations,
-        ordered_measurement_postprocessors,
+        ordered_measurement_computes,
     )
 
 
-def _verify_measurement_postprocessor_values(
-    postprocessors: tuple[LogicalMeasurementPostprocessor, ...],
+def _verify_measurement_compute_values(
+    computes: tuple[LogicalMeasurementCompute, ...],
     value_types: Mapping[ValueId, ValueType],
     problems: list[Problem],
 ) -> None:
-    for postprocessor in postprocessors:
-        for name, value_id in postprocessor.value_inputs:
+    for compute in computes:
+        for name, value_id in compute.value_inputs:
             if value_id in value_types:
                 continue
             problems.append(
@@ -127,24 +127,24 @@ def _verify_measurement_postprocessor_values(
                     "logical_compute_value_missing",
                     f"measurement compute value input {name!r} references "
                     f"unknown value {value_id.qualified_name!r}",
-                    "computes",
-                    postprocessor.id.qualified_name,
+                    "measurement_computes",
+                    compute.id.qualified_name,
                     "value_inputs",
                     name,
                 )
             )
 
 
-def _measurement_postprocessors_by_id(
-    postprocessors: tuple[LogicalMeasurementPostprocessor, ...],
+def _measurement_computes_by_id(
+    computes: tuple[LogicalMeasurementCompute, ...],
     problems: list[Problem],
-) -> frozenset[MeasurementPostprocessorId]:
+) -> frozenset[MeasurementComputeId]:
     grouped: dict[
-        MeasurementPostprocessorId,
-        list[LogicalMeasurementPostprocessor],
+        MeasurementComputeId,
+        list[LogicalMeasurementCompute],
     ] = {}
-    for postprocessor in postprocessors:
-        grouped.setdefault(postprocessor.id, []).append(postprocessor)
+    for compute in computes:
+        grouped.setdefault(compute.id, []).append(compute)
     ambiguous = frozenset(
         transform_id
         for transform_id, declarations in grouped.items()
@@ -156,7 +156,7 @@ def _measurement_postprocessors_by_id(
                 "logical_compute_duplicate",
                 "measurement compute "
                 f"{transform_id.qualified_name!r} is declared more than once",
-                "computes",
+                "measurement_computes",
                 transform_id.qualified_name,
             )
         )
@@ -166,7 +166,7 @@ def _measurement_postprocessors_by_id(
 def _verify_product_owners(
     acquisitions: tuple[AcquireEffect, ...],
     executions: tuple[LogicalDomainExecution, ...],
-    postprocessors: tuple[LogicalMeasurementPostprocessor, ...],
+    computes: tuple[LogicalMeasurementCompute, ...],
     problems: list[Problem],
 ) -> frozenset[ProductId]:
     owners: dict[ProductId, tuple[str, str]] = {}
@@ -214,8 +214,8 @@ def _verify_product_owners(
                 )
                 continue
             owners[product_id] = (f"domain execution {execution.id!r}", result_id)
-    for postprocessor in postprocessors:
-        for role, product_id in postprocessor.outputs:
+    for compute in computes:
+        for role, product_id in compute.outputs:
             existing = owners.get(product_id)
             if existing is not None:
                 ambiguous.add(product_id)
@@ -226,76 +226,73 @@ def _verify_product_owners(
                         f"logical product {product_id.qualified_name!r} is "
                         f"produced by both {owner}/{owner_port!r} and measurement "
                         "compute "
-                        f"{postprocessor.id.qualified_name!r}/{role!r}",
-                        "computes",
-                        postprocessor.id.qualified_name,
+                        f"{compute.id.qualified_name!r}/{role!r}",
+                        "measurement_computes",
+                        compute.id.qualified_name,
                         "outputs",
                         role,
                     )
                 )
                 continue
             owners[product_id] = (
-                f"measurement compute {postprocessor.id.qualified_name!r}",
+                f"measurement compute {compute.id.qualified_name!r}",
                 role,
             )
     return frozenset(ambiguous)
 
 
-def _topological_measurement_postprocessors(
-    postprocessors: tuple[LogicalMeasurementPostprocessor, ...],
+def _topological_measurement_computes(
+    computes: tuple[LogicalMeasurementCompute, ...],
     problems: list[Problem],
     *,
     ambiguous_product_ids: frozenset[ProductId],
-) -> tuple[LogicalMeasurementPostprocessor, ...]:
-    postprocessors_by_id = {
-        postprocessor.id: postprocessor for postprocessor in postprocessors
-    }
-    owners_by_output: dict[ProductId, list[MeasurementPostprocessorId]] = {}
-    for postprocessor in postprocessors:
-        for _role, product_id in postprocessor.outputs:
-            owners_by_output.setdefault(product_id, []).append(postprocessor.id)
+) -> tuple[LogicalMeasurementCompute, ...]:
+    computes_by_id = {compute.id: compute for compute in computes}
+    owners_by_output: dict[ProductId, list[MeasurementComputeId]] = {}
+    for compute in computes:
+        for _role, product_id in compute.outputs:
+            owners_by_output.setdefault(product_id, []).append(compute.id)
     owner_by_output = {
         product_id: owners[0]
         for product_id, owners in owners_by_output.items()
         if len(owners) == 1 and product_id not in ambiguous_product_ids
     }
-    dependencies: dict[MeasurementPostprocessorId, set[MeasurementPostprocessorId]] = {
-        postprocessor.id: set() for postprocessor in postprocessors
+    dependencies: dict[MeasurementComputeId, set[MeasurementComputeId]] = {
+        compute.id: set() for compute in computes
     }
-    dependents: dict[MeasurementPostprocessorId, set[MeasurementPostprocessorId]] = {
-        postprocessor.id: set() for postprocessor in postprocessors
+    dependents: dict[MeasurementComputeId, set[MeasurementComputeId]] = {
+        compute.id: set() for compute in computes
     }
-    for postprocessor in postprocessors:
-        for _name, input_product_id in postprocessor.inputs:
+    for compute in computes:
+        for _name, input_product_id in compute.inputs:
             producer = owner_by_output.get(input_product_id)
             if producer is None:
                 continue
-            dependencies[postprocessor.id].add(producer)
-            dependents[producer].add(postprocessor.id)
+            dependencies[compute.id].add(producer)
+            dependents[producer].add(compute.id)
     indegree = {
-        postprocessor_id: len(upstream)
-        for postprocessor_id, upstream in dependencies.items()
+        compute_id: len(upstream) for compute_id, upstream in dependencies.items()
     }
     ready = [
-        (postprocessor_id.qualified_name, postprocessor_id)
-        for postprocessor_id, count in indegree.items()
+        (compute_id.qualified_name, compute_id)
+        for compute_id, count in indegree.items()
         if count == 0
     ]
     heapq.heapify(ready)
-    ordered: list[LogicalMeasurementPostprocessor] = []
+    ordered: list[LogicalMeasurementCompute] = []
     while ready:
-        _name, postprocessor_id = heapq.heappop(ready)
-        ordered.append(postprocessors_by_id[postprocessor_id])
+        _name, compute_id = heapq.heappop(ready)
+        ordered.append(computes_by_id[compute_id])
         for dependent in sorted(
-            dependents[postprocessor_id], key=lambda item: item.qualified_name
+            dependents[compute_id], key=lambda item: item.qualified_name
         ):
             indegree[dependent] -= 1
             if indegree[dependent] == 0:
                 heapq.heappush(ready, (dependent.qualified_name, dependent))
-    if len(ordered) == len(postprocessors):
+    if len(ordered) == len(computes):
         return tuple(ordered)
     cyclic = sorted(
-        (postprocessor_id for postprocessor_id, count in indegree.items() if count > 0),
+        (compute_id for compute_id, count in indegree.items() if count > 0),
         key=lambda item: item.qualified_name,
     )
     first = cyclic[0]
@@ -304,11 +301,11 @@ def _topological_measurement_postprocessors(
             "logical_compute_cycle",
             "measurement compute graph contains a cycle involving: "
             + ", ".join(item.qualified_name for item in cyclic),
-            "computes",
+            "measurement_computes",
             first.qualified_name,
         )
     )
-    return tuple(sorted(postprocessors, key=lambda item: item.id.qualified_name))
+    return tuple(sorted(computes, key=lambda item: item.id.qualified_name))
 
 
 def _verify_domain_execution(

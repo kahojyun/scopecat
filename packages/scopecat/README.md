@@ -16,18 +16,26 @@ Project discovery loads the version-controlled `LabApplication` shared with
 the daemon. Its optional system builder receives the accepted configuration
 snapshot selected for each run.
 
-Routine configuration changes use typed intent APIs:
+Routine analysis and configuration changes use typed intent APIs:
 
 ```python
 with project.connect() as lab:
+    run = lab.runs()[0]
+    context = run.analysis("fit")
+    score = fit_score(context.measurements())
+    analysis = (
+        context.result()
+        .fact("fit-score", score)
+        .propose("fit-update", update, evidence=("fit-score",))
+        .save()
+    )
+    accepted = lab.config.accept(analysis, note="fit passed")
+
     draft = lab.config.edit().replace_scalar(
         "repetitions",
         sc.Quantity(256, "count"),
     )
     changed = lab.config.set_default(draft, note="increase averaging")
-
-    analysis = run.analysis("fit").propose(...)
-    accepted = lab.config.accept(analysis, note="fit passed")
     restored = lab.config.undo(note="restore the previous default")
 ```
 
@@ -54,8 +62,9 @@ safe run cancellation, and attention resolution are available through
 
 `run.measurements()` captures an immutable analysis snapshot with NumPy, Xarray,
 and Arrow support for data that fits in notebook memory. Large runs can use a
-projected `run.measurement_record_batches(...)` Arrow reader or a registered
-analysis trace with `data_access="batches"`. See the
+projected
+`run.measurements().project(...).to_record_batch_reader(...)` finite Arrow
+reader. See the
 [measurement workflow](../../docs/measurement-data.md) for details; install
 `scopecat[pandas]` or `scopecat[polars]` only for the corresponding conversion.
 

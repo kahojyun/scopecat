@@ -43,7 +43,7 @@ from scopecat.program.identities import (
     InvocationKey,
 )
 from scopecat.program.input_capture import empty_program_mapping
-from scopecat.program.measurements import MeasurementPostprocessor
+from scopecat.program.measurements import MeasurementCompute
 from scopecat.program.operations import (
     ModuleInputPort,
     ModuleOperationDecl,
@@ -287,7 +287,7 @@ class ModuleBody:
 
     effects: tuple[ModuleEffect, ...] = ()
     operations: tuple[ModuleOperationDecl, ...] = ()
-    measurement_postprocessors: tuple[MeasurementPostprocessor, ...] = ()
+    measurement_computes: tuple[MeasurementCompute, ...] = ()
     products: tuple[ModuleProductDecl, ...] = ()
 
     def __post_init__(self) -> None:
@@ -321,7 +321,7 @@ class ModuleBody:
         )
         _require_unique(
             "module measurement compute",
-            tuple(item.symbol_id for item in self.measurement_postprocessors),
+            tuple(item.symbol_id for item in self.measurement_computes),
         )
         local_product_origins = {
             product.product_id: product.origin for product in self.products
@@ -338,11 +338,11 @@ class ModuleBody:
             **projected_product_origins,
             **local_product_origins,
         }
-        for postprocessor in self.measurement_postprocessors:
-            input_origins = dict(postprocessor.input_product_origins)
-            for name, selected_id in postprocessor.input_bindings:
-                _require_postprocessor_product(
-                    postprocessor,
+        for compute in self.measurement_computes:
+            input_origins = dict(compute.input_product_origins)
+            for name, selected_id in compute.input_bindings:
+                _require_compute_product(
+                    compute,
                     direction="input",
                     role=name,
                     selected_id=selected_id,
@@ -350,10 +350,10 @@ class ModuleBody:
                     local_product_origins=local_product_origins,
                     allowed_product_origins=visible_product_origins,
                 )
-            output_origins = dict(postprocessor.output_product_origins)
-            for role, selected_id in postprocessor.output_bindings:
-                _require_postprocessor_product(
-                    postprocessor,
+            output_origins = dict(compute.output_product_origins)
+            for role, selected_id in compute.output_bindings:
+                _require_compute_product(
+                    compute,
                     direction="output",
                     role=role,
                     selected_id=selected_id,
@@ -734,8 +734,8 @@ def _require_unique(label: str, values: tuple[object, ...]) -> None:
         raise ValueError(msg)
 
 
-def _require_postprocessor_product(
-    postprocessor: MeasurementPostprocessor,
+def _require_compute_product(
+    compute: MeasurementCompute,
     *,
     direction: str,
     role: str,
@@ -747,7 +747,7 @@ def _require_postprocessor_product(
     if origin is None:
         if selected_id not in local_product_origins:
             raise ValueError(
-                f"measurement compute {postprocessor.id!r} {direction} "
+                f"measurement compute {compute.id!r} {direction} "
                 f"{role!r} references undeclared local product "
                 f"{selected_id.qualified_name!r}"
             )
@@ -760,12 +760,12 @@ def _require_postprocessor_product(
             else "outside this module's local products"
         )
         raise ValueError(
-            f"measurement compute {postprocessor.id!r} {direction} {role!r} "
+            f"measurement compute {compute.id!r} {direction} {role!r} "
             f"references product {selected_id.qualified_name!r} {location}"
         )
     if origin != expected_origin:
         raise ValueError(
-            f"measurement compute {postprocessor.id!r} {direction} {role!r} "
+            f"measurement compute {compute.id!r} {direction} {role!r} "
             f"references product {selected_id.qualified_name!r} from another "
             "module instance"
         )

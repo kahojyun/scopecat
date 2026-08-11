@@ -1,4 +1,5 @@
 # pyright: reportUnnecessaryTypeIgnoreComment=true
+# pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false
 
 from __future__ import annotations
 
@@ -7,6 +8,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, assert_type, cast
 
+import pyarrow as pa
 import pytest
 
 import scopecat as sc
@@ -413,8 +415,10 @@ def test_analysis_decorator_preserves_configuration_signature() -> None:
     ) -> sc.Analysis:
         nonlocal evaluations
         evaluations += 1
-        return context.result(f"readout fit for {qubit}").table(
-            sc.AnalysisTable.from_rows([{"attempts": attempts}])
+        return (
+            context.result(f"readout fit for {qubit}")
+            .dataset("attempts", pa.table({"attempts": [attempts]}))
+            .table(dataset="attempts")
         )
 
     assert evaluations == 0

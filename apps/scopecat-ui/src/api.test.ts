@@ -63,10 +63,7 @@ describe("project daemon reads", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const download = await getRunArtifactDownload(
-      "run/1",
-      "analysis-fit-fit-report",
-    );
+    const download = await getRunArtifactDownload("run/1", "analysis-fit-fit-report");
 
     expect(download.filename).toBe("fit-report.md");
     expect(download.blob.type).toBe("text/markdown");
@@ -100,13 +97,6 @@ describe("project daemon reads", () => {
             manifest: {
               run_id: "run/1",
               config_content_hash: "sha256:config",
-              sequence: {
-                sequence_id: "adaptive-sequence",
-                run_index: 1,
-                max_runs: 10,
-                previous_run_id: "run/0",
-                proposal_id: "proposal-1",
-              },
               outcome: { result: "succeeded", certainty: "known" },
               contents: [
                 {
@@ -142,11 +132,6 @@ describe("project daemon reads", () => {
       status: "succeeded",
       result: "succeeded",
       certainty: "known",
-      stage: {
-        sequenceId: "adaptive-sequence",
-        index: 1,
-        previousRunId: "run/0",
-      },
     });
     expect(run.contents).toEqual([
       {
@@ -227,70 +212,6 @@ describe("project daemon reads", () => {
     });
   });
 
-  it("reads staged lineage from the run page without per-run request reads", async () => {
-    const fetchMock = vi.fn((_input: string | URL | Request) =>
-      Promise.resolve(
-        jsonResponse({
-          items: [
-            {
-              ...runSummary("run/stage-2", "leased"),
-              manifest: {
-                run_id: "run/stage-2",
-                contents: [],
-                sequence: {
-                  sequence_id: "adaptive-sequence",
-                  run_index: 1,
-                  max_runs: 10,
-                  previous_run_id: "run/stage-1",
-                  proposal_id: "proposal-1",
-                },
-              },
-            },
-            {
-              ...runSummary("run/stage-1", "queued"),
-              manifest: {
-                run_id: "run/stage-1",
-                contents: [],
-                sequence: {
-                  sequence_id: "adaptive-sequence",
-                  run_index: 0,
-                  max_runs: 10,
-                  previous_run_id: null,
-                  proposal_id: null,
-                },
-              },
-            },
-          ],
-          next_cursor: null,
-        }),
-      ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(getRuns()).resolves.toMatchObject({
-      items: [
-        {
-          runId: "run/stage-2",
-          stage: {
-            sequenceId: "adaptive-sequence",
-            index: 1,
-            previousRunId: "run/stage-1",
-          },
-        },
-        {
-          runId: "run/stage-1",
-          stage: {
-            sequenceId: "adaptive-sequence",
-            index: 0,
-            previousRunId: undefined,
-          },
-        },
-      ],
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe("/api/v1/runs?limit=100");
-  });
-
   it("reads persisted analyses and typed run content", async () => {
     const fetchMock = vi.fn((input: string | URL | Request) => {
       const path = requestPath(input);
@@ -316,8 +237,8 @@ describe("project daemon reads", () => {
                   executions: [
                     {
                       id: "fit",
-                      implementation: "registry:lab.fit@1",
-                      deterministic: true,
+                      implementation: "python:fit",
+                      deterministic: false,
                       inputs: ["dataset"],
                       input_bindings: [
                         {
@@ -422,7 +343,7 @@ describe("project daemon reads", () => {
       executions: [
         {
           id: "fit",
-          implementation: "registry:lab.fit@1",
+          implementation: "python:fit",
           outputs: [
             {
               name: "fit",
@@ -531,25 +452,25 @@ describe("project daemon reads", () => {
     ]);
   });
 
-  it("requests measurement pages by their returned offset", async () => {
+  it("requests one bounded measurement preview", async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL) =>
       Promise.resolve(
         jsonResponse({
           items: [measurementRecord("run/1", 100)],
           dataset_schema: measurementSchema(),
-          next_offset: 200,
+          truncated: true,
         }),
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(getMeasurementPreview("run/1", 100)).resolves.toEqual({
+    await expect(getMeasurementPreview("run/1")).resolves.toEqual({
       items: [measurementRecord("run/1", 100)],
       schema: measurementSchema(),
-      nextOffset: 200,
+      truncated: true,
     });
     expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
-      "/api/v1/runs/run%2F1/measurements?limit=100&offset=100&include_schema=false",
+      "/api/v1/runs/run%2F1/measurements/preview?limit=100",
     );
   });
 

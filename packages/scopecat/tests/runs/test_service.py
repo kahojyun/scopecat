@@ -64,7 +64,7 @@ class _IndeterminateFinalizationHost(TestRunInstrumentHost):
         )
 
 
-def test_plan_admit_and_execute_are_separate_run_sequences(tmp_path: Path) -> None:
+def test_plan_admit_and_execute_are_separate_run_phases(tmp_path: Path) -> None:
     services = sqlite_project_services(tmp_path)
     config = load_config()
     composition = compose_test_instruments(

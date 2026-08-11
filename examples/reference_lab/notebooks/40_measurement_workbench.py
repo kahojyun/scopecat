@@ -46,7 +46,7 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
     grid = data.to_xarray(layout="grid")
     arrow = cast(
         "_ArrowTable",
-        data.to_arrow(),  # pyright: ignore[reportUnknownMemberType]
+        data.project().to_arrow(),  # pyright: ignore[reportUnknownMemberType]
     )
     batches = tuple(run.measurements().batches(batch_size=2))
 

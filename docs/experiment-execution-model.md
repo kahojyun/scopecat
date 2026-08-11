@@ -50,8 +50,9 @@ The public model has four boundaries:
 3. A domain call is an ordered experiment effect. It returns products owned by
    that occurrence and may coexist with host-device work and derived-measurement
    compute.
-4. The `@experiment` return value selects ordinary durable results. An explicit
-   `record(...)` adds naming, namespace, role, or metadata policy. These demanded
+4. The `@experiment` return value selects ordinary durable results. `Result(...)`
+   annotations add stable identity, namespace, role, or metadata policy, while
+   `alias(...)` handles the uncommon additional destination. These demanded
    roots determine the live compute and observation-stage graph.
 
 A bare experiment uses its Python function name as its project-scoped technical
@@ -63,55 +64,18 @@ plus repeat and traversal policy. Invocation edits replace or adjust that plan
 without changing the experiment definition. The
 [measurement data guide](measurement-data.md#repeat-traverse-and-edit-a-point-plan)
 is the canonical task guide; the `PointPlan` docstring defines its exact local
-contract. Adaptive selection uses bounded stages whose next invocation depends
-on earlier results.
+contract. Point plans are static for an admitted run; measurement-dependent
+selection across runs belongs to a future workflow model.
 
-### Compute transport boundary
+### Local compute boundary
 
 Python compute functions currently remain local closures owned by the runner
-that planned the invocation. Their implementation IDs are diagnostic execution
-identities, not durable or remotely resolvable contracts. Scopecat must not
-pickle closures or infer portability from a function's module and qualified
-name: either choice silently captures environment and dependency state.
-
-A genuinely portable compute implementation requires one explicit deployment
-contract with all three parts:
-
-1. a registry-owned implementation ID and version that another worker can
-   resolve;
-2. input, output, payload, and failure codecs compatible with the declared
-   `ScalarType`/`ArrayType` contract;
-3. an execution capability contract covering runtime dependencies, resource
-   limits, and whether replay is deterministic.
-
-When such a registry exists, `compute(...)` should remain the authoring API;
-registration and deployment select an implementation behind it. Until then,
-preview reports the local implementation identity and placement without
-claiming that the closure is portable.
-
-The local SDK now exposes that explicit registration boundary without claiming
-that a remote worker exists:
-
-```python
-registry = sc.ComputeRegistry()
-
-
-@registry.implementation(
-    "window.peak",
-    "2",
-    input_codecs={"samples": "lab.float64-array.v1"},
-    capabilities=("numpy",),
-    resources={"memory_mb": 64},
-    deterministic=True,
-)
-def peak(*, samples) -> float:
-    return float(samples.max())
-```
-
-Registered functions execute locally through the same `compute(...)` path,
-resolve as `registry:window.peak@2`, and expose that stable identity in preview.
-The contract is the deployable unit a future worker must resolve; unregistered
-closures retain diagnostic `python:` identities.
+that planned the invocation. Preview reports a local diagnostic identity,
+placement, and captured nonlocal names; none is a durable replay or remote
+execution contract. Scopecat does not pickle closures or infer portability from
+a function's module and qualified name, because either choice silently captures
+environment and dependency state. Scientific dependencies should instead enter
+the explicit typed input graph.
 
 Completed-run analysis deliberately has a different authoring boundary. Inside
 an analysis step, `context.trace(fn=fit, dataset=dataset)` eagerly runs ordinary
@@ -121,25 +85,15 @@ as a fact, dataset, table, figure, or artifact. If the published content exactly
 matches the traced result's content and codec, a fact, dataset, or artifact is
 linked to that execution automatically. A first-party native-dataset
 normalization with field mapping instead records a typed derivation from that
-result. Views remain explicit projections of a published dataset or native
-result.
+result. Views remain explicit projections of a published dataset.
 
 Every traced input is named and content-identified independently; JSON-safe
-inline values are retained beside dataset targets. A registered custom output
-codec must provide its actual encoder, so the recorded codec and content hash
-describe the encoded representation. Analysis executions have no experiment
-placement: they are not nodes in acquisition and do not mutate the source
-measurement dataset.
-
-Implementations that cannot load the complete dataset declare
-`data_access="batches"` and a bounded `batch_size` in their registry contract.
-The function then receives an iterator of `Dataset` batches through the same
-named `context.trace(fn=..., batches=dataset)` call. Full-dataset Python remains
-the short path; bounded access is an implementation property rather than a
-second analysis API. The iterator is tied to that exact dataset input, and its
-first page freezes a finite point-count watermark for the remaining pages. A
-future streaming workflow may reuse bounded execution, but must own checkpoint
-and finalization state explicitly.
+inline values are retained beside dataset targets. Analysis executions have no
+experiment placement: they are not nodes in acquisition and do not mutate the
+source measurement dataset. Full-dataset ordinary Python is the current
+analysis path. A future streaming workflow may reuse publication and execution
+evidence, but must own its cursors, checkpoints, and finalization state
+explicitly.
 
 Logical resource ports describe the interfaces and entities required by a
 reusable definition. The accepted configuration maps those requirements onto a
@@ -278,8 +232,8 @@ for final run status and operator reconciliation.
 - A run uses one accepted request and identifiable configuration snapshot.
 - Logical point identity and coordinates are independent of physical batching.
 - Host and domain placement observe the same inputs and parameter overlays.
-- Pure computation may be folded, shared, hoisted, or placed on a target without
-  changing its value.
+- Pure computation may be folded, shared, or hoisted without changing its value
+  or its host-versus-observation availability semantics.
 - Consequential effect stages retain their declared order.
 - Stable state may reconcile once per region; observable or varying effects
   remain boundaries.

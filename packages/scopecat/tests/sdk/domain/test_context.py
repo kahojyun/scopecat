@@ -84,7 +84,7 @@ def _domain_scenario(
                 )
             },
         )
-        module._postprocess(
+        module._measurement_compute(
             "summarize",
             input=call.results.raw,
             outputs={"summary": summary},
@@ -141,7 +141,7 @@ def test_domain_batch_partition_builds_ordered_positive_sizes() -> None:
         DomainBatchPartition((2, 0))
 
 
-def test_postprocessor_input_remains_a_direct_domain_result_when_not_recorded(
+def test_compute_input_remains_a_direct_domain_result_when_not_recorded(
     tmp_path: Path,
 ) -> None:
     bound_points = _domain_scenario(
@@ -152,17 +152,17 @@ def test_postprocessor_input_remains_a_direct_domain_result_when_not_recorded(
     bound = bound_points.bound_plan
     program = bound.bindings
     call = bound.program.program.domain_executions[0]
-    [postprocessor] = program.measurement_postprocessors
+    [compute] = program.measurement_computes
     [direct_result] = call.results
-    [postprocessor_output] = postprocessor.outputs
+    [compute_output] = compute.outputs
 
     assert program.domain_result_use_ids[(call.id, direct_result[0])] == (
-        postprocessor.inputs[0].product_use_id,
+        compute.inputs[0].product_use_id,
     )
-    assert postprocessor_output.product_use_ids
+    assert compute_output.product_use_ids
     recorded_use_ids = {record.product_use_id for record in program.product_record_uses}
-    assert postprocessor.inputs[0].product_use_id not in recorded_use_ids
-    assert set(postprocessor_output.product_use_ids) == recorded_use_ids
+    assert compute.inputs[0].product_use_id not in recorded_use_ids
+    assert set(compute_output.product_use_ids) == recorded_use_ids
 
     context = _batch_context(
         bound_points,
@@ -170,7 +170,7 @@ def test_postprocessor_input_remains_a_direct_domain_result_when_not_recorded(
     )
 
     assert tuple(use.id for use in context.product_uses) == (
-        postprocessor.inputs[0].product_use_id.value,
+        compute.inputs[0].product_use_id.value,
     )
 
 

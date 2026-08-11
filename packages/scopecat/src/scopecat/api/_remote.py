@@ -26,7 +26,6 @@ from scopecat.analysis.service import (
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
     MeasurementArrowQuery,
-    MeasurementPage,
     RunAnalysisListView,
     RunAnalysisView,
 )
@@ -97,21 +96,6 @@ class RemoteRunOperations:
         return RunDatasetBytesResult(
             dataset=view.dataset,
             content=view.content_bytes(),
-        )
-
-    def load_measurement_page(
-        self,
-        run_id: str,
-        *,
-        limit: int,
-        offset: int,
-        snapshot_size: int | None,
-    ) -> MeasurementPage:
-        return self.client.measurements(
-            run_id,
-            limit=limit,
-            offset=offset,
-            snapshot_size=snapshot_size,
         )
 
     def load_measurement_arrow_page(

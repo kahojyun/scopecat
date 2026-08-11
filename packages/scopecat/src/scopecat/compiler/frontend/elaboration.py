@@ -27,7 +27,7 @@ from scopecat.compiler.frontend.module_scoping import (
     DefinitionEffect,
     InstanceBoundary,
     localize_effect,
-    localize_measurement_postprocessor,
+    localize_measurement_compute,
     localize_operation,
     localize_product_declaration,
     localize_resource_port,
@@ -157,9 +157,9 @@ class _LogicalProgramComposer:
                 implementations[operation.declaration_key],
             )
             self.dependency_roots.extend(value for _name, value in localized.inputs)
-        for postprocessor in module.body.measurement_postprocessors:
-            localized = localize_measurement_postprocessor(postprocessor, boundaries)
-            self.logical.add_measurement_postprocessor(localized)
+        for compute in module.body.measurement_computes:
+            localized = localize_measurement_compute(compute, boundaries)
+            self.logical.add_measurement_compute(localized)
             self.dependency_roots.extend(
                 value for _name, value in localized.value_input_bindings
             )

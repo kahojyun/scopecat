@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from scopecat.compiler.bound_facts import BoundMeasurementPostprocessor
+from scopecat.compiler.bound_facts import BoundMeasurementCompute
 from scopecat.execution.local.program import ApplyStateOperation, LocalOperation
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.resource_identity import (
@@ -84,7 +84,7 @@ class RunProgram:
         repr=False,
         compare=False,
     )
-    measurement_postprocessors: tuple[BoundMeasurementPostprocessor, ...] = field(
+    measurement_computes: tuple[BoundMeasurementCompute, ...] = field(
         default=(),
         repr=False,
         compare=False,
@@ -108,8 +108,8 @@ class RunProgram:
                     *self.measurements.runtime_value_ids,
                     *(
                         binding.value_id
-                        for postprocessor in self.measurement_postprocessors
-                        for binding in postprocessor.value_inputs
+                        for compute in self.measurement_computes
+                        for binding in compute.value_inputs
                     ),
                 )
             )

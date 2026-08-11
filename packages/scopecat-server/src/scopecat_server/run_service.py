@@ -41,7 +41,7 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.views import (
     MeasurementArrowQuery,
-    MeasurementPage,
+    MeasurementPreview,
     MeasurementSlice,
     MeasurementSliceQuery,
     MeasurementTracePreview,
@@ -237,36 +237,6 @@ class RunService:
                 limit=limit,
                 before=before,
                 state=state,
-            )
-            return RunSummaryPage(
-                items=tuple(
-                    RunSummary(
-                        control=_run_control_view(control),
-                        manifest=self._runs.read_manifest_in_transaction(
-                            connection,
-                            control.run_id,
-                        ),
-                    )
-                    for control in page.items
-                ),
-                next_cursor=page.next_cursor,
-            )
-
-    def list_run_sequences(
-        self,
-        *,
-        limit: int,
-        before: int | None,
-        sequence_id: str | None,
-    ) -> RunSummaryPage:
-        """List sequence runs without scanning unrelated run manifests."""
-
-        with self._control.read_transaction() as connection:
-            page = self._control.list_sequence_runs_in_transaction(
-                connection,
-                limit=limit,
-                before=before,
-                sequence_id=sequence_id,
             )
             return RunSummaryPage(
                 items=tuple(
@@ -600,48 +570,6 @@ class RunService:
                 ),
             )
 
-    def measurements(
-        self,
-        run_id: str,
-        *,
-        limit: int,
-        offset: int,
-        snapshot_size: int | None = None,
-        include_schema: bool = True,
-    ) -> MeasurementPage:
-        with self._config_errors():
-            manifest = self._runs.read_manifest(run_id)
-            items, next_offset, live_schema, selected_snapshot_size = (
-                SQLiteMeasurementDatasetRepository(
-                    self._runs,
-                    run_id=run_id,
-                ).measurement_page(
-                    limit=limit,
-                    offset=offset,
-                    snapshot_size=snapshot_size,
-                    include_schema=include_schema,
-                )
-            )
-        dataset = next(
-            (
-                entry
-                for entry in manifest.datasets
-                if entry.id == RAW_MEASUREMENTS_DATASET_ID
-            ),
-            None,
-        )
-        terminal_schema = (
-            None
-            if not include_schema or dataset is None or dataset.data_schema is None
-            else MeasurementDatasetSchema.model_validate(dataset.data_schema)
-        )
-        return MeasurementPage(
-            items=items,
-            next_offset=next_offset,
-            snapshot_size=selected_snapshot_size,
-            dataset_schema=terminal_schema or live_schema,
-        )
-
     def measurement_arrow(
         self,
         run_id: str,
@@ -693,6 +621,43 @@ class RunService:
         except (KeyError, TypeError, ValueError) as error:
             raise BackendConflict(str(error)) from error
         return table, next_offset, snapshot_size
+
+    def measurement_preview(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+    ) -> MeasurementPreview:
+        """Return one bounded record preview for presentation in the operator UI."""
+
+        with self._config_errors():
+            manifest = self._runs.read_manifest(run_id)
+            items, next_offset, live_schema, _ = SQLiteMeasurementDatasetRepository(
+                self._runs,
+                run_id=run_id,
+            ).measurement_page(
+                limit=limit,
+                offset=0,
+                include_schema=True,
+            )
+        dataset = next(
+            (
+                entry
+                for entry in manifest.datasets
+                if entry.id == RAW_MEASUREMENTS_DATASET_ID
+            ),
+            None,
+        )
+        terminal_schema = (
+            None
+            if dataset is None or dataset.data_schema is None
+            else MeasurementDatasetSchema.model_validate(dataset.data_schema)
+        )
+        return MeasurementPreview(
+            items=items,
+            dataset_schema=terminal_schema or live_schema,
+            truncated=next_offset is not None,
+        )
 
     def measurement_slice(
         self,

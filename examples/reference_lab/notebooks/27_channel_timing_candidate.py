@@ -17,10 +17,14 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
         name="Channel timing source",
         tags=("gallery", "channel-calibration"),
     )
-    analysis = source_run.analysis("q1 channel timing review").propose(
-        "q1-channel-delay",
-        Q1_CHANNEL_CALIBRATION.update(CHANNEL_DELAY.value(1.0)),
-        reason="align q1 acquisition with the shared readout window",
+    analysis = (
+        source_run.analysis("q1 channel timing review")
+        .result()
+        .propose(
+            "q1-channel-delay",
+            Q1_CHANNEL_CALIBRATION.update(CHANNEL_DELAY.value(1.0)),
+            reason="align q1 acquisition with the shared readout window",
+        )
     )
     published = analysis.save()
     candidate = published.candidate_config()

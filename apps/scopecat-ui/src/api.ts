@@ -90,14 +90,13 @@ export async function getRun(runId: string, signal?: AbortSignal): Promise<Proje
 
 export async function getMeasurementPreview(
   runId: string,
-  offset = 0,
   signal?: AbortSignal,
 ): Promise<MeasurementPreview> {
   const response = await apiData(
-    apiClient.GET("/api/v1/runs/{run_id}/measurements", {
+    apiClient.GET("/api/v1/runs/{run_id}/measurements/preview", {
       params: {
         path: { run_id: runId },
-        query: { limit: 100, offset, include_schema: offset === 0 },
+        query: { limit: 100 },
       },
       signal,
     }),
@@ -105,7 +104,7 @@ export async function getMeasurementPreview(
   return {
     items: response.items ?? [],
     schema: response.dataset_schema ?? undefined,
-    nextOffset: response.next_offset ?? undefined,
+    truncated: response.truncated ?? false,
   };
 }
 
@@ -370,13 +369,6 @@ function normalizeRun(
     attentionReason: control.attention_reason ?? undefined,
     result: outcome?.result,
     certainty: outcome?.certainty,
-    stage: manifest.sequence
-      ? {
-          sequenceId: manifest.sequence.sequence_id,
-          index: manifest.sequence.run_index,
-          previousRunId: manifest.sequence.previous_run_id ?? undefined,
-        }
-      : undefined,
     plan: {
       pointCount: plan.point_count,
       coordinateIds: plan.coordinate_ids ?? [],

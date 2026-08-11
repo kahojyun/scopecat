@@ -22,7 +22,7 @@ from scopecat.program.bindings import (
 )
 from scopecat.program.expressions import ArrayExpr, ScalarExpr
 from scopecat.program.measurement_contracts import (
-    MeasurementPostprocessorKernel,
+    MeasurementComputeKernel,
 )
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.parameters import ParameterContract
@@ -57,7 +57,7 @@ class AcquireId:
 
 
 @dataclass(frozen=True, slots=True)
-class MeasurementPostprocessorId:
+class MeasurementComputeId:
     """Nominal identity in the authored measurement-compute symbol space."""
 
     symbol: SymbolId
@@ -74,8 +74,8 @@ class MeasurementPostprocessorId:
     def local_id(self) -> str:
         return self.symbol.local_id
 
-    def prefixed(self, *scope: str) -> MeasurementPostprocessorId:
-        return MeasurementPostprocessorId(self.symbol.prefixed(*scope))
+    def prefixed(self, *scope: str) -> MeasurementComputeId:
+        return MeasurementComputeId(self.symbol.prefixed(*scope))
 
 
 type ValueSource = ArrayExpr | ScalarExpr | TableSource
@@ -111,13 +111,13 @@ class LogicalDomainExecution:
 
 
 @dataclass(frozen=True, slots=True)
-class LogicalMeasurementPostprocessor:
+class LogicalMeasurementCompute:
     """One point-local Python calculation with explicit product edges."""
 
-    id: MeasurementPostprocessorId
+    id: MeasurementComputeId
     inputs: tuple[tuple[str, ProductId], ...]
     outputs: tuple[tuple[str, ProductId], ...]
-    kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
+    kernel: MeasurementComputeKernel = field(repr=False, compare=False)
     value_inputs: tuple[tuple[str, ValueId], ...] = ()
     implementation: str | None = None
     deterministic: bool = False
@@ -244,7 +244,7 @@ class LogicalProgram:
     point_traversal: PointTraversal = "forward"
     value_defs: tuple[ValueDef, ...] = ()
     compute_nodes: tuple[LogicalComputeNode, ...] = ()
-    measurement_postprocessors: tuple[LogicalMeasurementPostprocessor, ...] = ()
+    measurement_computes: tuple[LogicalMeasurementCompute, ...] = ()
     implementations: Mapping[graph_values.OperationId, LocalPythonImplementation] = (
         field(
             default_factory=dict[

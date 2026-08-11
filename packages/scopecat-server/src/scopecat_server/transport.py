@@ -29,7 +29,7 @@ from scopecat.daemon.views import (
     InstrumentListView,
     InstrumentView,
     MeasurementArrowQuery,
-    MeasurementPage,
+    MeasurementPreview,
     MeasurementSlice,
     MeasurementSliceQuery,
     MeasurementTracePreview,
@@ -84,7 +84,6 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
-from scopecat.measurements.datasets import MAX_MEASUREMENT_PAGE_SIZE
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
@@ -375,18 +374,6 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
             state=state,
         )
 
-    @app.get(f"{_API_PREFIX}/run-sequences")
-    def list_run_sequences(
-        limit: Annotated[int, Query(ge=1, le=500)] = 50,
-        before: Annotated[int | None, Query(ge=1)] = None,
-        sequence_id: Annotated[str | None, Query(min_length=1)] = None,
-    ) -> RunSummaryPage:
-        return application.runs.list_run_sequences(
-            limit=limit,
-            before=before,
-            sequence_id=sequence_id,
-        )
-
     @app.post(f"{_API_PREFIX}/runs", status_code=201)
     def submit_run(submission: RunSubmission) -> RunAdmission:
         return application.submit_run(submission)
@@ -506,22 +493,6 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> AttentionResolutionReceipt:
         return application.resolve_attention(run_id)
 
-    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/measurements")
-    def measurements(
-        run_id: str,
-        limit: Annotated[int, Query(ge=1, le=MAX_MEASUREMENT_PAGE_SIZE)] = 100,
-        offset: Annotated[int, Query(ge=0)] = 0,
-        snapshot_size: Annotated[int, Query(ge=0)] | None = None,
-        include_schema: bool = True,
-    ) -> MeasurementPage:
-        return application.runs.measurements(
-            run_id,
-            limit=limit,
-            offset=offset,
-            snapshot_size=snapshot_size,
-            include_schema=include_schema,
-        )
-
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/arrow")
     def measurement_arrow(
         run_id: str,
@@ -541,6 +512,13 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
             media_type=_ARROW_STREAM_MEDIA_TYPE,
             headers=headers,
         )
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/measurements/preview")
+    def measurement_preview(
+        run_id: str,
+        limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    ) -> MeasurementPreview:
+        return application.runs.measurement_preview(run_id, limit=limit)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/query")
     def query_measurements(

@@ -352,15 +352,6 @@ class ParameterProposalListView(_ViewModel):
         return self
 
 
-class MeasurementPage(_ViewModel):
-    """Bounded typed-record preview for interactive browsing."""
-
-    items: tuple[MeasurementRecord, ...] = ()
-    next_offset: int | None = Field(default=None, ge=0)
-    snapshot_size: int = Field(ge=0)
-    dataset_schema: MeasurementDatasetSchema | None = None
-
-
 class MeasurementArrowColumn(_ViewModel):
     """One external Arrow column bound to a durable measurement variable."""
 
@@ -392,6 +383,14 @@ class MeasurementArrowQuery(_ViewModel):
                 + ", ".join(sorted(unknown_units))
             )
         return self
+
+
+class MeasurementPreview(_ViewModel):
+    """One bounded JSON preview for the operator UI, not a data paging API."""
+
+    items: tuple[MeasurementRecord, ...] = ()
+    dataset_schema: MeasurementDatasetSchema | None = None
+    truncated: bool = False
 
 
 class MeasurementSliceQuery(_ViewModel):
@@ -550,7 +549,7 @@ __all__ = [
     "InstrumentView",
     "MeasurementArrowColumn",
     "MeasurementArrowQuery",
-    "MeasurementPage",
+    "MeasurementPreview",
     "MeasurementSlice",
     "MeasurementSliceQuery",
     "MeasurementTracePreview",

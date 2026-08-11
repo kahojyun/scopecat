@@ -23,20 +23,23 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
     ]
     run = lab.run(MULTICHANNEL_DC_BIAS)
     data = run.measurements()
+    physical_bias_mv = {
+        entity.id: round(data[record].require_quantities("mV")[0].value, 6)
+        for entity, record in MULTICHANNEL_DC_BIAS.output.physical_bias.items()
+    }
+    readback_mv = {
+        entity.id: round(
+            data[records.actual_voltage].require_quantities("mV")[0].value,
+            6,
+        )
+        for entity, records in MULTICHANNEL_DC_BIAS.output.readback.items()
+    }
+    settled = {
+        entity.id: data[records.settled].require_values()[0]
+        for entity, records in MULTICHANNEL_DC_BIAS.output.readback.items()
+    }
+    record_count = len(data)
     status = run.manifest.status
-
-physical_bias_mv = {
-    entity.id: round(data[record].require_quantities("mV")[0].value, 6)
-    for entity, record in MULTICHANNEL_DC_BIAS.output.physical_bias.items()
-}
-readback_mv = {
-    entity.id: round(data[records.actual_voltage].require_quantities("mV")[0].value, 6)
-    for entity, records in MULTICHANNEL_DC_BIAS.output.readback.items()
-}
-settled = {
-    entity.id: data[records.settled].require_values()[0]
-    for entity, records in MULTICHANNEL_DC_BIAS.output.readback.items()
-}
 
 multichannel_dc_bias_summary = {
     "devices": sorted({instrument_id for instrument_id, _endpoint in flux_routes}),
@@ -48,7 +51,7 @@ multichannel_dc_bias_summary = {
     "physical_bias_mv": physical_bias_mv,
     "readback_mv": readback_mv,
     "settled": settled,
-    "records": len(data),
+    "records": record_count,
     "status": status,
 }
 show(multichannel_dc_bias_summary)

@@ -44,7 +44,7 @@ class _PublishedAnalysisRun(Protocol):
     @property
     def manifest(self) -> RunManifest: ...
 
-    def derived_dataset(self, selector: str) -> DerivedDataset: ...
+    def _load_analysis_dataset(self, selector: str) -> DerivedDataset: ...
 
     def artifact_text(
         self,
@@ -211,7 +211,9 @@ class PublishedAnalysis:
 
     def dataset(self, id: str) -> DerivedDataset:
         output = self._output(id, AnalysisDatasetRecordOutput)
-        return self.run.derived_dataset(output.content.dataset_id)
+        return self.run._load_analysis_dataset(  # pyright: ignore[reportPrivateUsage]
+            output.content.dataset_id
+        )
 
     def artifact(self, id: str) -> PublishedAnalysisArtifact:
         return PublishedAnalysisArtifact(

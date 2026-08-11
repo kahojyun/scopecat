@@ -10,7 +10,6 @@ from typing import Never, override
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
-from scopecat.adapters.sqlite import SQLiteControlPlane, SQLiteDatabase
 from scopecat.api._instruments import (
     InstrumentClientChannel,
     InstrumentRef,
@@ -18,7 +17,7 @@ from scopecat.api._instruments import (
     instrument,
     temporary_instrument,
 )
-from scopecat.api.lab import LabClient, SequenceRun
+from scopecat.api.lab import LabClient
 from scopecat.control.models import RunPlanSummary, RunResourceRequirement
 from scopecat.daemon.client import DaemonClient, DaemonConflictError
 from scopecat.daemon.views import ActiveConfigView
@@ -87,7 +86,6 @@ from scopecat.sdk.instruments.commands import (
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 from tests.testkit.payload_codecs import json_payload_codecs
-from tests.testkit.workflow_fixtures import load_invocation
 
 import scopecat_server.instrument_service as instrument_service_module
 from scopecat_server import LocalDaemonRuntime
@@ -821,71 +819,6 @@ def test_notebook_can_attach_a_session_only_instrument(tmp_path: Path) -> None:
     [driver] = provider.drivers
     assert driver.instrument_id == "monitor-scope"
     assert driver.disconnect_count == 1
-
-
-def test_run_sequence_is_rediscovered_and_resumed_by_a_new_daemon_client(
-    tmp_path: Path,
-) -> None:
-    provider = _TrackingProvider()
-    sequence_id = "daemon-resume-sequence"
-    invocation = load_invocation()
-    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
-        with TestClient(runtime.app()) as transport:
-            with _daemon_client(transport) as daemon:
-                initial = LabClient(daemon).run_sequence(
-                    invocation,
-                    next_run=lambda _run: pytest.fail(
-                        "the callback is deferred at the per-call run limit"
-                    ),
-                    max_runs=3,
-                    max_new_runs=1,
-                    sequence_id=sequence_id,
-                )
-
-            callback_indices: list[int] = []
-
-            def next_run(sequence_run: SequenceRun):
-                callback_indices.append(sequence_run.run_index)
-                return invocation if sequence_run.run_index == 0 else None
-
-            with _daemon_client(transport) as daemon:
-                lab = LabClient(daemon)
-                discovered = lab.get_run_sequence(sequence_id)
-                resumed = lab.resume_sequence(
-                    sequence_id,
-                    next_run=next_run,
-                    max_new_runs=2,
-                )
-
-            with _daemon_client(transport) as daemon:
-                rediscovered = LabClient(daemon).get_run_sequence(sequence_id)
-
-    assert [sequence_run.run_index for sequence_run in initial.sequence_runs] == [0]
-    assert initial.status == "awaiting_decision"
-    assert [sequence_run.run_index for sequence_run in discovered.sequence_runs] == [0]
-    assert discovered.status == "awaiting_decision"
-    assert discovered.transitions == ()
-    assert callback_indices == [0, 1]
-    assert [sequence_run.run_index for sequence_run in resumed.sequence_runs] == [0, 1]
-    assert resumed.status == "stopped"
-    assert [sequence_run.run_index for sequence_run in rediscovered.sequence_runs] == [
-        0,
-        1,
-    ]
-    assert rediscovered.status == "stopped"
-    assert [event.status for event in rediscovered.transitions] == [
-        "proposed",
-        "stopped",
-    ]
-
-    control = SQLiteControlPlane(
-        SQLiteDatabase(tmp_path / ".scopecat" / "control.sqlite3")
-    )
-    durable = tuple(reversed(control.list_sequence_runs(sequence_id=sequence_id).items))
-    assert [run.admission.submission_id for run in durable] == [
-        f"sequence:{sequence_id}:0",
-        f"sequence:{sequence_id}:1",
-    ]
 
 
 def test_invoke_without_reported_state_reads_back_before_returning(

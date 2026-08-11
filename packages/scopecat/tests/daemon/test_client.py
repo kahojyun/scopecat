@@ -100,27 +100,6 @@ def test_get_query_and_post_body_use_typed_wire_models() -> None:
     assert RunSubmission.model_validate_json(submit_request.content) == _submission()
 
 
-def test_run_stage_query_uses_the_dedicated_typed_endpoint() -> None:
-    requests: list[httpx2.Request] = []
-    client = _client(requests)
-
-    stages = client.list_run_sequences(
-        limit=5,
-        before=2,
-        sequence_id="adaptive-sequence",
-    )
-
-    assert isinstance(stages, RunSummaryPage)
-    [request] = requests
-    assert request.method == "GET"
-    assert request.url.path == "/api/v1/run-sequences"
-    assert dict(request.url.params) == {
-        "limit": "5",
-        "before": "2",
-        "sequence_id": "adaptive-sequence",
-    }
-
-
 def test_trace_preview_posts_a_typed_bounded_query() -> None:
     requests: list[httpx2.Request] = []
     client = _client(requests)
@@ -561,7 +540,7 @@ def _client(requests: list[httpx2.Request]) -> DaemonClient:
 
 def _client_response(request: httpx2.Request) -> httpx2.Response:
     path = request.url.path
-    if path in {"/api/v1/runs", "/api/v1/run-sequences"} and request.method == "GET":
+    if path == "/api/v1/runs" and request.method == "GET":
         return _model(
             RunSummaryPage(
                 items=(

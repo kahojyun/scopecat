@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Annotated, cast
@@ -18,13 +17,12 @@ from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.adapters.sqlite.run_repository import PreparedContentPublication
 from scopecat.analysis.datasets import DERIVED_DATASET_CODEC, DerivedDataset
 from scopecat.analysis.service import (
-    AnalysisFactOutput,
+    AnalysisDatasetOutput,
     AnalysisFigureOutput,
     AnalysisInput,
     AnalysisTableOutput,
 )
 from scopecat.config.registry import service as config_registry_service
-from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.results import Dataset
 from scopecat.records.analysis import (
@@ -32,11 +30,17 @@ from scopecat.records.analysis import (
     AnalysisArtifactRecordOutput,
     AnalysisDatasetDerivation,
     AnalysisDatasetRecordOutput,
+    AnalysisDatasetViewSource,
     AnalysisExecutionOutputReference,
     AnalysisFactRecordOutput,
+    AnalysisFigure,
+    AnalysisFigureProjection,
     AnalysisFigureRecordOutput,
+    AnalysisFigureView,
     AnalysisPublishedOutputReference,
+    AnalysisTable,
     AnalysisTableRecordOutput,
+    AnalysisTableView,
 )
 from scopecat.records.run import RunManifest
 from scopecat.runs.refs import record_content_ref
@@ -94,9 +98,6 @@ def _derived_score_max(dataset: DerivedDataset) -> float:
     return float(cast("float", dataset.to_pandas()["score"].max()))
 
 
-_COMPUTES = sc.ComputeRegistry()
-
-
 @dataclass(frozen=True, slots=True)
 class _PresentedObservation:
     bias: Annotated[
@@ -125,13 +126,6 @@ def _maximum_annotated_response(
 class _StructuredFit:
     resonance: float
     quality: float
-    residuals: DerivedDataset
-
-
-@dataclass(frozen=True, slots=True)
-class _DuplicateScores:
-    first: float
-    second: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,56 +146,12 @@ _FIT_CONCLUSION_SCHEMA = sc.AnalysisFactSchema(
 )
 
 
-@_COMPUTES.implementation(
-    "test.structured-fit",
-    "1",
-    outputs={
-        "resonance": "resonance",
-        "quality": "quality",
-        "residuals": "residuals",
-    },
-)
 def _structured_fit(*, dataset: Dataset) -> _StructuredFit:
+    _ = dataset
     return _StructuredFit(
         resonance=5.1,
         quality=0.98,
-        residuals=_derived_signal_frame(dataset),
     )
-
-
-@_COMPUTES.implementation(
-    "test.duplicate-scores",
-    "1",
-    outputs={"first": "first", "second": "second"},
-)
-def _duplicate_scores(*, dataset: Dataset) -> _DuplicateScores:
-    _ = dataset
-    return _DuplicateScores(first=0.5, second=0.5)
-
-
-@_COMPUTES.implementation(
-    "test.dataset-size-batches",
-    "1",
-    data_access="batches",
-    batch_size=2,
-)
-def _batch_dataset_size(batches: Iterator[Dataset]) -> int:
-    return sum(len(batch) for batch in batches)
-
-
-def _encode_dataset_size(result: int) -> dict[str, int]:
-    return {"points": result}
-
-
-@_COMPUTES.implementation(
-    "test.encoded-dataset-size",
-    "1",
-    input_codecs={"dataset": "scopecat.measurement-dataset.v8"},
-    output_codec="test.dataset-size.v1",
-    encode_output=_encode_dataset_size,
-)
-def _encoded_dataset_size(*, dataset: Dataset) -> int:
-    return len(dataset)
 
 
 class _DatasetTraceStep:
@@ -210,9 +160,7 @@ class _DatasetTraceStep:
     def run(self, context: sc.AnalysisContext) -> sc.Analysis:
         measurements = context.measurements()
         count = context.trace(fn=_dataset_size, dataset=measurements)
-        return context.result("Dataset trace").table(
-            sc.AnalysisTable.from_rows([{"points": count}])
-        )
+        return context.result("Dataset trace").fact("points", count)
 
 
 def test_workflow_analysis_review_activate_and_rerun_active_config(
@@ -251,7 +199,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     )
 
     assert isinstance(summary, sc.PublishedAnalysis)
-    assert summary.outputs[0].kind == "table"
+    assert tuple(output.kind for output in summary.outputs) == ("dataset", "table")
     [summary_input] = run_handle.published_analysis(SUMMARY_STATS_STEP).inputs
     assert summary_input.target == "raw-measurements"
     assert summary_input.content_hash == run_handle.measurements().entry.content_hash
@@ -292,8 +240,8 @@ def test_analysis_trace_records_its_analysis_dependency(tmp_path: Path) -> None:
     assert input_binding.content_hash == handle.measurements().entry.content_hash
     assert input_binding.codec == "scopecat.measurement-dataset.v8"
     assert execution_output.content_hash.startswith("sha256:")
-    [table_output] = analysis.outputs
-    assert table_output.kind == "table"
+    [fact_output] = analysis.outputs
+    assert fact_output.kind == "fact"
     stored = handle.record_json(
         "analysis-dataset-trace",
         expected_kind="analysis",
@@ -305,46 +253,7 @@ def test_analysis_trace_records_its_analysis_dependency(tmp_path: Path) -> None:
     assert stored_execution["id"] == "_dataset_size"
 
 
-def test_registered_analysis_trace_can_reduce_bounded_batches(tmp_path: Path) -> None:
-    run = execute_signal_run(
-        config=load_config(),
-        experiment=load_invocation(),
-        project_root=tmp_path,
-    )
-    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
-    context = sc.AnalysisContext(run=handle)
-
-    count = context.trace(
-        fn=_batch_dataset_size,
-        batches=context.measurements(),
-    )
-    analysis = context.result("Batch trace")
-
-    assert count == 3
-    assert analysis.outputs == ()
-    [execution] = analysis.executions
-    assert execution.access == "batches"
-    assert execution.implementation == ("registry:test.dataset-size-batches@1")
-
-
-def test_registered_batch_trace_reads_the_dataset_view_it_was_given(
-    tmp_path: Path,
-) -> None:
-    run = execute_signal_run(
-        config=load_config(),
-        experiment=load_invocation(),
-        project_root=tmp_path,
-    )
-    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
-    selected = handle.measurements().isel(point=[1])
-    context = sc.AnalysisContext(run=handle)
-
-    count = context.trace(fn=_batch_dataset_size, batches=selected)
-
-    assert count == 1
-
-
-def test_registered_trace_publishes_named_structured_results(
+def test_analysis_trace_records_one_native_structured_result(
     tmp_path: Path,
 ) -> None:
     run = execute_signal_run(
@@ -360,76 +269,16 @@ def test_registered_trace_publishes_named_structured_results(
         fn=_structured_fit,
         dataset=context.measurements(),
     )
-    published = (
-        context.result("Structured fit", key="structured-fit")
-        .fact("resonance", fit.resonance)
-        .fact("quality", fit.quality)
-        .dataset("residuals", fit.residuals)
-        .save()
-    )
+    analysis = context.result("Structured fit")
 
-    [execution] = published.executions
-    assert [output.name for output in execution.outputs] == [
-        "resonance",
-        "quality",
-        "residuals",
-    ]
-    resonance, quality, residuals = published.outputs
-    assert isinstance(resonance, AnalysisFactRecordOutput)
-    assert isinstance(quality, AnalysisFactRecordOutput)
-    assert isinstance(residuals, AnalysisDatasetRecordOutput)
-    assert resonance.produced_by == AnalysisExecutionOutputReference(
-        execution_id="fit",
-        output_name="resonance",
-    )
-    assert quality.produced_by == AnalysisExecutionOutputReference(
-        execution_id="fit",
-        output_name="quality",
-    )
-    assert residuals.produced_by == AnalysisExecutionOutputReference(
-        execution_id="fit",
-        output_name="residuals",
-    )
-    assert published.fact("resonance").value == 5.1
-    assert published.dataset("residuals").table.equals(
-        fit.residuals.table,
-        check_metadata=True,
-    )
-
-
-def test_equal_structured_results_require_an_explicit_producer(
-    tmp_path: Path,
-) -> None:
-    run = execute_signal_run(
-        config=load_config(),
-        experiment=load_invocation(),
-        project_root=tmp_path,
-    )
-    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
-    context = sc.AnalysisContext(run=handle)
-    scores = context.trace(
-        id="scores",
-        fn=_duplicate_scores,
-        dataset=context.measurements(),
-    )
-
-    automatic = context.result().fact("automatic", scores.first)
-    explicit = context.result().fact(
-        "explicit",
-        scores.first,
-        source=("scores", "first"),
-    )
-
-    [automatic_output] = automatic.outputs
-    [explicit_output] = explicit.outputs
-    assert isinstance(automatic_output, AnalysisFactOutput)
-    assert isinstance(explicit_output, AnalysisFactOutput)
-    assert automatic_output.produced_by is None
-    assert explicit_output.produced_by == AnalysisExecutionOutputReference(
-        execution_id="scores",
-        output_name="first",
-    )
-    assert explicit.save().fact("explicit").value == 0.5
+    assert fit == _StructuredFit(resonance=5.1, quality=0.98)
+    [execution] = analysis.executions
+    [output] = execution.outputs
+    assert execution.implementation == "python:fit"
+    assert execution.access == "full"
+    assert output.name == "fit"
+    assert output.kind == "value"
+    assert output.codec == "scopecat.python-json.v1"
 
 
 def test_native_dataframe_trace_returns_one_reusable_derived_dataset(
@@ -477,8 +326,6 @@ def test_native_dataframe_trace_returns_one_reusable_derived_dataset(
         output_name="_derived_signal_frame",
     )
     dataset_id = "analysis-native-derived-data-derived-signal"
-    restored = handle.derived_dataset(dataset_id)
-    assert restored.table.equals(derived.table, check_metadata=True)
     assert isinstance(maximum_output, AnalysisFactRecordOutput)
     assert maximum_output.content.value == 2.0
     assert maximum_output.produced_by == AnalysisExecutionOutputReference(
@@ -722,6 +569,7 @@ def test_analysis_dataset_publishes_a_native_frame_once(tmp_path: Path) -> None:
 
     outcome = (
         handle.analysis("Native fits", key="native-fits")
+        .result()
         .dataset(
             "fits",
             frame[["frequency", "score"]],
@@ -732,7 +580,7 @@ def test_analysis_dataset_publishes_a_native_frame_once(tmp_path: Path) -> None:
 
     [output] = outcome.outputs
     assert isinstance(output, AnalysisDatasetRecordOutput)
-    restored = handle.derived_dataset("analysis-native-fits-fits")
+    restored = handle.published_analysis("native-fits").dataset("fits")
     assert restored.table.to_pylist() == [
         {"frequency": frequency, "score": score}
         for frequency, score in zip(
@@ -790,6 +638,7 @@ def test_analysis_publishes_typed_facts_and_owned_artifacts(tmp_path: Path) -> N
 
     outcome = (
         handle.analysis("Publication", key="publication")
+        .result()
         .fact(
             "resonance",
             sc.Quantity(5.1, "GHz"),
@@ -849,6 +698,7 @@ def test_analysis_validates_and_reconstructs_structured_facts(tmp_path: Path) ->
 
     published = (
         handle.analysis("Structured fact", key="structured-fact")
+        .result()
         .fact("fit", fit, schema=_FIT_CONCLUSION_SCHEMA)
         .save()
     )
@@ -871,7 +721,7 @@ def test_analysis_validates_and_reconstructs_structured_facts(tmp_path: Path) ->
         published.fact_as("fit", incompatible_schema)
 
     with pytest.raises(TypeError, match="require an AnalysisFactSchema"):
-        handle.analysis("Invalid").fact("fit", fit)
+        handle.analysis("Invalid").result().fact("fit", fit)
 
 
 def test_analysis_key_appends_only_changed_publication_revisions(
@@ -886,18 +736,21 @@ def test_analysis_key_appends_only_changed_publication_revisions(
 
     first = (
         handle.analysis("Fit result", key="fit-result")
+        .result()
         .fact("score", 0.5)
         .artifact("report", text="first")
         .save()
     )
     retried = (
         handle.analysis("Fit result", key="fit-result")
+        .result()
         .fact("score", 0.5)
         .artifact("report", text="first")
         .save()
     )
     second = (
         handle.analysis("Fit result", key="fit-result")
+        .result()
         .fact("score", 0.75)
         .artifact("report", text="second")
         .save()
@@ -933,6 +786,7 @@ def test_analysis_dataset_input_freezes_the_exact_same_run_output_revision(
 
     source_v1 = (
         handle.analysis("Source fit", key="source-fit")
+        .result()
         .dataset("fits", source_dataset, metadata={"review": 1})
         .save()
     )
@@ -972,6 +826,7 @@ def test_analysis_dataset_input_freezes_the_exact_same_run_output_revision(
 
     source_v2 = (
         handle.analysis("Source fit", key="source-fit")
+        .result()
         .dataset("fits", source_dataset, metadata={"review": 2})
         .save()
     )
@@ -1017,6 +872,7 @@ def test_analysis_dataset_input_rejects_a_source_from_another_run(
     first_handle = lab.get_run(first_run.run_id)
     source = (
         first_handle.analysis("Source fit", key="source-fit")
+        .result()
         .dataset("fits", _derived_signal_frame(first_handle.measurements()))
         .save()
     )
@@ -1029,7 +885,7 @@ def test_analysis_dataset_input_rejects_a_source_from_another_run(
     )
     second_handle = lab.get_run(second_run.run_id)
     invalid = replace(
-        second_handle.analysis("Invalid consumer", key="invalid-consumer"),
+        second_handle.analysis("Invalid consumer", key="invalid-consumer").result(),
         inputs=(
             AnalysisInput(
                 target=source_output.content.dataset_id,
@@ -1065,6 +921,7 @@ def test_analysis_revision_owns_its_parameter_proposal_identity(tmp_path: Path) 
 
     first = (
         handle.analysis("Fit", key="fit")
+        .result()
         .fact("fit-quality", 0.8)
         .propose(
             "drive-frequency",
@@ -1076,6 +933,7 @@ def test_analysis_revision_owns_its_parameter_proposal_identity(tmp_path: Path) 
     )
     second = (
         handle.analysis("Fit", key="fit")
+        .result()
         .fact("fit-quality", 0.9)
         .propose(
             "drive-frequency",
@@ -1087,6 +945,7 @@ def test_analysis_revision_owns_its_parameter_proposal_identity(tmp_path: Path) 
     )
     retried = (
         handle.analysis("Fit", key="fit")
+        .result()
         .fact("fit-quality", 0.9)
         .propose(
             "drive-frequency",
@@ -1127,7 +986,7 @@ def test_analysis_proposal_rejects_unknown_or_view_evidence(tmp_path: Path) -> N
     )
 
     with pytest.raises(CheckFailed) as unknown:
-        handle.analysis("Fit").propose(
+        handle.analysis("Fit").result().propose(
             "drive-frequency",
             update,
             evidence=("missing",),
@@ -1136,9 +995,11 @@ def test_analysis_proposal_rejects_unknown_or_view_evidence(tmp_path: Path) -> N
         "analysis_parameter_proposal_evidence_unknown"
     )
 
-    analysis = handle.analysis("Fit").table(
-        sc.AnalysisTable.from_rows([{"score": 0.9}]),
-        id="fit-table",
+    analysis = (
+        handle.analysis("Fit")
+        .result()
+        .dataset("fit-data", pd.DataFrame({"score": [0.9]}))
+        .table(dataset="fit-data", id="fit-table")
     )
     with pytest.raises(CheckFailed) as view:
         analysis.propose(
@@ -1149,6 +1010,65 @@ def test_analysis_proposal_rejects_unknown_or_view_evidence(tmp_path: Path) -> N
     assert view.value.problems[0].code == (
         "analysis_parameter_proposal_evidence_not_authoritative"
     )
+
+
+def test_analysis_save_rejects_views_with_unknown_dataset_fields(
+    tmp_path: Path,
+) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    analysis = (
+        in_process_lab(tmp_path, config=load_config())
+        .get_run(run.run_id)
+        .analysis("Forged views")
+        .result()
+        .dataset("values", pd.DataFrame({"value": [1.0]}))
+    )
+    source = AnalysisDatasetViewSource(output_id="values")
+    forged_outputs = (
+        AnalysisTableOutput(
+            kind="table",
+            id="forged-table",
+            title="forged table",
+            content=AnalysisTableView(
+                source=source,
+                columns=("missing",),
+                preview=AnalysisTable.from_rows([{"missing": 1.0}]),
+            ),
+            metadata={},
+        ),
+        AnalysisFigureOutput(
+            kind="figure",
+            id="forged-figure",
+            title="forged figure",
+            content=AnalysisFigureView(
+                source=source,
+                projection=AnalysisFigureProjection(
+                    kind="line",
+                    x="value",
+                    y="missing",
+                ),
+                preview=AnalysisFigure.from_table(
+                    AnalysisTable.from_rows([{"value": 1.0, "missing": 2.0}]),
+                    kind="line",
+                    x="value",
+                    y="missing",
+                ),
+            ),
+            metadata={},
+        ),
+    )
+
+    for forged_output in forged_outputs:
+        with pytest.raises(CheckFailed) as rejected:
+            replace(
+                analysis,
+                outputs=(*analysis.outputs, forged_output),
+            ).save()
+        assert rejected.value.problems[0].code == ("analysis_view_projection_unknown")
 
 
 def test_analysis_trace_records_named_inline_inputs(tmp_path: Path) -> None:
@@ -1176,33 +1096,6 @@ def test_analysis_trace_records_named_inline_inputs(tmp_path: Path) -> None:
     assert scale_input.kind == "value"
     assert scale_input.codec == "scopecat.python-json.v1"
     assert scale_input.value == 2
-
-
-def test_analysis_trace_uses_its_registered_output_encoder(tmp_path: Path) -> None:
-    run = execute_signal_run(
-        config=load_config(),
-        experiment=load_invocation(),
-        project_root=tmp_path,
-    )
-    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
-    context = sc.AnalysisContext(run=handle)
-
-    count = context.trace(
-        fn=_encoded_dataset_size,
-        dataset=context.measurements(),
-    )
-
-    assert count == 3
-    analysis = context.result().fact("count", count)
-    [execution] = analysis.executions
-    [execution_output] = execution.outputs
-    assert execution_output.codec == "test.dataset-size.v1"
-    assert execution_output.content_hash == (
-        f"sha256:{stable_content_hash({'points': 3})}"
-    )
-    [fact] = analysis.outputs
-    assert isinstance(fact, AnalysisFactOutput)
-    assert fact.produced_by is None
 
 
 def test_analysis_save_rolls_back_refs_after_manifest_failure(
@@ -1274,8 +1167,10 @@ def test_local_analysis_rejects_metadata_outside_the_remote_json_contract(
         in_process_lab(tmp_path, config=load_config())
         .get_run(run.run_id)
         .analysis("Strict metadata")
+        .result()
+        .dataset("values", pd.DataFrame({"value": [1]}))
         .table(
-            sc.AnalysisTable.from_rows([{"value": 1}]),
+            dataset="values",
             metadata={"opaque": object()},
         )
     )
@@ -1299,26 +1194,29 @@ def test_analysis_facade_projects_annotated_results_directly(tmp_path: Path) -> 
         in_process_lab(tmp_path, config=load_config())
         .get_run(run.run_id)
         .analysis("Direct presentation")
-        .table(observations)
+        .result()
+        .dataset("observations", observations)
+        .table(dataset="observations")
         .figure(
-            observations,
+            dataset="observations",
             kind="line",
             x="bias_mv",
             y="response",
         )
     )
 
-    table_output, figure_output = analysis.outputs
+    dataset_output, table_output, figure_output = analysis.outputs
+    assert isinstance(dataset_output, AnalysisDatasetOutput)
     assert isinstance(table_output, AnalysisTableOutput)
     assert isinstance(figure_output, AnalysisFigureOutput)
     table_view = table_output.content
     figure_view = figure_output.content
-    assert table_view.source is None
-    assert isinstance(table_view.preview, sc.AnalysisTable)
+    assert table_view.source.output_id == "observations"
+    assert isinstance(table_view.preview, AnalysisTable)
     assert [row.cells for row in table_view.preview.rows] == [
         [100.0, 0.2],
         [200.0, 0.4],
     ]
-    assert figure_view.source is None
-    assert isinstance(figure_view.preview, sc.AnalysisFigure)
+    assert figure_view.source.output_id == "observations"
+    assert isinstance(figure_view.preview, AnalysisFigure)
     assert figure_view.preview.series[0].x == [100.0, 200.0]

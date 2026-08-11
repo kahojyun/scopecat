@@ -27,7 +27,10 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.units import compatible_units, is_supported_unit
 from scopecat.records._metadata import JsonMetadata, validate_json_metadata
 from scopecat.records.analysis import (
+    MAX_ANALYSIS_FIGURE_POINTS,
+    MAX_ANALYSIS_TABLE_ROWS,
     AnalysisField,
+    AnalysisFigure,
     AnalysisTable,
     AnalysisTableColumn,
     project_analysis_rows,
@@ -263,12 +266,6 @@ class DerivedDataset:
         return cls.from_arrow_ipc(encoded, schema=payload.dataset_schema)
 
     @classmethod
-    def from_json_value(cls, value: JsonValue) -> DerivedDataset:
-        """Restore the legacy JSON-safe transport representation."""
-
-        return cls.from_payload(DerivedDatasetPayload.model_validate(value))
-
-    @classmethod
     def from_arrow_ipc(
         cls,
         content: bytes,
@@ -308,11 +305,6 @@ class DerivedDataset:
             arrow_ipc_base64=b64encode(self.to_arrow_ipc()).decode("ascii"),
         )
 
-    def to_json_value(self) -> JsonValue:
-        """Encode the legacy JSON-safe transport representation."""
-
-        return cast("JsonValue", self.to_payload().model_dump(mode="json"))
-
     def to_analysis_table(
         self,
         *,
@@ -333,7 +325,10 @@ class DerivedDataset:
             raise KeyError(
                 "derived dataset has no columns: " + ", ".join(sorted(unknown))
             )
-        selected = self.table.select(selected_names)
+        selected = self.table.select(selected_names).slice(
+            0,
+            MAX_ANALYSIS_TABLE_ROWS,
+        )
         return AnalysisTable.from_rows(
             cast("list[Mapping[str, object]]", selected.to_pylist()),
             columns=tuple(
@@ -344,6 +339,47 @@ class DerivedDataset:
                 )
                 for name in selected_names
             ),
+        )
+
+    def to_analysis_figure(
+        self,
+        *,
+        kind: Literal["line", "scatter"],
+        x: str,
+        y: str,
+        series: str | None = None,
+        label: str | None = None,
+    ) -> AnalysisFigure:
+        """Create a bounded numeric figure preview from dataset columns."""
+
+        selected_names = tuple(
+            dict.fromkeys((x, y) if series is None else (x, y, series))
+        )
+        unknown = set(selected_names) - set(self.table.column_names)
+        if unknown:
+            raise KeyError(
+                "derived dataset has no columns: " + ", ".join(sorted(unknown))
+            )
+        fields = {field.name: field for field in self.schema.fields}
+        selected = self.table.select(selected_names).slice(
+            0,
+            MAX_ANALYSIS_FIGURE_POINTS,
+        )
+        return AnalysisFigure.from_rows(
+            cast("list[Mapping[str, object]]", selected.to_pylist()),
+            columns=tuple(
+                AnalysisTableColumn(
+                    id=name,
+                    label=fields[name].label,
+                    unit=fields[name].unit,
+                )
+                for name in selected_names
+            ),
+            kind=kind,
+            x=x,
+            y=y,
+            series=series,
+            label=label,
         )
 
     def to_pandas(
@@ -796,7 +832,6 @@ __all__ = [
     "DERIVED_DATASET_MEDIA_TYPE",
     "DerivedDataset",
     "DerivedDatasetField",
-    "DerivedDatasetPayload",
     "DerivedDatasetRole",
     "DerivedDatasetSchema",
     "PandasDTypeBackend",
