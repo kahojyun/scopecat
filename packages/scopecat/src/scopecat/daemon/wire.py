@@ -37,10 +37,9 @@ from scopecat.records.analysis import (
     AnalysisExecution,
     AnalysisExecutionOutputReference,
     AnalysisFact,
-    AnalysisFigureView,
+    AnalysisFigureViewSpec,
     AnalysisPublishedOutputReference,
-    AnalysisTableView,
-    validate_analysis_output_content_budget,
+    AnalysisTableViewSpec,
 )
 from scopecat.records.artifact import RunContentEntry, Sha256ContentHash
 from scopecat.records.config import (
@@ -200,7 +199,7 @@ class AnalysisTableOutputPayload(_WireModel):
     kind: Literal["table"]
     id: NonEmptyText
     title: NonEmptyText
-    content: AnalysisTableView
+    content: AnalysisTableViewSpec
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
@@ -227,7 +226,7 @@ class AnalysisFigureOutputPayload(_WireModel):
     kind: Literal["figure"]
     id: NonEmptyText
     title: NonEmptyText
-    content: AnalysisFigureView
+    content: AnalysisFigureViewSpec
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
@@ -292,13 +291,6 @@ class AnalysisSaveCommand(_WireModel):
 
     @model_validator(mode="after")
     def validate_outputs(self) -> AnalysisSaveCommand:
-        validate_analysis_output_content_budget(
-            output.content
-            for output in self.outputs
-            if isinstance(
-                output, AnalysisTableOutputPayload | AnalysisFigureOutputPayload
-            )
-        )
         proposals = tuple(
             output.content
             for output in self.outputs

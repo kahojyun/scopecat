@@ -30,8 +30,14 @@ def select_measurement_schema(
     unknown = selected - available
     if unknown:
         raise ValueError(f"unknown measurement variables: {', '.join(sorted(unknown))}")
-    return schema.model_copy(
-        update={
+    selected_result = schema.result
+    if selected_result is not None and any(
+        field.variable_id not in selected for field in selected_result.fields
+    ):
+        selected_result = None
+    return MeasurementDatasetSchema.model_validate(
+        {
+            **schema.model_dump(mode="python"),
             "variables": tuple(
                 variable for variable in schema.variables if variable.id in selected
             ),
@@ -45,6 +51,7 @@ def select_measurement_schema(
                 for variable_id in schema.primary_observables
                 if variable_id in selected
             ),
+            "result": selected_result,
         }
     )
 

@@ -41,9 +41,9 @@ export function AnalysisOutputView({
 
   let content;
   if (output.kind === "table") {
-    content = <AnalysisTableView content={output.content.preview} title={output.title} />;
+    content = <AnalysisTableView content={output.content} title={output.title} />;
   } else if (output.kind === "figure") {
-    content = <AnalysisFigureView content={output.content.preview} title={output.title} />;
+    content = <AnalysisFigureView content={output.content} title={output.title} />;
   } else if (output.kind === "dataset") {
     content = (
       <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 p-[9px] text-[0.62rem]">
@@ -134,15 +134,17 @@ export function AnalysisOutputView({
   );
 }
 
-type TableContent = Extract<RunAnalysisOutput, { kind: "table" }>["content"]["preview"];
+type TableContent = Extract<RunAnalysisOutput, { kind: "table" }>["content"];
 
 function AnalysisTableView({ content, title }: { content: TableContent; title: string }) {
+  const preview = content.preview;
+  const rows = preview.rows ?? [];
   return (
     <div className="max-h-72 overflow-auto" data-testid="analysis-table">
       <table className="w-full border-collapse text-left text-[0.61rem]" aria-label={title}>
         <thead className="sticky top-0 z-[1] bg-panel-strong text-text-dim">
           <tr>
-            {content.columns.map((column) => (
+            {preview.columns.map((column) => (
               <th
                 className="border-b border-line px-2.5 py-2 font-extrabold tracking-[0.025em] whitespace-nowrap"
                 key={column.id}
@@ -160,12 +162,12 @@ function AnalysisTableView({ content, title }: { content: TableContent; title: s
           </tr>
         </thead>
         <tbody>
-          {(content.rows ?? []).map((row, rowIndex) => (
+          {rows.map((row, rowIndex) => (
             <tr className="odd:bg-[rgb(255_255_255_/_1.4%)]" key={rowIndex}>
               {row.cells.map((cell, cellIndex) => (
                 <td
                   className="border-b border-line px-2.5 py-2 font-mono text-text-soft last:border-r-0"
-                  key={`${rowIndex}:${content.columns[cellIndex]?.id ?? cellIndex}`}
+                  key={`${rowIndex}:${preview.columns[cellIndex]?.id ?? cellIndex}`}
                   title={typeof cell === "number" ? exactNumber(cell) : undefined}
                 >
                   {formatCell(cell)}
@@ -175,21 +177,27 @@ function AnalysisTableView({ content, title }: { content: TableContent; title: s
           ))}
         </tbody>
       </table>
-      {(content.rows ?? []).length === 0 ? (
-        <p className="m-0 p-3 text-[0.61rem] text-text-dim">No rows</p>
+      {rows.length === 0 ? <p className="m-0 p-3 text-[0.61rem] text-text-dim">No rows</p> : null}
+      {content.truncated ? (
+        <p className="m-0 p-3 text-[0.58rem] text-text-dim">
+          Showing {rows.length} of {content.total_rows} rows
+        </p>
       ) : null}
     </div>
   );
 }
 
-function AnalysisFigureView({ content, title }: { content: AnalysisFigureContent; title: string }) {
-  const points = content.series.flatMap((series) =>
+type FigureContent = Extract<RunAnalysisOutput, { kind: "figure" }>["content"];
+
+function AnalysisFigureView({ content, title }: { content: FigureContent; title: string }) {
+  const preview: AnalysisFigureContent = content.preview;
+  const points = preview.series.flatMap((series) =>
     series.x.map((x, index) => ({ x, y: series.y[index]! })),
   );
-  const xLabel = analysisAxisLabel(content.x_axis);
-  const yLabel = analysisAxisLabel(content.y_axis);
+  const xLabel = analysisAxisLabel(preview.x_axis);
+  const yLabel = analysisAxisLabel(preview.y_axis);
   const description = `${title}: ${yLabel} by ${xLabel}`;
-  const option = useMemo(() => analysisFigureOption(content), [content]);
+  const option = useMemo(() => analysisFigureOption(preview), [preview]);
 
   return (
     <figure className="m-0 p-[9px]" data-testid="analysis-figure">
@@ -198,7 +206,7 @@ function AnalysisFigureView({ content, title }: { content: AnalysisFigureContent
           {xLabel} → {yLabel}
         </span>
         <span className="rounded border border-line px-1.5 py-1 font-bold tracking-[0.05em] uppercase">
-          {content.kind}
+          {preview.kind}
         </span>
       </figcaption>
       <div className="rounded-md bg-panel-soft">
@@ -207,10 +215,15 @@ function AnalysisFigureView({ content, title }: { content: AnalysisFigureContent
           height={270}
           option={option}
           pointCount={points.length}
-          seriesLabels={content.series.map((series) => series.label ?? series.id)}
-          seriesCount={content.series.length}
+          seriesLabels={preview.series.map((series) => series.label ?? series.id)}
+          seriesCount={preview.series.length}
         />
       </div>
+      {content.truncated ? (
+        <p className="mt-2 mb-0 text-[0.58rem] text-text-dim">
+          Showing {points.length} of {content.total_points} points
+        </p>
+      ) : null}
     </figure>
   );
 }

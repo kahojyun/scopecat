@@ -28,8 +28,9 @@ kinds of output:
   type, content hash, and producer rather than depending on a user's directory
   convention. Published artifacts can be reopened through Python or downloaded
   from the run view.
-- **View** is a bounded table or figure projection for inspection. A view refers
-  to its source dataset by output ID and retains a preview cache. The cache is
+- **View** is a bounded table or figure projection for inspection. The author
+  supplies only its source dataset ID and projection; publication generates the
+  canonical preview, total row/point count, and truncation flag. The cache is
   presentation, not another authoritative scientific result.
 - **Proposal** is a decision output that proposes parameter changes and retains
   its validation and acceptance lineage. It may cite authoritative fact,
@@ -115,7 +116,7 @@ The first-party adapter intentionally supports a small, explicit matrix:
 | Annotated rows | A non-empty homogeneous sequence of dataclass rows with `Annotated[..., AnalysisField(...)]` fields | The annotation supplies stable field ID, role, label, and target unit; `Quantity` values are converted once and the selected values enter Arrow without a dataframe adapter | Unannotated fields are private implementation details and are omitted; empty or mixed row types have no inferable durable schema |
 | NumPy | Arrays inside an explicitly named dataframe/Xarray field | The owning container supplies field identity and topology | A bare ndarray is not a dataset because it has no durable field names or coordinate meaning |
 
-Annotated rows enter the same bounded preview projector after publication, but
+Annotated rows enter the same bounded preview projector during publication, but
 dataset publication is not constrained by the preview row limit. Because the
 dataclass already owns its field semantics, a second `fields=` mapping is
 rejected. Authors publish the rows once and let tables or figures refer to that

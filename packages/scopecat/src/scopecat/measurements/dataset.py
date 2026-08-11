@@ -23,7 +23,6 @@ import xarray as xr
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.quantity import Quantity
-from scopecat.measurements.datasets import MAX_MEASUREMENT_PAGE_SIZE
 from scopecat.measurements.traces import Trace, measurement_traces
 from scopecat.program.measurement_types import (
     MeasurementArrayData,
@@ -580,12 +579,6 @@ class Dataset:
         return self._materialize().metadata
 
     @property
-    def xarray(self) -> xr.Dataset:
-        """Return an independent copy of the cached Xarray snapshot."""
-
-        return self._loaded_xarray.copy(deep=True)
-
-    @property
     def _schema(self) -> MeasurementDatasetSchema:
         return self._schema_value
 
@@ -611,16 +604,6 @@ class Dataset:
 
         return self._view_dimensions
 
-    def batches(self, *, batch_size: int = 100) -> Iterator[Dataset]:
-        """Materialize this finite snapshot once, then split it into batches."""
-
-        if not 1 <= batch_size <= MAX_MEASUREMENT_PAGE_SIZE:
-            raise ValueError(
-                "measurement batch_size must be between 1 and "
-                f"{MAX_MEASUREMENT_PAGE_SIZE}"
-            )
-        return self._local_batches(batch_size=batch_size)
-
     def _read_projection_batches(
         self,
         projection: ProjectionSchema,
@@ -633,37 +616,6 @@ class Dataset:
         if self._raw is not None or load_projected_batches is None:
             return None
         return load_projected_batches(projection, batch_size)
-
-    def _local_batches(self, *, batch_size: int) -> Iterator[Dataset]:
-        raw = self._materialize()
-        if not raw.records:
-            yield type(self)(
-                MeasurementDataset(
-                    dataset_schema=self._schema,
-                    records=(),
-                    metadata={
-                        **raw.metadata,
-                        "scopecat_batch_offset": 0,
-                        "scopecat_snapshot_size": 0,
-                    },
-                ),
-                self._entry,
-            )
-            return
-        for offset in range(0, len(raw.records), batch_size):
-            records = raw.records[offset : offset + batch_size]
-            yield type(self)(
-                MeasurementDataset(
-                    dataset_schema=self._schema,
-                    records=records,
-                    metadata={
-                        **raw.metadata,
-                        "scopecat_batch_offset": offset,
-                        "scopecat_snapshot_size": len(raw.records),
-                    },
-                ),
-                self._entry,
-            )
 
     @property
     def variables(self) -> Mapping[str, Variable[NativeAvailableValue]]:
@@ -1084,7 +1036,7 @@ class Dataset:
         """Keep point rows selected by an Xarray-aligned boolean condition."""
 
         if callable(condition):
-            source = self.xarray
+            source = self.to_xarray()
             selected = condition(source)
         else:
             source = self._loaded_xarray

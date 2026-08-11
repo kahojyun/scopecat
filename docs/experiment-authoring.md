@@ -381,7 +381,8 @@ published = (
 
 The shared row projector converts quantities to the declared units and persists
 the selected fields as an Arrow-backed dataset. Table and figure outputs retain
-that dataset relation and use bounded presentation previews. Views never own an
+that dataset relation; publication generates their bounded presentation previews
+and explicit truncation status. Views never own an
 independent copy of scientific data: dynamic analysis should first publish a
 dataset with an explicit field mapping, then project table or figure views from
 that dataset. Ordinary typed fit code does not maintain a second column

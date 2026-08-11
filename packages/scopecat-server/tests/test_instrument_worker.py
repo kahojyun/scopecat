@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from importlib.util import find_spec
@@ -81,6 +82,11 @@ class _ArrowColumn(Protocol):
 
 class _ArrowTable(Protocol):
     def __getitem__(self, name: str) -> _ArrowColumn: ...
+
+
+class _ArrowRecordBatch(_ArrowTable, Protocol):
+    @property
+    def num_rows(self) -> int: ...
 
 
 @module(id="tests.worker.ragged_capture")
@@ -291,7 +297,12 @@ def test_ragged_point_cloud_run_survives_daemon_and_worker_boundaries(
         persisted_status = persisted.manifest.status
         dataset = persisted.measurements()
         assert len(dataset) == 3
-        batches = list(persisted.measurements().batches(batch_size=2))
+        batches = list(
+            cast(
+                "Iterator[_ArrowRecordBatch]",
+                persisted.measurements().project().to_record_batch_reader(batch_size=2),
+            )
+        )
 
     assert persisted_status == "completed"
     point_domain = dataset.schema.point_domain
@@ -306,13 +317,10 @@ def test_ragged_point_cloud_run_survives_daemon_and_worker_boundaries(
         for value in dataset.data_vars["trace"].raw_values
         if isinstance(value, MeasurementArray)
     ] == [(2,), (4,), (1,)]
-    assert [len(batch) for batch in batches] == [2, 1]
-    assert [record.point_index for batch in batches for record in batch.records] == [
-        0,
-        1,
-        2,
-    ]
-    assert all(batch.dims[sample_dimension] is None for batch in batches)
+    assert [batch.num_rows for batch in batches] == [2, 1]
+    assert [
+        point for batch in batches for point in batch["point_index"].to_pylist()
+    ] == [0, 1, 2]
     assert all(
         record.acquisition_evidence["trace"].instrument_id == "source-0"
         for record in dataset.records

@@ -17,6 +17,7 @@ import xarray as xr
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.arrow_values import measurement_values_to_arrow_array
+from scopecat.measurements.datasets import MAX_MEASUREMENT_PAGE_SIZE
 from scopecat.program.measurement_types import MeasurementDType, MeasurementVariableRole
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -223,6 +224,17 @@ class MeasurementDataProjection:
 
     def to_arrow(self) -> pa.Table:
         """Materialize the selected stable Arrow representation."""
+
+        reader = self.dataset._read_projection_batches(  # pyright: ignore[reportPrivateUsage]
+            self.schema,
+            batch_size=MAX_MEASUREMENT_PAGE_SIZE,
+        )
+        if reader is not None:
+            return reader.read_all()
+        return self._to_local_arrow()
+
+    def _to_local_arrow(self) -> pa.Table:
+        """Project an already materialized or sliced dataset locally."""
 
         if self.schema.layout == "observations":
             return self._to_observations_arrow()
@@ -436,27 +448,23 @@ class MeasurementDataProjection:
             b"scopecat.dataset_id": self.schema.dataset_id.encode(),
             b"scopecat.projection": _stable_json(asdict(self.schema)).encode(),
             b"scopecat.schema": self.dataset.schema.model_dump_json().encode(),
-            b"scopecat.metadata": _stable_json(
-                {
-                    name: value
-                    for name, value in self.dataset.metadata.items()
-                    if not name.startswith("scopecat_batch_")
-                }
-            ).encode(),
+            b"scopecat.metadata": _stable_json(dict(self.dataset.metadata)).encode(),
         }
 
     def to_record_batch_reader(self, *, batch_size: int = 100) -> pa.RecordBatchReader:
         """Read this projection as one finite, snapshot-pinned Arrow stream."""
 
-        if batch_size <= 0:
-            raise ValueError("record batch_size must be positive")
+        if not 1 <= batch_size <= MAX_MEASUREMENT_PAGE_SIZE:
+            raise ValueError(
+                f"record batch_size must be between 1 and {MAX_MEASUREMENT_PAGE_SIZE}"
+            )
         reader = self.dataset._read_projection_batches(  # pyright: ignore[reportPrivateUsage]
             self.schema,
             batch_size=batch_size,
         )
         if reader is not None:
             return reader
-        table = self.to_arrow()
+        table = self._to_local_arrow()
         return pa.RecordBatchReader.from_batches(
             table.schema,
             table.to_batches(max_chunksize=batch_size),

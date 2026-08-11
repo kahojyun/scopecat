@@ -344,7 +344,6 @@ def test_measurement_workbench_uses_real_durable_data(
     assert summary["groups"] == 3
     assert summary["arrow_rows"] == 3
     assert summary["batch_sizes"] == [2, 1]
-    assert summary["batch_offsets"] == [0, 2]
 
 
 def test_ragged_scope_data_survives_daemon_boundaries(

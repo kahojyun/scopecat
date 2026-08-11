@@ -305,6 +305,9 @@ class DerivedDataset:
             arrow_ipc_base64=b64encode(self.to_arrow_ipc()).decode("ascii"),
         )
 
+    def __len__(self) -> int:
+        return len(self.table)
+
     def to_analysis_table(
         self,
         *,

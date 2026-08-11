@@ -62,23 +62,15 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.records.analysis import (
     MAX_ANALYSIS_OUTPUTS,
-    MAX_ANALYSIS_TABLE_COLUMNS,
-    MAX_ANALYSIS_TABLE_ROWS,
     AnalysisDatasetViewSource,
     AnalysisExecution,
     AnalysisExecutionInput,
     AnalysisExecutionOutput,
     AnalysisExecutionOutputReference,
     AnalysisField,
-    AnalysisFigure,
-    AnalysisFigureAxis,
     AnalysisFigureProjection,
-    AnalysisFigureSeries,
-    AnalysisFigureView,
-    AnalysisTable,
-    AnalysisTableColumn,
-    AnalysisTableRow,
-    AnalysisTableView,
+    AnalysisFigureViewSpec,
+    AnalysisTableViewSpec,
 )
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
@@ -309,24 +301,12 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
                 kind="figure",
                 id="fit-curve",
                 title="fit curve",
-                content=AnalysisFigureView(
+                content=AnalysisFigureViewSpec(
                     source=AnalysisDatasetViewSource(output_id="fits"),
                     projection=AnalysisFigureProjection(
                         kind="line",
                         x="bias",
                         y="signal",
-                    ),
-                    preview=AnalysisFigure(
-                        kind="line",
-                        x_axis=AnalysisFigureAxis(label="Bias", unit="V"),
-                        y_axis=AnalysisFigureAxis(label="Signal", unit="ratio"),
-                        series=[
-                            AnalysisFigureSeries(
-                                id="fit",
-                                x=[1.0, 2.0],
-                                y=[3.0, 4.0],
-                            )
-                        ],
                     ),
                 ),
             ),
@@ -350,6 +330,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
     )
 
     assert AnalysisSaveCommand.model_validate_json(command.model_dump_json()) == command
+    assert "preview" not in command.model_dump_json()
     assert (
         ConfigPublishCommand.model_validate_json(publish.model_dump_json()) == publish
     )
@@ -386,37 +367,17 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         )
 
 
-def test_analysis_save_command_bounds_embedded_output_group() -> None:
-    table = AnalysisTable(
-        columns=[
-            AnalysisTableColumn(id=f"column-{index}")
-            for index in range(MAX_ANALYSIS_TABLE_COLUMNS)
-        ],
-        rows=[
-            AnalysisTableRow(cells=[index] * MAX_ANALYSIS_TABLE_COLUMNS)
-            for index in range(MAX_ANALYSIS_TABLE_ROWS)
-        ],
-    )
+def test_analysis_save_command_bounds_output_count() -> None:
     output = AnalysisTableOutputPayload(
         kind="table",
         id="large-table",
         title="large table",
-        content=AnalysisTableView(
+        content=AnalysisTableViewSpec(
             source=AnalysisDatasetViewSource(output_id="fits"),
-            columns=tuple(column.id for column in table.columns),
-            preview=table,
+            columns=("value",),
         ),
     )
 
-    with pytest.raises(ValidationError, match="total table cell count"):
-        AnalysisSaveCommand(
-            title="large tables",
-            analysis_key="large-tables",
-            outputs=tuple(
-                output.model_copy(update={"id": f"large-table-{index}"})
-                for index in range(5)
-            ),
-        )
     with pytest.raises(ValidationError, match=f"at most {MAX_ANALYSIS_OUTPUTS} items"):
         AnalysisSaveCommand(
             title="too many outputs",

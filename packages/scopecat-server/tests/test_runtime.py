@@ -89,13 +89,9 @@ from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import (
     AnalysisDatasetViewSource,
     AnalysisField,
-    AnalysisFigure,
-    AnalysisFigureAxis,
     AnalysisFigureProjection,
-    AnalysisFigureSeries,
-    AnalysisFigureView,
-    AnalysisTable,
-    AnalysisTableView,
+    AnalysisFigureViewSpec,
+    AnalysisTableViewSpec,
 )
 from scopecat.records.config import (
     ConfigProfileSnapshot,
@@ -346,10 +342,9 @@ def _analysis_command(proposal: ParameterChangeProposal) -> AnalysisSaveCommand:
                 kind="table",
                 id="fit-parameters",
                 title="fit parameters",
-                content=AnalysisTableView(
+                content=AnalysisTableViewSpec(
                     source=AnalysisDatasetViewSource(output_id="fits"),
                     columns=("bias",),
-                    preview=AnalysisTable.from_rows([{"bias": 1.0}]),
                 ),
             ),
             AnalysisDatasetOutputPayload(
@@ -365,24 +360,12 @@ def _analysis_command(proposal: ParameterChangeProposal) -> AnalysisSaveCommand:
                 kind="figure",
                 id="fit-curve",
                 title="fit curve",
-                content=AnalysisFigureView(
+                content=AnalysisFigureViewSpec(
                     source=AnalysisDatasetViewSource(output_id="fits"),
                     projection=AnalysisFigureProjection(
                         kind="line",
                         x="bias",
                         y="signal",
-                    ),
-                    preview=AnalysisFigure(
-                        kind="line",
-                        x_axis=AnalysisFigureAxis(label="Bias", unit="V"),
-                        y_axis=AnalysisFigureAxis(label="Signal", unit="ratio"),
-                        series=[
-                            AnalysisFigureSeries(
-                                id="fit",
-                                x=[1.0, 2.0],
-                                y=[3.0, 4.0],
-                            )
-                        ],
                     ),
                 ),
             ),
@@ -1777,8 +1760,10 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         persisted_outputs = analysis_record.json()["content"]["outputs"]
         assert persisted_outputs[0]["content"]["preview"] == {
             "columns": [{"id": "bias", "label": None, "unit": None}],
-            "rows": [{"cells": [1.0]}],
+            "rows": [{"cells": [1.0]}, {"cells": [2.0]}],
         }
+        assert persisted_outputs[0]["content"]["total_rows"] == 2
+        assert not persisted_outputs[0]["content"]["truncated"]
         assert persisted_outputs[1]["content"]["dataset_id"] == "analysis-fit-fits"
         restored_dataset = DerivedDataset.from_arrow_ipc(
             dataset_bytes.content_bytes(),
@@ -1793,11 +1778,13 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             {"bias": 2.0, "signal": 4.0},
         ]
         assert persisted_outputs[2]["content"]["preview"]["series"][0] == {
-            "id": "fit",
-            "label": None,
+            "id": "signal",
+            "label": "signal",
             "x": [1.0, 2.0],
             "y": [3.0, 4.0],
         }
+        assert persisted_outputs[2]["content"]["total_points"] == 2
+        assert not persisted_outputs[2]["content"]["truncated"]
         assert persisted_outputs[3]["content"]["proposal_id"] == proposal.id
         assert persisted_outputs[4]["content"]["artifact_id"] == (
             "analysis-fit-fit-report"

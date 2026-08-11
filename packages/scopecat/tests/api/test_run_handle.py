@@ -40,13 +40,6 @@ class _ArrowColumn(Protocol):
     def to_pylist(self) -> list[object]: ...
 
 
-class _ArrowTable(Protocol):
-    @property
-    def num_rows(self) -> int: ...
-
-    def __getitem__(self, name: str) -> _ArrowColumn: ...
-
-
 class _ArrowSchema(Protocol):
     @property
     def names(self) -> list[str]: ...
@@ -252,9 +245,8 @@ def test_in_process_lab_records_compute_value_without_instruments(
     assert stored_result.paths == (("score",),)
     assert stored_result[0].value("score") == 2.5
     assert typed_result[0].value(typed_result.output.score) == 2.5
-    content = run.data()
-    assert content.datasets == ("raw-measurements",)
-    assert content.dataset("raw-measurements") == dataset.entry
+    assert run.datasets == ("raw-measurements",)
+    assert run.manifest.datasets == (dataset.entry,)
 
 
 def test_structured_host_compute_is_one_public_compute(tmp_path: Path) -> None:
@@ -333,39 +325,7 @@ def test_host_unit_conversion_is_recordable_and_visible_in_preview(
     assert result[0].value(result.output.voltage) == sc.Quantity(125.0, "mV")
 
 
-def test_measurement_batches_page_a_real_run_and_preserve_point_identity(
-    tmp_path: Path,
-) -> None:
-    run = _run_signal_scan(tmp_path)
-
-    batches = list(run.measurements().batches(batch_size=2))
-
-    assert [len(batch) for batch in batches] == [2, 1]
-    assert [record.point_index for batch in batches for record in batch.records] == [
-        0,
-        1,
-        2,
-    ]
-    assert [batch.dims["point"] for batch in batches] == [2, 1]
-    assert [batch.metadata["scopecat_batch_offset"] for batch in batches] == [0, 2]
-    assert all(
-        next(
-            dimension.size
-            for dimension in batch.schema.dimensions
-            if dimension.id == "point"
-        )
-        == 3
-        for batch in batches
-    )
-    assert tuple(batches[0].coords) == ("drive_frequency",)
-    assert tuple(batches[0].data_vars) == ("signal",)
-    with pytest.raises(ValueError, match="between 1 and 500"):
-        run.measurements().batches(batch_size=0)
-    with pytest.raises(ValueError, match="between 1 and 500"):
-        run.measurements().batches(batch_size=501)
-
-
-def test_empty_measurement_batches_yield_one_schema_bearing_dataset(
+def test_empty_measurement_reader_preserves_the_projected_schema(
     tmp_path: Path,
 ) -> None:
     @sc.experiment(id="test.session.empty-points", kind="empty-points")
@@ -385,22 +345,6 @@ def test_empty_measurement_batches_yield_one_schema_bearing_dataset(
     )
     run = lab.prepare(empty_points).run()
 
-    [batch] = run.measurements().batches(batch_size=2)
-
-    assert batch.records == ()
-    assert batch.dims["point"] == 0
-    assert tuple(batch.coords) == ("drive_frequency",)
-    assert tuple(batch.data_vars) == ("observed_frequency",)
-    assert batch.metadata["scopecat_batch_offset"] == 0
-    assert (
-        next(
-            dimension.size
-            for dimension in batch.schema.dimensions
-            if dimension.id == "point"
-        )
-        == 0
-    )
-
     reader = cast(
         "_ArrowRecordBatchReader",
         run.measurements()
@@ -417,24 +361,6 @@ def test_empty_measurement_batches_yield_one_schema_bearing_dataset(
         "frequency__unavailable_reason",
     ]
     assert list(reader) == []
-
-
-def test_measurement_batch_converts_directly_to_arrow(tmp_path: Path) -> None:
-    [first, second] = _run_signal_scan(tmp_path).measurements().batches(batch_size=2)
-
-    first_table = cast(
-        "_ArrowTable",
-        first.project().to_arrow(),
-    )
-    second_table = cast(
-        "_ArrowTable",
-        second.project().to_arrow(),
-    )
-
-    assert first_table.num_rows == 2
-    assert second_table.num_rows == 1
-    assert first_table["point_index"].to_pylist() == [0, 1]
-    assert second_table["point_index"].to_pylist() == [2]
 
 
 def test_run_projects_paged_measurements_into_one_arrow_reader(tmp_path: Path) -> None:
@@ -472,6 +398,10 @@ def test_run_projects_paged_measurements_into_one_arrow_reader(tmp_path: Path) -
         for batch in batches
         for reason in batch["response__unavailable_reason"].to_pylist()
     )
+    with pytest.raises(ValueError, match="between 1 and 500"):
+        run.measurements().project().to_record_batch_reader(batch_size=0)
+    with pytest.raises(ValueError, match="between 1 and 500"):
+        run.measurements().project().to_record_batch_reader(batch_size=501)
 
 
 def _run_signal_scan(tmp_path: Path) -> RunHandle:

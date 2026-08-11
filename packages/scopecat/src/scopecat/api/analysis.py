@@ -73,9 +73,9 @@ from scopecat.records.analysis import (
     AnalysisFact,
     AnalysisField,
     AnalysisFigureProjection,
-    AnalysisFigureView,
+    AnalysisFigureViewSpec,
     AnalysisPublishedOutputReference,
-    AnalysisTableView,
+    AnalysisTableViewSpec,
     is_analysis_rows,
 )
 from scopecat.records.config import ConfigProfileSnapshot
@@ -95,11 +95,7 @@ class _AnalysisRun(Protocol):
     @property
     def config(self) -> ConfigProfileSnapshot: ...
 
-    def _measurements_for_analysis(
-        self,
-        *,
-        selector: str = "raw-measurements",
-    ) -> Dataset: ...
+    def _measurements_for_analysis(self) -> Dataset: ...
 
     def save_analysis(
         self,
@@ -307,7 +303,13 @@ class Analysis:
         """Publish a bounded table view of an authoritative analysis dataset."""
 
         source = self._dataset(dataset)
-        table = source.to_analysis_table(columns=columns)
+        available_columns = tuple(field.name for field in source.schema.fields)
+        selected_columns = available_columns if columns is None else tuple(columns)
+        unknown = set(selected_columns) - set(available_columns)
+        if unknown:
+            raise KeyError(
+                "derived dataset has no columns: " + ", ".join(sorted(unknown))
+            )
         source_ref = AnalysisDatasetViewSource(
             output_id=artifact_slug(dataset, fallback="data")
         )
@@ -316,10 +318,9 @@ class Analysis:
                 kind="table",
                 id=_analysis_output_id(id),
                 title=title,
-                content=AnalysisTableView(
+                content=AnalysisTableViewSpec(
                     source=source_ref,
-                    columns=tuple(column.id for column in table.columns),
-                    preview=table,
+                    columns=selected_columns,
                 ),
                 metadata=metadata or {},
             )
@@ -341,13 +342,14 @@ class Analysis:
         """Publish a bounded figure view of an authoritative analysis dataset."""
 
         source = self._dataset(dataset)
-        figure = source.to_analysis_figure(
-            kind=kind,
-            x=x,
-            y=y,
-            series=series,
-            label=label,
-        )
+        selected_columns = {x, y}
+        if series is not None:
+            selected_columns.add(series)
+        unknown = selected_columns - {field.name for field in source.schema.fields}
+        if unknown:
+            raise KeyError(
+                "derived dataset has no columns: " + ", ".join(sorted(unknown))
+            )
         source_ref = AnalysisDatasetViewSource(
             output_id=artifact_slug(dataset, fallback="data")
         )
@@ -356,7 +358,7 @@ class Analysis:
                 kind="figure",
                 id=_analysis_output_id(id),
                 title=title,
-                content=AnalysisFigureView(
+                content=AnalysisFigureViewSpec(
                     source=source_ref,
                     projection=AnalysisFigureProjection(
                         kind=kind,
@@ -365,7 +367,6 @@ class Analysis:
                         series=series,
                         label=label,
                     ),
-                    preview=figure,
                 ),
                 metadata=metadata or {},
             )
@@ -612,15 +613,10 @@ class AnalysisContext:
     def config(self) -> ConfigProfileSnapshot:
         return self.run.config
 
-    def measurements(
-        self,
-        selector: str = "raw-measurements",
-    ) -> Dataset:
-        """Load a labeled measurement dataset for this analysis step."""
+    def measurements(self) -> Dataset:
+        """Load this run's measurement dataset for this analysis step."""
 
-        dataset = self.run._measurements_for_analysis(  # pyright: ignore[reportPrivateUsage]
-            selector=selector
-        )
+        dataset = self.run._measurements_for_analysis()  # pyright: ignore[reportPrivateUsage]
         self._accessed_inputs.setdefault(
             dataset.entry.id,
             AnalysisInput(

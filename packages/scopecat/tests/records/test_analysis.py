@@ -209,6 +209,8 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
                             AnalysisTableColumn(id="converged", label="Converged"),
                         ],
                     ),
+                    total_rows=1,
+                    truncated=False,
                 ),
             ),
             AnalysisFigureRecordOutput(
@@ -234,6 +236,8 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
                             )
                         ],
                     ),
+                    total_points=3,
+                    truncated=False,
                 ),
             ),
             AnalysisParameterProposalRecordOutput(
@@ -399,6 +403,8 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
             source=AnalysisDatasetViewSource(output_id="fit-data"),
             columns=tuple(column.id for column in table.columns),
             preview=table,
+            total_rows=len(table.rows),
+            truncated=False,
         ),
     )
     with pytest.raises(ValidationError, match="total table cell count"):
@@ -434,6 +440,8 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
                 y_axis=AnalysisFigureAxis(label="y"),
                 series=[AnalysisFigureSeries(id="large", x=values, y=values)],
             ),
+            total_points=len(values),
+            truncated=False,
         ),
     )
     with pytest.raises(ValidationError, match="total figure point count"):
@@ -502,6 +510,8 @@ def test_analysis_record_rejects_empty_required_text_like_the_wire_contract() ->
                 source=AnalysisDatasetViewSource(output_id="values"),
                 columns=("value",),
                 preview=AnalysisTable.from_rows([{"value": 1}]),
+                total_rows=1,
+                truncated=False,
             ),
         )
 
@@ -556,6 +566,8 @@ def test_analysis_record_rejects_view_without_its_dataset_output() -> None:
                         source=AnalysisDatasetViewSource(output_id="missing"),
                         columns=("value",),
                         preview=AnalysisTable.from_rows([{"value": 1}]),
+                        total_rows=1,
+                        truncated=False,
                     ),
                 )
             ],

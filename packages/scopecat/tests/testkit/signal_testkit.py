@@ -126,13 +126,10 @@ class _Accumulator:
 
 @dataclass
 class SummaryStatsAnalysisStep:
-    selector: str | None = None
     id: str = SUMMARY_STATS_STEP
 
     def run(self, context: sc.AnalysisContext) -> sc.Analysis:
-        measurements = context.measurements(
-            self.selector or RAW_MEASUREMENTS_DATASET_ID
-        )
+        measurements = context.measurements()
         input_ref = dataset_storage_ref(measurements.entry)
         result = _build_summary_result(
             run_id=context.run.id,
@@ -167,7 +164,7 @@ class BestSignalAnalysisStep:
     id: str = BEST_SIGNAL_ANALYSIS_STEP
 
     def run(self, context: sc.AnalysisContext) -> sc.Analysis:
-        measurements = context.measurements(RAW_MEASUREMENTS_DATASET_ID)
+        measurements = context.measurements()
         parameter_id = _point_parameter_id(measurements.schema)
         old_value = _old_parameter_value(context.config, parameter_id)
         best_position = _best_signal_position(measurements)

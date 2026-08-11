@@ -448,12 +448,14 @@ class AnalysisDatasetViewSource(_AnalysisContentModel):
     output_id: _NonEmptyText
 
 
-class AnalysisTableView(_AnalysisContentModel):
-    """Bounded table preview projected from an authoritative dataset."""
+class AnalysisTableViewSpec(_AnalysisContentModel):
+    """Authoritative dataset projection requested for one table view."""
 
     source: AnalysisDatasetViewSource
-    columns: Sequence[_NonEmptyText]
-    preview: AnalysisTable
+    columns: Sequence[_NonEmptyText] = Field(
+        min_length=1,
+        max_length=MAX_ANALYSIS_TABLE_COLUMNS,
+    )
 
     @field_validator("columns")
     @classmethod
@@ -463,12 +465,25 @@ class AnalysisTableView(_AnalysisContentModel):
     ) -> Sequence[str]:
         return tuple(value)
 
+
+class AnalysisTableView(AnalysisTableViewSpec):
+    """Server-generated bounded table preview of an authoritative dataset."""
+
+    preview: AnalysisTable
+    total_rows: int = Field(ge=0)
+    truncated: bool
+
     @model_validator(mode="after")
-    def validate_projection(self) -> AnalysisTableView:
+    def validate_preview(self) -> AnalysisTableView:
         if tuple(self.columns) != tuple(column.id for column in self.preview.columns):
             raise ValueError(
                 "analysis table projected columns must match its preview columns"
             )
+        returned_rows = len(self.preview.rows)
+        if self.total_rows < returned_rows:
+            raise ValueError("analysis table total rows must cover its preview")
+        if self.truncated != (self.total_rows > returned_rows):
+            raise ValueError("analysis table truncation must match its row counts")
         return self
 
 
@@ -482,19 +497,31 @@ class AnalysisFigureProjection(_AnalysisContentModel):
     label: _NonEmptyText | None = None
 
 
-class AnalysisFigureView(_AnalysisContentModel):
-    """Bounded figure preview projected from an authoritative dataset."""
+class AnalysisFigureViewSpec(_AnalysisContentModel):
+    """Authoritative dataset projection requested for one figure view."""
 
     source: AnalysisDatasetViewSource
     projection: AnalysisFigureProjection
+
+
+class AnalysisFigureView(AnalysisFigureViewSpec):
+    """Server-generated bounded figure preview of an authoritative dataset."""
+
     preview: AnalysisFigure
+    total_points: int = Field(ge=0)
+    truncated: bool
 
     @model_validator(mode="after")
-    def validate_projection(self) -> AnalysisFigureView:
+    def validate_preview(self) -> AnalysisFigureView:
         if self.projection.kind != self.preview.kind:
             raise ValueError(
                 "analysis figure projection kind must match its preview kind"
             )
+        returned_points = sum(len(series.x) for series in self.preview.series)
+        if self.total_points < returned_points:
+            raise ValueError("analysis figure total points must cover its preview")
+        if self.truncated != (self.total_points > returned_points):
+            raise ValueError("analysis figure truncation must match its point counts")
         return self
 
 

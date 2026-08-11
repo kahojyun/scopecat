@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Protocol, cast
 
 # %%
@@ -13,6 +14,10 @@ from reference_lab.workflows.flux_spectroscopy import flux_spectroscopy
 
 
 class _ArrowTable(Protocol):
+    num_rows: int
+
+
+class _ArrowRecordBatch(Protocol):
     num_rows: int
 
 
@@ -48,9 +53,16 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
         "_ArrowTable",
         data.project().to_arrow(),  # pyright: ignore[reportUnknownMemberType]
     )
-    batches = tuple(run.measurements().batches(batch_size=2))
+    batches = tuple(
+        cast(
+            "Iterator[_ArrowRecordBatch]",
+            data.project().to_record_batch_reader(  # pyright: ignore[reportUnknownMemberType]
+                batch_size=2
+            ),
+        )
+    )
 
-measurement_summary = {
+measurement_summary: dict[str, object] = {
     "points": len(data),
     "nearest_points": len(near_zero),
     "first_two_points": len(first_two),
@@ -58,7 +70,6 @@ measurement_summary = {
     "groups": len(grouped),
     "grid_dims": dict(grid.sizes),
     "arrow_rows": arrow.num_rows,
-    "batch_sizes": [len(batch) for batch in batches],
-    "batch_offsets": [batch.metadata["scopecat_batch_offset"] for batch in batches],
+    "batch_sizes": [batch.num_rows for batch in batches],
 }
 show(measurement_summary)

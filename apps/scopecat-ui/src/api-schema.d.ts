@@ -1080,12 +1080,16 @@ export interface components {
         };
         /**
          * AnalysisFigureView
-         * @description Bounded figure preview projected from an authoritative dataset.
+         * @description Server-generated bounded figure preview of an authoritative dataset.
          */
         AnalysisFigureView: {
             preview: components["schemas"]["AnalysisFigure"];
             projection: components["schemas"]["AnalysisFigureProjection"];
             source: components["schemas"]["AnalysisDatasetViewSource"];
+            /** Total Points */
+            total_points: number;
+            /** Truncated */
+            truncated: boolean;
         };
         /** AnalysisParameterProposalRecordOutput */
         AnalysisParameterProposalRecordOutput: {
@@ -1190,13 +1194,17 @@ export interface components {
         };
         /**
          * AnalysisTableView
-         * @description Bounded table preview projected from an authoritative dataset.
+         * @description Server-generated bounded table preview of an authoritative dataset.
          */
         AnalysisTableView: {
             /** Columns */
             columns: components["schemas"]["_NonEmptyText"][];
             preview: components["schemas"]["AnalysisTable"];
             source: components["schemas"]["AnalysisDatasetViewSource"];
+            /** Total Rows */
+            total_rows: number;
+            /** Truncated */
+            truncated: boolean;
         };
         /**
          * ApplyReceipt

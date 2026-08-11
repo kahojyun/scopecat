@@ -27,20 +27,20 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.results import Dataset
 from scopecat.records.analysis import (
     ANALYSIS_ARTIFACT_CODEC,
+    MAX_ANALYSIS_FIGURE_POINTS,
+    MAX_ANALYSIS_TABLE_ROWS,
     AnalysisArtifactRecordOutput,
     AnalysisDatasetDerivation,
     AnalysisDatasetRecordOutput,
     AnalysisDatasetViewSource,
     AnalysisExecutionOutputReference,
     AnalysisFactRecordOutput,
-    AnalysisFigure,
     AnalysisFigureProjection,
     AnalysisFigureRecordOutput,
-    AnalysisFigureView,
+    AnalysisFigureViewSpec,
     AnalysisPublishedOutputReference,
-    AnalysisTable,
     AnalysisTableRecordOutput,
-    AnalysisTableView,
+    AnalysisTableViewSpec,
 )
 from scopecat.records.run import RunManifest
 from scopecat.runs.refs import record_content_ref
@@ -1033,10 +1033,9 @@ def test_analysis_save_rejects_views_with_unknown_dataset_fields(
             kind="table",
             id="forged-table",
             title="forged table",
-            content=AnalysisTableView(
+            content=AnalysisTableViewSpec(
                 source=source,
                 columns=("missing",),
-                preview=AnalysisTable.from_rows([{"missing": 1.0}]),
             ),
             metadata={},
         ),
@@ -1044,15 +1043,9 @@ def test_analysis_save_rejects_views_with_unknown_dataset_fields(
             kind="figure",
             id="forged-figure",
             title="forged figure",
-            content=AnalysisFigureView(
+            content=AnalysisFigureViewSpec(
                 source=source,
                 projection=AnalysisFigureProjection(
-                    kind="line",
-                    x="value",
-                    y="missing",
-                ),
-                preview=AnalysisFigure.from_table(
-                    AnalysisTable.from_rows([{"value": 1.0, "missing": 2.0}]),
                     kind="line",
                     x="value",
                     y="missing",
@@ -1209,14 +1202,55 @@ def test_analysis_facade_projects_annotated_results_directly(tmp_path: Path) -> 
     assert isinstance(dataset_output, AnalysisDatasetOutput)
     assert isinstance(table_output, AnalysisTableOutput)
     assert isinstance(figure_output, AnalysisFigureOutput)
-    table_view = table_output.content
-    figure_view = figure_output.content
-    assert table_view.source.output_id == "observations"
-    assert isinstance(table_view.preview, AnalysisTable)
+    assert table_output.content.source.output_id == "observations"
+    assert figure_output.content.source.output_id == "observations"
+
+    published = analysis.save()
+    table_view = published.table("table")
+    figure_view = published.figure("figure")
     assert [row.cells for row in table_view.preview.rows] == [
         [100.0, 0.2],
         [200.0, 0.4],
     ]
-    assert figure_view.source.output_id == "observations"
-    assert isinstance(figure_view.preview, AnalysisFigure)
+    assert table_view.total_rows == 2
+    assert not table_view.truncated
     assert figure_view.preview.series[0].x == [100.0, 200.0]
+    assert figure_view.total_points == 2
+    assert not figure_view.truncated
+
+
+def test_analysis_publication_generates_bounded_preview_counts(tmp_path: Path) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    row_count = MAX_ANALYSIS_FIGURE_POINTS + 1
+    published = (
+        in_process_lab(tmp_path, config=load_config())
+        .get_run(run.run_id)
+        .analysis("Bounded presentation")
+        .result()
+        .dataset(
+            "values",
+            pd.DataFrame(
+                {
+                    "x": range(row_count),
+                    "y": range(row_count),
+                }
+            ),
+        )
+        .table(dataset="values")
+        .figure(dataset="values", kind="line", x="x", y="y")
+        .save()
+    )
+
+    table = published.table("table")
+    assert len(table.preview.rows) == MAX_ANALYSIS_TABLE_ROWS
+    assert table.total_rows == row_count
+    assert table.truncated
+
+    figure = published.figure("figure")
+    assert len(figure.preview.series[0].x) == MAX_ANALYSIS_FIGURE_POINTS
+    assert figure.total_points == row_count
+    assert figure.truncated

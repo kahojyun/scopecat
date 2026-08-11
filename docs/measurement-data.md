@@ -273,7 +273,7 @@ before entering the measurement stream.
 ```python
 data = run.measurements()
 
-data.xarray  # independent copy of the cached xr.Dataset
+data.to_xarray()  # independent copy of the cached xr.Dataset
 data.coords  # coordinate variables by id
 data.data_vars  # observable variables by id
 data.point_indices  # durable identities in current row order
@@ -313,9 +313,9 @@ views accept persisted paths instead. Point-local measurement compute already
 propagates unavailable inputs without invoking user kernels; these result filters
 make dropping incomplete points a visible dataset-analysis decision.
 
-Analysis steps receive the same facade through `context.measurements()`. The
-separate `run.data()` handle is for listing stored content and reading
-artifacts; it is not a second measurement API.
+Analysis steps receive the same facade through `context.measurements()`. The run
+manifest lists stored datasets and artifacts, while `run.artifact_*()` and
+`run.record_json()` read them; those are not a second measurement API.
 
 Before handing data to an ecosystem library, bind the external names and units
 once with `project(...)`. Selectors may be durable variable ids, typed result
@@ -407,20 +407,12 @@ masks compose with `&`, `|`, and `~`. Fixed-shape `isel`, `sel`, `where`, and
 semantics, then map the selected positions back to durable records. Direct
 Xarray operations are suitable when the result should stay entirely inside the
 Xarray ecosystem and all dimensions are fixed. Indexed ragged observations are
-different: `data.xarray.isel(point=...)` selects point-aligned metadata but does
+different: `data.to_xarray().isel(point=...)` selects point-aligned metadata but does
 not cascade to the separate observation dimension. Use the facade's
 `data.isel(point=...)` before exporting, and use `isel_ragged(...)` for local
 ragged dimensions, so parent observations stay aligned.
 
-An already loaded snapshot can be split without changing its dataset identity:
-
-```python
-for batch in run.measurements().batches(batch_size=500):
-    analyze(batch)
-```
-
-This convenience does not reduce the memory needed to load the notebook
-snapshot. For a storage-bounded notebook read, project directly into Arrow:
+For a storage-bounded notebook read, project directly into Arrow:
 
 ```python
 reader = (
@@ -449,10 +441,9 @@ batches.
 
 The daemon decodes only the selected durable variables from stored Arrow append
 chunks. The first page establishes one `RecordBatchReader.schema`; later pages
-are fetched only as the reader advances. `Dataset.batches(...)` intentionally
-does not have a second JSON paging protocol: it materializes the typed snapshot
-once and then yields local `Dataset` slices. Their durable `point_index` values
-remain absolute, and an empty dataset yields one schema-bearing zero-row slice.
+are fetched only as the reader advances. This is the only public batch-reading
+path; callers that need labeled local slices can explicitly build them from a
+materialized dataset.
 
 Column pushdown currently stops at the immutable append-blob boundary: an
 intersecting IPC blob is read as a unit, while unselected variables skip model
@@ -476,8 +467,8 @@ projection. Install `scopecat[pandas]` or `scopecat[polars]` for the
 corresponding tabular export:
 
 ```python
-xds = data.to_xarray()  # explicit conversion spelling
-another = data.xarray  # equivalent property shorthand
+xds = data.to_xarray()
+another = data.to_xarray()
 assert xds is not another  # snapshots never share identity
 grid = data.to_xarray(layout="grid")  # complete product grids only
 external = data.project(
@@ -513,7 +504,7 @@ retains the point-level reason. This makes integer, boolean, and string fill
 values unambiguous.
 
 Durable measurement values and metadata are deeply immutable. Each
-`data.xarray` or `to_xarray()` result is an independent snapshot, so caller
+`to_xarray()` result is an independent snapshot, so caller
 edits cannot affect later selections or exports. Empty and entirely unavailable
 columns still retain their declared Arrow types.
 
@@ -653,9 +644,10 @@ publish a deliberate tabular projection, or serialize the native Dataset and
 publish it with `artifact(...)` until a lossless first-party layout exists.
 
 When a table or figure uses `dataset="fits"`, its durable view retains that
-analysis-local dataset ID and the selected column roles. The embedded table or
-figure is a bounded preview cache for immediate rendering, not a second
-authoritative scientific result. Views always project a published dataset, so
+analysis-local dataset ID and the selected column roles. Publication generates
+the embedded table or figure as a bounded preview cache with the full row/point
+count and an explicit truncation flag; it is not a second authoritative
+scientific result. Views always project a published dataset, so
 the analysis never contains a second standalone copy with independent column
 semantics.
 

@@ -17,6 +17,7 @@ import pytest
 import xarray as xr
 
 from scopecat.kernel.quantity import Quantity
+from scopecat.measurements.datasets import select_measurement_schema
 from scopecat.measurements.results import Dataset, PointMask, ProjectionSchema, Variable
 from scopecat.program.measurement_types import MeasurementArrayData, MeasurementDType
 from scopecat.program.products import ModuleProductDecl, ProductRef, ProductValueSpec
@@ -125,11 +126,34 @@ def test_source_backed_dataset_stays_lazy_until_exact_rows_are_needed() -> None:
     assert [batch.num_rows for batch in batches] == [2, 1]
     assert calls == {"raw": 0, "projected": 1}
 
+    table = dataset.project({"voltage": "bias"}).to_arrow()
+    assert table["voltage"].to_pylist() == [0.0, 1.0, 2.0]
+    assert calls == {"raw": 0, "projected": 2}
+
     assert len(dataset) == 3
     assert len(dataset) == 3
     assert dataset.dims["point"] == 3
     assert "points=3" in repr(dataset)
-    assert calls == {"raw": 1, "projected": 1}
+    assert calls == {"raw": 1, "projected": 2}
+
+
+def test_selected_schema_only_retains_a_complete_result_contract() -> None:
+    schema = _dataset().schema
+    contract = MeasurementResultContract(
+        id="test.result",
+        version=f"sha256:{'0' * 64}",
+        fields=(
+            MeasurementResultField(path=("bias",), variable_id="bias"),
+            MeasurementResultField(
+                path=("temperature",),
+                variable_id="temperature",
+            ),
+        ),
+    )
+    schema = schema.model_copy(update={"result": contract})
+
+    assert select_measurement_schema(schema, ("bias",)).result is None
+    assert select_measurement_schema(schema, ("bias", "temperature")).result == contract
 
 
 def test_typed_record_lookup_validates_schema_and_narrows_values() -> None:
@@ -513,7 +537,7 @@ def test_dataset_native_xarray_preserves_labels_shapes_and_availability() -> Non
 
     xarray_dataset = dataset.to_xarray()
     assert isinstance(xarray_dataset, xr.Dataset)
-    assert xarray_dataset is not dataset.xarray
+    assert xarray_dataset is not dataset.to_xarray()
     assert dataset["signal"].xarray.identical(xarray_dataset["signal"])
     assert xarray_dataset.sizes == {"point": 3, "sample": 2}
     assert tuple(xarray_dataset["frequency"].dims) == ("point", "sample")
@@ -952,7 +976,7 @@ def test_dataset_shares_immutable_models_and_detaches_mutable_entry() -> None:
 
 def test_xarray_exports_are_independent_copies_of_cached_snapshot() -> None:
     dataset = _dataset()
-    first = dataset.xarray
+    first = dataset.to_xarray()
 
     first["bias"].values[0] = -100.0
     first.attrs["scopecat_dataset_id"] = "mutated"

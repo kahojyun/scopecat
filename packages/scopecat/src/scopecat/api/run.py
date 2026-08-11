@@ -22,7 +22,6 @@ from scopecat.api.analysis import (
     AnalysisContext,
     AnalysisStep,
 )
-from scopecat.api.data import Data
 from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.daemon.views import (
     MeasurementArrowColumn,
@@ -192,24 +191,16 @@ class RunHandle:
     def datasets(self) -> tuple[str, ...]:
         return tuple(dataset.id for dataset in self.manifest.datasets)
 
-    def measurements(
-        self,
-        *,
-        selector: str = "raw-measurements",
-    ) -> Dataset:
-        """Open one labeled measurement dataset for notebook analysis."""
+    def measurements(self) -> Dataset:
+        """Open this run's measurement dataset for notebook analysis."""
 
         entry = require_dataset(
             manifest=self.manifest,
-            selector=selector,
+            selector=RAW_MEASUREMENTS_DATASET_ID,
             expected_kind=MEASUREMENT_DATASET_KIND,
         )
-        if entry.id != RAW_MEASUREMENTS_DATASET_ID or entry.data_schema is None:
-            loaded = self.session.run_operations.load_measurement_dataset(
-                self.id,
-                selector=entry.id,
-            )
-            return Dataset(raw=loaded.dataset, entry=loaded.dataset_entry)
+        if entry.data_schema is None:
+            raise ValueError("measurement dataset is missing its semantic schema")
         schema = MeasurementDatasetSchema.model_validate(entry.data_schema)
         return Dataset._from_source(  # pyright: ignore[reportPrivateUsage]
             schema=schema,
@@ -223,14 +214,10 @@ class RunHandle:
             load_projected_batches=self._measurement_projection_batches,
         )
 
-    def _measurements_for_analysis(
-        self,
-        *,
-        selector: str = "raw-measurements",
-    ) -> Dataset:
+    def _measurements_for_analysis(self) -> Dataset:
         """Open a source-backed dataset for one active analysis context."""
 
-        return self.measurements(selector=selector)
+        return self.measurements()
 
     def _load_analysis_dataset(self, selector: str) -> DerivedDataset:
         """Load one published analysis dataset for the typed read facade."""
@@ -251,8 +238,6 @@ class RunHandle:
     def result(
         self,
         /,
-        *,
-        selector: str = "raw-measurements",
     ) -> StoredExperimentResultView: ...
 
     @overload
@@ -260,20 +245,16 @@ class RunHandle:
         self,
         output: ResultT,
         /,
-        *,
-        selector: str = "raw-measurements",
     ) -> ExperimentResultView[ResultT]: ...
 
     def result[ResultT](
         self,
         output: ResultT | None = None,
         /,
-        *,
-        selector: str = "raw-measurements",
     ) -> StoredExperimentResultView | ExperimentResultView[ResultT]:
         """Load the experiment return value as a historical or typed result."""
 
-        dataset = self.measurements(selector=selector)
+        dataset = self.measurements()
         if output is None:
             return dataset.result
         return dataset.bind(output)
@@ -342,9 +323,6 @@ class RunHandle:
                 offset = following_offset
 
         return pa.RecordBatchReader.from_batches(first.schema, batches())
-
-    def data(self) -> Data:
-        return Data(run=self)
 
     def analysis(
         self,

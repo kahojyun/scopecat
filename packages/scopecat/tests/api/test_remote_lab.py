@@ -185,22 +185,10 @@ def test_remote_run_uses_full_dataset_batches_and_projected_arrow_pages() -> Non
     lab = LabClient(_client(handler))
     run = RunHandle(session=lab, id=manifest.run_id)
 
-    batches = list(AnalysisContext(run=run).measurements().batches(batch_size=2))
-
-    assert [[record.point_index for record in batch.records] for batch in batches] == [
-        [0, 1],
-        [2],
-    ]
-    assert [batch.dims["point"] for batch in batches] == [2, 1]
-    assert [request.url.path for request in requests] == [
-        "/api/v1/runs/run-batches",
-        "/api/v1/runs/run-batches/datasets/raw-measurements",
-    ]
-
-    requests.clear()
     reader = cast(
         "Iterator[object]",
-        run.measurements()
+        AnalysisContext(run=run)
+        .measurements()
         .project({"signal": "signal"}, diagnostics="reason")
         .to_record_batch_reader(batch_size=2),
     )

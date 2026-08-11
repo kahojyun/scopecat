@@ -21,6 +21,8 @@ describe("AnalysisOutputView", () => {
       content: {
         source: { kind: "dataset", output_id: "fits" },
         columns: ["frequency", "converged"],
+        total_rows: 2,
+        truncated: false,
         preview: {
           columns: [
             { id: "frequency", label: "Frequency", unit: "GHz" },
@@ -51,6 +53,8 @@ describe("AnalysisOutputView", () => {
       content: {
         source: { kind: "dataset", output_id: "counts" },
         columns: ["count"],
+        total_rows: 3,
+        truncated: true,
         preview: {
           columns: [{ id: "count", label: "Count" }],
           rows: [{ cells: [5_000_000_001] }, { cells: [5_000_000_002] }],
@@ -62,6 +66,7 @@ describe("AnalysisOutputView", () => {
 
     expect(screen.getByText("5000000001")).toHaveAttribute("title", "5000000001");
     expect(screen.getByText("5000000002")).toHaveAttribute("title", "5000000002");
+    expect(screen.getByText("Showing 2 of 3 rows")).toBeVisible();
   });
 
   it("renders a content-addressed analysis dataset reference", () => {
@@ -130,6 +135,8 @@ describe("AnalysisOutputView", () => {
       content: {
         source: { kind: "dataset", output_id: "fits" },
         projection: { kind: "line", x: "bias", y: "frequency" },
+        total_points: 7,
+        truncated: true,
         preview: {
           kind: "line",
           x_axis: { label: "Bias", unit: "V" },
@@ -150,6 +157,7 @@ describe("AnalysisOutputView", () => {
       }),
     ).toBeVisible();
     expect(screen.getByText(/Series: Fit, Reference/)).toBeInTheDocument();
+    expect(screen.getByText("Showing 5 of 7 points")).toBeVisible();
   });
 
   it("preserves opposite finite float extremes in the ECharts option", () => {
@@ -161,6 +169,8 @@ describe("AnalysisOutputView", () => {
       content: {
         source: { kind: "dataset", output_id: "extremes" },
         projection: { kind: "line", x: "x", y: "y" },
+        total_points: 2,
+        truncated: false,
         preview: {
           kind: "line",
           x_axis: { label: "x" },

@@ -45,6 +45,7 @@ from scopecat.records.analysis import (
     AnalysisFactRecordOutput,
     AnalysisFigureRecordOutput,
     AnalysisFigureView,
+    AnalysisFigureViewSpec,
     AnalysisParameterProposalRecordOutput,
     AnalysisParameterProposalReference,
     AnalysisPublishedOutputReference,
@@ -53,6 +54,8 @@ from scopecat.records.analysis import (
     AnalysisRecordOutput,
     AnalysisTableRecordOutput,
     AnalysisTableView,
+    AnalysisTableViewSpec,
+    validate_analysis_output_content_budget,
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -86,7 +89,7 @@ class AnalysisTableOutput:
     kind: Literal["table"]
     id: str
     title: str
-    content: AnalysisTableView
+    content: AnalysisTableViewSpec
     metadata: Mapping[str, object]
 
 
@@ -95,7 +98,7 @@ class AnalysisFigureOutput:
     kind: Literal["figure"]
     id: str
     title: str
-    content: AnalysisFigureView
+    content: AnalysisFigureViewSpec
     metadata: Mapping[str, object]
 
 
@@ -212,7 +215,7 @@ def prepare_analysis(
 
     base_record_id = f"analysis-{analysis_key}"
     _validate_analysis_output_ids(outputs)
-    _validate_analysis_views(outputs)
+    analysis_views = _prepare_analysis_views(outputs)
     _validate_analysis_execution_outputs(executions, outputs)
     _validate_analysis_inputs(
         services=services,
@@ -314,6 +317,7 @@ def prepare_analysis(
             saved_outputs,
             dataset_references=prepared_datasets.references,
             artifact_references=prepared_artifacts.references,
+            analysis_views=analysis_views,
         ),
     )
     record = RunContentEntry(
@@ -607,6 +611,7 @@ def _analysis_record_outputs(
     *,
     dataset_references: Mapping[str, AnalysisDatasetReference],
     artifact_references: Mapping[str, AnalysisArtifactReference],
+    analysis_views: Mapping[str, AnalysisTableView | AnalysisFigureView],
 ) -> list[AnalysisRecordOutput]:
     selected: list[AnalysisRecordOutput] = []
     for output in outputs:
@@ -646,22 +651,26 @@ def _analysis_record_outputs(
                 )
             )
         elif isinstance(output, AnalysisTableOutput):
+            content = analysis_views[output.id]
+            assert isinstance(content, AnalysisTableView)
             selected.append(
                 AnalysisTableRecordOutput(
                     kind="table",
                     id=output.id,
                     title=output.title,
-                    content=output.content,
+                    content=content,
                     metadata=metadata,
                 )
             )
         elif isinstance(output, AnalysisFigureOutput):
+            content = analysis_views[output.id]
+            assert isinstance(content, AnalysisFigureView)
             selected.append(
                 AnalysisFigureRecordOutput(
                     kind="figure",
                     id=output.id,
                     title=output.title,
-                    content=output.content,
+                    content=content,
                     metadata=metadata,
                 )
             )
@@ -828,18 +837,21 @@ def _validate_analysis_output_ids(outputs: Sequence[AnalysisOutput]) -> None:
         )
 
 
-def _validate_analysis_views(outputs: Sequence[AnalysisOutput]) -> None:
-    dataset_fields = {
-        output.id: {field.name for field in output.content.schema.fields}
+def _prepare_analysis_views(
+    outputs: Sequence[AnalysisOutput],
+) -> Mapping[str, AnalysisTableView | AnalysisFigureView]:
+    datasets = {
+        output.id: output.content
         for output in outputs
         if isinstance(output, AnalysisDatasetOutput)
     }
+    selected: dict[str, AnalysisTableView | AnalysisFigureView] = {}
     for index, output in enumerate(outputs):
         if not isinstance(output, AnalysisTableOutput | AnalysisFigureOutput):
             continue
         source_id = output.content.source.output_id
-        available_fields = dataset_fields.get(source_id)
-        if available_fields is None:
+        dataset = datasets.get(source_id)
+        if dataset is None:
             _raise_analysis_problem(
                 "analysis_view_source_unknown",
                 "analysis view source must identify a dataset output",
@@ -848,23 +860,50 @@ def _validate_analysis_views(outputs: Sequence[AnalysisOutput]) -> None:
                 "content",
                 "source",
             )
-        if isinstance(output, AnalysisTableOutput):
-            projected_fields = set(output.content.columns)
-        else:
-            projection = output.content.projection
-            projected_fields = {projection.x, projection.y}
-            if projection.series is not None:
-                projected_fields.add(projection.series)
-        unknown_fields = projected_fields - available_fields
-        if unknown_fields:
+        try:
+            if isinstance(output, AnalysisTableOutput):
+                preview = dataset.to_analysis_table(columns=output.content.columns)
+                selected[output.id] = AnalysisTableView(
+                    source=output.content.source,
+                    columns=output.content.columns,
+                    preview=preview,
+                    total_rows=len(dataset),
+                    truncated=len(dataset) > len(preview.rows),
+                )
+            else:
+                projection = output.content.projection
+                preview = dataset.to_analysis_figure(
+                    kind=projection.kind,
+                    x=projection.x,
+                    y=projection.y,
+                    series=projection.series,
+                    label=projection.label,
+                )
+                returned_points = sum(len(series.x) for series in preview.series)
+                selected[output.id] = AnalysisFigureView(
+                    source=output.content.source,
+                    projection=projection,
+                    preview=preview,
+                    total_points=len(dataset),
+                    truncated=len(dataset) > returned_points,
+                )
+        except (KeyError, TypeError, ValueError) as error:
             _raise_analysis_problem(
                 "analysis_view_projection_unknown",
-                "analysis view projection must identify dataset fields: "
-                + ", ".join(sorted(unknown_fields)),
+                f"analysis view projection is invalid: {error}",
                 "outputs",
                 index,
                 "content",
             )
+    try:
+        validate_analysis_output_content_budget(selected.values())
+    except ValueError as error:
+        _raise_analysis_problem(
+            "analysis_view_budget_exceeded",
+            str(error),
+            "outputs",
+        )
+    return selected
 
 
 def _validate_analysis_execution_outputs(
