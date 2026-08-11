@@ -647,11 +647,20 @@ class DaemonClient:
         *,
         limit: int = 100,
         offset: int = 0,
+        snapshot_size: int | None = None,
     ) -> MeasurementPage:
         return self._get_model(
             f"{_API_PREFIX}/runs/{run_id}/measurements",
             MeasurementPage,
-            params={"limit": limit, "offset": offset},
+            params={
+                "limit": limit,
+                "offset": offset,
+                **(
+                    {"snapshot_size": snapshot_size}
+                    if snapshot_size is not None
+                    else {}
+                ),
+            },
         )
 
     def measurement_arrow(

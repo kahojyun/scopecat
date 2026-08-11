@@ -233,6 +233,23 @@ def test_registered_analysis_trace_can_reduce_bounded_batches(tmp_path: Path) ->
     assert execution.implementation == ("registry:test.dataset-size-batches@1")
 
 
+def test_registered_batch_trace_reads_the_dataset_view_it_was_given(
+    tmp_path: Path,
+) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    selected = handle.measurements().isel(point=[1])
+    context = sc.AnalysisContext(run=handle)
+
+    count = context.trace(fn=_batch_dataset_size, batches=selected)
+
+    assert count == 1
+
+
 def test_native_dataframe_trace_returns_one_reusable_derived_dataset(
     tmp_path: Path,
 ) -> None:

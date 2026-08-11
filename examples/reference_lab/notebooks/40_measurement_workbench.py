@@ -48,7 +48,7 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
         "_ArrowTable",
         data.to_arrow(),  # pyright: ignore[reportUnknownMemberType]
     )
-    batches = tuple(run.measurement_batches(batch_size=2))
+    batches = tuple(run.measurements().batches(batch_size=2))
 
 measurement_summary = {
     "points": len(data),

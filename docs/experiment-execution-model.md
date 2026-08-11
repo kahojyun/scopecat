@@ -134,8 +134,10 @@ Implementations that cannot load the complete dataset declare
 The function then receives an iterator of `Dataset` batches through the same
 named `context.trace(fn=..., batches=dataset)` call. Full-dataset Python remains
 the short path; bounded access is an implementation property rather than a
-second analysis API. A future streaming workflow may reuse bounded execution,
-but must own checkpoint and finalization state explicitly.
+second analysis API. The iterator is tied to that exact dataset input, and its
+first page freezes a finite point-count watermark for the remaining pages. A
+future streaming workflow may reuse bounded execution, but must own checkpoint
+and finalization state explicitly.
 
 Logical resource ports describe the interfaces and entities required by a
 reusable definition. The accepted configuration maps those requirements onto a

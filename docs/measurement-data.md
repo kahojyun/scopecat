@@ -405,12 +405,17 @@ not cascade to the separate observation dimension. Use the facade's
 `data.isel(point=...)` before exporting, and use `isel_ragged(...)` for local
 ragged dimensions, so parent observations stay aligned.
 
-Large runs can be consumed without materializing every record at once:
+An already loaded snapshot can be split without changing its dataset identity:
 
 ```python
-for batch in run.measurement_batches(batch_size=500):
+for batch in run.measurements().batches(batch_size=500):
     analyze(batch)
+```
 
+This convenience does not reduce the memory needed to load the notebook
+snapshot. For a storage-bounded notebook read, project directly into Arrow:
+
+```python
 reader = run.measurement_record_batches(
     columns={
         "bias_v": result.output.dc_bias,
@@ -424,16 +429,16 @@ for record_batch in reader:
     analyze_arrow(record_batch)
 ```
 
-Each batch is the same labeled `Dataset` facade, so slicing and ecosystem
-exports work unchanged. Its `point` dimension is the number of records in that
-batch, while durable `point_index` values remain absolute. Metadata exposes
-`scopecat_batch_offset`; the immutable schema continues to describe the complete
-planned point domain and its point count. An empty run yields one zero-row,
-schema-bearing batch so callers can still inspect variables and initialize
-downstream tables.
+Each typed batch uses the same labeled `Dataset` facade, so slicing and
+ecosystem exports work unchanged. Its `point` dimension is the number of
+records in that batch, while durable `point_index` values remain absolute.
+Metadata exposes `scopecat_batch_offset` and `scopecat_snapshot_size`; the
+immutable schema continues to describe the complete planned point domain and
+its point count. An empty dataset yields one zero-row, schema-bearing batch so
+callers can still inspect variables and initialize downstream tables.
 
-`measurement_record_batches(...)` is the Arrow-native form of the same paged
-read. Typed refs and external names are resolved once against the manifest, and
+`measurement_record_batches(...)` is the Arrow-native bounded read. Typed refs
+and external names are resolved once against the manifest, and
 the aliases, units, diagnostics, identity columns, and layout travel as one
 projection request. The daemon decodes only the selected durable variables from
 the stored Arrow append chunks, performs the projection, and returns Arrow IPC
@@ -473,8 +478,12 @@ long_frame = data.to_pandas(layout="long")
 
 These complete conversions materialize the selected measurement snapshot and
 are intended for datasets that fit in notebook memory. For larger runs,
-`run.measurement_batches(...)` is the bounded notebook read path; select within
-each yielded batch before exporting it.
+`run.measurement_record_batches(...)` is the bounded projected notebook read
+path. Registered analysis implementations can instead declare
+`data_access="batches"`; `context.trace(...)` then supplies finite typed
+`Dataset` pages from the exact measurement input without materializing its full
+contents. `Dataset.batches(...)` only splits an already loaded detached
+snapshot when used directly.
 
 The default Xarray layout keeps the durable `point` row dimension, which also
 works for point clouds, live batches, partial selections, and ragged results.

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 import mimetypes
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import (
@@ -104,7 +104,11 @@ class _AnalysisRun(Protocol):
         selector: str = "raw-measurements",
     ) -> Dataset: ...
 
-    def measurement_batches(self, *, batch_size: int = 100) -> Iterator[Dataset]: ...
+    def _measurements_for_analysis(
+        self,
+        *,
+        selector: str = "raw-measurements",
+    ) -> Dataset: ...
 
     def analysis(
         self,
@@ -667,7 +671,9 @@ class AnalysisContext:
     ) -> Dataset:
         """Load a labeled measurement dataset for this analysis step."""
 
-        dataset = self.run.measurements(selector=selector)
+        dataset = self.run._measurements_for_analysis(  # pyright: ignore[reportPrivateUsage]
+            selector=selector
+        )
         self._accessed_inputs.setdefault(
             dataset.entry.id,
             AnalysisInput(
@@ -783,7 +789,8 @@ class AnalysisContext:
                 raise ValueError(
                     "batched analysis trace requires a measurement dataset input"
                 )
-            batches = self.run.measurement_batches(batch_size=contract.batch_size)
+            dataset = data.dataset if isinstance(data, ExperimentResultView) else data
+            batches = dataset.batches(batch_size=contract.batch_size)
             call_inputs[dataset_name] = (
                 (batch.bind(data.output) for batch in batches)
                 if isinstance(data, ExperimentResultView)

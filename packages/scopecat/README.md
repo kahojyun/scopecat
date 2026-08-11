@@ -53,9 +53,9 @@ safe run cancellation, and attention resolution are available through
 `lab.control`.
 
 `run.measurements()` captures an immutable analysis snapshot with NumPy, Xarray,
-and Arrow support for data that fits in notebook memory. Large runs remain
-available through `run.measurement_batches(...)`; selections and exports can be
-applied to each yielded batch. See the
+and Arrow support for data that fits in notebook memory. Large runs can use a
+projected `run.measurement_record_batches(...)` Arrow reader or a registered
+analysis trace with `data_access="batches"`. See the
 [measurement workflow](../../docs/measurement-data.md) for details; install
 `scopecat[pandas]` or `scopecat[polars]` only for the corresponding conversion.
 

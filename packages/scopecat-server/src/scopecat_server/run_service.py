@@ -603,17 +603,19 @@ class RunService:
         *,
         limit: int,
         offset: int,
+        snapshot_size: int | None = None,
         include_schema: bool = True,
     ) -> MeasurementPage:
         with self._config_errors():
             manifest = self._runs.read_manifest(run_id)
-            items, next_offset, live_schema, _snapshot_size = (
+            items, next_offset, live_schema, selected_snapshot_size = (
                 SQLiteMeasurementDatasetRepository(
                     self._runs,
                     run_id=run_id,
                 ).measurement_page(
                     limit=limit,
                     offset=offset,
+                    snapshot_size=snapshot_size,
                     include_schema=include_schema,
                 )
             )
@@ -633,6 +635,7 @@ class RunService:
         return MeasurementPage(
             items=items,
             next_offset=next_offset,
+            snapshot_size=selected_snapshot_size,
             dataset_schema=terminal_schema or live_schema,
         )
 

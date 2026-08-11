@@ -105,8 +105,14 @@ class RemoteRunOperations:
         *,
         limit: int,
         offset: int,
+        snapshot_size: int | None,
     ) -> MeasurementPage:
-        return self.client.measurements(run_id, limit=limit, offset=offset)
+        return self.client.measurements(
+            run_id,
+            limit=limit,
+            offset=offset,
+            snapshot_size=snapshot_size,
+        )
 
     def load_measurement_arrow_page(
         self,

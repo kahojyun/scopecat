@@ -99,6 +99,7 @@ class RunOperations(Protocol):
         *,
         limit: int,
         offset: int,
+        snapshot_size: int | None,
     ) -> MeasurementPage: ...
 
     def load_measurement_arrow_page(
@@ -213,13 +214,43 @@ class RunHandle:
         *,
         selector: str = "raw-measurements",
     ) -> Dataset:
-        """Load one labeled measurement dataset for notebook analysis."""
+        """Load one detached measurement dataset for notebook analysis."""
 
         loaded = self.session.run_operations.load_measurement_dataset(
             self.id,
             selector=selector,
         )
         return Dataset(raw=loaded.dataset, entry=loaded.dataset_entry)
+
+    def _measurements_for_analysis(
+        self,
+        *,
+        selector: str = "raw-measurements",
+    ) -> Dataset:
+        """Open a source-backed dataset for one active analysis context."""
+
+        entry = require_dataset(
+            manifest=self.manifest,
+            selector=selector,
+            expected_kind=MEASUREMENT_DATASET_KIND,
+        )
+        if entry.id != RAW_MEASUREMENTS_DATASET_ID or entry.data_schema is None:
+            return self.measurements(selector=entry.id)
+        schema = MeasurementDatasetSchema.model_validate(entry.data_schema)
+        return Dataset._from_source(  # pyright: ignore[reportPrivateUsage]
+            schema=schema,
+            entry=entry,
+            load_raw=lambda: (
+                self.session.run_operations.load_measurement_dataset(
+                    self.id,
+                    selector=entry.id,
+                ).dataset
+            ),
+            load_batches=lambda batch_size: self._measurement_batches(
+                entry=entry,
+                batch_size=batch_size,
+            ),
+        )
 
     def derived_dataset(self, selector: str) -> DerivedDataset:
         """Load one analysis-authored dataset into its exact Arrow schema."""
@@ -267,34 +298,25 @@ class RunHandle:
             return dataset.result
         return dataset.bind(output)
 
-    def measurement_batches(self, *, batch_size: int = 100) -> Iterator[Dataset]:
-        """Iterate over raw measurements without loading the complete dataset.
-
-        Every yielded dataset keeps durable ``point_index`` values while its
-        ``point`` dimension describes only the records in that batch. Its schema
-        remains the complete planned dataset schema.
-        """
-
-        if not 1 <= batch_size <= MAX_MEASUREMENT_PAGE_SIZE:
-            raise ValueError(
-                "measurement batch_size must be between 1 and "
-                f"{MAX_MEASUREMENT_PAGE_SIZE}"
-            )
-        return self._measurement_batches(batch_size=batch_size)
-
-    def _measurement_batches(self, *, batch_size: int) -> Iterator[Dataset]:
-        entry = require_dataset(
-            manifest=self.manifest,
-            selector=RAW_MEASUREMENTS_DATASET_ID,
-            expected_kind=MEASUREMENT_DATASET_KIND,
-        )
+    def _measurement_batches(
+        self,
+        *,
+        entry: RunContentEntry,
+        batch_size: int,
+    ) -> Iterator[Dataset]:
         offset = 0
+        snapshot_size: int | None = None
         while True:
             page = self.session.run_operations.load_measurement_page(
                 self.id,
                 limit=batch_size,
                 offset=offset,
+                snapshot_size=snapshot_size,
             )
+            if snapshot_size is None:
+                snapshot_size = page.snapshot_size
+            elif page.snapshot_size != snapshot_size:
+                raise ValueError("measurement snapshot changed between pages")
             schema = page.dataset_schema
             if schema is None:
                 raise ValueError("measurement dataset page has no registered schema")
@@ -305,6 +327,7 @@ class RunHandle:
                     metadata={
                         **entry.metadata,
                         "scopecat_batch_offset": offset,
+                        "scopecat_snapshot_size": snapshot_size,
                     },
                 ),
                 entry=entry,

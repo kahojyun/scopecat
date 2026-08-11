@@ -336,7 +336,7 @@ def test_measurement_batches_page_a_real_run_and_preserve_point_identity(
 ) -> None:
     run = _run_signal_scan(tmp_path)
 
-    batches = list(run.measurement_batches(batch_size=2))
+    batches = list(run.measurements().batches(batch_size=2))
 
     assert [len(batch) for batch in batches] == [2, 1]
     assert [record.point_index for batch in batches for record in batch.records] == [
@@ -358,9 +358,9 @@ def test_measurement_batches_page_a_real_run_and_preserve_point_identity(
     assert tuple(batches[0].coords) == ("drive_frequency",)
     assert tuple(batches[0].data_vars) == ("signal",)
     with pytest.raises(ValueError, match="between 1 and 500"):
-        run.measurement_batches(batch_size=0)
+        run.measurements().batches(batch_size=0)
     with pytest.raises(ValueError, match="between 1 and 500"):
-        run.measurement_batches(batch_size=501)
+        run.measurements().batches(batch_size=501)
 
 
 def test_empty_measurement_batches_yield_one_schema_bearing_dataset(
@@ -383,7 +383,7 @@ def test_empty_measurement_batches_yield_one_schema_bearing_dataset(
     )
     run = lab.prepare(empty_points).run()
 
-    [batch] = run.measurement_batches(batch_size=2)
+    [batch] = run.measurements().batches(batch_size=2)
 
     assert batch.records == ()
     assert batch.dims["point"] == 0
@@ -416,7 +416,7 @@ def test_empty_measurement_batches_yield_one_schema_bearing_dataset(
 
 
 def test_measurement_batch_converts_directly_to_arrow(tmp_path: Path) -> None:
-    [first, second] = _run_signal_scan(tmp_path).measurement_batches(batch_size=2)
+    [first, second] = _run_signal_scan(tmp_path).measurements().batches(batch_size=2)
 
     first_table = cast(
         "_ArrowTable",

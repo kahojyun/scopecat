@@ -290,7 +290,7 @@ def test_ragged_point_cloud_run_survives_daemon_and_worker_boundaries(
         persisted = lab.get_run(run_id)
         persisted_status = persisted.manifest.status
         dataset = persisted.measurements()
-        batches = list(persisted.measurement_batches(batch_size=2))
+        batches = list(persisted.measurements().batches(batch_size=2))
 
     assert persisted_status == "completed"
     point_domain = dataset.schema.point_domain

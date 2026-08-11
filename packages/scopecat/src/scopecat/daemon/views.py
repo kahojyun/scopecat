@@ -357,6 +357,7 @@ class MeasurementPage(_ViewModel):
 
     items: tuple[MeasurementRecord, ...] = ()
     next_offset: int | None = Field(default=None, ge=0)
+    snapshot_size: int = Field(ge=0)
     dataset_schema: MeasurementDatasetSchema | None = None
 
 

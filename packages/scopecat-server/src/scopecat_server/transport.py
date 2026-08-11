@@ -511,12 +511,14 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         run_id: str,
         limit: Annotated[int, Query(ge=1, le=MAX_MEASUREMENT_PAGE_SIZE)] = 100,
         offset: Annotated[int, Query(ge=0)] = 0,
+        snapshot_size: Annotated[int, Query(ge=0)] | None = None,
         include_schema: bool = True,
     ) -> MeasurementPage:
         return application.runs.measurements(
             run_id,
             limit=limit,
             offset=offset,
+            snapshot_size=snapshot_size,
             include_schema=include_schema,
         )
 

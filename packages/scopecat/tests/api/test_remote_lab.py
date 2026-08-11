@@ -19,6 +19,7 @@ from pydantic import BaseModel
 import scopecat.api._runner as runner_module
 from scopecat.api._config import LabConfigOperations
 from scopecat.api._runner import _DaemonRunner
+from scopecat.api.analysis import AnalysisContext
 from scopecat.api.lab import (
     LabClient,
     PreparedLabExperiment,
@@ -194,6 +195,7 @@ def test_remote_run_measurement_batches_use_typed_and_arrow_page_endpoints() -> 
                 MeasurementPage(
                     items=items,
                     next_offset=next_offset if next_offset < len(records) else None,
+                    snapshot_size=len(records),
                     dataset_schema=schema,
                 )
             )
@@ -233,7 +235,7 @@ def test_remote_run_measurement_batches_use_typed_and_arrow_page_endpoints() -> 
     lab = LabClient(_client(handler))
     run = RunHandle(session=lab, id=manifest.run_id)
 
-    batches = list(run.measurement_batches(batch_size=2))
+    batches = list(AnalysisContext(run=run).measurements().batches(batch_size=2))
 
     assert [[record.point_index for record in batch.records] for batch in batches] == [
         [0, 1],
@@ -247,7 +249,7 @@ def test_remote_run_measurement_batches_use_typed_and_arrow_page_endpoints() -> 
     ]
     assert [dict(request.url.params) for request in requests[1:]] == [
         {"limit": "2", "offset": "0"},
-        {"limit": "2", "offset": "2"},
+        {"limit": "2", "offset": "2", "snapshot_size": "3"},
     ]
 
     requests.clear()

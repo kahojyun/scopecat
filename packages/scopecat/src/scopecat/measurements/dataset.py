@@ -25,6 +25,7 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.arrow_values import measurement_values_to_arrow_array
+from scopecat.measurements.datasets import MAX_MEASUREMENT_PAGE_SIZE
 from scopecat.measurements.traces import Trace, measurement_traces
 from scopecat.program.measurement_types import (
     MeasurementArrayData,
@@ -127,7 +128,7 @@ class PointMask(Sequence[bool]):
             else xr.DataArray(
                 np.asarray(values, dtype=np.bool_),
                 dims=("point",),
-                coords={"point": dataset._xarray.coords["point"]},
+                coords={"point": dataset._loaded_xarray.coords["point"]},
             )
         )
         if data.dims != ("point",) or data.sizes["point"] != len(dataset):
@@ -243,7 +244,7 @@ class Variable[T = NativeAvailableValue]:
     def xarray(self) -> xr.DataArray:
         """Return an independent Xarray copy of this variable."""
 
-        return self._dataset._xarray[self.id].copy(deep=True)
+        return self._dataset._loaded_xarray[self.id].copy(deep=True)
 
     @property
     def raw_values(self) -> tuple[MeasurementValue, ...]:
@@ -331,7 +332,7 @@ class Variable[T = NativeAvailableValue]:
         )
 
     def is_available(self) -> PointMask:
-        source = self._dataset._xarray
+        source = self._dataset._loaded_xarray
         reason_name = _unavailable_reason_name(self.id)
         reason = source.get(reason_name)
         if reason is None:
@@ -345,7 +346,7 @@ class Variable[T = NativeAvailableValue]:
         self,
         reason: MeasurementUnavailableReason | None = None,
     ) -> PointMask:
-        source = self._dataset._xarray
+        source = self._dataset._loaded_xarray
         reason_name = _unavailable_reason_name(self.id)
         availability = source.get(reason_name)
         if availability is None:
@@ -421,7 +422,7 @@ class Variable[T = NativeAvailableValue]:
         query = _selection_value(other, self)
         selected = cast(
             "xr.DataArray",
-            comparison(self._dataset._xarray[self.id], query),
+            comparison(self._dataset._loaded_xarray[self.id], query),
         )
         return PointMask(self._dataset, selected.fillna(False))
 
@@ -442,14 +443,21 @@ class Dataset:
     persisted representation.
     """
 
-    _raw: MeasurementDataset
+    _raw: MeasurementDataset | None
     _entry: RunContentEntry
+    _load_raw: Callable[[], MeasurementDataset] | None = field(
+        repr=False,
+    )
+    _load_batches: Callable[[int], Iterator[Dataset]] | None = field(
+        repr=False,
+    )
+    _schema_value: MeasurementDatasetSchema = field(repr=False)
     _view_dimensions: Mapping[str, int | None] = field(init=False, repr=False)
     _variables: Mapping[str, Variable[NativeAvailableValue]] = field(
         init=False,
         repr=False,
     )
-    _xarray: xr.Dataset = field(init=False, repr=False)
+    _xarray: xr.Dataset | None = field(init=False, repr=False)
 
     def __init__(
         self,
@@ -458,13 +466,52 @@ class Dataset:
         *,
         view_dimensions: Mapping[str, int | None] | None = None,
     ) -> None:
+        self._initialize(
+            raw=raw,
+            entry=entry,
+            schema=raw.dataset_schema,
+            load_raw=None,
+            load_batches=None,
+            view_dimensions=view_dimensions,
+        )
+
+    @classmethod
+    def _from_source(
+        cls,
+        *,
+        schema: MeasurementDatasetSchema,
+        entry: RunContentEntry,
+        load_raw: Callable[[], MeasurementDataset],
+        load_batches: Callable[[int], Iterator[Dataset]],
+    ) -> Self:
+        dataset = cls.__new__(cls)
+        dataset._initialize(
+            raw=None,
+            entry=entry,
+            schema=schema,
+            load_raw=load_raw,
+            load_batches=load_batches,
+            view_dimensions=None,
+        )
+        return dataset
+
+    def _initialize(
+        self,
+        *,
+        raw: MeasurementDataset | None,
+        entry: RunContentEntry,
+        schema: MeasurementDatasetSchema,
+        load_raw: Callable[[], MeasurementDataset] | None,
+        load_batches: Callable[[int], Iterator[Dataset]] | None,
+        view_dimensions: Mapping[str, int | None] | None,
+    ) -> None:
         object.__setattr__(self, "_raw", raw)
         object.__setattr__(self, "_entry", entry.model_copy(deep=True))
-        dimensions = {
-            dimension.id: dimension.size
-            for dimension in self._raw.dataset_schema.dimensions
-        }
-        dimensions["point"] = len(self._raw.records)
+        object.__setattr__(self, "_load_raw", load_raw)
+        object.__setattr__(self, "_load_batches", load_batches)
+        object.__setattr__(self, "_schema_value", schema)
+        dimensions = {dimension.id: dimension.size for dimension in schema.dimensions}
+        dimensions["point"] = None if raw is None else len(raw.records)
         if view_dimensions is not None:
             unknown = set(view_dimensions) - set(dimensions)
             if unknown:
@@ -473,21 +520,53 @@ class Dataset:
                     + ", ".join(sorted(unknown))
                 )
             dimensions.update(view_dimensions)
-            dimensions["point"] = len(self._raw.records)
+            dimensions["point"] = 0 if raw is None else len(raw.records)
         object.__setattr__(
             self,
             "_view_dimensions",
             MappingProxyType(dimensions),
         )
-        self.__post_init__()
-
-    def __post_init__(self) -> None:
         variables = {
-            definition.id: Variable(self, definition)
-            for definition in self._raw.dataset_schema.variables
+            definition.id: Variable(self, definition) for definition in schema.variables
         }
         object.__setattr__(self, "_variables", MappingProxyType(variables))
+        object.__setattr__(
+            self, "_xarray", None if raw is None else self._build_xarray()
+        )
+
+    def _materialize(self) -> MeasurementDataset:
+        raw = self._raw
+        if raw is not None:
+            return raw
+        load_raw = self._load_raw
+        if load_raw is None:
+            raise RuntimeError("measurement dataset has no content loader")
+        raw = load_raw()
+        object.__setattr__(self, "_raw", raw)
+        object.__setattr__(self, "_load_raw", None)
+        object.__setattr__(
+            self,
+            "_view_dimensions",
+            MappingProxyType(
+                {
+                    **{
+                        dimension.id: dimension.size
+                        for dimension in self._schema_value.dimensions
+                    },
+                    "point": len(raw.records),
+                }
+            ),
+        )
         object.__setattr__(self, "_xarray", self._build_xarray())
+        return raw
+
+    @property
+    def _loaded_xarray(self) -> xr.Dataset:
+        self._materialize()
+        xarray = self._xarray
+        if xarray is None:
+            raise RuntimeError("measurement dataset has no Xarray view")
+        return xarray
 
     @property
     def entry(self) -> RunContentEntry:
@@ -499,7 +578,7 @@ class Dataset:
     def raw(self) -> MeasurementDataset:
         """Return the deeply immutable durable snapshot."""
 
-        return self._raw
+        return self._materialize()
 
     @property
     def schema(self) -> MeasurementDatasetSchema:
@@ -513,21 +592,21 @@ class Dataset:
 
     @property
     def metadata(self) -> Mapping[str, object]:
-        return self._raw.metadata
+        return self._materialize().metadata
 
     @property
     def xarray(self) -> xr.Dataset:
         """Return an independent copy of the cached Xarray snapshot."""
 
-        return self._xarray.copy(deep=True)
+        return self._loaded_xarray.copy(deep=True)
 
     @property
     def _schema(self) -> MeasurementDatasetSchema:
-        return self._raw.dataset_schema
+        return self._schema_value
 
     @property
     def _records(self) -> tuple[MeasurementRecord, ...]:
-        return cast("tuple[MeasurementRecord, ...]", self._raw.records)
+        return cast("tuple[MeasurementRecord, ...]", self._materialize().records)
 
     @property
     def point_indices(self) -> tuple[int, ...]:
@@ -545,7 +624,52 @@ class Dataset:
     def dims(self) -> Mapping[str, int | None]:
         """Return dimensions of this view, independent of the planned schema."""
 
+        self._materialize()
         return self._view_dimensions
+
+    def batches(self, *, batch_size: int = 100) -> Iterator[Dataset]:
+        """Iterate over this exact finite dataset snapshot in bounded batches."""
+
+        if not 1 <= batch_size <= MAX_MEASUREMENT_PAGE_SIZE:
+            raise ValueError(
+                "measurement batch_size must be between 1 and "
+                f"{MAX_MEASUREMENT_PAGE_SIZE}"
+            )
+        load_batches = self._load_batches
+        if load_batches is not None:
+            return load_batches(batch_size)
+        return self._local_batches(batch_size=batch_size)
+
+    def _local_batches(self, *, batch_size: int) -> Iterator[Dataset]:
+        raw = self._materialize()
+        if not raw.records:
+            yield type(self)(
+                MeasurementDataset(
+                    dataset_schema=self._schema,
+                    records=(),
+                    metadata={
+                        **raw.metadata,
+                        "scopecat_batch_offset": 0,
+                        "scopecat_snapshot_size": 0,
+                    },
+                ),
+                self._entry,
+            )
+            return
+        for offset in range(0, len(raw.records), batch_size):
+            records = raw.records[offset : offset + batch_size]
+            yield type(self)(
+                MeasurementDataset(
+                    dataset_schema=self._schema,
+                    records=records,
+                    metadata={
+                        **raw.metadata,
+                        "scopecat_batch_offset": offset,
+                        "scopecat_snapshot_size": len(raw.records),
+                    },
+                ),
+                self._entry,
+            )
 
     @property
     def variables(self) -> Mapping[str, Variable[NativeAvailableValue]]:
@@ -801,7 +925,7 @@ class Dataset:
                 "recording group or variable"
             )
 
-        selected_xarray = self._xarray.isel(
+        selected_xarray = self._loaded_xarray.isel(
             {
                 dimension_id: _preserving_xarray_indexer(indexer)
                 for dimension_id, indexer in selected.items()
@@ -931,7 +1055,7 @@ class Dataset:
         elif tolerance is not None:
             raise ValueError("sel tolerance is only valid with method='nearest'")
 
-        selected_xarray = self._xarray
+        selected_xarray = self._loaded_xarray
         for variable_id, query in selected.items():
             if variable_id == "point" and isinstance(query, str):
                 coordinate_id = "logical_point_id"
@@ -967,7 +1091,7 @@ class Dataset:
             source = self.xarray
             selected = condition(source)
         else:
-            source = self._xarray
+            source = self._loaded_xarray
             selected = condition
         if isinstance(selected, PointMask):
             if not selected.belongs_to(self):
@@ -997,7 +1121,7 @@ class Dataset:
         variable.require_point_scalar()
         groups = cast(
             "Mapping[object, Sequence[int] | slice]",
-            cast("object", self._xarray.groupby(variable_id).groups),
+            cast("object", self._loaded_xarray.groupby(variable_id).groups),
         )
         return MappingProxyType(
             {
@@ -1051,7 +1175,7 @@ class Dataset:
         selected_group = next(iter(reference_groups), None)
 
         return measurement_traces(
-            self._raw,
+            self._materialize(),
             selected_observable,
             coordinate=selected_coordinate,
             group=selected_group,
@@ -1061,7 +1185,7 @@ class Dataset:
         """Return a point-row or complete product-grid Xarray snapshot."""
 
         if layout == "points":
-            return self._xarray.copy(deep=True)
+            return self._loaded_xarray.copy(deep=True)
         if layout == "grid":
             return self._product_grid_xarray()
         raise ValueError("Xarray layout must be 'points' or 'grid'")
@@ -1096,7 +1220,7 @@ class Dataset:
                 key=operator.itemgetter(1),
             )
         )
-        source = self._xarray.isel(point=list(ordered_positions))
+        source = self._loaded_xarray.isel(point=list(ordered_positions))
 
         axis_coordinates: dict[str, object] = {}
         for axis_index, axis in enumerate(domain.axes):
@@ -1448,11 +1572,12 @@ class Dataset:
         return variable
 
     def _select_indices(self, indices: Sequence[int]) -> Self:
-        selected_records = [self._raw.records[index] for index in indices]
+        raw_source = self._materialize()
+        selected_records = [raw_source.records[index] for index in indices]
         raw = MeasurementDataset(
             dataset_schema=self._schema,
             records=tuple(selected_records),
-            metadata=self._raw.metadata,
+            metadata=raw_source.metadata,
         )
         return type(self)(
             raw,
@@ -1550,7 +1675,7 @@ class Dataset:
         raw = MeasurementDataset(
             dataset_schema=self._schema,
             records=tuple(records),
-            metadata=self._raw.metadata,
+            metadata=self._materialize().metadata,
         )
         return type(self)(raw, self._entry, view_dimensions=view_dimensions)
 
@@ -2819,7 +2944,7 @@ def _dataset_attrs(dataset: Dataset) -> dict[str, object]:
         "scopecat_entry_kind": dataset._entry.kind,
         "scopecat_content_hash": dataset._entry.content_hash,
         "scopecat_schema_json": _stable_json(dataset._schema.model_dump(mode="json")),
-        "scopecat_metadata_json": _stable_json(dataset._raw.metadata),
+        "scopecat_metadata_json": _stable_json(dataset._materialize().metadata),
     }
 
 
