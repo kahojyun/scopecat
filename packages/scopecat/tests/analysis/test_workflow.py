@@ -90,7 +90,11 @@ def _native_signal_frame(dataset: Dataset) -> pd.DataFrame:
 
 def _write_fit_report(*, dataset: Dataset, destination: str) -> Path:
     path = Path(destination)
-    path.write_text(f"# Fit report\n\nPoints: {len(dataset)}\n")
+    path.write_text(
+        f"# Fit report\n\nPoints: {len(dataset)}\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     return path
 
 
@@ -625,7 +629,9 @@ def test_analysis_artifact_links_exact_traced_file_bytes(tmp_path: Path) -> None
         execution_id="write-report",
         output_name="write-report",
     )
-    assert outcome.artifact("report").text() == "# Fit report\n\nPoints: 3\n"
+    report = outcome.artifact("report")
+    assert report.bytes() == b"# Fit report\n\nPoints: 3\n"
+    assert report.text() == "# Fit report\n\nPoints: 3\n"
 
 
 def test_analysis_publishes_typed_facts_and_owned_artifacts(tmp_path: Path) -> None:
