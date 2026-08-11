@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import assert_type, cast
 
 import pytest
-from scopecat.api._instruments import (
+from scopecat.api.instruments import (
     InstrumentClientChannel,
     InstrumentRef,
     OperationArgumentValue,

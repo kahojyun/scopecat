@@ -33,7 +33,6 @@ from scopecat.daemon.views import (
 )
 from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyCommand,
-    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentDriverProbeCommand,
     InstrumentDriverProbeReceipt,
     InstrumentSessionEndReceipt,
@@ -73,7 +72,6 @@ from scopecat.records.config import (
 )
 from scopecat.records.instrument import InstrumentPropertyState, InstrumentStateSnapshot
 from scopecat.records.measurement import InstrumentAcquisitionEvidence
-from scopecat.sdk.instruments._projection import ProjectedInstrumentState
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
     BackendCollectRequest,
@@ -88,6 +86,7 @@ from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
+    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InteractiveCollectIntent,
@@ -115,6 +114,7 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareInvoke,
     RunHardwareValue,
 )
+from scopecat.sdk.instruments.projection import ProjectedInstrumentState
 from scopecat.sdk.payloads import PayloadCodecCatalog
 from scopecat.sdk.runtime_problems import contextualize_problems
 

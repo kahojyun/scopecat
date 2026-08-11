@@ -32,7 +32,6 @@ from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
     InstrumentConfiguredDefaultsApplyCommand,
-    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentContractCatalogRequest,
     InstrumentDriverProbeCommand,
     InstrumentDriverProbeReceipt,
@@ -63,6 +62,7 @@ from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.commands import (
+    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentOperationArgument,
     InvokeCommand,
     InvokeReceipt,

@@ -31,7 +31,6 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.project_state import ProjectStateServices
-from scopecat.records._metadata import validate_json_metadata
 from scopecat.records.analysis import (
     ANALYSIS_ARTIFACT_CODEC,
     AnalysisArtifactRecordOutput,
@@ -58,6 +57,7 @@ from scopecat.records.analysis import (
     validate_analysis_output_content_budget,
 )
 from scopecat.records.artifact import RunContentEntry
+from scopecat.records.metadata import validate_json_metadata
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.runs.access import list_records
 from scopecat.runs.refs import (

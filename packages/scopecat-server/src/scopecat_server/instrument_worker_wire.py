@@ -23,13 +23,13 @@ from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.problems import Problem
 from scopecat.program.measurement_types import MeasurementDType
-from scopecat.records._metadata import JsonMetadata
 from scopecat.records.instrument import CommandChannelBinding, InstrumentReadback
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementScalar,
     MeasurementUnavailable,
 )
+from scopecat.records.metadata import JsonMetadata
 from scopecat.sdk.instruments.backend import (
     BackendInvokeRequest,
     BackendOperationArgument,

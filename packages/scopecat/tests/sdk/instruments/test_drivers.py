@@ -58,11 +58,6 @@ from scopecat.sdk.instruments import (
     quantity_property,
     string_property,
 )
-from scopecat.sdk.instruments._driver_adapter import (
-    lower_state_patch,
-    project_state,
-)
-from scopecat.sdk.instruments._projection import ProjectedInstrumentState
 from scopecat.sdk.instruments.backend import lower_backend_apply_request
 from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,
@@ -90,6 +85,11 @@ from scopecat.sdk.instruments.contracts import (
     validate_state_command,
     validate_state_snapshot,
 )
+from scopecat.sdk.instruments.driver_adapter import (
+    lower_state_patch,
+    project_state,
+)
+from scopecat.sdk.instruments.projection import ProjectedInstrumentState
 from tests.testkit.execution import execute_bound_run
 from tests.testkit.instrument_drivers import (
     SignalInstrumentDriver,

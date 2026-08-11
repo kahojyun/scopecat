@@ -20,7 +20,6 @@ from scopecat.measurements.arrow_values import (
     measurement_values_to_arrow_array,
 )
 from scopecat.program.measurement_types import MeasurementDType
-from scopecat.records._metadata import JsonMetadata, validate_json_metadata
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementArray,
@@ -34,6 +33,7 @@ from scopecat.records.measurement import (
     MeasurementVariable,
 )
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
+from scopecat.records.metadata import JsonMetadata, validate_json_metadata
 
 MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v3"
 

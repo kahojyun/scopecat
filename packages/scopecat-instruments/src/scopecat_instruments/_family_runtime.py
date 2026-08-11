@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Protocol, cast, overload
+from typing import Protocol, overload
 
-from scopecat.api._instruments import (
+from scopecat.api.instruments import (
     InstrumentClientFactory,
     InstrumentRef,
     instrument,
@@ -13,21 +13,19 @@ from scopecat.authoring import (
     EachEntity,
     EntitySelection,
     ExperimentContext,
+    InstrumentRecorder,
     ModuleContext,
     OneEntity,
     ResourceRoleInput,
+    instrument_recorder,
 )
 from scopecat.sdk.instruments import InterfaceRef
-
-from scopecat_instruments._symbolic_runtime import _SymbolicInstrumentRecorder
-
-# pyright: reportPrivateUsage=false
 
 
 class _SymbolicClientFactory[ClientT](Protocol):
     def __call__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -39,7 +37,7 @@ class _SymbolicClientFactory[ClientT](Protocol):
 class _SymbolicGroupFactory[GroupT](Protocol):
     def __call__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -113,8 +111,8 @@ class InstrumentFamily[LiveT, SymbolicT, GroupT]:
                 self._live_factory,
                 requires=self._requires,
             )
-        recorder = cast("_SymbolicInstrumentRecorder", context_or_id)
-        resource_id = recorder._allocate_resource_id(self._name)
+        recorder = instrument_recorder(context_or_id)
+        resource_id = recorder.allocate_resource_id(self._name)
         if isinstance(for_, EachEntity):
             return self._group_factory(
                 recorder,

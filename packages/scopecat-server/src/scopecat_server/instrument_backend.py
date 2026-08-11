@@ -16,14 +16,6 @@ from scopecat.planning.provider_validation import (
 )
 from scopecat.records.config import InstrumentBindingSpec
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.sdk.instruments._driver_adapter import (
-    lower_acquisition,
-    lower_state_patch,
-    project_apply_outcome,
-    project_collect_outcome,
-    project_invoke_outcome,
-    project_state,
-)
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
     BackendCollectRequest,
@@ -38,6 +30,14 @@ from scopecat.sdk.instruments.commands import (
     InvokeReceipt,
 )
 from scopecat.sdk.instruments.contracts import InstrumentDescription
+from scopecat.sdk.instruments.driver_adapter import (
+    lower_acquisition,
+    lower_state_patch,
+    project_apply_outcome,
+    project_collect_outcome,
+    project_invoke_outcome,
+    project_state,
+)
 from scopecat.sdk.instruments.provider import (
     DriverFault,
     InstrumentConnectionContext,

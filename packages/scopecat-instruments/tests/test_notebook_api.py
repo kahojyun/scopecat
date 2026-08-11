@@ -9,7 +9,7 @@ from typing import assert_type, override
 from weakref import ref
 
 import pytest
-from scopecat.api._instruments import (
+from scopecat.api.instruments import (
     InstrumentClientChannel,
     InstrumentRef,
     InstrumentSessionHandle,
@@ -19,7 +19,6 @@ from scopecat.api._instruments import (
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyCommand,
-    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentSessionEndReceipt,
     InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenCommand,
@@ -34,6 +33,7 @@ from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     CollectReceipt,
     InstrumentCollectFailure,
+    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentDescription,
     InterfaceRef,
     interface,

@@ -39,13 +39,13 @@ from scopecat.program.measurement_types import (
     MeasurementDType,
     MeasurementVariableRole,
 )
-from scopecat.records._metadata import MeasurementMetadata
 from scopecat.records._schema_utils import (
     ensure_unique_ids,
     missing_references,
     validate_supported_unit,
 )
 from scopecat.records.measurement_array_schema import MeasurementArrayPayload
+from scopecat.records.metadata import MeasurementMetadata
 
 MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v4"
 MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v8"

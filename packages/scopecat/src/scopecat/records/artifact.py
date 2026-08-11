@@ -16,7 +16,7 @@ from pydantic import (
 )
 
 from scopecat.kernel.content_identity import sha256_content_hash
-from scopecat.records._metadata import JsonMetadata
+from scopecat.records.metadata import JsonMetadata
 
 type Sha256ContentHash = Annotated[
     str,

@@ -9,8 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.state import StateValue
-from scopecat.records._metadata import JsonMetadata
 from scopecat.records.measurement import MeasurementValue
+from scopecat.records.metadata import JsonMetadata
 
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
 type StateTargetScopeIdentity = tuple[

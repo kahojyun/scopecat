@@ -15,14 +15,6 @@ from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import InstrumentAcquisitionEvidence
 from scopecat.sdk.domain.compiler import DomainCompiler
 from scopecat.sdk.instruments import InstrumentBackend
-from scopecat.sdk.instruments._driver_adapter import (
-    lower_acquisition,
-    lower_state_patch,
-    project_apply_outcome,
-    project_collect_outcome,
-    project_invoke_outcome,
-    project_state,
-)
 from scopecat.sdk.instruments.backend import (
     BackendPayload,
     decode_driver_operation,
@@ -37,6 +29,14 @@ from scopecat.sdk.instruments.commands import (
     InvokeCommand,
 )
 from scopecat.sdk.instruments.contracts import state_assignment_satisfied
+from scopecat.sdk.instruments.driver_adapter import (
+    lower_acquisition,
+    lower_state_patch,
+    project_apply_outcome,
+    project_collect_outcome,
+    project_invoke_outcome,
+    project_state,
+)
 from scopecat.sdk.instruments.execution import (
     RunHardwareApply,
     RunHardwareBatch,

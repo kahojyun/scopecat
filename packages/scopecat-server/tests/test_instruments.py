@@ -10,7 +10,7 @@ from typing import Never, override
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
-from scopecat.api._instruments import (
+from scopecat.api.instruments import (
     InstrumentClientChannel,
     InstrumentRef,
     InstrumentSessionHandle,

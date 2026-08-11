@@ -10,6 +10,7 @@ from typing import Protocol, cast
 from scopecat.authoring import (
     EachEntity,
     EntityType,
+    InstrumentRecorder,
     OneEntity,
     PerEntity,
     ResourceRoleInput,
@@ -18,11 +19,9 @@ from scopecat.authoring import (
     ValueRef,
     one,
 )
-from scopecat.authoring._module_context import DefinitionResource
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.entity import EntityRef, entity_identity
 from scopecat.kernel.symbols import SymbolId
-from scopecat.program.measurement_types import MeasurementDType
 from scopecat.program.products import ProductAxis, ProductRecording, ProductRef
 from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
@@ -31,7 +30,6 @@ from scopecat.program.value_refs import (
     internal_value_ref_requires_execution,
 )
 from scopecat.sdk.instruments import (
-    AcquisitionResultRef,
     InterfaceRef,
     OperationArgumentRef,
     OperationRef,
@@ -47,72 +45,12 @@ from scopecat_instruments._client_runtime import (
 )
 
 
-class _SymbolicInstrumentRecorder(Protocol):
-    """The authoring operations needed by symbolic instrument clients.
-
-    ``ModuleContext`` and ``ExperimentContext`` satisfy this protocol without
-    making this package depend on either concrete context type.
-    """
-
-    def _allocate_resource_id(self, name_hint: str) -> str: ...
-
-    def _allocate_effect_id(self, name_hint: str, *, explicit: bool = False) -> str: ...
-
-    def _resource(
-        self,
-        id: str,
-        *,
-        requires: Sequence[InterfaceRef],
-        for_entities: Sequence[ValueRef],
-        role: ResourceRoleInput = None,
-    ) -> DefinitionResource: ...
-
-    def _ensure(
-        self,
-        resource: DefinitionResource,
-        assignments: Mapping[PropertyRef, StateBinding],
-    ) -> None: ...
-
-    def _ensure_many(
-        self,
-        targets: Sequence[StateTarget],
-    ) -> None: ...
-
-    def _invoke(
-        self,
-        id: str,
-        *,
-        resource: DefinitionResource,
-        operation: OperationRef,
-        arguments: Mapping[OperationArgumentRef, StateBinding] | None = None,
-    ) -> None: ...
-
-    def _product(
-        self,
-        id: str,
-        *,
-        scope: Sequence[str],
-        unit: str | None,
-        dtype: MeasurementDType,
-        axes: Sequence[ProductAxis],
-        recording: ProductRecording | None,
-    ) -> ProductRef: ...
-
-    def _acquire(
-        self,
-        id: str,
-        *,
-        resource: DefinitionResource,
-        results: Mapping[AcquisitionResultRef, ProductRef],
-    ) -> None: ...
-
-
 class SymbolicInstrumentClientBase:
     __slots__ = ("_namespace_hint", "_recorder", "_resource", "_state_assignments")
 
     def __init__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -122,7 +60,7 @@ class SymbolicInstrumentClientBase:
     ) -> None:
         self._recorder = recorder
         self._namespace_hint = namespace_hint
-        self._resource = recorder._resource(
+        self._resource = recorder.resource(
             resource_id,
             requires=requires,
             for_entities=(
@@ -140,7 +78,7 @@ class SymbolicInstrumentClientBase:
         self,
         assignments: Mapping[PropertyRef, StateBinding],
     ) -> None:
-        self._recorder._ensure(self._resource, assignments)
+        self._recorder.ensure(self._resource, assignments)
         self._state_assignments.update(assignments)
 
     def _invoke(
@@ -153,11 +91,11 @@ class SymbolicInstrumentClientBase:
         occurrence_name = operation.operation_id if effect_id is None else effect_id
         if not occurrence_name:
             raise ValueError("symbolic operation effect id must be non-empty")
-        occurrence_id = self._recorder._allocate_effect_id(
+        occurrence_id = self._recorder.allocate_effect_id(
             f"{self._namespace_hint}.{occurrence_name}",
             explicit=effect_id is not None,
         )
-        self._recorder._invoke(
+        self._recorder.invoke(
             occurrence_id,
             resource=self._resource,
             operation=operation,
@@ -175,13 +113,13 @@ class SymbolicInstrumentClientBase:
         occurrence_name = acquisition.ref.acquisition_id if id is None else id
         if not occurrence_name:
             raise ValueError("symbolic acquisition id must be non-empty")
-        effect_id = self._recorder._allocate_effect_id(
+        effect_id = self._recorder.allocate_effect_id(
             f"{self._namespace_hint}.{occurrence_name}",
             explicit=id is not None,
         )
         products: dict[str, ProductRef] = {}
         for field in acquisition.result_fields:
-            products[field.python_name] = self._recorder._product(
+            products[field.python_name] = self._recorder.product(
                 field.result_id,
                 scope=(effect_id,),
                 unit=field.unit,
@@ -199,7 +137,7 @@ class SymbolicInstrumentClientBase:
                     role=field.role,
                 ),
             )
-        self._recorder._acquire(
+        self._recorder.acquire(
             effect_id,
             resource=self._resource,
             results={
@@ -246,7 +184,7 @@ class DeclaredStateSymbolicClientBase[StateT](SymbolicInstrumentClientBase):
 class _SymbolicClientFactory[ClientT: SymbolicInstrumentClientBase](Protocol):
     def __call__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -267,7 +205,7 @@ class SymbolicInstrumentGroupBase[ClientT: SymbolicInstrumentClientBase]:
 
     def __init__(
         self,
-        recorder: _SymbolicInstrumentRecorder,
+        recorder: InstrumentRecorder,
         resource_id: str,
         *,
         namespace_hint: str,
@@ -355,7 +293,7 @@ class DeclaredStateSymbolicGroupBase[
             client = self._state_client(entity)
             client._state_assignments.update(assignments)
             targets.append((client._resource, assignments))
-        self._recorder._ensure_many(targets)
+        self._recorder.ensure_many(targets)
 
     def state_targets(
         self,

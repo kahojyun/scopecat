@@ -21,7 +21,6 @@ from scopecat.daemon.client import (
 from scopecat.daemon.views import InstrumentListView, InstrumentView
 from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyCommand,
-    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentSessionEndReceipt,
     InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenCommand,
@@ -35,6 +34,7 @@ from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectReceipt,
+    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentOperationArgument,
     InstrumentStateAssignment,
     InstrumentStateCommand,

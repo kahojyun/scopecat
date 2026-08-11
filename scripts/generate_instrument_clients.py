@@ -2960,9 +2960,14 @@ def _render_header(
     has_plain_root = any(model.live_state_type_name is None for model in models)
 
     imports: dict[str, set[str]] = {
-        "scopecat.authoring": {"EachEntity", "OneEntity", "ResourceRoleInput"},
+        "scopecat.authoring": {
+            "EachEntity",
+            "InstrumentRecorder",
+            "OneEntity",
+            "ResourceRoleInput",
+        },
         "scopecat.sdk.instruments": {"InterfaceRef"},
-        "scopecat_instruments._symbolic_runtime": {"_SymbolicInstrumentRecorder"},
+        "scopecat_instruments._symbolic_runtime": set(),
     }
     if any(model.generate_family for model in models):
         imports["scopecat_instruments._family_runtime"] = {"InstrumentFamily"}
@@ -2995,7 +3000,7 @@ def _render_header(
     if has_acquisitions:
         imports["dataclasses"] = {"dataclass", "field"}
         imports["scopecat.authoring"].add("ProductRef")
-        imports["scopecat.authoring._module_results"] = {"ProductBundle"}
+        imports["scopecat.authoring"].add("ProductBundle")
         imports["scopecat.records.measurement"] = {"MeasurementValue"}
         if any(
             field.product_value_annotation == "MeasurementArrayData"
@@ -3656,7 +3661,7 @@ def _render_symbolic_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
             "\n",
             "    def __init__(\n",
             "        self,\n",
-            "        recorder: _SymbolicInstrumentRecorder,\n",
+            "        recorder: InstrumentRecorder,\n",
             "        resource_id: str,\n",
             "        *,\n",
             "        namespace_hint: str,\n",
@@ -3753,7 +3758,7 @@ def _render_symbolic_group_scope(
             "\n",
             "    def __init__(\n",
             "        self,\n",
-            "        recorder: _SymbolicInstrumentRecorder,\n",
+            "        recorder: InstrumentRecorder,\n",
             "        resource_id: str,\n",
             "        *,\n",
             "        namespace_hint: str,\n",

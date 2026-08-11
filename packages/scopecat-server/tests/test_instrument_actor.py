@@ -20,14 +20,6 @@ from scopecat.sdk.instruments import (
     InstrumentProviderDescription,
     InvokeReceipt,
 )
-from scopecat.sdk.instruments._driver_adapter import (
-    lower_acquisition,
-    lower_state_patch,
-    project_apply_outcome,
-    project_collect_outcome,
-    project_invoke_outcome,
-    project_state,
-)
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
     BackendCollectRequest,
@@ -37,6 +29,14 @@ from scopecat.sdk.instruments.backend import (
     decode_driver_operation,
 )
 from scopecat.sdk.instruments.catalog import DriverCatalog
+from scopecat.sdk.instruments.driver_adapter import (
+    lower_acquisition,
+    lower_state_patch,
+    project_apply_outcome,
+    project_collect_outcome,
+    project_invoke_outcome,
+    project_state,
+)
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecCatalog
 from tests.testkit.instrument_drivers import (
     SignalInstrumentDriver,

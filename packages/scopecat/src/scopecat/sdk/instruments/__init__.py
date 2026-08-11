@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from scopecat.sdk.instruments.commands import (
         ApplyReceipt,
         CollectReceipt,
+        InstrumentConfiguredDefaultsApplyReceipt,
         InvokeReceipt,
     )
     from scopecat.sdk.instruments.contracts import (
@@ -199,6 +200,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "InstrumentCollectFailure": (
         "scopecat.sdk.instruments.errors",
         "InstrumentCollectFailure",
+    ),
+    "InstrumentConfiguredDefaultsApplyReceipt": (
+        "scopecat.sdk.instruments.commands",
+        "InstrumentConfiguredDefaultsApplyReceipt",
     ),
     "InstrumentDescription": (
         "scopecat.sdk.instruments.contracts",
