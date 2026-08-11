@@ -65,7 +65,8 @@ from scopecat_server.instruments.worker import (
     SubprocessInstrumentBackendEndpoint,
 )
 from scopecat_server.runtime import LocalDaemonRuntime
-from scopecat_server.storage.sqlite import SQLiteControlPlane, SQLiteDatabase
+from scopecat_server.storage.sqlite.connection import SQLiteDatabase
+from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "instrument_worker_project"
 _BACKEND = "worker_fixture.backend:create_backend"

@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from scopecat_server.storage.sqlite import (
+from scopecat_server.storage.sqlite.connection import SQLiteDatabase
+from scopecat_server.storage.sqlite.project_store import (
     SchemaVersionError,
-    SQLiteDatabase,
     SQLiteProjectStore,
 )
 

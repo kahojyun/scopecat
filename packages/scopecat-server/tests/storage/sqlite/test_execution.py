@@ -38,13 +38,13 @@ from scopecat_testkit.server.runtime import (
     SQLiteTestExecutionJournal as SQLiteExecutionJournal,
 )
 
-from scopecat_server.storage.sqlite import (
-    SQLiteDatabase,
+from scopecat_server.storage.sqlite.connection import SQLiteDatabase
+from scopecat_server.storage.sqlite.execution import (
+    ExecutionJournalConflict,
     SQLiteMeasurementDatasetRepository,
-    SQLiteProjectStore,
-    SQLiteRunRepository,
 )
-from scopecat_server.storage.sqlite.execution import ExecutionJournalConflict
+from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
+from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 
 def _runs(tmp_path: Path) -> SQLiteRunRepository:

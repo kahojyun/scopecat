@@ -13,7 +13,7 @@ from scopecat.daemon.wire import (
     RunSubmission,
 )
 
-from scopecat_server.storage.sqlite import SQLiteProjectStore
+from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
 
 from .admission import AdmissionService
 from .config import ConfigService

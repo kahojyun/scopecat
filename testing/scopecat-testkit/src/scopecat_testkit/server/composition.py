@@ -26,16 +26,18 @@ from scopecat.runs.admission import RunSkeleton, build_run_admission
 from scopecat.runs.refs import MANIFEST_REF
 from scopecat.runs.repository import RunRepository
 from scopecat.sdk.instruments.execution import RunInstrumentHost
-from scopecat_server.storage.sqlite import (
-    SQLiteConfigRegistryStore,
-    SQLiteControlPlane,
-    SQLiteDatabase,
+from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
+from scopecat_server.storage.sqlite.connection import SQLiteDatabase
+from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
+from scopecat_server.storage.sqlite.execution import (
     SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
-    SQLiteProjectStore,
-    SQLiteRunRepository,
 )
-from scopecat_server.storage.sqlite.run_repository import _PreparedRef
+from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
+from scopecat_server.storage.sqlite.run_repository import (
+    SQLiteRunRepository,
+    _PreparedRef,
+)
 
 from scopecat_testkit.instrument_host import TestRunInstrumentHost
 

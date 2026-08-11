@@ -30,8 +30,9 @@ from scopecat_testkit.config_registry import load_config_registry_config
 from scopecat_testkit.paths import CORE_FIXTURE_DIR
 from scopecat_testkit.server.runtime import SQLiteTestRunRepository
 
-from scopecat_server.storage.sqlite import SQLiteDatabase, SQLiteProjectStore
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
+from scopecat_server.storage.sqlite.connection import SQLiteDatabase
+from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
 
 
 def _publish_direct_revision(

@@ -117,7 +117,7 @@ from scopecat_testkit.signal_instruments import (
 )
 from scopecat_testkit.workflow_fixtures import load_config, load_experiment
 
-from scopecat_server.storage.sqlite import SQLiteRunRepository
+from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 
 def test_execution_builds_one_bound_session(

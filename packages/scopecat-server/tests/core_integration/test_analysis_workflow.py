@@ -54,8 +54,10 @@ from scopecat_testkit.server.signal_testkit import (
 )
 from scopecat_testkit.workflow_fixtures import load_config, load_invocation
 
-from scopecat_server.storage.sqlite import SQLiteRunRepository
-from scopecat_server.storage.sqlite.run_repository import PreparedContentPublication
+from scopecat_server.storage.sqlite.run_repository import (
+    PreparedContentPublication,
+    SQLiteRunRepository,
+)
 
 
 def _dataset_size(dataset: Dataset) -> int:

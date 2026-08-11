@@ -90,14 +90,14 @@ from scopecat.sdk.instruments.projection import ProjectedInstrumentState
 from scopecat.sdk.payloads import PayloadCodecCatalog
 from scopecat.sdk.runtime_problems import contextualize_problems
 
-from scopecat_server.storage.sqlite import (
+from scopecat_server.storage.sqlite.control_plane import (
     ControlPlaneConflict,
     ControlPlaneNotFound,
     ExecutorLeaseNotHeld,
     InstrumentSessionNotActive,
     SQLiteControlPlane,
-    SQLiteRunRepository,
 )
+from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
 from ._runtime_state import (

@@ -20,15 +20,15 @@ from scopecat.control.models import (
     RunResourceRequirement,
 )
 
-from scopecat_server.storage.sqlite import (
+from scopecat_server.storage.sqlite.connection import SQLiteDatabase
+from scopecat_server.storage.sqlite.control_plane import (
     ControlPlaneConflict,
     ControlPlaneNotFound,
     ExecutorLeaseNotHeld,
     InstrumentSessionNotActive,
     SQLiteControlPlane,
-    SQLiteDatabase,
-    SQLiteProjectStore,
 )
+from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
 
 NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 SUBMISSION_HASH = "1" * 64

@@ -52,10 +52,10 @@ from scopecat.runs.service import (
     read_run_measurement_dataset,
     read_run_record_json,
 )
-from scopecat_server.storage.sqlite import (
+from scopecat_server.storage.sqlite.execution import (
     SQLiteMeasurementDatasetRepository,
-    SQLiteRunRepository,
 )
+from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 
 @dataclass(frozen=True, slots=True)
