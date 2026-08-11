@@ -87,6 +87,7 @@ describe("AnalysisOutputView", () => {
       metadata: {},
       content: {
         schema_id: "scopecat.quantity.v1",
+        schema_codec: "scopecat.analysis-fact-schema.v1",
         schema_hash: `sha256:${"c".repeat(64)}`,
         codec: "scopecat.python-json.v1",
         value: { value: 5.1, unit: "GHz" },

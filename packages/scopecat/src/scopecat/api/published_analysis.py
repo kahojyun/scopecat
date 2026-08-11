@@ -194,6 +194,11 @@ class PublishedAnalysis:
                 f"analysis fact {id!r} uses schema {fact.schema_id!r}, "
                 f"not {schema.id!r}"
             )
+        if fact.schema_codec != schema.schema_codec:
+            raise TypeError(
+                f"analysis fact {id!r} uses structural schema codec "
+                f"{fact.schema_codec!r}, not {schema.schema_codec!r}"
+            )
         if fact.schema_hash != schema.schema_hash:
             raise TypeError(
                 f"analysis fact {id!r} schema fingerprint does not match {schema.id!r}"

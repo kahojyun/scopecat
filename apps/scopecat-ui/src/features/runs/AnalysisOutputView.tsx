@@ -39,6 +39,9 @@ export function AnalysisOutputView({ output }: { output: RunAnalysisOutput }) {
         <div className="mb-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.55rem] text-text-dim">
           <code title={output.content.schema_hash}>{output.content.schema_hash}</code>
         </div>
+        <div className="mb-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.55rem] text-text-dim">
+          <code>{output.content.schema_codec}</code>
+        </div>
         <pre className="m-0 max-h-36 overflow-auto whitespace-pre-wrap">
           {JSON.stringify(output.content.value, null, 2)}
         </pre>

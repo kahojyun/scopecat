@@ -853,6 +853,7 @@ def test_analysis_validates_and_reconstructs_structured_facts(tmp_path: Path) ->
 
     stored = published.fact("fit")
     assert stored.schema_id == "tests.fit-conclusion.v1"
+    assert stored.schema_codec == "scopecat.analysis-fact-schema.v1"
     assert stored.schema_hash == _FIT_CONCLUSION_SCHEMA.schema_hash
     assert stored.value == {
         "resonance": {"value": 5.1, "unit": "GHz"},

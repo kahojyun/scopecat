@@ -240,11 +240,21 @@ presentation metadata.
 
 ## Structured fact contract
 
-A structured fact has a versioned domain `schema_id`, a fingerprint of the
-validated JSON schema, and canonical JSON content. The schema ID says what the
-conclusion means; the fingerprint detects accidental reuse of that ID for a
-different shape. The durable record deliberately does not contain a Python
-module or import path.
+A structured fact has a versioned domain `schema_id`, an explicit Scopecat
+`schema_codec`, a fingerprint of that codec's structural schema, and canonical
+JSON content. The schema ID says what the conclusion means; the codec defines
+how its shape is described; the fingerprint detects accidental reuse of that ID
+for a different shape. The durable record deliberately does not contain a
+Python module or import path.
+
+The first structural codec owns a deliberately small JSON type system: null,
+boolean, integer, float, string, literal, union, array, tuple, string-keyed
+mapping, object, and quantity. Dataclass and Pydantic types are local validation
+and reconstruction adapters for that type system. Python class names,
+docstrings, default values, Pydantic's generated JSON Schema, and
+`AnalysisField` projection metadata do not affect the fingerprint. This keeps a
+refactor or dependency upgrade from creating a false schema change while still
+making a real field or type change visible.
 
 Define the local type and its schema descriptor together, then reuse the
 descriptor for publication and typed reading:
@@ -271,12 +281,12 @@ published = run.published_analysis("fit-review")
 fit = published.fact_as("selected-fit", RESONATOR_FIT_SCHEMA)
 ```
 
-`fact_as(...)` checks both the schema ID and fingerprint before reconstructing
-the caller's dataclass or Pydantic model. Changing the durable shape requires a
-new versioned schema ID. Scopecat does not maintain a global Python type
-registry or import application types while reopening a run; code that only
-needs generic inspection can continue to use `fact(...)` and read its JSON
-value directly.
+`fact_as(...)` checks the schema ID, structural codec, and fingerprint before
+reconstructing the caller's dataclass or Pydantic model. Changing the durable
+shape requires a new versioned schema ID. Scopecat does not maintain a global
+Python type registry or import application types while reopening a run; code
+that only needs generic inspection can continue to use `fact(...)` and read its
+JSON value directly.
 
 Analysis currently belongs to one completed run. Live checkpoints, retries,
 cross-run state, schedules, and recurring calibration belong to a future

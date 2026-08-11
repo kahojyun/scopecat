@@ -26,6 +26,7 @@ from scopecat.analysis.datasets import (
     derived_dataset,
 )
 from scopecat.analysis.facts import (
+    ANALYSIS_FACT_SCHEMA_CODEC,
     QUANTITY_FACT_SCHEMA_HASH,
     QUANTITY_FACT_SCHEMA_ID,
     SCALAR_FACT_SCHEMA_HASH,
@@ -229,14 +230,17 @@ class Analysis:
         selected_id = _analysis_output_id(id)
         if schema is not None:
             selected_schema = schema.id
+            selected_schema_codec = schema.schema_codec
             selected_schema_hash = schema.schema_hash
             selected_value = schema.encode(value)
         elif isinstance(value, Quantity):
             selected_schema = QUANTITY_FACT_SCHEMA_ID
+            selected_schema_codec = ANALYSIS_FACT_SCHEMA_CODEC
             selected_schema_hash = QUANTITY_FACT_SCHEMA_HASH
             selected_value = _analysis_json(value)
         elif value is None or isinstance(value, bool | int | float | str):
             selected_schema = SCALAR_FACT_SCHEMA_ID
+            selected_schema_codec = ANALYSIS_FACT_SCHEMA_CODEC
             selected_schema_hash = SCALAR_FACT_SCHEMA_HASH
             selected_value = _analysis_json(value)
         else:
@@ -248,6 +252,7 @@ class Analysis:
                 title=title or selected_id,
                 content=AnalysisFact(
                     schema_id=selected_schema,
+                    schema_codec=selected_schema_codec,
                     schema_hash=selected_schema_hash,
                     codec=PYTHON_JSON_CODEC,
                     value=selected_value,

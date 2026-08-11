@@ -966,6 +966,11 @@ export interface components {
          */
         "AnalysisFact-Output": {
             codec: components["schemas"]["_NonEmptyText"];
+            /**
+             * Schema Codec
+             * @constant
+             */
+            schema_codec: "scopecat.analysis-fact-schema.v1";
             schema_hash: components["schemas"]["Sha256ContentHash"];
             schema_id: components["schemas"]["_NonEmptyText"];
             value: components["schemas"]["pydantic__types__JsonValue"];

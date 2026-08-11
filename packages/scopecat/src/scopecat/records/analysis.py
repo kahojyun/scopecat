@@ -580,6 +580,7 @@ class AnalysisFact(_AnalysisContentModel):
     """Small typed conclusion retained directly in an analysis record."""
 
     schema_id: _NonEmptyText
+    schema_codec: Literal["scopecat.analysis-fact-schema.v1"]
     schema_hash: Sha256ContentHash
     codec: _NonEmptyText
     value: JsonValue
