@@ -18,7 +18,6 @@ from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.adapters.sqlite.run_repository import PreparedContentPublication
 from scopecat.analysis.datasets import DERIVED_DATASET_CODEC, DerivedDataset
 from scopecat.analysis.service import (
-    AnalysisDatasetOutput,
     AnalysisFactOutput,
     AnalysisFigureOutput,
     AnalysisTableOutput,
@@ -26,6 +25,12 @@ from scopecat.analysis.service import (
 from scopecat.config.registry import service as config_registry_service
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.measurements.results import Dataset
+from scopecat.records.analysis import (
+    AnalysisDatasetRecordOutput,
+    AnalysisFactRecordOutput,
+    AnalysisFigureRecordOutput,
+    AnalysisTableRecordOutput,
+)
 from scopecat.records.run import RunManifest
 from scopecat.runs.refs import record_content_ref
 from tests.testkit.config_registry import activate_candidate_config
@@ -157,7 +162,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
         config_source=active_source,
     )
 
-    assert isinstance(summary, sc.AnalysisOutcome)
+    assert isinstance(summary, sc.PublishedAnalysis)
     assert summary.outputs[0].kind == "table"
     [summary_input] = run_handle.published_analysis(SUMMARY_STATS_STEP).inputs
     assert summary_input.target == "raw-measurements"
@@ -289,12 +294,12 @@ def test_native_dataframe_trace_returns_one_reusable_derived_dataset(
     assert derived.table.column_names == ["frequency", "response", "score"]
     assert maximum == 2.0
     data_output, maximum_output, table_output, figure_output = outcome.outputs
-    assert isinstance(data_output, AnalysisDatasetOutput)
+    assert isinstance(data_output, AnalysisDatasetRecordOutput)
     assert data_output.produced_by == "_derived_signal_frame"
     dataset_id = "analysis-native-derived-data-derived-signal"
     restored = handle.derived_dataset(dataset_id)
     assert restored.table.equals(derived.table, check_metadata=True)
-    assert isinstance(maximum_output, AnalysisFactOutput)
+    assert isinstance(maximum_output, AnalysisFactRecordOutput)
     assert maximum_output.content.value == 2.0
     assert maximum_output.produced_by == "_derived_score_max"
     first_execution, execution = outcome.executions
@@ -306,11 +311,11 @@ def test_native_dataframe_trace_returns_one_reusable_derived_dataset(
     )
     assert derived_input.codec == DERIVED_DATASET_CODEC
     assert derived_input.value is None
-    assert isinstance(table_output, AnalysisTableOutput)
+    assert isinstance(table_output, AnalysisTableRecordOutput)
     assert table_output.content.source is not None
     assert table_output.content.source.output_id == "derived-signal"
     assert table_output.content.columns == ("frequency", "score")
-    assert isinstance(figure_output, AnalysisFigureOutput)
+    assert isinstance(figure_output, AnalysisFigureRecordOutput)
     assert figure_output.content.source is not None
     assert figure_output.content.source.output_id == "derived-signal"
     assert figure_output.content.projection is not None
@@ -342,6 +347,7 @@ def test_native_dataframe_trace_returns_one_reusable_derived_dataset(
     assert table_view["columns"] == ["frequency", "score"]
     assert "preview" in table_view
     published = handle.published_analysis("native-derived-data")
+    assert outcome.id == published.id
     assert published.id == "analysis-native-derived-data"
     assert published.dataset("derived-signal").table.equals(
         derived.table,
@@ -389,7 +395,7 @@ def test_analysis_trace_retains_native_dataframe_identity_until_publication(
     assert execution.output.kind == "derived_dataset"
     assert execution.output.codec == DERIVED_DATASET_CODEC
     [output] = outcome.outputs
-    assert isinstance(output, AnalysisDatasetOutput)
+    assert isinstance(output, AnalysisDatasetRecordOutput)
     assert output.produced_by == "_native_signal_frame"
     assert (
         handle.published_analysis("native-frame")
@@ -429,7 +435,7 @@ def test_analysis_dataset_publishes_a_native_frame_once(tmp_path: Path) -> None:
     )
 
     [output] = outcome.outputs
-    assert isinstance(output, AnalysisDatasetOutput)
+    assert isinstance(output, AnalysisDatasetRecordOutput)
     restored = handle.derived_dataset("analysis-native-fits-fits")
     assert restored.table.to_pylist() == [
         {"frequency": frequency, "score": score}
@@ -469,7 +475,7 @@ def test_analysis_publishes_typed_facts_and_owned_artifacts(tmp_path: Path) -> N
     )
 
     fact, artifact = outcome.outputs
-    assert isinstance(fact, AnalysisFactOutput)
+    assert isinstance(fact, AnalysisFactRecordOutput)
     assert fact.id == "resonance"
     assert fact.content.schema_id == "scopecat.quantity.v1"
     assert fact.content.value == {"value": 5.1, "unit": "GHz"}
@@ -528,8 +534,8 @@ def test_analysis_key_appends_only_changed_publication_revisions(
         .save()
     )
 
-    assert first.record.id == retried.record.id == "analysis-fit-result"
-    assert second.record.id == "analysis-fit-result-r2"
+    assert first.id == retried.id == "analysis-fit-result"
+    assert second.id == "analysis-fit-result-r2"
     first_publication = handle.published_analysis("analysis-fit-result")
     latest = handle.published_analysis("fit-result")
     assert first_publication.revision == 1
@@ -593,7 +599,7 @@ def test_analysis_revision_owns_its_parameter_proposal_identity(tmp_path: Path) 
     assert second_proposal.id == "drive-frequency-r2"
     assert second_proposal.analysis_record_id == "analysis-fit-r2"
     assert retried_proposal == second_proposal
-    assert retried.record.id == second.record.id
+    assert retried.id == second.id
     assert [
         item.id
         for item in handle.manifest.records
@@ -708,7 +714,7 @@ def test_analysis_save_rolls_back_refs_after_manifest_failure(
 
     recovered_manifest = storage.read_manifest(run.run_id)
     assert any(record.id == analysis_record_id for record in recovered_manifest.records)
-    assert saved.record.id == analysis_record_id
+    assert saved.id == analysis_record_id
 
 
 def test_local_analysis_rejects_metadata_outside_the_remote_json_contract(

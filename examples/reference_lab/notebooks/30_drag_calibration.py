@@ -57,7 +57,7 @@ production_source = production_run.manifest.config_source
 drag_beta_summary = {
     "status": baseline_run.manifest.status,
     "point_count": preview.point_count,
-    "analysis": analysis.record.id,
+    "analysis": analysis.id,
     "proposal_id": proposal.id,
     "candidate_run_uses_analysis": (
         candidate_source is not None

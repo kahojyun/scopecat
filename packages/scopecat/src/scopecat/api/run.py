@@ -21,7 +21,6 @@ from scopecat.analysis.service import (
 from scopecat.api.analysis import (
     Analysis,
     AnalysisContext,
-    AnalysisOutcome,
     AnalysisStep,
 )
 from scopecat.api.data import Data
@@ -522,7 +521,7 @@ class RunHandle:
         step: AnalysisStep,
         *,
         key: str | None = None,
-    ) -> AnalysisOutcome:
+    ) -> PublishedAnalysis:
         """Run and durably publish one declared analysis step."""
 
         analysis = step.run(

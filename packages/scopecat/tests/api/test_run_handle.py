@@ -530,7 +530,7 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
     source = candidate.manifest.config_source
     assert isinstance(source, AnalysisCandidateRunConfigSource)
     assert source.source_run_id == baseline.id
-    assert source.analysis_record_id == outcome.record.id
+    assert source.analysis_record_id == outcome.id
     assert source.proposal_id == candidate_config.proposal_id
 
 
@@ -576,4 +576,4 @@ def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
     assert candidate.manifest.status == "completed"
     source = candidate.manifest.config_source
     assert isinstance(source, AnalysisCandidateRunConfigSource)
-    assert source.analysis_record_id == outcome.record.id
+    assert source.analysis_record_id == outcome.id

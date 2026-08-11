@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from typing import Protocol, cast
 
 from scopecat.analysis.datasets import DerivedDataset
+from scopecat.config.candidates import (
+    CandidateConfig,
+    CandidateSelection,
+    candidate_config_from_proposals,
+)
 from scopecat.daemon.views import RunAnalysisView
 from scopecat.records.analysis import (
     AnalysisArtifactRecordOutput,
@@ -16,19 +21,20 @@ from scopecat.records.analysis import (
     AnalysisFigureRecordOutput,
     AnalysisFigureView,
     AnalysisParameterProposalRecordOutput,
-    AnalysisParameterProposalReference,
     AnalysisRecordInput,
     AnalysisRecordOutput,
     AnalysisTableRecordOutput,
     AnalysisTableView,
 )
 from scopecat.records.artifact import RunContentEntry
+from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import require_artifact
 from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
     RunArtifactTextResult,
+    RunRecordJsonResult,
 )
 
 
@@ -58,6 +64,13 @@ class _PublishedAnalysisRun(Protocol):
         *,
         expected_kind: str | None = None,
     ) -> RunArtifactBytesResult: ...
+
+    def record_json(
+        self,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunRecordJsonResult: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +134,10 @@ class PublishedAnalysis:
         return self.view.analysis.revision
 
     @property
+    def step_id(self) -> str | None:
+        return self.view.analysis.step_id
+
+    @property
     def publication_hash(self) -> str:
         return self.view.analysis.publication_hash
 
@@ -135,6 +152,23 @@ class PublishedAnalysis:
     @property
     def executions(self) -> tuple[AnalysisExecution, ...]:
         return tuple(self.view.analysis.executions)
+
+    @property
+    def parameter_proposals(self) -> tuple[ParameterChangeProposal, ...]:
+        return tuple(
+            self.proposal(output.id)
+            for output in self.outputs
+            if isinstance(output, AnalysisParameterProposalRecordOutput)
+        )
+
+    def candidate_config(
+        self,
+        selection: CandidateSelection = None,
+    ) -> CandidateConfig:
+        return candidate_config_from_proposals(
+            self.parameter_proposals,
+            selection=selection,
+        )
 
     def output(self, id: str) -> AnalysisRecordOutput:
         try:
@@ -161,8 +195,14 @@ class PublishedAnalysis:
     def figure(self, id: str) -> AnalysisFigureView:
         return self._output(id, AnalysisFigureRecordOutput).content
 
-    def proposal(self, id: str) -> AnalysisParameterProposalReference:
-        return self._output(id, AnalysisParameterProposalRecordOutput).content
+    def proposal(self, id: str) -> ParameterChangeProposal:
+        output = self._output(id, AnalysisParameterProposalRecordOutput)
+        return ParameterChangeProposal.model_validate(
+            self.run.record_json(
+                output.content.proposal_id,
+                expected_kind="parameter_change_proposal",
+            ).content
+        )
 
     def _output[OutputT: AnalysisRecordOutput](
         self,

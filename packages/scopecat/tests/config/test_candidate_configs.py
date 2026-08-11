@@ -48,6 +48,7 @@ def test_candidate_config_resolves_proposal_and_runs_follow_up(
     )
     outcome = analysis.save()
     candidate = outcome.candidate_config()
+    reopened = run.published_analysis(outcome.id)
 
     follow_up = lab.prepare(load_invocation(), config=candidate).run()
     approval = lab.review_parameter_proposal(
@@ -64,6 +65,9 @@ def test_candidate_config_resolves_proposal_and_runs_follow_up(
     assert updated.value == Quantity(value=5.5, unit="GHz")
     proposal = outcome.parameter_proposals[0]
     assert proposal.deltas[0].after == updated
+    assert reopened.parameter_proposals == (proposal,)
+    assert reopened.proposal(proposal.id) == proposal
+    assert reopened.candidate_config() == candidate
 
 
 def test_candidate_checks_and_run_leave_source_run_unchanged(
@@ -100,6 +104,40 @@ def test_candidate_checks_and_run_leave_source_run_unchanged(
 
     assert follow_up.config.id == "candidate-drive-frequency"
     assert_source_run_unchanged()
+
+
+def test_published_analysis_selects_one_of_multiple_durable_proposals(
+    tmp_path: Path,
+) -> None:
+    run = _lab(tmp_path).prepare(load_invocation()).run()
+    published = (
+        run.analysis("alternative fits")
+        .propose(
+            "first-fit",
+            sc.replace_scalar_parameter(
+                "drive_frequency",
+                sc.Quantity(5.4, "GHz"),
+            ),
+        )
+        .propose(
+            "second-fit",
+            sc.replace_scalar_parameter(
+                "drive_frequency",
+                sc.Quantity(5.5, "GHz"),
+            ),
+        )
+        .save()
+    )
+
+    with pytest.raises(CheckFailed) as required:
+        published.candidate_config()
+    assert required.value.problems[0].code == "candidate_config_selection_required"
+
+    assert published.candidate_config("second-fit").proposal_id == "second-fit"
+
+    with pytest.raises(CheckFailed) as missing:
+        published.candidate_config("missing-fit")
+    assert missing.value.problems[0].code == "candidate_config_selection_not_found"
 
 
 @pytest.mark.parametrize(

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from scopecat.api._remote import RemoteRunOperations
-from scopecat.api.analysis import AnalysisOutcome
+from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.api.run import RunHandle, run_handle_id
 from scopecat.config.candidates import (
     CandidateConfig,
@@ -251,7 +251,7 @@ class LabConfigOperations:
 
     def accept(
         self,
-        candidate: CandidateConfig | AnalysisOutcome,
+        candidate: CandidateConfig | PublishedAnalysis,
         *,
         selection: CandidateSelection = None,
         entry_id: str | None = None,
@@ -260,11 +260,11 @@ class LabConfigOperations:
     ) -> ConfigPublishReceipt:
         """Accept a saved analysis proposal or an already selected candidate."""
 
-        if isinstance(candidate, AnalysisOutcome):
+        if isinstance(candidate, PublishedAnalysis):
             selected = candidate.candidate_config(selection)
         else:
             if selection is not None:
-                raise ValueError("proposal selection belongs on an AnalysisOutcome")
+                raise ValueError("proposal selection belongs on a PublishedAnalysis")
             selected = candidate
         return self.client.publish_config(
             ConfigPublishCommand(

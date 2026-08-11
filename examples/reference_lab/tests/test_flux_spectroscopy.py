@@ -56,7 +56,7 @@ class _FluxNotebookSummary(TypedDict):
     point_count: int
     measurement_records: int
     analysis_id: str
-    published_analysis_id: str
+    analysis_revision: int
     candidate_config_id: str
 
 
@@ -257,7 +257,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
 
     analysis = run.analyze(flux_spectroscopy_analysis())
     candidate = lab.resolve_config(config=analysis.candidate_config())
-    assert analysis.record.id == "analysis-reference_lab-flux_spectroscopy-analysis"
+    assert analysis.id == "analysis-reference_lab-flux_spectroscopy-analysis"
     assert [output.kind for output in analysis.outputs] == [
         "table",
         "table",
@@ -309,7 +309,7 @@ def test_flux_spectroscopy_notebook_completes_through_the_project_daemon(
     assert summary["analysis_id"] == (
         "analysis-reference_lab-flux_spectroscopy-analysis"
     )
-    assert summary["published_analysis_id"] == summary["analysis_id"]
+    assert summary["analysis_revision"] == 1
     assert summary["candidate_config_id"] == "candidate-readout-resonator-fit"
 
 

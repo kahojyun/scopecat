@@ -37,10 +37,7 @@ from scopecat.analysis.service import (
     SavedAnalysis,
 )
 from scopecat.api.data import Data
-from scopecat.config.candidates import (
-    CandidateConfig,
-    CandidateSelection,
-)
+from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.config.changes import (
     parameter_change_proposal_from_updates,
 )
@@ -76,7 +73,6 @@ from scopecat.records.analysis import (
     AnalysisTableRow,
     AnalysisTableView,
 )
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.sdk.compute import (
@@ -129,6 +125,8 @@ class _AnalysisRun(Protocol):
         outputs: Sequence[AnalysisOutput],
         parameter_proposals: Sequence[ParameterChangeProposal],
     ) -> SavedAnalysis: ...
+
+    def published_analysis(self, selector: str) -> PublishedAnalysis: ...
 
 
 @dataclass(frozen=True)
@@ -582,7 +580,7 @@ class Analysis:
             parameter_proposals=(*self.parameter_proposals, proposal),
         )
 
-    def save(self) -> AnalysisOutcome:
+    def save(self) -> PublishedAnalysis:
         saved = self.run.save_analysis(
             title=self.title,
             analysis_key=self.analysis_key,
@@ -592,42 +590,7 @@ class Analysis:
             outputs=self.outputs,
             parameter_proposals=self.parameter_proposals,
         )
-        return AnalysisOutcome(
-            record=saved.record,
-            title=self.title,
-            analysis_key=saved.analysis_key,
-            step_id=self.step_id,
-            inputs=saved.inputs,
-            executions=saved.executions,
-            outputs=saved.outputs,
-            parameter_proposals=saved.parameter_proposals,
-        )
-
-
-@dataclass(frozen=True)
-class AnalysisOutcome:
-    """One analysis that has been durably published to its source run."""
-
-    record: RunContentEntry
-    title: str
-    analysis_key: str
-    step_id: str | None = None
-    inputs: tuple[AnalysisInput, ...] = ()
-    executions: tuple[AnalysisExecution, ...] = ()
-    outputs: tuple[AnalysisOutput, ...] = ()
-    parameter_proposals: tuple[ParameterChangeProposal, ...] = ()
-
-    def candidate_config(
-        self,
-        selection: CandidateSelection = None,
-    ) -> CandidateConfig:
-        proposal = _select_candidate_proposal(
-            self.parameter_proposals,
-            selection=selection,
-        )
-        return CandidateConfig(
-            parameter_proposal=proposal,
-        )
+        return self.run.published_analysis(saved.record.id)
 
 
 @dataclass(frozen=True)
@@ -1119,40 +1082,6 @@ def _analysis_definition[**P](
     )
 
 
-def _select_candidate_proposal(
-    proposals: Sequence[ParameterChangeProposal],
-    *,
-    selection: CandidateSelection,
-) -> ParameterChangeProposal:
-    if not proposals:
-        _raise_analysis_problem(
-            "candidate_config_no_parameter_proposals",
-            "candidate config requires at least one parameter proposal",
-            "parameter_proposals",
-        )
-    if selection is None:
-        if len(proposals) == 1:
-            return proposals[0]
-        _raise_analysis_problem(
-            "candidate_config_selection_required",
-            (
-                "candidate config selection is required when analysis has multiple "
-                "parameter proposals"
-            ),
-            "selection",
-        )
-    by_id = {proposal.id: proposal for proposal in proposals}
-    proposal_id = artifact_slug(selection, fallback="analysis")
-    try:
-        return by_id[proposal_id]
-    except KeyError:
-        _raise_analysis_problem(
-            "candidate_config_selection_not_found",
-            f"candidate config selection was not found: {proposal_id}",
-            "selection",
-        )
-
-
 def _analysis_key(key: str | None, title: str) -> str:
     selected = key if key is not None else title
     if not selected.strip():
@@ -1208,7 +1137,6 @@ __all__ = [
     "AnalysisFigureSeries",
     "AnalysisInput",
     "AnalysisInvocation",
-    "AnalysisOutcome",
     "AnalysisOutput",
     "AnalysisStep",
     "AnalysisTable",

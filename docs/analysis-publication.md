@@ -59,6 +59,11 @@ record ID returns that historical revision. `PublishedAnalysis.revision` and
 code needs to report or compare them; ordinary authoring code does not manage
 either value.
 
+`Analysis.save()` and `run.analyze(...)` return that same `PublishedAnalysis`
+handle after persistence. There is no separate immediate outcome model: code run
+in the publishing cell and code run after reopening the project use the same
+typed output access and load parameter proposals from the same durable records.
+
 ## Conversion policy
 
 Adapters may perform an automatic conversion only when Scopecat can preserve

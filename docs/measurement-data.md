@@ -679,13 +679,14 @@ publishes it and returns one durable outcome; there is no additional save call:
 analysis = run.analyze(resonator_fit_analysis())
 candidate = analysis.candidate_config()
 accepted = lab.config.accept(analysis)
-print(analysis.record.id)
+print(analysis.id)
 ```
 
 Use `run.analysis(...).save()` only for an exploratory notebook analysis assembled
 directly rather than through a reusable analysis step. Both paths return the same
-`AnalysisOutcome`, so tables, figures, derived data, proposals, and candidate
-configuration all come from an analysis that already exists in the source run.
+`PublishedAnalysis` handle used by `run.published_analysis(...)`, so immediate and
+historical code read tables, figures, derived data, proposals, and candidate
+configuration through one durable interface.
 Use `fact(...)` for a small typed conclusion and `artifact(...)` for an exact
 file or byte sequence produced by the analysis. Both receive stable
 analysis-local IDs; artifacts are stored as content-addressed run entries owned
