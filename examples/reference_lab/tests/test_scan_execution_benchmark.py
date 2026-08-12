@@ -90,7 +90,22 @@ def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
     object_bytes = sum(
         path.stat().st_size for path in object_root.rglob("*") if path.is_file()
     )
-    assert object_bytes >= (257 * 6 * 128 * 8) // 2
+    total_waveform_bytes = 257 * 6 * 128 * 8
+    assert object_bytes < total_waveform_bytes // 2
+    result_line = next(
+        line
+        for line in completed.stdout.splitlines()
+        if line.startswith("SCAN_BENCHMARK_RESULT=")
+    )
+    result = cast(
+        "dict[str, object]",
+        json.loads(result_line.removeprefix("SCAN_BENCHMARK_RESULT=")),
+    )
+    assert result["payload_spool_bytes_at_finish"] == 0
+    peak_spool_bytes = cast("int", result["peak_payload_spool_bytes"])
+    max_batch_bytes = cast("int", result["max_waveform_batch_bytes"])
+    assert peak_spool_bytes > 0
+    assert peak_spool_bytes <= 2 * max_batch_bytes
 
 
 def test_waveform_profile_matches_multichannel_working_set(tmp_path: Path) -> None:
@@ -134,7 +149,7 @@ def test_waveform_profile_matches_multichannel_working_set(tmp_path: Path) -> No
     expected_total_bytes = 3 * 6 * 128 * 8
     expected_retained_bytes = 6 * 128 * 8
     assert all(
-        result["schema"] == "scopecat.scan_execution_benchmark.v3" for result in results
+        result["schema"] == "scopecat.scan_execution_benchmark.v4" for result in results
     )
     assert all(
         result["waveform_bytes_uploaded"] == expected_total_bytes for result in results

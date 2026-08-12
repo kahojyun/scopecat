@@ -98,8 +98,8 @@ waveform working set.
 
 The matched `scopecat` runner executes the reference-lab drag-beta experiment
 through the production daemon client, HTTP models, run admission and leases,
-payload-object uploads, immutable object storage, instrument service, local
-driver endpoint, collection, and durable run storage. `scopecat-core` is an
+operation-scoped payload spooling, instrument service, local driver endpoint,
+collection, and durable run storage. `scopecat-core` is an
 optional diagnostic that runs the same planning and execution semantics through
 a direct test instrument host; it deliberately excludes daemon transport and
 must not be used as the product acceptance result. The default comparison is
@@ -128,8 +128,10 @@ them after each worker. Raw JSON Lines results default to
 dirty state, host metadata, scenario, phase timings, resident-memory growth,
 durable bytes, object-store bytes, file counts, logical point count, and
 physical trigger count. `object_store_bytes` is especially important when
-comparing `scopecat-core` with `scopecat`: the difference includes transient
-command payloads retained by the production immutable object store.
+comparing `scopecat-core` with `scopecat`: it now measures only durable
+content, not ordinary command transport. `peak_payload_spool_bytes` measures
+the largest simultaneous command-payload working set and
+`payload_spool_bytes_at_finish` must be zero after a completed run.
 
 Use three measured repetitions after one warmup for a comparison run. Increase
 the largest point count geometrically only while the previous step remains
@@ -288,10 +290,11 @@ The present architecture provides a direct end-to-end baseline:
 - one SQLite writer owns durable ordering while immutable object storage carries
   large content, and measurement records are appended in chunks bounded by both
   record count and value bytes;
-- command payload uploads currently use that same permanent immutable object
-  store. There is no run-scoped transient payload lifetime, so unique waveform
-  programs and synthetic capture queues accumulate with total execution volume
-  even though durable command evidence retains only their descriptors;
+- ordinary command payload uploads use an in-memory spool scoped by run and
+  hardware operation, or by direct session and command. A completed, rejected,
+  or replayed operation releases its bytes immediately; owner termination and
+  daemon shutdown clear orphaned uploads. Unique waveform programs therefore
+  do not accumulate in the permanent object store or with total point count;
 - projected Arrow readers and GUI previews provide bounded read paths.
 
 The next dense-spectroscopy limit is the eager point domain, parameter binding,
@@ -299,18 +302,23 @@ and run point catalog: their preparation time and retained memory still grow
 with total point count. Local effects and live prepared target artifacts are
 bounded by the current physical batch. Inline command payloads retain raw bytes
 in memory and convert to base64 only for an actual JSON wire representation;
-the daemon client uploads those bytes to content-addressed object storage before
-posting a control command containing only the blob descriptor. Hardware
-operation identities and durable evidence cover the descriptor rather than
-serializing the payload body.
+the daemon client uploads those bytes to an operation-scoped content-addressed
+spool before posting a control command containing only the blob descriptor.
+Hardware operation identities and durable evidence cover the descriptor rather
+than serializing the payload body.
 
-The production waveform profile now distinguishes immutable-object transfer and
-retention from core compilation and driver work. Its next architecture change
-should give ordinary command payloads a bounded run-scoped spool or streaming
-transport, while keeping permanent publication explicit for payloads that must
-remain inspectable after execution. The other profiles establish whether
-acquisition volume or history reaches its resource budget first. Workflow
-scalability awaits a workflow ownership model.
+The spool is deliberately transient: if the daemon restarts after an upload but
+before the command is accepted, the client must submit the command again and
+re-upload its payload. A lost response after execution remains replayable from
+the operation ledger without materializing the released bytes. Permanent
+publication remains a separate future capability for payloads that must be
+inspectable after execution.
+
+The production waveform profile now separates transient transfer, durable
+object retention, compilation, and driver work. Its next limit is the eager
+point domain, parameter binding, and run point catalog during preparation. The
+other profiles establish whether acquisition volume or history reaches its
+resource budget first. Workflow scalability awaits a workflow ownership model.
 
 ## Development Cadence
 

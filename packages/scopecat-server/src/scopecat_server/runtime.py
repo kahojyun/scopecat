@@ -108,7 +108,7 @@ class LocalDaemonRuntime:
                 sqlite,
                 runs=runs,
             )
-            payloads = CommandPayloadService(project_store.objects)
+            payloads = CommandPayloadService()
 
             services = ProjectStateServices(
                 runs=runs,

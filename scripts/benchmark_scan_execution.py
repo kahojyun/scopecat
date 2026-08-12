@@ -181,7 +181,7 @@ class HostMetadata:
 class BenchmarkResult:
     """One isolated benchmark worker result."""
 
-    schema: Literal["scopecat.scan_execution_benchmark.v3"]
+    schema: Literal["scopecat.scan_execution_benchmark.v4"]
     revision: str
     runner: RunnerName
     scenario: ScanScenario
@@ -196,6 +196,8 @@ class BenchmarkResult:
     waveform_bytes_uploaded: int | None
     max_waveform_batch_bytes: int | None
     live_waveform_bytes_retained: int | None
+    payload_spool_bytes_at_finish: int
+    peak_payload_spool_bytes: int
     object_store_bytes: int
     object_store_file_count: int
     durable_bytes: int
@@ -427,7 +429,7 @@ def run_ad_hoc(
         memory.observe()
     durable_bytes, durable_files = _tree_size(root)
     return BenchmarkResult(
-        schema="scopecat.scan_execution_benchmark.v3",
+        schema="scopecat.scan_execution_benchmark.v4",
         revision=_git_revision(),
         runner="adhoc",
         scenario=scenario,
@@ -442,6 +444,8 @@ def run_ad_hoc(
         waveform_bytes_uploaded=hardware.uploaded_bytes,
         max_waveform_batch_bytes=max_waveform_batch_bytes,
         live_waveform_bytes_retained=view.retained_bytes,
+        payload_spool_bytes_at_finish=0,
+        peak_payload_spool_bytes=0,
         object_store_bytes=0,
         object_store_file_count=0,
         durable_bytes=durable_bytes,
@@ -502,7 +506,7 @@ def run_scopecat_core(
         root / ".scopecat-test" / "objects"
     )
     return BenchmarkResult(
-        schema="scopecat.scan_execution_benchmark.v3",
+        schema="scopecat.scan_execution_benchmark.v4",
         revision=_git_revision(),
         runner="scopecat-core",
         scenario=scenario,
@@ -517,6 +521,8 @@ def run_scopecat_core(
         waveform_bytes_uploaded=waveforms.uploaded_bytes,
         max_waveform_batch_bytes=waveforms.max_batch_bytes,
         live_waveform_bytes_retained=waveforms.retained_bytes,
+        payload_spool_bytes_at_finish=0,
+        peak_payload_spool_bytes=0,
         object_store_bytes=object_store_bytes,
         object_store_file_count=object_store_files,
         durable_bytes=durable_bytes,
@@ -585,10 +591,14 @@ def run_scopecat(
         if run.manifest.status != "completed":
             raise RuntimeError(f"Scopecat run ended as {run.manifest.status}")
         points_completed = len(run.measurements().records)
+        payload_spool_bytes = runtime.application.payloads.spooled_size_bytes()
+        peak_payload_spool_bytes = (
+            runtime.application.payloads.peak_spooled_size_bytes()
+        )
     durable_bytes, durable_files = _tree_size(root)
     object_store_bytes, object_store_files = _tree_size(root / ".scopecat" / "objects")
     return BenchmarkResult(
-        schema="scopecat.scan_execution_benchmark.v3",
+        schema="scopecat.scan_execution_benchmark.v4",
         revision=_git_revision(),
         runner="scopecat",
         scenario=scenario,
@@ -603,6 +613,8 @@ def run_scopecat(
         waveform_bytes_uploaded=waveforms.uploaded_bytes,
         max_waveform_batch_bytes=waveforms.max_batch_bytes,
         live_waveform_bytes_retained=waveforms.retained_bytes,
+        payload_spool_bytes_at_finish=payload_spool_bytes,
+        peak_payload_spool_bytes=peak_payload_spool_bytes,
         object_store_bytes=object_store_bytes,
         object_store_file_count=object_store_files,
         durable_bytes=durable_bytes,

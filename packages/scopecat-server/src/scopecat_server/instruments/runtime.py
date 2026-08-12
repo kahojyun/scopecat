@@ -100,6 +100,11 @@ from scopecat_server.storage.sqlite.control_plane import (
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
+from ..services.payloads import (
+    CommandPayloadError,
+    run_payload_scope,
+    session_payload_scope,
+)
 from ._runtime_state import (
     ApplyReplay,
     CollectFailureReplay,
@@ -156,7 +161,7 @@ from .commands import (
 
 if TYPE_CHECKING:
     from ..services.config import ConfigService
-    from ..services.payloads import CommandPayloadService
+    from ..services.payloads import CommandPayloadScope, CommandPayloadService
 
 
 class InstrumentRuntime:
@@ -853,6 +858,7 @@ class InstrumentRuntime:
     ) -> RunHardwareBatchReceipt:
         """Execute one idempotent ordered hardware block under the run fence."""
 
+        payload_scope = run_payload_scope(run_id, request.batch.operation_id)
         context = self._run_context_state(run_id)
         if context is None:
             raise BackendConflict("run instruments are not provisioned")
@@ -861,14 +867,23 @@ class InstrumentRuntime:
             provision = context.provision
             if provision is None or provision.receipt.status != "ready":
                 raise BackendConflict("run hardware is not ready")
-            canonical_request = self._payloads.canonicalize_hardware_command(request)
+            try:
+                canonical_request = self._payloads.canonicalize_hardware_command(
+                    request,
+                    scope=payload_scope,
+                )
+            except CommandPayloadError:
+                self._payloads.release(payload_scope)
+                raise
             cached = provision.batches.get(canonical_request.batch.operation_id)
             if cached is not None:
                 cached_request, cached_receipt = cached
                 if cached_request != canonical_request:
+                    self._payloads.release(payload_scope)
                     raise BackendConflict(
                         "hardware batch id has different operation content"
                     )
+                self._payloads.release(payload_scope)
                 return cached_receipt
             runtime = context.runtime
             if runtime is None:
@@ -887,11 +902,19 @@ class InstrumentRuntime:
                     canonical_request,
                     receipt,
                 )
+                self._payloads.release(payload_scope)
                 return receipt
-            materialized_payloads = self._payloads.materialize_payload_sets(
-                action.payloads if isinstance(action, RunHardwareInvoke) else {}
-                for action in canonical_request.batch.actions
-            )
+            try:
+                materialized_payloads = self._payloads.materialize_payload_sets(
+                    (
+                        action.payloads if isinstance(action, RunHardwareInvoke) else {}
+                        for action in canonical_request.batch.actions
+                    ),
+                    scope=payload_scope,
+                )
+            except CommandPayloadError:
+                self._payloads.release(payload_scope)
+                raise
             backend_requests = tuple(
                 lower_hardware_action(
                     action,
@@ -1019,11 +1042,13 @@ class InstrumentRuntime:
                     token=canonical_request.lease_id,
                     reason=indeterminate_reason,
                 )
+                self._payloads.release(payload_scope)
                 return receipt
             provision.batches[canonical_request.batch.operation_id] = (
                 canonical_request,
                 receipt,
             )
+            self._payloads.release(payload_scope)
             return receipt
 
     def _record_hardware_batch_finished(
@@ -1403,6 +1428,7 @@ class InstrumentRuntime:
                     raise BackendConflict(
                         "run hardware was finalized with different content"
                     )
+                self._payloads.release_owner("run", run_id)
                 return finalization.receipt
 
             self._fence_run(run_id, command.lease_id)
@@ -1443,6 +1469,7 @@ class InstrumentRuntime:
                 command=command,
                 receipt=receipt,
             )
+            self._payloads.release_owner("run", run_id)
             return receipt
 
     def _finalize_run_instruments(
@@ -2292,39 +2319,46 @@ class InstrumentRuntime:
         instrument_id: str,
         command: InvokeCommand,
     ) -> InvokeReceipt:
-        if command.instrument_id != instrument_id:
-            raise BackendConflict("instrument invoke command does not match its route")
-        runtime = self._live_runtime(session_id)
-        with runtime.lock:
-            session, _runtime, instrument = self._session_instrument(
-                session_id,
-                instrument_id,
-            )
-            command_id = command.command_id
-            return self._invoke_live(
-                runtime,
-                instrument,
-                command=command,
-                conflict_scope="interactive",
-                on_started=lambda: self._record_operation_started(
-                    session,
-                    instrument_id=instrument_id,
-                    operation_id=command_id,
-                    kind="invoke",
-                ),
-                on_finished=lambda status: self._record_operation_finished(
-                    session,
-                    instrument_id=instrument_id,
-                    operation_id=command_id,
-                    kind="invoke",
-                    status=status,
-                ),
-                on_unknown=lambda reason: self._lose_runtime(
-                    session,
+        payload_scope = session_payload_scope(session_id, command.command_id)
+        try:
+            if command.instrument_id != instrument_id:
+                raise BackendConflict(
+                    "instrument invoke command does not match its route"
+                )
+            runtime = self._live_runtime(session_id)
+            with runtime.lock:
+                session, _runtime, instrument = self._session_instrument(
+                    session_id,
+                    instrument_id,
+                )
+                command_id = command.command_id
+                return self._invoke_live(
                     runtime,
-                    reason=reason,
-                ),
-            )
+                    instrument,
+                    command=command,
+                    payload_scope=payload_scope,
+                    conflict_scope="interactive",
+                    on_started=lambda: self._record_operation_started(
+                        session,
+                        instrument_id=instrument_id,
+                        operation_id=command_id,
+                        kind="invoke",
+                    ),
+                    on_finished=lambda status: self._record_operation_finished(
+                        session,
+                        instrument_id=instrument_id,
+                        operation_id=command_id,
+                        kind="invoke",
+                        status=status,
+                    ),
+                    on_unknown=lambda reason: self._lose_runtime(
+                        session,
+                        runtime,
+                        reason=reason,
+                    ),
+                )
+        finally:
+            self._payloads.release(payload_scope)
 
     def collect(
         self,
@@ -2458,6 +2492,7 @@ class InstrumentRuntime:
         instrument: OwnedInstrument,
         *,
         command: InvokeCommand,
+        payload_scope: CommandPayloadScope,
         conflict_scope: str,
         on_started: Callable[[], None],
         on_finished: Callable[[str], None],
@@ -2487,7 +2522,10 @@ class InstrumentRuntime:
                     ]
                 )
             )
-        canonical_command = self._payloads.canonicalize_invoke_command(command)
+        canonical_command = self._payloads.canonicalize_invoke_command(
+            command,
+            scope=payload_scope,
+        )
         if replay is not None:
             if replay.command != canonical_command:
                 raise BackendConflict(
@@ -2497,7 +2535,8 @@ class InstrumentRuntime:
         backend_request = lower_backend_invoke_request(
             canonical_command,
             materialized_payloads=self._payloads.materialize_payloads(
-                canonical_command.payloads
+                canonical_command.payloads,
+                scope=payload_scope,
             ),
         )
         on_started()
@@ -2623,6 +2662,7 @@ class InstrumentRuntime:
         with self._sessions_lock:
             context = self._sessions.get(session_id)
         if context is None:
+            self._payloads.release_owner("session", session_id)
             return
         runtime = context.runtime
         with runtime.lock:
@@ -2633,6 +2673,7 @@ class InstrumentRuntime:
             with self._sessions_lock:
                 if self._sessions.get(session_id) is context:
                     self._sessions.pop(session_id)
+            self._payloads.release_owner("session", session_id)
 
     def expire_leases(self, *, at: datetime | None = None) -> None:
         """Fence expired owners and finish their daemon-owned cleanup."""
@@ -2739,6 +2780,7 @@ class InstrumentRuntime:
         self._discard_run_state(run_id)
 
     def _discard_run_state(self, run_id: str) -> None:
+        self._payloads.release_owner("run", run_id)
         with self._run_lock:
             context = self._run_contexts.get(run_id)
         if context is None:
@@ -2787,6 +2829,7 @@ class InstrumentRuntime:
                 self._run_contexts.pop(run_id)
                 runtime = context.runtime
                 context.runtime = None
+            self._payloads.release_owner("run", run_id)
             if runtime is not None:
                 with runtime.lock:
                     fault_ownership(runtime, abort=True)
@@ -2899,6 +2942,7 @@ class InstrumentRuntime:
             session = self._control.get_instrument_session(session_id)
             if session.state == "closed":
                 assert session.end_status is not None
+                self._payloads.release_owner("session", session_id)
                 return InstrumentSessionEndReceipt(
                     session_id=session_id,
                     status=session.end_status,
@@ -2942,8 +2986,7 @@ class InstrumentRuntime:
                     reason="instrument_session_close_failed",
                 )
                 raise BackendConflict(str(error)) from error
-            with self._sessions_lock:
-                self._sessions.pop(session_id, None)
+            self._pop_runtime(session_id)
             return InstrumentSessionEndReceipt(
                 session_id=session_id,
                 status="aborted" if abort else "closed",
@@ -2982,6 +3025,7 @@ class InstrumentRuntime:
     def _pop_runtime(self, session_id: str) -> OwnershipRuntime | None:
         with self._sessions_lock:
             context = self._sessions.pop(session_id, None)
+        self._payloads.release_owner("session", session_id)
         return None if context is None else context.runtime
 
     def _lose_runtime(

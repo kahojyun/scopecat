@@ -449,6 +449,7 @@ def test_invoke_externalizes_inline_payload_before_command_post() -> None:
         f"{payload.content_hash.removeprefix('sha256:')}"
     )
     assert requests[0].content == content
+    assert requests[0].headers["x-scopecat-payload-command-id"] == command.command_id
     assert requests[1].url.path.endswith("/instruments/source-0/invoke")
     posted = InvokeCommand.model_validate_json(requests[1].content)
     posted_payload = posted.payloads[payload.id]

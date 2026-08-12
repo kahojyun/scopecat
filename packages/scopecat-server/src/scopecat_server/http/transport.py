@@ -122,8 +122,9 @@ from ..errors import BackendConflict, BackendNotFound
 from ..services.application import DaemonApplication
 from ..services.payloads import (
     CommandPayloadError,
-    CommandPayloadStorageError,
     CommandPayloadTooLarge,
+    run_payload_scope,
+    session_payload_scope,
 )
 
 _API_PREFIX = "/api/v1"
@@ -180,10 +181,15 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         session_id: str,
         hexdigest: Annotated[str, ApiPath(pattern=r"^[0-9a-f]{64}$")],
         request: Request,
+        command_id: Annotated[
+            str,
+            Header(alias="X-Scopecat-Payload-Command-ID", min_length=1),
+        ],
     ) -> PayloadObjectReceipt:
         application.instruments.authorize_session_payload_upload(session_id)
         return await application.payloads.put_object_stream(
             request.stream(),
+            scope=session_payload_scope(session_id, command_id),
             expected_content_hash=f"sha256:{hexdigest}",
             declared_size_bytes=_request_content_length(request),
         )
@@ -200,10 +206,15 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
             str,
             Header(alias="X-Scopecat-Lease-ID", min_length=1),
         ],
+        operation_id: Annotated[
+            str,
+            Header(alias="X-Scopecat-Payload-Operation-ID", min_length=1),
+        ],
     ) -> PayloadObjectReceipt:
         application.instruments.authorize_run_payload_upload(run_id, lease_id)
         return await application.payloads.put_object_stream(
             request.stream(),
+            scope=run_payload_scope(run_id, operation_id),
             expected_content_hash=f"sha256:{hexdigest}",
             declared_size_bytes=_request_content_length(request),
         )
@@ -697,13 +708,6 @@ def _install_error_mapping(app: FastAPI) -> None:
         error: CommandPayloadTooLarge,
     ) -> JSONResponse:
         return JSONResponse(status_code=413, content={"detail": str(error)})
-
-    @app.exception_handler(CommandPayloadStorageError)
-    async def payload_storage_failure(
-        _request: Request,
-        error: CommandPayloadStorageError,
-    ) -> JSONResponse:
-        return JSONResponse(status_code=500, content={"detail": str(error)})
 
     @app.exception_handler(CommandPayloadError)
     async def invalid_payload(

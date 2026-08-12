@@ -62,7 +62,10 @@ class DaemonApplication:
         try:
             self.instruments.shutdown()
         finally:
-            self._lease_supervisor.close()
+            try:
+                self.payloads.close()
+            finally:
+                self._lease_supervisor.close()
 
     def health(self) -> DaemonHealth:
         try:
