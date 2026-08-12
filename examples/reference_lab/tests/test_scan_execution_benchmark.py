@@ -149,7 +149,7 @@ def test_waveform_profile_matches_multichannel_working_set(tmp_path: Path) -> No
     expected_total_bytes = 3 * 6 * 128 * 8
     expected_retained_bytes = 6 * 128 * 8
     assert all(
-        result["schema"] == "scopecat.scan_execution_benchmark.v4" for result in results
+        result["schema"] == "scopecat.scan_execution_benchmark.v5" for result in results
     )
     assert all(
         result["waveform_bytes_uploaded"] == expected_total_bytes for result in results
@@ -162,4 +162,118 @@ def test_waveform_profile_matches_multichannel_working_set(tmp_path: Path) -> No
     assert by_runner["adhoc"]["max_waveform_batch_bytes"] == expected_retained_bytes
     assert (
         by_runner["scopecat"]["max_waveform_batch_bytes"] == 2 * expected_retained_bytes
+    )
+
+
+def test_result_retention_profile_separates_selected_data_from_control(
+    tmp_path: Path,
+) -> None:
+    transient = _result_worker(
+        tmp_path,
+        runner="adhoc",
+        retention="transient",
+        shots=8,
+    )
+    ad_hoc_raw = _result_worker(
+        tmp_path,
+        runner="adhoc",
+        retention="iq-and-bits",
+        shots=8,
+    )
+    summary_small = _result_worker(
+        tmp_path,
+        runner="scopecat",
+        retention="summary",
+        shots=8,
+    )
+    summary_large = _result_worker(
+        tmp_path,
+        runner="scopecat",
+        retention="summary",
+        shots=64,
+    )
+    bit_shots = _result_worker(
+        tmp_path,
+        runner="scopecat",
+        retention="bit-shots",
+        shots=64,
+    )
+    iq_and_bits = _result_worker(
+        tmp_path,
+        runner="scopecat",
+        retention="iq-and-bits",
+        shots=64,
+    )
+
+    assert transient["selected_result_bytes"] == 0
+    assert transient["measurement_dataset_bytes"] == 0
+    assert transient["durable_bytes"] == 0
+    assert ad_hoc_raw["durable_file_count"] == 3
+
+    assert summary_small["acquired_result_bytes"] == 512
+    assert summary_large["acquired_result_bytes"] == 4096
+    assert summary_small["selected_result_bytes"] == 32
+    assert summary_large["selected_result_bytes"] == 32
+    assert cast("int", summary_large["measurement_dataset_bytes"]) < (
+        cast("int", summary_small["measurement_dataset_bytes"]) + 1024
+    )
+
+    assert bit_shots["selected_result_bytes"] == 32
+    assert iq_and_bits["selected_result_bytes"] == 4128
+    assert cast("int", iq_and_bits["measurement_dataset_bytes"]) > cast(
+        "int", bit_shots["measurement_dataset_bytes"]
+    )
+    for result in (summary_small, summary_large, bit_shots, iq_and_bits):
+        assert result["points_completed"] == 2
+        assert result["durable_bytes"] == (
+            cast("int", result["measurement_dataset_bytes"])
+            + cast("int", result["control_and_provenance_bytes"])
+        )
+
+
+def _result_worker(
+    tmp_path: Path,
+    *,
+    runner: str,
+    retention: str,
+    shots: int,
+) -> dict[str, object]:
+    script = Path(__file__).parents[3] / "scripts" / "benchmark_scan_execution.py"
+    work_dir = tmp_path / f"{runner}-{retention}-{shots}"
+    completed = subprocess.run(  # noqa: S603
+        (
+            sys.executable,
+            str(script),
+            "--worker",
+            runner,
+            "--point-count",
+            "2",
+            "--profile",
+            "results",
+            "--retention",
+            retention,
+            "--shots",
+            str(shots),
+            "--waveform-samples",
+            "72",
+            "--qubits",
+            "2",
+            "--host-label",
+            "test",
+            "--work-dir",
+            str(work_dir),
+        ),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    result_line = next(
+        line
+        for line in completed.stdout.splitlines()
+        if line.startswith("SCAN_BENCHMARK_RESULT=")
+    )
+    return cast(
+        "dict[str, object]",
+        json.loads(result_line.removeprefix("SCAN_BENCHMARK_RESULT=")),
     )
