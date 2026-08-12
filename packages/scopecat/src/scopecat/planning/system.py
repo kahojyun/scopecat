@@ -51,6 +51,7 @@ from scopecat.planning.domain_results import (
     domain_result_product_use_ids,
 )
 from scopecat.planning.local_effects import (
+    LocalTargetPlan,
     MaterializedLocalEffects,
     local_operation_resource_requirements,
 )
@@ -87,6 +88,9 @@ from scopecat.sdk.instruments.contracts import (
     resolve_implementation_state_reference,
 )
 from scopecat.sdk.payloads import PayloadCodecRegistry
+
+_INITIAL_LOCAL_COVERAGE_BATCH_SIZE = 32
+_MAX_LOCAL_COVERAGE_BATCH_SIZE = 256
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,11 +256,11 @@ def _compile_system_program(
         if local_execution_required
         else None
     )
-    local_effects = (
+    preview_local_effects = (
         materialize_local_execution(
             bound_points,
             target=local_target,
-            point_ordinals=execution_ordinals,
+            point_ordinals=execution_ordinals[:1],
         )
         if local_target is not None
         else None
@@ -269,8 +273,8 @@ def _compile_system_program(
         if local_target is not None
         else ()
     )
-    local_requirements = _local_resource_requirements(
-        local_effects,
+    local_requirements = _local_target_resource_requirements(
+        local_target,
         success_state=local_success_state,
     )
     coverage = _compile_coverage(
@@ -279,7 +283,7 @@ def _compile_system_program(
         bound_points=bound_points,
         point_ordinals=execution_ordinals,
         domain_calls=domain_calls,
-        local_effects=local_effects,
+        local_target=local_target,
         catalog=catalog,
     )
     domain_instrument_ids = (
@@ -320,14 +324,15 @@ def _compile_system_program(
             host=host,
             effect_blocks=(
                 ()
-                if local_effects is None
+                if preview_local_effects is None
                 else (
                     tuple(
-                        effect.operation for effect in local_effects.compute_operations
+                        effect.operation
+                        for effect in preview_local_effects.compute_operations
                     ),
                     *(
                         tuple(effect.operation for effect in effects)
-                        for effects in local_effects.effect_operations
+                        for effects in preview_local_effects.effect_operations
                     ),
                     local_success_state,
                 )
@@ -344,10 +349,10 @@ def _compile_system_program(
         measurement_computes=bound.bindings.measurement_computes,
         compute_operations=(
             ()
-            if local_effects is None
+            if preview_local_effects is None
             else tuple(
                 cast("ComputeOperation", effect.operation)
-                for effect in local_effects.compute_operations
+                for effect in preview_local_effects.compute_operations
             )
         ),
         resource_requirements=resource_requirements,
@@ -465,30 +470,28 @@ def _sorted_requirements(
     )
 
 
-def _local_resource_requirements(
-    local_effects: MaterializedLocalEffects | None,
+def _local_target_resource_requirements(
+    local_target: LocalTargetPlan | None,
     *,
     success_state: Sequence[LocalOperation] = (),
 ) -> tuple[ResourceRequirement, ...]:
-    if local_effects is None and not success_state:
-        return ()
-    effect_operations = (
+    target_instrument_ids = (
         ()
-        if local_effects is None
-        else (
-            *(effect.operation for effect in local_effects.compute_operations),
-            *(
-                effect.operation
-                for group in local_effects.effect_operations
-                for effect in group
-            ),
+        if local_target is None
+        else tuple(
+            instrument_id
+            for manifest in local_target.resource_ports.values()
+            for instrument_id in manifest.candidate_instrument_ids
         )
     )
     return _sorted_requirements(
-        tuple(
-            requirement
-            for operation in (*effect_operations, *success_state)
-            for requirement in local_operation_resource_requirements(operation)
+        (
+            *(ResourceRequirement(item) for item in target_instrument_ids),
+            *(
+                requirement
+                for operation in success_state
+                for requirement in local_operation_resource_requirements(operation)
+            ),
         )
     )
 
@@ -507,23 +510,52 @@ class _ScheduledStateGuarantee:
     provenance: dict[str, object]
 
 
+@dataclass(frozen=True, slots=True)
+class _MaterializedLocalCoverage:
+    effects: MaterializedLocalEffects
+
+
 class _CoverageValidator:
     """Validate batch-local contracts immediately before yielding each operation."""
 
     def __init__(
         self,
         *,
-        local_effects: MaterializedLocalEffects | None,
         domain_instrument_ids: tuple[str, ...],
         catalog: InstrumentContractCatalog,
     ) -> None:
-        self._host_write_points = _host_state_write_points(local_effects)
         self._target_instrument_ids = frozenset(domain_instrument_ids)
         self._catalog = catalog
         self._guarantees: dict[DomainStateAddress, _ScheduledStateGuarantee] = {}
         self._invalidated_by: dict[DomainStateAddress, dict[str, object]] = {}
+        self._host_writes_by_point: dict[int, set[DomainStateAddress]] = {}
+        self._domain_writes_by_point: dict[int, set[DomainStateAddress]] = {}
+
+    def register_local_coverage(self, effects: MaterializedLocalEffects) -> None:
+        for group in effects.effect_operations:
+            for covered in group:
+                operation = covered.operation
+                if not isinstance(operation, ApplyStateOperation):
+                    continue
+                writes = self._host_writes_by_point.setdefault(
+                    covered.point_index,
+                    set(),
+                )
+                writes.update(
+                    DomainStateAddress(
+                        instrument_id=operation.instrument_id,
+                        interface_id=target.interface_id,
+                        component_path=target.component_path,
+                        property_id=target.property_id,
+                    )
+                    for target in operation.targets
+                )
 
     def validate(self, covered: RunCoveredOperation) -> None:
+        if isinstance(covered, RunCoverageCheckpoint):
+            self._host_writes_by_point.pop(covered.point_index, None)
+            self._domain_writes_by_point.pop(covered.point_index, None)
+            return
         if isinstance(covered, RunCoverageEffect) and isinstance(
             operation := covered.operation,
             ApplyStateOperation,
@@ -550,6 +582,12 @@ class _CoverageValidator:
                 interface_id=target.interface_id,
                 component_path=target.component_path,
                 property_id=target.property_id,
+            )
+            domain_writes = self._domain_writes_by_point.get(covered.point_index)
+            if domain_writes is not None and address in domain_writes:
+                self._raise_state_write_conflict((address,))
+            self._host_writes_by_point.setdefault(covered.point_index, set()).add(
+                address
             )
             self._guarantees[address] = _ScheduledStateGuarantee(
                 value=target.value,
@@ -589,36 +627,49 @@ class _CoverageValidator:
                     )
                 ]
             )
-        conflicts = tuple(
-            sorted(
-                write
-                for write in (
+        writes = tuple(
+            dict.fromkeys(
+                (
                     *job.execution.setup_write_footprint,
                     *job.execution.realtime_write_footprint,
                 )
-                if set(job.point_ordinals) & self._host_write_points.get(write, set())
             )
         )
+        conflicts: list[DomainStateAddress] = []
+        for write in writes:
+            if any(
+                (host_writes := self._host_writes_by_point.get(ordinal)) is not None
+                and write in host_writes
+                for ordinal in job.point_ordinals
+            ):
+                conflicts.append(write)
         if conflicts:
-            raise CheckFailed(
-                [
-                    _planning_problem(
-                        "host_domain_state_write_conflict",
-                        "host and domain effects cannot both own the same physical "
-                        "state property",
-                        details={
-                            "state_addresses": tuple(
-                                _state_address_description(address)
-                                for address in conflicts
-                            )
-                        },
-                    )
-                ]
-            )
+            self._raise_state_write_conflict(tuple(sorted(conflicts)))
+        for ordinal in job.point_ordinals:
+            self._domain_writes_by_point.setdefault(ordinal, set()).update(writes)
         problems = self._domain_requirement_problems(job)
         if problems:
             raise CheckFailed(problems)
         self._record_domain_state(job)
+
+    def _raise_state_write_conflict(
+        self,
+        conflicts: tuple[DomainStateAddress, ...],
+    ) -> None:
+        raise CheckFailed(
+            [
+                _planning_problem(
+                    "host_domain_state_write_conflict",
+                    "host and domain effects cannot both own the same physical state "
+                    "property",
+                    details={
+                        "state_addresses": tuple(
+                            _state_address_description(address) for address in conflicts
+                        )
+                    },
+                )
+            ]
+        )
 
     def _domain_requirement_problems(self, job: RunDomainJob) -> list[Problem]:
         problems: list[Problem] = []
@@ -701,34 +752,15 @@ class _CoverageValidator:
             }
 
 
-def _host_state_write_points(
-    local_effects: MaterializedLocalEffects | None,
-) -> dict[DomainStateAddress, set[int]]:
-    selected: dict[DomainStateAddress, set[int]] = {}
-    if local_effects is None:
-        return selected
-    for group in local_effects.effect_operations:
-        for covered in group:
-            operation = covered.operation
-            if not isinstance(operation, ApplyStateOperation):
-                continue
-            for target in operation.targets:
-                address = DomainStateAddress(
-                    instrument_id=operation.instrument_id,
-                    interface_id=target.interface_id,
-                    component_path=target.component_path,
-                    property_id=target.property_id,
-                )
-                selected.setdefault(address, set()).add(covered.point_index)
-    return selected
-
-
 def _validated_coverage(
-    operations: Iterable[RunCoveredOperation],
+    operations: Iterable[RunCoveredOperation | _MaterializedLocalCoverage],
     *,
     validator: _CoverageValidator,
 ) -> Iterator[RunCoveredOperation]:
     for operation in operations:
+        if isinstance(operation, _MaterializedLocalCoverage):
+            validator.register_local_coverage(operation.effects)
+            continue
         validator.validate(operation)
         yield operation
 
@@ -795,28 +827,24 @@ def _compile_coverage(
     bound_points: MaterializedBoundPoints,
     point_ordinals: tuple[int, ...],
     domain_calls: dict[str, DomainCallView],
-    local_effects: MaterializedLocalEffects | None,
+    local_target: LocalTargetPlan | None,
     catalog: InstrumentContractCatalog,
 ) -> RunCoverage:
-    region = point_ordinals
-    if not region:
+    if not point_ordinals:
         return RunCoverage(lambda: iter(()))
     compiler = system.domain_compiler
-    compile_regions = _stable_host_regions(region, local_effects)
-    scheduled_local_effects = _coalesce_host_state(local_effects, compile_regions)
 
     def operations() -> Iterator[RunCoveredOperation]:
         return _validated_coverage(
             _coverage_operations(
                 compiler=compiler,
                 bound_points=bound_points,
+                point_ordinals=point_ordinals,
                 effects=bound.program.program.effects,
                 domain_calls=domain_calls,
-                local_effects=scheduled_local_effects,
-                regions=compile_regions,
+                local_target=local_target,
             ),
             validator=_CoverageValidator(
-                local_effects=local_effects,
                 domain_instrument_ids=(
                     () if compiler is None else compiler.instrument_ids
                 ),
@@ -826,7 +854,7 @@ def _compile_coverage(
 
     def preflight() -> None:
         for operation in operations():
-            if isinstance(operation, RunDomainJob):
+            if isinstance(operation, RunDomainJob | RunCoverageCheckpoint):
                 return
 
     return RunCoverage(
@@ -839,41 +867,116 @@ def _coverage_operations(
     *,
     compiler: DomainCompiler | None,
     bound_points: MaterializedBoundPoints,
+    point_ordinals: tuple[int, ...],
     effects: tuple[LogicalEffect, ...],
     domain_calls: dict[str, DomainCallView],
-    local_effects: MaterializedLocalEffects | None,
-    regions: tuple[tuple[int, ...], ...],
-) -> Iterator[RunCoveredOperation]:
-    selected_compute = () if local_effects is None else local_effects.compute_operations
-    selected_effects = () if local_effects is None else local_effects.effect_operations
+    local_target: LocalTargetPlan | None,
+) -> Iterator[RunCoveredOperation | _MaterializedLocalCoverage]:
     next_batch_ordinals = {
         effect.id: 0 for effect in effects if isinstance(effect, LogicalDomainExecution)
     }
-    for region in regions:
-        yield from (
-            effect for effect in selected_compute if effect.point_index in region
+    previous_static_frame: tuple[tuple[ApplyStateOperation, ...], ...] | None = None
+    has_previous_static_frame = False
+    for coverage_batch in _coverage_batches(
+        compiler,
+        point_ordinals,
+        has_domain_calls=bool(domain_calls),
+    ):
+        local_effects = (
+            None
+            if local_target is None
+            else materialize_local_execution(
+                bound_points,
+                target=local_target,
+                point_ordinals=coverage_batch,
+            )
         )
-        for effect_index, effect in enumerate(effects):
-            if local_effects is not None:
-                yield from (
-                    item
-                    for item in selected_effects[effect_index]
-                    if item.point_index in region
-                )
-            if isinstance(effect, LogicalDomainExecution):
-                assert compiler is not None
-                jobs = _compile_domain_batches(
-                    compiler,
-                    domain_calls[effect.id],
-                    bound_points,
-                    region,
-                    first_batch_ordinal=next_batch_ordinals[effect.id],
-                )
-                for job in jobs:
-                    yield job
-                    next_batch_ordinals[effect.id] += 1
-        for ordinal in region:
-            yield RunCoverageCheckpoint(ordinal)
+        if local_effects is not None:
+            yield _MaterializedLocalCoverage(local_effects)
+        regions = _stable_host_regions(coverage_batch, local_effects)
+        initial_frame = _static_state_frame(local_effects, coverage_batch[0])
+        scheduled_local_effects = _coalesce_host_state(
+            local_effects,
+            regions,
+            suppress_initial_anchor=(
+                has_previous_static_frame
+                and initial_frame is not None
+                and initial_frame == previous_static_frame
+            ),
+        )
+        selected_compute = (
+            ()
+            if scheduled_local_effects is None
+            else scheduled_local_effects.compute_operations
+        )
+        selected_effects = (
+            ()
+            if scheduled_local_effects is None
+            else scheduled_local_effects.effect_operations
+        )
+        for region in regions:
+            yield from (
+                effect for effect in selected_compute if effect.point_index in region
+            )
+            for effect_index, effect in enumerate(effects):
+                if scheduled_local_effects is not None:
+                    yield from (
+                        item
+                        for item in selected_effects[effect_index]
+                        if item.point_index in region
+                    )
+                if isinstance(effect, LogicalDomainExecution):
+                    assert compiler is not None
+                    batch_ordinal = next_batch_ordinals[effect.id]
+                    yield _compile_domain_batch(
+                        compiler,
+                        domain_calls[effect.id],
+                        bound_points,
+                        region,
+                        batch_ordinal=batch_ordinal,
+                    )
+                    next_batch_ordinals[effect.id] = batch_ordinal + 1
+            for ordinal in region:
+                yield RunCoverageCheckpoint(ordinal)
+        previous_static_frame = _static_state_frame(
+            local_effects,
+            coverage_batch[-1],
+        )
+        has_previous_static_frame = previous_static_frame is not None
+
+
+def _coverage_batches(
+    compiler: DomainCompiler | None,
+    point_ordinals: tuple[int, ...],
+    *,
+    has_domain_calls: bool,
+) -> Iterator[tuple[int, ...]]:
+    if has_domain_calls:
+        assert compiler is not None
+        partition = compiler.partition(len(point_ordinals))
+        batch_sizes = partition.batch_sizes
+        if sum(batch_sizes) != len(point_ordinals):
+            raise ValueError(
+                "domain compiler partition must cover every bounded point exactly once"
+            )
+    else:
+        batch_sizes = _bounded_local_batch_sizes(len(point_ordinals))
+    offset = 0
+    for batch_size in batch_sizes:
+        batch = point_ordinals[offset : offset + batch_size]
+        offset += batch_size
+        yield batch
+
+
+def _bounded_local_batch_sizes(point_count: int) -> tuple[int, ...]:
+    initial_size = min(point_count, _INITIAL_LOCAL_COVERAGE_BATCH_SIZE)
+    remaining = point_count - initial_size
+    full_batches, tail = divmod(remaining, _MAX_LOCAL_COVERAGE_BATCH_SIZE)
+    return (
+        ((initial_size,) if initial_size else ())
+        + (_MAX_LOCAL_COVERAGE_BATCH_SIZE,) * full_batches
+        + ((tail,) if tail else ())
+    )
 
 
 def _stable_host_regions(
@@ -932,12 +1035,16 @@ def _static_state_frame(
 def _coalesce_host_state(
     local_effects: MaterializedLocalEffects | None,
     regions: tuple[tuple[int, ...], ...],
+    *,
+    suppress_initial_anchor: bool = False,
 ) -> MaterializedLocalEffects | None:
     """Keep one materialized static-state frame at each stable region anchor."""
 
     if local_effects is None:
         return None
     anchors = {region[0] for region in regions}
+    if suppress_initial_anchor:
+        anchors.remove(regions[0][0])
     return MaterializedLocalEffects(
         compute_operations=local_effects.compute_operations,
         effect_operations=tuple(
@@ -947,44 +1054,33 @@ def _coalesce_host_state(
     )
 
 
-def _compile_domain_batches(
+def _compile_domain_batch(
     compiler: DomainCompiler,
     call: DomainCallView,
     bound_points: MaterializedBoundPoints,
     point_ordinals: tuple[int, ...],
     *,
-    first_batch_ordinal: int = 0,
-) -> Iterator[RunDomainJob]:
-    partition = compiler.partition(len(point_ordinals))
-    if sum(partition.batch_sizes) != len(point_ordinals):
-        raise ValueError(
-            "domain compiler partition must cover every bounded point exactly once"
+    batch_ordinal: int,
+) -> RunDomainJob:
+    request = make_domain_batch_request(
+        call,
+        bound_points,
+        point_ordinals,
+        batch_ordinal=batch_ordinal,
+    )
+    execution_candidate = cast(
+        "object",
+        compiler.compile_batch(request),
+    )
+    if not isinstance(execution_candidate, PreparedDomainExecution):
+        raise TypeError(
+            "domain compiler compile_batch must return PreparedDomainExecution"
         )
-    offset = 0
-    for local_batch_ordinal, batch_size in enumerate(partition.batch_sizes):
-        batch_ordinal = first_batch_ordinal + local_batch_ordinal
-        batch_points = point_ordinals[offset : offset + batch_size]
-        offset += batch_size
-        request = make_domain_batch_request(
-            call,
-            bound_points,
-            batch_points,
-            batch_ordinal=batch_ordinal,
-        )
-        execution_candidate = cast(
-            "object",
-            compiler.compile_batch(request),
-        )
-        if not isinstance(execution_candidate, PreparedDomainExecution):
-            raise TypeError(
-                "domain compiler compile_batch must return PreparedDomainExecution"
-            )
-
-        yield RunDomainJob(
-            id=f"{call.id}:batch-{batch_ordinal}",
-            point_ordinals=batch_points,
-            execution=execution_candidate,
-        )
+    return RunDomainJob(
+        id=f"{call.id}:batch-{batch_ordinal}",
+        point_ordinals=point_ordinals,
+        execution=execution_candidate,
+    )
 
 
 def _implementation_problems(

@@ -117,9 +117,11 @@ overlays, folds pure computation, removes undemanded work, and leaves a residual
 host/domain program. External reads, writes, acquisitions, and invocations occur
 only while interpreting `RunProgram`.
 
-Linking materializes one canonical ordered point sequence. Host lowering,
-parameter overlays, entity selection, and domain projection all consume those
-same rows. The current eager representation is tracked by the
+Linking materializes one canonical ordered point sequence. Parameter overlays
+and the durable point catalog consume those rows eagerly. Host lowering, entity
+selection, and domain projection consume the same canonical rows only for the
+current bounded coverage batch. The current eager point representation is
+tracked by the
 [scalability benchmarks](../scalability.md); its stable semantic promise
 is that physical partitioning does not change logical point identity or results.
 
@@ -129,17 +131,20 @@ inputs. Planning interacts with it through one `compile_batch` boundary and
 receives prepared executions containing the closed target artifact, exact
 point/product mapping, physical authority, and runtime invocation.
 
-Planning forms stable regions from adjacent points with equal, statically known
-host desired state. It reconciles that state at the region anchor and presents
-the region to the compiler for partitioning. A physical state change,
-invocation, acquisition, or payload-backed write creates a point boundary.
-Pure host computation creates no hardware boundary.
+Planning obtains a point-count-only partition from the domain compiler before
+binding batch inputs. Each target batch is one bounded coverage window. A
+local-only run uses a small initial window and bounded follow-up windows. Host
+lowering then forms stable regions inside the window from adjacent points with
+equal, statically known desired state. It reconciles that state at a region
+anchor and suppresses an identical anchor at the next window. A physical state
+change, invocation, acquisition, or payload-backed write creates a point
+boundary. Pure host computation creates no hardware boundary.
 
-Consequential stages retain author order. All batches created for one domain
-stage remain contiguous, so target capacity may split a batch without allowing
-a later host state change to move between its pieces. Hardware that must vary
-synchronously inside each target point belongs to the compiler/runtime
-contract; stable peripheral state may remain a host effect around the region.
+Consequential stages retain author order inside each bounded region. Coverage
+windows execute in point order; there is no promise that one stage remains
+contiguous across every physical batch in a scan. Hardware behavior that
+requires cross-point adjacency belongs inside one domain execution contract,
+while stable peripheral state may remain a host effect around each region.
 
 Program inputs configure runtime semantics. Compiler inputs configure lowering.
 Both resolve from the same accepted snapshot and point overlays before the
@@ -147,11 +152,15 @@ compiler is called.
 
 ## Physical authority and shared state
 
-Admission claims the exact registered instruments named by residual host
-effects and prepared domain executions. Each instrument is leased once for the
-run and provisioned through one worker-owned driver session. Host and domain
-stages may therefore use different properties of the same instrument in their
-declared order.
+Admission claims the complete static instrument footprint before any prepared
+batch exists. Domain compilers declare their exact instrument ids. Local target
+preparation contributes every structurally compatible route candidate; later
+point-local entity selection narrows actual operations but cannot expand
+authority. A run may therefore lease an unused local candidate instead of
+performing an O(total points) route scan before admission. Each claimed
+instrument is leased once for the run and provisioned through one worker-owned
+driver session. Host and domain stages may use different properties of the same
+instrument in their declared region order.
 
 The scheduler owns instrument-level exclusion. Routing retains more precise
 interface, entity, channel, component, and property addresses as command and
@@ -234,7 +243,8 @@ for final run status and operator reconciliation.
 - Host and domain placement observe the same inputs and parameter overlays.
 - Pure computation may be folded, shared, or hoisted without changing its value
   or its host-versus-observation availability semantics.
-- Consequential effect stages retain their declared order.
+- Consequential effect stages retain their declared order inside each bounded
+  coverage region.
 - Stable state may reconcile once per region; observable or varying effects
   remain boundaries.
 - Legal lowering and physical partitioning produce the same demanded products.

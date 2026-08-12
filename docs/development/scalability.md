@@ -182,24 +182,33 @@ repeatable measurements.
 
 The present architecture provides a direct end-to-end baseline:
 
-- linking and planning still eagerly materialize logical points and local
-  effects;
+- linking and planning still eagerly materialize logical points, point
+  parameter bindings, and the durable point catalog;
+- local target preparation retains static route manifests, preview materializes
+  only the first point, and execution materializes local compute and effects
+  only for the current bounded coverage batch; local-only coverage starts with
+  32 points and then uses batches of at most 256 points;
 - domain compilation uses a backend-declared point capacity but prepares only
   the current batch during execution; preview compiles only the first bounded
   batch as a fast semantic preflight;
 - the reference list-mode target begins with a 32-point batch, then uses its
   full device capacity so preparation latency does not require a one-point
   physical batch;
+- admission uses the domain compiler's static instrument footprint and all
+  structurally compatible local route candidates. Point-local routing narrows
+  the operations actually emitted, so a run may conservatively reserve an
+  unused candidate rather than scanning every point before admission;
 - one SQLite writer owns durable ordering while immutable object storage carries
   large content, and measurement records are appended in chunks bounded by both
   record count and value bytes;
 - projected Arrow readers and GUI previews provide bounded read paths.
 
-The next dense-spectroscopy limit is the eager point catalog and local-effect
-materialization: their preparation time and retained memory still grow with
-total point count. The other profiles establish whether acquisition volume or
-history reaches its resource budget first. Workflow scalability awaits a
-workflow ownership model.
+The next dense-spectroscopy limit is the eager point domain, parameter binding,
+and run point catalog: their preparation time and retained memory still grow
+with total point count. Local effects and prepared target artifacts are bounded
+by the current physical batch. The other profiles establish whether acquisition
+volume or history reaches its resource budget first. Workflow scalability
+awaits a workflow ownership model.
 
 ## Development Cadence
 

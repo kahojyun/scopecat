@@ -48,6 +48,24 @@ class ResourcePortManifest:
     interfaces: tuple[InterfaceId, ...]
     routes: tuple[ResourceRoute, ...]
 
+    @property
+    def candidate_instrument_ids(self) -> tuple[str, ...]:
+        """Return instruments that may satisfy this port for some entity scope."""
+
+        return tuple(
+            dict.fromkeys(
+                route.instrument_id
+                for route in self.routes
+                if all(
+                    any(
+                        endpoint.interface_id == interface
+                        for endpoint in route.endpoints
+                    )
+                    for interface in self.interfaces
+                )
+            )
+        )
+
     def select_one(
         self,
         entity_ids: Sequence[str] = (),

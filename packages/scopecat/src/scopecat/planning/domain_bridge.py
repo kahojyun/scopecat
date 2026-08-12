@@ -109,10 +109,9 @@ def _make_domain_compile_request(
             point_ordinals,
         ),
     )
-    points_by_ordinal = {
-        point.logical_ordinal: point for point in bound_points.point_domain.points
-    }
-    selected_points = tuple(points_by_ordinal[ordinal] for ordinal in point_ordinals)
+    selected_points = tuple(
+        bound_points.point_domain.points[ordinal] for ordinal in point_ordinals
+    )
     point_refs = tuple(
         DomainPointRef(
             id=point.logical_id.value,

@@ -66,16 +66,6 @@ class MaterializedBoundPoints:
 
         selected_input_ids = tuple(input_ids)
         selected = tuple(ordinals)
-        entries = {
-            point.logical_ordinal: (point, parameters)
-            for point, parameters in zip(
-                self.point_domain.points,
-                self.point_parameters,
-                strict=True,
-            )
-        }
-        if any(ordinal not in entries for ordinal in selected):
-            raise ValueError("point selection contains an unknown ordinal")
         execution = next(
             item
             for item in self.bound_plan.program.program.domain_executions
@@ -99,7 +89,8 @@ class MaterializedBoundPoints:
             input_id: [] for input_id in selected_input_ids
         }
         for ordinal in selected:
-            point, parameters = entries[ordinal]
+            point = self.point_domain.points[ordinal]
+            parameters = self.point_parameters[ordinal]
             input_values = _domain_inputs(
                 execution,
                 BoundValueResolver(

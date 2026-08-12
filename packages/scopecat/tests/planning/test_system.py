@@ -73,6 +73,9 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, Table, TableColumn
 from scopecat.measurements.results import MeasurementValue
 from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.planning.local_effects import LocalTargetPlan, MaterializedLocalEffects
+from scopecat.planning.local_materialization import materialize_local_execution
+from scopecat.planning.point_materialization import MaterializedBoundPoints
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.provider_binding import (
     resolve_instrument_contract_catalog,
@@ -144,6 +147,7 @@ class _DomainCompiler:
     instrument_ids: tuple[str, ...] = ()
     state_requirements: tuple[DomainStateRequirement, ...] = ()
     realtime_write_footprint: tuple[DomainStateAddress, ...] = ()
+    realtime_write_batches: frozenset[int] | None = None
     realtime_state_invalidations: tuple[DomainStateAddress, ...] = ()
     batch_size: int = 100
     partition_sizes: tuple[int, ...] | None = None
@@ -224,7 +228,12 @@ class _DomainCompiler:
         return preparation.build(
             instrument_ids=self.instrument_ids,
             state_requirements=self.state_requirements,
-            realtime_write_footprint=self.realtime_write_footprint,
+            realtime_write_footprint=(
+                self.realtime_write_footprint
+                if self.realtime_write_batches is None
+                or request.batch_ordinal in self.realtime_write_batches
+                else ()
+            ),
             realtime_state_invalidations=self.realtime_state_invalidations,
             mapping=mapping,
             invocation=invocation,
@@ -276,7 +285,7 @@ def _bound_program(
     domain_before_state: bool = False,
     acquisition_before_domain: bool = False,
     record_instrument_products: bool = True,
-    point_count: Literal[0, 2] = 2,
+    point_count: int = 2,
     domain_input: ScalarExpr | None = None,
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     parameter_data: ParameterRelationData | None = None,
@@ -295,13 +304,12 @@ def _bound_program(
             point_axis_values(
                 "frequency",
                 point_type.columns[0].value_type,
-                (
-                    (
-                        Quantity(value=4.9, unit="GHz"),
-                        Quantity(value=5.1, unit="GHz"),
+                tuple(
+                    Quantity(
+                        value=round(4.9 + 0.2 * index, 10),
+                        unit="GHz",
                     )
-                    if point_count
-                    else ()
+                    for index in range(point_count)
                 ),
             ),
         )
@@ -968,6 +976,42 @@ def test_domain_target_partition_must_cover_the_complete_point_space() -> None:
         tuple(plan.coverage)
 
 
+def test_local_effect_materialization_is_bounded_by_execution_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    materialized_ordinals: list[tuple[int, ...]] = []
+
+    def record_materialization(
+        bound_points: MaterializedBoundPoints,
+        *,
+        target: LocalTargetPlan,
+        point_ordinals: tuple[int, ...],
+    ) -> MaterializedLocalEffects:
+        materialized_ordinals.append(point_ordinals)
+        return materialize_local_execution(
+            bound_points,
+            target=target,
+            point_ordinals=point_ordinals,
+        )
+
+    monkeypatch.setattr(
+        "scopecat.planning.system.materialize_local_execution",
+        record_materialization,
+    )
+    bound = _bound_program(domain_product_count=0, point_count=300)
+
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound, _TrackingProvider())
+    ).compile(bound)
+
+    assert materialized_ordinals == [(0,)]
+    tuple(plan.coverage)
+    assert tuple(map(len, materialized_ordinals)) == (1, 32, 256, 12)
+    assert tuple(
+        ordinal for batch in materialized_ordinals[1:] for ordinal in batch
+    ) == tuple(range(300))
+
+
 def test_run_requirements_and_host_order_include_only_used_local_instruments() -> None:
     config = load_config()
     seed_instrument = config.instrument_registry.instruments[0].model_copy(
@@ -1114,7 +1158,7 @@ def test_host_state_bounds_domain_compilation_regions() -> None:
         for operation in coverage
         if isinstance(operation, RunDomainJob)
     ] == [(0,), (1,)]
-    assert compiler.partition_requests == [1, 1]
+    assert compiler.partition_requests == [2]
     assert [
         operation.point_index
         for operation in coverage
@@ -1131,7 +1175,7 @@ def test_host_state_bounds_domain_compilation_regions() -> None:
     _assert_no_domain_effects(compiler)
 
 
-def test_domain_and_local_state_retain_declared_effect_order() -> None:
+def test_domain_and_local_state_retain_declared_order_in_each_batch() -> None:
     bound = _bound_program(
         state_mode="constant",
         domain_before_state=True,
@@ -1151,11 +1195,11 @@ def test_domain_and_local_state_retain_declared_effect_order() -> None:
 
     assert [type(operation) for operation in consequential] == [
         RunDomainJob,
-        RunDomainJob,
         RunCoverageEffect,
+        RunDomainJob,
     ]
-    assert isinstance(consequential[2], RunCoverageEffect)
-    assert isinstance(consequential[2].operation, ApplyStateOperation)
+    assert isinstance(consequential[1], RunCoverageEffect)
+    assert isinstance(consequential[1].operation, ApplyStateOperation)
     assert compiler.partition_requests == [2]
 
 
@@ -1417,6 +1461,33 @@ def test_planning_rejects_host_and_domain_writes_to_the_same_property() -> None:
     assert captured.value.problems[0].details == {
         "state_addresses": ("source-0:test.set_frequency/v1.frequency",)
     }
+
+
+def test_planning_detects_a_domain_write_after_static_host_state_is_coalesced() -> None:
+    config = _config_with_domain_resources("source-0")
+    bound = _bound_program(state_mode="constant", config=config)
+    compiler = _DomainCompiler(
+        "tests.later-state-write-conflict",
+        instrument_ids=("source-0",),
+        realtime_write_footprint=(
+            DomainStateAddress(
+                instrument_id="source-0",
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
+            ),
+        ),
+        realtime_write_batches=frozenset({1}),
+        batch_size=1,
+    )
+
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound, _TrackingProvider()),
+        domain_compiler=compiler,
+    ).compile(bound)
+    with pytest.raises(CheckFailed) as captured:
+        tuple(plan.coverage)
+
+    assert _problem_codes(captured.value) == {"host_domain_state_write_conflict"}
 
 
 def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:

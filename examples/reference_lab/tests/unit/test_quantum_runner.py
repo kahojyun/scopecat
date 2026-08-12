@@ -485,6 +485,7 @@ def test_fixed_if_lo_sweep_bounds_real_time_batches_with_host_effects() -> None:
     assert {requirement.id for requirement in plan.resource_requirements} == {
         "drive-awg",
         "drive-lo-a",
+        "drive-lo-b",
         "readout-awg",
         "readout-digitizer",
         "readout-lo",

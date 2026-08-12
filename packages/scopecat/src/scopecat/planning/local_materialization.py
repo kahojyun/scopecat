@@ -75,24 +75,20 @@ def materialize_local_execution(
     materialized_domain = bound_points.point_domain
     planner_points = materialized_domain.points
     point_count = len(planner_points)
-    point_by_ordinal = {point.logical_ordinal: point for point in planner_points}
-    params_by_ordinal = {
-        point.logical_ordinal: params
-        for point, params in zip(
-            planner_points,
-            bound_points.point_parameters,
-            strict=True,
-        )
-    }
     ordinals = (
         tuple(point.logical_ordinal for point in planner_points)
         if point_ordinals is None
         else tuple(point_ordinals)
     )
+    selected_points = tuple(planner_points[ordinal] for ordinal in ordinals)
+    point_by_ordinal = {point.logical_ordinal: point for point in selected_points}
+    params_by_ordinal = {
+        ordinal: bound_points.point_parameters[ordinal] for ordinal in ordinals
+    }
     resources_by_ordinal = select_coverage_resources(
         program,
         target.resource_ports,
-        planner_points,
+        selected_points,
         params_by_ordinal,
         problems,
     )
