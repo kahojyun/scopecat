@@ -12,7 +12,7 @@ def test_scan_execution_benchmark_runs_all_boundaries_with_waveforms(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / "results.jsonl"
-    script = Path(__file__).parents[3] / "scripts" / "benchmark_scan_execution.py"
+    script = Path(__file__).parents[1] / "scripts" / "benchmark_scan_execution.py"
 
     completed = subprocess.run(  # noqa: S603
         (
@@ -75,7 +75,7 @@ def test_scan_execution_benchmark_runs_all_boundaries_with_waveforms(
 
 
 def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
-    script = Path(__file__).parents[3] / "scripts" / "benchmark_scan_execution.py"
+    script = Path(__file__).parents[1] / "scripts" / "benchmark_scan_execution.py"
     work_dir = tmp_path / "scopecat-worker"
 
     completed = subprocess.run(  # noqa: S603
@@ -202,7 +202,7 @@ def _result_worker(
     retention: str,
     shots: int,
 ) -> dict[str, object]:
-    script = Path(__file__).parents[3] / "scripts" / "benchmark_scan_execution.py"
+    script = Path(__file__).parents[1] / "scripts" / "benchmark_scan_execution.py"
     work_dir = tmp_path / f"{runner}-{retention}-{shots}"
     completed = subprocess.run(  # noqa: S603
         (

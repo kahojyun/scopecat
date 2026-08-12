@@ -124,6 +124,15 @@ uv run python scripts/benchmark_scan_execution.py \
   --storage-root /path/on/the/experiment-drive
 ```
 
+The end-to-end benchmark acceptance tests launch nested worker processes and are
+intentionally outside the default pytest test paths, especially because process
+startup dominates their cost on Windows. Run them explicitly after changing the
+benchmark harness or its execution boundaries:
+
+```console
+uv run pytest -q benchmarks/test_scan_execution_benchmark.py
+```
+
 `--storage-root` must name an existing directory on the storage device being
 measured. The command creates isolated run directories below it and removes
 them after each worker. Raw JSON Lines results default to

@@ -45,6 +45,7 @@ include = [
   "examples/reference_lab/notebooks",
   "examples/reference_lab/tests",
   "scripts",
+  "benchmarks",
   "testing/scopecat-testkit/src",
 ]
 exclude = [
@@ -311,6 +312,7 @@ src = [
   "examples/reference_lab/notebooks",
   "examples/reference_lab/tests",
   "scripts",
+  "benchmarks",
   "testing/scopecat-testkit/src",
 ]
 
