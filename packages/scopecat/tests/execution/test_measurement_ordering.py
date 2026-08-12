@@ -58,13 +58,6 @@ def test_measurement_chunk_buffer_releases_bounded_chunks_and_final_tail() -> No
     assert buffer.pending_count == 0
 
 
-def test_measurement_chunk_buffer_rejects_non_positive_limit() -> None:
-    with pytest.raises(ValueError, match="must be positive"):
-        MeasurementChunkBuffer(record_limit=0)
-    with pytest.raises(ValueError, match="must be positive"):
-        MeasurementChunkBuffer(value_byte_limit=0)
-
-
 def test_measurement_chunk_buffer_releases_large_waveforms_by_value_bytes() -> None:
     buffer = MeasurementChunkBuffer(record_limit=100, value_byte_limit=24)
     records = tuple(

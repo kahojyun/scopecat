@@ -18,7 +18,7 @@ from scopecat.planning.local_materialization import (
     prepare_local_target,
 )
 from scopecat.planning.measurement_projection import project_run_point_catalog
-from scopecat.planning.point_materialization import materialize_bound_points
+from scopecat.planning.point_materialization import prepare_bound_points
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +57,7 @@ def materialize_local_execution(
 ) -> LocalEffectInspection:
     """Lower a bound program for focused inspection of final effect coverage."""
 
-    bound_points = materialize_bound_points(bound)
+    bound_points = prepare_bound_points(bound)
     selected_product_use_ids = (
         frozenset(use.id for use in bound.bindings.product_uses)
         if product_use_ids is None

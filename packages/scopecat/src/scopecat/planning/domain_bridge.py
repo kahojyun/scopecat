@@ -17,7 +17,6 @@ from scopecat.sdk.domain._identities import product_use_id
 from scopecat.sdk.domain.batch import (
     DomainBatchInputs,
     DomainBatchRequest,
-    DomainCompileRequest,
 )
 from scopecat.sdk.domain.view import (
     DomainCallView,
@@ -76,23 +75,6 @@ def make_domain_batch_request(
 ) -> DomainBatchRequest:
     """Resolve every input and project one complete bounded batch."""
 
-    request = _make_domain_compile_request(call, bound_points, point_ordinals)
-    return DomainBatchRequest(
-        batch_ordinal=batch_ordinal,
-        call=request.call,
-        inputs=request.inputs,
-        points=request.points,
-        measurement_catalog=request.measurement_catalog,
-    )
-
-
-def _make_domain_compile_request(
-    call: DomainCallView,
-    bound_points: MaterializedBoundPoints,
-    point_ordinals: tuple[int, ...],
-) -> DomainCompileRequest:
-    """Resolve one host-effect-bounded region before target partitioning."""
-
     program_input_ids = tuple(port.id for port in call.program.inputs)
     compiler_input_ids = tuple(port.id for port in call.program.compiler_inputs)
     inputs = DomainBatchInputs(
@@ -120,7 +102,8 @@ def _make_domain_compile_request(
         )
         for point in selected_points
     )
-    return DomainCompileRequest(
+    return DomainBatchRequest(
+        batch_ordinal=batch_ordinal,
         call=call,
         inputs=inputs,
         points=point_refs,

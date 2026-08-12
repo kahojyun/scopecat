@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Literal, cast, overload, override
 
 from scopecat.compiler.bind import BoundPlan
@@ -111,31 +111,6 @@ class MaterializedBoundPoints:
         return tuple(
             (input_id, tuple(columns[input_id])) for input_id in selected_input_ids
         )
-
-
-def materialize_bound_points(bound: BoundPlan) -> MaterializedBoundPoints:
-    """Eagerly materialize every bound point for explicit inspection."""
-
-    prepared = prepare_bound_points(bound)
-    try:
-        points = tuple(prepared.point_domain.points)
-        parameters = tuple(prepared.point_parameters)
-    except ValueValidationError as error:
-        raise CheckFailed(
-            (
-                compiler_problem(
-                    "module_point_value_type_mismatch",
-                    str(error),
-                    model_location("points"),
-                    phase=ProblemPhase.PLANNING,
-                ),
-            )
-        ) from error
-    return MaterializedBoundPoints(
-        bound_plan=bound,
-        point_domain=replace(prepared.point_domain, points=points),
-        point_parameters=parameters,
-    )
 
 
 def prepare_bound_points(bound: BoundPlan) -> MaterializedBoundPoints:

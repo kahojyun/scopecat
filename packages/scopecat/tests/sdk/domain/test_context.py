@@ -16,7 +16,7 @@ from scopecat.planning.domain_bridge import (
 from scopecat.planning.domain_results import domain_result_product_use_ids
 from scopecat.planning.point_materialization import (
     MaterializedBoundPoints,
-    materialize_bound_points,
+    prepare_bound_points,
 )
 from scopecat.program.domain import domain_program
 from scopecat.program.products import ModuleProductDecl, ProductValueSpec
@@ -107,7 +107,7 @@ def _domain_scenario(
         config_profile=load_config(),
     )
     bound = resolved
-    bound_points = materialize_bound_points(bound)
+    bound_points = prepare_bound_points(bound)
     return bound_points
 
 

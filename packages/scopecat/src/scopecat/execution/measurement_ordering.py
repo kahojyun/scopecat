@@ -49,12 +49,6 @@ class MeasurementChunkBuffer:
     _pending: list[MeasurementRecord] = field(default_factory=list)
     _pending_value_bytes: int = 0
 
-    def __post_init__(self) -> None:
-        if self.record_limit <= 0:
-            raise ValueError("measurement chunk record limit must be positive")
-        if self.value_byte_limit <= 0:
-            raise ValueError("measurement chunk value byte limit must be positive")
-
     def add(
         self,
         records: tuple[MeasurementRecord, ...],

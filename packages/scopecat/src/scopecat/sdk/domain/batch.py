@@ -45,9 +45,10 @@ class DomainBatchInputs:
 
 
 @dataclass(frozen=True, slots=True)
-class DomainCompileRequest:
-    """One host-effect-bounded call region presented before partitioning."""
+class DomainBatchRequest:
+    """One complete bounded point batch ready for domain compilation."""
 
+    batch_ordinal: int
     call: DomainCallView
     inputs: DomainBatchInputs
     points: tuple[DomainPointRef, ...]
@@ -60,13 +61,6 @@ class DomainCompileRequest:
     @property
     def product_uses(self) -> tuple[DomainProductUseRef, ...]:
         return self.call.product_uses
-
-
-@dataclass(frozen=True, slots=True)
-class DomainBatchRequest(DomainCompileRequest):
-    """One compiler-selected contiguous batch ready for preparation."""
-
-    batch_ordinal: int
 
 
 def _input_column(
@@ -82,5 +76,4 @@ def _input_column(
 __all__ = [
     "DomainBatchInputs",
     "DomainBatchRequest",
-    "DomainCompileRequest",
 ]

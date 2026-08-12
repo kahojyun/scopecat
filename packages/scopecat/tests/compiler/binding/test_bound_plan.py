@@ -55,7 +55,7 @@ from scopecat.kernel.value_types import (
     String,
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.planning.point_materialization import materialize_bound_points
+from scopecat.planning.point_materialization import prepare_bound_points
 from scopecat.program.expressions import (
     ParameterLookupUse,
     ScalarExpr,
@@ -522,13 +522,13 @@ def test_bind_reports_every_missing_import_in_one_axis_center() -> None:
     }
 
 
-def test_bound_points_retain_exact_proofs_when_materialized() -> None:
+def test_prepared_bound_points_retain_exact_proofs() -> None:
     bound = bind_program_facts(_symbolic_program(), _environment())
-    materialized = materialize_bound_points(bound)
+    prepared = prepare_bound_points(bound)
 
-    assert materialized.bound_plan is bound
-    assert materialized.point_domain.id == bound.point_domain.id
-    assert [point.logical_ordinal for point in materialized.point_domain.points] == [
+    assert prepared.bound_plan is bound
+    assert prepared.point_domain.id == bound.point_domain.id
+    assert [point.logical_ordinal for point in prepared.point_domain.points] == [
         0,
         1,
         2,
@@ -543,21 +543,22 @@ def test_bound_points_normalize_entities_before_point_identity_is_sealed() -> No
 
     bound = bind_program_facts(program, _environment())
     assert bound.point_domain.entity_columns == ("subject",)
-    materialized = materialize_bound_points(bound)
+    prepared = prepare_bound_points(bound)
 
-    assert materialized.point_domain.points[0].row["subject"] == EntityRef(
+    assert prepared.point_domain.points[0].row["subject"] == EntityRef(
         id="q0",
         kind="logical_device",
     )
 
 
-def test_bound_points_reject_unknown_entities_at_the_planning_boundary() -> None:
+def test_bound_points_reject_unknown_entities_when_the_point_is_accessed() -> None:
     program = program_fixture(
         point_domain=PointDomain(axes=(_entity_rows(("missing",)),)),
     )
 
     with pytest.raises(CheckFailed) as caught:
-        materialize_bound_points(bind_program_facts(program, _environment()))
+        prepared = prepare_bound_points(bind_program_facts(program, _environment()))
+        prepared.point_domain.points[0]
 
     assert len(caught.value.problems) == 1
     problem = caught.value.problems[0]
@@ -575,7 +576,8 @@ def test_bound_points_preserve_entity_kind_mismatch_problem() -> None:
     )
 
     with pytest.raises(CheckFailed) as caught:
-        materialize_bound_points(bind_program_facts(program, _environment()))
+        prepared = prepare_bound_points(bind_program_facts(program, _environment()))
+        prepared.point_domain.points[0]
 
     assert len(caught.value.problems) == 1
     problem = caught.value.problems[0]
@@ -602,7 +604,8 @@ def test_bound_points_report_unknown_normalized_entities() -> None:
     )
 
     with pytest.raises(CheckFailed) as caught:
-        materialize_bound_points(bind_program_facts(program, _environment()))
+        prepared = prepare_bound_points(bind_program_facts(program, _environment()))
+        prepared.point_domain.points[2]
 
     assert [problem.code for problem in caught.value.problems] == [
         "unknown_authoring_entity"

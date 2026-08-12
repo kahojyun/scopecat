@@ -16,7 +16,7 @@ from scopecat.planning.domain_bridge import (
 )
 from scopecat.planning.domain_results import domain_result_product_use_ids
 from scopecat.planning.point_materialization import (
-    materialize_bound_points,
+    prepare_bound_points,
 )
 from scopecat.program.domain import domain_program
 from scopecat.program.measurement_types import MeasurementDType
@@ -109,7 +109,7 @@ def _preparation_context(
         config_profile=load_config(),
     )
     bound = resolved
-    bound_points = materialize_bound_points(bound)
+    bound_points = prepare_bound_points(bound)
     execution = bound.program.program.domain_executions[0]
     execution_id = execution.id
     product_use_ids = domain_result_product_use_ids(bound.bindings, execution)

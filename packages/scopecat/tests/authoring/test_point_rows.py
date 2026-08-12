@@ -7,7 +7,7 @@ import scopecat as sc
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.measurements.projection import select_measurement_projection
 from scopecat.planning.measurement_projection import project_measurement_catalog
-from scopecat.planning.point_materialization import materialize_bound_points
+from scopecat.planning.point_materialization import prepare_bound_points
 from scopecat.records.measurement import (
     MeasurementPointCloudPointDomain,
     MeasurementPointDomainColumn,
@@ -48,7 +48,7 @@ def test_point_rows_compile_materialize_and_persist_layout() -> None:
     ]
 
     bound = bind_invocation(invocation, config_profile=load_config())
-    bound_points = materialize_bound_points(bound)
+    bound_points = prepare_bound_points(bound)
     domain = bound_points.point_domain
     assert domain.layout == "point_cloud"
     assert domain.axis_sizes == (("x", 3), ("y", 3))
@@ -89,10 +89,10 @@ def test_empty_point_rows_are_a_zero_point_domain() -> None:
     assert request_points.rows == []
 
     bound = bind_invocation(invocation, config_profile=load_config())
-    bound_points = materialize_bound_points(bound)
+    bound_points = prepare_bound_points(bound)
     domain = bound_points.point_domain
     assert domain.layout == "point_cloud"
-    assert domain.points == ()
+    assert tuple(domain.points) == ()
     assert bound.point_domain.cardinality == 0
 
     catalog = project_measurement_catalog(bound_points)

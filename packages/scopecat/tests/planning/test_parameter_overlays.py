@@ -41,7 +41,7 @@ from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_data import CellValue, Row
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String, Table, TableColumn
-from scopecat.planning.point_materialization import materialize_bound_points
+from scopecat.planning.point_materialization import prepare_bound_points
 from scopecat.program.expressions import (
     param,
     parameter_lookup,
@@ -194,7 +194,7 @@ def test_domain_compiler_table_is_point_scoped_after_overlay() -> None:
         build_config_environment(config_with_physical_resources({})),
         parameters=parameters(),
     )
-    bound_points = materialize_bound_points(bind_program_facts(spec, environment))
+    bound_points = prepare_bound_points(bind_program_facts(spec, environment))
     [(input_id, bound_values)] = bound_points.bind_domain_inputs(
         execution.id,
         "compiler",
@@ -241,7 +241,7 @@ def test_domain_input_materializes_with_its_port_type() -> None:
         ),
     )
 
-    bound_points = materialize_bound_points(bind_program_facts(spec, environment))
+    bound_points = prepare_bound_points(bind_program_facts(spec, environment))
     [(input_id, bound_values)] = bound_points.bind_domain_inputs(
         execution.id,
         "program",

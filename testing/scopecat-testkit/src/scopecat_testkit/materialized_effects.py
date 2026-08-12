@@ -16,7 +16,7 @@ from scopecat.measurements.projection import (
     select_measurement_projection,
 )
 from scopecat.planning.measurement_projection import project_measurement_catalog
-from scopecat.planning.point_materialization import materialize_bound_points
+from scopecat.planning.point_materialization import prepare_bound_points
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     ResourceRoute,
@@ -130,7 +130,7 @@ def measurement_projection_contract(
         if isinstance(experiment, BoundPlan)
         else bind_program_facts(experiment, environment)
     )
-    bound_points = materialize_bound_points(bound)
+    bound_points = prepare_bound_points(bound)
     return select_measurement_projection(
         project_measurement_catalog(bound_points),
         bound_points.bound_plan.bindings.record_uses,

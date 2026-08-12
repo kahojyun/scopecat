@@ -10,7 +10,6 @@ if TYPE_CHECKING:
     from scopecat.sdk.domain.batch import (
         DomainBatchInputs,
         DomainBatchRequest,
-        DomainCompileRequest,
     )
     from scopecat.sdk.domain.compiler import DomainCompiler
     from scopecat.sdk.domain.execution import (
@@ -51,7 +50,6 @@ if TYPE_CHECKING:
 _BATCH_EXPORTS = (
     "DomainBatchInputs",
     "DomainBatchRequest",
-    "DomainCompileRequest",
 )
 _EXECUTION_EXPORTS = (
     "DomainStateAddress",
@@ -122,7 +120,6 @@ __all__ = [
     "DomainBatchInputs",
     "DomainBatchRequest",
     "DomainCallView",
-    "DomainCompileRequest",
     "DomainCompiler",
     "DomainExecutionId",
     "DomainExecutionReceipt",
