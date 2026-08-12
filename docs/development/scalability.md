@@ -197,11 +197,11 @@ profile with shot-heavy or raw-acquisition payloads.
 ### Multiqubit Result Retention Profile
 
 The result profile varies scan points, measured qubits, shots, and the data the
-user actually chooses to keep. Its direct runner mirrors the sample workflows:
-summary rows append to one sequential file, while shot arrays use one
-uncompressed NPZ per point with complex128 IQ and integer bit arrays. This is a
-descriptive baseline for current lab UX and storage growth, not a target storage
-layout for Scopecat.
+user actually chooses to keep. Its durable direct-runner modes mirror the sample
+storage mechanics: summary rows append to one sequential file, while shot arrays
+use one uncompressed NPZ per point with complex128 IQ and integer bit arrays.
+This is a descriptive baseline for current lab storage growth, not a taxonomy of
+user intent or a target storage layout for Scopecat.
 
 Run each durable selection independently:
 
@@ -237,24 +237,32 @@ durable measurement header and Arrow chunks, while
 last two separately: a small selected payload can legitimately expose a fixed
 run cost, but increasing shots must not enlarge a summary-only dataset.
 
-The direct runner also provides the current no-save lower bound:
+The direct runner also provides a synthetic write-free lower bound. It performs
+the acquisition and constructs the current point's results, then discards them
+without creating metadata or result files:
 
 ```console
 uv run python scripts/benchmark_scan_execution.py \
   --profile results \
-  --retention transient \
+  --retention discard \
   --runners adhoc \
   --points 100 \
   --qubits 4 \
   --shots 1000
 ```
 
-Scopecat does not yet accept `transient` for its runners. Its compiler currently
-requires every prepared acquisition address to have a real downstream product
-demand, while the only ordinary terminal demand is a durable record or a
-recorded derived value. Supporting a live/no-save run therefore requires an
-explicit non-durable acquisition consumer; silently recording a placeholder or
-skipping the acquisition would not be a valid comparison.
+`discard` is only a cost lower bound. It does not claim that the sample system's
+`save=False` or similar switches represent one coherent no-save workflow. Those
+switches can also compensate for hard-to-compose outer scans, unwanted child
+datasets, coarse run organization, caller-owned persistence, or the absence of
+pre-run waveform inspection.
+
+Scopecat runners intentionally reject this mode. The compiler requires every
+prepared acquisition address to have real downstream product demand, and adding
+an artificial terminal consumer solely to make this benchmark symmetric would
+change product semantics. A non-durable consumer should be added only after a
+representative workflow demonstrates that durable derived results, composite
+experiment ownership, and explicit waveform preview do not cover the need.
 
 The retention invariants are:
 
@@ -265,7 +273,8 @@ The retention invariants are:
 - IQ and bit arrays remain shot dimensions within each point rather than new
   logical scan points;
 - measurement files grow with bounded chunks, not one file per point;
-- transient live consumption, once supported, adds no measurement dataset.
+- the direct-runner discard lower bound creates no durable metadata or
+  measurement dataset.
 
 Timing begins after the reusable lab/server and instrument composition exists.
 The phase boundaries are:

@@ -168,10 +168,10 @@ def test_waveform_profile_matches_multichannel_working_set(tmp_path: Path) -> No
 def test_result_retention_profile_separates_selected_data_from_control(
     tmp_path: Path,
 ) -> None:
-    transient = _result_worker(
+    discarded = _result_worker(
         tmp_path,
         runner="adhoc",
-        retention="transient",
+        retention="discard",
         shots=8,
     )
     ad_hoc_raw = _result_worker(
@@ -205,9 +205,9 @@ def test_result_retention_profile_separates_selected_data_from_control(
         shots=64,
     )
 
-    assert transient["selected_result_bytes"] == 0
-    assert transient["measurement_dataset_bytes"] == 0
-    assert transient["durable_bytes"] == 0
+    assert discarded["selected_result_bytes"] == 0
+    assert discarded["measurement_dataset_bytes"] == 0
+    assert discarded["durable_bytes"] == 0
     assert ad_hoc_raw["durable_file_count"] == 3
 
     assert summary_small["acquired_result_bytes"] == 512

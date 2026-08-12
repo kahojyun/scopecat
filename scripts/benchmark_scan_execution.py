@@ -102,7 +102,7 @@ type ProfileName = Literal[
     "multichannel_waveform_integrated_iq",
     "multiqubit_result_retention",
 ]
-type RetentionMode = Literal["transient", "summary", "bit-shots", "iq-and-bits"]
+type RetentionMode = Literal["discard", "summary", "bit-shots", "iq-and-bits"]
 _RUNNERS: tuple[RunnerName, ...] = ("adhoc", "scopecat")
 _ALL_RUNNERS: tuple[RunnerName, ...] = ("adhoc", "scopecat-core", "scopecat")
 _PROFILE_ALIASES: dict[str, ProfileName] = {
@@ -111,7 +111,7 @@ _PROFILE_ALIASES: dict[str, ProfileName] = {
     "waveform": "multichannel_waveform_integrated_iq",
 }
 _RETENTION_MODES: tuple[RetentionMode, ...] = (
-    "transient",
+    "discard",
     "summary",
     "bit-shots",
     "iq-and-bits",
@@ -417,14 +417,14 @@ class AdHocMultiqubitResults:
 
 
 class AdHocRetentionWriter:
-    """Mirror the sample workflow's selectable metadata and per-point NPZ writes."""
+    """Measure selected durable writes or a synthetic write-free lower bound."""
 
     def __init__(self, root: Path, scenario: ScanScenario) -> None:
         self._root = root
         self._scenario = scenario
         self._summary_stream = None
         root.mkdir(parents=True, exist_ok=True)
-        if scenario.retention == "transient":
+        if scenario.retention == "discard":
             return
         with (root / "manifest.json").open("w", encoding="utf-8") as manifest:
             manifest.write(json.dumps(asdict(scenario), sort_keys=True))
@@ -437,7 +437,7 @@ class AdHocRetentionWriter:
             )
 
     def append(self, point: int, results: AdHocMultiqubitResults) -> None:
-        if self._scenario.retention == "transient":
+        if self._scenario.retention == "discard":
             return
         if self._scenario.retention == "summary":
             assert self._summary_stream is not None
@@ -1211,7 +1211,7 @@ def _select_multiqubit_results(
     results = experiment.use(
         call.with_shots(scenario.shots).with_compiler_inputs(qubits=QUBITS.ref)
     )
-    if scenario.retention == "transient":
+    if scenario.retention == "discard":
         return
     for index in range(scenario.qubit_count):
         iq_shots = results[f"q{index}_iq_shots"]
@@ -1342,10 +1342,10 @@ def _render_ad_hoc_point(
 
 def _worker(args: BenchmarkArguments) -> int:
     runner = cast("RunnerName", args.worker)
-    if args.retention == "transient" and runner != "adhoc":
+    if args.retention == "discard" and runner != "adhoc":
         raise ValueError(
             "Scopecat cannot yet demand acquisition results without retaining "
-            "a dataset; run the transient baseline with --runners adhoc"
+            "a dataset; run the discard lower bound with --runners adhoc"
         )
     profile = _PROFILE_ALIASES[args.profile]
     qubit_count = 1 if profile == "drag_beta_integrated_iq" else args.qubits
@@ -1384,10 +1384,10 @@ def _controller(args: BenchmarkArguments) -> int:
     invalid = sorted(set(runners) - set(_ALL_RUNNERS))
     if invalid:
         raise ValueError(f"unknown runners: {', '.join(invalid)}")
-    if args.retention == "transient" and any(runner != "adhoc" for runner in runners):
+    if args.retention == "discard" and any(runner != "adhoc" for runner in runners):
         raise ValueError(
             "Scopecat cannot yet demand acquisition results without retaining "
-            "a dataset; run the transient baseline with --runners adhoc"
+            "a dataset; run the discard lower bound with --runners adhoc"
         )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1588,9 +1588,9 @@ def _positive_ints(value: str) -> tuple[int, ...]:
 
 
 def _completed_point_count(run: RunHandle, scenario: ScanScenario) -> int:
-    if scenario.retention == "transient":
+    if scenario.retention == "discard":
         if run.datasets:
-            raise RuntimeError("transient benchmark unexpectedly retained a dataset")
+            raise RuntimeError("discard benchmark unexpectedly retained a dataset")
         return scenario.point_count
     return len(run.measurements().records)
 
@@ -1609,7 +1609,7 @@ def _acquired_result_bytes(scenario: ScanScenario) -> int | None:
 def _selected_result_bytes(scenario: ScanScenario) -> int:
     if scenario.profile != "multiqubit_result_retention":
         return scenario.point_count * np.dtype(np.float64).itemsize
-    if scenario.retention == "transient":
+    if scenario.retention == "discard":
         return 0
     if scenario.retention == "summary":
         return (
