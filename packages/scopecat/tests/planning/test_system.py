@@ -760,7 +760,7 @@ def test_plan_stage_value_record_is_materialized_per_point() -> None:
 
     assert plan.host is None
     assert bound.bindings.live_compute_ids == frozenset()
-    [candidate] = plan.measurements.static_value_candidates
+    [candidate] = plan.measurements.static_value_candidates(plan.points.points[:1])
     assert candidate.value == 1.5
     [record] = plan.measurements.records
     assert record.id == "threshold"
@@ -1043,6 +1043,24 @@ def test_local_effect_materialization_is_bounded_by_execution_batch(
     assert tuple(
         ordinal for batch in materialized_ordinals[1:] for ordinal in batch
     ) == tuple(range(300))
+
+
+def test_large_plan_preview_samples_edges_without_hiding_total_point_count() -> None:
+    bound = _bound_program(domain_product_count=0, point_count=300)
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound, _TrackingProvider())
+    ).compile(bound)
+
+    preview = build_run_program_preview(plan)
+
+    assert preview.point_count == 300
+    assert preview.total_point_count == 300
+    assert preview.points_truncated
+    assert len(preview.points) == 64
+    assert tuple(point.point_index for point in preview.points) == (
+        *range(32),
+        *range(268, 300),
+    )
 
 
 def test_run_requirements_and_host_order_include_only_used_local_instruments() -> None:
@@ -1699,4 +1717,4 @@ def test_zero_point_domain_plan_retains_direct_product_ownership() -> None:
         use.id for use in bound.bindings.product_uses
     )
     assert compiler.compile_calls == 0
-    assert plan.points.points == ()
+    assert tuple(plan.points.points) == ()

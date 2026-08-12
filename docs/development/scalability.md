@@ -234,9 +234,13 @@ relative to one physical point: symbolic and type verification, configuration
 resolution, static resource authority, and one fully compiled domain probe. It
 does not render every point's waveforms to discover later lowering failures
 before the run starts. The reference target probes one point, then uses the
-concrete artifact to size the following batch. The current eager scalar point
-domain and durable point catalog remain an explicit exception and the next
-dense-spectroscopy preparation limit.
+concrete artifact to size the following batch. Cartesian point rows, point
+parameter overlays, runtime point objects, and static value records are now
+random-access views evaluated for the current bounded coverage. Declared axis
+factors and the durable product-grid coordinate description are still prepared
+up front, so a one-dimensional values scan remains proportional to its declared
+coordinate count even though it no longer creates several duplicate objects per
+point.
 
 This is an intentional UX tradeoff. Structural mistakes fail before hardware;
 shape- or value-dependent failures that require actual waveform lowering may
@@ -269,12 +273,15 @@ than being flattened into more control-plane points.
 
 The present architecture provides a direct end-to-end baseline:
 
-- linking and planning still eagerly materialize logical points, point
-  parameter bindings, and the durable point catalog;
+- linking and planning retain declared axis factors but derive Cartesian rows,
+  point parameter bindings, runtime points, and static value records on demand;
+  forward traversal is a range, while traversal modes that reorder points still
+  retain an explicit ordinal sequence;
 - local target preparation retains static route manifests, preview materializes
-  only the first point, and execution materializes local compute and effects
-  only for the current bounded coverage batch; local-only coverage starts with
-  32 points and then uses batches of at most 256 points;
+  only the first physical probe, the user-visible point preview samples at most
+  64 edge points, and execution materializes local compute and effects only for
+  the current bounded coverage batch; local-only coverage starts with 32 points
+  and then uses batches of at most 256 points;
 - domain compilation uses a backend-declared point capacity but prepares only
   the current batch during execution; preview compiles the initial one-point
   probe as a fast semantic preflight, and each prepared domain job reports the
@@ -297,15 +304,20 @@ The present architecture provides a direct end-to-end baseline:
   do not accumulate in the permanent object store or with total point count;
 - projected Arrow readers and GUI previews provide bounded read paths.
 
-The next dense-spectroscopy limit is the eager point domain, parameter binding,
-and run point catalog: their preparation time and retained memory still grow
-with total point count. Local effects and live prepared target artifacts are
-bounded by the current physical batch. Inline command payloads retain raw bytes
-in memory and convert to base64 only for an actual JSON wire representation;
-the daemon client uploads those bytes to an operation-scoped content-addressed
-spool before posting a control command containing only the blob descriptor.
-Hardware operation identities and durable evidence cover the descriptor rather
-than serializing the payload body.
+The next dense-spectroscopy preparation limit is the coordinate source itself:
+range and linear axes currently expand to factor tuples, and a one-dimensional
+values scan necessarily carries one declared value per logical point through
+the durable axis description and catalog fingerprint. Cartesian products no
+longer multiply those factors into retained rows. Local effects, static value
+evaluation, runtime point projection, and live prepared target artifacts are
+bounded by the current physical batch. During active execution the completed
+point index set and durable scalar results still grow with completed point
+count; neither contains waveform payloads. Inline command payloads retain raw
+bytes in memory and convert to base64 only for an actual JSON wire
+representation; the daemon client uploads those bytes to an operation-scoped
+content-addressed spool before posting a control command containing only the
+blob descriptor. Hardware operation identities and durable evidence cover the
+descriptor rather than serializing the payload body.
 
 The spool is deliberately transient: if the daemon restarts after an upload but
 before the command is accepted, the client must submit the command again and
@@ -315,10 +327,11 @@ publication remains a separate future capability for payloads that must be
 inspectable after execution.
 
 The production waveform profile now separates transient transfer, durable
-object retention, compilation, and driver work. Its next limit is the eager
-point domain, parameter binding, and run point catalog during preparation. The
-other profiles establish whether acquisition volume or history reaches its
-resource budget first. Workflow scalability awaits a workflow ownership model.
+object retention, compilation, and driver work. Its remaining point-scale
+preparation cost is the declared coordinate representation and durable schema,
+not waveform or Cartesian row materialization. The other profiles establish
+whether acquisition volume or history reaches its resource budget first.
+Workflow scalability awaits a workflow ownership model.
 
 ## Development Cadence
 

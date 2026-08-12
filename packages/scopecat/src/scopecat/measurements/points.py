@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainLayout
@@ -56,7 +56,7 @@ class RunPointCatalog:
     """Run-owned point inventory, which may project a subset of the full contract."""
 
     contract: RunPointContract
-    points: tuple[RunPoint, ...]
+    points: Sequence[RunPoint]
 
     @property
     def experiment_id(self) -> str:

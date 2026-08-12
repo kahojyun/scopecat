@@ -30,11 +30,13 @@ def _domain(
 def test_forward_traversal_retains_canonical_order() -> None:
     domain = _domain((("x", 2), ("y", 3)), point_count=6)
 
-    assert point_execution_ordinals(
-        domain,
-        repeat=1,
-        repeat_mode="point",
-        traversal="forward",
+    assert tuple(
+        point_execution_ordinals(
+            domain,
+            repeat=1,
+            repeat_mode="point",
+            traversal="forward",
+        )
     ) == (0, 1, 2, 3, 4, 5)
 
 

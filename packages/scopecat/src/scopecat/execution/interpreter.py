@@ -123,15 +123,14 @@ def _execute_run(
         value_candidates: tuple[ValueRecordCandidate, ...],
     ) -> None:
         nonlocal committed_measurement_count
+        static_value_candidates = program.measurements.static_value_candidates(points)
+        all_value_candidates = (*static_value_candidates, *value_candidates)
         completed_candidates = execute_measurement_computes(
             program.measurement_computes,
             candidates,
             points=points,
             catalog=program.measurements.catalog,
-            value_candidates=(
-                *program.measurements.static_value_candidates,
-                *value_candidates,
-            ),
+            value_candidates=all_value_candidates,
         )
         values = seal_measurement_values(
             program.measurements.catalog,
@@ -143,7 +142,7 @@ def _execute_run(
             values,
             run_id=run_id,
             points=points,
-            value_candidates=value_candidates,
+            value_candidates=all_value_candidates,
         )
         block_problems = (
             *validate_run_measurements(

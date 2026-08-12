@@ -17,6 +17,7 @@ from scopecat.compiler.point_domain import (
     PointDomainVerificationError,
     VerifiedPointDomain,
     materialize_point_domain,
+    prepare_point_domain,
     verify_point_domain,
 )
 from scopecat.compiler.relations.context import ParameterRelationData
@@ -28,7 +29,7 @@ from scopecat.compiler.relations.verification import (
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.value_data import CellValue
+from scopecat.kernel.value_data import CellValue, Row
 from scopecat.kernel.value_types import (
     Entity,
     Int,
@@ -168,6 +169,41 @@ def test_product_materialization_is_left_major() -> None:
         {"left": 1, "right": 4},
         {"left": 2, "right": 3},
         {"left": 2, "right": 4},
+    ]
+
+
+def test_prepared_product_domain_normalizes_only_accessed_rows() -> None:
+    normalized: list[Row] = []
+
+    def normalize(row: Row) -> Mapping[str, object]:
+        normalized.append(row)
+        return row
+
+    prepared = prepare_point_domain(
+        _verify(
+            PointDomain(
+                axes=(
+                    _axis("left", (1, 2)),
+                    _axis("right", (3, 4, 5)),
+                )
+            )
+        ),
+        ParameterRelationData(),
+        row_normalizer=normalize,
+    )
+
+    assert len(prepared.points) == 6
+    assert normalized == []
+    assert prepared.points[-1].row == {"left": 2, "right": 5}
+    assert normalized == [{"left": 2, "right": 5}]
+    assert [point.row for point in prepared.points[1:3]] == [
+        {"left": 1, "right": 4},
+        {"left": 1, "right": 5},
+    ]
+    assert normalized == [
+        {"left": 2, "right": 5},
+        {"left": 1, "right": 4},
+        {"left": 1, "right": 5},
     ]
 
 
@@ -487,6 +523,8 @@ def test_materialization_coerces_normalized_rows_before_assigning_ids() -> None:
 def test_invalid_literal_or_normalized_cell_has_a_value_validation_error() -> None:
     invalid_literal = _verify(_domain(("not-an-integer",)))
     with pytest.raises(ValueValidationError):
+        prepare_point_domain(invalid_literal, ParameterRelationData())
+    with pytest.raises(ValueValidationError):
         materialize_point_domain(invalid_literal, ParameterRelationData())
 
     verified = _verify(_domain((1,)))
@@ -503,7 +541,7 @@ def test_entity_columns_are_derived_from_exact_point_schema() -> None:
         axes=(
             _axis(
                 "qubit",
-                (EntityRef(id="q0", kind="qubit"),),
+                ("q0",),
                 value_type=_ENTITY,
             ),
         )
@@ -514,6 +552,7 @@ def test_entity_columns_are_derived_from_exact_point_schema() -> None:
 
     assert verified.entity_columns == ("qubit",)
     assert [column.id for column in verified.coordinate_columns] == ["qubit"]
+    assert materialized.axis_values == (("qubit", (EntityRef(id="q0", kind="qubit"),)),)
     assert materialized.points[0].row == {"qubit": EntityRef(id="q0", kind="qubit")}
 
 

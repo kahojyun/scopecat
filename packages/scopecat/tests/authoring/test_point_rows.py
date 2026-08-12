@@ -6,10 +6,7 @@ from scopecat_testkit.authoring import bind_invocation, load_config
 import scopecat as sc
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.measurements.projection import select_measurement_projection
-from scopecat.planning.measurement_projection import (
-    project_measurement_catalog,
-    project_static_value_record_candidates,
-)
+from scopecat.planning.measurement_projection import project_measurement_catalog
 from scopecat.planning.point_materialization import materialize_bound_points
 from scopecat.records.measurement import (
     MeasurementPointCloudPointDomain,
@@ -63,7 +60,6 @@ def test_point_rows_compile_materialize_and_persist_layout() -> None:
     projection = select_measurement_projection(
         catalog,
         bound.bindings.record_uses,
-        static_value_candidates=project_static_value_record_candidates(bound_points),
     )
     schema = projection.schema
     assert schema is not None
@@ -103,7 +99,6 @@ def test_empty_point_rows_are_a_zero_point_domain() -> None:
     projection = select_measurement_projection(
         catalog,
         bound.bindings.record_uses,
-        static_value_candidates=project_static_value_record_candidates(bound_points),
     )
     schema = projection.schema
     assert schema is not None

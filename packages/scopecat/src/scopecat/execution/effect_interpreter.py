@@ -15,7 +15,6 @@ from scopecat.execution.local.program import (
     ComputeOperation,
     InvokeOperation,
 )
-from scopecat.execution.points import AdmittedPointLedger
 from scopecat.execution.program import (
     RunCoverageCheckpoint,
     RunCoverageEffect,
@@ -24,7 +23,6 @@ from scopecat.execution.program import (
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
-from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.records import ValueRecordCandidate
@@ -71,11 +69,8 @@ class RunEffectInterpreter:
         cancellation_requested: Callable[[], bool] = _never_cancel,
     ) -> None:
         self.run_id = run_id
-        self.point_ledger = AdmittedPointLedger(
-            coordinate_ids=tuple(coordinate_ids),
-        )
-        self.logical_points: dict[int, LogicalPointId] = {}
-        self.run_points: dict[int, RunPoint] = {}
+        self.coordinate_ids = frozenset(coordinate_ids)
+        self.run_points: Sequence[RunPoint] = ()
         self.observed_state = list(instruments.observed_state)
         self.baseline_state = list(instruments.baseline_state)
         self.final_state: list[InstrumentStateSnapshot] = []
@@ -112,16 +107,12 @@ class RunEffectInterpreter:
         try:
             self._check_cancellation()
             if not self._journal.problems:
-                admitted = self.point_ledger.admit(points)
-                self.run_points.update((point.ordinal, point) for point in admitted)
-                self.logical_points.update(
-                    (point.ordinal, point.logical_id) for point in admitted
-                )
+                self.run_points = points
                 self._execute_coverage_operations(coverage)
             if (
                 not bool(self._journal.problems)
                 and self.domain_failure is None
-                and self._terminal_point_indices != set(self.logical_points)
+                and len(self._terminal_point_indices) != len(self.run_points)
             ):
                 raise AssertionError("run ended without completing every logical point")
             if (
@@ -233,7 +224,7 @@ class RunEffectInterpreter:
             self._check_cancellation()
         remaining = tuple(
             point_index
-            for point_index in self.logical_points
+            for point_index in range(len(self.run_points))
             if point_index not in self._terminal_point_indices
         )
         if remaining:
@@ -244,7 +235,7 @@ class RunEffectInterpreter:
         self,
         checkpoint: RunCoverageCheckpoint,
     ) -> None:
-        if checkpoint.point_index not in self.logical_points:
+        if not self._known_point(checkpoint.point_index):
             raise AssertionError("coverage checkpoint references an unknown point")
         self._commit_coverage((checkpoint.point_index,))
 
@@ -254,7 +245,7 @@ class RunEffectInterpreter:
     ) -> None:
         value_candidates = tuple(
             ValueRecordCandidate(
-                logical_point_id=self.logical_points[point_index],
+                logical_point_id=self._point(point_index).logical_id,
                 value_id=value_id,
                 value=state.compute_results[value_id],
             )
@@ -265,9 +256,7 @@ class RunEffectInterpreter:
         )
         self._complete_coverage(point_indices)
         try:
-            points = tuple(
-                self.run_points[point_index] for point_index in point_indices
-            )
+            points = tuple(self._point(point_index) for point_index in point_indices)
             if self._coverage_observer is not None:
                 selected = frozenset(point_indices)
                 candidates = tuple(
@@ -306,7 +295,7 @@ class RunEffectInterpreter:
         for point_index in job.point_ordinals:
             if point_index in self._terminal_point_indices:
                 raise AssertionError("domain job follows point completion")
-            if point_index not in self.logical_points:
+            if not self._known_point(point_index):
                 raise AssertionError("domain job references an unknown point")
             self._active_point_indices.add(point_index)
         try:
@@ -331,10 +320,7 @@ class RunEffectInterpreter:
         state = self._point_states.get(point_index)
         if state is not None:
             return state
-        try:
-            logical_id = self.logical_points[point_index]
-        except KeyError as error:
-            raise AssertionError("point effect references an unknown point") from error
+        logical_id = self._point(point_index).logical_id
         state = PointEffectState(
             point_index=point_index,
             logical_id=logical_id,
@@ -353,12 +339,25 @@ class RunEffectInterpreter:
             point_index in self._terminal_point_indices for point_index in point_indices
         ):
             raise AssertionError("point coverage overlaps completed points")
-        if any(point_index not in self.logical_points for point_index in point_indices):
+        if any(not self._known_point(point_index) for point_index in point_indices):
             raise AssertionError("point coverage references an unknown point")
         for point_index in point_indices:
             self._point_states.pop(point_index, None)
             self._active_point_indices.discard(point_index)
         self._terminal_point_indices.update(point_indices)
+
+    def _known_point(self, point_index: int) -> bool:
+        return 0 <= point_index < len(self.run_points)
+
+    def _point(self, point_index: int) -> RunPoint:
+        if not self._known_point(point_index):
+            raise AssertionError("point effect references an unknown point")
+        point = self.run_points[point_index]
+        if point.ordinal != point_index:
+            raise ValueError("run points must retain canonical contiguous ordinals")
+        if frozenset(point.coordinates) != self.coordinate_ids:
+            raise ValueError("run point coordinates do not match the run contract")
+        return point
 
     def _check_cancellation(self) -> None:
         if self.cancelled or not self._cancellation_requested():
@@ -378,7 +377,6 @@ class RunEffectInterpreter:
             observed_state=tuple(self.observed_state),
             baseline_state=tuple(self.baseline_state),
             final_state=tuple(self.final_state),
-            admitted_points=self.point_ledger.points,
             indeterminate=self._journal.indeterminate,
             cancelled=self.cancelled,
             domain_failure=self.domain_failure,

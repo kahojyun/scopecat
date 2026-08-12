@@ -106,7 +106,6 @@ def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
 
     assert not result.problems
     assert delivered == [(0,), (1,)]
-    assert result.admitted_points == points
 
 
 def test_normal_completion_applies_success_state_after_point_coverage() -> None:

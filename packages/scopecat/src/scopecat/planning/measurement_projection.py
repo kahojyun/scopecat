@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import cast
+from collections.abc import Iterator, Sequence
+from typing import cast, overload, override
 
+from scopecat.compiler.point_domain import MaterializedPoint
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import evaluate_scalar
 from scopecat.compiler.value_resolution import BoundValueResolver
@@ -55,13 +56,6 @@ def project_run_point_catalog(
 
     bound = bound_points.bound_plan
     point_domain = bound_points.point_domain
-    all_points = point_domain.points
-    points_by_ordinal = {point.logical_ordinal: point for point in all_points}
-    points = (
-        all_points
-        if point_ordinals is None
-        else tuple(points_by_ordinal[ordinal] for ordinal in point_ordinals)
-    )
     coordinate_columns = bound.point_domain.coordinate_columns
     coordinate_ids = tuple(column.id for column in coordinate_columns)
     axis_values = _product_grid_axis_values(bound_points)
@@ -69,23 +63,64 @@ def project_run_point_catalog(
         contract=RunPointContract(
             experiment_id=bound.program.experiment_id,
             experiment_kind=bound.program.kind,
-            point_count=len(all_points),
+            point_count=len(point_domain.points),
             coordinate_columns=coordinate_columns,
             domain_layout=point_domain.layout,
             domain_axis_sizes=point_domain.axis_sizes,
             domain_axis_values=axis_values,
         ),
-        points=tuple(
-            RunPoint(
-                point.logical_id,
-                {
-                    coordinate_id: point.row[coordinate_id]
-                    for coordinate_id in coordinate_ids
-                },
-            )
-            for point in points
+        points=_RunPointSequence(
+            point_domain.points,
+            coordinate_ids=coordinate_ids,
+            ordinals=(
+                range(len(point_domain.points))
+                if point_ordinals is None
+                else tuple(point_ordinals)
+            ),
         ),
     )
+
+
+class _RunPointSequence(Sequence[RunPoint]):
+    __slots__ = ("_coordinate_ids", "_ordinals", "_points")
+
+    def __init__(
+        self,
+        points: Sequence[MaterializedPoint],
+        *,
+        coordinate_ids: tuple[str, ...],
+        ordinals: Sequence[int],
+    ) -> None:
+        self._points = points
+        self._coordinate_ids = coordinate_ids
+        self._ordinals = ordinals
+
+    @override
+    def __len__(self) -> int:
+        return len(self._ordinals)
+
+    @overload
+    def __getitem__(self, index: int) -> RunPoint: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> tuple[RunPoint, ...]: ...
+
+    @override
+    def __getitem__(self, index: int | slice) -> RunPoint | tuple[RunPoint, ...]:
+        if isinstance(index, slice):
+            return tuple(self[offset] for offset in range(*index.indices(len(self))))
+        point = self._points[self._ordinals[index]]
+        return RunPoint(
+            point.logical_id,
+            {
+                coordinate_id: point.row[coordinate_id]
+                for coordinate_id in self._coordinate_ids
+            },
+        )
+
+    @override
+    def __iter__(self) -> Iterator[RunPoint]:
+        return (self[index] for index in range(len(self)))
 
 
 def _product_grid_axis_values(
@@ -98,8 +133,10 @@ def _product_grid_axis_values(
 def project_static_value_record_candidates(
     bound_points: MaterializedBoundPoints,
     additional_value_ids: Sequence[ValueId] = (),
+    *,
+    point_ordinals: Sequence[int] | None = None,
 ) -> tuple[ValueRecordCandidate, ...]:
-    """Evaluate demanded plan-stage values once for every materialized point."""
+    """Evaluate demanded plan-stage values for one selected point coverage."""
 
     bound = bound_points.bound_plan
     values = BoundValueResolver(bound.program, bound.bindings)
@@ -112,6 +149,14 @@ def project_static_value_record_candidates(
             )
         )
     )
+    ordinals = (
+        range(len(bound_points.point_domain.points))
+        if point_ordinals is None
+        else point_ordinals
+    )
+    selected_points = tuple(
+        bound_points.point_domain.points[ordinal] for ordinal in ordinals
+    )
     for value_id in selected_value_ids:
         expression = values[value_id]
         if isinstance(expression, ComputeResultScalarExpr | ComputeResultArrayExpr):
@@ -123,7 +168,7 @@ def project_static_value_record_candidates(
                     value_id=value_id,
                     value=expression.value,
                 )
-                for point in bound_points.point_domain.points
+                for point in selected_points
             )
             continue
         if not isinstance(expression, ScalarExpr) or isinstance(
@@ -131,11 +176,8 @@ def project_static_value_record_candidates(
             ComputeResultScalarExpr,
         ):
             raise AssertionError("static value records must resolve to scalar plans")
-        for point, parameters in zip(
-            bound_points.point_domain.points,
-            bound_points.point_parameters,
-            strict=True,
-        ):
+        for point in selected_points:
+            parameters = bound_points.point_parameters[point.logical_ordinal]
             candidates.append(
                 ValueRecordCandidate(
                     logical_point_id=point.logical_id,

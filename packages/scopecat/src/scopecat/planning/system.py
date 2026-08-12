@@ -67,7 +67,7 @@ from scopecat.planning.measurement_projection import (
 )
 from scopecat.planning.point_materialization import (
     MaterializedBoundPoints,
-    materialize_bound_points,
+    prepare_bound_points,
 )
 from scopecat.planning.point_order import point_execution_ordinals
 from scopecat.planning.provider_binding import (
@@ -223,7 +223,7 @@ def _compile_system_program(
         raise CheckFailed(implementation_problems)
     if local_instrument_required and catalog.problems:
         raise ProviderContractError(catalog.problems)
-    bound_points = materialize_bound_points(bound)
+    bound_points = prepare_bound_points(bound)
     point_domain = bound_points.point_domain
     logical = bound.program.program
     execution_ordinals = point_execution_ordinals(
@@ -238,13 +238,14 @@ def _compile_system_program(
         measurement_catalog,
         bound.bindings.record_uses,
         result_fields=logical.result_fields,
-        static_value_candidates=project_static_value_record_candidates(
+        static_value_source=lambda points: project_static_value_record_candidates(
             bound_points,
             tuple(
                 binding.value_id
                 for compute in bound.bindings.measurement_computes
                 for binding in compute.value_inputs
             ),
+            point_ordinals=tuple(point.ordinal for point in points),
         ),
     )
     local_target = (
@@ -260,7 +261,7 @@ def _compile_system_program(
         materialize_local_execution(
             bound_points,
             target=local_target,
-            point_ordinals=execution_ordinals[:1],
+            point_ordinals=tuple(execution_ordinals[:1]),
         )
         if local_target is not None
         else None
@@ -825,7 +826,7 @@ def _compile_coverage(
     system: ExperimentSystem,
     bound: BoundPlan,
     bound_points: MaterializedBoundPoints,
-    point_ordinals: tuple[int, ...],
+    point_ordinals: Sequence[int],
     domain_calls: dict[str, DomainCallView],
     local_target: LocalTargetPlan | None,
     catalog: InstrumentContractCatalog,
@@ -867,7 +868,7 @@ def _coverage_operations(
     *,
     compiler: DomainCompiler | None,
     bound_points: MaterializedBoundPoints,
-    point_ordinals: tuple[int, ...],
+    point_ordinals: Sequence[int],
     effects: tuple[LogicalEffect, ...],
     domain_calls: dict[str, DomainCallView],
     local_target: LocalTargetPlan | None,
@@ -887,7 +888,7 @@ def _coverage_operations(
         next_batch_size = next(local_batch_sizes)
     offset = 0
     while offset < len(point_ordinals):
-        coverage_batch = point_ordinals[offset : offset + next_batch_size]
+        coverage_batch = tuple(point_ordinals[offset : offset + next_batch_size])
         next_domain_capacities: list[int] = []
         local_effects = (
             None
