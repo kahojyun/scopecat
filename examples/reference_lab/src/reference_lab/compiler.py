@@ -7,7 +7,6 @@ from typing import Protocol
 
 from scopecat.sdk.domain import (
     DomainBatchInputs,
-    DomainBatchPartition,
     DomainBatchRequest,
     DomainCallView,
     DomainExecutionResult,
@@ -62,7 +61,8 @@ from reference_lab.targets.list_mode import (
 )
 
 _QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId("reference-lab.list-mode-target.v1")
-_INITIAL_BATCH_SIZE = 32
+_INITIAL_BATCH_SIZE = 1
+_MAX_BATCH_WAVEFORM_BYTES = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,19 +158,14 @@ class QuantumLabCompiler:
             )
         )
 
-    def partition(self, point_count: int) -> DomainBatchPartition:
-        """Partition without making ordinary scan semantics boundary-dependent."""
+    def initial_batch_size(self, point_count: int) -> int:
+        """Bound the first preparation without materializing program inputs."""
 
-        initial_size = min(
+        return min(
             point_count,
             _INITIAL_BATCH_SIZE,
             self._target.max_list_entries,
         )
-        tail = DomainBatchPartition.with_maximum_size(
-            point_count - initial_size,
-            self._target.max_list_entries,
-        )
-        return DomainBatchPartition((initial_size, *tail.batch_sizes))
 
     def _compile_target_artifact(
         self,
@@ -270,6 +265,10 @@ class QuantumLabCompiler:
                 artifact.target_artifact
             ),
             realtime_state_invalidations=(),
+            next_batch_max_points=_next_batch_max_points(
+                artifact.target_artifact,
+                max_list_entries=self._target.max_list_entries,
+            ),
             mapping=mapping,
             invocation=invocation,
             runtime=runtime,
@@ -283,6 +282,21 @@ class QuantumLabCompiler:
         if self._runtime_selector is None:
             return QuantumRuntimeSelection(self._runtime)
         return self._runtime_selector(context)
+
+
+def _next_batch_max_points(
+    artifact: ListModeArtifact,
+    *,
+    max_list_entries: int,
+) -> int:
+    largest_entry_bytes = max(
+        sum(waveform.samples.nbytes for waveform in entry.waveforms)
+        for entry in artifact.entries
+    )
+    return min(
+        max_list_entries,
+        max(1, _MAX_BATCH_WAVEFORM_BYTES // max(largest_entry_bytes, 1)),
+    )
 
 
 def _quantum_program(call: DomainCallView) -> quantum.Program:

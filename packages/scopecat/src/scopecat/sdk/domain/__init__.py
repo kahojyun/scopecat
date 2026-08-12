@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from scopecat.sdk.domain.batch import (
         DomainBatchInputs,
-        DomainBatchPartition,
         DomainBatchRequest,
         DomainCompileRequest,
     )
@@ -51,7 +50,6 @@ if TYPE_CHECKING:
 
 _BATCH_EXPORTS = (
     "DomainBatchInputs",
-    "DomainBatchPartition",
     "DomainBatchRequest",
     "DomainCompileRequest",
 )
@@ -122,7 +120,6 @@ def __dir__() -> list[str]:
 
 __all__ = [
     "DomainBatchInputs",
-    "DomainBatchPartition",
     "DomainBatchRequest",
     "DomainCallView",
     "DomainCompileRequest",

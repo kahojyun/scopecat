@@ -43,7 +43,7 @@ def test_scan_execution_benchmark_runs_both_paths(tmp_path: Path) -> None:
     assert set(by_runner) == {"adhoc", "scopecat"}
     assert all(result["points_completed"] == 3 for result in results)
     assert by_runner["adhoc"]["trigger_count"] == 3
-    assert by_runner["scopecat"]["trigger_count"] == 1
+    assert by_runner["scopecat"]["trigger_count"] == 2
 
 
 def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
@@ -133,4 +133,6 @@ def test_waveform_profile_matches_multichannel_working_set(tmp_path: Path) -> No
     )
     by_runner = {result["runner"]: result for result in results}
     assert by_runner["adhoc"]["max_waveform_batch_bytes"] == expected_retained_bytes
-    assert by_runner["scopecat"]["max_waveform_batch_bytes"] == expected_total_bytes
+    assert (
+        by_runner["scopecat"]["max_waveform_batch_bytes"] == 2 * expected_retained_bytes
+    )

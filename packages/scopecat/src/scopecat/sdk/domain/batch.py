@@ -69,28 +69,6 @@ class DomainBatchRequest(DomainCompileRequest):
     batch_ordinal: int
 
 
-@dataclass(frozen=True, slots=True)
-class DomainBatchPartition:
-    """Ordered batch sizes covering one bounded call region exactly once."""
-
-    batch_sizes: tuple[int, ...]
-
-    def __post_init__(self) -> None:
-        if any(type(size) is not int or size <= 0 for size in self.batch_sizes):
-            raise ValueError("domain batch sizes must be positive integers")
-
-    @classmethod
-    def with_maximum_size(
-        cls,
-        point_count: int,
-        maximum_size: int,
-    ) -> DomainBatchPartition:
-        if type(maximum_size) is not int or maximum_size <= 0:
-            raise ValueError("domain maximum batch size must be a positive integer")
-        full_batches, remainder = divmod(point_count, maximum_size)
-        return cls((maximum_size,) * full_batches + ((remainder,) if remainder else ()))
-
-
 def _input_column(
     columns: tuple[tuple[str, tuple[object, ...]], ...],
     name: str,
@@ -103,7 +81,6 @@ def _input_column(
 
 __all__ = [
     "DomainBatchInputs",
-    "DomainBatchPartition",
     "DomainBatchRequest",
     "DomainCompileRequest",
 ]

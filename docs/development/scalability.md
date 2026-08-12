@@ -205,6 +205,44 @@ The absolute one-second limits are UX budgets, not ratios against a nearly
 zero-duration direct loop. Change them only with a recorded lab workflow and
 repeatable measurements.
 
+### Launch Validation and Materialization
+
+Launch should perform only checks whose cost is expected to remain small
+relative to one physical point: symbolic and type verification, configuration
+resolution, static resource authority, and one fully compiled domain probe. It
+does not render every point's waveforms to discover later lowering failures
+before the run starts. The reference target probes one point, then uses the
+concrete artifact to size the following batch. The current eager scalar point
+domain and durable point catalog remain an explicit exception and the next
+dense-spectroscopy preparation limit.
+
+This is an intentional UX tradeoff. Structural mistakes fail before hardware;
+shape- or value-dependent failures that require actual waveform lowering may
+fail when their bounded batch is reached. A separate explicit exhaustive check
+may be useful for unattended runs, but it must not become the default launch
+path or silently materialize the full waveform volume.
+
+Physical batching remains expressed as a contiguous point count, but its
+capacity is not point-only. The reference compiler currently combines the
+device entry limit with an 8 MiB aggregate waveform target derived from the
+largest entry in the preceding compiled batch. Waveform channel count, sample
+count, and dtype therefore reduce the following point count automatically. A
+later abrupt increase in entry size can overshoot the target for one batch; the
+next feedback corrects it. This adaptive target is a working-set control, not a
+new logical experiment dimension.
+
+The next capacity axes should be added only when their matched profile proves
+they dominate a budget:
+
+- shots and acquisition channels determine execution time and result volume;
+- fixed or ragged trace samples determine binary result and analysis memory;
+- configured topology determines routing and static authority cost;
+- logical point count determines scalar point metadata, result rows, and batch
+  count even when waveform memory is bounded.
+
+Large shot and trace axes should remain structured result dimensions rather
+than being flattened into more control-plane points.
+
 ## Current Implementation Boundaries
 
 The present architecture provides a direct end-to-end baseline:
@@ -216,15 +254,13 @@ The present architecture provides a direct end-to-end baseline:
   only for the current bounded coverage batch; local-only coverage starts with
   32 points and then uses batches of at most 256 points;
 - domain compilation uses a backend-declared point capacity but prepares only
-  the current batch during execution; preview compiles only the first bounded
-  batch as a fast semantic preflight;
-- the reference list-mode target begins with a 32-point batch, then uses its
-  full device capacity so preparation latency does not require a one-point
-  physical batch;
-- list-mode capacity currently bounds entry count and per-entry samples but not
-  aggregate waveform bytes. Long multichannel entries can therefore make one
-  physical batch retain and JSON-encode many points' waveforms; the waveform
-  profile is the acceptance baseline for a byte-aware batching contract;
+  the current batch during execution; preview compiles the initial one-point
+  probe as a fast semantic preflight, and each prepared domain job reports the
+  maximum point count for the following batch;
+- the reference list-mode target combines its device entry capacity with an
+  adaptive 8 MiB aggregate waveform target. Its AWG and virtual-capture codecs
+  carry contiguous float64 samples in binary rather than expanding arrays into
+  JSON numbers;
 - admission uses the domain compiler's static instrument footprint and all
   structurally compatible local route candidates. Point-local routing narrows
   the operations actually emitted, so a run may conservatively reserve an
@@ -236,10 +272,14 @@ The present architecture provides a direct end-to-end baseline:
 
 The next dense-spectroscopy limit is the eager point domain, parameter binding,
 and run point catalog: their preparation time and retained memory still grow
-with total point count. Local effects and prepared target artifacts are bounded
-by the current physical batch. The other profiles establish whether acquisition
-volume or history reaches its resource budget first. Workflow scalability
-awaits a workflow ownership model.
+with total point count. Local effects and live prepared target artifacts are
+bounded by the current physical batch, but repeated byte payload serialization
+still raises process RSS through allocation churn even after prior batches are
+released. The next waveform-path optimization should remove large binary
+content from control-model/base64 serialization rather than increasing launch
+materialization. The other profiles establish whether acquisition volume or
+history reaches its resource budget first. Workflow scalability awaits a
+workflow ownership model.
 
 ## Development Cadence
 

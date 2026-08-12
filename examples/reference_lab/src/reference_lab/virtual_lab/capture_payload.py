@@ -1,20 +1,23 @@
-"""Payload model used only to inject traces into the virtual bench plant."""
+"""Binary payload used only to inject traces into the virtual bench plant."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+import struct
+from dataclasses import dataclass, field
+from typing import cast
 
-from pydantic import BaseModel, ConfigDict, Field
+import numpy as np
 from scopecat.sdk.payloads import PayloadCodec
 
-VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID = "reference_lab.virtual_capture_queue.v1"
+VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID = "reference_lab.virtual_capture_queue.v2"
 
 
 @dataclass(frozen=True, slots=True)
 class DecodedVirtualCaptureTrace:
     instrument_id: str
     component_path: tuple[str, ...]
-    samples: tuple[float, ...]
+    samples: np.ndarray = field(repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,60 +30,70 @@ class DecodedVirtualCaptureQueue:
     captures: tuple[DecodedVirtualCapture, ...]
 
 
-class _VirtualCaptureTraceDocument(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    instrument_id: str = Field(min_length=1)
-    component_path: tuple[str, ...] = Field(min_length=1)
-    samples: tuple[float, ...] = Field(min_length=1)
-
-
-class _VirtualCaptureDocument(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    traces: tuple[_VirtualCaptureTraceDocument, ...] = ()
-
-
-class _VirtualCaptureQueueDocument(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    captures: tuple[_VirtualCaptureDocument, ...] = Field(min_length=1)
-
-
 def virtual_capture_queue_codec() -> PayloadCodec:
     """Return the worker/client codec for the virtual plant input."""
 
     return PayloadCodec(
-        id="reference_lab.virtual-capture-queue-json",
-        version=1,
-        media_type="application/json",
+        id="reference_lab.virtual-capture-queue-float64",
+        version=2,
+        media_type="application/vnd.scopecat.capture-queue+float64",
         encoder=_encode_virtual_capture_queue,
         decoder=_decode_virtual_capture_queue,
     )
 
 
 def _encode_virtual_capture_queue(value: object) -> bytes:
-    document = _VirtualCaptureQueueDocument.model_validate(value)
-    return document.model_dump_json().encode("utf-8")
+    document = cast("dict[str, object]", value)
+    encoded_captures: list[dict[str, object]] = []
+    sample_bodies: list[bytes] = []
+    for capture in cast("list[dict[str, object]]", document["captures"]):
+        encoded_traces: list[dict[str, object]] = []
+        for trace in cast("list[dict[str, object]]", capture["traces"]):
+            samples = np.ascontiguousarray(trace["samples"], dtype="<f8")
+            encoded_traces.append(
+                {
+                    "instrument_id": trace["instrument_id"],
+                    "component_path": trace["component_path"],
+                    "sample_count": int(samples.size),
+                }
+            )
+            sample_bodies.append(samples.tobytes())
+        encoded_captures.append({"traces": encoded_traces})
+    header = json.dumps(
+        {"captures": encoded_captures},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return b"".join((struct.pack("<Q", len(header)), header, *sample_bodies))
 
 
 def _decode_virtual_capture_queue(content: bytes) -> object:
-    document = _VirtualCaptureQueueDocument.model_validate_json(content)
-    return DecodedVirtualCaptureQueue(
-        captures=tuple(
-            DecodedVirtualCapture(
-                traces=tuple(
-                    DecodedVirtualCaptureTrace(
-                        instrument_id=trace.instrument_id,
-                        component_path=trace.component_path,
-                        samples=trace.samples,
-                    )
-                    for trace in capture.traces
+    header_size = cast("int", struct.unpack_from("<Q", content)[0])
+    body_offset = 8 + header_size
+    document = cast(
+        "dict[str, object]",
+        json.loads(content[8:body_offset]),
+    )
+    captures: list[DecodedVirtualCapture] = []
+    for capture in cast("list[dict[str, object]]", document["captures"]):
+        traces: list[DecodedVirtualCaptureTrace] = []
+        for trace in cast("list[dict[str, object]]", capture["traces"]):
+            sample_count = cast("int", trace["sample_count"])
+            samples = np.frombuffer(
+                content,
+                dtype="<f8",
+                count=sample_count,
+                offset=body_offset,
+            )
+            body_offset += samples.nbytes
+            traces.append(
+                DecodedVirtualCaptureTrace(
+                    instrument_id=cast("str", trace["instrument_id"]),
+                    component_path=tuple(cast("list[str]", trace["component_path"])),
+                    samples=samples,
                 )
             )
-            for capture in document.captures
-        )
-    )
+        captures.append(DecodedVirtualCapture(traces=tuple(traces)))
+    return DecodedVirtualCaptureQueue(captures=tuple(captures))
 
 
 __all__ = [

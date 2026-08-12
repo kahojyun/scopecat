@@ -97,7 +97,6 @@ from scopecat.records.config import (
     config_content_hash,
 )
 from scopecat.sdk.domain import (
-    DomainBatchPartition,
     DomainBatchRequest,
     DomainPreparationBuilder,
     DomainStateAddress,
@@ -150,9 +149,10 @@ class _DomainCompiler:
     realtime_write_batches: frozenset[int] | None = None
     realtime_state_invalidations: tuple[DomainStateAddress, ...] = ()
     batch_size: int = 100
-    partition_sizes: tuple[int, ...] | None = None
+    initial_size: int | None = None
+    next_batch_capacities: tuple[int, ...] | None = None
     runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
-    partition_requests: list[int] = field(default_factory=list)
+    initial_batch_requests: list[int] = field(default_factory=list)
     compile_calls: int = 0
     compile_requests: list[DomainBatchRequest] = field(default_factory=list)
     prepared_inputs: list[tuple[object, ...]] = field(default_factory=list)
@@ -165,13 +165,12 @@ class _DomainCompiler:
     def target_kind(self) -> str:
         return "tests.domain"
 
-    def partition(self, point_count: int) -> DomainBatchPartition:
-        self.partition_requests.append(point_count)
-        if self.partition_sizes is not None:
-            return DomainBatchPartition(self.partition_sizes)
-        return DomainBatchPartition.with_maximum_size(
-            point_count,
-            self.batch_size,
+    def initial_batch_size(self, point_count: int) -> int:
+        self.initial_batch_requests.append(point_count)
+        return (
+            min(point_count, self.batch_size)
+            if self.initial_size is None
+            else self.initial_size
         )
 
     def compile_batch(
@@ -235,6 +234,16 @@ class _DomainCompiler:
                 else ()
             ),
             realtime_state_invalidations=self.realtime_state_invalidations,
+            next_batch_max_points=(
+                self.batch_size
+                if self.next_batch_capacities is None
+                else self.next_batch_capacities[
+                    min(
+                        request.batch_ordinal,
+                        len(self.next_batch_capacities) - 1,
+                    )
+                ]
+            ),
             mapping=mapping,
             invocation=invocation,
             runtime=self.runtime,
@@ -954,26 +963,50 @@ def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
         if isinstance(operation, RunDomainJob)
     ] == [(0,), (1,)]
     assert compiler.compile_calls == 2
-    assert compiler.partition_requests == [2]
+    assert compiler.initial_batch_requests == [2]
     assert [request.point_ordinals for request in compiler.compile_requests] == [
         (0,),
         (1,),
     ]
 
 
-def test_domain_target_partition_must_cover_the_complete_point_space() -> None:
+def test_domain_target_initial_batch_must_fit_the_complete_point_space() -> None:
     bound = _bound_program(point_count=2)
     compiler = _DomainCompiler(
         "tests.invalid-partition",
-        partition_sizes=(1,),
+        initial_size=3,
     )
 
     plan = ExperimentSystem(
         instrument_catalog=_catalog(bound),
         domain_compiler=compiler,
     ).compile(bound)
-    with pytest.raises(ValueError, match="cover every bounded point"):
+    with pytest.raises(ValueError, match="positive covered point count"):
         tuple(plan.coverage)
+
+
+def test_domain_target_adapts_followup_batches_from_compiler_feedback() -> None:
+    bound = _bound_program(point_count=10)
+    compiler = _DomainCompiler(
+        "tests.adaptive-capacity",
+        initial_size=1,
+        next_batch_capacities=(3,),
+    )
+
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(bound)
+
+    jobs = tuple(
+        operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
+    )
+    assert tuple(job.point_ordinals for job in jobs) == (
+        (0,),
+        (1, 2, 3),
+        (4, 5, 6),
+        (7, 8, 9),
+    )
 
 
 def test_local_effect_materialization_is_bounded_by_execution_batch(
@@ -1158,7 +1191,7 @@ def test_host_state_bounds_domain_compilation_regions() -> None:
         for operation in coverage
         if isinstance(operation, RunDomainJob)
     ] == [(0,), (1,)]
-    assert compiler.partition_requests == [2]
+    assert compiler.initial_batch_requests == [2]
     assert [
         operation.point_index
         for operation in coverage
@@ -1200,7 +1233,7 @@ def test_domain_and_local_state_retain_declared_order_in_each_batch() -> None:
     ]
     assert isinstance(consequential[1], RunCoverageEffect)
     assert isinstance(consequential[1].operation, ApplyStateOperation)
-    assert compiler.partition_requests == [2]
+    assert compiler.initial_batch_requests == [2]
 
 
 def test_stable_host_state_prepares_a_domain_segment_once() -> None:
@@ -1544,7 +1577,7 @@ def test_domain_compiler_coalesces_a_stable_host_state_region() -> None:
     assert provider.describe_calls == 1
     assert provider.connect_calls == 0
     assert compiler.compile_calls == 1
-    assert compiler.partition_requests == [2]
+    assert compiler.initial_batch_requests == [2]
     assert [job.id for job in domain_jobs] == ["domain:batch-0"]
     assert [
         operation.point_index

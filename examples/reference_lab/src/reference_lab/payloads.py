@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Literal
+import json
+import struct
+from dataclasses import dataclass, field
+from typing import Literal, cast
 
+import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 
 SAMPLED_WAVEFORM_SCHEMA_ID = "sampled_waveform"
-AWG_PROGRAM_SCHEMA_ID = "reference_lab.awg_program.v1"
+AWG_PROGRAM_SCHEMA_ID = "reference_lab.awg_program.v2"
 DIGITIZER_PROGRAM_SCHEMA_ID = "reference_lab.digitizer_program.v1"
 TRIGGER_PROGRAM_SCHEMA_ID = "reference_lab.trigger_program.v1"
 
@@ -22,7 +25,7 @@ class DecodedSampledWaveform:
 @dataclass(frozen=True, slots=True)
 class DecodedAwgChannelWaveform:
     component_path: tuple[str, ...]
-    samples: tuple[float, ...]
+    samples: np.ndarray = field(repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,25 +78,6 @@ class _SampledWaveformDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     samples: tuple[float, ...] = Field(min_length=1)
-
-
-class _AwgChannelWaveformDocument(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    component_path: tuple[str, ...] = Field(min_length=1)
-    samples: tuple[float, ...] = Field(min_length=1)
-
-
-class _AwgEntryDocument(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    waveforms: tuple[_AwgChannelWaveformDocument, ...] = Field(min_length=1)
-
-
-class _AwgProgramDocument(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    entries: tuple[_AwgEntryDocument, ...] = Field(min_length=1)
 
 
 class _DigitizerDspWindowDocument(BaseModel):
@@ -161,9 +145,9 @@ def reference_lab_payload_codecs() -> PayloadCodecRegistry:
             ),
             VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID: virtual_capture_queue_codec(),
             AWG_PROGRAM_SCHEMA_ID: PayloadCodec(
-                id="reference_lab.awg-program-json",
-                version=1,
-                media_type="application/json",
+                id="reference_lab.awg-program-float64",
+                version=2,
+                media_type="application/vnd.scopecat.awg-program+float64",
                 encoder=_encode_awg_program,
                 decoder=_decode_awg_program,
             ),
@@ -189,27 +173,59 @@ def _decode_sampled_waveform(content: bytes) -> object:
 
 
 def _encode_awg_program(value: object) -> bytes:
-    document = _AwgProgramDocument.model_validate(value)
-    return document.model_dump_json().encode("utf-8")
+    document = cast("dict[str, object]", value)
+    encoded_entries: list[dict[str, object]] = []
+    sample_bodies: list[bytes] = []
+    for entry in cast("list[dict[str, object]]", document["entries"]):
+        encoded_waveforms: list[dict[str, object]] = []
+        for waveform in cast("list[dict[str, object]]", entry["waveforms"]):
+            samples = np.ascontiguousarray(waveform["samples"], dtype="<f8")
+            encoded_waveforms.append(
+                {
+                    "component_path": waveform["component_path"],
+                    "sample_count": int(samples.size),
+                }
+            )
+            sample_bodies.append(samples.tobytes())
+        encoded_entries.append({"waveforms": encoded_waveforms})
+    header = json.dumps(
+        {"entries": encoded_entries},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return b"".join((struct.pack("<Q", len(header)), header, *sample_bodies))
 
 
 def _decode_awg_program(content: bytes) -> object:
-    document = _AwgProgramDocument.model_validate_json(content)
-    return DecodedAwgProgram(
-        entries=tuple(_decoded_awg_entry(entry) for entry in document.entries)
+    header_size = cast("int", struct.unpack_from("<Q", content)[0])
+    body_offset = 8 + header_size
+    document = cast(
+        "dict[str, object]",
+        json.loads(content[8:body_offset]),
     )
-
-
-def _decoded_awg_entry(document: _AwgEntryDocument) -> DecodedAwgEntry:
-    return DecodedAwgEntry(
-        waveforms=tuple(
-            DecodedAwgChannelWaveform(
-                component_path=waveform.component_path,
-                samples=waveform.samples,
+    entries: list[DecodedAwgEntry] = []
+    for entry in cast("list[dict[str, object]]", document["entries"]):
+        waveforms: list[DecodedAwgChannelWaveform] = []
+        for waveform in cast("list[dict[str, object]]", entry["waveforms"]):
+            sample_count = cast("int", waveform["sample_count"])
+            samples = np.frombuffer(
+                content,
+                dtype="<f8",
+                count=sample_count,
+                offset=body_offset,
             )
-            for waveform in document.waveforms
+            body_offset += samples.nbytes
+            waveforms.append(
+                DecodedAwgChannelWaveform(
+                    component_path=tuple(cast("list[str]", waveform["component_path"])),
+                    samples=samples,
+                )
+            )
+        entries.append(
+            DecodedAwgEntry(
+                waveforms=tuple(waveforms),
+            )
         )
-    )
+    return DecodedAwgProgram(entries=tuple(entries))
 
 
 def _encode_digitizer_program(value: object) -> bytes:

@@ -877,11 +877,18 @@ def _coverage_operations(
     }
     previous_static_frame: tuple[tuple[ApplyStateOperation, ...], ...] | None = None
     has_previous_static_frame = False
-    for coverage_batch in _coverage_batches(
-        compiler,
-        point_ordinals,
-        has_domain_calls=bool(domain_calls),
-    ):
+    has_domain_calls = bool(domain_calls)
+    local_batch_sizes = iter(_bounded_local_batch_sizes(len(point_ordinals)))
+    if has_domain_calls:
+        assert compiler is not None
+        next_batch_size = compiler.initial_batch_size(len(point_ordinals))
+        _validate_domain_batch_size(next_batch_size, len(point_ordinals))
+    else:
+        next_batch_size = next(local_batch_sizes)
+    offset = 0
+    while offset < len(point_ordinals):
+        coverage_batch = point_ordinals[offset : offset + next_batch_size]
+        next_domain_capacities: list[int] = []
         local_effects = (
             None
             if local_target is None
@@ -928,13 +935,15 @@ def _coverage_operations(
                 if isinstance(effect, LogicalDomainExecution):
                     assert compiler is not None
                     batch_ordinal = next_batch_ordinals[effect.id]
-                    yield _compile_domain_batch(
+                    job = _compile_domain_batch(
                         compiler,
                         domain_calls[effect.id],
                         bound_points,
                         region,
                         batch_ordinal=batch_ordinal,
                     )
+                    next_domain_capacities.append(job.execution.next_batch_max_points)
+                    yield job
                     next_batch_ordinals[effect.id] = batch_ordinal + 1
             for ordinal in region:
                 yield RunCoverageCheckpoint(ordinal)
@@ -943,29 +952,25 @@ def _coverage_operations(
             coverage_batch[-1],
         )
         has_previous_static_frame = previous_static_frame is not None
+        offset += len(coverage_batch)
+        remaining = len(point_ordinals) - offset
+        if not remaining:
+            return
+        if has_domain_calls:
+            if not next_domain_capacities:
+                raise AssertionError(
+                    "domain coverage produced no continuation capacity"
+                )
+            next_batch_size = min(remaining, *next_domain_capacities)
+        else:
+            next_batch_size = next(local_batch_sizes)
 
 
-def _coverage_batches(
-    compiler: DomainCompiler | None,
-    point_ordinals: tuple[int, ...],
-    *,
-    has_domain_calls: bool,
-) -> Iterator[tuple[int, ...]]:
-    if has_domain_calls:
-        assert compiler is not None
-        partition = compiler.partition(len(point_ordinals))
-        batch_sizes = partition.batch_sizes
-        if sum(batch_sizes) != len(point_ordinals):
-            raise ValueError(
-                "domain compiler partition must cover every bounded point exactly once"
-            )
-    else:
-        batch_sizes = _bounded_local_batch_sizes(len(point_ordinals))
-    offset = 0
-    for batch_size in batch_sizes:
-        batch = point_ordinals[offset : offset + batch_size]
-        offset += batch_size
-        yield batch
+def _validate_domain_batch_size(batch_size: int, point_count: int) -> None:
+    if type(batch_size) is not int or not 1 <= batch_size <= point_count:
+        raise ValueError(
+            "domain compiler initial batch size must be a positive covered point count"
+        )
 
 
 def _bounded_local_batch_sizes(point_count: int) -> tuple[int, ...]:

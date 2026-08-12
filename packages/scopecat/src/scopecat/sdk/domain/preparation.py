@@ -105,6 +105,7 @@ class DomainPreparationBuilder:
         state_requirements: Sequence[DomainStateRequirement],
         realtime_write_footprint: Sequence[DomainStateAddress],
         realtime_state_invalidations: Sequence[DomainStateAddress],
+        next_batch_max_points: int,
         mapping: DomainResultMapping[ResultAddressT],
         invocation: DomainInvocationSpec[PayloadT],
         runtime: DomainRuntime[PayloadT, ResultT],
@@ -120,6 +121,9 @@ class DomainPreparationBuilder:
         runtime authority with an unknown postcondition;
         ``realtime_state_invalidations`` withdraw knowledge about other
         physically coupled properties after the complete job.
+        ``next_batch_max_points`` reports the capacity learned from this
+        concrete artifact and may account for bytes, samples, shots, channels,
+        device entries, or another domain-owned resource budget.
         """
 
         if mapping.context is not self._context:
@@ -164,6 +168,7 @@ class DomainPreparationBuilder:
             realtime_state_invalidations=tuple(
                 sorted(set(realtime_state_invalidations))
             ),
+            next_batch_max_points=next_batch_max_points,
             invocation=cast("ErasedDomainInvocation", native_invocation),
             setup=cast("ErasedDomainSetup | None", setup),
             runtime=cast("ErasedDomainRuntime", runtime),

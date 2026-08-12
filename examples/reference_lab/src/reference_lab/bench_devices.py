@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
+import numpy as np
 import scopecat as sc
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -103,6 +105,7 @@ from reference_lab.virtual_lab.capture_plant import (
 AWG_OUTPUT_COMPONENT_IDS = tuple(f"ch{index}" for index in range(1, 9))
 DIGITIZER_INPUT_COMPONENT_IDS = ("ch1", "ch2")
 OSCILLOSCOPE_INPUT_COMPONENT_IDS = ("ch1", "ch2", "ch3", "ch4")
+type BenchSamples = tuple[float, ...] | np.ndarray
 VIRTUAL_AWG_DRIVER_ID = "reference_lab.virtual.awg"
 VIRTUAL_DIGITIZER_DRIVER_ID = "reference_lab.virtual.digitizer"
 VIRTUAL_OSCILLOSCOPE_DRIVER_ID = "reference_lab.virtual.oscilloscope"
@@ -178,7 +181,10 @@ class CapturedBenchTrace:
 @dataclass(frozen=True, slots=True)
 class ArmedAwgWaveform:
     component_path: tuple[str, ...]
-    normalized_samples: tuple[float, ...]
+    normalized_samples: tuple[float, ...] | np.ndarray = field(
+        repr=False,
+        compare=False,
+    )
     sample_rate_hz: float
     amplitude_v: float
     offset_v: float
@@ -201,9 +207,9 @@ class BenchSignalWorld:
         default_factory=dict
     )
     digitizer_program_captures: dict[
-        tuple[str, tuple[str, ...]], tuple[tuple[int, tuple[float, ...]], ...]
+        tuple[str, tuple[str, ...]], tuple[tuple[int, BenchSamples], ...]
     ] = field(default_factory=dict)
-    capture_queue: list[dict[tuple[str, tuple[str, ...]], tuple[float, ...]]] = field(
+    capture_queue: list[dict[tuple[str, tuple[str, ...]], BenchSamples]] = field(
         default_factory=list
     )
     trigger_count: int = 0
@@ -218,7 +224,7 @@ class BenchSignalWorld:
         self,
         *,
         component_path: tuple[str, ...],
-        normalized_samples: tuple[float, ...],
+        normalized_samples: Sequence[float] | np.ndarray,
         sample_rate_hz: float,
         amplitude_v: float,
         offset_v: float,
@@ -321,9 +327,7 @@ class BenchSignalWorld:
         ):
             raise ValueError("armed device programs do not match trigger entry count")
 
-        captures: dict[
-            tuple[str, tuple[str, ...]], list[tuple[int, tuple[float, ...]]]
-        ] = {}
+        captures: dict[tuple[str, tuple[str, ...]], list[tuple[int, BenchSamples]]] = {}
         for _shot_index in range(program.repetitions):
             for entry_index, trigger_entry in enumerate(program.entries):
                 awg_ids = tuple(
@@ -370,13 +374,13 @@ class BenchSignalWorld:
                         instrument_id
                     ].entries[entry_index]
                     for component_path in digitizer_entry.input_component_paths:
+                        capture = selected_capture.get((instrument_id, component_path))
+                        if capture is None:
+                            capture = (0.0,) * digitizer_entry.sample_count
                         captures.setdefault((instrument_id, component_path), []).append(
                             (
                                 entry_index,
-                                selected_capture.get(
-                                    (instrument_id, component_path),
-                                    (0.0,) * digitizer_entry.sample_count,
-                                ),
+                                capture,
                             )
                         )
                 self.trigger_count += 1
@@ -394,7 +398,7 @@ class BenchSignalWorld:
         self,
         instrument_id: str,
         component_path: tuple[str, ...],
-    ) -> tuple[tuple[int, tuple[float, ...]], ...]:
+    ) -> tuple[tuple[int, BenchSamples], ...]:
         return self.digitizer_program_captures.get(
             (instrument_id, component_path),
             (),
@@ -1230,7 +1234,7 @@ def _quantity_value(value: DriverScalar, unit: str) -> float:
 
 
 def _resample(
-    samples: tuple[float, ...],
+    samples: Sequence[float] | np.ndarray,
     *,
     source_rate_hz: float,
     target_rate_hz: float,

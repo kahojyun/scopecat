@@ -322,7 +322,7 @@ class ScopecatWaveformTracker:
             return
         self._view.replace(
             tuple(
-                np.asarray(waveform.samples, dtype=np.float64)
+                np.array(waveform.samples, dtype=np.float64, copy=True)
                 for instrument_id in sorted(self._programs)
                 for waveform in self._programs[instrument_id].entries[-1].waveforms
             )

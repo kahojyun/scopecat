@@ -24,7 +24,6 @@ from scopecat.records.config import (
     config_content_hash,
 )
 from scopecat.sdk.domain.batch import (
-    DomainBatchPartition,
     DomainBatchRequest,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
@@ -104,8 +103,8 @@ class _RejectingDomainCompiler:
     def instrument_ids(self) -> tuple[str, ...]:
         return ()
 
-    def partition(self, point_count: int) -> DomainBatchPartition:
-        return DomainBatchPartition((point_count,))
+    def initial_batch_size(self, point_count: int) -> int:
+        return point_count
 
     def compile_batch(
         self,

@@ -130,12 +130,12 @@ def _with_max_list_entries(
     )
 
 
-def test_quantum_compiler_uses_a_small_initial_batch_then_target_capacity() -> None:
+def test_quantum_compiler_uses_a_one_point_initial_probe() -> None:
     config = bootstrap_config()
     provider = ReferenceLabProvider(seed=7)
     compiler = QuantumLabCompiler(target=_configured_target(config, provider))
 
-    assert compiler.partition(1000).batch_sizes == (32, 256, 256, 256, 200)
+    assert compiler.initial_batch_size(1000) == 1
 
 
 def _logical_measurement_values(
@@ -342,7 +342,7 @@ def test_reviewed_los_prepare_once_without_fragmenting_quantum_batches() -> None
         "drive-lo-b",
         "readout-lo",
     ]
-    assert [job.point_ordinals for job in jobs] == [tuple(range(15))]
+    assert [job.point_ordinals for job in jobs] == [(0,), tuple(range(1, 15))]
     assert plan.domain_target_requirement is not None
     assert "drive-lo-a" not in plan.domain_target_requirement.instrument_ids
     assert "drive-lo-b" not in plan.domain_target_requirement.instrument_ids

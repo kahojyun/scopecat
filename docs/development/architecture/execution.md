@@ -131,14 +131,22 @@ inputs. Planning interacts with it through one `compile_batch` boundary and
 receives prepared executions containing the closed target artifact, exact
 point/product mapping, physical authority, and runtime invocation.
 
-Planning obtains a point-count-only partition from the domain compiler before
-binding batch inputs. Each target batch is one bounded coverage window. A
-local-only run uses a small initial window and bounded follow-up windows. Host
-lowering then forms stable regions inside the window from adjacent points with
-equal, statically known desired state. It reconciles that state at a region
-anchor and suppresses an identical anchor at the next window. A physical state
-change, invocation, acquisition, or payload-backed write creates a point
-boundary. Pure host computation creates no hardware boundary.
+Planning asks the domain compiler for a small initial window before any concrete
+artifact exists. Every prepared execution then reports a maximum point count
+for the following window. The compiler may derive that feedback from aggregate
+payload bytes, channels, samples, shots, device entries, or another target-owned
+limit; core still schedules contiguous logical points and uses the minimum
+feedback when a window contains multiple domain jobs. This keeps launch
+preparation bounded while allowing concrete artifact shape to control later
+batches. A local-only run uses a small initial window and bounded follow-up
+windows.
+
+Each target batch is one bounded coverage window. Host lowering forms stable
+regions inside the window from adjacent points with equal, statically known
+desired state. It reconciles that state at a region anchor and suppresses an
+identical anchor at the next window. A physical state change, invocation,
+acquisition, or payload-backed write creates a point boundary. Pure host
+computation creates no hardware boundary.
 
 Consequential stages retain author order inside each bounded region. Coverage
 windows execute in point order; there is no promise that one stage remains
