@@ -6,7 +6,7 @@ from typing import Literal
 
 from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.execution.local.program import ComputeOperation, OutputInput
-from scopecat.execution.program import RunCoverageEffect, RunProgram
+from scopecat.execution.program import RunProgram
 from scopecat.measurements.records import RecordPlan, ValueRecordPlan
 from scopecat.planning.preview_models import (
     ExperimentPreview,
@@ -34,6 +34,7 @@ def build_run_program_preview(
 ) -> ExperimentPreview:
     """Project stable user-visible facts from a closed RunProgram."""
 
+    program.coverage.preflight()
     selected = program.measurements
     catalog = program.points
     bindings, binding_edges = (
@@ -164,14 +165,8 @@ def _parameter_contract_id(contract: ParameterContract) -> str:
 
 def _preview_computes(program: RunProgram) -> tuple[ExperimentPreviewCompute, ...]:
     host_operations: dict[str, ComputeOperation] = {}
-    for covered in program.coverage:
-        if isinstance(covered, RunCoverageEffect) and isinstance(
-            covered.operation, ComputeOperation
-        ):
-            host_operations.setdefault(
-                covered.operation.logical_compute_node_id,
-                covered.operation,
-            )
+    for operation in program.compute_operations:
+        host_operations.setdefault(operation.logical_compute_node_id, operation)
 
     value_record_demands = {
         record.value_id: f"record:{record.id}"

@@ -26,7 +26,6 @@ from scopecat.records.config import (
 from scopecat.sdk.domain.batch import (
     DomainBatchPartition,
     DomainBatchRequest,
-    DomainCompileRequest,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat_testkit.authoring import simple_experiment
@@ -101,8 +100,12 @@ class _RejectingDomainCompiler:
     def target_kind(self) -> str:
         return "tests.domain"
 
-    def partition(self, request: DomainCompileRequest) -> DomainBatchPartition:
-        return DomainBatchPartition((len(request.points),))
+    @property
+    def instrument_ids(self) -> tuple[str, ...]:
+        return ()
+
+    def partition(self, point_count: int) -> DomainBatchPartition:
+        return DomainBatchPartition((point_count,))
 
     def compile_batch(
         self,
@@ -169,7 +172,7 @@ def test_check_and_preview_surface_local_materialization_errors(
 
 
 @pytest.mark.parametrize("terminal", ["check", "preview"])
-def test_check_and_preview_surface_domain_compilation_errors(
+def test_check_and_preview_surface_first_domain_batch_errors(
     terminal: Literal["check", "preview"],
     tmp_path: Path,
 ) -> None:

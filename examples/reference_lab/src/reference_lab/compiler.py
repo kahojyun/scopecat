@@ -10,7 +10,6 @@ from scopecat.sdk.domain import (
     DomainBatchPartition,
     DomainBatchRequest,
     DomainCallView,
-    DomainCompileRequest,
     DomainExecutionResult,
     DomainPreparationBuilder,
     PreparedDomainExecution,
@@ -63,6 +62,7 @@ from reference_lab.targets.list_mode import (
 )
 
 _QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId("reference-lab.list-mode-target.v1")
+_INITIAL_BATCH_SIZE = 32
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,13 +139,38 @@ class QuantumLabCompiler:
     def target_kind(self) -> str:
         return LIST_MODE_TARGET_KIND
 
-    def partition(self, request: DomainCompileRequest) -> DomainBatchPartition:
+    @property
+    def instrument_ids(self) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                {
+                    *(
+                        channel.instrument_id
+                        for binding in self._target.output_bindings
+                        for channel in binding.channel_ids
+                    ),
+                    *(
+                        binding.input_id.instrument_id
+                        for binding in self._target.acquisition_bindings
+                    ),
+                    self._target.preparation.timing.trigger_instrument_id,
+                }
+            )
+        )
+
+    def partition(self, point_count: int) -> DomainBatchPartition:
         """Partition without making ordinary scan semantics boundary-dependent."""
 
-        return DomainBatchPartition.with_maximum_size(
-            len(request.points),
+        initial_size = min(
+            point_count,
+            _INITIAL_BATCH_SIZE,
             self._target.max_list_entries,
         )
+        tail = DomainBatchPartition.with_maximum_size(
+            point_count - initial_size,
+            self._target.max_list_entries,
+        )
+        return DomainBatchPartition((initial_size, *tail.batch_sizes))
 
     def _compile_target_artifact(
         self,

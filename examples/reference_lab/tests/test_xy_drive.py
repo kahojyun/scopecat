@@ -63,9 +63,10 @@ def test_xy_drive_composes_shared_awg_state_and_real_dac_operations() -> None:
         build_config_environment(config),
     )
     plan = compile_run_program(composition.system, bound=bound)
+    coverage = tuple(plan.coverage)
     operations = {
         effect.operation.instrument_id: effect.operation
-        for effect in plan.coverage
+        for effect in coverage
         if isinstance(effect, RunCoverageEffect)
         and effect.point_index == 0
         and isinstance(effect.operation, ApplyStateOperation)
@@ -103,7 +104,7 @@ def test_xy_drive_composes_shared_awg_state_and_real_dac_operations() -> None:
 
     point_operations = [
         effect.operation
-        for effect in plan.coverage
+        for effect in coverage
         if isinstance(effect, RunCoverageEffect) and effect.point_index == 0
     ]
     invocations = [

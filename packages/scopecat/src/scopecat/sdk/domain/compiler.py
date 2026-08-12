@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Protocol
 from scopecat.sdk.domain.batch import (
     DomainBatchPartition,
     DomainBatchRequest,
-    DomainCompileRequest,
 )
 
 if TYPE_CHECKING:
@@ -23,8 +22,13 @@ class DomainCompiler(Protocol):
     @property
     def target_kind(self) -> str: ...
 
-    def partition(self, request: DomainCompileRequest) -> DomainBatchPartition:
-        """Choose contiguous batches whose boundaries do not change semantics."""
+    @property
+    def instrument_ids(self) -> tuple[str, ...]:
+        """Return the physical footprint reserved before batch compilation."""
+        ...
+
+    def partition(self, point_count: int) -> DomainBatchPartition:
+        """Choose contiguous batch sizes without materializing point inputs."""
         ...
 
     def compile_batch(

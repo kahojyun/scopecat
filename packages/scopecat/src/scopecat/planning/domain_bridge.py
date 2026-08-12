@@ -76,7 +76,7 @@ def make_domain_batch_request(
 ) -> DomainBatchRequest:
     """Resolve every input and project one complete bounded batch."""
 
-    request = make_domain_compile_request(call, bound_points, point_ordinals)
+    request = _make_domain_compile_request(call, bound_points, point_ordinals)
     return DomainBatchRequest(
         batch_ordinal=batch_ordinal,
         call=request.call,
@@ -86,7 +86,7 @@ def make_domain_batch_request(
     )
 
 
-def make_domain_compile_request(
+def _make_domain_compile_request(
     call: DomainCallView,
     bound_points: MaterializedBoundPoints,
     point_ordinals: tuple[int, ...],

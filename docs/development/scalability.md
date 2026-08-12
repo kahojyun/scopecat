@@ -182,15 +182,24 @@ repeatable measurements.
 
 The present architecture provides a direct end-to-end baseline:
 
-- linking and planning eagerly materialize logical points and coverage blocks;
-- domain compilation uses a backend-declared point capacity;
+- linking and planning still eagerly materialize logical points and local
+  effects;
+- domain compilation uses a backend-declared point capacity but prepares only
+  the current batch during execution; preview compiles only the first bounded
+  batch as a fast semantic preflight;
+- the reference list-mode target begins with a 32-point batch, then uses its
+  full device capacity so preparation latency does not require a one-point
+  physical batch;
 - one SQLite writer owns durable ordering while immutable object storage carries
-  large content;
+  large content, and measurement records are appended in chunks bounded by both
+  record count and value bytes;
 - projected Arrow readers and GUI previews provide bounded read paths.
 
-The dense spectroscopy profile measures when eager planning should evolve. The
-other profiles establish whether acquisition volume or history reaches its
-resource budget first. Workflow scalability awaits a workflow ownership model.
+The next dense-spectroscopy limit is the eager point catalog and local-effect
+materialization: their preparation time and retained memory still grow with
+total point count. The other profiles establish whether acquisition volume or
+history reaches its resource budget first. Workflow scalability awaits a
+workflow ownership model.
 
 ## Development Cadence
 

@@ -1,7 +1,8 @@
-"""Closed residual operations consumed by the run interpreter."""
+"""Bounded residual operations consumed by the run interpreter."""
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -9,7 +10,11 @@ from scopecat.sdk.payloads import PayloadCodecRegistry
 
 if TYPE_CHECKING:
     from scopecat.compiler.bound_facts import BoundMeasurementCompute
-    from scopecat.execution.local.program import ApplyStateOperation, LocalOperation
+    from scopecat.execution.local.program import (
+        ApplyStateOperation,
+        ComputeOperation,
+        LocalOperation,
+    )
     from scopecat.kernel.graph_identity import ValueId
     from scopecat.kernel.resource_identity import (
         DomainTargetRequirement,
@@ -63,19 +68,43 @@ class RunCoverageCheckpoint:
 type RunCoveredOperation = RunCoverageCheckpoint | RunCoverageEffect | RunDomainJob
 
 
+class RunCoverage:
+    """A lazy operation stream rebuilt for each planning or execution pass."""
+
+    __slots__ = ("_factory", "_preflight")
+
+    def __init__(
+        self,
+        factory: Callable[[], Iterator[RunCoveredOperation]],
+        *,
+        preflight: Callable[[], None] | None = None,
+    ) -> None:
+        self._factory = factory
+        self._preflight = preflight
+
+    def __iter__(self) -> Iterator[RunCoveredOperation]:
+        return self._factory()
+
+    def preflight(self) -> None:
+        """Compile and validate only the first domain batch, when present."""
+
+        if self._preflight is not None:
+            self._preflight()
+
+
 @dataclass(frozen=True, slots=True)
 class RunProgram:
-    """Closed residual effect program awaiting durable admission.
+    """Admissible residual effect program with lazily compiled coverage.
 
     Logical point identity and measurement correlation are independent of how
-    ``coverage`` partitions physical work. Coverage and domain preparations are
-    complete and repeatedly inspectable before the daemon provisions the
-    admitted instrument requirements.
+    ``coverage`` partitions physical work. Static resource authority is complete
+    before admission; domain preparations are rebuilt one bounded batch at a
+    time during preflight or execution.
     """
 
     config_content_hash: ConfigContentHash
     host: RunHostBinding | None
-    coverage: tuple[RunCoveredOperation, ...] = field(repr=False, compare=False)
+    coverage: RunCoverage = field(repr=False, compare=False)
     points: RunPointCatalog = field(repr=False)
     measurements: MeasurementProjection = field(repr=False)
     resource_requirements: tuple[ResourceRequirement, ...]
@@ -86,6 +115,11 @@ class RunProgram:
         compare=False,
     )
     measurement_computes: tuple[BoundMeasurementCompute, ...] = field(
+        default=(),
+        repr=False,
+        compare=False,
+    )
+    compute_operations: tuple[ComputeOperation, ...] = field(
         default=(),
         repr=False,
         compare=False,

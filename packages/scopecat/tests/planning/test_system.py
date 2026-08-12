@@ -96,7 +96,6 @@ from scopecat.records.config import (
 from scopecat.sdk.domain import (
     DomainBatchPartition,
     DomainBatchRequest,
-    DomainCompileRequest,
     DomainPreparationBuilder,
     DomainStateAddress,
     DomainStateRequirement,
@@ -149,7 +148,7 @@ class _DomainCompiler:
     batch_size: int = 100
     partition_sizes: tuple[int, ...] | None = None
     runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
-    partition_requests: list[DomainCompileRequest] = field(default_factory=list)
+    partition_requests: list[int] = field(default_factory=list)
     compile_calls: int = 0
     compile_requests: list[DomainBatchRequest] = field(default_factory=list)
     prepared_inputs: list[tuple[object, ...]] = field(default_factory=list)
@@ -162,12 +161,12 @@ class _DomainCompiler:
     def target_kind(self) -> str:
         return "tests.domain"
 
-    def partition(self, request: DomainCompileRequest) -> DomainBatchPartition:
-        self.partition_requests.append(request)
+    def partition(self, point_count: int) -> DomainBatchPartition:
+        self.partition_requests.append(point_count)
         if self.partition_sizes is not None:
             return DomainBatchPartition(self.partition_sizes)
         return DomainBatchPartition.with_maximum_size(
-            len(request.points),
+            point_count,
             self.batch_size,
         )
 
@@ -940,15 +939,14 @@ def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
 
     assert len(plan.points.points) == 2
     assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
+    assert compiler.compile_calls == 0
     assert [
         operation.point_ordinals
         for operation in plan.coverage
         if isinstance(operation, RunDomainJob)
     ] == [(0,), (1,)]
     assert compiler.compile_calls == 2
-    assert [request.point_ordinals for request in compiler.partition_requests] == [
-        (0, 1)
-    ]
+    assert compiler.partition_requests == [2]
     assert [request.point_ordinals for request in compiler.compile_requests] == [
         (0,),
         (1,),
@@ -962,11 +960,12 @@ def test_domain_target_partition_must_cover_the_complete_point_space() -> None:
         partition_sizes=(1,),
     )
 
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(bound)
     with pytest.raises(ValueError, match="cover every bounded point"):
-        ExperimentSystem(
-            instrument_catalog=_catalog(bound),
-            domain_compiler=compiler,
-        ).compile(bound)
+        tuple(plan.coverage)
 
 
 def test_run_requirements_and_host_order_include_only_used_local_instruments() -> None:
@@ -1107,25 +1106,23 @@ def test_host_state_bounds_domain_compilation_regions() -> None:
     )
 
     plan = system.compile(bound)
+    coverage = tuple(plan.coverage)
 
     assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
     assert [
         operation.point_ordinals
-        for operation in plan.coverage
+        for operation in coverage
         if isinstance(operation, RunDomainJob)
     ] == [(0,), (1,)]
-    assert [request.point_ordinals for request in compiler.partition_requests] == [
-        (0,),
-        (1,),
-    ]
+    assert compiler.partition_requests == [1, 1]
     assert [
         operation.point_index
-        for operation in plan.coverage
+        for operation in coverage
         if isinstance(operation, RunCoverageEffect)
     ] == [0, 1]
     assert [
         operation.point_index
-        for operation in plan.coverage
+        for operation in coverage
         if isinstance(operation, RunCoverageCheckpoint)
     ] == [0, 1]
     assert provider.describe_calls == 1
@@ -1159,9 +1156,7 @@ def test_domain_and_local_state_retain_declared_effect_order() -> None:
     ]
     assert isinstance(consequential[2], RunCoverageEffect)
     assert isinstance(consequential[2].operation, ApplyStateOperation)
-    assert [request.point_ordinals for request in compiler.partition_requests] == [
-        (0, 1)
-    ]
+    assert compiler.partition_requests == [2]
 
 
 def test_stable_host_state_prepares_a_domain_segment_once() -> None:
@@ -1173,10 +1168,11 @@ def test_stable_host_state_prepares_a_domain_segment_once() -> None:
         instrument_catalog=_catalog(bound, provider),
         domain_compiler=compiler,
     ).compile(bound)
+    coverage = tuple(plan.coverage)
 
     consequential = tuple(
         operation
-        for operation in plan.coverage
+        for operation in coverage
         if not isinstance(operation, RunCoverageCheckpoint)
     )
     assert [type(operation) for operation in consequential] == [
@@ -1205,6 +1201,7 @@ def test_local_acquisition_and_domain_job_may_share_one_instrument() -> None:
         instrument_catalog=_catalog(bound, provider),
         domain_compiler=compiler,
     ).compile(bound)
+    tuple(plan.coverage)
 
     assert plan.resource_requirements == (ResourceRequirement("source-0"),)
     assert plan.domain_target_requirement == DomainTargetRequirement(
@@ -1237,15 +1234,16 @@ def test_stable_host_state_and_domain_job_may_share_one_instrument() -> None:
         instrument_catalog=_catalog(bound, _TrackingProvider()),
         domain_compiler=compiler,
     ).compile(bound)
+    coverage = tuple(plan.coverage)
 
     assert [
         operation.point_index
-        for operation in plan.coverage
+        for operation in coverage
         if isinstance(operation, RunCoverageEffect)
     ] == [0]
     assert [
         operation.point_ordinals
-        for operation in plan.coverage
+        for operation in coverage
         if isinstance(operation, RunDomainJob)
     ] == [(0, 1)]
     assert plan.resource_requirements == (ResourceRequirement("source-0"),)
@@ -1273,11 +1271,12 @@ def test_domain_state_requirement_must_follow_its_host_preparation() -> None:
         ),
     )
 
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound, _TrackingProvider()),
+        domain_compiler=compiler,
+    ).compile(bound)
     with pytest.raises(CheckFailed) as captured:
-        ExperimentSystem(
-            instrument_catalog=_catalog(bound, _TrackingProvider()),
-            domain_compiler=compiler,
-        ).compile(bound)
+        tuple(plan.coverage)
 
     assert _problem_codes(captured.value) == {"domain_state_requirement_missing"}
     assert captured.value.problems[0].details == {
@@ -1305,11 +1304,12 @@ def test_domain_state_requirement_must_match_the_host_value() -> None:
         ),
     )
 
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound, _TrackingProvider()),
+        domain_compiler=compiler,
+    ).compile(bound)
     with pytest.raises(CheckFailed) as captured:
-        ExperimentSystem(
-            instrument_catalog=_catalog(bound, _TrackingProvider()),
-            domain_compiler=compiler,
-        ).compile(bound)
+        tuple(plan.coverage)
 
     assert _problem_codes(captured.value) == {"domain_state_requirement_mismatch"}
     assert captured.value.problems[0].details["guaranteed_by"] == {
@@ -1341,11 +1341,12 @@ def test_runtime_readback_does_not_create_a_planning_state_guarantee() -> None:
         ),
     )
 
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound, _TrackingProvider()),
+        domain_compiler=compiler,
+    ).compile(bound)
     with pytest.raises(CheckFailed) as captured:
-        ExperimentSystem(
-            instrument_catalog=_catalog(bound, _TrackingProvider()),
-            domain_compiler=compiler,
-        ).compile(bound)
+        tuple(plan.coverage)
 
     assert _problem_codes(captured.value) == {"domain_state_requirement_missing"}
 
@@ -1370,11 +1371,12 @@ def test_domain_state_invalidation_requires_repreparation_before_next_job() -> N
         batch_size=1,
     )
 
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound, _TrackingProvider()),
+        domain_compiler=compiler,
+    ).compile(bound)
     with pytest.raises(CheckFailed) as captured:
-        ExperimentSystem(
-            instrument_catalog=_catalog(bound, _TrackingProvider()),
-            domain_compiler=compiler,
-        ).compile(bound)
+        tuple(plan.coverage)
 
     assert _problem_codes(captured.value) == {"domain_state_requirement_missing"}
     assert captured.value.problems[0].details == {
@@ -1404,11 +1406,12 @@ def test_planning_rejects_host_and_domain_writes_to_the_same_property() -> None:
         ),
     )
 
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound, _TrackingProvider()),
+        domain_compiler=compiler,
+    ).compile(bound)
     with pytest.raises(CheckFailed) as captured:
-        ExperimentSystem(
-            instrument_catalog=_catalog(bound, _TrackingProvider()),
-            domain_compiler=compiler,
-        ).compile(bound)
+        tuple(plan.coverage)
 
     assert _problem_codes(captured.value) == {"host_domain_state_write_conflict"}
     assert captured.value.problems[0].details == {
@@ -1447,6 +1450,7 @@ def test_domain_compiler_coalesces_a_stable_host_state_region() -> None:
     )
 
     plan = system.compile(bound)
+    coverage = tuple(plan.coverage)
     local_effects = plan.host
     assert local_effects is not None
     point_catalog = plan.points
@@ -1459,7 +1463,7 @@ def test_domain_compiler_coalesces_a_stable_host_state_region() -> None:
         {"frequency": Quantity(value=5.1, unit="GHz")},
     ]
     domain_jobs = tuple(
-        operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
+        operation for operation in coverage if isinstance(operation, RunDomainJob)
     )
     assert tuple(job.point_ordinals for job in domain_jobs) == ((0, 1),)
     assert all(
@@ -1469,13 +1473,11 @@ def test_domain_compiler_coalesces_a_stable_host_state_region() -> None:
     assert provider.describe_calls == 1
     assert provider.connect_calls == 0
     assert compiler.compile_calls == 1
-    assert [request.point_ordinals for request in compiler.partition_requests] == [
-        (0, 1),
-    ]
+    assert compiler.partition_requests == [2]
     assert [job.id for job in domain_jobs] == ["domain:batch-0"]
     assert [
         operation.point_index
-        for operation in plan.coverage
+        for operation in coverage
         if isinstance(operation, RunCoverageEffect)
     ] == [0]
     _assert_no_domain_effects(compiler)

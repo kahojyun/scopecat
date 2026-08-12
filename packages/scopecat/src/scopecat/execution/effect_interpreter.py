@@ -22,6 +22,7 @@ from scopecat.execution.program import (
     RunCoveredOperation,
     RunDomainJob,
 )
+from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import ProblemPhase
@@ -141,6 +142,8 @@ class RunEffectInterpreter:
                     phase=ProblemPhase.PERSISTENCE,
                 )
             )
+        except CheckFailed as error:
+            self._journal.problems.extend(error.problems)
         except _CapturedDomainEffectFailure:
             pass
         except _CapturedCoverageFailure:
