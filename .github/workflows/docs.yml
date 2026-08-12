@@ -1,0 +1,55 @@
+name: Documentation deployment
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: documentation-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy documentation
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Build documentation
+        run: |
+          uv run --locked python scripts/check_document_links.py
+          uv run --locked --group docs zensical build --strict --clean
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

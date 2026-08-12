@@ -62,7 +62,7 @@ identity. An explicit `id=` distinguishes definitions when needed, while
 Every invocation resolves to one `PointPlan`: a grid or ordered point cloud,
 plus repeat and traversal policy. Invocation edits replace or adjust that plan
 without changing the experiment definition. The
-[experiment authoring guide](experiment-authoring.md#choose-and-edit-the-point-domain)
+[experiment dataflow model](../../concepts/experiment-dataflow.md#choose-and-edit-the-point-domain)
 is the canonical task guide; the `PointPlan` docstring defines its exact local
 contract. Point plans are static for an admitted run; measurement-dependent
 selection across runs belongs to a future workflow model.
@@ -120,7 +120,7 @@ only while interpreting `RunProgram`.
 Linking materializes one canonical ordered point sequence. Host lowering,
 parameter overlays, entity selection, and domain projection all consume those
 same rows. The current eager representation is tracked by the
-[scalability benchmarks](scalability-benchmarks.md); its stable semantic promise
+[scalability benchmarks](../scalability.md); its stable semantic promise
 is that physical partitioning does not change logical point identity or results.
 
 One `ExperimentSystem` owns one domain compiler. The compiler may internally
@@ -215,7 +215,7 @@ Operator cancellation is durable daemon control. Queued work can stop
 immediately; executing work observes cancellation at effect and coverage
 boundaries. The current synchronous domain ABI can stop before or after a target
 call but cannot interrupt it in the middle. Cancellation, terminal commit, and
-resource quarantine are described in the [lab daemon model](lab-daemon.md).
+resource quarantine are described in the [lab daemon model](daemon.md).
 
 Instrument state snapshots, command intents, and receipts are durable run
 evidence. They become dataset columns only when the experiment explicitly

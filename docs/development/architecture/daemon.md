@@ -47,7 +47,7 @@ direct sessions.
 Host orchestration and domain runtime may use the same provisioned instrument.
 Property-level write authority, state requirements, and invalidations are
 verified during planning; the daemon schedules only the resulting instrument
-claims. The [execution semantics](experiment-execution-model.md#physical-authority-and-shared-state)
+claims. The [execution semantics](execution.md#physical-authority-and-shared-state)
 define that boundary.
 
 ## Instrument workers and effects
@@ -204,4 +204,4 @@ The single daemon, SQLite writer, and local object store define the current
 single-lab scalability boundary. Large content remains in binary objects;
 execution commits at batch or checkpoint granularity; interactive reads use
 bounded pages and summaries. The
-[scalability benchmarks](scalability-benchmarks.md) measure this boundary.
+[scalability benchmarks](../scalability.md) measure this boundary.

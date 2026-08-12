@@ -65,13 +65,13 @@ and Arrow support for data that fits in notebook memory. Large runs can use a
 projected
 `run.measurements().project(...).to_record_batch_reader(...)` finite Arrow
 reader. See the
-[measurement workflow](../../docs/measurement-data.md) for details; install
+[measurement workflow](../../docs/how-to/use-measurement-data.md) for details; install
 `scopecat[pandas]` or `scopecat[polars]` only for the corresponding conversion.
 
-See the [authoring dataflow](../../docs/experiment-authoring.md) for how scalar
+See the [authoring dataflow](../../docs/concepts/experiment-dataflow.md) for how scalar
 and array shape, compute placement, returned results, and explicit recording fit
 together.
 
 See the [repository README](../../README.md) for setup and development commands,
-and the [daemon model](../../docs/lab-daemon.md) for durable ownership and
+and the [daemon model](../../docs/development/architecture/daemon.md) for durable ownership and
 fencing semantics.

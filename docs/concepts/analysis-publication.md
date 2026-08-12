@@ -1,5 +1,10 @@
 # Analysis publication
 
+This page records the evolving durable-publication contract. The primary design
+test is the [reference-lab calibration workflow](../tutorials/reference-lab.md):
+users should be able to publish, review, accept, use, and undo a proposal without
+managing storage identities or revision mechanics directly.
+
 Analysis replaces the run-adjacent scripts and personal file layouts that turn
 measurements into fitted values, reusable datasets, plots, reports, and proposed
 parameter changes. It is an atomic publication attached to one source run. It is

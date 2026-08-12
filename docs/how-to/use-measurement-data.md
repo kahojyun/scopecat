@@ -5,7 +5,7 @@ comes from the experiment result: variable identities, roles, data types,
 units, point-domain layout, local dimensions, and recording groups are retained
 without asking notebook code or the GUI to infer them from values.
 
-The [experiment authoring guide](experiment-authoring.md) explains what becomes
+The [experiment dataflow model](../concepts/experiment-dataflow.md) explains what becomes
 durable and how to declare grids, point clouds, repeat, and traversal. This guide
 starts after records exist and explains how to inspect, select, and convert
 them.
@@ -271,5 +271,5 @@ owned by the UI and its tests rather than part of the scientific data contract.
 Measurement datasets are immutable run inputs. Fitted datasets, facts, figures,
 reports, and parameter proposals become durable only through an explicit
 analysis publication attached to that run. See
-[Analysis publication](analysis-publication.md) for its output ontology,
+[Analysis publication](../concepts/analysis-publication.md) for its output ontology,
 lossless native-library boundary, revisions, and optional execution evidence.
