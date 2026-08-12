@@ -96,14 +96,21 @@ and appends the result to one sequential file. It deliberately does not retain
 a Python list of all captured entries: total point count must not determine the
 waveform working set.
 
-The matched Scopecat runner executes the reference-lab drag-beta experiment
-through normal planning, compilation, instrument operations, collection, and
-durable run storage. Both runners use a fixed single-shot workload with four
-physical channels and a 72-sample point waveform. Point count is the only scale
-variable in the zero-delay run. `--point-delay-ms` adds the same logical-point
-dwell to both virtual hardware paths for a representative total-time run.
-Shot-heavy acquisition and long waveforms use separate matched profiles so
-their working sets do not obscure point-count costs.
+The matched `scopecat` runner executes the reference-lab drag-beta experiment
+through the production daemon client, HTTP models, run admission and leases,
+payload-object uploads, immutable object storage, instrument service, local
+driver endpoint, collection, and durable run storage. `scopecat-core` is an
+optional diagnostic that runs the same planning and execution semantics through
+a direct test instrument host; it deliberately excludes daemon transport and
+must not be used as the product acceptance result. The default comparison is
+therefore `adhoc,scopecat`.
+
+The matched runners use a fixed single-shot workload with four physical
+channels and a 72-sample point waveform. Point count is the only scale variable
+in the zero-delay run. `--point-delay-ms` adds the same logical-point dwell to
+both virtual hardware paths for a representative total-time run. Shot-heavy
+acquisition and long waveforms use separate matched profiles so their working
+sets do not obscure point-count costs.
 
 Run a short comparison with:
 
@@ -119,13 +126,25 @@ measured. The command creates isolated run directories below it and removes
 them after each worker. Raw JSON Lines results default to
 `.benchmarks/scan-execution.jsonl`. Every worker records the Git revision and
 dirty state, host metadata, scenario, phase timings, resident-memory growth,
-durable bytes, file count, logical point count, and physical trigger count.
+durable bytes, object-store bytes, file counts, logical point count, and
+physical trigger count. `object_store_bytes` is especially important when
+comparing `scopecat-core` with `scopecat`: the difference includes transient
+command payloads retained by the production immutable object store.
 
 Use three measured repetitions after one warmup for a comparison run. Increase
 the largest point count geometrically only while the previous step remains
 within its time and disk budget, for example `300,1000` after the short run.
 Run each runner in a separate process, as the command does, so allocator state
 and prior Scopecat runs do not contaminate the direct baseline.
+
+To isolate daemon and object-store overhead after a default comparison, add the
+core diagnostic explicitly:
+
+```console
+uv run python scripts/benchmark_scan_execution.py \
+  --runners scopecat-core,scopecat \
+  --points 1,10,100
+```
 
 Run the same staircase again with a representative acquisition duration when
 evaluating total experiment UX:
@@ -182,12 +201,13 @@ The phase boundaries are:
 - **first result**: submission through the first completed collection, retained
   as a secondary diagnostic rather than a required one-point batch.
 
-Interpreter import, daemon cold start, and physical instrument connection are
-outside this profile and should be measured separately if they affect the
-normal launch workflow. The primary UX gates are preparation and wall time.
-Peak resident-memory growth and durable object/file growth identify whether a
-failure is caused by eager planning, in-memory retention, or persistence
-amplification.
+Interpreter import, daemon cold start, reusable service composition, and backend
+endpoint construction are outside this profile. Run-scoped instrument
+provisioning and connection are inside preparation. Cold-start costs should be
+measured separately if they affect the normal launch workflow. The primary UX
+gates are preparation and wall time. Peak resident-memory growth and durable
+object/file growth identify whether a failure is caused by eager planning,
+in-memory retention, transport, or persistence amplification.
 
 Until measurements justify tighter product budgets, use these provisional
 acceptance gates:
@@ -268,6 +288,10 @@ The present architecture provides a direct end-to-end baseline:
 - one SQLite writer owns durable ordering while immutable object storage carries
   large content, and measurement records are appended in chunks bounded by both
   record count and value bytes;
+- command payload uploads currently use that same permanent immutable object
+  store. There is no run-scoped transient payload lifetime, so unique waveform
+  programs and synthetic capture queues accumulate with total execution volume
+  even though durable command evidence retains only their descriptors;
 - projected Arrow readers and GUI previews provide bounded read paths.
 
 The next dense-spectroscopy limit is the eager point domain, parameter binding,
@@ -280,11 +304,13 @@ posting a control command containing only the blob descriptor. Hardware
 operation identities and durable evidence cover the descriptor rather than
 serializing the payload body.
 
-The remaining waveform-profile wall time is target compilation, waveform
-encoding, immutable-object transfer, and driver decoding for each bounded
-batch. The other profiles establish whether acquisition volume or history
-reaches its resource budget first. Workflow scalability awaits a workflow
-ownership model.
+The production waveform profile now distinguishes immutable-object transfer and
+retention from core compilation and driver work. Its next architecture change
+should give ordinary command payloads a bounded run-scoped spool or streaming
+transport, while keeping permanent publication explicit for payloads that must
+remain inspectable after execution. The other profiles establish whether
+acquisition volume or history reaches its resource budget first. Workflow
+scalability awaits a workflow ownership model.
 
 ## Development Cadence
 

@@ -27,8 +27,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Annotated, Literal, Self, cast
 
+import httpx2
 import numpy as np
 import psutil
+from fastapi.testclient import TestClient
 
 import scopecat as sc
 from reference_lab.bench_interfaces import (
@@ -51,10 +53,16 @@ from reference_lab.quantum_runner import quantum_capture
 from reference_lab.targets.list_mode import configured_list_mode_target
 from reference_lab.virtual_lab.execution import virtual_quantum_runtime
 from reference_lab.workflows.drag_beta_calibration import drag_beta_program
+from scopecat.api.lab import LabClient
 from scopecat.authoring import ComputeInput
+from scopecat.daemon.client import DaemonClient
+from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
+from scopecat.planning.system import ExperimentSystem
+from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.sdk.instruments import (
     DriverAcquisition,
+    DriverCatalog,
     DriverOperation,
     DriverOutcome,
     DriverPayload,
@@ -67,18 +75,24 @@ from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
 )
+from scopecat.sdk.instruments.backend import InstrumentBackend
 from scopecat_quantum import authoring as q
 from scopecat_quantum.measurement_computes import BinaryIqProbabilityProducts
+from scopecat_server import LocalDaemonRuntime  # noqa: TID251
+from scopecat_server.instruments.backend import (  # noqa: TID251
+    LocalInstrumentBackendEndpoint,
+)
 from scopecat_testkit.instrument_host import compose_test_instruments
 from scopecat_testkit.server.in_process_lab import in_process_lab  # noqa: TID251
 
 _RESULT_PREFIX = "SCAN_BENCHMARK_RESULT="
-type RunnerName = Literal["adhoc", "scopecat"]
+type RunnerName = Literal["adhoc", "scopecat-core", "scopecat"]
 type ProfileName = Literal[
     "drag_beta_integrated_iq",
     "multichannel_waveform_integrated_iq",
 ]
 _RUNNERS: tuple[RunnerName, ...] = ("adhoc", "scopecat")
+_ALL_RUNNERS: tuple[RunnerName, ...] = ("adhoc", "scopecat-core", "scopecat")
 _PROFILE_ALIASES: dict[str, ProfileName] = {
     "dense": "drag_beta_integrated_iq",
     "waveform": "multichannel_waveform_integrated_iq",
@@ -167,7 +181,7 @@ class HostMetadata:
 class BenchmarkResult:
     """One isolated benchmark worker result."""
 
-    schema: Literal["scopecat.scan_execution_benchmark.v2"]
+    schema: Literal["scopecat.scan_execution_benchmark.v3"]
     revision: str
     runner: RunnerName
     scenario: ScanScenario
@@ -182,6 +196,8 @@ class BenchmarkResult:
     waveform_bytes_uploaded: int | None
     max_waveform_batch_bytes: int | None
     live_waveform_bytes_retained: int | None
+    object_store_bytes: int
+    object_store_file_count: int
     durable_bytes: int
     durable_file_count: int
 
@@ -411,7 +427,7 @@ def run_ad_hoc(
         memory.observe()
     durable_bytes, durable_files = _tree_size(root)
     return BenchmarkResult(
-        schema="scopecat.scan_execution_benchmark.v2",
+        schema="scopecat.scan_execution_benchmark.v3",
         revision=_git_revision(),
         runner="adhoc",
         scenario=scenario,
@@ -426,18 +442,20 @@ def run_ad_hoc(
         waveform_bytes_uploaded=hardware.uploaded_bytes,
         max_waveform_batch_bytes=max_waveform_batch_bytes,
         live_waveform_bytes_retained=view.retained_bytes,
+        object_store_bytes=0,
+        object_store_file_count=0,
         durable_bytes=durable_bytes,
         durable_file_count=durable_files,
     )
 
 
-def run_scopecat(
+def run_scopecat_core(
     scenario: ScanScenario,
     root: Path,
     *,
     host_label: str = "local",
 ) -> BenchmarkResult:
-    """Run the same scan through current planning, execution, and persistence."""
+    """Run through core planning and persistence with a direct test host."""
 
     timeline = ExperimentTimeline()
     waveforms = ScopecatWaveformTracker(live_waveform=scenario.live_waveform)
@@ -480,8 +498,97 @@ def run_scopecat(
         raise RuntimeError(f"Scopecat run ended as {run.manifest.status}")
     points_completed = len(run.measurements().records)
     durable_bytes, durable_files = _tree_size(root)
+    object_store_bytes, object_store_files = _tree_size(
+        root / ".scopecat-test" / "objects"
+    )
     return BenchmarkResult(
-        schema="scopecat.scan_execution_benchmark.v2",
+        schema="scopecat.scan_execution_benchmark.v3",
+        revision=_git_revision(),
+        runner="scopecat-core",
+        scenario=scenario,
+        host=_host_metadata(host_label),
+        phases=timeline.metrics(),
+        starting_rss_bytes=memory.starting_bytes,
+        peak_rss_bytes=memory.peak_bytes,
+        peak_rss_growth_bytes=memory.growth_bytes,
+        points_completed=points_completed,
+        trigger_count=timeline.trigger_count,
+        waveform_bytes_rendered=waveforms.uploaded_bytes,
+        waveform_bytes_uploaded=waveforms.uploaded_bytes,
+        max_waveform_batch_bytes=waveforms.max_batch_bytes,
+        live_waveform_bytes_retained=waveforms.retained_bytes,
+        object_store_bytes=object_store_bytes,
+        object_store_file_count=object_store_files,
+        durable_bytes=durable_bytes,
+        durable_file_count=durable_files,
+    )
+
+
+def run_scopecat(
+    scenario: ScanScenario,
+    root: Path,
+    *,
+    host_label: str = "local",
+) -> BenchmarkResult:
+    """Run through the production daemon, payload store, and instrument service."""
+
+    timeline = ExperimentTimeline()
+    waveforms = ScopecatWaveformTracker(live_waveform=scenario.live_waveform)
+    config = bootstrap_config()
+    reference_provider = ReferenceLabProvider(seed=7)
+    provider = TimedInstrumentProvider(
+        reference_provider,
+        timeline,
+        waveforms=waveforms,
+        point_delay_s=scenario.point_delay_s,
+    )
+    backend = InstrumentBackend(
+        provider=provider,
+        driver_catalog=DriverCatalog(provider_id=provider.provider_id),
+        payload_codecs=reference_lab_payload_codecs(),
+    )
+
+    def build_system(
+        selected_config: ConfigProfileSnapshot,
+        catalog: InstrumentContractCatalog,
+    ) -> ExperimentSystem:
+        target = configured_list_mode_target(selected_config, catalog)
+        return ExperimentSystem(
+            instrument_catalog=catalog,
+            domain_compiler=QuantumLabCompiler(
+                target=target,
+                runtime_selector=virtual_quantum_runtime,
+            ),
+            payload_codecs=reference_lab_payload_codecs(),
+        )
+
+    with (
+        LocalDaemonRuntime(
+            root,
+            bootstrap_config=config,
+            instrument_endpoint=LocalInstrumentBackendEndpoint(backend),
+        ) as runtime,
+        TestClient(runtime.app()) as transport,
+        LabClient(
+            _daemon_client(transport),
+            build_experiment_system=build_system,
+            config=config,
+            operator="benchmark",
+        ) as lab,
+    ):
+        timeline.start()
+        with PeakRssSampler() as memory:
+            invocation = _scopecat_invocation(scenario)
+            run = lab.prepare(invocation, config=config).run()
+            timeline.finish()
+            memory.observe()
+        if run.manifest.status != "completed":
+            raise RuntimeError(f"Scopecat run ended as {run.manifest.status}")
+        points_completed = len(run.measurements().records)
+    durable_bytes, durable_files = _tree_size(root)
+    object_store_bytes, object_store_files = _tree_size(root / ".scopecat" / "objects")
+    return BenchmarkResult(
+        schema="scopecat.scan_execution_benchmark.v3",
         revision=_git_revision(),
         runner="scopecat",
         scenario=scenario,
@@ -496,8 +603,30 @@ def run_scopecat(
         waveform_bytes_uploaded=waveforms.uploaded_bytes,
         max_waveform_batch_bytes=waveforms.max_batch_bytes,
         live_waveform_bytes_retained=waveforms.retained_bytes,
+        object_store_bytes=object_store_bytes,
+        object_store_file_count=object_store_files,
         durable_bytes=durable_bytes,
         durable_file_count=durable_files,
+    )
+
+
+def _daemon_client(transport: TestClient) -> DaemonClient:
+    def send(request: httpx2.Request) -> httpx2.Response:
+        response = transport.request(
+            request.method,
+            request.url.raw_path.decode(),
+            content=request.content,
+            headers=dict(request.headers),
+        )
+        return httpx2.Response(
+            response.status_code,
+            content=response.content,
+            headers=dict(response.headers),
+        )
+
+    return DaemonClient(
+        "http://testserver",
+        transport=httpx2.MockTransport(send),
     )
 
 
@@ -870,11 +999,12 @@ def _worker(args: BenchmarkArguments) -> int:
         ),
     )
     root = Path(cast("str", args.work_dir))
-    result = (
-        run_ad_hoc(scenario, root, host_label=args.host_label)
-        if runner == "adhoc"
-        else run_scopecat(scenario, root, host_label=args.host_label)
-    )
+    if runner == "adhoc":
+        result = run_ad_hoc(scenario, root, host_label=args.host_label)
+    elif runner == "scopecat-core":
+        result = run_scopecat_core(scenario, root, host_label=args.host_label)
+    else:
+        result = run_scopecat(scenario, root, host_label=args.host_label)
     print(_RESULT_PREFIX + json.dumps(asdict(result), sort_keys=True), flush=True)
     return 0
 
@@ -884,7 +1014,7 @@ def _controller(args: BenchmarkArguments) -> int:
     runners: tuple[RunnerName, ...] = tuple(
         cast("RunnerName", item) for item in args.runners.split(",")
     )
-    invalid = sorted(set(runners) - set(_RUNNERS))
+    invalid = sorted(set(runners) - set(_ALL_RUNNERS))
     if invalid:
         raise ValueError(f"unknown runners: {', '.join(invalid)}")
     output = Path(args.output)
@@ -1059,6 +1189,18 @@ def _summaries(results: Sequence[dict[str, object]]) -> list[dict[str, object]]:
                     physical_channel_count,
                 )
             ),
+            "median_object_store_bytes": statistics.median(
+                cast("int", result["object_store_bytes"])
+                for result in results
+                if result["runner"] == runner
+                and _scenario_signature(result)
+                == (
+                    profile,
+                    point_count,
+                    waveform_sample_count,
+                    physical_channel_count,
+                )
+            ),
         }
         for (
             runner,
@@ -1160,7 +1302,7 @@ def _parser() -> argparse.ArgumentParser:
         "--output",
         default=".benchmarks/scan-execution.jsonl",
     )
-    parser.add_argument("--worker", choices=_RUNNERS, help=argparse.SUPPRESS)
+    parser.add_argument("--worker", choices=_ALL_RUNNERS, help=argparse.SUPPRESS)
     parser.add_argument("--point-count", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--work-dir", help=argparse.SUPPRESS)
     return parser

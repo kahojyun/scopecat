@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import cast
 
 
-def test_scan_execution_benchmark_runs_both_paths(tmp_path: Path) -> None:
+def test_scan_execution_benchmark_runs_all_execution_boundaries(tmp_path: Path) -> None:
     output = tmp_path / "results.jsonl"
     script = Path(__file__).parents[3] / "scripts" / "benchmark_scan_execution.py"
 
@@ -19,7 +19,7 @@ def test_scan_execution_benchmark_runs_both_paths(tmp_path: Path) -> None:
             "--points",
             "3",
             "--runners",
-            "adhoc,scopecat",
+            "adhoc,scopecat-core,scopecat",
             "--repetitions",
             "1",
             "--warmups",
@@ -40,9 +40,10 @@ def test_scan_execution_benchmark_runs_both_paths(tmp_path: Path) -> None:
         for line in output.read_text(encoding="utf-8").splitlines()
     )
     by_runner = {result["runner"]: result for result in results}
-    assert set(by_runner) == {"adhoc", "scopecat"}
+    assert set(by_runner) == {"adhoc", "scopecat-core", "scopecat"}
     assert all(result["points_completed"] == 3 for result in results)
     assert by_runner["adhoc"]["trigger_count"] == 3
+    assert by_runner["scopecat-core"]["trigger_count"] == 2
     assert by_runner["scopecat"]["trigger_count"] == 2
 
 
@@ -58,6 +59,12 @@ def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
             "scopecat",
             "--point-count",
             "257",
+            "--profile",
+            "waveform",
+            "--waveform-samples",
+            "128",
+            "--qubits",
+            "2",
             "--host-label",
             "test",
             "--work-dir",
@@ -79,6 +86,11 @@ def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
             """
         ).fetchall()
     assert append_ranges == [(0, 256), (256, 1)]
+    object_root = work_dir / ".scopecat" / "objects"
+    object_bytes = sum(
+        path.stat().st_size for path in object_root.rglob("*") if path.is_file()
+    )
+    assert object_bytes >= (257 * 6 * 128 * 8) // 2
 
 
 def test_waveform_profile_matches_multichannel_working_set(tmp_path: Path) -> None:
@@ -122,7 +134,7 @@ def test_waveform_profile_matches_multichannel_working_set(tmp_path: Path) -> No
     expected_total_bytes = 3 * 6 * 128 * 8
     expected_retained_bytes = 6 * 128 * 8
     assert all(
-        result["schema"] == "scopecat.scan_execution_benchmark.v2" for result in results
+        result["schema"] == "scopecat.scan_execution_benchmark.v3" for result in results
     )
     assert all(
         result["waveform_bytes_uploaded"] == expected_total_bytes for result in results
