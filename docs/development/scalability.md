@@ -102,9 +102,8 @@ durable run storage. Both runners use a fixed single-shot workload with four
 physical channels and a 72-sample point waveform. Point count is the only scale
 variable in the zero-delay run. `--point-delay-ms` adds the same logical-point
 dwell to both virtual hardware paths for a representative total-time run.
-Shot-heavy acquisition, long waveforms, and the Scopecat latest-waveform UI path
-require separate matched profiles; mixing them into this comparison would make
-one runner perform work the other does not.
+Shot-heavy acquisition and long waveforms use separate matched profiles so
+their working sets do not obscure point-count costs.
 
 Run a short comparison with:
 
@@ -142,6 +141,34 @@ uv run python scripts/benchmark_scan_execution.py \
 The synthetic dwell makes the two virtual paths wait for equal aggregate
 logical-point time. Physical-hardware validation remains necessary for driver
 and timing behavior.
+
+### Latest Multichannel Waveform Profile
+
+The waveform profile varies the per-point physical waveform working set while
+retaining the same scalar integrated-IQ result. One to four driven qubits map to
+four to ten physical output channels: two drive channels per qubit plus one
+shared readout I/Q pair. Both runners render and upload the same number of
+float64 samples. With `--live-waveform`, each path retains only the latest
+completed point for a plotting-tool stand-in.
+
+Run a short staircase with:
+
+```console
+uv run python scripts/benchmark_scan_execution.py \
+  --profile waveform \
+  --points 1,10,100 \
+  --waveform-samples 4096 \
+  --qubits 4 \
+  --live-waveform \
+  --host-label lab-pc
+```
+
+In addition to timing and RSS, compare `waveform_bytes_uploaded`,
+`max_waveform_batch_bytes`, and `live_waveform_bytes_retained`. Live-view
+retention must equal exactly one point's channel-by-sample payload. Maximum
+batch upload reveals whether target entry batching multiplies that working set.
+Increase waveform length independently of point count; do not combine this
+profile with shot-heavy or raw-acquisition payloads.
 
 Timing begins after the reusable lab/server and instrument composition exists.
 The phase boundaries are:
@@ -194,6 +221,10 @@ The present architecture provides a direct end-to-end baseline:
 - the reference list-mode target begins with a 32-point batch, then uses its
   full device capacity so preparation latency does not require a one-point
   physical batch;
+- list-mode capacity currently bounds entry count and per-entry samples but not
+  aggregate waveform bytes. Long multichannel entries can therefore make one
+  physical batch retain and JSON-encode many points' waveforms; the waveform
+  profile is the acceptance baseline for a byte-aware batching contract;
 - admission uses the domain compiler's static instrument footprint and all
   structurally compatible local route candidates. Point-local routing narrows
   the operations actually emitted, so a run may conservatively reserve an

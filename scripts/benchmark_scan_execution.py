@@ -25,13 +25,15 @@ import time
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Literal, Self, cast
+from typing import Annotated, Literal, Self, cast
 
 import numpy as np
 import psutil
 
 import scopecat as sc
 from reference_lab.bench_interfaces import (
+    AWG_LOAD_PROGRAM,
+    AWG_PROGRAM,
     TRIGGER_LOAD_PROGRAM,
     TRIGGER_PROGRAM,
     TRIGGER_START_PROGRAM,
@@ -40,6 +42,7 @@ from reference_lab.bench_interfaces import (
 from reference_lab.compiler import QuantumLabCompiler
 from reference_lab.configuration import bootstrap_config
 from reference_lab.payloads import (
+    DecodedAwgProgram,
     DecodedTriggerProgram,
     reference_lab_payload_codecs,
 )
@@ -48,6 +51,7 @@ from reference_lab.quantum_runner import quantum_capture
 from reference_lab.targets.list_mode import configured_list_mode_target
 from reference_lab.virtual_lab.execution import virtual_quantum_runtime
 from reference_lab.workflows.drag_beta_calibration import drag_beta_program
+from scopecat.authoring import ComputeInput
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.sdk.instruments import (
     DriverAcquisition,
@@ -63,13 +67,22 @@ from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
 )
+from scopecat_quantum import authoring as q
 from scopecat_quantum.measurement_computes import BinaryIqProbabilityProducts
 from scopecat_testkit.instrument_host import compose_test_instruments
 from scopecat_testkit.server.in_process_lab import in_process_lab  # noqa: TID251
 
 _RESULT_PREFIX = "SCAN_BENCHMARK_RESULT="
 type RunnerName = Literal["adhoc", "scopecat"]
+type ProfileName = Literal[
+    "drag_beta_integrated_iq",
+    "multichannel_waveform_integrated_iq",
+]
 _RUNNERS: tuple[RunnerName, ...] = ("adhoc", "scopecat")
+_PROFILE_ALIASES: dict[str, ProfileName] = {
+    "dense": "drag_beta_integrated_iq",
+    "waveform": "multichannel_waveform_integrated_iq",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +93,9 @@ class BenchmarkArguments:
     warmups: int
     point_delay_ms: float
     live_waveform: bool
+    profile: str
+    waveform_samples: int
+    qubits: int
     host_label: str
     storage_root: str | None
     output: str
@@ -95,12 +111,10 @@ class ScanScenario:
     point_count: int
     point_delay_s: float = 0.0
     live_waveform: bool = False
-    profile: Literal["drag_beta_integrated_iq"] = field(
-        default="drag_beta_integrated_iq",
-        init=False,
-    )
-    waveform_sample_count: int = field(default=72, init=False)
-    physical_channel_count: int = field(default=4, init=False)
+    profile: ProfileName = "drag_beta_integrated_iq"
+    waveform_sample_count: int = 72
+    qubit_count: int = 1
+    physical_channel_count: int = 4
     shots: int = field(default=1, init=False)
 
     def __post_init__(self) -> None:
@@ -108,6 +122,23 @@ class ScanScenario:
             raise ValueError("point_count must be positive")
         if self.point_delay_s < 0.0:
             raise ValueError("point_delay_s must not be negative")
+        if self.waveform_sample_count <= 0:
+            raise ValueError("waveform_sample_count must be positive")
+        if not 1 <= self.qubit_count <= 4:
+            raise ValueError("qubit_count must be between one and four")
+        if self.profile == "drag_beta_integrated_iq" and (
+            self.waveform_sample_count != 72 or self.qubit_count != 1
+        ):
+            raise ValueError("drag-beta profile has a fixed waveform shape")
+        expected_channels = (
+            4
+            if self.profile == "drag_beta_integrated_iq"
+            else (2 * self.qubit_count + 2)
+        )
+        if self.physical_channel_count != expected_channels:
+            raise ValueError(
+                "physical_channel_count does not match the selected profile"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,7 +167,7 @@ class HostMetadata:
 class BenchmarkResult:
     """One isolated benchmark worker result."""
 
-    schema: Literal["scopecat.scan_execution_benchmark.v1"]
+    schema: Literal["scopecat.scan_execution_benchmark.v2"]
     revision: str
     runner: RunnerName
     scenario: ScanScenario
@@ -149,6 +180,7 @@ class BenchmarkResult:
     trigger_count: int
     waveform_bytes_rendered: int | None
     waveform_bytes_uploaded: int | None
+    max_waveform_batch_bytes: int | None
     live_waveform_bytes_retained: int | None
     durable_bytes: int
     durable_file_count: int
@@ -253,8 +285,52 @@ class LatestWaveformView:
             self._latest = waveforms
 
     @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    @property
     def retained_bytes(self) -> int:
         return sum(waveform.nbytes for waveform in self._latest)
+
+
+class ScopecatWaveformTracker:
+    """Observe AWG batch uploads and retain only the latest completed entry."""
+
+    def __init__(self, *, live_waveform: bool) -> None:
+        self._view = LatestWaveformView(live_waveform)
+        self._programs: dict[str, DecodedAwgProgram] = {}
+        self.uploaded_bytes = 0
+        self._pending_batch_bytes = 0
+        self.max_batch_bytes = 0
+
+    def load(self, instrument_id: str, program: DecodedAwgProgram) -> None:
+        self._programs[instrument_id] = program
+        uploaded = sum(
+            len(waveform.samples) * np.dtype(np.float64).itemsize
+            for entry in program.entries
+            for waveform in entry.waveforms
+        )
+        self.uploaded_bytes += uploaded
+        self._pending_batch_bytes += uploaded
+
+    def start_batch(self) -> None:
+        self.max_batch_bytes = max(self.max_batch_bytes, self._pending_batch_bytes)
+        self._pending_batch_bytes = 0
+
+    def publish_latest(self) -> None:
+        if not self._view.enabled:
+            return
+        self._view.replace(
+            tuple(
+                np.asarray(waveform.samples, dtype=np.float64)
+                for instrument_id in sorted(self._programs)
+                for waveform in self._programs[instrument_id].entries[-1].waveforms
+            )
+        )
+
+    @property
+    def retained_bytes(self) -> int:
+        return self._view.retained_bytes
 
 
 class AdHocResultWriter:
@@ -314,13 +390,19 @@ def run_ad_hoc(
     timeline = ExperimentTimeline()
     view = LatestWaveformView(scenario.live_waveform)
     waveform_bytes = 0
+    max_waveform_batch_bytes = 0
     timeline.start()
     with PeakRssSampler() as memory:
         hardware = AdHocHardware(scenario, timeline)
         writer = AdHocResultWriter(root, scenario)
         for point in range(scenario.point_count):
             waveforms = _render_ad_hoc_point(scenario, point)
-            waveform_bytes += sum(waveform.nbytes for waveform in waveforms)
+            point_waveform_bytes = sum(waveform.nbytes for waveform in waveforms)
+            waveform_bytes += point_waveform_bytes
+            max_waveform_batch_bytes = max(
+                max_waveform_batch_bytes,
+                point_waveform_bytes,
+            )
             hardware.load(waveforms)
             view.replace(waveforms)
             writer.append(point, hardware.run_and_collect(point))
@@ -329,7 +411,7 @@ def run_ad_hoc(
         memory.observe()
     durable_bytes, durable_files = _tree_size(root)
     return BenchmarkResult(
-        schema="scopecat.scan_execution_benchmark.v1",
+        schema="scopecat.scan_execution_benchmark.v2",
         revision=_git_revision(),
         runner="adhoc",
         scenario=scenario,
@@ -342,6 +424,7 @@ def run_ad_hoc(
         trigger_count=timeline.trigger_count,
         waveform_bytes_rendered=waveform_bytes,
         waveform_bytes_uploaded=hardware.uploaded_bytes,
+        max_waveform_batch_bytes=max_waveform_batch_bytes,
         live_waveform_bytes_retained=view.retained_bytes,
         durable_bytes=durable_bytes,
         durable_file_count=durable_files,
@@ -356,14 +439,14 @@ def run_scopecat(
 ) -> BenchmarkResult:
     """Run the same scan through current planning, execution, and persistence."""
 
-    if scenario.live_waveform:
-        raise ValueError("the Scopecat latest-waveform path is not implemented")
     timeline = ExperimentTimeline()
+    waveforms = ScopecatWaveformTracker(live_waveform=scenario.live_waveform)
     config = bootstrap_config()
     reference_provider = ReferenceLabProvider(seed=7)
     provider = TimedInstrumentProvider(
         reference_provider,
         timeline,
+        waveforms=waveforms,
         point_delay_s=scenario.point_delay_s,
     )
     catalog = resolve_instrument_contract_catalog(
@@ -398,7 +481,7 @@ def run_scopecat(
     points_completed = len(run.measurements().records)
     durable_bytes, durable_files = _tree_size(root)
     return BenchmarkResult(
-        schema="scopecat.scan_execution_benchmark.v1",
+        schema="scopecat.scan_execution_benchmark.v2",
         revision=_git_revision(),
         runner="scopecat",
         scenario=scenario,
@@ -409,9 +492,10 @@ def run_scopecat(
         peak_rss_growth_bytes=memory.growth_bytes,
         points_completed=points_completed,
         trigger_count=timeline.trigger_count,
-        waveform_bytes_rendered=None,
-        waveform_bytes_uploaded=None,
-        live_waveform_bytes_retained=None,
+        waveform_bytes_rendered=waveforms.uploaded_bytes,
+        waveform_bytes_uploaded=waveforms.uploaded_bytes,
+        max_waveform_batch_bytes=waveforms.max_batch_bytes,
+        live_waveform_bytes_retained=waveforms.retained_bytes,
         durable_bytes=durable_bytes,
         durable_file_count=durable_files,
     )
@@ -425,10 +509,12 @@ class TimedInstrumentProvider:
         delegate: ReferenceLabProvider,
         timeline: ExperimentTimeline,
         *,
+        waveforms: ScopecatWaveformTracker,
         point_delay_s: float,
     ) -> None:
         self._delegate = delegate
         self._timeline = timeline
+        self._waveforms = waveforms
         self._point_delay_s = point_delay_s
 
     @property
@@ -445,6 +531,7 @@ class TimedInstrumentProvider:
         return TimedInstrumentDriver(
             self._delegate.connect(context),
             self._timeline,
+            waveforms=self._waveforms,
             point_delay_s=self._point_delay_s,
         )
 
@@ -457,10 +544,12 @@ class TimedInstrumentDriver:
         delegate: InstrumentDriver,
         timeline: ExperimentTimeline,
         *,
+        waveforms: ScopecatWaveformTracker,
         point_delay_s: float,
     ) -> None:
         self._delegate = delegate
         self._timeline = timeline
+        self._waveforms = waveforms
         self._point_delay_s = point_delay_s
         self._loaded_point_count = 0
         self.implementation_id = delegate.implementation_id
@@ -487,6 +576,18 @@ class TimedInstrumentDriver:
         request: DriverOperation,
     ) -> DriverOutcome[DriverState | None]:
         if (
+            request.target.interface_id == AWG_LOAD_PROGRAM.interface_id
+            and request.target.operation_id == AWG_LOAD_PROGRAM.operation_id
+        ):
+            program = cast(
+                "DecodedAwgProgram",
+                cast(
+                    "DriverPayload",
+                    request.arguments[AWG_PROGRAM.argument_id],
+                ).value,
+            )
+            self._waveforms.load(self.instrument_id, program)
+        if (
             request.target.interface_id == TRIGGER_LOAD_PROGRAM.interface_id
             and request.target.operation_id == TRIGGER_LOAD_PROGRAM.operation_id
         ):
@@ -506,6 +607,7 @@ class TimedInstrumentDriver:
                 TRIGGER_START_PROGRAM_IDEMPOTENT.operation_id,
             }
         ):
+            self._waveforms.start_batch()
             self._timeline.trigger()
             outcome = self._delegate.invoke(request)
             if self._point_delay_s:
@@ -518,6 +620,7 @@ class TimedInstrumentDriver:
         request: DriverAcquisition,
     ) -> DriverOutcome[DriverReadback]:
         outcome = self._delegate.collect(request)
+        self._waveforms.publish_latest()
         self._timeline.collect()
         return outcome
 
@@ -528,23 +631,173 @@ class TimedInstrumentDriver:
         self._delegate.abort()
 
 
+def _multichannel_waveform_body(
+    qubits: tuple[q.Qubit, ...],
+    *,
+    duration: q.QuantumQuantity,
+    phase: q.QuantumQuantity,
+) -> q.QuantumFragment:
+    return q.parallel(
+        *(
+            q.play(
+                q.drive(qubit),
+                q.constant(
+                    duration=duration,
+                    amplitude=sc.Quantity(0.2, "arb"),
+                    phase=phase,
+                ),
+            )
+            for qubit in qubits
+        ),
+        q.play(
+            q.readout(qubits[0]),
+            q.constant(
+                duration=duration,
+                amplitude=sc.Quantity(0.25, "arb"),
+            ),
+        ),
+        q.acquire(
+            qubits[0],
+            duration=duration,
+            result="iq_shots",
+        ),
+    )
+
+
+@q.program(id="benchmark.multichannel-waveform-1q")
+def _multichannel_waveform_1q(
+    q0: q.Qubit,
+    duration: Annotated[
+        sc.Quantity,
+        sc.ScalarType(sc.QuantityType(unit="ns")),
+    ],
+    phase: Annotated[
+        sc.Quantity,
+        sc.ScalarType(sc.QuantityType(unit="rad")),
+    ],
+) -> q.QuantumFragment:
+    return _multichannel_waveform_body((q0,), duration=duration, phase=phase)
+
+
+@q.program(id="benchmark.multichannel-waveform-2q")
+def _multichannel_waveform_2q(
+    q0: q.Qubit,
+    q1: q.Qubit,
+    duration: Annotated[
+        sc.Quantity,
+        sc.ScalarType(sc.QuantityType(unit="ns")),
+    ],
+    phase: Annotated[
+        sc.Quantity,
+        sc.ScalarType(sc.QuantityType(unit="rad")),
+    ],
+) -> q.QuantumFragment:
+    return _multichannel_waveform_body((q0, q1), duration=duration, phase=phase)
+
+
+@q.program(id="benchmark.multichannel-waveform-3q")
+def _multichannel_waveform_3q(
+    q0: q.Qubit,
+    q1: q.Qubit,
+    q2: q.Qubit,
+    duration: Annotated[
+        sc.Quantity,
+        sc.ScalarType(sc.QuantityType(unit="ns")),
+    ],
+    phase: Annotated[
+        sc.Quantity,
+        sc.ScalarType(sc.QuantityType(unit="rad")),
+    ],
+) -> q.QuantumFragment:
+    return _multichannel_waveform_body((q0, q1, q2), duration=duration, phase=phase)
+
+
+@q.program(id="benchmark.multichannel-waveform-4q")
+def _multichannel_waveform_4q(
+    q0: q.Qubit,
+    q1: q.Qubit,
+    q2: q.Qubit,
+    q3: q.Qubit,
+    duration: Annotated[
+        sc.Quantity,
+        sc.ScalarType(sc.QuantityType(unit="ns")),
+    ],
+    phase: Annotated[
+        sc.Quantity,
+        sc.ScalarType(sc.QuantityType(unit="rad")),
+    ],
+) -> q.QuantumFragment:
+    return _multichannel_waveform_body((q0, q1, q2, q3), duration=duration, phase=phase)
+
+
+def _multichannel_waveform_call(
+    qubit_count: int,
+    *,
+    duration: sc.Quantity,
+    phase: ComputeInput,
+) -> q.QuantumProgramCall:
+    if qubit_count == 1:
+        return _multichannel_waveform_1q(
+            q0="q0",
+            duration=duration,
+            phase=phase,
+        )
+    if qubit_count == 2:
+        return _multichannel_waveform_2q(
+            q0="q0",
+            q1="q1",
+            duration=duration,
+            phase=phase,
+        )
+    if qubit_count == 3:
+        return _multichannel_waveform_3q(
+            q0="q0",
+            q1="q1",
+            q2="q2",
+            duration=duration,
+            phase=phase,
+        )
+    return _multichannel_waveform_4q(
+        q0="q0",
+        q1="q1",
+        q2="q2",
+        q3="q3",
+        duration=duration,
+        phase=phase,
+    )
+
+
 def _scopecat_invocation(scenario: ScanScenario) -> sc.ExperimentInvocation:
-    beta_values = tuple(
-        sc.Quantity(float(value), "ns")
-        for value in np.linspace(-0.5, 1.5, scenario.point_count)
+    scan_values = tuple(
+        sc.Quantity(
+            float(value),
+            "ns" if scenario.profile == "drag_beta_integrated_iq" else "rad",
+        )
+        for value in np.linspace(
+            -0.5 if scenario.profile == "drag_beta_integrated_iq" else 0.0,
+            1.5 if scenario.profile == "drag_beta_integrated_iq" else math.tau,
+            scenario.point_count,
+        )
     )
 
     @sc.experiment(id="benchmark.quantum_scan")
     def benchmark_scan(experiment: sc.ExperimentContext) -> None:
-        beta = experiment.scan("beta", beta_values)
-        probabilities: BinaryIqProbabilityProducts = experiment.use(
-            quantum_capture(
-                drag_beta_program(
-                    qubit="q0",
-                    amplification=1,
-                    beta=beta,
-                ).with_shots(scenario.shots)
+        scan_value = experiment.scan("scan_value", scan_values)
+        call = (
+            drag_beta_program(
+                qubit="q0",
+                amplification=1,
+                beta=scan_value,
             )
+            if scenario.profile == "drag_beta_integrated_iq"
+            else _multichannel_waveform_call(
+                scenario.qubit_count,
+                duration=sc.Quantity(scenario.waveform_sample_count, "ns"),
+                phase=scan_value,
+            )
+        )
+        probabilities: BinaryIqProbabilityProducts = experiment.use(
+            quantum_capture(call.with_shots(scenario.shots))
         )
         experiment.alias(probabilities.probability_1)
 
@@ -559,6 +812,24 @@ def _render_ad_hoc_point(
     sample = np.arange(sample_count, dtype=np.float64) + 0.5
     phase = math.tau * point / max(scenario.point_count, 1)
     carrier = math.tau * sample / sample_count + phase
+    if scenario.profile == "multichannel_waveform_integrated_iq":
+        drive_lanes = tuple(
+            lane
+            for qubit_index in range(scenario.qubit_count)
+            for lane in (
+                np.ascontiguousarray(
+                    0.2 * np.cos(carrier + qubit_index * math.pi / 8.0)
+                ),
+                np.ascontiguousarray(
+                    0.2 * np.sin(carrier + qubit_index * math.pi / 8.0)
+                ),
+            )
+        )
+        return (
+            *drive_lanes,
+            np.full(sample_count, 0.25, dtype=np.float64),
+            np.zeros(sample_count, dtype=np.float64),
+        )
     envelope = np.exp(
         -((sample - sample_count / 2.0) ** 2) / (2.0 * (sample_count / 8.0) ** 2)
     )
@@ -582,10 +853,21 @@ def _render_ad_hoc_point(
 
 def _worker(args: BenchmarkArguments) -> int:
     runner = cast("RunnerName", args.worker)
+    profile = _PROFILE_ALIASES[args.profile]
+    qubit_count = 1 if profile == "drag_beta_integrated_iq" else args.qubits
+    waveform_sample_count = (
+        72 if profile == "drag_beta_integrated_iq" else args.waveform_samples
+    )
     scenario = ScanScenario(
         point_count=cast("int", args.point_count),
         point_delay_s=args.point_delay_ms / 1000.0,
         live_waveform=args.live_waveform,
+        profile=profile,
+        waveform_sample_count=waveform_sample_count,
+        qubit_count=qubit_count,
+        physical_channel_count=(
+            4 if profile == "drag_beta_integrated_iq" else 2 * qubit_count + 2
+        ),
     )
     root = Path(cast("str", args.work_dir))
     result = (
@@ -605,8 +887,6 @@ def _controller(args: BenchmarkArguments) -> int:
     invalid = sorted(set(runners) - set(_RUNNERS))
     if invalid:
         raise ValueError(f"unknown runners: {', '.join(invalid)}")
-    if args.live_waveform and "scopecat" in runners:
-        raise ValueError("--live-waveform currently requires --runners adhoc")
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     results: list[dict[str, object]] = []
@@ -636,6 +916,8 @@ def _controller(args: BenchmarkArguments) -> int:
             results.append(result)
             print(
                 f"{runner:8} points={point_count:<7} "
+                f"samples={_scenario_int(result, 'waveform_sample_count'):<7} "
+                f"channels={_scenario_int(result, 'physical_channel_count'):<2} "
                 f"prepare={_nested_float(result, 'phases', 'prepare_s'):.6f}s "
                 f"wall={_nested_float(result, 'phases', 'wall_s'):.6f}s "
                 f"rss+={cast('int', result['peak_rss_growth_bytes']) / 2**20:.1f} MiB "
@@ -667,6 +949,12 @@ def _run_worker_process(
         str(point_count),
         "--point-delay-ms",
         str(args.point_delay_ms),
+        "--profile",
+        args.profile,
+        "--waveform-samples",
+        str(args.waveform_samples),
+        "--qubits",
+        str(args.qubits),
         "--host-label",
         args.host_label,
         "--work-dir",
@@ -699,53 +987,102 @@ def _run_worker_process(
 def _summaries(results: Sequence[dict[str, object]]) -> list[dict[str, object]]:
     keys = sorted(
         {
-            (cast("str", result["runner"]), _scenario_point_count(result))
+            (cast("str", result["runner"]), *_scenario_signature(result))
             for result in results
         },
-        key=lambda item: (item[1], item[0]),
+        key=lambda item: (item[2], item[3], item[4], item[1], item[0]),
     )
     return [
         {
             "runner": runner,
+            "profile": profile,
             "point_count": point_count,
+            "waveform_sample_count": waveform_sample_count,
+            "physical_channel_count": physical_channel_count,
             "median_prepare_s": statistics.median(
                 _nested_float(result, "phases", "prepare_s")
                 for result in results
                 if result["runner"] == runner
-                and _scenario_point_count(result) == point_count
+                and _scenario_signature(result)
+                == (
+                    profile,
+                    point_count,
+                    waveform_sample_count,
+                    physical_channel_count,
+                )
             ),
             "median_wall_s": statistics.median(
                 _nested_float(result, "phases", "wall_s")
                 for result in results
                 if result["runner"] == runner
-                and _scenario_point_count(result) == point_count
+                and _scenario_signature(result)
+                == (
+                    profile,
+                    point_count,
+                    waveform_sample_count,
+                    physical_channel_count,
+                )
             ),
             "median_peak_rss_bytes": statistics.median(
                 cast("int", result["peak_rss_bytes"])
                 for result in results
                 if result["runner"] == runner
-                and _scenario_point_count(result) == point_count
+                and _scenario_signature(result)
+                == (
+                    profile,
+                    point_count,
+                    waveform_sample_count,
+                    physical_channel_count,
+                )
             ),
             "median_peak_rss_growth_bytes": statistics.median(
                 cast("int", result["peak_rss_growth_bytes"])
                 for result in results
                 if result["runner"] == runner
-                and _scenario_point_count(result) == point_count
+                and _scenario_signature(result)
+                == (
+                    profile,
+                    point_count,
+                    waveform_sample_count,
+                    physical_channel_count,
+                )
             ),
             "median_durable_bytes": statistics.median(
                 cast("int", result["durable_bytes"])
                 for result in results
                 if result["runner"] == runner
-                and _scenario_point_count(result) == point_count
+                and _scenario_signature(result)
+                == (
+                    profile,
+                    point_count,
+                    waveform_sample_count,
+                    physical_channel_count,
+                )
             ),
         }
-        for runner, point_count in keys
+        for (
+            runner,
+            profile,
+            point_count,
+            waveform_sample_count,
+            physical_channel_count,
+        ) in keys
     ]
 
 
-def _scenario_point_count(result: dict[str, object]) -> int:
+def _scenario_signature(result: dict[str, object]) -> tuple[str, int, int, int]:
     scenario = cast("dict[str, object]", result["scenario"])
-    return cast("int", scenario["point_count"])
+    return (
+        cast("str", scenario["profile"]),
+        cast("int", scenario["point_count"]),
+        cast("int", scenario["waveform_sample_count"]),
+        cast("int", scenario["physical_channel_count"]),
+    )
+
+
+def _scenario_int(result: dict[str, object], key: str) -> int:
+    scenario = cast("dict[str, object]", result["scenario"])
+    return cast("int", scenario[key])
 
 
 def _nested_float(result: dict[str, object], group: str, key: str) -> float:
@@ -814,6 +1151,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--warmups", type=int, default=1)
     parser.add_argument("--point-delay-ms", type=float, default=0.0)
     parser.add_argument("--live-waveform", action="store_true")
+    parser.add_argument("--profile", choices=tuple(_PROFILE_ALIASES), default="dense")
+    parser.add_argument("--waveform-samples", type=int, default=4096)
+    parser.add_argument("--qubits", type=int, default=4)
     parser.add_argument("--host-label", default=platform.node() or "local")
     parser.add_argument("--storage-root")
     parser.add_argument(
@@ -835,6 +1175,9 @@ def _arguments(argv: Sequence[str] | None) -> BenchmarkArguments:
         warmups=cast("int", parsed.warmups),
         point_delay_ms=cast("float", parsed.point_delay_ms),
         live_waveform=cast("bool", parsed.live_waveform),
+        profile=cast("str", parsed.profile),
+        waveform_samples=cast("int", parsed.waveform_samples),
+        qubits=cast("int", parsed.qubits),
         host_label=cast("str", parsed.host_label),
         storage_root=cast("str | None", parsed.storage_root),
         output=cast("str", parsed.output),
@@ -856,6 +1199,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     if args.point_delay_ms < 0.0:
         raise ValueError("point delay must not be negative")
+    if args.waveform_samples <= 0:
+        raise ValueError("waveform samples must be positive")
+    if not 1 <= args.qubits <= 4:
+        raise ValueError("qubits must be between one and four")
     return _controller(args)
 
 
