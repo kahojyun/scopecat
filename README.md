@@ -8,42 +8,34 @@ quantum experiments. It integrates with notebooks and existing Python projects
 while adding typed experiment structure, bounded execution, live visibility,
 and durable results as workflows grow.
 
-The [project charter](docs/project-charter.md) defines the current product
-priorities. The execution, daemon, and instrument-control documents describe
-the current architecture; they are implementation choices rather than product
-requirements and may evolve with demonstrated workflows.
-Implementation contracts and local design rationale live beside the code that
-owns them.
+## Documentation
 
-## Repository
+Start with the [documentation home](docs/index.md) or follow the
+[source preview quickstart](docs/getting-started/quickstart.md) to create a
+hardware-free project and complete the first durable run.
 
-- `packages/scopecat`: domain-neutral authoring, planning, execution, data, and
-  daemon client APIs.
-- `packages/scopecat-instruments`: minimal real SCPI drivers and coupled
-  virtual laboratory devices.
-- `packages/scopecat-quantum`: hardware-independent quantum building blocks.
-- `examples/reference_lab`: one hardware-free lab gallery spanning direct
-  control, characterization, data workflows, and quantum calibration.
-- `fixtures`: test-only inputs; runnable projects own their bootstrap config.
-- `docs`: the product charter plus guides to the current architecture and
-  workflows.
+- [Reference lab tutorial](docs/tutorials/reference-lab.md)
+- [Instrument control](docs/how-to/control-instruments.md)
+- [Experiment authoring dataflow](docs/concepts/experiment-dataflow.md)
+- [Measurement data](docs/how-to/use-measurement-data.md)
+- [Python API reference](docs/reference/python/index.md)
+- [Contributor guide](docs/development/index.md)
 
-## Start Here
+The [project charter](docs/development/project-charter.md) defines current
+product priorities. Architecture documents describe present implementation
+choices rather than product requirements.
 
-An installed distribution already contains the GUI. When running from a source
-checkout, build the UI into its own ignored output directory:
+## Source preview
+
+Scopecat does not yet publish an end-user installation command. From a source
+checkout, build the project console and create the hardware-free starter lab:
 
 ```sh
 cd apps/scopecat-ui
 pnpm install --frozen-lockfile
 pnpm run build
 cd ../..
-```
 
-Create a runnable project with a local Python configuration source and a
-hardware-free first experiment:
-
-```sh
 uv run scopecat init ./my-lab
 uv run scopecat config check ./my-lab
 uv run scopecat start ./my-lab --static-dir apps/scopecat-ui/dist
@@ -51,119 +43,44 @@ uv run scopecat open ./my-lab
 uv run python ./my-lab/notebooks/01_first_run.py
 ```
 
-The generated `src/scopecat_lab/configuration.py` is ordinary version-controlled
-Python. After editing it, compare and explicitly publish the result:
+The generated configuration is ordinary version-controlled Python. The local
+daemon owns immutable configuration history, run admission, resource ownership,
+measurements, analysis, and durable results.
 
-```sh
-uv run scopecat config diff ./my-lab
-uv run scopecat config apply ./my-lab --actor operator-name
-uv run scopecat config export ./my-lab --output ./active-config.json
-```
-
-`diff` freshly evaluates the project source and compares it with the daemon
-default. `apply` validates the same snapshot and records one immutable default
-change; it does not make the daemon watch or rewrite Python. `export` produces
-a complete JSON snapshot for review or backup, not a primary editing format.
-
-The reference lab is the complete local project. Its `scopecat.toml`, Python
-application and backend, bootstrap snapshot, fourteen-device inventory, and six
-parameter tables are version controlled; one daemon owns its `.scopecat` state:
+For a complete virtual lab, run:
 
 ```sh
 uv run scopecat config check examples/reference_lab
 uv run scopecat start examples/reference_lab --static-dir apps/scopecat-ui/dist
 uv run scopecat open examples/reference_lab
-```
-
-`config check` validates the version-controlled bootstrap source without
-starting a daemon or creating project state. `start` selects an available
-loopback port and records it inside the project, so the GUI and notebook client
-discover the same daemon without a fixed URL. The GUI can browse immutable
-configuration history, parameter values, runs, data, and saved analysis.
-Run the notebook-style walkthrough in another terminal:
-
-```sh
 uv run python examples/reference_lab/notebooks/30_drag_calibration.py
 ```
 
-The walkthrough runs the supported DRAG-beta calibration from measurement
-through candidate acceptance, production use, and undo. The daemon records
-every immutable revision, acceptance decision, and activation while keeping
-entry ids and concurrency generations out of the ordinary workflow.
+## Repository
 
-The same project also provides a hardware-free instrument-control tour. Open
-the **Instruments** workspace and run:
-
-```sh
-uv run python examples/reference_lab/notebooks/10_direct_control.py
-```
-
-Its coupled virtual DC source, temperature monitor, RF source, and VNA use the
-same interface and session APIs as real devices.
-
-Locally authored Python closures still execute in the notebook process when
-they cannot be sent reliably to another process. Admission, resource ownership,
-measurements, analysis, and configuration history are written only by the
-daemon.
-
-A normal lab project follows the same small shape:
-
-```text
-my-lab/
-├── scopecat.toml
-├── notebooks/
-├── src/scopecat_lab/
-│   ├── application.py
-│   ├── backend.py
-│   └── configuration.py
-└── config/                  # optional external infrastructure inputs
-```
-
-See the [lab daemon model](docs/lab-daemon.md) and
-[`scopecat-server` setup](packages/scopecat-server/README.md), then continue
-with [the reference lab gallery](examples/reference_lab/README.md). The
-[experiment authoring guide](docs/experiment-authoring.md) covers grids and
-explicit point rows; the [measurement data workflow](docs/measurement-data.md)
-covers ragged results, notebook selection, ecosystem exports, and automatic GUI
-plots. The package READMEs
-describe the smaller public entry points for
-[`scopecat`](packages/scopecat/README.md) and
-[`scopecat-instruments`](packages/scopecat-instruments/README.md), and
-[`scopecat-quantum`](packages/scopecat-quantum/README.md).
+- `packages/scopecat`: domain-neutral authoring, planning, execution, data, and
+  notebook APIs.
+- `packages/scopecat-server`: project CLI, daemon, services, and storage.
+- `packages/scopecat-instruments`: typed capabilities, real SCPI drivers, and
+  coupled virtual devices.
+- `packages/scopecat-quantum`: hardware-independent quantum building blocks.
+- `apps/scopecat-ui`: React/Vite project console.
+- `examples/reference_lab`: tested hardware-free workflow gallery.
+- `docs`: published user, extension, reference, and contributor documentation.
 
 ## Development
 
-Development and source-checkout workflows require Python 3.14 or newer.
-
-Use `uv sync --group notebook` only when a local Jupyter kernel is needed.
-
-Run the repository checks from the repository root:
+Development requires Python 3.14 or newer. Run the repository checks from the
+root:
 
 ```sh
 uv run pytest
-uv run --package scopecat --extra pandas pytest packages/scopecat/tests/measurements/test_dataset.py
 uv run basedpyright
 uv run lint-imports
 uv run ruff check .
 uv run ruff format --check .
+uv run --group docs zensical build --strict
 ```
 
-The default test run includes the complete reference-lab gallery suite and all
-package tests.
-
-Run one member's tests with its declared test dependency group:
-
-```sh
-uv run --locked --package scopecat --group test pytest packages/scopecat/tests
-uv run --locked --package scopecat-server --group test pytest packages/scopecat-server/tests
-uv run --locked --package reference-lab --group test pytest examples/reference_lab/tests
-```
-
-To assemble release artifacts without modifying either source tree:
-
-```sh
-cd apps/scopecat-ui
-pnpm run build
-cd ../..
-uv run python scripts/build_server_distribution.py
-```
+See the [contributor guide](docs/development/index.md) for focused package tests,
+repository structure, architecture, UI development, and documentation preview.

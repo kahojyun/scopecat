@@ -71,7 +71,7 @@ long-lived instrument worker.
 Only one daemon owns a project. It stores SQLite and immutable objects below
 `.scopecat`, records its loopback endpoint in `.scopecat/daemon.json`, and
 serves the replayable event stream used by GUI and notebook clients. See the
-[daemon model](../../docs/lab-daemon.md) for ownership, fencing, quarantine,
+[daemon model](../../docs/development/architecture/daemon.md) for ownership, fencing, quarantine,
 and security boundaries.
 
 For a bundled source-checkout preview:

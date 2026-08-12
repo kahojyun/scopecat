@@ -5,9 +5,10 @@ client performs work now, while a symbolic client records the same device verbs
 inside an experiment. Drivers implement that capability without receiving run,
 entity, point, product, or dataset concepts.
 
-Daemon ownership and failure handling live in the [lab daemon model](lab-daemon.md).
+Daemon ownership and failure handling live in the
+[lab daemon architecture](../development/architecture/daemon.md).
 Execution ordering and physical authority live in the
-[execution semantics](experiment-execution-model.md). Provider registration,
+[execution semantics](../development/architecture/execution.md). Provider registration,
 generation, configuration, and driver tests live in the
 [instrument provider README](https://github.com/kahojyun/scopecat/blob/main/packages/scopecat-instruments/README.md).
 
@@ -104,7 +105,7 @@ Product namespaces derive from the capability and effect occurrence. Supply an
 explicit acquisition `id=` when an occurrence is part of a durable data
 contract. Returning a complete result bundle preserves its declared coordinate,
 observable, axis, and acquisition-group relationships. The
-[experiment authoring guide](experiment-authoring.md#return-the-result-you-mean-to-keep)
+[experiment dataflow model](../concepts/experiment-dataflow.md#return-the-result-you-mean-to-keep)
 is the canonical durable-result reference.
 
 ### Select equivalent resources by role
@@ -264,73 +265,6 @@ extra, or duplicate identities fail before effects are recorded. Group authoring
 expands to independently routed scalar resources; it does not ask a driver to
 perform an implicit vector operation.
 
-## Extend an instrument capability
-
-An interface author declares concrete state and result records, then decorates a
-Python `Protocol` or abstract base class:
-
-```python
-from typing import Protocol
-
-from scopecat import Quantity
-from scopecat.sdk.instruments.declarations import (
-    acquisition,
-    axis,
-    instrument_interface,
-    instrument_result,
-    instrument_state,
-    member_field,
-    result_field,
-)
-
-
-@instrument_state
-class NetworkSweepState:
-    start_frequency: Quantity = member_field(unit="Hz")
-    stop_frequency: Quantity = member_field(unit="Hz")
-    points: int = member_field(minimum=2)
-    s_parameter: str = member_field()
-
-
-@instrument_result
-class NetworkSweepResults:
-    frequency: list[float] = result_field(
-        role="coordinate", dtype="float64", unit="Hz", axes=("frequency",)
-    )
-    s_parameter: list[complex] = result_field(
-        dtype="complex128", unit="ratio", axes=("frequency",)
-    )
-
-
-@instrument_interface("example.network_sweep/v1", state=NetworkSweepState)
-class NetworkSweep(Protocol):
-    @acquisition(axes={"frequency": axis(size="points", unit="Hz")})
-    def sweep(self) -> NetworkSweepResults: ...
-```
-
-State fields describe complete hardware state with concrete types. Generated
-sparse patch and target carriers represent omission. Result declarations own
-roles and axes. The declaration compiler produces the wire contract, while the
-provider generator produces typed clients, member references, projections, and
-driver adapters.
-
-A driver subclasses the generated adapter and implements typed hooks. The
-adapter handles member dispatch and wire conversion; the driver owns command
-ordering, device-specific limits, temporary setup/restoration, and response
-interpretation.
-
-An operation that can disturb persistent state lists the affected property refs
-in `invalidates`. This withdraws prior state knowledge without asserting the
-post-operation value. A later `ensure` establishes a new guarantee; an ordinary
-acquisition remains runtime evidence. The `operation(...)` docstring defines the
-exact local contract, and planning diagnostics identify which effect invalidated
-a missing requirement.
-
-See [driver authoring](https://github.com/kahojyun/scopecat/blob/main/packages/scopecat-instruments/README.md#driver-authoring)
-for the implementation boundary and
-[typed client source generation](https://github.com/kahojyun/scopecat/blob/main/packages/scopecat-instruments/README.md#typed-client-source-generation)
-for the generator workflow.
-
 ## Compact rule set
 
 1. Declare device meaning once with concrete Python state, operations, and
@@ -344,3 +278,6 @@ for the generator workflow.
 5. Return typed values or product bundles and let dependencies determine order.
 6. Record values and bundles directly; declared roles, axes, groups, and entity
    identity carry the dataset mapping.
+
+To add a capability or driver, continue with the
+[instrument extension guide](../extensions/instruments.md).

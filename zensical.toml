@@ -10,17 +10,51 @@ copyright = "Copyright &copy; 2026 Scopecat contributors"
 
 nav = [
   { "Home" = "index.md" },
-  { "User task guides" = [
-    { "Experiment authoring dataflow" = "experiment-authoring.md" },
-    { "Instrument control and authoring" = "instrument-control.md" },
-    { "Measurement data workflows" = "measurement-data.md" },
-    { "Analysis publication" = "analysis-publication.md" },
+  { "Getting started" = [
+    "getting-started/index.md",
+    { "Source preview quickstart" = "getting-started/quickstart.md" },
   ] },
-  { "Developer architecture" = [
-    { "Project charter" = "project-charter.md" },
-    { "Experiment execution semantics" = "experiment-execution-model.md" },
-    { "Lab daemon" = "lab-daemon.md" },
-    { "Scalability benchmarks" = "scalability-benchmarks.md" },
+  { "Tutorials" = [
+    "tutorials/index.md",
+    { "Tour the reference lab" = "tutorials/reference-lab.md" },
+  ] },
+  { "How-to guides" = [
+    "how-to/index.md",
+    { "Control instruments" = "how-to/control-instruments.md" },
+    { "Use measurement data" = "how-to/use-measurement-data.md" },
+    { "Manage configuration" = "how-to/manage-configuration.md" },
+  ] },
+  { "Concepts" = [
+    "concepts/index.md",
+    { "Experiment authoring dataflow" = "concepts/experiment-dataflow.md" },
+    { "Analysis publication" = "concepts/analysis-publication.md" },
+  ] },
+  { "Reference" = [
+    "reference/index.md",
+    { "Command-line interface" = "reference/cli.md" },
+    { "Project layout" = "reference/project-layout.md" },
+    { "Python API" = [
+      "reference/python/index.md",
+      { "scopecat" = "reference/python/scopecat.md" },
+      { "scopecat_instruments" = "reference/python/instruments.md" },
+      { "scopecat_quantum.authoring" = "reference/python/quantum.md" },
+    ] },
+  ] },
+  { "Extensions" = [
+    "extensions/index.md",
+    { "Instruments" = "extensions/instruments.md" },
+    { "Quantum" = "extensions/quantum.md" },
+  ] },
+  { "Development" = [
+    "development/index.md",
+    { "Repository map" = "development/repository-map.md" },
+    { "Architecture" = [
+      "development/architecture/index.md",
+      { "Experiment execution" = "development/architecture/execution.md" },
+      { "Lab daemon" = "development/architecture/daemon.md" },
+    ] },
+    { "Scalability benchmarks" = "development/scalability.md" },
+    { "Project charter" = "development/project-charter.md" },
   ] },
 ]
 

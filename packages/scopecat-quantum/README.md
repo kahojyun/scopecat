@@ -84,6 +84,6 @@ lineage. Point-level aggregates belong in the canonical measurement stream;
 large shot-level or trace payloads should cross the data boundary as typed
 binary content rather than control-plane records.
 
-The [scalability benchmarks](../../docs/scalability-benchmarks.md) cover
+The [scalability benchmarks](../../docs/development/scalability.md) cover
 multi-run calibration, shot-heavy acquisition, structured traces, and dense
 spectroscopy.

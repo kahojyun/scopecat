@@ -12,7 +12,7 @@ The configured connection kinds are:
 
 ## Using the package
 
-The [instrument-control guide](../../docs/instrument-control.md) is the canonical
+The [instrument-control guide](../../docs/how-to/control-instruments.md) is the canonical
 user guide for live sessions, symbolic experiments, temporary devices, routing,
 roles, shared physical state, and multi-entity clients. The
 [reference-lab gallery](../../examples/reference_lab/README.md) contains runnable

@@ -429,7 +429,7 @@ diagnostic evidence, not a second input or execution mechanism.
 Completed-data analysis is ordinary eager Python over a durable run snapshot,
 not another experiment compute placement. It publishes native-library results
 as datasets, then derives bounded table or figure views from those datasets.
-The [analysis publication guide](analysis-publication.md) owns that workflow,
+The [analysis publication model](analysis-publication.md) owns that workflow,
 including annotated rows, dataframe field mappings, artifacts, facts, and
 parameter proposals.
 

@@ -1,41 +1,46 @@
 # Scopecat documentation
 
-The [project charter](project-charter.md) is the authority for current product
-priorities and scope. Start with the task guide that matches the work; compiler,
-daemon, and scalability details are developer architecture rather than concepts
-an experiment author must learn first.
+Scopecat is a local-first Python toolkit for laboratory experiment workflows.
+It connects notebooks, typed experiment authoring, instrument control, live
+visibility, and durable results without requiring a lab to replace its existing
+Python projects.
 
-## User task guides
+## Start here
 
-- [Experiment authoring dataflow](experiment-authoring.md): scalar and array
-  shape, availability-based compute placement, point plans, return-as-record,
-  and complete-path acceptance.
-- [Instrument control and authoring](instrument-control.md): live and symbolic
-  clients, physical routing, shared state, and capability extension.
-- [Measurement data workflows](measurement-data.md): recorded schema, ragged
-  arrays, notebook selection, ecosystem projection, bounded Arrow reading, and
-  schema-driven GUI behavior.
-- [Analysis publication](analysis-publication.md): the durable output ontology,
-  stable identities, lossless conversion boundary, and deliberate separation
-  from dataframe libraries and workflow execution.
+New users should follow the [source preview quickstart](getting-started/quickstart.md).
+It creates a hardware-free project, starts its daemon and project console, and
+runs the smallest experiment through the complete durable workflow.
 
-## Developer architecture
+Continue according to what you want to accomplish:
 
-- [Experiment execution semantics](experiment-execution-model.md): compiler,
-  domain-lowering, effect, and logical-result design.
-- [Lab daemon](lab-daemon.md): durable ownership and client boundary.
-- [Scalability benchmarks](scalability-benchmarks.md): current implementation
-  boundaries, representative NISQ workloads, measurements, and target envelopes.
+- [Tour the reference lab](tutorials/reference-lab.md) for a runnable gallery of
+  instrument, experiment, data, and quantum workflows.
+- [Control configured instruments](how-to/control-instruments.md) for direct and
+  experiment-time device access.
+- [Author experiments](concepts/experiment-dataflow.md) for point plans, compute
+  placement, and durable results.
+- [Use measurement data](how-to/use-measurement-data.md) for selection, Xarray,
+  Arrow, pandas, Polars, and GUI projections.
+- [Publish analysis](concepts/analysis-publication.md) for derived datasets,
+  facts, artifacts, views, and parameter proposals.
 
-These documents describe the present system, not a roadmap. Implementation may
-change as demonstrated workflows reveal a clearer or more scalable way to serve
-the charter.
+## Reference
 
-## Documentation ownership
+- [Command-line interface](reference/cli.md)
+- [Project layout and manifest](reference/project-layout.md)
+- [Python API](reference/python/index.md)
 
-Keep implementation architecture, package inventories, completed migration
-plans, and current interface lists close to the code and tests that own them.
-Use focused docstrings when an implementation decision needs local context.
+## Extend or develop Scopecat
 
-Add another document here only when a cross-cutting design cannot be explained
-clearly beside the code that owns it.
+Instrument and quantum integrations are product extensions and use public
+Scopecat contracts. Start with the [instrument extension guide](extensions/instruments.md)
+or [quantum extension guide](extensions/quantum.md).
+
+Contributors changing Scopecat itself should use the
+[development guide](development/index.md). Compiler, daemon, scalability, and
+repository details live there so an experiment author does not need to learn
+them before completing a first run.
+
+The [project charter](development/project-charter.md) is the authority for
+current product priorities and scope. These documents describe the present
+system, not a compatibility promise or roadmap.
