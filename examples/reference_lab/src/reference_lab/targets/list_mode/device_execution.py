@@ -378,7 +378,7 @@ def _load_batch(
                                 "component_path": list(
                                     waveform.channel_id.component_path
                                 ),
-                                "samples": list(waveform.samples),
+                                "samples": waveform.samples.tolist(),
                             }
                             for waveform in entry.waveforms
                         ]
