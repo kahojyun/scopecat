@@ -86,6 +86,98 @@ A target becomes demonstrated when the workload, resource budget, and result
 are repeatable. Optimizations should address the first measured limit while
 preserving the shared invariants.
 
+## Scan Execution UX Baseline
+
+The first executable profile compares Scopecat with the useful scaling
+properties of a direct lab scan. The direct runner lazily renders one point,
+uploads only that point's four real-valued waveforms, retains only the latest
+waveforms for an optional live view, collects one integrated-IQ-derived scalar,
+and appends the result to one sequential file. It deliberately does not retain
+a Python list of all captured entries: total point count must not determine the
+waveform working set.
+
+The matched Scopecat runner executes the reference-lab drag-beta experiment
+through normal planning, compilation, instrument operations, collection, and
+durable run storage. Both runners use a fixed single-shot workload with four
+physical channels and a 72-sample point waveform. Point count is the only scale
+variable in the zero-delay run. `--point-delay-ms` adds the same logical-point
+dwell to both virtual hardware paths for a representative total-time run.
+Shot-heavy acquisition, long waveforms, and the Scopecat latest-waveform UI path
+require separate matched profiles; mixing them into this comparison would make
+one runner perform work the other does not.
+
+Run a short comparison with:
+
+```console
+uv run python scripts/benchmark_scan_execution.py \
+  --points 1,10,100 \
+  --host-label lab-pc-hdd \
+  --storage-root /path/on/the/experiment-drive
+```
+
+`--storage-root` must name an existing directory on the storage device being
+measured. The command creates isolated run directories below it and removes
+them after each worker. Raw JSON Lines results default to
+`.benchmarks/scan-execution.jsonl`. Every worker records the Git revision and
+dirty state, host metadata, scenario, phase timings, resident-memory growth,
+durable bytes, file count, logical point count, and physical trigger count.
+
+Use three measured repetitions after one warmup for a comparison run. Increase
+the largest point count geometrically only while the previous step remains
+within its time and disk budget, for example `300,1000` after the short run.
+Run each runner in a separate process, as the command does, so allocator state
+and prior Scopecat runs do not contaminate the direct baseline.
+
+Run the same staircase again with a representative acquisition duration when
+evaluating total experiment UX:
+
+```console
+uv run python scripts/benchmark_scan_execution.py \
+  --points 1,10,100 \
+  --point-delay-ms 10 \
+  --host-label lab-pc-hdd \
+  --storage-root /path/on/the/experiment-drive
+```
+
+The synthetic dwell makes the two virtual paths wait for equal aggregate
+logical-point time. Physical-hardware validation remains necessary for driver
+and timing behavior.
+
+Timing begins after the reusable lab/server and instrument composition exists.
+The phase boundaries are:
+
+- **prepare**: experiment submission, invocation construction, validation,
+  planning, and compilation until the first physical trigger;
+- **active**: first physical trigger through the final completed instrument
+  collection; compilation, uploads, execution, and collection may overlap here;
+- **finalize**: final collection through the completed, durable run return;
+- **wall**: prepare plus active plus finalize;
+- **first result**: submission through the first completed collection, retained
+  as a secondary diagnostic rather than a required one-point batch.
+
+Interpreter import, daemon cold start, and physical instrument connection are
+outside this profile and should be measured separately if they affect the
+normal launch workflow. The primary UX gates are preparation and wall time.
+Peak resident-memory growth and durable object/file growth identify whether a
+failure is caused by eager planning, in-memory retention, or persistence
+amplification.
+
+Until measurements justify tighter product budgets, use these provisional
+acceptance gates:
+
+- preparation remains below one second at the intended scan size and does not
+  grow linearly with total points;
+- with representative point dwell, Scopecat adds no more than 10% or one second
+  to total wall time, whichever allowance is larger;
+- peak memory is bounded by physical batch and current-point payload size, not
+  total scan waveform volume;
+- durable file and control-record counts grow with batches or checkpoints, not
+  one object per logical point.
+
+The absolute one-second limits are UX budgets, not ratios against a nearly
+zero-duration direct loop. Change them only with a recorded lab workflow and
+repeatable measurements.
+
 ## Current Implementation Boundaries
 
 The present architecture provides a direct end-to-end baseline:
