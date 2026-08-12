@@ -22,12 +22,12 @@ from scopecat.project import load_application_factory
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 
+from scopecat_server.command_payloads import CommandPayloadService
 from scopecat_server.services.admission import AdmissionService
 from scopecat_server.services.application import DaemonApplication
 from scopecat_server.services.config import ConfigService
 from scopecat_server.services.executor import ExecutorService
 from scopecat_server.services.leases import OwnershipLeaseSupervisor
-from scopecat_server.services.payloads import CommandPayloadService
 from scopecat_server.services.runs import RunService
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase

@@ -52,15 +52,15 @@ from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 from scopecat_testkit.instrument_drivers import SignalInstrumentDriver, load_config
 
 from scopecat_server import LocalDaemonRuntime
-from scopecat_server.instruments.backend import LocalInstrumentBackendEndpoint
-from scopecat_server.instruments.worker import SubprocessInstrumentBackendEndpoint
-from scopecat_server.services.payloads import (
+from scopecat_server.command_payloads import (
     DEFAULT_MAX_PAYLOAD_OBJECT_BYTES,
     CommandPayloadService,
     CommandPayloadTooLarge,
     run_payload_scope,
     session_payload_scope,
 )
+from scopecat_server.instruments.backend import LocalInstrumentBackendEndpoint
+from scopecat_server.instruments.worker import SubprocessInstrumentBackendEndpoint
 
 _PAYLOAD_BYTES = b"\x00\xff\x80SCPI\x00program\n"
 _MEDIA_TYPE = "application/octet-stream"

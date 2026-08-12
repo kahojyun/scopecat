@@ -99,12 +99,12 @@ from scopecat_server.storage.sqlite.control_plane import (
 )
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
-from ..errors import BackendConflict, BackendNotFound
-from ..services.payloads import (
+from ..command_payloads import (
     CommandPayloadError,
     run_payload_scope,
     session_payload_scope,
 )
+from ..errors import BackendConflict, BackendNotFound
 from ._runtime_state import (
     ApplyReplay,
     CollectFailureReplay,
@@ -160,8 +160,8 @@ from .commands import (
 )
 
 if TYPE_CHECKING:
+    from ..command_payloads import CommandPayloadScope, CommandPayloadService
     from ..services.config import ConfigService
-    from ..services.payloads import CommandPayloadScope, CommandPayloadService
 
 
 class InstrumentRuntime:

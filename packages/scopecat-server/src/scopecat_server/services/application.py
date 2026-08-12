@@ -15,11 +15,11 @@ from scopecat.daemon.wire import (
 
 from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
 
+from ..command_payloads import CommandPayloadService
 from .admission import AdmissionService
 from .config import ConfigService
 from .executor import ExecutorService
 from .leases import OwnershipLeaseSupervisor
-from .payloads import CommandPayloadService
 from .runs import RunService
 
 if TYPE_CHECKING:

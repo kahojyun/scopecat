@@ -1,4 +1,4 @@
-"""Daemon-owned storage and materialization for opaque command payload bytes."""
+"""Cross-cutting storage and materialization for opaque command payload bytes."""
 
 from __future__ import annotations
 
