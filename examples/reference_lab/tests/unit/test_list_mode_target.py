@@ -35,15 +35,21 @@ from scopecat_quantum.pulses import (
     AcquisitionSlot,
     Constant,
     DriveSignal,
+    Gaussian,
     Play,
     PulseProgram,
     ReadoutSignal,
     ScheduledPulseProgram,
+    ShiftPhase,
     schedule,
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
 from scopecat_quantum.pulses import Sequence as PulseSequence
-from scopecat_quantum.targets import TargetCompileEntry, TargetCompileRequest
+from scopecat_quantum.targets import (
+    TargetCompilationError,
+    TargetCompileEntry,
+    TargetCompileRequest,
+)
 
 from reference_lab.configuration import bootstrap_config
 from reference_lab.physical_policies import (
@@ -64,9 +70,11 @@ from reference_lab.targets.list_mode.device_execution import InstrumentListModeR
 from reference_lab.targets.list_mode.model import IqMixerCalibration
 
 Q0 = QubitId("q0")
+Q1 = QubitId("q1")
 DRIVE_Q0 = DriveSignal(Q0)
 ACQUIRE_Q0 = AcquireSignal(Q0)
 READOUT_Q0 = ReadoutSignal(Q0)
+READOUT_Q1 = ReadoutSignal(Q1)
 
 
 class _RecordingInstrumentExecutor:
@@ -252,6 +260,9 @@ def test_list_mode_compiler_projects_calibrated_physical_programs() -> None:
     assert readout_binding is not None
     waveforms = {waveform.channel_id: waveform.samples for waveform in entry.waveforms}
     offset_requirements = artifact.host_state_requirements
+
+    assert all(not waveform.flags.writeable for waveform in waveforms.values())
+    assert all(waveform.flags.c_contiguous for waveform in waveforms.values())
 
     assert offset_requirements.policy_id == IQ_OFFSET_COUPLING_POLICY_ID
     assert offset_requirements.coupling_group_ids == (
@@ -577,7 +588,7 @@ def test_list_mode_samples_drag_and_tracks_beta_in_artifact_identity() -> None:
         for envelope, rotation in zip(baseband, carrier, strict=True)
     )
 
-    assert target.supported_envelopes == ("constant", "drag")
+    assert target.supported_envelopes == ("constant", "gaussian", "drag")
     assert waveforms[binding.i_channel_id] == pytest.approx(
         tuple(sample.real for sample in expected)
     )
@@ -585,6 +596,142 @@ def test_list_mode_samples_drag_and_tracks_beta_in_artifact_identity() -> None:
         tuple(sample.imag for sample in expected)
     )
     assert changed.artifact_fingerprint != baseline.artifact_fingerprint
+
+
+def test_list_mode_renders_gaussian_and_records_realized_timing() -> None:
+    target = _target()
+    scheduled = schedule(
+        PulseProgram(
+            id=PulseProgramId("gaussian"),
+            body=Play(
+                PulseEventId("gaussian-play"),
+                DRIVE_Q0,
+                Gaussian(
+                    duration=Quantity(2.4, "ns"),
+                    amplitude=Quantity(0.2, "arb"),
+                    sigma=Quantity(1, "ns"),
+                ),
+            ),
+        )
+    )
+    compiler, request = _request(target, (scheduled,), repetitions=1)
+
+    artifact = compiler.compile(request)
+    [entry] = artifact.entries
+    [timing] = entry.event_timings
+    binding = target.output_binding(DRIVE_Q0)
+    assert binding is not None
+    waveforms = {waveform.channel_id: waveform.samples for waveform in entry.waveforms}
+    gaussian = 0.2 * math.exp(-(0.5**2) / 2.0)
+    carrier = _modulated_samples(
+        gaussian,
+        start_sample=0,
+        sample_count=2,
+        intermediate_frequency_hz=binding.intermediate_frequency_hz,
+        sample_rate_hz=target.sample_rate_hz,
+    )
+
+    assert artifact.waveform_semantics_id == "scopecat.sampled.midpoint.v1"
+    assert artifact.timing_quantization == "nearest"
+    assert timing.requested_duration_seconds == Decimal("2.4E-9")
+    assert timing.sample_count == 2
+    assert timing.realized_duration_seconds == Decimal("2E-9")
+    assert timing.duration_error_seconds == Decimal("-4E-10")
+    assert waveforms[binding.i_channel_id] == pytest.approx(
+        tuple(sample.real for sample in carrier)
+    )
+    assert waveforms[binding.q_channel_id] == pytest.approx(
+        tuple(sample.imag for sample in carrier)
+    )
+
+
+def test_list_mode_applies_shift_phase_before_playback() -> None:
+    target = _target()
+    scheduled = schedule(
+        PulseProgram(
+            id=PulseProgramId("phase-shift"),
+            body=PulseSequence(
+                (
+                    ShiftPhase(
+                        PulseEventId("shift"),
+                        DRIVE_Q0,
+                        Quantity(math.pi / 2, "rad"),
+                    ),
+                    Play(
+                        PulseEventId("play"),
+                        DRIVE_Q0,
+                        Constant(Quantity(2, "ns"), Quantity(0.25, "arb")),
+                    ),
+                )
+            ),
+        )
+    )
+    compiler, request = _request(target, (scheduled,), repetitions=1)
+
+    artifact = compiler.compile(request)
+    binding = target.output_binding(DRIVE_Q0)
+    assert binding is not None
+    waveforms = {
+        waveform.channel_id: waveform.samples
+        for waveform in artifact.entries[0].waveforms
+    }
+    expected = tuple(
+        sample * 1j
+        for sample in _modulated_samples(
+            0.25,
+            start_sample=0,
+            sample_count=2,
+            intermediate_frequency_hz=binding.intermediate_frequency_hz,
+            sample_rate_hz=target.sample_rate_hz,
+        )
+    )
+
+    assert waveforms[binding.i_channel_id] == pytest.approx(
+        tuple(sample.real for sample in expected)
+    )
+    assert waveforms[binding.q_channel_id] == pytest.approx(
+        tuple(sample.imag for sample in expected)
+    )
+
+
+def test_list_mode_checks_final_peak_after_readout_accumulation() -> None:
+    target = _target()
+    target = replace(
+        target,
+        output_bindings=tuple(
+            replace(binding, intermediate_frequency_hz=0.0)
+            if binding.signal in {READOUT_Q0, READOUT_Q1}
+            else binding
+            for binding in target.output_bindings
+        ),
+    )
+    scheduled = schedule(
+        PulseProgram(
+            id=PulseProgramId("multiplexed-peak"),
+            body=PulseParallel(
+                (
+                    Play(
+                        PulseEventId("readout-q0"),
+                        READOUT_Q0,
+                        Constant(Quantity(2, "ns"), Quantity(0.6, "arb")),
+                    ),
+                    Play(
+                        PulseEventId("readout-q1"),
+                        READOUT_Q1,
+                        Constant(Quantity(2, "ns"), Quantity(0.6, "arb")),
+                    ),
+                )
+            ),
+        )
+    )
+    compiler, request = _request(target, (scheduled,), repetitions=1)
+
+    with pytest.raises(TargetCompilationError) as caught:
+        compiler.compile(request)
+
+    assert {issue.code for issue in caught.value.issues} == {
+        "list_mode_amplitude_limit_exceeded"
+    }
 
 
 def test_list_mode_applies_full_iq_mixer_matrix_to_physical_waveforms() -> None:

@@ -20,6 +20,7 @@ from reference_lab.targets.list_mode.model import (
     ListModeArtifact,
     ListModeEntry,
     acquisition_slot_identity_payload,
+    awg_waveform_identity_payload,
     canonical_fingerprint,
 )
 
@@ -88,16 +89,10 @@ class ListModeRun:
 def waveform_fingerprint(entry: ListModeEntry) -> str:
     return canonical_fingerprint(
         {
-            "schema": "reference_lab.virtual_awg_waveforms.v1",
+            "schema": "reference_lab.virtual_awg_waveforms.v2",
             "sample_count": entry.sample_count,
             "waveforms": [
-                {
-                    "channel_id": waveform.channel_id.value,
-                    "instrument_id": waveform.channel_id.instrument_id,
-                    "component_path": list(waveform.channel_id.component_path),
-                    "samples": [float(sample).hex() for sample in waveform.samples],
-                }
-                for waveform in entry.waveforms
+                awg_waveform_identity_payload(waveform) for waveform in entry.waveforms
             ],
         }
     )

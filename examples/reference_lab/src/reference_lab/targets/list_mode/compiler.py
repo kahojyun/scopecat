@@ -12,10 +12,7 @@ so runtime evidence can be correlated to the exact prepared quantum work.
 
 from __future__ import annotations
 
-import cmath
-import math
 from dataclasses import dataclass
-from decimal import Decimal
 
 from scopecat_quantum._ids import (
     TargetArtifactId,
@@ -23,14 +20,13 @@ from scopecat_quantum._ids import (
     TargetCompilerId,
 )
 from scopecat_quantum.pulses import (
-    DRAG,
     Acquire,
     AcquireSignal,
-    Constant,
     Delay,
     DriveSignal,
     Play,
     ReadoutSignal,
+    ShiftPhase,
 )
 from scopecat_quantum.targets import (
     TargetCompilationError,
@@ -38,6 +34,18 @@ from scopecat_quantum.targets import (
     TargetCompilationIssueDimension,
     TargetCompileEntry,
     TargetCompileRequest,
+)
+from scopecat_quantum.waveforms import (
+    SAMPLED_WAVEFORM_SEMANTICS_ID,
+    Float64ReferenceRenderer,
+    IqMatrix,
+    RenderedWaveforms,
+    SampledOutputBinding,
+    SampledWaveformPlan,
+    SampleGrid,
+    TimingQuantizationPolicy,
+    WaveformPlanningError,
+    plan_sampled_waveforms,
 )
 
 from reference_lab.targets.list_mode.iq_semantics import (
@@ -50,7 +58,6 @@ from reference_lab.targets.list_mode.model import (
     DemodulatorSlotId,
     DeviceAcquisitionLowering,
     DigitizerAcquisitionWindow,
-    IqOutputBinding,
     ListModeArtifact,
     ListModeEntry,
     ListModeHostStateRequirements,
@@ -59,6 +66,7 @@ from reference_lab.targets.list_mode.model import (
     OutputSignal,
     TargetAcquisitionLowering,
     acquisition_slot_identity_payload,
+    awg_waveform_identity_payload,
     canonical_fingerprint,
     host_state_requirements_payload,
     preparation_payload,
@@ -68,35 +76,18 @@ from reference_lab.targets.list_mode.model import (
 
 
 @dataclass(frozen=True, slots=True)
-class _PlaySpan:
-    binding: IqOutputBinding
-    start_sample: int
-    samples: tuple[complex, ...]
-
-    @property
-    def sample_count(self) -> int:
-        return len(self.samples)
-
-
-@dataclass(frozen=True, slots=True)
 class _EntryPlan:
     list_index: int
     source: TargetCompileEntry
-    sample_count: int
-    plays: tuple[_PlaySpan, ...]
+    waveform_plan: SampledWaveformPlan
+    lane_channels: tuple[AwgChannelId, ...]
+    rendered: RenderedWaveforms
+    active_lanes: tuple[int, ...]
     acquisitions: tuple[DigitizerAcquisitionWindow, ...]
 
     @property
-    def waveform_channels(self) -> tuple[AwgChannelId, ...]:
-        return tuple(
-            sorted(
-                {
-                    channel_id
-                    for play in self.plays
-                    for channel_id in play.binding.channel_ids
-                }
-            )
-        )
+    def sample_count(self) -> int:
+        return self.waveform_plan.sample_count
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +164,8 @@ class ListModeTargetCompiler:
             source_entry_ids=tuple(entry.id for entry in request.entries),
             repetitions=request.repetitions,
             sample_rate_hz=self.target.sample_rate_hz,
+            waveform_semantics_id=SAMPLED_WAVEFORM_SEMANTICS_ID,
+            timing_quantization=self.target.timing_quantization,
             preparation=preparation,
             host_state_requirements=host_state_requirements,
             entries=entries,
@@ -186,79 +179,79 @@ class ListModeTargetCompiler:
         issues: list[TargetCompilationIssue],
     ) -> _EntryPlan | None:
         program = entry.program
-        duration_samples = _sample_index(program.duration_seconds, self.target)
-        if duration_samples is None:
-            _entry_issue(
-                issues,
-                entry.id,
-                code="list_mode_program_duration_off_grid",
-                message=(
-                    f"program {program.id.value!r} duration is not on the exact "
-                    "target sample grid"
+        lane_channels, sampled_bindings = _sampled_output_projection(self.target)
+        try:
+            waveform_plan = plan_sampled_waveforms(
+                program,
+                bindings=sampled_bindings,
+                grid=SampleGrid(
+                    sample_rate_hz=self.target.sample_rate_hz,
+                    timing=TimingQuantizationPolicy(
+                        mode=self.target.timing_quantization
+                    ),
                 ),
             )
-        elif duration_samples <= 0:
-            _entry_issue(
-                issues,
-                entry.id,
-                code="list_mode_program_duration_nonpositive",
-                message=f"program {program.id.value!r} has no positive sample span",
-            )
-        elif duration_samples > self.target.max_samples_per_entry:
+        except WaveformPlanningError as error:
+            for planning_issue in error.issues:
+                _entry_issue(
+                    issues,
+                    entry.id,
+                    code=(f"list_mode_{planning_issue.code.removeprefix('sampled_')}"),
+                    message=planning_issue.message,
+                )
+            return None
+
+        if waveform_plan.sample_count > self.target.max_samples_per_entry:
             _entry_issue(
                 issues,
                 entry.id,
                 code="list_mode_samples_per_entry_limit_exceeded",
                 message=(
-                    f"program {program.id.value!r} requires {duration_samples} "
+                    f"program {program.id.value!r} requires "
+                    f"{waveform_plan.sample_count} "
                     f"samples; target entry limit is "
                     f"{self.target.max_samples_per_entry}"
                 ),
             )
 
-        plays: list[_PlaySpan] = []
         acquisitions: list[DigitizerAcquisitionWindow] = []
         output_intervals: dict[AwgChannelId, list[tuple[int, int, str]]] = {}
         acquisition_intervals: dict[DemodulatorSlotId, list[tuple[int, int, str]]] = {}
         for event in program.events:
-            start_sample = _sample_index(event.start_seconds, self.target)
-            duration_sample_count = _sample_index(
-                event.duration_seconds,
-                self.target,
-            )
-            if start_sample is None:
-                _entry_issue(
-                    issues,
-                    entry.id,
-                    code="list_mode_event_start_off_grid",
-                    message=(
-                        f"event {event.id.value!r} start is not on the exact target "
-                        "sample grid"
-                    ),
-                )
-            if duration_sample_count is None:
-                _entry_issue(
-                    issues,
-                    entry.id,
-                    code="list_mode_event_duration_off_grid",
-                    message=(
-                        f"event {event.id.value!r} duration is not on the exact "
-                        "target sample grid"
-                    ),
-                )
+            timing = waveform_plan.timing_for(event.id)
             instruction = event.instruction
             match instruction:
                 case Play():
-                    self._plan_play(
-                        entry_id=entry.id,
-                        event_id=event.id.value,
-                        instruction=instruction,
-                        start_sample=start_sample,
-                        sample_count=duration_sample_count,
-                        intervals=output_intervals,
-                        plays=plays,
-                        issues=issues,
-                    )
+                    signal = instruction.signal
+                    if not isinstance(signal, DriveSignal | ReadoutSignal):
+                        _unsupported_issue(issues, entry.id, event.id.value)
+                        continue
+                    if instruction.envelope.amplitude.unit not in {"arb", "ratio"}:
+                        _entry_capability_issue(
+                            issues,
+                            entry.id,
+                            code="list_mode_amplitude_unit_unsupported",
+                            message=(
+                                f"event {event.id.value!r} uses unsupported "
+                                "amplitude unit "
+                                f"{instruction.envelope.amplitude.unit!r}; "
+                                "list-mode mode supports 'arb' and 'ratio'"
+                            ),
+                        )
+                    binding = self.target.output_binding(signal)
+                    if isinstance(signal, DriveSignal) and binding is not None:
+                        for channel_id in binding.channel_ids:
+                            _claim_interval(
+                                intervals=output_intervals,
+                                channel_id=channel_id,
+                                start_sample=timing.start_sample,
+                                sample_count=timing.sample_count,
+                                event_id=event.id.value,
+                                entry_id=entry.id,
+                                overlap_code=("list_mode_physical_output_overlap"),
+                                resource_label="AWG channel",
+                                issues=issues,
+                            )
                 case Acquire():
                     binding = self.target.acquisition_binding(instruction.signal)
                     if binding is None:
@@ -272,17 +265,12 @@ class ListModeTargetCompiler:
                                 "has no digitizer binding"
                             ),
                         )
-                    if (
-                        binding is not None
-                        and start_sample is not None
-                        and duration_sample_count is not None
-                        and duration_sample_count > 0
-                    ):
+                    if binding is not None and timing.sample_count > 0:
                         _claim_interval(
                             intervals=acquisition_intervals,
                             channel_id=binding.demodulator_slot_id,
-                            start_sample=start_sample,
-                            sample_count=duration_sample_count,
+                            start_sample=timing.start_sample,
+                            sample_count=timing.sample_count,
                             event_id=event.id.value,
                             entry_id=entry.id,
                             overlap_code="list_mode_physical_acquisition_overlap",
@@ -311,151 +299,52 @@ class ListModeTargetCompiler:
                                     == "raw_trace"
                                     else DeviceAcquisitionLowering()
                                 ),
-                                start_sample=start_sample,
-                                sample_count=duration_sample_count,
+                                start_sample=timing.start_sample,
+                                sample_count=timing.sample_count,
                             )
                         )
-                case Delay():
+                case Delay() | ShiftPhase():
                     pass
-                case _:
-                    _unsupported_issue(issues, entry.id, event.id.value)
-        if duration_samples is None or duration_samples <= 0:
-            return None
+
+        rendered = Float64ReferenceRenderer().render(waveform_plan)
+        active_lanes = tuple(
+            sorted(
+                {
+                    lane
+                    for render_event in waveform_plan.render_events
+                    for lane in (
+                        render_event.binding.i_lane,
+                        render_event.binding.q_lane,
+                    )
+                }
+            )
+        )
+        for lane in active_lanes:
+            peak_magnitude = rendered.lane_peaks[lane]
+            if peak_magnitude > self.target.max_abs_amplitude:
+                _entry_issue(
+                    issues,
+                    entry.id,
+                    code="list_mode_amplitude_limit_exceeded",
+                    message=(
+                        f"final waveform on channel "
+                        f"{lane_channels[lane].value!r} has magnitude "
+                        f"{peak_magnitude!r}; target limit is "
+                        f"{self.target.max_abs_amplitude!r}"
+                    ),
+                )
         return _EntryPlan(
             list_index=list_index,
             source=entry,
-            sample_count=duration_samples,
-            plays=tuple(plays),
+            waveform_plan=waveform_plan,
+            lane_channels=lane_channels,
+            rendered=rendered,
+            active_lanes=active_lanes,
             acquisitions=tuple(acquisitions),
-        )
-
-    def _plan_play(
-        self,
-        *,
-        entry_id: TargetCompileEntryId,
-        event_id: str,
-        instruction: Play,
-        start_sample: int | None,
-        sample_count: int | None,
-        intervals: dict[AwgChannelId, list[tuple[int, int, str]]],
-        plays: list[_PlaySpan],
-        issues: list[TargetCompilationIssue],
-    ) -> None:
-        signal = instruction.signal
-        envelope = instruction.envelope
-        if not isinstance(signal, DriveSignal | ReadoutSignal) or not isinstance(
-            envelope, Constant | DRAG
-        ):
-            _unsupported_issue(issues, entry_id, event_id)
-            return
-        binding = self.target.output_binding(signal)
-        if binding is None:
-            _entry_issue(
-                issues,
-                entry_id,
-                code="list_mode_output_signal_unbound",
-                message=(f"output signal {_signal_label(signal)} has no AWG binding"),
-            )
-        if (
-            isinstance(signal, DriveSignal)
-            and binding is not None
-            and start_sample is not None
-            and sample_count is not None
-            and sample_count > 0
-        ):
-            for channel_id in binding.channel_ids:
-                _claim_interval(
-                    intervals=intervals,
-                    channel_id=channel_id,
-                    start_sample=start_sample,
-                    sample_count=sample_count,
-                    event_id=event_id,
-                    entry_id=entry_id,
-                    overlap_code="list_mode_physical_output_overlap",
-                    resource_label="AWG channel",
-                    issues=issues,
-                )
-        if envelope.amplitude.unit not in {"arb", "ratio"}:
-            _entry_capability_issue(
-                issues,
-                entry_id,
-                code="list_mode_amplitude_unit_unsupported",
-                message=(
-                    f"event {event_id!r} uses unsupported amplitude unit "
-                    f"{envelope.amplitude.unit!r}; list-mode mode supports 'arb' "
-                    "and 'ratio'"
-                ),
-            )
-            return
-
-        if sample_count is None or sample_count <= 0:
-            return
-        samples = _render_envelope_samples(
-            envelope,
-            sample_count=sample_count,
-            sample_rate_hz=self.target.sample_rate_hz,
-            start_sample=0 if start_sample is None else start_sample,
-            intermediate_frequency_hz=(
-                0.0 if binding is None else binding.intermediate_frequency_hz
-            ),
-        )
-        peak_magnitude = max(
-            max(abs(i_sample), abs(q_sample))
-            for i_sample, q_sample in (
-                _physical_iq(binding, sample)
-                if binding is not None
-                else (sample.real, sample.imag)
-                for sample in samples
-            )
-        )
-        if peak_magnitude > self.target.max_abs_amplitude:
-            _entry_issue(
-                issues,
-                entry_id,
-                code="list_mode_amplitude_limit_exceeded",
-                message=(
-                    f"event {event_id!r} has sample magnitude "
-                    f"{peak_magnitude!r}; target limit is "
-                    f"{self.target.max_abs_amplitude!r}"
-                ),
-            )
-        if binding is None or start_sample is None:
-            return
-        plays.append(
-            _PlaySpan(
-                binding=binding,
-                start_sample=start_sample,
-                samples=samples,
-            )
         )
 
     @staticmethod
     def _render_entry(plan: _EntryPlan) -> ListModeEntry:
-        buffers = {
-            channel_id: [0.0] * plan.sample_count
-            for channel_id in plan.waveform_channels
-        }
-        for play in plan.plays:
-            end_sample = play.start_sample + play.sample_count
-            for channel_id, incoming_samples in (
-                (
-                    play.binding.i_channel_id,
-                    (_physical_iq(play.binding, sample)[0] for sample in play.samples),
-                ),
-                (
-                    play.binding.q_channel_id,
-                    (_physical_iq(play.binding, sample)[1] for sample in play.samples),
-                ),
-            ):
-                channel = buffers[channel_id]
-                channel[play.start_sample : end_sample] = (
-                    existing + incoming
-                    for existing, incoming in zip(
-                        channel[play.start_sample : end_sample],
-                        incoming_samples,
-                        strict=True,
-                    )
-                )
         return ListModeEntry(
             list_index=plan.list_index,
             entry_id=plan.source.id,
@@ -463,86 +352,46 @@ class ListModeTargetCompiler:
             sample_count=plan.sample_count,
             waveforms=tuple(
                 AwgChannelWaveform(
-                    channel_id=channel_id,
-                    samples=tuple(samples),
+                    channel_id=plan.lane_channels[lane],
+                    samples=plan.rendered.buffers[lane],
                 )
-                for channel_id, samples in sorted(buffers.items())
+                for lane in plan.active_lanes
             ),
             acquisitions=plan.acquisitions,
+            event_timings=plan.waveform_plan.event_timings,
         )
 
 
-def _physical_iq(binding: IqOutputBinding, sample: complex) -> tuple[float, float]:
-    mixer = binding.mixer
-    return (
-        mixer.ii * sample.real + mixer.iq * sample.imag,
-        mixer.qi * sample.real + mixer.qq * sample.imag,
-    )
-
-
-def _sample_index(seconds: Decimal, target: ListModeTarget) -> int | None:
-    scaled = seconds * Decimal(target.sample_rate_hz)
-    integral = scaled.to_integral_value()
-    return int(integral) if scaled == integral else None
-
-
-def _render_envelope_samples(
-    envelope: Constant | DRAG,
-    *,
-    sample_count: int,
-    sample_rate_hz: int,
-    start_sample: int,
-    intermediate_frequency_hz: float,
-) -> tuple[complex, ...]:
-    amplitude = float(envelope.amplitude.value)
-    phase_rotation = cmath.rect(1.0, float(envelope.phase.value))
-    carrier_samples = tuple(
-        cmath.rect(
-            1.0,
-            math.tau
-            * intermediate_frequency_hz
-            * (start_sample + sample_index + 0.5)
-            / sample_rate_hz,
+def _sampled_output_projection(
+    target: ListModeTarget,
+) -> tuple[tuple[AwgChannelId, ...], tuple[SampledOutputBinding, ...]]:
+    lane_channels = tuple(
+        sorted(
+            {
+                channel_id
+                for binding in target.output_bindings
+                for channel_id in binding.channel_ids
+            }
         )
-        for sample_index in range(sample_count)
     )
-    if isinstance(envelope, Constant):
-        return tuple(
-            phase_rotation * amplitude * carrier for carrier in carrier_samples
+    lane_by_channel = {
+        channel_id: lane for lane, channel_id in enumerate(lane_channels)
+    }
+    return lane_channels, tuple(
+        SampledOutputBinding(
+            signal=binding.signal,
+            i_lane=lane_by_channel[binding.i_channel_id],
+            q_lane=lane_by_channel[binding.q_channel_id],
+            intermediate_frequency_hz=binding.intermediate_frequency_hz,
+            mixer=IqMatrix(
+                ii=binding.mixer.ii,
+                iq=binding.mixer.iq,
+                qi=binding.mixer.qi,
+                qq=binding.mixer.qq,
+            ),
         )
-
-    duration_seconds = float(envelope.duration.value)
-    sigma_seconds = float(envelope.sigma.value)
-    beta_seconds = float(envelope.beta.value)
-    center_seconds = duration_seconds / 2.0
-    return tuple(
-        phase_rotation
-        * carrier_samples[sample_index]
-        * _drag_sample(
-            time_seconds=(sample_index + 0.5) / sample_rate_hz,
-            center_seconds=center_seconds,
-            sigma_seconds=sigma_seconds,
-            amplitude=amplitude,
-            beta_seconds=beta_seconds,
-        )
-        for sample_index in range(sample_count)
+        for binding in target.output_bindings
     )
-
-
-def _drag_sample(
-    *,
-    time_seconds: float,
-    center_seconds: float,
-    sigma_seconds: float,
-    amplitude: float,
-    beta_seconds: float,
-) -> complex:
-    offset_seconds = time_seconds - center_seconds
-    gaussian = amplitude * math.exp(
-        -(offset_seconds * offset_seconds) / (2.0 * sigma_seconds * sigma_seconds)
-    )
-    derivative = -offset_seconds * gaussian / (sigma_seconds * sigma_seconds)
-    return complex(gaussian, beta_seconds * derivative)
 
 
 def _claim_interval[ChannelIdT: AwgChannelId | DemodulatorSlotId](
@@ -700,7 +549,7 @@ def _artifact_payload(
     entries: tuple[ListModeEntry, ...],
 ) -> dict[str, object]:
     return {
-        "schema": "reference_lab.list_mode_artifact.v6",
+        "schema": "reference_lab.list_mode_artifact.v7",
         "target": {
             "id": target.id.value,
             "capability_fingerprint": target.capability_fingerprint,
@@ -708,6 +557,9 @@ def _artifact_payload(
         },
         "compiler_id": compiler_id.value,
         "repetitions": request.repetitions,
+        "sample_rate_hz": target.sample_rate_hz,
+        "waveform_semantics_id": SAMPLED_WAVEFORM_SEMANTICS_ID,
+        "timing_quantization": target.timing_quantization,
         "source_entry_ids": [entry.id.value for entry in request.entries],
         "preparation": preparation_payload(preparation),
         "host_state_requirements": host_state_requirements_payload(
@@ -719,13 +571,26 @@ def _artifact_payload(
                 "entry_id": entry.entry_id.value,
                 "program_id": entry.program_id.value,
                 "sample_count": entry.sample_count,
-                "waveforms": [
+                "event_timings": [
                     {
-                        "channel_id": waveform.channel_id.value,
-                        "instrument_id": waveform.channel_id.instrument_id,
-                        "component_path": list(waveform.channel_id.component_path),
-                        "samples": [float(sample).hex() for sample in waveform.samples],
+                        "event_id": pulse_event_identity_payload(timing.event_id),
+                        "requested_start_seconds": str(timing.requested_start_seconds),
+                        "requested_duration_seconds": str(
+                            timing.requested_duration_seconds
+                        ),
+                        "start_sample": timing.start_sample,
+                        "sample_count": timing.sample_count,
+                        "realized_start_seconds": str(timing.realized_start_seconds),
+                        "realized_duration_seconds": str(
+                            timing.realized_duration_seconds
+                        ),
+                        "start_error_seconds": str(timing.start_error_seconds),
+                        "duration_error_seconds": str(timing.duration_error_seconds),
                     }
+                    for timing in entry.event_timings
+                ],
+                "waveforms": [
+                    awg_waveform_identity_payload(waveform)
                     for waveform in entry.waveforms
                 ],
                 "acquisitions": [

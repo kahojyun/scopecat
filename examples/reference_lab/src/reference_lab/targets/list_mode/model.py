@@ -5,8 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, override
 
+import numpy as np
+from numpy.typing import NDArray
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
     PulseEventId,
@@ -21,6 +23,7 @@ from scopecat_quantum.pulses import (
     DriveSignal,
     ReadoutSignal,
 )
+from scopecat_quantum.waveforms import RealizedEventTiming, TimingQuantizationMode
 
 from reference_lab.physical_policies import (
     AwgChannelId,
@@ -286,6 +289,7 @@ class ListModeTarget:
     host_state_policy: IqOffsetCouplingPolicy
     output_bindings: tuple[IqOutputBinding, ...]
     acquisition_bindings: tuple[AcquisitionBinding, ...]
+    timing_quantization: TimingQuantizationMode = "nearest"
     _capability_fingerprint: str = field(init=False, repr=False)
     _configuration_fingerprint: str = field(init=False, repr=False)
 
@@ -335,7 +339,7 @@ class ListModeTarget:
 
     @property
     def supported_envelopes(self) -> tuple[str, ...]:
-        return ("constant", "drag")
+        return ("constant", "gaussian", "drag")
 
     def output_binding(self, signal: OutputSignal) -> IqOutputBinding | None:
         for binding in self.output_bindings:
@@ -351,9 +355,10 @@ class ListModeTarget:
 
     def _capability_payload(self) -> dict[str, object]:
         return {
-            "schema": "reference_lab.list_mode_target.capabilities.v5",
+            "schema": "reference_lab.list_mode_target.capabilities.v6",
             "target_id": self.id.value,
             "sample_rate_hz": self.sample_rate_hz,
+            "timing_quantization": self.timing_quantization,
             "max_list_entries": self.max_list_entries,
             "max_samples_per_entry": self.max_samples_per_entry,
             "max_repetitions": self.max_repetitions,
@@ -410,12 +415,46 @@ class ListModeTarget:
         }
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, eq=False)
 class AwgChannelWaveform:
     """One immutable, zero-padded physical DAC buffer."""
 
     channel_id: AwgChannelId
-    samples: tuple[float, ...]
+    samples: NDArray[np.float64] = field(repr=False)
+    samples_sha256: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        canonical_samples = np.asarray(self.samples, dtype="<f8", order="C")
+        object.__setattr__(
+            self,
+            "samples_sha256",
+            hashlib.sha256(canonical_samples).hexdigest(),
+        )
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, AwgChannelWaveform):
+            return NotImplemented
+        return (
+            self.channel_id == other.channel_id
+            and self.samples_sha256 == other.samples_sha256
+            and bool(np.array_equal(self.samples, other.samples))
+        )
+
+
+def awg_waveform_identity_payload(
+    waveform: AwgChannelWaveform,
+) -> dict[str, object]:
+    """Return a compact, platform-stable identity for one physical buffer."""
+
+    return {
+        "channel_id": waveform.channel_id.value,
+        "instrument_id": waveform.channel_id.instrument_id,
+        "component_path": list(waveform.channel_id.component_path),
+        "sample_encoding": "float64-le",
+        "sample_count": int(waveform.samples.size),
+        "samples_sha256": waveform.samples_sha256,
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -478,6 +517,7 @@ class ListModeEntry:
     sample_count: int
     waveforms: tuple[AwgChannelWaveform, ...]
     acquisitions: tuple[DigitizerAcquisitionWindow, ...]
+    event_timings: tuple[RealizedEventTiming, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -538,6 +578,8 @@ class ListModeArtifact:
     source_entry_ids: tuple[TargetCompileEntryId, ...]
     repetitions: int
     sample_rate_hz: int
+    waveform_semantics_id: str
+    timing_quantization: TimingQuantizationMode
     preparation: ListModePreparation
     host_state_requirements: ListModeHostStateRequirements
     entries: tuple[ListModeEntry, ...]
@@ -686,6 +728,7 @@ __all__ = [
     "TargetAcquisitionLowering",
     "TimingDomainPreparation",
     "TriggerParticipants",
+    "awg_waveform_identity_payload",
     "host_state_policy_payload",
     "host_state_requirements_payload",
     "preparation_payload",
