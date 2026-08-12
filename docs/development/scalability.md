@@ -194,6 +194,79 @@ batch upload reveals whether target entry batching multiplies that working set.
 Increase waveform length independently of point count; do not combine this
 profile with shot-heavy or raw-acquisition payloads.
 
+### Multiqubit Result Retention Profile
+
+The result profile varies scan points, measured qubits, shots, and the data the
+user actually chooses to keep. Its direct runner mirrors the sample workflows:
+summary rows append to one sequential file, while shot arrays use one
+uncompressed NPZ per point with complex128 IQ and integer bit arrays. This is a
+descriptive baseline for current lab UX and storage growth, not a target storage
+layout for Scopecat.
+
+Run each durable selection independently:
+
+```console
+uv run python scripts/benchmark_scan_execution.py \
+  --profile results \
+  --retention summary \
+  --points 10,100 \
+  --qubits 4 \
+  --shots 1000
+
+uv run python scripts/benchmark_scan_execution.py \
+  --profile results \
+  --retention bit-shots \
+  --points 10,100 \
+  --qubits 4 \
+  --shots 1000
+
+uv run python scripts/benchmark_scan_execution.py \
+  --profile results \
+  --retention iq-and-bits \
+  --points 10,100 \
+  --qubits 4 \
+  --shots 1000
+```
+
+`acquired_result_bytes` is the complex128 IQ volume produced by the matched
+logical acquisitions. `selected_result_bytes` is the minimum semantic payload:
+eight bytes per selected probability, one bit per selected classified shot,
+and sixteen bytes per selected IQ shot. `measurement_dataset_bytes` counts the
+durable measurement header and Arrow chunks, while
+`control_and_provenance_bytes` contains the rest of project growth. Compare the
+last two separately: a small selected payload can legitimately expose a fixed
+run cost, but increasing shots must not enlarge a summary-only dataset.
+
+The direct runner also provides the current no-save lower bound:
+
+```console
+uv run python scripts/benchmark_scan_execution.py \
+  --profile results \
+  --retention transient \
+  --runners adhoc \
+  --points 100 \
+  --qubits 4 \
+  --shots 1000
+```
+
+Scopecat does not yet accept `transient` for its runners. Its compiler currently
+requires every prepared acquisition address to have a real downstream product
+demand, while the only ordinary terminal demand is a durable record or a
+recorded derived value. Supporting a live/no-save run therefore requires an
+explicit non-durable acquisition consumer; silently recording a placeholder or
+skipping the acquisition would not be a valid comparison.
+
+The retention invariants are:
+
+- unselected IQ does not contribute measurement payload bytes;
+- summary dataset growth is independent of shot count;
+- bit-shot storage uses boolean measurement values rather than integer-width
+  values, even though the descriptive ad hoc baseline retains integer arrays;
+- IQ and bit arrays remain shot dimensions within each point rather than new
+  logical scan points;
+- measurement files grow with bounded chunks, not one file per point;
+- transient live consumption, once supported, adds no measurement dataset.
+
 Timing begins after the reusable lab/server and instrument composition exists.
 The phase boundaries are:
 
