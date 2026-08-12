@@ -19,7 +19,10 @@ from scopecat.execution.evidence import (
 from scopecat.execution.measurement_computes import (
     execute_measurement_computes,
 )
-from scopecat.execution.measurement_ordering import CanonicalMeasurementBuffer
+from scopecat.execution.measurement_ordering import (
+    CanonicalMeasurementBuffer,
+    MeasurementChunkBuffer,
+)
 from scopecat.execution.measurement_recording import (
     append_measurement_dataset,
     initialize_measurement_dataset,
@@ -28,6 +31,7 @@ from scopecat.execution.measurement_recording import (
 from scopecat.execution.persistence import (
     validate_run_measurements,
 )
+from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.execution.program import RunDomainJob, RunProgram
 from scopecat.execution.services import (
     ExecutionSession,
@@ -48,6 +52,7 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.projection import (
+    MeasurementProjection,
     ProjectedMeasurementDataset,
     project_measurement_records,
 )
@@ -56,12 +61,14 @@ from scopecat.measurements.values import (
     MeasurementValueCandidate,
     seal_measurement_values,
 )
+from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetHeader
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import (
     RunModelWrite,
     TerminalRunCommit,
 )
+from scopecat.sdk.journal import ExecutionJournal
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS
 from scopecat.sdk.runtime_problems import (
     contextualize_problems,
@@ -108,6 +115,7 @@ def _execute_run(
     committed_measurement_count = 0
     append_content_hashes: list[str] = []
     measurement_buffer = CanonicalMeasurementBuffer()
+    chunk_buffer = MeasurementChunkBuffer()
 
     def commit_coverage(
         points: tuple[RunPoint, ...],
@@ -148,21 +156,16 @@ def _execute_run(
         ready_records = measurement_buffer.add(projected.records)
         if not ready_records:
             return
-        if dataset_header is None:
-            raise ValueError("projected measurements require a dataset header")
-        receipt = append_measurement_dataset(
-            ProjectedMeasurementDataset(
-                projected.projection,
-                projected.run_id,
-                ready_records,
-            ),
-            measurements,
-            journal,
+        appended_count, content_hashes = _append_measurement_chunks(
+            chunk_buffer.add(ready_records),
+            projection=projection,
+            run_id=run_id,
+            writer=measurements,
+            journal=journal,
             header=dataset_header,
         )
-        if receipt is not None:
-            committed_measurement_count += len(ready_records)
-            append_content_hashes.append(receipt.dataset_content_hash)
+        committed_measurement_count += appended_count
+        append_content_hashes.extend(content_hashes)
 
     effect_result = _execute_or_cancel_effects(
         program=program,
@@ -201,6 +204,16 @@ def _execute_run(
     seal_receipt = None
     coverage_failure = effect_result.coverage_failure
     try:
+        appended_count, content_hashes = _append_measurement_chunks(
+            chunk_buffer.finish(),
+            projection=projection,
+            run_id=run_id,
+            writer=measurements,
+            journal=journal,
+            header=dataset_header,
+        )
+        committed_measurement_count += appended_count
+        append_content_hashes.extend(content_hashes)
         if coverage_failure is not None:
             raise coverage_failure
         _validate_measurement_completion(
@@ -311,6 +324,34 @@ def _execute_run(
     if committed_outcome.result != "succeeded":
         _raise_terminal_run_error(run_id, committed_outcome)
     return manifest
+
+
+def _append_measurement_chunks(
+    chunks: tuple[tuple[MeasurementRecord, ...], ...],
+    *,
+    projection: MeasurementProjection,
+    run_id: str,
+    writer: MeasurementDatasetWriter,
+    journal: ExecutionJournal,
+    header: MeasurementDatasetHeader | None,
+) -> tuple[int, tuple[str, ...]]:
+    if not chunks:
+        return 0, ()
+    if header is None:
+        raise ValueError("projected measurements require a dataset header")
+    content_hashes: list[str] = []
+    appended_count = 0
+    for records in chunks:
+        receipt = append_measurement_dataset(
+            ProjectedMeasurementDataset(projection, run_id, records),
+            writer,
+            journal,
+            header=header,
+        )
+        if receipt is not None:
+            appended_count += len(records)
+            content_hashes.append(receipt.dataset_content_hash)
+    return appended_count, tuple(content_hashes)
 
 
 def _raise_terminal_run_error(run_id: str, outcome: RunOutcome) -> None:

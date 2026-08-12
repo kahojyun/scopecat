@@ -312,6 +312,7 @@ class SQLiteRunRepository:
         from scopecat_server.storage.sqlite.measurement_arrow import (
             MeasurementArrowCodecError,
             decode_measurement_append,
+            measurement_dataset_schema_hash,
         )
 
         _validate_identity(run_id, ref)
@@ -320,6 +321,7 @@ class SQLiteRunRepository:
             f"{ref}/header.json",
             MeasurementDatasetHeader,
         )
+        dataset_schema_hash = measurement_dataset_schema_hash(header.dataset_schema)
         prefix = f"{ref}/chunks/"
         try:
             with closing(self._connect()) as connection:
@@ -342,6 +344,7 @@ class SQLiteRunRepository:
                 append = decode_measurement_append(
                     self.read_bytes(run_id, chunk_ref),
                     header.dataset_schema,
+                    dataset_schema_hash=dataset_schema_hash,
                 )
             except MeasurementArrowCodecError as error:
                 raise _invalid_ref(run_id, chunk_ref) from error

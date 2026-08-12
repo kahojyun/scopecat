@@ -79,6 +79,9 @@ class ExecutorService:
         self._instruments = instruments
         self._lease_ttl = lease_ttl or timedelta(seconds=30)
         self._heartbeat_interval_seconds = self._lease_ttl.total_seconds() / 3
+        self._measurement_repositories: dict[
+            str, SQLiteMeasurementDatasetRepository
+        ] = {}
 
     def _control_run(self, run_id: str) -> ControlRun:
         try:
@@ -207,10 +210,7 @@ class ExecutorService:
         run_id: str,
         command: MeasurementAppendCommand,
     ) -> MeasurementDatasetReceipt:
-        repository = SQLiteMeasurementDatasetRepository(
-            self._runs,
-            run_id=run_id,
-        )
+        repository = self._measurement_repository(run_id)
         try:
             prepared = repository.prepare_append(command.append)
         except ExecutionJournalConflict as error:
@@ -239,10 +239,7 @@ class ExecutorService:
         run_id: str,
         command: MeasurementHeaderCommand,
     ) -> MeasurementDatasetReceipt:
-        repository = SQLiteMeasurementDatasetRepository(
-            self._runs,
-            run_id=run_id,
-        )
+        repository = self._measurement_repository(run_id)
         try:
             prepared = repository.prepare_header(command.header)
         except ExecutionJournalConflict as error:
@@ -271,10 +268,7 @@ class ExecutorService:
         run_id: str,
         command: MeasurementSealCommand,
     ) -> MeasurementDatasetReceipt:
-        repository = SQLiteMeasurementDatasetRepository(
-            self._runs,
-            run_id=run_id,
-        )
+        repository = self._measurement_repository(run_id)
         try:
             prepared = repository.prepare_seal(command.seal)
         except ExecutionJournalConflict as error:
@@ -296,7 +290,21 @@ class ExecutorService:
                     "measurements_sealed",
                     command.seal.operation_id,
                 )
+        self._measurement_repositories.pop(run_id, None)
         return receipt
+
+    def _measurement_repository(
+        self,
+        run_id: str,
+    ) -> SQLiteMeasurementDatasetRepository:
+        repository = self._measurement_repositories.get(run_id)
+        if repository is None:
+            repository = SQLiteMeasurementDatasetRepository(
+                self._runs,
+                run_id=run_id,
+            )
+            self._measurement_repositories[run_id] = repository
+        return repository
 
     def commit_terminal(
         self,
@@ -322,6 +330,7 @@ class ExecutorService:
             if not _matches_terminal_intent(manifest, commit):
                 raise BackendConflict("run already has a different terminal outcome")
             self._instruments.release_run(run_id)
+            self._measurement_repositories.pop(run_id, None)
             return manifest
         self._instruments.finalize_run(
             run_id,
@@ -342,6 +351,7 @@ class ExecutorService:
             ):
                 raise
         self._instruments.release_run(run_id)
+        self._measurement_repositories.pop(run_id, None)
         return manifest
 
     def _start_execution(

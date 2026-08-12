@@ -212,6 +212,8 @@ class SQLiteMeasurementDatasetRepository:
     def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
         self._runs = runs
         self._run_id = run_id
+        self._dataset_schema: MeasurementDatasetSchema | None = None
+        self._dataset_schema_hash: str | None = None
 
     def prepare_header(
         self,
@@ -258,6 +260,7 @@ class SQLiteMeasurementDatasetRepository:
                     raise ExecutionJournalConflict(
                         "measurement dataset header already has different content"
                     )
+                self._remember_measurement_schema(durable.dataset_schema)
                 return _header_receipt(durable), False
             if _measurement_rows(connection, self._run_id) or _dataset_sealed(
                 connection, self._run_id
@@ -283,6 +286,7 @@ class SQLiteMeasurementDatasetRepository:
                     prepared.ref,
                 ),
             )
+            self._remember_measurement_schema(durable.dataset_schema)
             return _header_receipt(durable), True
         except ExecutionJournalError:
             raise
@@ -308,11 +312,16 @@ class SQLiteMeasurementDatasetRepository:
             f"{CANONICAL_MEASUREMENT_DATASET_REF}/chunks/"
             f"{durable.start_index:020d}.arrow"
         )
-        selected_schema = dataset_schema or self.measurement_schema()
-        if selected_schema is None:
+        schema_assets = (
+            self._remember_measurement_schema(dataset_schema)
+            if dataset_schema is not None
+            else self._measurement_schema_assets()
+        )
+        if schema_assets is None:
             raise ExecutionJournalConflict(
                 "measurement dataset append requires a registered schema"
             )
+        selected_schema, selected_schema_hash = schema_assets
         return PreparedExecutionRecord(
             durable=durable,
             ref=ref,
@@ -320,6 +329,7 @@ class SQLiteMeasurementDatasetRepository:
                 self._runs,
                 durable,
                 dataset_schema=selected_schema,
+                dataset_schema_hash=selected_schema_hash,
             ),
         )
 
@@ -536,16 +546,20 @@ class SQLiteMeasurementDatasetRepository:
     def measurement_schema(self) -> MeasurementDatasetSchema | None:
         """Read the canonical schema without loading any measurement append."""
 
+        if self._dataset_schema is not None:
+            return self._dataset_schema
         try:
             with closing(self._runs.sqlite.connect()) as connection:
                 header_row = _measurement_header_row(connection, self._run_id)
             if header_row is None:
                 return None
-            return self._runs.read_model(
+            dataset_schema = self._runs.read_model(
                 self._run_id,
                 _text(header_row, "ref"),
                 MeasurementDatasetHeader,
             ).dataset_schema
+            self._remember_measurement_schema(dataset_schema)
+            return dataset_schema
         except Exception as error:
             raise ExecutionJournalError(
                 f"failed to read measurement dataset schema: {error}"
@@ -603,16 +617,10 @@ class SQLiteMeasurementDatasetRepository:
                         (self._run_id, page_end, offset),
                     )
                 )
-                header_row = _measurement_header_row(connection, self._run_id)
-
-            if header_row is None:
+            schema_assets = self._measurement_schema_assets()
+            if schema_assets is None:
                 return (), None, None, selected_size
-
-            dataset_schema = self._runs.read_model(
-                self._run_id,
-                _text(header_row, "ref"),
-                MeasurementDatasetHeader,
-            ).dataset_schema
+            dataset_schema, dataset_schema_hash = schema_assets
             items: list[MeasurementRecord] = []
             for row in rows:
                 start_index = _integer(row, "start_index")
@@ -631,6 +639,7 @@ class SQLiteMeasurementDatasetRepository:
                         offset=chunk_start,
                         length=chunk_end - chunk_start,
                         variable_ids=variable_ids,
+                        dataset_schema_hash=dataset_schema_hash,
                     )
                 )
             next_offset = (
@@ -663,14 +672,10 @@ class SQLiteMeasurementDatasetRepository:
         try:
             with closing(self._runs.sqlite.connect()) as connection:
                 rows = _measurement_rows(connection, self._run_id)
-                header_row = _measurement_header_row(connection, self._run_id)
-            if header_row is None:
+            schema_assets = self._measurement_schema_assets()
+            if schema_assets is None:
                 return ()
-            dataset_schema = self._runs.read_model(
-                self._run_id,
-                _text(header_row, "ref"),
-                MeasurementDatasetHeader,
-            ).dataset_schema
+            dataset_schema, dataset_schema_hash = schema_assets
             records_by_index: dict[int, MeasurementRecord] = {}
             for row in rows:
                 start = _integer(row, "start_index")
@@ -690,6 +695,7 @@ class SQLiteMeasurementDatasetRepository:
                     dataset_schema,
                     local_indices,
                     variable_ids=variable_ids,
+                    dataset_schema_hash=dataset_schema_hash,
                 )
                 records_by_index.update(zip(selected[first:last], records, strict=True))
             return tuple(
@@ -701,6 +707,29 @@ class SQLiteMeasurementDatasetRepository:
             raise ExecutionJournalError(
                 f"failed to read selected measurement records: {error}"
             ) from error
+
+    def _measurement_schema_assets(
+        self,
+    ) -> tuple[MeasurementDatasetSchema, str] | None:
+        dataset_schema = self.measurement_schema()
+        if dataset_schema is None:
+            return None
+        assert self._dataset_schema_hash is not None
+        return dataset_schema, self._dataset_schema_hash
+
+    def _remember_measurement_schema(
+        self,
+        dataset_schema: MeasurementDatasetSchema,
+    ) -> tuple[MeasurementDatasetSchema, str]:
+        if dataset_schema != self._dataset_schema:
+            from scopecat_server.storage.sqlite.measurement_arrow import (
+                measurement_dataset_schema_hash,
+            )
+
+            self._dataset_schema = dataset_schema
+            self._dataset_schema_hash = measurement_dataset_schema_hash(dataset_schema)
+        assert self._dataset_schema_hash is not None
+        return dataset_schema, self._dataset_schema_hash
 
 
 def _header_receipt(
@@ -824,6 +853,7 @@ def _store_measurement_append(
     append: MeasurementDatasetAppend,
     *,
     dataset_schema: MeasurementDatasetSchema,
+    dataset_schema_hash: str,
 ) -> StoredObject:
     from scopecat_server.storage.sqlite.measurement_arrow import (
         MeasurementArrowCodecError,
@@ -831,7 +861,13 @@ def _store_measurement_append(
     )
 
     try:
-        return runs.objects.put(encode_measurement_append(append, dataset_schema))
+        return runs.objects.put(
+            encode_measurement_append(
+                append,
+                dataset_schema,
+                dataset_schema_hash=dataset_schema_hash,
+            )
+        )
     except (MeasurementArrowCodecError, ObjectStoreError) as error:
         raise ExecutionJournalError(
             f"measurement append is not durably serializable: {error}"
