@@ -273,13 +273,18 @@ The present architecture provides a direct end-to-end baseline:
 The next dense-spectroscopy limit is the eager point domain, parameter binding,
 and run point catalog: their preparation time and retained memory still grow
 with total point count. Local effects and live prepared target artifacts are
-bounded by the current physical batch, but repeated byte payload serialization
-still raises process RSS through allocation churn even after prior batches are
-released. The next waveform-path optimization should remove large binary
-content from control-model/base64 serialization rather than increasing launch
-materialization. The other profiles establish whether acquisition volume or
-history reaches its resource budget first. Workflow scalability awaits a
-workflow ownership model.
+bounded by the current physical batch. Inline command payloads retain raw bytes
+in memory and convert to base64 only for an actual JSON wire representation;
+the daemon client uploads those bytes to content-addressed object storage before
+posting a control command containing only the blob descriptor. Hardware
+operation identities and durable evidence cover the descriptor rather than
+serializing the payload body.
+
+The remaining waveform-profile wall time is target compilation, waveform
+encoding, immutable-object transfer, and driver decoding for each bounded
+batch. The other profiles establish whether acquisition volume or history
+reaches its resource budget first. Workflow scalability awaits a workflow
+ownership model.
 
 ## Development Cadence
 

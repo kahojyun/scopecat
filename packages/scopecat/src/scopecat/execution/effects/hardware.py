@@ -82,7 +82,13 @@ class HardwareEffectExecutor:
         batch = RunHardwareBatch(
             operation_id="hardware."
             + stable_content_hash(
-                [action.model_dump(mode="json") for action in actions]
+                [
+                    action.model_dump(
+                        mode="json",
+                        exclude={"payloads": {"__all__": {"body"}}},
+                    )
+                    for action in actions
+                ]
             ),
             actions=actions,
         )

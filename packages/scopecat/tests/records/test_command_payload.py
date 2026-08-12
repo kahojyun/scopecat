@@ -27,6 +27,10 @@ def _inline_payload() -> CommandPayload:
 
 def test_inline_command_payload_round_trips_exact_bytes_over_json() -> None:
     payload = _inline_payload()
+    assert isinstance(payload.body, InlinePayloadBody)
+
+    assert payload.body.content is _CONTENT
+    assert payload.body.model_dump(mode="python")["content_base64"] is _CONTENT
 
     restored = CommandPayload.model_validate_json(payload.model_dump_json())
 
