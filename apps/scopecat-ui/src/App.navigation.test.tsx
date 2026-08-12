@@ -562,7 +562,7 @@ function measurementRecord(
 
 function traceDatasetSchema(): MeasurementDatasetSchema {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v8",
+    format_version: "scopecat.measurement_dataset_schema.v9",
     dataset_id: "raw-measurements",
     record_schema: "scopecat.measurement_record.v4",
     point_domain: {
@@ -622,11 +622,14 @@ function traceAxis(id: string, values: number[]) {
   return {
     id,
     size: values.length,
-    values: values.map((value) => ({
-      kind: "scalar" as const,
-      dtype: "float64" as const,
-      value,
-    })),
+    source: {
+      kind: "values" as const,
+      values: values.map((value) => ({
+        kind: "scalar" as const,
+        dtype: "float64" as const,
+        value,
+      })),
+    },
   };
 }
 

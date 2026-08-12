@@ -1751,7 +1751,7 @@ export interface components {
         };
         /**
          * InlinePayloadBody
-         * @description Base64 wire representation of one complete encoded payload.
+         * @description One complete encoded payload with base64 confined to JSON transport.
          */
         InlinePayloadBody: {
             /** Content Base64 */
@@ -2315,10 +2315,10 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension-Output"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v8
+             * @default scopecat.measurement_dataset_schema.v9
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v8";
+            format_version: "scopecat.measurement_dataset_schema.v9";
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
             point_domain: components["schemas"]["MeasurementPointDomain-Output"];
             /** Primary Coordinates */
@@ -2378,9 +2378,9 @@ export interface components {
             id: string;
             /** Size */
             size: number;
-            /** Values */
-            values: (components["schemas"]["MeasurementScalar-Output"] | null)[];
+            source: components["schemas"]["MeasurementPointDomainAxisSource-Output"];
         };
+        "MeasurementPointDomainAxisSource-Output": components["schemas"]["MeasurementPointDomainValuesSource-Output"] | components["schemas"]["MeasurementPointDomainRangeSource-Output"] | components["schemas"]["MeasurementPointDomainLinearSource-Output"];
         /**
          * MeasurementPointDomainColumn
          * @description One ordered coordinate column in a point-cloud domain.
@@ -2388,6 +2388,45 @@ export interface components {
         MeasurementPointDomainColumn: {
             /** Id */
             id: string;
+        };
+        /**
+         * MeasurementPointDomainLinearSource
+         * @description One compact centered durable product-grid coordinate range.
+         */
+        "MeasurementPointDomainLinearSource-Output": {
+            center: components["schemas"]["MeasurementScalar-Output"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "linear";
+            span: components["schemas"]["MeasurementScalar-Output"];
+        };
+        /**
+         * MeasurementPointDomainRangeSource
+         * @description One compact inclusive durable product-grid coordinate range.
+         */
+        "MeasurementPointDomainRangeSource-Output": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "range";
+            start: components["schemas"]["MeasurementScalar-Output"];
+            stop: components["schemas"]["MeasurementScalar-Output"];
+        };
+        /**
+         * MeasurementPointDomainValuesSource
+         * @description One explicit durable product-grid coordinate source.
+         */
+        "MeasurementPointDomainValuesSource-Output": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "values";
+            /** Values */
+            values: (components["schemas"]["MeasurementScalar-Output"] | null)[];
         };
         /**
          * MeasurementPreview

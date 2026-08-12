@@ -12,6 +12,7 @@ type ProductGridSchemaAxis = Extract<
   { kind: "product_grid" }
 >["axes"][number];
 type VariableRole = SchemaVariable["role"];
+type MeasurementScalar = Extract<MeasurementValue, { kind: "scalar" }>;
 type MeasurementScalarValue = Extract<MeasurementValue, { kind: "scalar" }>["value"];
 
 interface VariableDescriptor {
@@ -60,7 +61,7 @@ export interface MeasurementSliceAxis {
   label: string;
   unit?: string;
   size: number;
-  values: ProductGridSchemaAxis["values"];
+  source: ProductGridSchemaAxis["source"];
 }
 
 export interface MeasurementHeatmapCapability {
@@ -277,8 +278,73 @@ function sliceAxisDescriptor({ axis, variable }: ProductGridAxis): MeasurementSl
     label: variable?.label ?? dimensionLabel(axis.id),
     unit: variable?.unit,
     size: axis.size,
-    values: axis.values,
+    source: axis.source,
   };
+}
+
+/** Read one compact product-grid coordinate without expanding the whole axis. */
+export function measurementSliceAxisValue(
+  axis: MeasurementSliceAxis,
+  index: number,
+): MeasurementScalar | null | undefined {
+  const source = axis.source;
+  if (source.kind === "values") return source.values[index];
+  if (source.kind === "range") {
+    return generatedScalar(
+      source.start,
+      interpolatedValue(
+        source.start.value as number,
+        source.stop.value as number,
+        axis.size,
+        index,
+      ),
+    );
+  }
+  const center = source.center.value as number;
+  const span = source.span.value as number;
+  const lastIndex = axis.size - 1;
+  const value =
+    index === 0
+      ? center - span / 2
+      : index === lastIndex
+        ? center + span / 2
+        : center + (span * (2 * index - lastIndex)) / (2 * lastIndex);
+  return generatedScalar(source.center, value);
+}
+
+export function measurementSliceAxisValueIsDuplicated(
+  axis: MeasurementSliceAxis,
+  index: number,
+): boolean {
+  const scalar = measurementSliceAxisValue(axis, index);
+  if (scalar === null || scalar === undefined) return false;
+  const sameValue = (candidate: MeasurementScalar | null | undefined) =>
+    candidate !== null &&
+    candidate !== undefined &&
+    JSON.stringify([candidate.dtype, candidate.unit, candidate.value]) ===
+      JSON.stringify([scalar.dtype, scalar.unit, scalar.value]);
+  if (axis.source.kind === "values") {
+    return axis.source.values.some(
+      (candidate, candidateIndex) => candidateIndex !== index && sameValue(candidate),
+    );
+  }
+  return (
+    (index > 0 && sameValue(measurementSliceAxisValue(axis, index - 1))) ||
+    (index + 1 < axis.size && sameValue(measurementSliceAxisValue(axis, index + 1)))
+  );
+}
+
+function generatedScalar(template: MeasurementScalar, value: number): MeasurementScalar {
+  return { ...template, value };
+}
+
+function interpolatedValue(start: number, stop: number, size: number, index: number): number {
+  if (index === 0) return start;
+  if (index === size - 1) return stop;
+  const difference = stop - start;
+  if (Number.isFinite(difference)) return start + index * (difference / (size - 1));
+  const weight = index / (size - 1);
+  return start * (1 - weight) + stop * weight;
 }
 
 export function measurementTable(
@@ -420,7 +486,8 @@ function selectedFixedCoordinates(
   for (const { axis, variable } of axes) {
     const index = fixedAxisIndices[axis.id];
     if (index === undefined || index < 0 || index >= axis.size) return undefined;
-    const scalar = axis.values[index];
+    const descriptor = sliceAxisDescriptor({ axis, variable });
+    const scalar = measurementSliceAxisValue(descriptor, index);
     selected.push(
       scalar
         ? {
@@ -429,13 +496,7 @@ function selectedFixedCoordinates(
             unit: scalar.unit ?? variable?.unit,
             value: scalar.value,
             index,
-            disambiguateIndex: axis.values.some(
-              (candidate, candidateIndex) =>
-                candidateIndex !== index &&
-                candidate !== null &&
-                JSON.stringify([candidate.dtype, candidate.unit, candidate.value]) ===
-                  JSON.stringify([scalar.dtype, scalar.unit, scalar.value]),
-            ),
+            disambiguateIndex: measurementSliceAxisValueIsDuplicated(descriptor, index),
           }
         : {
             id: axis.id,

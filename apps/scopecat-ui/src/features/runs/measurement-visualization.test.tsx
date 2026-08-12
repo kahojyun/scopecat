@@ -10,10 +10,12 @@ import type {
 } from "../../api-contract";
 import { MeasurementDataPreview } from "./MeasurementDataPreview";
 import {
+  measurementSliceAxisValue,
   measurementSlicePlan,
   measurementTable,
   measurementTraceQueryPlans,
   planMeasurementCharts,
+  type MeasurementSliceAxis,
 } from "./measurement-visualization";
 import { tracePreview, traceSeries } from "./measurement-trace.test-support";
 
@@ -263,7 +265,10 @@ describe("measurement visualization", () => {
         {
           id: "bias",
           size: 2,
-          values: [scalar(0, "V"), scalar(1, "V")],
+          source: {
+            kind: "values",
+            values: [scalar(0, "V"), scalar(1, "V")],
+          },
         },
       ],
       variableIds: ["row", "column", "temperature"],
@@ -292,6 +297,40 @@ describe("measurement visualization", () => {
     expect(screen.getByText("6 of 6 slice points durable")).toBeVisible();
     fireEvent.change(selector, { target: { value: "1" } });
     expect(onFixedAxisIndexChange).toHaveBeenCalledWith("bias", 1);
+  });
+
+  it("reads compact range and linear axes without materializing them", () => {
+    const rangeAxis: MeasurementSliceAxis = {
+      id: "bias",
+      label: "Bias",
+      size: 3,
+      source: {
+        kind: "range",
+        start: scalar(0, "V"),
+        stop: scalar(1, "V"),
+      },
+    };
+    const linearAxis: MeasurementSliceAxis = {
+      id: "frequency",
+      label: "Frequency",
+      size: 3,
+      source: {
+        kind: "linear",
+        center: scalar(10, "GHz"),
+        span: scalar(4, "GHz"),
+      },
+    };
+
+    expect([0, 1, 2].map((index) => measurementSliceAxisValue(rangeAxis, index))).toEqual([
+      scalar(0, "V"),
+      scalar(0.5, "V"),
+      scalar(1, "V"),
+    ]);
+    expect([0, 1, 2].map((index) => measurementSliceAxisValue(linearAxis, index))).toEqual([
+      scalar(8, "GHz"),
+      scalar(10, "GHz"),
+      scalar(12, "GHz"),
+    ]);
   });
 
   it("plans a one-dimensional product-grid slice without requiring a heatmap", () => {
@@ -361,11 +400,14 @@ describe("measurement visualization", () => {
     const plan = measurementSlicePlan(schema);
 
     expect(plan).toMatchObject({
-      varyingAxes: [{ id: "opaque", values: [null, null] }],
+      varyingAxes: [{ id: "opaque", source: { kind: "values", values: [null, null] } }],
       fixedAxes: [
         {
           id: "device",
-          values: [stringScalar("q1"), stringScalar("q2")],
+          source: {
+            kind: "values",
+            values: [stringScalar("q1"), stringScalar("q2")],
+          },
         },
       ],
       variableIds: [],
@@ -405,7 +447,7 @@ describe("measurement visualization", () => {
 
     expect(measurementSlicePlan(schema)).toMatchObject({
       varyingAxes: [{ id: "row" }, { id: "column" }],
-      fixedAxes: [{ id: "opaque", values: [null, null] }],
+      fixedAxes: [{ id: "opaque", source: { kind: "values", values: [null, null] } }],
       variableIds: ["row", "column", "temperature"],
       heatmap: {
         xAxis: { id: "row" },
@@ -738,7 +780,7 @@ describe("measurement visualization", () => {
 
 function baseSchema(): MeasurementDatasetSchema {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v8",
+    format_version: "scopecat.measurement_dataset_schema.v9",
     dataset_id: "raw-measurements",
     record_schema: "scopecat.measurement_record.v4",
     point_domain: { kind: "point_cloud", columns: [] },
@@ -1135,7 +1177,7 @@ function scalar(value: number, unit: string): Extract<MeasurementValue, { kind: 
 }
 
 function gridAxis(id: string, values: Array<Extract<MeasurementValue, { kind: "scalar" }> | null>) {
-  return { id, size: values.length, values };
+  return { id, size: values.length, source: { kind: "values" as const, values } };
 }
 
 function slicePreview(schema: MeasurementDatasetSchema, items: MeasurementRecord[]) {

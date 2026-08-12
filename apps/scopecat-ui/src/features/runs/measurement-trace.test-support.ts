@@ -6,7 +6,7 @@ import type {
 
 export function traceSchema(): MeasurementDatasetSchema {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v8",
+    format_version: "scopecat.measurement_dataset_schema.v9",
     dataset_id: "raw-measurements",
     record_schema: "scopecat.measurement_record.v4",
     dimensions: [
@@ -15,7 +15,13 @@ export function traceSchema(): MeasurementDatasetSchema {
     ],
     point_domain: {
       kind: "product_grid",
-      axes: [{ id: "bias", size: 2, values: [scalar(0, "V"), scalar(1, "V")] }],
+      axes: [
+        {
+          id: "bias",
+          size: 2,
+          source: { kind: "values", values: [scalar(0, "V"), scalar(1, "V")] },
+        },
+      ],
     },
     variables: [
       {
