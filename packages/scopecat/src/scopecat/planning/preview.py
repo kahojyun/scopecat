@@ -177,7 +177,7 @@ def _parameter_contract_id(contract: ParameterContract) -> str:
 
 def _preview_computes(program: RunProgram) -> tuple[ExperimentPreviewCompute, ...]:
     host_operations: dict[str, ComputeOperation] = {}
-    for operation in program.compute_operations:
+    for operation in program.preview_compute_operations:
         host_operations.setdefault(operation.logical_compute_node_id, operation)
 
     value_record_demands = {

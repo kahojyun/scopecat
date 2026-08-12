@@ -119,7 +119,7 @@ class RunProgram:
         repr=False,
         compare=False,
     )
-    compute_operations: tuple[ComputeOperation, ...] = field(
+    preview_compute_operations: tuple[ComputeOperation, ...] = field(
         default=(),
         repr=False,
         compare=False,

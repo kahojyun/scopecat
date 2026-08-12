@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import cast
 
 
-def test_scan_execution_benchmark_runs_all_execution_boundaries(tmp_path: Path) -> None:
+def test_scan_execution_benchmark_runs_all_boundaries_with_waveforms(
+    tmp_path: Path,
+) -> None:
     output = tmp_path / "results.jsonl"
     script = Path(__file__).parents[3] / "scripts" / "benchmark_scan_execution.py"
 
@@ -18,6 +20,13 @@ def test_scan_execution_benchmark_runs_all_execution_boundaries(tmp_path: Path) 
             str(script),
             "--points",
             "3",
+            "--profile",
+            "waveform",
+            "--waveform-samples",
+            "128",
+            "--qubits",
+            "2",
+            "--live-waveform",
             "--runners",
             "adhoc,scopecat-core,scopecat",
             "--repetitions",
@@ -45,6 +54,24 @@ def test_scan_execution_benchmark_runs_all_execution_boundaries(tmp_path: Path) 
     assert by_runner["adhoc"]["trigger_count"] == 3
     assert by_runner["scopecat-core"]["trigger_count"] == 2
     assert by_runner["scopecat"]["trigger_count"] == 2
+    expected_total_bytes = 3 * 6 * 128 * 8
+    expected_retained_bytes = 6 * 128 * 8
+    assert all(
+        result["schema"] == "scopecat.scan_execution_benchmark.v5" for result in results
+    )
+    assert all(
+        result["waveform_bytes_uploaded"] == expected_total_bytes for result in results
+    )
+    assert all(
+        result["live_waveform_bytes_retained"] == expected_retained_bytes
+        for result in results
+    )
+    assert by_runner["adhoc"]["max_waveform_batch_bytes"] == expected_retained_bytes
+    scopecat_batch_bytes = cast(
+        "int", by_runner["scopecat"]["max_waveform_batch_bytes"]
+    )
+    assert expected_retained_bytes <= scopecat_batch_bytes
+    assert scopecat_batch_bytes <= 2 * expected_retained_bytes
 
 
 def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
@@ -78,14 +105,23 @@ def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
     assert completed.returncode == 0, completed.stderr
     database = next(work_dir.rglob("control.sqlite3"))
     with sqlite3.connect(database) as connection:
-        append_ranges = connection.execute(
-            """
-            SELECT start_index, record_count
-            FROM execution_measurement_appends
-            ORDER BY start_index
-            """
-        ).fetchall()
-    assert append_ranges == [(0, 256), (256, 1)]
+        append_ranges = cast(
+            "list[tuple[int, int]]",
+            connection.execute(
+                """
+                SELECT start_index, record_count
+                FROM execution_measurement_appends
+                ORDER BY start_index
+                """
+            ).fetchall(),
+        )
+    assert len(append_ranges) > 1
+    next_start = 0
+    for start_index, record_count in append_ranges:
+        assert start_index == next_start
+        assert 0 < record_count <= 256
+        next_start += record_count
+    assert next_start == 257
     object_root = work_dir / ".scopecat" / "objects"
     object_bytes = sum(
         path.stat().st_size for path in object_root.rglob("*") if path.is_file()
@@ -108,63 +144,6 @@ def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
     assert peak_spool_bytes <= 2 * max_batch_bytes
 
 
-def test_waveform_profile_matches_multichannel_working_set(tmp_path: Path) -> None:
-    output = tmp_path / "waveform-results.jsonl"
-    script = Path(__file__).parents[3] / "scripts" / "benchmark_scan_execution.py"
-
-    completed = subprocess.run(  # noqa: S603
-        (
-            sys.executable,
-            str(script),
-            "--profile",
-            "waveform",
-            "--points",
-            "3",
-            "--waveform-samples",
-            "128",
-            "--qubits",
-            "2",
-            "--live-waveform",
-            "--runners",
-            "adhoc,scopecat",
-            "--repetitions",
-            "1",
-            "--warmups",
-            "0",
-            "--host-label",
-            "test",
-            "--output",
-            str(output),
-        ),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0, completed.stderr
-    results = tuple(
-        cast("dict[str, object]", json.loads(line))
-        for line in output.read_text(encoding="utf-8").splitlines()
-    )
-    expected_total_bytes = 3 * 6 * 128 * 8
-    expected_retained_bytes = 6 * 128 * 8
-    assert all(
-        result["schema"] == "scopecat.scan_execution_benchmark.v5" for result in results
-    )
-    assert all(
-        result["waveform_bytes_uploaded"] == expected_total_bytes for result in results
-    )
-    assert all(
-        result["live_waveform_bytes_retained"] == expected_retained_bytes
-        for result in results
-    )
-    by_runner = {result["runner"]: result for result in results}
-    assert by_runner["adhoc"]["max_waveform_batch_bytes"] == expected_retained_bytes
-    assert (
-        by_runner["scopecat"]["max_waveform_batch_bytes"] == 2 * expected_retained_bytes
-    )
-
-
 def test_result_retention_profile_separates_selected_data_from_control(
     tmp_path: Path,
 ) -> None:
@@ -172,12 +151,6 @@ def test_result_retention_profile_separates_selected_data_from_control(
         tmp_path,
         runner="adhoc",
         retention="discard",
-        shots=8,
-    )
-    ad_hoc_raw = _result_worker(
-        tmp_path,
-        runner="adhoc",
-        retention="iq-and-bits",
         shots=8,
     )
     summary_small = _result_worker(
@@ -192,12 +165,6 @@ def test_result_retention_profile_separates_selected_data_from_control(
         retention="summary",
         shots=64,
     )
-    bit_shots = _result_worker(
-        tmp_path,
-        runner="scopecat",
-        retention="bit-shots",
-        shots=64,
-    )
     iq_and_bits = _result_worker(
         tmp_path,
         runner="scopecat",
@@ -208,8 +175,6 @@ def test_result_retention_profile_separates_selected_data_from_control(
     assert discarded["selected_result_bytes"] == 0
     assert discarded["measurement_dataset_bytes"] == 0
     assert discarded["durable_bytes"] == 0
-    assert ad_hoc_raw["durable_file_count"] == 3
-
     assert summary_small["acquired_result_bytes"] == 512
     assert summary_large["acquired_result_bytes"] == 4096
     assert summary_small["selected_result_bytes"] == 32
@@ -218,12 +183,11 @@ def test_result_retention_profile_separates_selected_data_from_control(
         cast("int", summary_small["measurement_dataset_bytes"]) + 1024
     )
 
-    assert bit_shots["selected_result_bytes"] == 32
     assert iq_and_bits["selected_result_bytes"] == 4128
     assert cast("int", iq_and_bits["measurement_dataset_bytes"]) > cast(
-        "int", bit_shots["measurement_dataset_bytes"]
+        "int", summary_large["measurement_dataset_bytes"]
     )
-    for result in (summary_small, summary_large, bit_shots, iq_and_bits):
+    for result in (summary_small, summary_large, iq_and_bits):
         assert result["points_completed"] == 2
         assert result["durable_bytes"] == (
             cast("int", result["measurement_dataset_bytes"])

@@ -257,13 +257,16 @@ def _compile_system_program(
         if local_execution_required
         else None
     )
-    preview_local_effects = (
-        materialize_local_execution(
-            bound_points,
-            target=local_target,
-            point_ordinals=tuple(execution_ordinals[:1]),
+    initial_local_probe = (
+        _InitialLocalProbe(
+            ordinal=execution_ordinals[0],
+            effects=materialize_local_execution(
+                bound_points,
+                target=local_target,
+                point_ordinals=(execution_ordinals[0],),
+            ),
         )
-        if local_target is not None
+        if local_target is not None and execution_ordinals
         else None
     )
     local_success_state = (
@@ -285,6 +288,7 @@ def _compile_system_program(
         point_ordinals=execution_ordinals,
         domain_calls=domain_calls,
         local_target=local_target,
+        initial_local_probe=initial_local_probe,
         catalog=catalog,
     )
     domain_instrument_ids = (
@@ -325,15 +329,15 @@ def _compile_system_program(
             host=host,
             effect_blocks=(
                 ()
-                if preview_local_effects is None
+                if initial_local_probe is None
                 else (
                     tuple(
                         effect.operation
-                        for effect in preview_local_effects.compute_operations
+                        for effect in initial_local_probe.effects.compute_operations
                     ),
                     *(
                         tuple(effect.operation for effect in effects)
-                        for effects in preview_local_effects.effect_operations
+                        for effects in initial_local_probe.effects.effect_operations
                     ),
                     local_success_state,
                 )
@@ -348,12 +352,12 @@ def _compile_system_program(
         points=point_catalog,
         measurements=measurements,
         measurement_computes=bound.bindings.measurement_computes,
-        compute_operations=(
+        preview_compute_operations=(
             ()
-            if preview_local_effects is None
+            if initial_local_probe is None
             else tuple(
                 cast("ComputeOperation", effect.operation)
-                for effect in preview_local_effects.compute_operations
+                for effect in initial_local_probe.effects.compute_operations
             )
         ),
         resource_requirements=resource_requirements,
@@ -513,6 +517,12 @@ class _ScheduledStateGuarantee:
 
 @dataclass(frozen=True, slots=True)
 class _MaterializedLocalCoverage:
+    effects: MaterializedLocalEffects
+
+
+@dataclass(frozen=True, slots=True)
+class _InitialLocalProbe:
+    ordinal: int
     effects: MaterializedLocalEffects
 
 
@@ -829,6 +839,7 @@ def _compile_coverage(
     point_ordinals: Sequence[int],
     domain_calls: dict[str, DomainCallView],
     local_target: LocalTargetPlan | None,
+    initial_local_probe: _InitialLocalProbe | None,
     catalog: InstrumentContractCatalog,
 ) -> RunCoverage:
     if not point_ordinals:
@@ -844,6 +855,7 @@ def _compile_coverage(
                 effects=bound.program.program.effects,
                 domain_calls=domain_calls,
                 local_target=local_target,
+                initial_local_probe=initial_local_probe,
             ),
             validator=_CoverageValidator(
                 domain_instrument_ids=(
@@ -872,6 +884,7 @@ def _coverage_operations(
     effects: tuple[LogicalEffect, ...],
     domain_calls: dict[str, DomainCallView],
     local_target: LocalTargetPlan | None,
+    initial_local_probe: _InitialLocalProbe | None,
 ) -> Iterator[RunCoveredOperation | _MaterializedLocalCoverage]:
     next_batch_ordinals = {
         effect.id: 0 for effect in effects if isinstance(effect, LogicalDomainExecution)
@@ -890,14 +903,11 @@ def _coverage_operations(
     while offset < len(point_ordinals):
         coverage_batch = tuple(point_ordinals[offset : offset + next_batch_size])
         next_domain_capacities: list[int] = []
-        local_effects = (
-            None
-            if local_target is None
-            else materialize_local_execution(
-                bound_points,
-                target=local_target,
-                point_ordinals=coverage_batch,
-            )
+        local_effects = _materialize_local_coverage(
+            bound_points,
+            target=local_target,
+            point_ordinals=coverage_batch,
+            initial_probe=initial_local_probe if offset == 0 else None,
         )
         if local_effects is not None:
             yield _MaterializedLocalCoverage(local_effects)
@@ -965,6 +975,47 @@ def _coverage_operations(
             next_batch_size = min(remaining, *next_domain_capacities)
         else:
             next_batch_size = next(local_batch_sizes)
+
+
+def _materialize_local_coverage(
+    bound_points: MaterializedBoundPoints,
+    *,
+    target: LocalTargetPlan | None,
+    point_ordinals: tuple[int, ...],
+    initial_probe: _InitialLocalProbe | None,
+) -> MaterializedLocalEffects | None:
+    if target is None:
+        return None
+    if initial_probe is None:
+        return materialize_local_execution(
+            bound_points,
+            target=target,
+            point_ordinals=point_ordinals,
+        )
+    if point_ordinals[0] != initial_probe.ordinal:
+        raise AssertionError("initial local probe must cover the first execution point")
+    remaining_ordinals = point_ordinals[1:]
+    if not remaining_ordinals:
+        return initial_probe.effects
+    remaining = materialize_local_execution(
+        bound_points,
+        target=target,
+        point_ordinals=remaining_ordinals,
+    )
+    return MaterializedLocalEffects(
+        compute_operations=(
+            *initial_probe.effects.compute_operations,
+            *remaining.compute_operations,
+        ),
+        effect_operations=tuple(
+            (*initial, *rest)
+            for initial, rest in zip(
+                initial_probe.effects.effect_operations,
+                remaining.effect_operations,
+                strict=True,
+            )
+        ),
+    )
 
 
 def _validate_domain_batch_size(batch_size: int, point_count: int) -> None:

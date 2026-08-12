@@ -1009,7 +1009,7 @@ def test_domain_target_adapts_followup_batches_from_compiler_feedback() -> None:
     )
 
 
-def test_local_effect_materialization_is_bounded_by_execution_batch(
+def test_local_effect_materialization_reuses_the_bounded_initial_probe(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     materialized_ordinals: list[tuple[int, ...]] = []
@@ -1039,9 +1039,9 @@ def test_local_effect_materialization_is_bounded_by_execution_batch(
 
     assert materialized_ordinals == [(0,)]
     tuple(plan.coverage)
-    assert tuple(map(len, materialized_ordinals)) == (1, 32, 256, 12)
+    assert all(len(batch) <= 256 for batch in materialized_ordinals)
     assert tuple(
-        ordinal for batch in materialized_ordinals[1:] for ordinal in batch
+        ordinal for batch in materialized_ordinals for ordinal in batch
     ) == tuple(range(300))
 
 

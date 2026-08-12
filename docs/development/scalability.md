@@ -363,11 +363,12 @@ The present architecture provides a direct end-to-end baseline:
   runtime points, and static value records on demand; forward traversal is a
   range, while traversal modes that reorder points still retain an explicit
   ordinal sequence;
-- local target preparation retains static route manifests, preview materializes
-  only the first physical probe, the user-visible point preview samples at most
-  64 edge points, and execution materializes local compute and effects only for
-  the current bounded coverage batch; local-only coverage starts with 32 points
-  and then uses batches of at most 256 points;
+- local target preparation retains static route manifests and materializes one
+  initial physical probe for fast validation and preview. Execution reuses that
+  probe in its first bounded coverage batch instead of lowering the first point
+  again. The user-visible point preview samples at most 64 edge points;
+  local-only coverage starts with 32 points and then uses batches of at most 256
+  points;
 - domain compilation uses a backend-declared point capacity but prepares only
   the current batch during execution; preview compiles the initial one-point
   probe as a fast semantic preflight, and each prepared domain job reports the
