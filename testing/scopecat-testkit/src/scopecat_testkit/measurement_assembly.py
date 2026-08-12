@@ -48,7 +48,7 @@ class MeasurementAssemblyScenario:
 
     @property
     def points(self) -> tuple[RunPoint, ...]:
-        return project_run_point_catalog(self.bound_points).points
+        return tuple(project_run_point_catalog(self.bound_points).points)
 
 
 def measurement_assembly_scenario(

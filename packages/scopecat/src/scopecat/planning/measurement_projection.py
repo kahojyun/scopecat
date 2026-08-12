@@ -10,7 +10,6 @@ from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import evaluate_scalar
 from scopecat.compiler.value_resolution import BoundValueResolver
 from scopecat.kernel.graph_identity import ValueId
-from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.points import RunPoint, RunPointCatalog, RunPointContract
 from scopecat.measurements.records import ValueRecordCandidate
@@ -32,7 +31,6 @@ def project_measurement_catalog(
     bound = bound_points.bound_plan
     point_domain = bound_points.point_domain
     coordinate_columns = bound.point_domain.coordinate_columns
-    axis_values = _product_grid_axis_values(bound_points)
     return MeasurementValueCatalog(
         RunPointContract(
             experiment_id=bound.program.experiment_id,
@@ -40,8 +38,7 @@ def project_measurement_catalog(
             point_count=len(point_domain.points),
             coordinate_columns=coordinate_columns,
             domain_layout=point_domain.layout,
-            domain_axis_sizes=point_domain.axis_sizes,
-            domain_axis_values=axis_values,
+            domain_axes=point_domain.axes,
         ),
         bound.bindings.product_uses,
         bound.bindings.product_defs,
@@ -58,7 +55,6 @@ def project_run_point_catalog(
     point_domain = bound_points.point_domain
     coordinate_columns = bound.point_domain.coordinate_columns
     coordinate_ids = tuple(column.id for column in coordinate_columns)
-    axis_values = _product_grid_axis_values(bound_points)
     return RunPointCatalog(
         contract=RunPointContract(
             experiment_id=bound.program.experiment_id,
@@ -66,8 +62,7 @@ def project_run_point_catalog(
             point_count=len(point_domain.points),
             coordinate_columns=coordinate_columns,
             domain_layout=point_domain.layout,
-            domain_axis_sizes=point_domain.axis_sizes,
-            domain_axis_values=axis_values,
+            domain_axes=point_domain.axes,
         ),
         points=_RunPointSequence(
             point_domain.points,
@@ -121,13 +116,6 @@ class _RunPointSequence(Sequence[RunPoint]):
     @override
     def __iter__(self) -> Iterator[RunPoint]:
         return (self[index] for index in range(len(self)))
-
-
-def _product_grid_axis_values(
-    bound_points: MaterializedBoundPoints,
-) -> tuple[tuple[str, tuple[CellValue, ...]], ...]:
-    point_domain = bound_points.point_domain
-    return point_domain.axis_values if point_domain.layout == "product_grid" else ()
 
 
 def project_static_value_record_candidates(

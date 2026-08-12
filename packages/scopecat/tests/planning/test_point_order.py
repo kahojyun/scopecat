@@ -6,7 +6,9 @@ from scopecat.kernel.point_identity import (
     PointDomainId,
     PointDomainLayout,
 )
+from scopecat.kernel.value_types import Int, Scalar
 from scopecat.planning.point_order import point_execution_ordinals
+from scopecat.program.point_domain import point_axis_values
 
 
 def _domain(
@@ -22,8 +24,11 @@ def _domain(
             MaterializedPoint(LogicalPointId(domain_id, ordinal), {})
             for ordinal in range(point_count)
         ),
+        axes=tuple(
+            point_axis_values(axis_id, Scalar(Int()), tuple(range(size)))
+            for axis_id, size in axis_sizes
+        ),
         layout=layout,
-        axis_sizes=axis_sizes,
     )
 
 

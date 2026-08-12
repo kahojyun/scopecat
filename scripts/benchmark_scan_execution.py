@@ -909,21 +909,28 @@ def _multichannel_waveform_call(
 
 
 def _scopecat_invocation(scenario: ScanScenario) -> sc.ExperimentInvocation:
-    scan_values = tuple(
-        sc.Quantity(
-            float(value),
-            "ns" if scenario.profile == "drag_beta_integrated_iq" else "rad",
-        )
-        for value in np.linspace(
-            -0.5 if scenario.profile == "drag_beta_integrated_iq" else 0.0,
-            1.5 if scenario.profile == "drag_beta_integrated_iq" else math.tau,
-            scenario.point_count,
-        )
+    unit = "ns" if scenario.profile == "drag_beta_integrated_iq" else "rad"
+    start = sc.Quantity(
+        -0.5 if scenario.profile == "drag_beta_integrated_iq" else 0.0,
+        unit,
+    )
+    stop = sc.Quantity(
+        1.5 if scenario.profile == "drag_beta_integrated_iq" else math.tau,
+        unit,
     )
 
     @sc.experiment(id="benchmark.quantum_scan")
     def benchmark_scan(experiment: sc.ExperimentContext) -> None:
-        scan_value = experiment.scan("scan_value", scan_values)
+        scan_value = (
+            experiment.scan("scan_value", (start,))
+            if scenario.point_count == 1
+            else experiment.scan(
+                "scan_value",
+                start=start,
+                stop=stop,
+                points=scenario.point_count,
+            )
+        )
         call = (
             drag_beta_program(
                 qubit="q0",

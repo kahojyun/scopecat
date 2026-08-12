@@ -89,7 +89,7 @@ def materialize_local_execution(
         *sorted(instrument_ids - set(target.instrument_order)),
     )
     return LocalEffectInspection(
-        points=project_run_point_catalog(bound_points).points,
+        points=tuple(project_run_point_catalog(bound_points).points),
         effects=ordered_effects,
         resource_order=resource_order,
         resource_requirements=claims,

@@ -49,6 +49,8 @@ from scopecat.program.expressions import (
 )
 from scopecat.program.point_domain import (
     PointAxis,
+    PointAxisRange,
+    PointAxisValues,
     iter_point_axis_linear,
     point_axis_linear,
     point_axis_linear_value,
@@ -347,6 +349,33 @@ def test_range_axis_preserves_integral_coordinates() -> None:
     ]
 
 
+def test_prepared_range_axis_retains_compact_random_access_source() -> None:
+    point_count = 1_000_000
+    prepared = prepare_point_domain(
+        _verify(
+            PointDomain(
+                axes=(
+                    point_axis_range(
+                        "index",
+                        _INT,
+                        0,
+                        point_count - 1,
+                        point_count,
+                    ),
+                )
+            )
+        ),
+        ParameterRelationData(),
+    )
+
+    source = prepared.axes[0].source
+    assert isinstance(source, PointAxisRange)
+    assert source == PointAxisRange(0, point_count - 1, point_count)
+    assert len(prepared.points) == point_count
+    assert prepared.points[500_000].row == {"index": 500_000}
+    assert prepared.points[-1].row == {"index": point_count - 1}
+
+
 def test_range_axis_interpolates_extreme_finite_endpoints_without_overflow() -> None:
     assert point_axis_range_values(-1e308, 1e308, 3) == (
         -1e308,
@@ -405,6 +434,26 @@ def test_linear_axis_preserves_sub_picounit_steps_and_centered_endpoints() -> No
     assert values[0] == center.value - span.value / 2
     assert values[2] == center.value
     assert values[-1] == center.value + span.value / 2
+
+
+def test_prepared_linear_axis_checks_extreme_values_without_scanning_interior() -> None:
+    bounded = Scalar(QuantityType(unit="GHz", minimum=4.0, maximum=6.0))
+    verified = _verify(
+        PointDomain(
+            axes=(
+                point_axis_linear(
+                    "frequency",
+                    bounded,
+                    as_scalar_expr(Quantity(5.0, "GHz"), value_type=bounded),
+                    Quantity(4.0, "GHz"),
+                    1_000_000,
+                ),
+            )
+        )
+    )
+
+    with pytest.raises(ValueValidationError):
+        prepare_point_domain(verified, ParameterRelationData())
 
 
 def test_dynamic_center_evaluation_errors_report_the_center_path() -> None:
@@ -552,7 +601,9 @@ def test_entity_columns_are_derived_from_exact_point_schema() -> None:
 
     assert verified.entity_columns == ("qubit",)
     assert [column.id for column in verified.coordinate_columns] == ["qubit"]
-    assert materialized.axis_values == (("qubit", (EntityRef(id="q0", kind="qubit"),)),)
+    assert materialized.axes[0].source == PointAxisValues(
+        (EntityRef(id="q0", kind="qubit"),)
+    )
     assert materialized.points[0].row == {"qubit": EntityRef(id="q0", kind="qubit")}
 
 

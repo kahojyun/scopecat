@@ -16,9 +16,15 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
+from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.points import RunPoint, RunPointContract
 from scopecat.measurements.products import ProductDef
 from scopecat.measurements.records import measurement_axis_scalar
+from scopecat.program.point_domain import (
+    PointAxis,
+    PointAxisRange,
+    PointAxisValues,
+)
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementValue,
@@ -70,21 +76,15 @@ class MeasurementValueCatalog:
             stable_content_hash(
                 content_fingerprint(
                     {
-                        "schema": "scopecat.measurement_value_contract.v6",
+                        "schema": "scopecat.measurement_value_contract.v7",
                         "experiment_id": self.point_contract.experiment_id,
                         "experiment_kind": self.point_contract.experiment_kind,
                         "point_count": self.point_contract.point_count,
                         "coordinate_columns": self.point_contract.coordinate_columns,
                         "domain_layout": self.point_contract.domain_layout,
-                        "domain_axis_sizes": self.point_contract.domain_axis_sizes,
-                        "domain_axis_values": [
-                            (
-                                axis_id,
-                                [measurement_axis_scalar(value) for value in values],
-                            )
-                            for axis_id, values in (
-                                self.point_contract.domain_axis_values
-                            )
+                        "domain_axes": [
+                            _point_axis_contract(axis)
+                            for axis in self.point_contract.domain_axes
                         ],
                         "product_uses": [
                             {
@@ -112,6 +112,34 @@ class MeasurementValueCatalog:
         except KeyError as error:
             msg = f"product use {product_use_id.value!r} is not in the catalog"
             raise KeyError(msg) from error
+
+
+def _point_axis_contract(axis: PointAxis[Quantity]) -> dict[str, object]:
+    source = axis.source
+    if isinstance(source, PointAxisValues):
+        source_contract: dict[str, object] = {
+            "kind": "values",
+            "values": tuple(measurement_axis_scalar(value) for value in source.values),
+        }
+    elif isinstance(source, PointAxisRange):
+        source_contract = {
+            "kind": "range",
+            "start": measurement_axis_scalar(source.start),
+            "stop": measurement_axis_scalar(source.stop),
+            "count": source.count,
+        }
+    else:
+        source_contract = {
+            "kind": "linear",
+            "center": measurement_axis_scalar(source.center),
+            "span": measurement_axis_scalar(source.span),
+            "count": source.count,
+        }
+    return {
+        "id": axis.id,
+        "value_type": axis.value_type,
+        "source": source_contract,
+    }
 
 
 @dataclass(frozen=True, slots=True)

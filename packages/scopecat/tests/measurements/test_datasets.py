@@ -9,6 +9,7 @@ import scopecat.measurements.datasets as datasets
 from scopecat.measurements.datasets import product_grid_slice_indices
 from scopecat.records.measurement import (
     MeasurementPointDomainAxis,
+    MeasurementPointDomainValuesSource,
     MeasurementProductGridPointDomain,
     MeasurementScalar,
 )
@@ -83,8 +84,10 @@ def _axis(axis_id: str, size: int) -> MeasurementPointDomainAxis:
     return MeasurementPointDomainAxis(
         id=axis_id,
         size=size,
-        values=[
-            MeasurementScalar.create(dtype="int64", value=index)
-            for index in range(size)
-        ],
+        source=MeasurementPointDomainValuesSource(
+            values=[
+                MeasurementScalar.create(dtype="int64", value=index)
+                for index in range(size)
+            ]
+        ),
     )

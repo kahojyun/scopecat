@@ -40,6 +40,9 @@ from scopecat.measurements.records import (
 from scopecat.measurements.results import (
     InstrumentAcquisitionEvidence,
     MeasurementPointDomainAxis,
+    MeasurementPointDomainLinearSource,
+    MeasurementPointDomainRangeSource,
+    MeasurementPointDomainValuesSource,
     MeasurementProductGridPointDomain,
     MeasurementScalar,
 )
@@ -49,7 +52,15 @@ from scopecat.measurements.values import (
 from scopecat.planning.measurement_projection import (
     project_run_point_catalog,
 )
-from scopecat.records.measurement import MeasurementArray
+from scopecat.program.point_domain import (
+    point_axis_linear,
+    point_axis_range,
+    point_axis_values,
+)
+from scopecat.records.measurement import (
+    MeasurementArray,
+    measurement_point_axis_values,
+)
 
 
 def test_projection_keeps_all_records_without_narrowing_the_value_catalog() -> None:
@@ -175,11 +186,18 @@ def test_projection_schema_persists_ordered_product_grid_axes() -> None:
             MeasurementPointDomainAxis(
                 id="x",
                 size=3,
-                values=[
-                    MeasurementScalar.create(value=value) for value in (0.0, 1.0, 2.0)
-                ],
+                source=MeasurementPointDomainValuesSource(
+                    values=[
+                        MeasurementScalar.create(value=value)
+                        for value in (0.0, 1.0, 2.0)
+                    ]
+                ),
             ),
-            MeasurementPointDomainAxis(id="opaque", size=1, values=[None]),
+            MeasurementPointDomainAxis(
+                id="opaque",
+                size=1,
+                source=MeasurementPointDomainValuesSource(values=[None]),
+            ),
         ]
     )
     assert schema.metadata == {"experiment_id": "test.bound-program"}
@@ -194,10 +212,10 @@ def test_product_grid_schema_infers_coordinate_unit_from_axis_values() -> None:
         point_count=2,
         records=projection.records,
         point_coordinate_columns=(TableColumn("frequency", Scalar(QuantityType())),),
-        point_domain_axis_sizes=(("frequency", 2),),
-        point_domain_axis_values=(
-            (
+        point_domain_axes=(
+            point_axis_values(
                 "frequency",
+                Scalar(QuantityType()),
                 (
                     Quantity(value=4.9, unit="GHz"),
                     Quantity(value=5.1, unit="GHz"),
@@ -213,6 +231,71 @@ def test_product_grid_schema_infers_coordinate_unit_from_axis_values() -> None:
     assert frequency.unit == "GHz"
 
 
+def test_product_grid_schema_retains_large_range_as_compact_source() -> None:
+    scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=1)
+    projection = select_measurement_projection(scenario.catalog, scenario.records)
+    point_count = 1_000_000
+
+    schema = expected_dataset_schema(
+        experiment_id="compact-range-axis",
+        point_count=point_count,
+        records=projection.records,
+        point_coordinate_columns=(TableColumn("index", Scalar(Float())),),
+        point_domain_axes=(
+            point_axis_range(
+                "index",
+                Scalar(Float()),
+                0.0,
+                float(point_count - 1),
+                point_count,
+            ),
+        ),
+    )
+
+    assert schema is not None
+    assert isinstance(schema.point_domain, MeasurementProductGridPointDomain)
+    [axis] = schema.point_domain.axes
+    assert axis.size == point_count
+    assert axis.source == MeasurementPointDomainRangeSource(
+        start=MeasurementScalar.create(value=0.0),
+        stop=MeasurementScalar.create(value=float(point_count - 1)),
+    )
+
+
+def test_product_grid_schema_round_trips_centered_axis_generation() -> None:
+    scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=1)
+    projection = select_measurement_projection(scenario.catalog, scenario.records)
+    frequency_type = Scalar(QuantityType(unit="GHz"))
+
+    schema = expected_dataset_schema(
+        experiment_id="centered-axis",
+        point_count=3,
+        records=projection.records,
+        point_coordinate_columns=(TableColumn("frequency", frequency_type),),
+        point_domain_axes=(
+            point_axis_linear(
+                "frequency",
+                frequency_type,
+                Quantity(5.0, "GHz"),
+                Quantity(2.0, "GHz"),
+                3,
+            ),
+        ),
+    )
+
+    assert schema is not None
+    restored = type(schema).model_validate(schema.model_dump(mode="json"))
+    assert isinstance(restored.point_domain, MeasurementProductGridPointDomain)
+    [axis] = restored.point_domain.axes
+    assert axis.source == MeasurementPointDomainLinearSource(
+        center=MeasurementScalar.create(value=5.0, unit="GHz"),
+        span=MeasurementScalar.create(value=2.0, unit="GHz"),
+    )
+    assert measurement_point_axis_values(axis) == tuple(
+        MeasurementScalar.create(value=value, unit="GHz") for value in (4.0, 5.0, 6.0)
+    )
+
+
 def test_product_grid_schema_rejects_inconsistent_coordinate_units() -> None:
     scenario = measurement_assembly_scenario(point_values=(0.0, 1.0), use_count=1)
     projection = select_measurement_projection(scenario.catalog, scenario.records)
@@ -225,10 +308,10 @@ def test_product_grid_schema_rejects_inconsistent_coordinate_units() -> None:
             point_coordinate_columns=(
                 TableColumn("frequency", Scalar(QuantityType())),
             ),
-            point_domain_axis_sizes=(("frequency", 2),),
-            point_domain_axis_values=(
-                (
+            point_domain_axes=(
+                point_axis_values(
                     "frequency",
+                    Scalar(QuantityType()),
                     (
                         Quantity(value=4.9, unit="GHz"),
                         Quantity(value=5_100.0, unit="MHz"),
@@ -527,7 +610,9 @@ def test_duplicate_coordinate_rows_keep_distinct_canonical_point_indices() -> No
     schema = projection.schema
     assert schema is not None
     assert isinstance(schema.point_domain, MeasurementProductGridPointDomain)
-    assert schema.point_domain.axes[0].values == (
+    source = schema.point_domain.axes[0].source
+    assert isinstance(source, MeasurementPointDomainValuesSource)
+    assert source.values == (
         MeasurementScalar.create(dtype="float64", value=4.0),
         MeasurementScalar.create(dtype="float64", value=4.0),
     )

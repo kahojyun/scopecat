@@ -6,8 +6,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainLayout
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import TableColumn
+from scopecat.program.point_domain import PointAxes, point_axis_size
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,8 +41,7 @@ class RunPointContract:
     point_count: int
     coordinate_columns: tuple[TableColumn, ...]
     domain_layout: PointDomainLayout = "product_grid"
-    domain_axis_sizes: tuple[tuple[str, int], ...] = ()
-    domain_axis_values: tuple[tuple[str, tuple[CellValue, ...]], ...] = ()
+    domain_axes: PointAxes[Quantity] = ()
 
     def __post_init__(self) -> None:
         if self.point_count < 0:
@@ -49,6 +50,12 @@ class RunPointContract:
     @property
     def coordinate_ids(self) -> tuple[str, ...]:
         return tuple(column.id for column in self.coordinate_columns)
+
+    @property
+    def domain_axis_sizes(self) -> tuple[tuple[str, int], ...]:
+        return tuple(
+            (axis.id, point_axis_size(axis.source)) for axis in self.domain_axes
+        )
 
 
 @dataclass(frozen=True, slots=True)

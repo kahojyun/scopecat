@@ -37,9 +37,10 @@ from scopecat.program.point_domain import (
     analyze_point_domain,
     is_point_coordinate_type,
     point_axis_linear_value,
-    point_axis_range_values,
+    point_axis_range_value,
     point_axis_size,
 )
+from scopecat.program.scans import ScanRangeValue
 
 type PointRowNormalizer = Callable[[Row], Mapping[str, object]]
 type CompilerPointAxes = PointAxes[ScalarExpr]
@@ -146,13 +147,16 @@ class MaterializedPoint:
 
 @dataclass(frozen=True, slots=True)
 class MaterializedPointDomain:
-    """One materialized coverage of an exact symbolic domain."""
+    """One point domain backed by evaluated compact axis sources."""
 
     id: PointDomainId
     points: Sequence[MaterializedPoint]
+    axes: PointAxes[QuantityValue] = ()
     layout: PointDomainLayout = "product_grid"
-    axis_sizes: tuple[tuple[str, int], ...] = ()
-    axis_values: tuple[tuple[str, tuple[CellValue, ...]], ...] = ()
+
+    @property
+    def axis_sizes(self) -> tuple[tuple[str, int], ...]:
+        return tuple((axis.id, point_axis_size(axis.source)) for axis in self.axes)
 
 
 def verify_point_domain(
@@ -204,9 +208,8 @@ def materialize_point_domain(
     return MaterializedPointDomain(
         prepared.id,
         tuple(prepared.points),
+        axes=prepared.axes,
         layout=prepared.layout,
-        axis_sizes=prepared.axis_sizes,
-        axis_values=prepared.axis_values,
     )
 
 
@@ -218,8 +221,8 @@ def prepare_point_domain(
 ) -> MaterializedPointDomain:
     """Prepare exact point identity without retaining every concrete row."""
 
-    factor_values = tuple(
-        _axis_values(
+    axes = tuple(
+        _prepare_axis(
             axis,
             params=params,
             path=("axes", index),
@@ -228,44 +231,31 @@ def prepare_point_domain(
     )
     points = _PreparedPointSequence(
         verified,
-        factor_values,
+        axes,
         row_normalizer=row_normalizer,
-    )
-    axis_values = (
-        tuple(
-            (axis.id, values)
-            for axis, values in zip(
-                verified.axes,
-                factor_values,
-                strict=True,
-            )
-        )
-        if verified.layout == "product_grid"
-        else ()
     )
     return MaterializedPointDomain(
         verified.id,
         points,
+        axes=axes,
         layout=verified.layout,
-        axis_sizes=verified.axis_sizes,
-        axis_values=axis_values,
     )
 
 
 class _PreparedPointSequence(Sequence[MaterializedPoint]):
     """Random-access point rows derived from compact product factors."""
 
-    __slots__ = ("_factor_values", "_row_normalizer", "_verified")
+    __slots__ = ("_axes", "_row_normalizer", "_verified")
 
     def __init__(
         self,
         verified: VerifiedPointDomain,
-        factor_values: tuple[tuple[CellValue, ...], ...],
+        axes: PointAxes[QuantityValue],
         *,
         row_normalizer: PointRowNormalizer | None,
     ) -> None:
         self._verified = verified
-        self._factor_values = factor_values
+        self._axes = axes
         self._row_normalizer = row_normalizer
 
     @override
@@ -289,8 +279,7 @@ class _PreparedPointSequence(Sequence[MaterializedPoint]):
         if not 0 <= ordinal < len(self):
             raise IndexError(index)
         row = _point_row(
-            self._verified.axes,
-            factor_values=self._factor_values,
+            self._axes,
             layout=self._verified.layout,
             ordinal=ordinal,
         )
@@ -312,41 +301,63 @@ class _PreparedPointSequence(Sequence[MaterializedPoint]):
 
 
 def _point_row(
-    axes: CompilerPointAxes,
+    axes: PointAxes[QuantityValue],
     *,
-    factor_values: Sequence[Sequence[CellValue]],
     layout: PointDomainLayout,
     ordinal: int,
 ) -> Row:
     if layout == "point_cloud":
-        return {
-            axis.id: values[ordinal]
-            for axis, values in zip(axes, factor_values, strict=True)
-        }
+        return {axis.id: _axis_value(axis, ordinal) for axis in axes}
     selected: dict[str, CellValue] = {}
     remaining = ordinal
-    for axis, values in reversed(tuple(zip(axes, factor_values, strict=True))):
-        remaining, value_index = divmod(remaining, len(values))
-        selected[axis.id] = values[value_index]
+    for axis in reversed(axes):
+        remaining, value_index = divmod(
+            remaining,
+            point_axis_size(axis.source),
+        )
+        selected[axis.id] = _axis_value(axis, value_index)
     return {axis.id: selected[axis.id] for axis in axes}
 
 
-def _axis_values(
+def _prepare_axis(
     axis: PointAxis[ScalarExpr],
     *,
     params: ParameterRelationData,
     path: PointDomainPath,
-) -> tuple[CellValue, ...]:
+) -> PointAxis[QuantityValue]:
     source = axis.source
     if isinstance(source, PointAxisValues):
-        values = source.values
-    elif isinstance(source, PointAxisRange):
-        try:
-            values = point_axis_range_values(
-                source.start,
-                source.stop,
-                source.count,
+        selected_source = PointAxisValues(
+            tuple(
+                _coerce_axis_value(axis, value, index=index)
+                for index, value in enumerate(source.values)
             )
+        )
+    elif isinstance(source, PointAxisRange):
+        start = cast(
+            "ScanRangeValue",
+            coerce_literal(
+                axis.value_type,
+                source.start,
+                path=("axes", axis.id, "source", "start"),
+            ),
+        )
+        stop = cast(
+            "ScanRangeValue",
+            coerce_literal(
+                axis.value_type,
+                source.stop,
+                path=("axes", axis.id, "source", "stop"),
+            ),
+        )
+        try:
+            point_axis_range_value(
+                start,
+                stop,
+                source.count,
+                0,
+            )
+            selected_source = PointAxisRange(start, stop, source.count)
         except (ArithmeticError, TypeError, ValueError) as error:
             raise PointDomainEvaluationError(
                 (*path, "source"),
@@ -362,19 +373,51 @@ def _axis_values(
             if not isinstance(center, QuantityValue):
                 msg = "linear point axis center must materialize as a quantity"
                 raise TypeError(msg)
-            values = tuple(
-                point_axis_linear_value(center, source.span, source.count, index)
-                for index in range(source.count)
+            span = source.span.to(center.unit)
+            endpoint_values = tuple(
+                (
+                    index,
+                    point_axis_linear_value(center, span, source.count, index),
+                )
+                for index in (0, source.count - 1)
             )
         except (ArithmeticError, KeyError, TypeError, ValueError) as error:
             raise PointDomainEvaluationError(
                 (*path, "source", "center"),
                 error,
             ) from error
-    return tuple(
-        _coerce_axis_value(axis, value, index=index)
-        for index, value in enumerate(values)
-    )
+        for index, value in endpoint_values:
+            _coerce_axis_value(axis, value, index=index)
+        selected_source = PointAxisLinear(
+            center=center,
+            span=span,
+            count=source.count,
+        )
+    return PointAxis(axis.id, axis.value_type, selected_source)
+
+
+def _axis_value(
+    axis: PointAxis[QuantityValue],
+    index: int,
+) -> CellValue:
+    source = axis.source
+    if isinstance(source, PointAxisValues):
+        return source.values[index]
+    if isinstance(source, PointAxisRange):
+        value = point_axis_range_value(
+            source.start,
+            source.stop,
+            source.count,
+            index,
+        )
+    else:
+        value = point_axis_linear_value(
+            source.center,
+            source.span,
+            source.count,
+            index,
+        )
+    return cast("CellValue", value)
 
 
 def _coerce_axis_value(

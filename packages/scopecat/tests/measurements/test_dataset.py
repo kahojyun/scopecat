@@ -35,6 +35,8 @@ from scopecat.records.measurement import (
     MeasurementPointCloudPointDomain,
     MeasurementPointDomainAxis,
     MeasurementPointDomainColumn,
+    MeasurementPointDomainRangeSource,
+    MeasurementPointDomainValuesSource,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementResultContract,
@@ -1430,22 +1432,28 @@ def _product_grid_dataset() -> Dataset:
                 MeasurementPointDomainAxis(
                     id="x",
                     size=len(x_values),
-                    values=[
-                        MeasurementScalar.create(
-                            value=value,
+                    source=MeasurementPointDomainRangeSource(
+                        start=MeasurementScalar.create(
+                            value=x_values[0],
                             dtype="float64",
                             unit="V",
-                        )
-                        for value in x_values
-                    ],
+                        ),
+                        stop=MeasurementScalar.create(
+                            value=x_values[-1],
+                            dtype="float64",
+                            unit="V",
+                        ),
+                    ),
                 ),
                 MeasurementPointDomainAxis(
                     id="y",
                     size=len(y_values),
-                    values=[
-                        MeasurementScalar.create(value=value, dtype="int64")
-                        for value in y_values
-                    ],
+                    source=MeasurementPointDomainValuesSource(
+                        values=[
+                            MeasurementScalar.create(value=value, dtype="int64")
+                            for value in y_values
+                        ]
+                    ),
                 ),
             ]
         ),

@@ -97,6 +97,7 @@ from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementPointDomainAxis,
+    MeasurementPointDomainValuesSource,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
@@ -2355,18 +2356,22 @@ def test_effect_is_fenced_and_terminal_updates_control(
                         MeasurementPointDomainAxis(
                             id="x",
                             size=2,
-                            values=[
-                                MeasurementScalar.create(dtype="int64", value=value)
-                                for value in (10, 20)
-                            ],
+                            source=MeasurementPointDomainValuesSource(
+                                values=[
+                                    MeasurementScalar.create(dtype="int64", value=value)
+                                    for value in (10, 20)
+                                ]
+                            ),
                         ),
                         MeasurementPointDomainAxis(
                             id="bias",
                             size=2,
-                            values=[
-                                MeasurementScalar.create(dtype="int64", value=value)
-                                for value in (0, 1)
-                            ],
+                            source=MeasurementPointDomainValuesSource(
+                                values=[
+                                    MeasurementScalar.create(dtype="int64", value=value)
+                                    for value in (0, 1)
+                                ]
+                            ),
                         ),
                     ]
                 ),

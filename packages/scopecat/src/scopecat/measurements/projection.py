@@ -143,8 +143,7 @@ class MeasurementProjection:
             point_coordinate_columns=self.catalog.point_contract.coordinate_columns,
             point_domain_layout=self.catalog.point_contract.domain_layout,
             result_fields=self._result_fields,
-            point_domain_axis_sizes=self.catalog.point_contract.domain_axis_sizes,
-            point_domain_axis_values=self.catalog.point_contract.domain_axis_values,
+            point_domain_axes=self.catalog.point_contract.domain_axes,
         )
 
 

@@ -107,10 +107,13 @@ therefore `adhoc,scopecat`.
 
 The matched runners use a fixed single-shot workload with four physical
 channels and a 72-sample point waveform. Point count is the only scale variable
-in the zero-delay run. `--point-delay-ms` adds the same logical-point dwell to
-both virtual hardware paths for a representative total-time run. Shot-heavy
-acquisition and long waveforms use separate matched profiles so their working
-sets do not obscure point-count costs.
+in the zero-delay run. The Scopecat workload declares its coordinate as a
+compact start/stop range; the direct runner derives its point-local waveform
+parameters from the loop index without retaining a coordinate list.
+`--point-delay-ms` adds the same logical-point dwell to both virtual hardware
+paths for a representative total-time run. Shot-heavy acquisition and long
+waveforms use separate matched profiles so their working sets do not obscure
+point-count costs.
 
 Run a short comparison with:
 
@@ -236,11 +239,11 @@ does not render every point's waveforms to discover later lowering failures
 before the run starts. The reference target probes one point, then uses the
 concrete artifact to size the following batch. Cartesian point rows, point
 parameter overlays, runtime point objects, and static value records are now
-random-access views evaluated for the current bounded coverage. Declared axis
-factors and the durable product-grid coordinate description are still prepared
-up front, so a one-dimensional values scan remains proportional to its declared
-coordinate count even though it no longer creates several duplicate objects per
-point.
+random-access views evaluated for the current bounded coverage. Range and
+center/span axes retain compact evaluated sources through planning, catalog
+fingerprinting, and the v9 durable dataset schema. Explicit values axes still
+remain proportional to their declared coordinate count, as their individual
+values are the source rather than generated points.
 
 This is an intentional UX tradeoff. Structural mistakes fail before hardware;
 shape- or value-dependent failures that require actual waveform lowering may
@@ -273,10 +276,11 @@ than being flattened into more control-plane points.
 
 The present architecture provides a direct end-to-end baseline:
 
-- linking and planning retain declared axis factors but derive Cartesian rows,
-  point parameter bindings, runtime points, and static value records on demand;
-  forward traversal is a range, while traversal modes that reorder points still
-  retain an explicit ordinal sequence;
+- linking and planning retain compact range and center/span sources or authored
+  explicit values, while deriving Cartesian rows, point parameter bindings,
+  runtime points, and static value records on demand; forward traversal is a
+  range, while traversal modes that reorder points still retain an explicit
+  ordinal sequence;
 - local target preparation retains static route manifests, preview materializes
   only the first physical probe, the user-visible point preview samples at most
   64 edge points, and execution materializes local compute and effects only for
@@ -304,20 +308,21 @@ The present architecture provides a direct end-to-end baseline:
   do not accumulate in the permanent object store or with total point count;
 - projected Arrow readers and GUI previews provide bounded read paths.
 
-The next dense-spectroscopy preparation limit is the coordinate source itself:
-range and linear axes currently expand to factor tuples, and a one-dimensional
-values scan necessarily carries one declared value per logical point through
-the durable axis description and catalog fingerprint. Cartesian products no
-longer multiply those factors into retained rows. Local effects, static value
-evaluation, runtime point projection, and live prepared target artifacts are
-bounded by the current physical batch. During active execution the completed
-point index set and durable scalar results still grow with completed point
-count; neither contains waveform payloads. Inline command payloads retain raw
-bytes in memory and convert to base64 only for an actual JSON wire
-representation; the daemon client uploads those bytes to an operation-scoped
-content-addressed spool before posting a control command containing only the
-blob descriptor. Hardware operation identities and durable evidence cover the
-descriptor rather than serializing the payload body.
+Generated axes no longer impose a point-count-sized preparation cost: their
+evaluated generation parameters are fingerprinted and persisted directly, and
+analysis materializes axis values only when a complete grid view requests them.
+An explicit values scan necessarily carries one declared value per logical
+point; users should prefer range or center/span intent when the coordinate is
+generated. Cartesian products do not multiply any of those factors into
+retained rows. Local effects, static value evaluation, runtime point projection,
+and live prepared target artifacts are bounded by the current physical batch.
+During active execution the completed point index set and durable scalar results
+still grow with completed point count; neither contains waveform payloads.
+Inline command payloads retain raw bytes in memory and convert to base64 only
+for an actual JSON wire representation; the daemon client uploads those bytes
+to an operation-scoped content-addressed spool before posting a control command
+containing only the blob descriptor. Hardware operation identities and durable
+evidence cover the descriptor rather than serializing the payload body.
 
 The spool is deliberately transient: if the daemon restarts after an upload but
 before the command is accepted, the client must submit the command again and
@@ -327,11 +332,13 @@ publication remains a separate future capability for payloads that must be
 inspectable after execution.
 
 The production waveform profile now separates transient transfer, durable
-object retention, compilation, and driver work. Its remaining point-scale
-preparation cost is the declared coordinate representation and durable schema,
-not waveform or Cartesian row materialization. The other profiles establish
-whether acquisition volume or history reaches its resource budget first.
-Workflow scalability awaits a workflow ownership model.
+object retention, compilation, and driver work. For generated axes, its
+remaining total-point scaling is active execution bookkeeping and durable
+results, not launch preparation, waveform retention, or Cartesian row
+materialization. Explicit value sources and non-forward traversal still retain
+point-count-sized declarations. The other profiles establish whether
+acquisition volume or history reaches its resource budget first. Workflow
+scalability awaits a workflow ownership model.
 
 ## Development Cadence
 

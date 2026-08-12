@@ -275,7 +275,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
                         kind="measurement_dataset",
                         target="measurement-dataset",
                         content_hash="sha256:measurements",
-                        codec="scopecat.measurement-dataset.v8",
+                        codec="scopecat.measurement-dataset.v9",
                     ),
                 ),
                 outputs=(
