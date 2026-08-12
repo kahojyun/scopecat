@@ -193,7 +193,9 @@ jobs:
           enable-cache: true
 
       - name: Build documentation
-        run: uv run --locked --group docs zensical build --strict
+        run: |
+          uv run --locked python scripts/check_document_links.py
+          uv run --locked --group docs zensical build --strict
 
   gate:
     name: CI gate

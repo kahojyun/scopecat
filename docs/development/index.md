@@ -35,9 +35,14 @@ uv run --locked --package reference-lab --group test pytest examples/reference_l
 ## Repository and architecture
 
 - [Repository map](repository-map.md)
+- [Core workflow evaluations](workflow-evaluations.md)
 - [Architecture](architecture/index.md)
 - [Scalability benchmarks](scalability.md)
 - [Project charter](project-charter.md)
 
 Package inventories, generated-code rules, and implementation contracts stay in
 package READMEs and docstrings beside the code that owns them.
+
+Use the workflow evaluations when changing a cross-surface user journey. They
+define the observable outcomes and conceptual burden under review without
+freezing the current UI.

@@ -218,9 +218,9 @@ return SpectrumResult(rf_frequency=rf)
 ```
 
 The reference lab's
-[`xy_drive` workflow](../examples/reference_lab/src/reference_lab/workflows/xy_drive.py)
+[`xy_drive` workflow](https://github.com/kahojyun/scopecat/blob/main/examples/reference_lab/src/reference_lab/workflows/xy_drive.py)
 shows this composition, and the
-[`fixed-IF quantum sweep`](../examples/reference_lab/notebooks/36_q0_fixed_if_lo_sweep.py)
+[`fixed-IF quantum sweep`](https://github.com/kahojyun/scopecat/blob/main/examples/reference_lab/notebooks/36_q0_fixed_if_lo_sweep.py)
 shows an LO host effect bounding domain batches.
 
 Routing determines which source is changed. Equal requests to one resolved LO

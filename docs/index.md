@@ -5,6 +5,11 @@ It connects notebooks, typed experiment authoring, instrument control, live
 visibility, and durable results without requiring a lab to replace its existing
 Python projects.
 
+This documentation follows the supported workflows and user concepts that the
+project is trying to make simple. UI labels and source-checkout preparation may
+change during internal iteration; the observable workflow outcomes are the
+design contract under evaluation.
+
 ## Start here
 
 New users should follow the [source preview quickstart](getting-started/quickstart.md).

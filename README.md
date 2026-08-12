@@ -79,6 +79,7 @@ uv run basedpyright
 uv run lint-imports
 uv run ruff check .
 uv run ruff format --check .
+uv run python scripts/check_document_links.py
 uv run --group docs zensical build --strict
 ```
 

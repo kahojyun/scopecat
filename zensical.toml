@@ -26,6 +26,7 @@ nav = [
   ] },
   { "Concepts" = [
     "concepts/index.md",
+    { "Glossary" = "concepts/glossary.md" },
     { "Experiment authoring dataflow" = "concepts/experiment-dataflow.md" },
     { "Analysis publication" = "concepts/analysis-publication.md" },
   ] },
@@ -48,6 +49,7 @@ nav = [
   { "Development" = [
     "development/index.md",
     { "Repository map" = "development/repository-map.md" },
+    { "Core workflow evaluations" = "development/workflow-evaluations.md" },
     { "Architecture" = [
       "development/architecture/index.md",
       { "Experiment execution" = "development/architecture/execution.md" },

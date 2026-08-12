@@ -63,6 +63,17 @@ the **Runs** workspace and select **First run**. The run has no measurements,
 but it exercises project discovery, admission, durable history, notebook/daemon
 communication, and GUI inspection.
 
+The workflow is complete when all of these statements are true:
+
+- the script reports a terminal `completed` status and a run ID;
+- **First run** appears in the project run history;
+- reopening the project console still shows the same durable run;
+- completing the workflow did not require copying a daemon URL or storage ID.
+
+The exact navigation and presentation may change while the UI is evolving.
+Failure to make the four outcomes above apparent is product feedback, even when
+the underlying command exits successfully.
+
 ## Stop the daemon
 
 ```sh

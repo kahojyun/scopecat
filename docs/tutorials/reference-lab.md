@@ -19,6 +19,16 @@ uv run scopecat open examples/reference_lab
 
 Every gallery script discovers this daemon through the project manifest.
 
+Run the lab tour to establish the shared starting state:
+
+```sh
+uv run python examples/reference_lab/notebooks/00_lab_tour.py
+```
+
+Its summary should list the configured instruments, their availability, and the
+reviewed parameter-table row counts. Users should not need daemon URLs or
+database identities to establish this context.
+
 ## Inspect and control instruments
 
 Open the **Instruments** workspace, then run in another terminal:
@@ -31,6 +41,11 @@ The script reserves typed virtual devices and changes their state outside an
 experiment. The virtual world is coupled: enabled flux bias moves the VNA notch
 and changes mixing-chamber telemetry. These clients use the same interfaces as
 real providers.
+
+Success means the summary contains successful temperature and trace receipts,
+and the source output is disabled again even if acquisition fails. The GUI may
+change, but it must make instrument availability and session failure attributable
+to the affected device.
 
 ## Complete a calibration
 
@@ -45,6 +60,18 @@ configuration history. The workflow records a baseline, publishes a candidate,
 accepts it, uses the new default in production, and demonstrates undo. Durable
 revisions and decisions remain visible without exposing storage identifiers in
 the ordinary notebook flow.
+
+The structured summary verifies the design outcomes directly:
+
+- the baseline run completes and records the previewed point count;
+- analysis publishes outputs, evidence, a report, and one proposal;
+- the candidate run identifies the analysis proposal as its config source;
+- the production run uses the accepted default;
+- undo restores the previous default without deleting history.
+
+If users must manually transfer revision IDs between these steps, or cannot tell
+which configuration a run used, treat that as workflow design feedback rather
+than an explanation to add to the tutorial.
 
 ## Continue through the gallery
 

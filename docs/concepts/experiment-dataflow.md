@@ -1,5 +1,11 @@
 # Experiment authoring dataflow
 
+This page records the evolving authoring contract for design review and
+advanced use. It is not prerequisite reading for the
+[first-run workflow](../getting-started/quickstart.md). Prefer simplifying the
+authoring model when a common workflow needs implementation vocabulary from this
+page merely to succeed.
+
 Experiment authors describe one dataflow. They do not choose a compute engine,
 hidden execution phase, or storage representation. Scopecat places each
 operation at the earliest stage where all of its inputs are available, and the
