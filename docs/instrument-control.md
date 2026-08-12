@@ -9,7 +9,7 @@ Daemon ownership and failure handling live in the [lab daemon model](lab-daemon.
 Execution ordering and physical authority live in the
 [execution semantics](experiment-execution-model.md). Provider registration,
 generation, configuration, and driver tests live in the
-[instrument provider README](../packages/scopecat-instruments/README.md).
+[instrument provider README](https://github.com/kahojyun/scopecat/blob/main/packages/scopecat-instruments/README.md).
 
 ## Use a configured device now
 
@@ -326,9 +326,9 @@ acquisition remains runtime evidence. The `operation(...)` docstring defines the
 exact local contract, and planning diagnostics identify which effect invalidated
 a missing requirement.
 
-See [driver authoring](../packages/scopecat-instruments/README.md#driver-authoring)
+See [driver authoring](https://github.com/kahojyun/scopecat/blob/main/packages/scopecat-instruments/README.md#driver-authoring)
 for the implementation boundary and
-[typed client source generation](../packages/scopecat-instruments/README.md#typed-client-source-generation)
+[typed client source generation](https://github.com/kahojyun/scopecat/blob/main/packages/scopecat-instruments/README.md#typed-client-source-generation)
 for the generator workflow.
 
 ## Compact rule set
