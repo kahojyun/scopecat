@@ -197,21 +197,22 @@ class AdaptiveDomainCoordinator:
             raise ValueError(
                 "domain fragment coordinates must exactly match the adaptive axes"
             )
-        if any(self._regions[region_id].closed for region_id in region_ids):
+        if proposal.source != "operator" and any(
+            self._regions[region_id].closed for region_id in region_ids
+        ):
             raise ValueError("domain proposal targets a closed adaptive region")
         expected_revisions = {
             region_id: self._regions[region_id].revision for region_id in region_ids
         }
-        if proposal.based_on_region_revisions:
-            if dict(proposal.based_on_region_revisions) != expected_revisions:
-                raise ValueError("domain proposal is stale for its selected regions")
-            bound_proposal = proposal
-        else:
-            bound_proposal = replace(
-                proposal,
-                region_ids=region_ids,
-                based_on_region_revisions=expected_revisions,
-            )
+        if proposal.based_on_region_revisions and (
+            dict(proposal.based_on_region_revisions) != expected_revisions
+        ):
+            raise ValueError("domain proposal is stale for its selected regions")
+        bound_proposal = replace(
+            proposal,
+            region_ids=region_ids,
+            based_on_region_revisions=expected_revisions,
+        )
         count_per_region = proposal.fragment.point_count
         total_count = count_per_region * len(region_ids)
         if self.accepted_point_count + total_count > self.plan.total_point_limit:
@@ -247,9 +248,7 @@ class AdaptiveDomainCoordinator:
                 raise ValueError("no current adaptive region is available")
             region_ids = (context.region.id,)
         elif request.region_scope == "all":
-            region_ids = tuple(
-                region.id for region in self._regions.values() if not region.closed
-            )
+            region_ids = tuple(self._regions)
         else:
             region_ids = request.region_ids
             unknown = sorted(set(region_ids) - set(self._regions))

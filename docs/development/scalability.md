@@ -423,11 +423,11 @@ still grow with completed point count; neither contains waveform payloads. The
 daemon's live compiled-inspection feed retains only the latest 64 proposal
 events, and every inspection already enforces point, waveform, and sample
 budgets. It is an operator view, not durable run content.
-Adaptive optimizer calls likewise receive exact run-wide counters but only the
-latest 1,024 point decisions and 256 completed-point observations. Durable
-point decisions remain queryable through the daemon ledger. Completed-point
-observations retain canonical point identity plus metadata-free scalar and
-unavailable observable values. Array values, acquisition evidence, record
+Adaptive optimizer calls likewise receive exact counters but only the latest
+1,024 domain decisions and 256 completed-point observations for their scope.
+Durable domain decisions remain queryable through the daemon ledger.
+Completed-point observations retain canonical point identity plus metadata-free
+scalar and unavailable observable values. Array values, acquisition evidence, record
 metadata, and scalar metadata are deliberately omitted; optimizers that need a
 trace-derived feature should declare a scalar measurement compute for that
 feature. Heavyweight measurement records therefore do not accumulate in the

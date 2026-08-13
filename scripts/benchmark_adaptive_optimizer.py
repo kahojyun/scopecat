@@ -13,6 +13,11 @@ from typing import cast
 import numpy as np
 import psutil
 
+from scopecat.adaptive_domains import (
+    AdaptiveRegion,
+    DomainProposalAttempt,
+    ResolvedDomainFragment,
+)
 from scopecat.execution.optimizer_observations import (
     project_completed_point_observation,
 )
@@ -22,8 +27,8 @@ from scopecat.optimization import (
     OPTIMIZER_DECISION_WINDOW,
     OPTIMIZER_OBSERVATION_WINDOW,
     CompletedPointObservation,
-    PointOptimizerContext,
-    PointProposalLedger,
+    DomainOptimizerContext,
+    DomainProposalLedger,
 )
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -52,27 +57,36 @@ def main() -> None:
     observations: deque[CompletedPointObservation] = deque(
         maxlen=OPTIMIZER_OBSERVATION_WINDOW
     )
-    ledger = PointProposalLedger(initial_point_count=0)
+    ledger = DomainProposalLedger(initial_point_count=0)
     process = psutil.Process()
     baseline_rss = cast("int", process.memory_info().rss)
     peak_rss = baseline_rss
     tracemalloc.start()
     started = time.perf_counter()
     for decision_index in range(decision_count):
+        fragment = ResolvedDomainFragment.points(({"x": float(decision_index)},))
+        proposal = DomainProposalAttempt(
+            fragment,
+            region_ids=("region-0",),
+            source="optimizer",
+            based_on_region_revisions={"region-0": decision_index},
+        )
         candidate = PointProposalAttempt(
             {"x": float(decision_index)},
             source="optimizer",
-            based_on_completed_point_count=ledger.accepted_count,
+            region_id="region-0",
+            domain_proposal_fingerprint=proposal.proposal_fingerprint,
+            based_on_region_revision=decision_index,
         )
         if decision_index < OPTIMIZER_OBSERVATION_WINDOW:
             point = AcceptedRunPoint.accept(
                 candidate,
                 logical_id=LogicalPointId(
                     PointDomainId("benchmark.adaptive", "points"),
-                    ledger.next_logical_ordinal,
+                    ledger.point_count,
                 ),
             )
-            ledger = ledger.accept(candidate, point).recent()
+            ledger = ledger.accept(proposal, (point,)).recent()
             raw_record = MeasurementRecord(
                 run_id="benchmark-adaptive",
                 logical_point_id=str(point.logical_id),
@@ -95,15 +109,25 @@ def main() -> None:
             )
             del raw_record
         else:
-            ledger = ledger.reject(candidate, reason="benchmark retry").recent()
+            ledger = ledger.reject(proposal, reason="benchmark retry").recent()
         peak_rss = max(peak_rss, cast("int", process.memory_info().rss))
 
-    completed_point_count = ledger.accepted_count
-    context = PointOptimizerContext(
+    completed_point_count = ledger.accepted_point_count
+    region = AdaptiveRegion(
+        id="region-0",
+        coordinates={},
+        point_count=completed_point_count,
+        completed_point_count=completed_point_count,
+        revision=decision_count,
+        point_limit=completed_point_count + 1,
+    )
+    context = DomainOptimizerContext(
+        region=region,
+        regions=(region,),
         observations=tuple(observations),
         ledger=ledger,
-        point_limit=completed_point_count + 1,
-        completed_point_count=completed_point_count,
+        total_point_limit=completed_point_count + 1,
+        accepted_point_count=completed_point_count,
     )
     gc.collect()
     retained_bytes, peak_bytes = tracemalloc.get_traced_memory()
@@ -114,7 +138,7 @@ def main() -> None:
     result = {
         "schema": "scopecat.adaptive_optimizer_benchmark.v2",
         "decisions": context.ledger.decision_count,
-        "accepted": context.completed_point_count,
+        "accepted": context.accepted_point_count,
         "rejected": context.ledger.rejected_count,
         "retained_decisions": len(context.ledger.entries),
         "retained_observations": len(context.observations),

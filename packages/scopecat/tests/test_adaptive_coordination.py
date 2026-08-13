@@ -5,6 +5,7 @@ import pytest
 from scopecat.adaptive_coordination import AdaptiveDomainCoordinator
 from scopecat.adaptive_domains import (
     DomainProposalAttempt,
+    OperatorDomainRequest,
     RegionOptimizationComplete,
     ResolvedDomainAxis,
     ResolvedDomainFragment,
@@ -130,6 +131,20 @@ def test_one_fragment_can_extend_one_or_all_outer_regions() -> None:
     )
 
 
+def test_current_region_binding_attaches_region_identity_to_fresh_proposal() -> None:
+    coordinator = _coordinator()
+    [first, *_] = coordinator.regions
+    proposal = DomainProposalAttempt(
+        ResolvedDomainFragment.points(({"frequency": 5.5},)),
+        based_on_region_revisions={first.id: first.revision},
+    )
+
+    bound = coordinator.bind(proposal)
+
+    assert bound.proposal.region_ids == (first.id,)
+    assert all(candidate.region_id == first.id for candidate in bound.candidates)
+
+
 def test_completion_in_another_region_does_not_stale_a_proposal() -> None:
     coordinator = _coordinator()
     first, second = coordinator.regions
@@ -160,6 +175,31 @@ def test_region_completion_keeps_other_regions_open() -> None:
     assert context is not None
     assert context.region is not None
     assert context.region.id == second.id
+
+
+def test_operator_all_scope_can_supplement_optimizer_completed_regions() -> None:
+    coordinator = _coordinator()
+    first, second = coordinator.regions
+    coordinator.apply_completion(
+        RegionOptimizationComplete("first region converged"),
+        region_id=first.id,
+    )
+    fragment = ResolvedDomainFragment.points(({"frequency": 5.5},))
+    request = OperatorDomainRequest(
+        request_id="operator-domain-1",
+        coordinate_mode="free",
+        region_scope="all",
+        region_ids=(),
+        region_count=2,
+        requested_fragment=fragment,
+        fragment=fragment,
+    )
+
+    proposal = coordinator.operator_proposal(request)
+    bound = coordinator.bind(proposal)
+
+    assert proposal.region_ids == (first.id, second.id)
+    assert len(bound.candidates) == 2
 
 
 def test_multi_region_fragment_is_rejected_atomically_when_over_budget() -> None:

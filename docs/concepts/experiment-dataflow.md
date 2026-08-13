@@ -43,8 +43,8 @@ Measurement-dependent feedback cannot run earlier in the same invocation. End
 the run, analyze its durable result, and start another ordinary run explicitly
 when a new instrument state or compiled program depends on that result. Owning
 that state across multiple runs belongs to a future workflow abstraction.
-Measurement-dependent points inside one executing run likewise require a
-separate adaptive point-plan abstraction.
+Measurement-dependent extensions inside one executing run likewise require the
+explicit adaptive-domain abstraction.
 
 ## Return the result you mean to keep
 
@@ -298,27 +298,47 @@ run opts into the separate adaptive-plan abstraction explicitly:
 class Optimizer:
     id = "example.optimizer"
 
-    def propose(self, context):
-        if context.completed_point_count >= 20:
-            return sc.OptimizationComplete("enough evidence")
-        return sc.PointProposalAttempt(
-            {"frequency": choose_frequency(context.observations)},
-            source="optimizer",
-            based_on_completed_point_count=context.completed_point_count,
+    def propose(self, context: sc.DomainOptimizerContext):
+        region = context.region
+        assert region is not None
+        if region.completed_point_count >= 20:
+            return sc.RegionOptimizationComplete("enough evidence here")
+        return sc.DomainProposalAttempt(
+            sc.ResolvedDomainFragment.grid(
+                sc.ResolvedDomainAxis.values_axis(
+                    "frequency",
+                    (choose_frequency(context.observations),),
+                )
+            ),
+            region_ids=(region.id,),
+            based_on_region_revisions={region.id: region.revision},
         )
 
 
 adaptive = spectroscopy().adaptive(Optimizer(), max_points=32)
 ```
 
-The authored points form the initial prefix. After that prefix completes, the
-runner gives the optimizer immutable completed-point observations and its full
-accepted/rejected proposal ledger. A valid candidate is compiled as the next
-canonical logical ordinal and executed in the same hardware session. A stale
-or invalid candidate is rejected without effects so the optimizer can propose
-again. The point limit and a finite proposal retry budget keep the run bounded.
-Durable multi-run adaptation remains a workflow concern rather than hidden
-mutation of an ordinary static plan.
+The authored points form the initial prefix. By default every coordinate is
+adaptive. Passing `axes=(...)` instead treats the other static coordinates as
+an outer scan and creates one stable adaptive region for each outer-coordinate
+combination. The default `scope="per_region"` gives the optimizer independent
+observations, revisions, stop state, and an optional per-region budget;
+`scope="global"` gives it all regions in one context.
+
+An optimizer proposes a compact compatible fragment: explicit values, a
+range, an around-center range, or a point cloud. The runner expands that
+fragment lazily across the selected regions, compiles every member, and accepts
+or rejects the group atomically. Accepted members receive consecutive logical
+point ordinals and execute in the same hardware session. Freshness is checked
+against only the selected region revisions, so progress elsewhere does not
+invalidate the proposal. A one-row fragment is the degenerate point case.
+
+The live Run view uses the same model for manual extension. An operator can add
+a snapped or free scan to the current, selected, or all admitted regions and
+inspect the resulting compiled waveforms beside optimizer decisions. The total
+point limit, optional per-region limit, and finite proposal retry budget keep
+the run bounded. Durable multi-run adaptation remains a workflow concern rather
+than hidden mutation of an ordinary static plan.
 
 ## Compute scalar and array data uniformly
 
@@ -518,8 +538,8 @@ reference list-mode target returns requested/realized timing, channel
 identities, peak and RMS values, content hashes, and a bounded min/max waveform
 preview. Strict coordinate matching and off-grid compilation are separate
 operator choices; neither silently snaps a physical value to an authored axis
-index. The same inspection shape is used by the live Run view for optimizer
-points before their effects execute, where accepted/rejected decisions,
+index. The same inspection shape is used by the live Run view for optimizer and
+operator domain fragments before their effects execute. Group acceptance,
 completion status, and bounded waveform comparisons appear beside measurements.
 The full waveform remains transient compiler data; a normal run keeps only
 compact execution provenance.

@@ -142,7 +142,9 @@ class RunPointPlanService:
             coordinate_mode=command.coordinate_mode,
             region_scope=command.region_scope,
             region_ids=command.region_ids,
-            requested_fragment=command.fragment,
+            requested_fragment=RunDomainFragmentView.from_fragment(
+                command.fragment.fragment()
+            ),
             fragment=RunDomainFragmentView.from_fragment(resolved),
             region_count=region_count,
             total_point_count=region_count * resolved.point_count,

@@ -97,9 +97,27 @@ class RunDomainAxisView(_DomainModel):
         return cls(axis_id=axis.id, source=view)
 
 
-class RunDomainFragmentView(_DomainModel):
+class _RunDomainFragmentBase(_DomainModel):
     layout: Literal["grid", "point_cloud"]
     axes: tuple[RunDomainAxisView, ...] = Field(min_length=1)
+
+    def fragment(self) -> ResolvedDomainFragment:
+        return ResolvedDomainFragment(
+            tuple(axis.axis() for axis in self.axes),
+            layout=self.layout,
+        )
+
+
+class RunDomainFragmentInput(_RunDomainFragmentBase):
+    @classmethod
+    def from_fragment(cls, fragment: ResolvedDomainFragment) -> RunDomainFragmentInput:
+        return cls(
+            layout=fragment.layout,
+            axes=tuple(RunDomainAxisView.from_axis(axis) for axis in fragment.axes),
+        )
+
+
+class RunDomainFragmentView(_RunDomainFragmentBase):
     point_count: int = Field(ge=1)
     fragment_fingerprint: str = Field(min_length=1)
 
@@ -111,12 +129,6 @@ class RunDomainFragmentView(_DomainModel):
         if fragment.fingerprint != self.fragment_fingerprint:
             raise ValueError("domain fragment fingerprint does not match")
         return self
-
-    def fragment(self) -> ResolvedDomainFragment:
-        return ResolvedDomainFragment(
-            tuple(axis.axis() for axis in self.axes),
-            layout=self.layout,
-        )
 
     @classmethod
     def from_fragment(cls, fragment: ResolvedDomainFragment) -> RunDomainFragmentView:
@@ -287,7 +299,7 @@ class RunDomainEnqueueCommand(_DomainModel):
     coordinate_mode: Literal["snap", "free"]
     region_scope: OperatorRegionScope
     region_ids: tuple[str, ...] = ()
-    fragment: RunDomainFragmentView
+    fragment: RunDomainFragmentInput
 
     def domain_request(
         self,
@@ -311,7 +323,7 @@ class RunDomainResolveCommand(_DomainModel):
     coordinate_mode: Literal["snap", "free"]
     region_scope: OperatorRegionScope
     region_ids: tuple[str, ...] = ()
-    fragment: RunDomainFragmentView
+    fragment: RunDomainFragmentInput
 
 
 class ResolvedRunDomainView(_DomainModel):
@@ -413,6 +425,7 @@ __all__ = [
     "RunDomainDecisionCommand",
     "RunDomainDecisionView",
     "RunDomainEnqueueCommand",
+    "RunDomainFragmentInput",
     "RunDomainFragmentView",
     "RunDomainProposalAttemptView",
     "RunDomainQueueEntryView",
