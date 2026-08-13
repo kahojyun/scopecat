@@ -2471,7 +2471,7 @@ def test_selected_region_resolution_defers_to_executor_when_region_sample_is_tru
     assert resolved.region_count == 1
 
 
-def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
+def test_adaptive_domain_ledger_survives_runtime_restart(tmp_path: Path) -> None:
     submission = _submission("adaptive-ledger").model_copy(
         update={
             "plan": RunPlanSummary(
@@ -2619,7 +2619,7 @@ def test_closed_point_plan_cannot_succeed_before_full_coverage(tmp_path: Path) -
             )
 
 
-def test_failed_adaptive_run_abandons_pending_operator_points(tmp_path: Path) -> None:
+def test_failed_adaptive_run_abandons_pending_operator_domains(tmp_path: Path) -> None:
     submission = _submission("failed-adaptive-queue").model_copy(
         update={
             "plan": RunPlanSummary(

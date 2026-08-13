@@ -66,35 +66,23 @@ describe("ReviewWorkspace", () => {
     );
   });
 
-  it("keeps strict coordinate matching as a separate selectable mode", async () => {
-    renderWorkspace();
-    await screen.findByText("Compile point");
+  it.each(["exact", "snap"] as const)(
+    "submits %s matching as an explicit coordinate mode",
+    async (mode) => {
+      renderWorkspace();
+      await screen.findByText("Compile point");
 
-    fireEvent.click(screen.getByRole("button", { name: "exact" }));
-    fireEvent.click(screen.getByRole("button", { name: "Compile waveform" }));
+      fireEvent.click(screen.getByRole("button", { name: mode }));
+      fireEvent.click(screen.getByRole("button", { name: "Compile waveform" }));
 
-    await waitFor(() =>
-      expect(compileReviewPoint).toHaveBeenCalledWith(
-        "review-1",
-        expect.objectContaining({ coordinate_mode: "exact" }),
-      ),
-    );
-  });
-
-  it("offers snapping as an explicit alternative to exact and free coordinates", async () => {
-    renderWorkspace();
-    await screen.findByText("Compile point");
-
-    fireEvent.click(screen.getByRole("button", { name: "snap" }));
-    fireEvent.click(screen.getByRole("button", { name: "Compile waveform" }));
-
-    await waitFor(() =>
-      expect(compileReviewPoint).toHaveBeenCalledWith(
-        "review-1",
-        expect.objectContaining({ coordinate_mode: "snap" }),
-      ),
-    );
-  });
+      await waitFor(() =>
+        expect(compileReviewPoint).toHaveBeenCalledWith(
+          "review-1",
+          expect.objectContaining({ coordinate_mode: mode }),
+        ),
+      );
+    },
+  );
 });
 
 function renderWorkspace() {

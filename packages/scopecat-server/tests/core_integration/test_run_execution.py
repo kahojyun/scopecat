@@ -68,7 +68,7 @@ class _CountingProvider:
 
 
 class _TwoDomainOptimizer:
-    id = "tests.two-point-optimizer"
+    id = "tests.two-domain-optimizer"
 
     def __init__(self, project_root: Path) -> None:
         self.project_root = project_root
@@ -89,7 +89,7 @@ class _TwoDomainOptimizer:
             ).measurement_record_count()
         )
         if context.region.completed_point_count >= 5:
-            return OptimizationComplete("two adaptive points completed")
+            return OptimizationComplete("two adaptive domains completed")
         if not context.ledger.entries:
             return DomainProposalAttempt(
                 ResolvedDomainFragment.points(
@@ -124,7 +124,7 @@ class _StopOptimizer:
         context: DomainOptimizerContext,
     ) -> OptimizationComplete:
         del context
-        return OptimizationComplete("operator point completed")
+        return OptimizationComplete("operator domain completed")
 
 
 class _AlwaysStaleOptimizer:
@@ -236,7 +236,7 @@ def test_execution_uses_resolved_catalog_without_redescribing_provider(
     assert provider.connect_calls == 1
 
 
-def test_adaptive_execution_observes_and_runs_optimizer_points_in_one_session(
+def test_adaptive_execution_observes_and_runs_optimizer_domains_in_one_session(
     tmp_path: Path,
 ) -> None:
     config = load_config()
@@ -287,7 +287,7 @@ def test_adaptive_execution_observes_and_runs_optimizer_points_in_one_session(
     )
 
 
-def test_adaptive_execution_compiles_queued_operator_point_before_optimizer(
+def test_adaptive_execution_compiles_queued_operator_domain_before_optimizer(
     tmp_path: Path,
 ) -> None:
     config = load_config()
@@ -332,7 +332,7 @@ def test_adaptive_execution_compiles_queued_operator_point_before_optimizer(
     assert queue.decisions[0].proposal.source == "operator"
     assert queue.decisions[0].accepted_point_start == 3
     assert queue.decisions[0].accepted_point_count == 1
-    assert queue.closed_reason == "operator point completed"
+    assert queue.closed_reason == "operator domain completed"
     assert len(dataset.records) == 4
     assert dataset.records[-1].coordinates["drive_frequency"] == (
         MeasurementScalar.create(dtype="float64", value=5.17, unit="GHz")

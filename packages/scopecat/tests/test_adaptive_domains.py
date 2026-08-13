@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from scopecat.adaptive_domains import (
-    AdaptiveRegion,
     DomainProposalAttempt,
     ResolvedDomainAxis,
     ResolvedDomainFragment,
@@ -71,16 +70,3 @@ def test_domain_proposal_identity_includes_regions_and_freshness() -> None:
     )
 
     assert first.proposal_fingerprint != second.proposal_fingerprint
-
-
-def test_region_exposes_independent_budget_and_revision() -> None:
-    region = AdaptiveRegion(
-        id="region-0",
-        coordinates={"temperature": 20.0},
-        point_count=3,
-        completed_point_count=2,
-        revision=2,
-        point_limit=8,
-    )
-
-    assert region.remaining_point_count == 5

@@ -517,7 +517,10 @@ test("open console reconnects SSE and follows a live notebook run", async ({ dae
   }
 });
 
-test("queues a free off-grid point into a running adaptive compiler", async ({ daemon, page }) => {
+test("queues a free off-grid scan domain into a running adaptive compiler", async ({
+  daemon,
+  page,
+}) => {
   const experiment = await startAdaptiveExperiment(daemon.projectRoot);
   try {
     const runId = await waitForMarker(experiment.runIdReady, experiment);

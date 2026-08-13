@@ -97,7 +97,7 @@ def _sqlite_transaction(
         connection.close()
 
 
-def test_adaptive_point_ledger_persists_idempotent_decisions_and_closure(
+def test_adaptive_domain_ledger_persists_idempotent_decisions_and_closure(
     tmp_path: Path,
 ) -> None:
     runs = _runs(tmp_path)
@@ -237,7 +237,7 @@ def _domain_decision_command(
     )
 
 
-def test_operator_point_queue_is_fifo_bounded_and_resolved_by_decisions(
+def test_operator_domain_queue_is_fifo_bounded_and_resolved_by_decisions(
     tmp_path: Path,
 ) -> None:
     runs = _runs(tmp_path)
