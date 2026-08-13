@@ -17,6 +17,13 @@ from scopecat.control.models import (
     ControlRunState,
     EventPage,
 )
+from scopecat.daemon.points import (
+    RunPointDecisionCommand,
+    RunPointDecisionView,
+    RunPointPlanCloseCommand,
+    RunPointPlanInitializeCommand,
+    RunPointPlanView,
+)
 from scopecat.daemon.reviews import (
     ReviewCompileCommand,
     ReviewCompileReceipt,
@@ -822,6 +829,45 @@ class DaemonClient:
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/coverage/advance",
             command,
             RunCoverageState,
+        )
+
+    def get_run_point_plan(self, run_id: str) -> RunPointPlanView:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan",
+            RunPointPlanView,
+        )
+
+    def initialize_run_point_plan(
+        self,
+        run_id: str,
+        command: RunPointPlanInitializeCommand,
+    ) -> RunPointPlanView:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/initialize",
+            command,
+            RunPointPlanView,
+        )
+
+    def append_run_point_decision(
+        self,
+        run_id: str,
+        command: RunPointDecisionCommand,
+    ) -> RunPointDecisionView:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/decisions",
+            command,
+            RunPointDecisionView,
+        )
+
+    def close_run_point_plan(
+        self,
+        run_id: str,
+        command: RunPointPlanCloseCommand,
+    ) -> RunPointPlanView:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/close",
+            command,
+            RunPointPlanView,
         )
 
     def get_run_inspections(self, run_id: str) -> RunInspectionView:

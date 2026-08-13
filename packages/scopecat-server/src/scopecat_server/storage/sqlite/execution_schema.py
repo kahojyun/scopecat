@@ -6,6 +6,45 @@ CREATE TABLE IF NOT EXISTS execution_coverage (
     completed_point_count INTEGER NOT NULL CHECK (completed_point_count >= 0)
 );
 
+CREATE TABLE IF NOT EXISTS execution_point_plans (
+    run_id TEXT PRIMARY KEY REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,
+    initialize_operation_id TEXT NOT NULL,
+    initial_point_count INTEGER NOT NULL CHECK (initial_point_count >= 0),
+    accepted_point_count INTEGER NOT NULL CHECK (accepted_point_count >= 0),
+    point_limit INTEGER NOT NULL CHECK (point_limit >= 0),
+    plan_closed INTEGER NOT NULL CHECK (plan_closed IN (0, 1)),
+    stop_operation_id TEXT,
+    stop_reason TEXT,
+    CHECK (
+        initial_point_count <= accepted_point_count
+        AND accepted_point_count <= point_limit
+    ),
+    CHECK (
+        (plan_closed = 1 AND stop_operation_id IS NOT NULL AND stop_reason IS NOT NULL)
+        OR (plan_closed = 0 AND stop_operation_id IS NULL AND stop_reason IS NULL)
+    )
+);
+
+CREATE TABLE IF NOT EXISTS execution_point_decisions (
+    run_id TEXT NOT NULL REFERENCES execution_point_plans(run_id) ON DELETE CASCADE,
+    proposal_index INTEGER NOT NULL CHECK (proposal_index >= 0),
+    operation_id TEXT NOT NULL,
+    decision_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, proposal_index),
+    UNIQUE (run_id, operation_id)
+);
+
+CREATE TABLE IF NOT EXISTS execution_run_points (
+    run_id TEXT NOT NULL REFERENCES execution_point_plans(run_id) ON DELETE CASCADE,
+    point_index INTEGER NOT NULL CHECK (point_index >= 0),
+    decision_operation_id TEXT NOT NULL,
+    point_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, point_index),
+    UNIQUE (run_id, decision_operation_id),
+    FOREIGN KEY (run_id, decision_operation_id)
+        REFERENCES execution_point_decisions(run_id, operation_id)
+);
+
 CREATE TABLE IF NOT EXISTS execution_measurement_headers (
     run_id TEXT PRIMARY KEY,
     operation_id TEXT NOT NULL UNIQUE,

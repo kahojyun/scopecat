@@ -17,6 +17,13 @@ from scopecat.control.models import (
 from scopecat.control.models import (
     ExecutorLease as ControlExecutorLease,
 )
+from scopecat.daemon.points import (
+    RunPointDecisionCommand,
+    RunPointDecisionView,
+    RunPointPlanCloseCommand,
+    RunPointPlanInitializeCommand,
+    RunPointPlanView,
+)
 from scopecat.daemon.reviews import RunInspectionAppendCommand, RunInspectionView
 from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
@@ -59,6 +66,7 @@ from scopecat_server.storage.sqlite.execution import (
     SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
     SQLiteRunCoverage,
+    SQLiteRunPointLedger,
 )
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
@@ -163,6 +171,70 @@ class ExecutorService:
             run_id=run_id,
             completed_point_count=completed,
         )
+
+    def run_point_plan(self, run_id: str) -> RunPointPlanView:
+        run = self._control_run(run_id)
+        durable = SQLiteRunPointLedger(self._runs, run_id=run_id).read()
+        if durable is not None:
+            return durable
+        plan = run.admission.plan
+        closed = plan.point_count is not None
+        return RunPointPlanView(
+            run_id=run_id,
+            initial_point_count=plan.initial_point_count,
+            accepted_point_count=plan.initial_point_count,
+            point_limit=plan.point_limit,
+            decision_count=0,
+            plan_closed=closed,
+            stop_reason="static point plan" if closed else None,
+        )
+
+    def initialize_run_point_plan(
+        self,
+        run_id: str,
+        command: RunPointPlanInitializeCommand,
+    ) -> RunPointPlanView:
+        ledger = SQLiteRunPointLedger(self._runs, run_id=run_id)
+        with self.fenced_write(run_id, token=command.lease_id) as connection:
+            run = self._control.get_run_in_transaction(connection, run_id)
+            plan = run.admission.plan
+            return ledger.initialize_in_transaction(
+                connection,
+                operation_id=command.operation_id,
+                initial_point_count=plan.initial_point_count,
+                point_limit=plan.point_limit,
+                plan_closed=plan.point_count is not None,
+            )
+
+    def append_run_point_decision(
+        self,
+        run_id: str,
+        command: RunPointDecisionCommand,
+    ) -> RunPointDecisionView:
+        ledger = SQLiteRunPointLedger(self._runs, run_id=run_id)
+        coverage = SQLiteRunCoverage(self._runs, run_id=run_id)
+        with self.fenced_write(run_id, token=command.lease_id) as connection:
+            completed = coverage.read_in_transaction(connection)
+            return ledger.append_decision_in_transaction(
+                connection,
+                command,
+                completed_point_count=completed,
+            )
+
+    def close_run_point_plan(
+        self,
+        run_id: str,
+        command: RunPointPlanCloseCommand,
+    ) -> RunPointPlanView:
+        ledger = SQLiteRunPointLedger(self._runs, run_id=run_id)
+        coverage = SQLiteRunCoverage(self._runs, run_id=run_id)
+        with self.fenced_write(run_id, token=command.lease_id) as connection:
+            completed = coverage.read_in_transaction(connection)
+            return ledger.close_in_transaction(
+                connection,
+                command,
+                completed_point_count=completed,
+            )
 
     def append_run_inspection(
         self,

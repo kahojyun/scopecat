@@ -8,13 +8,21 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier
+from typing import Literal
 
 import pytest
+from scopecat.daemon.points import (
+    RunPointCandidateView,
+    RunPointDecisionCommand,
+    RunPointPlanCloseCommand,
+)
 from scopecat.kernel.problems import (
     ProblemPhase,
     problem,
 )
+from scopecat.kernel.quantity import Quantity
 from scopecat.measurements import recording_arrow
+from scopecat.measurements.points import PointCandidate
 from scopecat.records.execution_journal import (
     ExecutionTransition,
     execution_transition_content_hash,
@@ -43,6 +51,7 @@ from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.execution import (
     ExecutionJournalConflict,
     SQLiteMeasurementDatasetRepository,
+    SQLiteRunPointLedger,
 )
 from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
@@ -82,6 +91,139 @@ def _sqlite_transaction(
         connection.commit()
     finally:
         connection.close()
+
+
+def test_adaptive_point_ledger_persists_idempotent_decisions_and_closure(
+    tmp_path: Path,
+) -> None:
+    runs = _runs(tmp_path)
+    run_id = "adaptive-ledger-run"
+    with _sqlite_transaction(runs) as connection:
+        connection.execute(
+            """
+            INSERT INTO scheduler_runs(
+                submission_id, run_id, state, updated_at, admission_json
+            )
+            VALUES (?, ?, 'queued', ?, '{}')
+            """,
+            ("adaptive-ledger-submission", run_id, datetime.now(UTC).isoformat()),
+        )
+        ledger = SQLiteRunPointLedger(runs, run_id=run_id)
+        initialized = ledger.initialize_in_transaction(
+            connection,
+            operation_id="initialize",
+            initial_point_count=2,
+            point_limit=5,
+            plan_closed=False,
+        )
+        first_command = _point_decision_command(
+            operation_id="decision-1",
+            based_on_completed_point_count=2,
+        )
+        accepted = ledger.append_decision_in_transaction(
+            connection,
+            first_command,
+            completed_point_count=2,
+        )
+        retry = ledger.append_decision_in_transaction(
+            connection,
+            first_command,
+            completed_point_count=2,
+        )
+        second = ledger.append_decision_in_transaction(
+            connection,
+            _point_decision_command(
+                operation_id="decision-2",
+                based_on_completed_point_count=3,
+            ),
+            completed_point_count=3,
+        )
+        rejected = ledger.append_decision_in_transaction(
+            connection,
+            _point_decision_command(
+                operation_id="decision-3",
+                based_on_completed_point_count=1,
+                outcome="rejected",
+                reason="stale optimizer state",
+            ),
+            completed_point_count=4,
+        )
+        with pytest.raises(ExecutionJournalConflict, match="stale completed"):
+            ledger.append_decision_in_transaction(
+                connection,
+                _point_decision_command(
+                    operation_id="stale-accepted",
+                    based_on_completed_point_count=1,
+                ),
+                completed_point_count=4,
+            )
+        close = RunPointPlanCloseCommand(
+            lease_id="lease-1",
+            operation_id="close",
+            based_on_completed_point_count=4,
+            reason="optimizer converged",
+        )
+        closed = ledger.close_in_transaction(
+            connection,
+            close,
+            completed_point_count=4,
+        )
+        close_retry = ledger.close_in_transaction(
+            connection,
+            close,
+            completed_point_count=4,
+        )
+
+    assert initialized.accepted_point_count == 2
+    assert accepted == retry
+    assert accepted.accepted_point is not None
+    assert accepted.accepted_point.point_index == 2
+    assert second.accepted_point is not None
+    assert second.accepted_point.point_index == 3
+    assert rejected.outcome == "rejected"
+    assert closed == close_retry
+    assert closed.accepted_point_count == 4
+    assert closed.decision_count == 3
+    assert closed.plan_closed
+    assert closed.stop_reason == "optimizer converged"
+    assert SQLiteRunPointLedger(runs, run_id=run_id).read() == closed
+    with runs.sqlite.read_transaction() as connection:
+        row = connection.execute(
+            """
+            SELECT COUNT(*) AS point_count
+            FROM execution_run_points
+            WHERE run_id = ?
+            """,
+            (run_id,),
+        ).fetchone()
+    assert row is not None
+    assert row["point_count"] == 2
+
+
+def _point_decision_command(
+    *,
+    operation_id: str,
+    based_on_completed_point_count: int,
+    outcome: Literal["accepted", "rejected"] = "accepted",
+    reason: str | None = None,
+) -> RunPointDecisionCommand:
+    candidate = PointCandidate(
+        {"frequency": Quantity(5.2, "GHz")},
+        source="optimizer",
+        based_on_completed_point_count=based_on_completed_point_count,
+    )
+    return RunPointDecisionCommand(
+        lease_id="lease-1",
+        operation_id=operation_id,
+        candidate=RunPointCandidateView(
+            coordinates={"frequency": Quantity(5.2, "GHz")},
+            proposal_fingerprint=candidate.proposal_fingerprint,
+            source="optimizer",
+            based_on_completed_point_count=based_on_completed_point_count,
+        ),
+        outcome=outcome,
+        reason=reason,
+    )
 
 
 def _header(

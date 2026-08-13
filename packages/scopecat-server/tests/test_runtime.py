@@ -30,6 +30,12 @@ from scopecat.control.models import (
     RunPlanSummary,
     RunResourceRequirement,
 )
+from scopecat.daemon.points import (
+    RunPointCandidateView,
+    RunPointDecisionCommand,
+    RunPointPlanCloseCommand,
+    RunPointPlanInitializeCommand,
+)
 from scopecat.daemon.views import (
     ActiveConfigView,
     ConfigActivationHistoryView,
@@ -79,6 +85,7 @@ from scopecat.daemon.wire import (
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.measurements.points import PointCandidate
 from scopecat.measurements.recording_arrow import (
     decode_measurement_append,
     encode_measurement_append,
@@ -2235,6 +2242,91 @@ def test_open_point_plan_can_succeed_below_its_limit_and_exposes_coverage(
     assert view.control.admission.plan.point_count is None
     assert view.control.admission.plan.initial_point_count == 1
     assert view.control.admission.plan.point_limit == 3
+
+
+def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
+    submission = _submission("adaptive-ledger").model_copy(
+        update={
+            "plan": RunPlanSummary(
+                experiment_id="scratch",
+                experiment_kind="scratch",
+                point_count=None,
+                initial_point_count=1,
+                point_limit=3,
+                run_resource_requirements=(
+                    RunResourceRequirement(id="source-0", kind="instrument"),
+                ),
+            )
+        }
+    )
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(submission)
+        lease = runtime.application.executor.start_executor(
+            admission.run_id,
+            ExecutorStartRequest(executor_id="adaptive-ledger-test"),
+        )
+        initialized = runtime.application.executor.initialize_run_point_plan(
+            admission.run_id,
+            RunPointPlanInitializeCommand(
+                lease_id=lease.lease_id,
+                operation_id="initialize",
+            ),
+        )
+        runtime.application.executor.advance_run_coverage(
+            admission.run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=lease.lease_id,
+                start_index=0,
+                point_count=1,
+            ),
+        )
+        candidate = PointCandidate(
+            {"frequency": Quantity(5.2, "GHz")},
+            source="optimizer",
+            based_on_completed_point_count=1,
+        )
+        decision = runtime.application.executor.append_run_point_decision(
+            admission.run_id,
+            RunPointDecisionCommand(
+                lease_id=lease.lease_id,
+                operation_id="decision-1",
+                candidate=RunPointCandidateView(
+                    coordinates={"frequency": Quantity(5.2, "GHz")},
+                    proposal_fingerprint=candidate.proposal_fingerprint,
+                    source="optimizer",
+                    based_on_completed_point_count=1,
+                ),
+                outcome="accepted",
+            ),
+        )
+        runtime.application.executor.advance_run_coverage(
+            admission.run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=lease.lease_id,
+                start_index=1,
+                point_count=1,
+            ),
+        )
+        closed = runtime.application.executor.close_run_point_plan(
+            admission.run_id,
+            RunPointPlanCloseCommand(
+                lease_id=lease.lease_id,
+                operation_id="close",
+                based_on_completed_point_count=2,
+                reason="optimizer converged",
+            ),
+        )
+
+        assert initialized.accepted_point_count == 1
+        assert decision.accepted_point is not None
+        assert decision.accepted_point.point_index == 1
+        assert closed.accepted_point_count == 2
+        assert closed.plan_closed
+
+    with LocalDaemonRuntime(tmp_path) as restarted:
+        restored = restarted.application.executor.run_point_plan(admission.run_id)
+
+    assert restored == closed
 
 
 def test_closed_point_plan_cannot_succeed_before_full_coverage(tmp_path: Path) -> None:

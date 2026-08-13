@@ -13,6 +13,13 @@ from typing import cast
 
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
+from scopecat.daemon.points import (
+    AcceptedRunPointView,
+    RunPointDecisionCommand,
+    RunPointDecisionView,
+    RunPointPlanCloseCommand,
+    RunPointPlanView,
+)
 from scopecat.records.execution_journal import (
     ExecutionTransition,
     execution_transition_content_hash,
@@ -100,6 +107,266 @@ class SQLiteRunCoverage:
             (self._run_id, end_index),
         )
         return end_index, True
+
+
+class SQLiteRunPointLedger:
+    """Persist dynamic point decisions and the final plan closure."""
+
+    def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
+        self._runs = runs
+        self._run_id = run_id
+
+    def read(self) -> RunPointPlanView | None:
+        with self._runs.sqlite.read_transaction() as connection:
+            return self.read_in_transaction(connection)
+
+    def read_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+    ) -> RunPointPlanView | None:
+        row = _one(
+            connection.execute(
+                """
+                SELECT initial_point_count, accepted_point_count, point_limit,
+                       plan_closed, stop_reason,
+                       (
+                           SELECT COUNT(*)
+                           FROM execution_point_decisions AS decisions
+                           WHERE decisions.run_id = execution_point_plans.run_id
+                       ) AS decision_count
+                FROM execution_point_plans
+                WHERE run_id = ?
+                """,
+                (self._run_id,),
+            )
+        )
+        if row is None:
+            return None
+        return RunPointPlanView(
+            run_id=self._run_id,
+            initial_point_count=_integer(row, "initial_point_count"),
+            accepted_point_count=_integer(row, "accepted_point_count"),
+            point_limit=_integer(row, "point_limit"),
+            decision_count=_integer(row, "decision_count"),
+            plan_closed=bool(_integer(row, "plan_closed")),
+            stop_reason=(
+                None if row["stop_reason"] is None else _text(row, "stop_reason")
+            ),
+        )
+
+    def initialize_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        operation_id: str,
+        initial_point_count: int,
+        point_limit: int,
+        plan_closed: bool,
+    ) -> RunPointPlanView:
+        existing = _one(
+            connection.execute(
+                """
+                SELECT initialize_operation_id, initial_point_count, point_limit,
+                       plan_closed
+                FROM execution_point_plans
+                WHERE run_id = ?
+                """,
+                (self._run_id,),
+            )
+        )
+        if existing is not None:
+            if (
+                _text(existing, "initialize_operation_id") != operation_id
+                or _integer(existing, "initial_point_count") != initial_point_count
+                or _integer(existing, "point_limit") != point_limit
+                or bool(_integer(existing, "plan_closed")) != plan_closed
+            ):
+                raise ExecutionJournalConflict(
+                    "point-plan initialization conflicts with durable state"
+                )
+            view = self.read_in_transaction(connection)
+            assert view is not None
+            return view
+        stop_operation_id = f"{operation_id}.static" if plan_closed else None
+        stop_reason = "static point plan" if plan_closed else None
+        connection.execute(
+            """
+            INSERT INTO execution_point_plans(
+                run_id, initialize_operation_id, initial_point_count,
+                accepted_point_count, point_limit, plan_closed,
+                stop_operation_id, stop_reason
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                self._run_id,
+                operation_id,
+                initial_point_count,
+                initial_point_count,
+                point_limit,
+                int(plan_closed),
+                stop_operation_id,
+                stop_reason,
+            ),
+        )
+        view = self.read_in_transaction(connection)
+        assert view is not None
+        return view
+
+    def append_decision_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        command: RunPointDecisionCommand,
+        *,
+        completed_point_count: int,
+    ) -> RunPointDecisionView:
+        existing = _one(
+            connection.execute(
+                """
+                SELECT run_id, decision_json
+                FROM execution_point_decisions
+                WHERE run_id = ? AND operation_id = ?
+                """,
+                (self._run_id, command.operation_id),
+            )
+        )
+        if existing is not None:
+            decision = RunPointDecisionView.model_validate_json(
+                _text(existing, "decision_json")
+            )
+            if (
+                decision.candidate != command.candidate
+                or decision.outcome != command.outcome
+                or decision.reason != command.reason
+            ):
+                raise ExecutionJournalConflict(
+                    "point decision operation conflicts with durable state"
+                )
+            return decision
+        plan = self.read_in_transaction(connection)
+        if plan is None:
+            raise ExecutionJournalConflict("point plan is not initialized")
+        if plan.plan_closed:
+            raise ExecutionJournalConflict("point plan is already closed")
+        based_on = command.candidate.based_on_completed_point_count
+        if (
+            command.outcome == "accepted"
+            and based_on is not None
+            and based_on != completed_point_count
+        ):
+            raise ExecutionJournalConflict(
+                "point decision is based on stale completed coverage"
+            )
+        accepted_point = None
+        if command.outcome == "accepted":
+            if plan.accepted_point_count >= plan.point_limit:
+                raise ExecutionJournalConflict(
+                    "point decision exceeds the point budget"
+                )
+            accepted_point = AcceptedRunPointView(
+                point_index=plan.accepted_point_count,
+                coordinates=command.candidate.coordinates,
+                proposal_fingerprint=command.candidate.proposal_fingerprint,
+                source=command.candidate.source,
+            )
+        decision = RunPointDecisionView(
+            operation_id=command.operation_id,
+            proposal_index=plan.decision_count,
+            occurred_at=datetime.now(UTC),
+            candidate=command.candidate,
+            outcome=command.outcome,
+            accepted_point=accepted_point,
+            reason=command.reason,
+        )
+        connection.execute(
+            """
+            INSERT INTO execution_point_decisions(
+                run_id, proposal_index, operation_id, decision_json
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                self._run_id,
+                decision.proposal_index,
+                decision.operation_id,
+                decision.model_dump_json(),
+            ),
+        )
+        if accepted_point is not None:
+            connection.execute(
+                """
+                INSERT INTO execution_run_points(
+                    run_id, point_index, decision_operation_id, point_json
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    self._run_id,
+                    accepted_point.point_index,
+                    decision.operation_id,
+                    accepted_point.model_dump_json(),
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE execution_point_plans
+                SET accepted_point_count = accepted_point_count + 1
+                WHERE run_id = ?
+                """,
+                (self._run_id,),
+            )
+        return decision
+
+    def close_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        command: RunPointPlanCloseCommand,
+        *,
+        completed_point_count: int,
+    ) -> RunPointPlanView:
+        row = _one(
+            connection.execute(
+                """
+                SELECT stop_operation_id, stop_reason
+                FROM execution_point_plans
+                WHERE run_id = ?
+                """,
+                (self._run_id,),
+            )
+        )
+        if row is None:
+            raise ExecutionJournalConflict("point plan is not initialized")
+        if row["stop_operation_id"] is not None:
+            if (
+                _text(row, "stop_operation_id") != command.operation_id
+                or _text(row, "stop_reason") != command.reason
+            ):
+                raise ExecutionJournalConflict(
+                    "point-plan closure conflicts with durable state"
+                )
+            view = self.read_in_transaction(connection)
+            assert view is not None
+            return view
+        plan = self.read_in_transaction(connection)
+        assert plan is not None
+        if (
+            command.based_on_completed_point_count != completed_point_count
+            or completed_point_count != plan.accepted_point_count
+        ):
+            raise ExecutionJournalConflict(
+                "point plan can close only at its durable accepted prefix"
+            )
+        connection.execute(
+            """
+            UPDATE execution_point_plans
+            SET plan_closed = 1, stop_operation_id = ?, stop_reason = ?
+            WHERE run_id = ?
+            """,
+            (command.operation_id, command.reason, self._run_id),
+        )
+        view = self.read_in_transaction(connection)
+        assert view is not None
+        return view
 
 
 class SQLiteExecutionJournal:

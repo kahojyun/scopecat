@@ -21,6 +21,13 @@ from scopecat.daemon.endpoint import (
     DAEMON_SHUTDOWN_PATH,
     DAEMON_SHUTDOWN_TOKEN_HEADER,
 )
+from scopecat.daemon.points import (
+    RunPointDecisionCommand,
+    RunPointDecisionView,
+    RunPointPlanCloseCommand,
+    RunPointPlanInitializeCommand,
+    RunPointPlanView,
+)
 from scopecat.daemon.reviews import (
     ReviewCompileCommand,
     ReviewCompileReceipt,
@@ -729,6 +736,31 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         command: RunCoverageAdvanceCommand,
     ) -> RunCoverageState:
         return application.executor.advance_run_coverage(run_id, command)
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan")
+    def get_run_point_plan(run_id: str) -> RunPointPlanView:
+        return application.executor.run_point_plan(run_id)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/initialize")
+    def initialize_run_point_plan(
+        run_id: str,
+        command: RunPointPlanInitializeCommand,
+    ) -> RunPointPlanView:
+        return application.executor.initialize_run_point_plan(run_id, command)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/decisions")
+    def append_run_point_decision(
+        run_id: str,
+        command: RunPointDecisionCommand,
+    ) -> RunPointDecisionView:
+        return application.executor.append_run_point_decision(run_id, command)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/close")
+    def close_run_point_plan(
+        run_id: str,
+        command: RunPointPlanCloseCommand,
+    ) -> RunPointPlanView:
+        return application.executor.close_run_point_plan(run_id, command)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/inspections")
     def get_run_inspections(run_id: str) -> RunInspectionView:

@@ -128,6 +128,10 @@ def _execute_run(
     dataset_header, header_failure, cancelled_without_effects = (
         _prepare_execution_start(program, session)
     )
+    _initialize_point_plan(
+        point_state,
+        enabled=header_failure is None and not cancelled_without_effects,
+    )
     recorded_measurement_count = 0
     completed_coverage_count = 0
     record_content_hashes: list[str] = []
@@ -358,6 +362,11 @@ def _execute_run(
     if committed_outcome.result != "succeeded":
         _raise_terminal_run_error(run_id, committed_outcome)
     return manifest
+
+
+def _initialize_point_plan(state: _ExecutionPointState, *, enabled: bool) -> None:
+    if enabled and state.proposal_writer is not None:
+        state.proposal_writer.initialize()
 
 
 def _advance_unrecorded_coverage(
@@ -634,7 +643,18 @@ def _execution_coverage(
             )
         )
         if isinstance(proposal, OptimizationComplete):
+            if state.proposal_writer is not None:
+                state.proposal_writer.close(
+                    completed_point_count=len(state.observations),
+                    reason=proposal.reason,
+                )
             break
+        if proposal.based_on_completed_point_count is None:
+            proposal = PointCandidate(
+                coordinates=proposal.coordinates,
+                source=proposal.source,
+                based_on_completed_point_count=len(state.observations),
+            )
         rejection = _proposal_rejection(proposal, state)
         if rejection is not None:
             ledger = ledger.reject(proposal, reason=rejection)
@@ -658,6 +678,12 @@ def _execution_coverage(
             state.proposal_writer.append(ledger.entries[-1], accepted.inspection)
         yield from accepted.operations
         durable_progress()
+    else:
+        if state.proposal_writer is not None:
+            state.proposal_writer.close(
+                completed_point_count=len(state.observations),
+                reason="point budget exhausted",
+            )
 
 
 def _proposal_rejection(

@@ -13,6 +13,14 @@ import scopecat.daemon.execution as daemon_execution
 from scopecat.control.models import RunPlanSummary
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.execution import daemon_execution_session
+from scopecat.daemon.points import (
+    AcceptedRunPointView,
+    RunPointDecisionCommand,
+    RunPointDecisionView,
+    RunPointPlanCloseCommand,
+    RunPointPlanInitializeCommand,
+    RunPointPlanView,
+)
 from scopecat.daemon.reviews import (
     RunInspectionAppendCommand,
     RunInspectionView,
@@ -90,9 +98,9 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
         plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
-            point_count=1,
+            point_count=None,
             initial_point_count=1,
-            point_limit=1,
+            point_limit=3,
         ),
     )
     admission = RunAdmission(
@@ -156,6 +164,52 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                 RunCoverageState(
                     run_id="run-1",
                     completed_point_count=command.start_index + command.point_count,
+                )
+            )
+        if path.endswith("/point-plan/initialize"):
+            command = RunPointPlanInitializeCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            return _model(
+                RunPointPlanView(
+                    run_id="run-1",
+                    initial_point_count=1,
+                    accepted_point_count=1,
+                    point_limit=3,
+                    decision_count=0,
+                    plan_closed=False,
+                )
+            )
+        if path.endswith("/point-plan/decisions"):
+            command = RunPointDecisionCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            accepted_point = AcceptedRunPointView(
+                point_index=1,
+                coordinates=command.candidate.coordinates,
+                proposal_fingerprint=command.candidate.proposal_fingerprint,
+                source=command.candidate.source,
+            )
+            return _model(
+                RunPointDecisionView(
+                    operation_id=command.operation_id,
+                    proposal_index=0,
+                    occurred_at=_NOW,
+                    candidate=command.candidate,
+                    outcome="accepted",
+                    accepted_point=accepted_point,
+                )
+            )
+        if path.endswith("/point-plan/close"):
+            command = RunPointPlanCloseCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            return _model(
+                RunPointPlanView(
+                    run_id="run-1",
+                    initial_point_count=1,
+                    accepted_point_count=2,
+                    point_limit=3,
+                    decision_count=1,
+                    plan_closed=True,
+                    stop_reason=command.reason,
                 )
             )
         if path.endswith("/inspections"):
@@ -256,6 +310,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     assert instruments.baseline_state == (
         InstrumentStateSnapshot(instrument_id="source-0"),
     )
+    point_proposals.initialize()
 
     batch = RunHardwareBatch(
         operation_id="hardware.batch-1",
@@ -297,6 +352,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
         ),
         None,
     )
+    point_proposals.close(completed_point_count=2, reason="test complete")
     assert (
         instruments.finish(operation_id="hardware.finish", failed=False).operation_id
         == "hardware.finish"

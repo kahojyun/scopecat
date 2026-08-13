@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+from contextlib import suppress
 from threading import Lock
 from time import monotonic
 from typing import Protocol, cast
@@ -11,6 +11,13 @@ from typing import Protocol, cast
 from pydantic import BaseModel, JsonValue, TypeAdapter
 
 from scopecat.daemon.client import DaemonClient
+from scopecat.daemon.points import (
+    RunPointCandidateView,
+    RunPointCoordinateValue,
+    RunPointDecisionCommand,
+    RunPointPlanCloseCommand,
+    RunPointPlanInitializeCommand,
+)
 from scopecat.daemon.reviews import (
     ReviewCoordinateValue,
     ReviewInspectionView,
@@ -39,6 +46,7 @@ from scopecat.daemon.wire import (
 )
 from scopecat.execution.program import RunPointInspection
 from scopecat.execution.services import ExecutionSession
+from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.problems import Problem
 from scopecat.measurements.points import AcceptedRunPoint, PointCandidate
 from scopecat.optimization import PointProposalDecision
@@ -71,6 +79,7 @@ _MEASUREMENT_TRANSPORT_VALUE_BYTE_LIMIT = 8 * 1024 * 1024
 _MEASUREMENT_TRANSPORT_LATENCY_SECONDS = 0.1
 _COVERAGE_TRANSPORT_POINT_LIMIT = 256
 _COVERAGE_TRANSPORT_LATENCY_SECONDS = 0.1
+_POINT_PLAN_INITIALIZE_OPERATION_ID = "point-plan.initialize.v1"
 
 
 class ExecutorLeaseLostError(RuntimeError):
@@ -304,33 +313,78 @@ class _DaemonRunCoverage:
 
 
 class _DaemonRunPointProposals:
-    """Publish bounded compiled-point facts while the executor owns the run."""
+    """Persist point decisions and publish bounded transient inspections."""
 
     def __init__(self, authority: _LeaseAuthority) -> None:
         self._authority = authority
+
+    def initialize(self) -> None:
+        self._authority.client.initialize_run_point_plan(
+            self._authority.run_id,
+            RunPointPlanInitializeCommand(
+                lease_id=self._authority.fence(),
+                operation_id=_POINT_PLAN_INITIALIZE_OPERATION_ID,
+            ),
+        )
 
     def append(
         self,
         decision: PointProposalDecision,
         inspection: RunPointInspection | None,
     ) -> None:
-        self._authority.client.append_run_inspection(
+        durable = self._authority.client.append_run_point_decision(
             self._authority.run_id,
-            RunInspectionAppendCommand(
+            RunPointDecisionCommand(
                 lease_id=self._authority.fence(),
-                event=RunPointInspectionEvent(
-                    proposal_index=decision.proposal_index,
-                    occurred_at=datetime.now(UTC),
-                    candidate=_review_point(decision.candidate),
-                    outcome=decision.outcome,
-                    accepted_point=(
-                        None
-                        if decision.accepted_point is None
-                        else _review_point(decision.accepted_point)
+                operation_id=_point_decision_operation_id(decision),
+                candidate=_point_candidate(decision.candidate),
+                outcome=decision.outcome,
+                reason=decision.reason,
+            ),
+        )
+        if durable.proposal_index != decision.proposal_index:
+            raise ValueError("daemon assigned a different proposal index")
+        if durable.outcome != decision.outcome:
+            raise ValueError("daemon recorded a different proposal outcome")
+        if decision.accepted_point is not None:
+            accepted = durable.accepted_point
+            if (
+                accepted is None
+                or accepted.point_index != decision.accepted_point.ordinal
+            ):
+                raise ValueError("daemon assigned a different accepted point ordinal")
+        with suppress(Exception):
+            self._authority.client.append_run_inspection(
+                self._authority.run_id,
+                RunInspectionAppendCommand(
+                    lease_id=self._authority.fence(),
+                    event=RunPointInspectionEvent(
+                        proposal_index=durable.proposal_index,
+                        occurred_at=durable.occurred_at,
+                        candidate=_review_point(decision.candidate),
+                        outcome=durable.outcome,
+                        accepted_point=(
+                            None
+                            if decision.accepted_point is None
+                            else _review_point(decision.accepted_point)
+                        ),
+                        reason=durable.reason,
+                        inspections=_review_inspections(inspection),
                     ),
-                    reason=decision.reason,
-                    inspections=_review_inspections(inspection),
                 ),
+            )
+
+    def close(self, *, completed_point_count: int, reason: str) -> None:
+        self._authority.client.close_run_point_plan(
+            self._authority.run_id,
+            RunPointPlanCloseCommand(
+                lease_id=self._authority.fence(),
+                operation_id=_point_plan_close_operation_id(
+                    completed_point_count=completed_point_count,
+                    reason=reason,
+                ),
+                based_on_completed_point_count=completed_point_count,
+                reason=reason,
             ),
         )
 
@@ -530,6 +584,48 @@ def _review_point(point: PointCandidate | AcceptedRunPoint) -> ReviewPointView:
         ),
         proposal_fingerprint=point.proposal_fingerprint,
         source=point.source,
+    )
+
+
+def _point_candidate(candidate: PointCandidate) -> RunPointCandidateView:
+    return RunPointCandidateView(
+        coordinates=cast(
+            "dict[str, RunPointCoordinateValue]",
+            dict(candidate.coordinates),
+        ),
+        proposal_fingerprint=candidate.proposal_fingerprint,
+        source=candidate.source,
+        based_on_completed_point_count=candidate.based_on_completed_point_count,
+    )
+
+
+def _point_decision_operation_id(decision: PointProposalDecision) -> str:
+    return "point-decision." + stable_content_hash(
+        content_fingerprint(
+            {
+                "schema": "scopecat.point_decision_operation.v1",
+                "proposal_index": decision.proposal_index,
+                "proposal_fingerprint": decision.candidate.proposal_fingerprint,
+                "outcome": decision.outcome,
+                "reason": decision.reason,
+            }
+        )
+    )
+
+
+def _point_plan_close_operation_id(
+    *,
+    completed_point_count: int,
+    reason: str,
+) -> str:
+    return "point-plan.close." + stable_content_hash(
+        content_fingerprint(
+            {
+                "schema": "scopecat.point_plan_close_operation.v1",
+                "completed_point_count": completed_point_count,
+                "reason": reason,
+            }
+        )
     )
 
 

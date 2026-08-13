@@ -32,13 +32,17 @@ class RunCoverageWriter(Protocol):
 
 
 class RunPointProposalWriter(Protocol):
-    """Publish transient optimizer decisions for live operator inspection."""
+    """Commit point-plan facts and publish bounded live inspections."""
+
+    def initialize(self) -> None: ...
 
     def append(
         self,
         decision: PointProposalDecision,
         inspection: RunPointInspection | None,
     ) -> None: ...
+
+    def close(self, *, completed_point_count: int, reason: str) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
