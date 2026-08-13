@@ -201,7 +201,9 @@ restricted host names. Remote or multi-user operation requires a separate
 authenticated security boundary.
 
 The single daemon, SQLite writer, and local object store define the current
-single-lab scalability boundary. Large content remains in binary objects;
-execution commits at batch or checkpoint granularity; interactive reads use
-bounded pages and summaries. The
+single-lab scalability boundary. Durable large content remains in binary
+objects. Opaque command payloads use an operation-scoped in-memory spool and
+are released after completion or owner termination, so transient waveform
+transport does not become permanent run history. Execution commits at batch or
+checkpoint granularity; interactive reads use bounded pages and summaries. The
 [scalability benchmarks](../scalability.md) measure this boundary.

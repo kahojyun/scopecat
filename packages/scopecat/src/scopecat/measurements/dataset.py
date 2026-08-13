@@ -54,6 +54,7 @@ from scopecat.records.measurement import (
     MeasurementUnavailableReason,
     MeasurementValue,
     MeasurementVariable,
+    measurement_point_axis_values,
 )
 
 if TYPE_CHECKING:
@@ -1172,6 +1173,7 @@ class Dataset:
 
         axis_coordinates: dict[str, object] = {}
         for axis_index, axis in enumerate(domain.axes):
+            axis_values = measurement_point_axis_values(axis)
             variable = self.variables.get(axis.id)
             if variable is not None:
                 if variable.role != "coordinate" or variable.dims != ("point",):
@@ -1199,10 +1201,10 @@ class Dataset:
                         f"product-grid axis {axis.id!r} conflicts with an Xarray "
                         "variable"
                     )
-                attrs = _product_axis_attrs(axis.values)
+                attrs = _product_axis_attrs(axis_values)
             axis_coordinates[axis.id] = (
                 (axis.id,),
-                _product_axis_values(axis.values, variable=variable),
+                _product_axis_values(axis_values, variable=variable),
                 attrs,
             )
 
@@ -2246,7 +2248,10 @@ def _product_axis_flat_values(
     variable: Variable,
 ) -> np.ndarray:
     axis = domain.axes[axis_index]
-    values = _product_axis_values(axis.values, variable=variable)
+    values = _product_axis_values(
+        measurement_point_axis_values(axis),
+        variable=variable,
+    )
     repeated = np.repeat(
         values,
         math.prod(item.size for item in domain.axes[axis_index + 1 :]),

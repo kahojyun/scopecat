@@ -130,6 +130,14 @@ def _with_max_list_entries(
     )
 
 
+def test_quantum_compiler_uses_a_one_point_initial_probe() -> None:
+    config = bootstrap_config()
+    provider = ReferenceLabProvider(seed=7)
+    compiler = QuantumLabCompiler(target=_configured_target(config, provider))
+
+    assert compiler.initial_batch_size(1000) == 1
+
+
 def _logical_measurement_values(
     tmp_path: Path,
     config: ConfigProfileSnapshot,
@@ -315,15 +323,16 @@ def test_reviewed_los_prepare_once_without_fragmenting_quantum_batches() -> None
     )
 
     plan = compile_run_program(composition.system, bound=bound)
+    coverage = tuple(plan.coverage)
 
     state_effects = tuple(
         operation
-        for covered in plan.coverage
+        for covered in coverage
         if isinstance(covered, RunCoverageEffect)
         and isinstance(operation := covered.operation, ApplyStateOperation)
     )
     jobs = tuple(
-        operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
+        operation for operation in coverage if isinstance(operation, RunDomainJob)
     )
     assert all(type(job.execution.runtime) is ListModeDomainRuntime for job in jobs)
     assert [effect.instrument_id for effect in state_effects] == [
@@ -333,7 +342,7 @@ def test_reviewed_los_prepare_once_without_fragmenting_quantum_batches() -> None
         "drive-lo-b",
         "readout-lo",
     ]
-    assert [job.point_ordinals for job in jobs] == [tuple(range(15))]
+    assert [job.point_ordinals for job in jobs] == [(0,), tuple(range(1, 15))]
     assert plan.domain_target_requirement is not None
     assert "drive-lo-a" not in plan.domain_target_requirement.instrument_ids
     assert "drive-lo-b" not in plan.domain_target_requirement.instrument_ids
@@ -412,8 +421,9 @@ def test_guard_reset_invalidates_state_required_by_quantum_domain() -> None:
         build_config_environment(config),
     )
 
+    plan = compile_run_program(composition.system, bound=bound)
     with pytest.raises(CheckFailed) as captured:
-        compile_run_program(composition.system, bound=bound)
+        tuple(plan.coverage)
 
     assert {problem.code for problem in captured.value.problems} == {
         "domain_state_requirement_missing"
@@ -447,15 +457,16 @@ def test_fixed_if_lo_sweep_bounds_real_time_batches_with_host_effects() -> None:
     )
 
     plan = compile_run_program(composition.system, bound=bound)
+    coverage = tuple(plan.coverage)
 
     state_effects = tuple(
         operation
-        for covered in plan.coverage
+        for covered in coverage
         if isinstance(covered, RunCoverageEffect)
         and isinstance(operation := covered.operation, ApplyStateOperation)
     )
     jobs = tuple(
-        operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
+        operation for operation in coverage if isinstance(operation, RunDomainJob)
     )
     assert {effect.instrument_id for effect in state_effects} == {
         "drive-awg",
@@ -474,6 +485,7 @@ def test_fixed_if_lo_sweep_bounds_real_time_batches_with_host_effects() -> None:
     assert {requirement.id for requirement in plan.resource_requirements} == {
         "drive-awg",
         "drive-lo-a",
+        "drive-lo-b",
         "readout-awg",
         "readout-digitizer",
         "readout-lo",

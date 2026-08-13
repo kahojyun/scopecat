@@ -6,11 +6,14 @@ import cmath
 import math
 from collections.abc import Sequence
 
+import numpy as np
+from numpy.typing import NDArray
+
 INTEGRATED_IQ_SEMANTICS_ID = "reference_lab.integrated_iq.ssb_midpoint.v1"
 
 
 def integrate_rectangular_iq(
-    trace: Sequence[float],
+    trace: Sequence[float] | NDArray[np.float64],
     *,
     start_sample: int,
     sample_count: int,

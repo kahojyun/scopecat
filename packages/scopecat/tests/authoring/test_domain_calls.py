@@ -21,7 +21,7 @@ from scopecat.planning.domain_bridge import (
     make_domain_call_view,
 )
 from scopecat.planning.domain_results import domain_result_product_use_ids
-from scopecat.planning.point_materialization import materialize_bound_points
+from scopecat.planning.point_materialization import prepare_bound_points
 from scopecat.program.domain import DomainCall, domain_execution, domain_program
 from scopecat.program.expressions import PointColumnScalarExpr
 from scopecat.program.products import (
@@ -343,7 +343,7 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
         LiteralTableSource,
     )
 
-    points = materialize_bound_points(bound)
+    points = prepare_bound_points(bound)
     call = make_domain_call_view(
         bound,
         execution.id,

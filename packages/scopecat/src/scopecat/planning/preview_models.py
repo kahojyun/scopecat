@@ -75,7 +75,9 @@ class ExperimentPreview:
     experiment_kind: str
     schema: MeasurementDatasetSchema | None
     coordinate_ids: tuple[str, ...]
+    total_point_count: int
     points: tuple[ExperimentPreviewPoint, ...]
+    points_truncated: bool
     records: tuple[ExperimentPreviewRecord, ...]
     computes: tuple[ExperimentPreviewCompute, ...] = ()
     bindings: tuple[ExperimentPreviewBinding, ...] = ()
@@ -83,7 +85,7 @@ class ExperimentPreview:
 
     @property
     def point_count(self) -> int:
-        return len(self.points)
+        return self.total_point_count
 
     @property
     def primary_observables(self) -> tuple[str, ...]:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -43,6 +43,15 @@ from scopecat.records.measurement import (
     MeasurementValue,
 )
 
+type StaticValueCandidateSource = Callable[
+    [Sequence[RunPoint]],
+    tuple[ValueRecordCandidate, ...],
+]
+
+
+def _no_static_values(_points: Sequence[RunPoint]) -> tuple[ValueRecordCandidate, ...]:
+    return ()
+
 
 @dataclass(frozen=True, slots=True, init=False)
 class MeasurementProjection:
@@ -50,7 +59,7 @@ class MeasurementProjection:
 
     catalog: MeasurementValueCatalog = field(repr=False)
     _records: tuple[DatasetRecordPlan, ...] = field(repr=False)
-    _static_value_candidates: tuple[ValueRecordCandidate, ...] = field(
+    _static_value_source: StaticValueCandidateSource = field(
         repr=False,
         compare=False,
     )
@@ -65,15 +74,15 @@ class MeasurementProjection:
         catalog: MeasurementValueCatalog,
         records: tuple[DatasetRecordPlan, ...],
         *,
-        static_value_candidates: Sequence[ValueRecordCandidate] = (),
+        static_value_source: StaticValueCandidateSource = _no_static_values,
         result_fields: Sequence[ExperimentResultField] = (),
     ) -> None:
         object.__setattr__(self, "catalog", catalog)
         object.__setattr__(self, "_records", records)
         object.__setattr__(
             self,
-            "_static_value_candidates",
-            tuple(static_value_candidates),
+            "_static_value_source",
+            static_value_source,
         )
         object.__setattr__(self, "_result_fields", tuple(result_fields))
         object.__setattr__(
@@ -100,9 +109,13 @@ class MeasurementProjection:
             )
         )
 
-    @property
-    def static_value_candidates(self) -> tuple[ValueRecordCandidate, ...]:
-        return self._static_value_candidates
+    def static_value_candidates(
+        self,
+        points: Sequence[RunPoint],
+    ) -> tuple[ValueRecordCandidate, ...]:
+        """Materialize static recorded values only for one execution coverage."""
+
+        return self._static_value_source(points)
 
     @property
     def coordinate_ids(self) -> tuple[str, ...]:
@@ -130,8 +143,7 @@ class MeasurementProjection:
             point_coordinate_columns=self.catalog.point_contract.coordinate_columns,
             point_domain_layout=self.catalog.point_contract.domain_layout,
             result_fields=self._result_fields,
-            point_domain_axis_sizes=self.catalog.point_contract.domain_axis_sizes,
-            point_domain_axis_values=self.catalog.point_contract.domain_axis_values,
+            point_domain_axes=self.catalog.point_contract.domain_axes,
         )
 
 
@@ -168,7 +180,7 @@ def select_measurement_projection(
     catalog: MeasurementValueCatalog,
     record_uses: Sequence[BoundRecordUse],
     *,
-    static_value_candidates: Sequence[ValueRecordCandidate] = (),
+    static_value_source: StaticValueCandidateSource = _no_static_values,
     result_fields: Sequence[ExperimentResultField] = (),
 ) -> MeasurementProjection:
     """Close every record projection against one value catalog."""
@@ -222,7 +234,7 @@ def select_measurement_projection(
     return MeasurementProjection(
         catalog,
         record_plans,
-        static_value_candidates=static_value_candidates,
+        static_value_source=static_value_source,
         result_fields=result_fields,
     )
 
@@ -248,10 +260,7 @@ def project_measurement_records(
     points = tuple(points)
     value_candidates_by_key = {
         (candidate.logical_point_id, candidate.value_id): candidate.value
-        for candidate in (
-            *projection.static_value_candidates,
-            *value_candidates,
-        )
+        for candidate in value_candidates
     }
     if not projection.has_dataset:
         records: tuple[MeasurementRecord, ...] = ()

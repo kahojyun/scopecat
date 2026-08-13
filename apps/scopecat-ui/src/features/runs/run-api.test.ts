@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  getMeasurementLivePreview,
   getMeasurementPreview,
   getMeasurementSlice,
   getMeasurementTracePreview,
@@ -450,6 +451,31 @@ describe("run daemon reads", () => {
     );
   });
 
+  it("reads the latest daemon-received measurement without forcing a flush", async () => {
+    const latest = measurementRecord("run/1", 3);
+    const fetchMock = vi.fn((_input: RequestInfo | URL) =>
+      Promise.resolve(
+        jsonResponse({
+          active: true,
+          latest,
+          received_record_count: 4,
+          durable_record_count: 0,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getMeasurementLivePreview("run/1")).resolves.toEqual({
+      active: true,
+      latest,
+      receivedRecordCount: 4,
+      durableRecordCount: 0,
+    });
+    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
+      "/api/v1/runs/run%2F1/measurements/live",
+    );
+  });
+
   it("requests one semantic product-grid slice", async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL) =>
       Promise.resolve(
@@ -533,7 +559,7 @@ describe("run daemon reads", () => {
 
 function measurementSchema() {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v8" as const,
+    format_version: "scopecat.measurement_dataset_schema.v9" as const,
     dataset_id: "raw-measurements",
     record_schema: "scopecat.measurement_record.v4" as const,
     point_domain: { kind: "product_grid" as const, axes: [] },

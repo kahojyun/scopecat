@@ -86,19 +86,351 @@ A target becomes demonstrated when the workload, resource budget, and result
 are repeatable. Optimizations should address the first measured limit while
 preserving the shared invariants.
 
+## Scan Execution UX Baseline
+
+The first executable profile compares Scopecat with the useful scaling
+properties of a direct lab scan. The direct runner lazily renders one point,
+uploads only that point's four real-valued waveforms, retains only the latest
+waveforms for an optional live view, collects one integrated-IQ-derived scalar,
+and appends the result to one sequential file. It deliberately does not retain
+a Python list of all captured entries: total point count must not determine the
+waveform working set.
+
+The matched `scopecat` runner executes the reference-lab drag-beta experiment
+through the production daemon client, HTTP models, run admission and leases,
+operation-scoped payload spooling, instrument service, local driver endpoint,
+collection, and durable run storage. `scopecat-core` is an
+optional diagnostic that runs the same planning and execution semantics through
+a direct test instrument host; it deliberately excludes daemon transport and
+must not be used as the product acceptance result. The default comparison is
+therefore `adhoc,scopecat`.
+
+The matched runners use a fixed single-shot workload with four physical
+channels and a 72-sample point waveform. Point count is the only scale variable
+in the zero-delay run. The Scopecat workload declares its coordinate as a
+compact start/stop range; the direct runner derives its point-local waveform
+parameters from the loop index without retaining a coordinate list.
+`--point-delay-ms` adds the same logical-point dwell to both virtual hardware
+paths for a representative total-time run. Shot-heavy acquisition and long
+waveforms use separate matched profiles so their working sets do not obscure
+point-count costs.
+
+Run a short comparison with:
+
+```console
+uv run python scripts/benchmark_scan_execution.py \
+  --points 1,10,100 \
+  --host-label lab-pc-hdd \
+  --storage-root /path/on/the/experiment-drive
+```
+
+The end-to-end benchmark acceptance tests launch nested worker processes and are
+intentionally outside the default pytest test paths, especially because process
+startup dominates their cost on Windows. Run them explicitly after changing the
+benchmark harness or its execution boundaries:
+
+```console
+uv run pytest -q benchmarks/test_scan_execution_benchmark.py
+```
+
+`--storage-root` must name an existing directory on the storage device being
+measured. The command creates isolated run directories below it and removes
+them after each worker. Raw JSON Lines results default to
+`.benchmarks/scan-execution.jsonl`. Every worker records the Git revision and
+dirty state, host metadata, scenario, phase timings, resident-memory growth,
+durable bytes, object-store bytes, file counts, logical point count, and
+physical trigger count. `object_store_bytes` is especially important when
+comparing `scopecat-core` with `scopecat`: it now measures only durable
+content, not ordinary command transport. `peak_payload_spool_bytes` measures
+the largest simultaneous command-payload working set and
+`payload_spool_bytes_at_finish` must be zero after a completed run.
+
+Use three measured repetitions after one warmup for a comparison run. Increase
+the largest point count geometrically only while the previous step remains
+within its time and disk budget, for example `300,1000` after the short run.
+Run each runner in a separate process, as the command does, so allocator state
+and prior Scopecat runs do not contaminate the direct baseline.
+
+To isolate daemon and object-store overhead after a default comparison, add the
+core diagnostic explicitly:
+
+```console
+uv run python scripts/benchmark_scan_execution.py \
+  --runners scopecat-core,scopecat \
+  --points 1,10,100
+```
+
+Run the same staircase again with a representative acquisition duration when
+evaluating total experiment UX:
+
+```console
+uv run python scripts/benchmark_scan_execution.py \
+  --points 1,10,100 \
+  --point-delay-ms 10 \
+  --host-label lab-pc-hdd \
+  --storage-root /path/on/the/experiment-drive
+```
+
+The synthetic dwell makes the two virtual paths wait for equal aggregate
+logical-point time. Physical-hardware validation remains necessary for driver
+and timing behavior.
+
+### Latest Multichannel Waveform Profile
+
+The waveform profile varies the per-point physical waveform working set while
+retaining the same scalar integrated-IQ result. One to four driven qubits map to
+four to ten physical output channels: two drive channels per qubit plus one
+shared readout I/Q pair. Both runners render and upload the same number of
+float64 samples. With `--live-waveform`, each path retains only the latest
+completed point for a plotting-tool stand-in.
+
+Run a short staircase with:
+
+```console
+uv run python scripts/benchmark_scan_execution.py \
+  --profile waveform \
+  --points 1,10,100 \
+  --waveform-samples 4096 \
+  --qubits 4 \
+  --live-waveform \
+  --host-label lab-pc
+```
+
+In addition to timing and RSS, compare `waveform_bytes_uploaded`,
+`max_waveform_batch_bytes`, and `live_waveform_bytes_retained`. Live-view
+retention must equal exactly one point's channel-by-sample payload. Maximum
+batch upload reveals whether target entry batching multiplies that working set.
+Increase waveform length independently of point count; do not combine this
+profile with shot-heavy or raw-acquisition payloads.
+
+### Multiqubit Result Retention Profile
+
+The result profile varies scan points, measured qubits, shots, and the data the
+user actually chooses to keep. Its durable direct-runner modes mirror the sample
+storage mechanics: summary rows append to one sequential file, while shot arrays
+use one uncompressed NPZ per point with complex128 IQ and integer bit arrays.
+This is a descriptive baseline for current lab storage growth, not a taxonomy of
+user intent or a target storage layout for Scopecat.
+
+Run each durable selection independently:
+
+```console
+uv run python scripts/benchmark_scan_execution.py \
+  --profile results \
+  --retention summary \
+  --points 10,100 \
+  --qubits 4 \
+  --shots 1000
+
+uv run python scripts/benchmark_scan_execution.py \
+  --profile results \
+  --retention bit-shots \
+  --points 10,100 \
+  --qubits 4 \
+  --shots 1000
+
+uv run python scripts/benchmark_scan_execution.py \
+  --profile results \
+  --retention iq-and-bits \
+  --points 10,100 \
+  --qubits 4 \
+  --shots 1000
+```
+
+`acquired_result_bytes` is the complex128 IQ volume produced by the matched
+logical acquisitions. `selected_result_bytes` is the minimum semantic payload:
+eight bytes per selected probability, one bit per selected classified shot,
+and sixteen bytes per selected IQ shot. `measurement_dataset_bytes` counts the
+durable measurement header and Arrow chunks, while
+`control_and_provenance_bytes` contains the rest of project growth. Compare the
+last two separately: a small selected payload can legitimately expose a fixed
+run cost, but increasing shots must not enlarge a summary-only dataset.
+
+The direct runner also provides a synthetic write-free lower bound. It performs
+the acquisition and constructs the current point's results, then discards them
+without creating metadata or result files:
+
+```console
+uv run python scripts/benchmark_scan_execution.py \
+  --profile results \
+  --retention discard \
+  --runners adhoc \
+  --points 100 \
+  --qubits 4 \
+  --shots 1000
+```
+
+`discard` is only a cost lower bound. It does not claim that the sample system's
+`save=False` or similar switches represent one coherent no-save workflow. Those
+switches can also compensate for hard-to-compose outer scans, unwanted child
+datasets, coarse run organization, caller-owned persistence, or the absence of
+pre-run waveform inspection.
+
+Scopecat runners intentionally reject this mode. The compiler requires every
+prepared acquisition address to have real downstream product demand, and adding
+an artificial terminal consumer solely to make this benchmark symmetric would
+change product semantics. A non-durable consumer should be added only after a
+representative workflow demonstrates that durable derived results, composite
+experiment ownership, and explicit waveform preview do not cover the need.
+
+The retention invariants are:
+
+- unselected IQ does not contribute measurement payload bytes;
+- summary dataset growth is independent of shot count;
+- bit-shot storage uses boolean measurement values rather than integer-width
+  values, even though the descriptive ad hoc baseline retains integer arrays;
+- IQ and bit arrays remain shot dimensions within each point rather than new
+  logical scan points;
+- measurement files grow with bounded chunks, not one file per point;
+- the direct-runner discard lower bound creates no durable metadata or
+  measurement dataset.
+
+Timing begins after the reusable lab/server and instrument composition exists.
+The phase boundaries are:
+
+- **prepare**: experiment submission, invocation construction, validation,
+  planning, and compilation until the first physical trigger;
+- **active**: first physical trigger through the final completed instrument
+  collection; compilation, uploads, execution, and collection may overlap here;
+- **finalize**: final collection through the completed, durable run return;
+- **wall**: prepare plus active plus finalize;
+- **first result**: submission through the first completed collection, retained
+  as a secondary diagnostic rather than a required one-point batch.
+
+Interpreter import, daemon cold start, reusable service composition, and backend
+endpoint construction are outside this profile. Run-scoped instrument
+provisioning and connection are inside preparation. Cold-start costs should be
+measured separately if they affect the normal launch workflow. The primary UX
+gates are preparation and wall time. Peak resident-memory growth and durable
+object/file growth identify whether a failure is caused by eager planning,
+in-memory retention, transport, or persistence amplification.
+
+Until measurements justify tighter product budgets, use these provisional
+acceptance gates:
+
+- preparation remains below one second at the intended scan size and does not
+  grow linearly with total points;
+- with representative point dwell, Scopecat adds no more than 10% or one second
+  to total wall time, whichever allowance is larger;
+- peak memory is bounded by physical batch and current-point payload size, not
+  total scan waveform volume;
+- durable file and control-record counts grow with batches or checkpoints, not
+  one object per logical point.
+
+The absolute one-second limits are UX budgets, not ratios against a nearly
+zero-duration direct loop. Change them only with a recorded lab workflow and
+repeatable measurements.
+
+### Launch Validation and Materialization
+
+Launch should perform only checks whose cost is expected to remain small
+relative to one physical point: symbolic and type verification, configuration
+resolution, static resource authority, and one fully compiled domain probe. It
+does not render every point's waveforms to discover later lowering failures
+before the run starts. The reference target probes one point, then uses the
+concrete artifact to size the following batch. Cartesian point rows, point
+parameter overlays, runtime point objects, and static value records are now
+random-access views evaluated for the current bounded coverage. Range and
+center/span axes retain compact evaluated sources through planning, catalog
+fingerprinting, and the v9 durable dataset schema. Explicit values axes still
+remain proportional to their declared coordinate count, as their individual
+values are the source rather than generated points.
+
+This is an intentional UX tradeoff. Structural mistakes fail before hardware;
+shape- or value-dependent failures that require actual waveform lowering may
+fail when their bounded batch is reached. A separate explicit exhaustive check
+may be useful for unattended runs, but it must not become the default launch
+path or silently materialize the full waveform volume.
+
+Physical batching remains expressed as a contiguous point count, but its
+capacity is not point-only. The reference compiler currently combines the
+device entry limit with an 8 MiB aggregate waveform target derived from the
+largest entry in the preceding compiled batch. Waveform channel count, sample
+count, and dtype therefore reduce the following point count automatically. A
+later abrupt increase in entry size can overshoot the target for one batch; the
+next feedback corrects it. This adaptive target is a working-set control, not a
+new logical experiment dimension.
+
+The next capacity axes should be added only when their matched profile proves
+they dominate a budget:
+
+- shots and acquisition channels determine execution time and result volume;
+- fixed or ragged trace samples determine binary result and analysis memory;
+- configured topology determines routing and static authority cost;
+- logical point count determines scalar point metadata, result rows, and batch
+  count even when waveform memory is bounded.
+
+Large shot and trace axes should remain structured result dimensions rather
+than being flattened into more control-plane points.
+
 ## Current Implementation Boundaries
 
 The present architecture provides a direct end-to-end baseline:
 
-- linking and planning eagerly materialize logical points and coverage blocks;
-- domain compilation uses a backend-declared point capacity;
+- linking and planning retain compact range and center/span sources or authored
+  explicit values, while deriving Cartesian rows, point parameter bindings,
+  runtime points, and static value records on demand; forward traversal is a
+  range, while traversal modes that reorder points still retain an explicit
+  ordinal sequence;
+- local target preparation retains static route manifests and materializes one
+  initial physical probe for fast validation and preview. Execution reuses that
+  probe in its first bounded coverage batch instead of lowering the first point
+  again. The user-visible point preview samples at most 64 edge points;
+  local-only coverage starts with 32 points and then uses batches of at most 256
+  points;
+- domain compilation uses a backend-declared point capacity but prepares only
+  the current batch during execution; preview compiles the initial one-point
+  probe as a fast semantic preflight, and each prepared domain job reports the
+  maximum point count for the following batch;
+- the reference list-mode target combines its device entry capacity with an
+  adaptive 8 MiB aggregate waveform target. Its AWG and virtual-capture codecs
+  carry contiguous float64 samples in binary rather than expanding arrays into
+  JSON numbers;
+- admission uses the domain compiler's static instrument footprint and all
+  structurally compatible local route candidates. Point-local routing narrows
+  the operations actually emitted, so a run may conservatively reserve an
+  unused candidate rather than scanning every point before admission;
 - one SQLite writer owns durable ordering while immutable object storage carries
-  large content;
+  large content, and measurement records are appended in chunks bounded by both
+  record count and value bytes;
+- ordinary command payload uploads use an in-memory spool scoped by run and
+  hardware operation, or by direct session and command. A completed, rejected,
+  or replayed operation releases its bytes immediately; owner termination and
+  daemon shutdown clear orphaned uploads. Unique waveform programs therefore
+  do not accumulate in the permanent object store or with total point count;
 - projected Arrow readers and GUI previews provide bounded read paths.
 
-The dense spectroscopy profile measures when eager planning should evolve. The
-other profiles establish whether acquisition volume or history reaches its
-resource budget first. Workflow scalability awaits a workflow ownership model.
+Generated axes no longer impose a point-count-sized preparation cost: their
+evaluated generation parameters are fingerprinted and persisted directly, and
+analysis materializes axis values only when a complete grid view requests them.
+An explicit values scan necessarily carries one declared value per logical
+point; users should prefer range or center/span intent when the coordinate is
+generated. Cartesian products do not multiply any of those factors into
+retained rows. Local effects, static value evaluation, runtime point projection,
+and live prepared target artifacts are bounded by the current physical batch.
+During active execution the completed point index set and durable scalar results
+still grow with completed point count; neither contains waveform payloads.
+Inline command payloads retain raw bytes in memory and convert to base64 only
+for an actual JSON wire representation; the daemon client uploads those bytes
+to an operation-scoped content-addressed spool before posting a control command
+containing only the blob descriptor. Hardware operation identities and durable
+evidence cover the descriptor rather than serializing the payload body.
+
+The spool is deliberately transient: if the daemon restarts after an upload but
+before the command is accepted, the client must submit the command again and
+re-upload its payload. A lost response after execution remains replayable from
+the operation ledger without materializing the released bytes. Permanent
+publication remains a separate future capability for payloads that must be
+inspectable after execution.
+
+The production waveform profile now separates transient transfer, durable
+object retention, compilation, and driver work. For generated axes, its
+remaining total-point scaling is active execution bookkeeping and durable
+results, not launch preparation, waveform retention, or Cartesian row
+materialization. Explicit value sources and non-forward traversal still retain
+point-count-sized declarations. The other profiles establish whether
+acquisition volume or history reaches its resource budget first. Workflow
+scalability awaits a workflow ownership model.
 
 ## Development Cadence
 

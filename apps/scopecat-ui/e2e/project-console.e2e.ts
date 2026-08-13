@@ -92,7 +92,7 @@ with project.connect() as lab:
     client = lab._client
     original_submit = client.submit_run
     original_start = client.start_executor
-    original_append = client.append_measurements
+    original_ingest = client.ingest_measurements
     prepared = lab.prepare(
         live_scan(),
     )
@@ -109,25 +109,25 @@ with project.connect() as lab:
         wait_for_release(RELEASE_RUNNING)
         return lease
 
-    append_count = [0]
+    ingest_count = [0]
 
-    def gated_append(run_id, command):
-        receipt = original_append(run_id, command)
-        append_count[0] += 1
-        if append_count[0] == 1:
+    def gated_ingest(run_id, command):
+        receipt = original_ingest(run_id, command)
+        ingest_count[0] += 1
+        if ingest_count[0] == 1:
             MEASUREMENT_READY.write_text(run_id, encoding="utf-8")
             wait_for_release(RELEASE_MEASUREMENT)
         return receipt
 
     client.submit_run = gated_submit
     client.start_executor = gated_start
-    client.append_measurements = gated_append
+    client.ingest_measurements = gated_ingest
     try:
         run = prepared.run(name="Live state browser E2E")
     finally:
         client.submit_run = original_submit
         client.start_executor = original_start
-        client.append_measurements = original_append
+        client.ingest_measurements = original_ingest
     summary = {"run_id": run.id, "status": run.manifest.status}
 
 print(summary)
@@ -411,10 +411,10 @@ test("open console reconnects SSE and follows a live notebook run", async ({ dae
     await dataCard.getByText("Raw records", { exact: true }).click();
     await expect(dataCard.getByTestId("measurement-preview")).toBeVisible();
     await expect(dataCard.getByTestId("measurement-preview")).toContainText('"point_index": 0');
-    // The point closes only after the held append call returns its durable receipt.
+    // Daemon receipt makes the completed point visible before durable batching flushes it.
     await expect(
       detail.getByRole("progressbar", {
-        name: "0 of 15 points complete",
+        name: "1 of 15 points complete",
       }),
     ).toBeVisible();
 

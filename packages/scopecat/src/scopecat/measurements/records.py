@@ -37,6 +37,13 @@ from scopecat.program.measurement_types import (
     MeasurementVariableRole,
     measurement_value_spec_from_scalar,
 )
+from scopecat.program.point_domain import (
+    PointAxes,
+    PointAxis,
+    PointAxisRange,
+    PointAxisValues,
+    point_axis_size,
+)
 from scopecat.program.recording import ExperimentResultField
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
@@ -44,6 +51,9 @@ from scopecat.records.measurement import (
     MeasurementPointCloudPointDomain,
     MeasurementPointDomainAxis,
     MeasurementPointDomainColumn,
+    MeasurementPointDomainLinearSource,
+    MeasurementPointDomainRangeSource,
+    MeasurementPointDomainValuesSource,
     MeasurementProductGridPointDomain,
     MeasurementResultContract,
     MeasurementResultField,
@@ -393,8 +403,7 @@ def expected_dataset_schema(
     dataset_id: str = "raw-measurements",
     point_coordinate_columns: Sequence[TableColumn] = (),
     point_domain_layout: PointDomainLayout = "product_grid",
-    point_domain_axis_sizes: Sequence[tuple[str, int]] = (),
-    point_domain_axis_values: Sequence[tuple[str, Sequence[CellValue]]] = (),
+    point_domain_axes: PointAxes[Quantity] = (),
     result_fields: Sequence[ExperimentResultField] = (),
 ) -> MeasurementDatasetSchema | None:
     """Build the complete planned dataset schema from points and record plans."""
@@ -408,7 +417,9 @@ def expected_dataset_schema(
         MeasurementDimension(id="point", kind="point", size=point_count),
         *_record_axes(records),
     ]
-    axis_values_by_id = dict(point_domain_axis_values)
+    axis_values_by_id = {
+        axis.id: _point_axis_unit_samples(axis) for axis in point_domain_axes
+    }
     point_coordinates = _coordinate_variables(
         point_coordinate_columns,
         axis_values_by_id=axis_values_by_id,
@@ -432,15 +443,7 @@ def expected_dataset_schema(
         point_domain=(
             MeasurementProductGridPointDomain(
                 axes=[
-                    MeasurementPointDomainAxis(
-                        id=axis_id,
-                        size=size,
-                        values=[
-                            measurement_axis_scalar(value)
-                            for value in axis_values_by_id[axis_id]
-                        ],
-                    )
-                    for axis_id, size in point_domain_axis_sizes
+                    _measurement_point_domain_axis(axis) for axis in point_domain_axes
                 ]
             )
             if point_domain_layout == "product_grid"
@@ -458,6 +461,45 @@ def expected_dataset_schema(
         result=result,
         metadata={"experiment_id": experiment_id},
     )
+
+
+def _measurement_point_domain_axis(
+    axis: PointAxis[Quantity],
+) -> MeasurementPointDomainAxis:
+    source = axis.source
+    if isinstance(source, PointAxisValues):
+        selected_source = MeasurementPointDomainValuesSource(
+            values=[measurement_axis_scalar(value) for value in source.values]
+        )
+    elif isinstance(source, PointAxisRange):
+        start = measurement_axis_scalar(source.start)
+        stop = measurement_axis_scalar(source.stop)
+        assert start is not None and stop is not None
+        selected_source = MeasurementPointDomainRangeSource(start=start, stop=stop)
+    else:
+        center = measurement_axis_scalar(source.center)
+        span = measurement_axis_scalar(source.span)
+        assert center is not None and span is not None
+        selected_source = MeasurementPointDomainLinearSource(
+            center=center,
+            span=span,
+        )
+    return MeasurementPointDomainAxis(
+        id=axis.id,
+        size=point_axis_size(source),
+        source=selected_source,
+    )
+
+
+def _point_axis_unit_samples(
+    axis: PointAxis[Quantity],
+) -> Sequence[CellValue]:
+    source = axis.source
+    if isinstance(source, PointAxisValues):
+        return source.values
+    if isinstance(source, PointAxisRange):
+        return (source.start, source.stop)
+    return (source.center, source.span)
 
 
 def _measurement_result_contract(

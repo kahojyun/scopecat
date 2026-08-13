@@ -31,6 +31,7 @@ from scopecat.daemon.views import (
     InstrumentListView,
     InstrumentView,
     MeasurementArrowQuery,
+    MeasurementLivePreview,
     MeasurementPreview,
     MeasurementSlice,
     MeasurementSliceQuery,
@@ -71,13 +72,18 @@ from scopecat.daemon.wire import (
     InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
-    MeasurementAppendCommand,
+    MeasurementFlushCommand,
+    MeasurementFlushReceipt,
     MeasurementHeaderCommand,
+    MeasurementIngestCommand,
+    MeasurementIngestReceipt,
     MeasurementSealCommand,
     PayloadObjectReceipt,
     RunAdmission,
     RunAttachmentCommand,
     RunCancellationReceipt,
+    RunCoverageAdvanceCommand,
+    RunCoverageState,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -118,13 +124,14 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from scopecat_server.storage.sqlite.connection import SQLiteBusyError
 
+from ..command_payloads import (
+    CommandPayloadError,
+    CommandPayloadTooLarge,
+    run_payload_scope,
+    session_payload_scope,
+)
 from ..errors import BackendConflict, BackendNotFound
 from ..services.application import DaemonApplication
-from ..services.payloads import (
-    CommandPayloadError,
-    CommandPayloadStorageError,
-    CommandPayloadTooLarge,
-)
 
 _API_PREFIX = "/api/v1"
 _ARROW_STREAM_MEDIA_TYPE = "application/vnd.apache.arrow.stream"
@@ -180,10 +187,15 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         session_id: str,
         hexdigest: Annotated[str, ApiPath(pattern=r"^[0-9a-f]{64}$")],
         request: Request,
+        command_id: Annotated[
+            str,
+            Header(alias="X-Scopecat-Payload-Command-ID", min_length=1),
+        ],
     ) -> PayloadObjectReceipt:
         application.instruments.authorize_session_payload_upload(session_id)
         return await application.payloads.put_object_stream(
             request.stream(),
+            scope=session_payload_scope(session_id, command_id),
             expected_content_hash=f"sha256:{hexdigest}",
             declared_size_bytes=_request_content_length(request),
         )
@@ -200,10 +212,15 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
             str,
             Header(alias="X-Scopecat-Lease-ID", min_length=1),
         ],
+        operation_id: Annotated[
+            str,
+            Header(alias="X-Scopecat-Payload-Operation-ID", min_length=1),
+        ],
     ) -> PayloadObjectReceipt:
         application.instruments.authorize_run_payload_upload(run_id, lease_id)
         return await application.payloads.put_object_stream(
             request.stream(),
+            scope=run_payload_scope(run_id, operation_id),
             expected_content_hash=f"sha256:{hexdigest}",
             declared_size_bytes=_request_content_length(request),
         )
@@ -539,6 +556,16 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> MeasurementPreview:
         return application.runs.measurement_preview(run_id, limit=limit)
 
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/measurements/live")
+    def measurement_live_preview(
+        run_id: str,
+        after_record_count: Annotated[int | None, Query(ge=0)] = None,
+    ) -> MeasurementLivePreview:
+        return application.runs.measurement_live_preview(
+            run_id,
+            after_record_count=after_record_count,
+        )
+
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/query")
     def query_measurements(
         run_id: str,
@@ -609,6 +636,17 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> ExecutorLease:
         return application.executor.heartbeat_executor(run_id, heartbeat)
 
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/coverage")
+    def get_run_coverage(run_id: str) -> RunCoverageState:
+        return application.executor.run_coverage(run_id)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/coverage/advance")
+    def advance_run_coverage(
+        run_id: str,
+        command: RunCoverageAdvanceCommand,
+    ) -> RunCoverageState:
+        return application.executor.advance_run_coverage(run_id, command)
+
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/instruments/provision")
     def provision_run_instruments(
         run_id: str,
@@ -654,13 +692,20 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         _require_run_id(run_id, command.header.run_id)
         return application.executor.initialize_measurements(run_id, command)
 
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/append")
-    def append_measurements(
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/ingest")
+    def ingest_measurements(
         run_id: str,
-        command: MeasurementAppendCommand,
-    ) -> MeasurementDatasetReceipt:
-        _require_run_id(run_id, command.append.run_id)
-        return application.executor.append_measurements(run_id, command)
+        command: MeasurementIngestCommand,
+    ) -> MeasurementIngestReceipt:
+        _require_run_id(run_id, command.batch.run_id)
+        return application.executor.ingest_measurements(run_id, command)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/flush")
+    def flush_measurements(
+        run_id: str,
+        command: MeasurementFlushCommand,
+    ) -> MeasurementFlushReceipt:
+        return application.executor.flush_measurements(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/seal")
     def seal_measurements(
@@ -697,13 +742,6 @@ def _install_error_mapping(app: FastAPI) -> None:
         error: CommandPayloadTooLarge,
     ) -> JSONResponse:
         return JSONResponse(status_code=413, content={"detail": str(error)})
-
-    @app.exception_handler(CommandPayloadStorageError)
-    async def payload_storage_failure(
-        _request: Request,
-        error: CommandPayloadStorageError,
-    ) -> JSONResponse:
-        return JSONResponse(status_code=500, content={"detail": str(error)})
 
     @app.exception_handler(CommandPayloadError)
     async def invalid_payload(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from scopecat.compiler.point_domain import MaterializedPointDomain
 from scopecat.program.scans import PointTraversal, RepeatMode
 
@@ -12,10 +14,10 @@ def point_execution_ordinals(
     repeat: int,
     repeat_mode: RepeatMode,
     traversal: PointTraversal,
-) -> tuple[int, ...]:
+) -> Sequence[int]:
     """Return canonical point ordinals in their requested execution order."""
 
-    canonical = tuple(point.logical_ordinal for point in domain.points)
+    canonical: Sequence[int] = range(len(domain.points))
     if traversal == "forward":
         return canonical
     if domain.layout != "product_grid":

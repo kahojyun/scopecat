@@ -8,6 +8,8 @@ import { measurementChartOption } from "./chart-options";
 import {
   measurementTable,
   measurementSlicePlan,
+  measurementSliceAxisValue,
+  measurementSliceAxisValueIsDuplicated,
   measurementTraceChart,
   measurementTraceStatus,
   planMeasurementCharts,
@@ -72,10 +74,16 @@ export function MeasurementDataPreview({
       <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-2 text-[0.61rem] font-bold tracking-[0.06em] text-text-dim uppercase">
         <strong className="text-[0.65rem] text-text-soft">Measurement data</strong>
         <span>
-          {preview.items.length}
+          {preview.recordCount ?? preview.items.length}
           {preview.truncated ? "+" : ""} records · {preview.schema ? "Schema" : "Live"}
         </span>
       </div>
+
+      {preview.livePointIndex !== undefined && (
+        <div className="border-b border-line bg-blue-soft px-3 py-2 text-[0.61rem] text-blue">
+          Point {preview.livePointIndex + 1} is visible from daemon memory and is not durable yet.
+        </div>
+      )}
 
       {slicePlan && (
         <div
@@ -337,20 +345,14 @@ function emptyChartMessage({
 }
 
 function sliceAxisOption(axis: MeasurementSliceAxis, index: number): string {
-  const scalar = axis.values[index];
+  const scalar = measurementSliceAxisValue(axis, index);
   if (!scalar) return `Index ${index + 1}`;
   const value =
     typeof scalar.value === "object"
       ? `${scalar.value.real}${scalar.value.imag < 0 ? "" : "+"}${scalar.value.imag}i`
       : String(scalar.value);
   const unit = scalar.unit ?? axis.unit;
-  const duplicate = axis.values.some(
-    (candidate, candidateIndex) =>
-      candidateIndex !== index &&
-      candidate !== null &&
-      JSON.stringify([candidate.dtype, candidate.unit, candidate.value]) ===
-        JSON.stringify([scalar.dtype, scalar.unit, scalar.value]),
-  );
+  const duplicate = measurementSliceAxisValueIsDuplicated(axis, index);
   return `${value}${unit ? ` ${unit}` : ""}${duplicate ? ` · Index ${index + 1}` : ""}`;
 }
 

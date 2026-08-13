@@ -33,11 +33,16 @@ from pydantic import (
 
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.interface_identity import InterfaceId
+from scopecat.kernel.quantity import Quantity
 from scopecat.program.measurement_types import (
     MeasurementArrayData,
     MeasurementArrayElement,
     MeasurementDType,
     MeasurementVariableRole,
+)
+from scopecat.program.point_domain import (
+    point_axis_linear_value,
+    point_axis_range_value,
 )
 from scopecat.records._schema_utils import (
     ensure_unique_ids,
@@ -48,7 +53,7 @@ from scopecat.records.measurement_array_schema import MeasurementArrayPayload
 from scopecat.records.metadata import MeasurementMetadata
 
 MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v4"
-MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v8"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v9"
 
 MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
 _MEASUREMENT_ARRAY_CREATE_CONTEXT = object()
@@ -180,13 +185,12 @@ class MeasurementResultContract(_FrozenMeasurementModel):
         return self
 
 
-class MeasurementPointDomainAxis(_FrozenMeasurementModel):
-    """One ordered independent axis in a product-grid point domain."""
+class MeasurementPointDomainValuesSource(_FrozenMeasurementModel):
+    """One explicit durable product-grid coordinate source."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    id: str = Field(min_length=1)
-    size: Annotated[int, Field(ge=0)]
+    kind: Literal["values"] = "values"
     values: Sequence[MeasurementScalar | None]
 
     @field_validator("values")
@@ -197,10 +201,76 @@ class MeasurementPointDomainAxis(_FrozenMeasurementModel):
     ) -> Sequence[MeasurementScalar | None]:
         return tuple(value)
 
+
+class MeasurementPointDomainRangeSource(_FrozenMeasurementModel):
+    """One compact inclusive durable product-grid coordinate range."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["range"] = "range"
+    start: MeasurementScalar
+    stop: MeasurementScalar
+
     @model_validator(mode="after")
-    def validate_values(self) -> MeasurementPointDomainAxis:
-        if len(self.values) != self.size:
+    def validate_endpoints(self) -> MeasurementPointDomainRangeSource:
+        if self.start.dtype not in {"int64", "float64"}:
+            raise ValueError("measurement point-domain ranges must be real numeric")
+        if (self.start.dtype, self.start.unit) != (self.stop.dtype, self.stop.unit):
+            raise ValueError("measurement point-domain range endpoints must match")
+        return self
+
+
+class MeasurementPointDomainLinearSource(_FrozenMeasurementModel):
+    """One compact centered durable product-grid coordinate range."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["linear"] = "linear"
+    center: MeasurementScalar
+    span: MeasurementScalar
+
+    @model_validator(mode="after")
+    def validate_quantities(self) -> MeasurementPointDomainLinearSource:
+        if self.center.dtype != "float64" or self.center.unit is None:
+            raise ValueError("measurement centered axes require a quantity center")
+        if (self.center.dtype, self.center.unit) != (
+            self.span.dtype,
+            self.span.unit,
+        ):
+            raise ValueError("measurement centered axis center and span must match")
+        return self
+
+
+type MeasurementPointDomainAxisSource = Annotated[
+    MeasurementPointDomainValuesSource
+    | MeasurementPointDomainRangeSource
+    | MeasurementPointDomainLinearSource,
+    Field(discriminator="kind"),
+]
+
+
+class MeasurementPointDomainAxis(_FrozenMeasurementModel):
+    """One ordered independent axis in a product-grid point domain."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(min_length=1)
+    size: Annotated[int, Field(ge=0)]
+    source: MeasurementPointDomainAxisSource
+
+    @model_validator(mode="after")
+    def validate_source_size(self) -> MeasurementPointDomainAxis:
+        if (
+            isinstance(self.source, MeasurementPointDomainValuesSource)
+            and len(self.source.values) != self.size
+        ):
             raise ValueError("measurement point-domain axis values must match its size")
+        if not isinstance(self.source, MeasurementPointDomainValuesSource) and (
+            self.size < 2
+        ):
+            raise ValueError(
+                "measurement generated point-domain axes require two points"
+            )
         return self
 
 
@@ -265,7 +335,7 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    format_version: Literal["scopecat.measurement_dataset_schema.v8"] = (
+    format_version: Literal["scopecat.measurement_dataset_schema.v9"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str = Field(min_length=1)
@@ -472,6 +542,54 @@ class MeasurementScalar(_FrozenMeasurementModel):
         if self.dtype in {"bool", "string"} and self.unit is not None:
             raise ValueError(f"{self.dtype} measurement scalars cannot have a unit")
         return self
+
+
+def measurement_point_axis_values(
+    axis: MeasurementPointDomainAxis,
+) -> tuple[MeasurementScalar | None, ...]:
+    """Materialize one durable axis only when an analysis view needs its values."""
+
+    source = axis.source
+    if isinstance(source, MeasurementPointDomainValuesSource):
+        return tuple(source.values)
+    if isinstance(source, MeasurementPointDomainRangeSource):
+        start = _measurement_scalar_range_value(source.start)
+        stop = _measurement_scalar_range_value(source.stop)
+        return tuple(
+            _measurement_scalar_from_generated(
+                source.start,
+                point_axis_range_value(start, stop, axis.size, index),
+            )
+            for index in range(axis.size)
+        )
+    center = Quantity(cast("float", source.center.value), source.center.unit)
+    span = Quantity(cast("float", source.span.value), source.span.unit)
+    return tuple(
+        _measurement_scalar_from_generated(
+            source.center,
+            point_axis_linear_value(center, span, axis.size, index),
+        )
+        for index in range(axis.size)
+    )
+
+
+def _measurement_scalar_range_value(
+    value: MeasurementScalar,
+) -> int | float | Quantity:
+    selected = value.value
+    if value.unit is not None:
+        return Quantity(cast("float", selected), value.unit)
+    if value.dtype == "int64":
+        return cast("int", selected)
+    return cast("float", selected)
+
+
+def _measurement_scalar_from_generated(
+    template: MeasurementScalar,
+    value: float | Quantity,
+) -> MeasurementScalar:
+    native = value.value if isinstance(value, Quantity) else value
+    return template.model_copy(update={"value": native})
 
 
 class MeasurementArray(_FrozenMeasurementModel):

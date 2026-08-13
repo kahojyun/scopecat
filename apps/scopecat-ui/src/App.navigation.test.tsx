@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { getEvents, getHealth } from "./data/project-api";
 import {
+  getMeasurementLivePreview,
   getMeasurementPreview,
   getMeasurementSlice,
   getMeasurementTracePreview,
@@ -27,6 +28,7 @@ vi.mock("./data/project-api", async (importOriginal) => ({
 
 vi.mock("./features/runs/run-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./features/runs/run-api")>()),
+  getMeasurementLivePreview: vi.fn(),
   getMeasurementPreview: vi.fn(),
   getMeasurementSlice: vi.fn(),
   getMeasurementTracePreview: vi.fn(),
@@ -100,6 +102,11 @@ beforeEach(() => {
   vi.mocked(getRun).mockImplementation(async (runId) => projectRun(runId));
   vi.mocked(getEvents).mockResolvedValue([]);
   vi.mocked(getRunEvents).mockResolvedValue([]);
+  vi.mocked(getMeasurementLivePreview).mockResolvedValue({
+    active: false,
+    receivedRecordCount: 0,
+    durableRecordCount: 0,
+  });
   vi.mocked(getMeasurementPreview).mockResolvedValue({ items: [] });
   vi.mocked(getMeasurementSlice).mockResolvedValue({
     items: [],
@@ -362,6 +369,34 @@ describe("config provenance navigation", () => {
     );
   });
 
+  it("shows the latest daemon-received record before it is durable", async () => {
+    window.history.replaceState(null, "", "/?run=run-1");
+    const running = {
+      ...projectRun("run-1"),
+      status: "running" as const,
+      stateLabel: "Running",
+      plan: {
+        coordinateIds: [],
+        recordIds: [],
+        pointCount: 3,
+      },
+    };
+    vi.mocked(getRuns).mockResolvedValue({ items: [running] });
+    vi.mocked(getRun).mockResolvedValue(running);
+    vi.mocked(getMeasurementLivePreview).mockResolvedValue({
+      active: true,
+      latest: measurementRecord(0, 1.25),
+      receivedRecordCount: 1,
+      durableRecordCount: 0,
+    });
+
+    renderApp();
+
+    expect(await screen.findByText(/^1 records/)).toBeVisible();
+    expect(screen.getByText(/visible from daemon memory and is not durable yet/)).toBeVisible();
+    expect(screen.getByRole("progressbar", { name: "1 of 3 points complete" })).toBeVisible();
+  });
+
   it("resets the bounded measurement preview for the event's run", async () => {
     window.history.replaceState(null, "", "/?run=run-1");
     vi.mocked(getMeasurementPreview).mockResolvedValue({
@@ -562,7 +597,7 @@ function measurementRecord(
 
 function traceDatasetSchema(): MeasurementDatasetSchema {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v8",
+    format_version: "scopecat.measurement_dataset_schema.v9",
     dataset_id: "raw-measurements",
     record_schema: "scopecat.measurement_record.v4",
     point_domain: {
@@ -622,11 +657,14 @@ function traceAxis(id: string, values: number[]) {
   return {
     id,
     size: values.length,
-    values: values.map((value) => ({
-      kind: "scalar" as const,
-      dtype: "float64" as const,
-      value,
-    })),
+    source: {
+      kind: "values" as const,
+      values: values.map((value) => ({
+        kind: "scalar" as const,
+        dtype: "float64" as const,
+        value,
+      })),
+    },
   };
 }
 

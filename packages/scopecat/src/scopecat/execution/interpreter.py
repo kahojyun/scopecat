@@ -21,7 +21,7 @@ from scopecat.execution.measurement_computes import (
 )
 from scopecat.execution.measurement_ordering import CanonicalMeasurementBuffer
 from scopecat.execution.measurement_recording import (
-    append_measurement_dataset,
+    ingest_measurement_dataset,
     initialize_measurement_dataset,
     seal_measurement_dataset,
 )
@@ -56,7 +56,10 @@ from scopecat.measurements.values import (
     MeasurementValueCandidate,
     seal_measurement_values,
 )
-from scopecat.records.measurement_recording import MeasurementDatasetHeader
+from scopecat.records.measurement_recording import (
+    MeasurementDatasetHeader,
+    MeasurementDatasetReceipt,
+)
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import (
     RunModelWrite,
@@ -105,7 +108,8 @@ def _execute_run(
     dataset_header, header_failure, cancelled_without_effects = (
         _prepare_execution_start(program, session)
     )
-    committed_measurement_count = 0
+    recorded_measurement_count = 0
+    completed_coverage_count = 0
     append_content_hashes: list[str] = []
     measurement_buffer = CanonicalMeasurementBuffer()
 
@@ -114,16 +118,15 @@ def _execute_run(
         candidates: tuple[MeasurementValueCandidate, ...],
         value_candidates: tuple[ValueRecordCandidate, ...],
     ) -> None:
-        nonlocal committed_measurement_count
+        nonlocal completed_coverage_count, recorded_measurement_count
+        static_value_candidates = program.measurements.static_value_candidates(points)
+        all_value_candidates = (*static_value_candidates, *value_candidates)
         completed_candidates = execute_measurement_computes(
             program.measurement_computes,
             candidates,
             points=points,
             catalog=program.measurements.catalog,
-            value_candidates=(
-                *program.measurements.static_value_candidates,
-                *value_candidates,
-            ),
+            value_candidates=all_value_candidates,
         )
         values = seal_measurement_values(
             program.measurements.catalog,
@@ -135,7 +138,7 @@ def _execute_run(
             values,
             run_id=run_id,
             points=points,
-            value_candidates=value_candidates,
+            value_candidates=all_value_candidates,
         )
         block_problems = (
             *validate_run_measurements(
@@ -145,24 +148,27 @@ def _execute_run(
         )
         if block_problems:
             raise ProblemFailure(block_problems)
+        if not projection.has_dataset:
+            completed_coverage_count = _advance_unrecorded_coverage(
+                session,
+                points,
+                completed_point_count=completed_coverage_count,
+            )
+            return
         ready_records = measurement_buffer.add(projected.records)
         if not ready_records:
             return
         if dataset_header is None:
             raise ValueError("projected measurements require a dataset header")
-        receipt = append_measurement_dataset(
-            ProjectedMeasurementDataset(
-                projected.projection,
-                projected.run_id,
-                ready_records,
-            ),
+        receipts = ingest_measurement_dataset(
+            ProjectedMeasurementDataset(projection, run_id, ready_records),
             measurements,
-            journal,
             header=dataset_header,
         )
-        if receipt is not None:
-            committed_measurement_count += len(ready_records)
-            append_content_hashes.append(receipt.dataset_content_hash)
+        recorded_measurement_count += len(ready_records)
+        append_content_hashes.extend(
+            receipt.dataset_content_hash for receipt in receipts
+        )
 
     effect_result = _execute_or_cancel_effects(
         program=program,
@@ -201,6 +207,13 @@ def _execute_run(
     seal_receipt = None
     coverage_failure = effect_result.coverage_failure
     try:
+        append_content_hashes.extend(
+            receipt.dataset_content_hash
+            for receipt in _flush_execution_progress(
+                session,
+                has_dataset=dataset_header is not None,
+            )
+        )
         if coverage_failure is not None:
             raise coverage_failure
         _validate_measurement_completion(
@@ -211,7 +224,7 @@ def _execute_run(
             seal_receipt = seal_measurement_dataset(
                 run_id=run_id,
                 header=dataset_header,
-                point_count=committed_measurement_count,
+                point_count=recorded_measurement_count,
                 append_content_hashes=tuple(append_content_hashes),
                 writer=measurements,
                 journal=journal,
@@ -278,7 +291,7 @@ def _execute_run(
     )
     contents = build_terminal_contents(
         outcome=outcome,
-        measurement_count=(committed_measurement_count if seal_receipt else 0),
+        measurement_count=(recorded_measurement_count if seal_receipt else 0),
         dataset_content_hash=(
             None if seal_receipt is None else seal_receipt.dataset_content_hash
         ),
@@ -311,6 +324,34 @@ def _execute_run(
     if committed_outcome.result != "succeeded":
         _raise_terminal_run_error(run_id, committed_outcome)
     return manifest
+
+
+def _advance_unrecorded_coverage(
+    session: ExecutionSession,
+    points: tuple[RunPoint, ...],
+    *,
+    completed_point_count: int,
+) -> int:
+    point_indices = tuple(point.ordinal for point in points)
+    next_completed_count = completed_point_count + len(points)
+    if point_indices != tuple(range(completed_point_count, next_completed_count)):
+        raise AssertionError("completed coverage must be one contiguous prefix")
+    if session.coverage is not None:
+        session.coverage.advance(
+            start_index=completed_point_count,
+            point_count=len(points),
+        )
+    return next_completed_count
+
+
+def _flush_execution_progress(
+    session: ExecutionSession,
+    *,
+    has_dataset: bool,
+) -> tuple[MeasurementDatasetReceipt, ...]:
+    if session.coverage is not None:
+        session.coverage.flush()
+    return session.measurements.flush() if has_dataset else ()
 
 
 def _raise_terminal_run_error(run_id: str, outcome: RunOutcome) -> None:

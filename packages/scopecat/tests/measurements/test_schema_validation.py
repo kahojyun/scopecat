@@ -15,6 +15,7 @@ from scopecat.records.measurement import (
     MeasurementPointCloudPointDomain,
     MeasurementPointDomainAxis,
     MeasurementPointDomainColumn,
+    MeasurementPointDomainValuesSource,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
@@ -130,10 +131,13 @@ def test_measurement_dataset_schema_discriminates_point_domain_wire_shapes() -> 
                     {
                         "id": "x",
                         "size": 2,
-                        "values": [
-                            {"kind": "scalar", "dtype": "int64", "value": 1},
-                            {"kind": "scalar", "dtype": "int64", "value": 2},
-                        ],
+                        "source": {
+                            "kind": "values",
+                            "values": [
+                                {"kind": "scalar", "dtype": "int64", "value": 1},
+                                {"kind": "scalar", "dtype": "int64", "value": 2},
+                            ],
+                        },
                     }
                 ],
             },
@@ -166,10 +170,12 @@ def test_product_grid_cardinality_must_match_the_planned_point_count() -> None:
                     MeasurementPointDomainAxis(
                         id="x",
                         size=2,
-                        values=[
-                            MeasurementScalar.create(dtype="int64", value=1),
-                            MeasurementScalar.create(dtype="int64", value=2),
-                        ],
+                        source=MeasurementPointDomainValuesSource(
+                            values=[
+                                MeasurementScalar.create(dtype="int64", value=1),
+                                MeasurementScalar.create(dtype="int64", value=2),
+                            ]
+                        ),
                     )
                 ]
             ),

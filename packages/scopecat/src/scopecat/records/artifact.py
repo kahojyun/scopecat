@@ -11,6 +11,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    field_serializer,
     field_validator,
     model_validator,
 )
@@ -60,30 +61,42 @@ class RunContentEntry(BaseModel):
 
 
 class InlinePayloadBody(BaseModel):
-    """Base64 wire representation of one complete encoded payload."""
+    """One complete encoded payload with base64 confined to JSON transport."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        populate_by_name=True,
+        serialize_by_alias=True,
+        strict=True,
+    )
 
     kind: Literal["inline"] = "inline"
-    content_base64: str
+    content: bytes = Field(alias="content_base64", repr=False)
 
-    @field_validator("content_base64")
+    @field_validator("content", mode="before")
     @classmethod
-    def validate_canonical_base64(cls, value: str) -> str:
+    def decode_canonical_base64(cls, value: bytes | str) -> bytes:
+        if isinstance(value, bytes):
+            return value
         try:
             decoded = b64decode(value, validate=True)
         except (BinasciiError, ValueError) as error:
             raise ValueError("inline payload content must be valid base64") from error
         if b64encode(decoded).decode("ascii") != value:
             raise ValueError("inline payload content must use canonical base64")
-        return value
+        return decoded
+
+    @field_serializer("content", when_used="json")
+    def encode_base64_for_json(self, content: bytes) -> str:
+        return b64encode(content).decode("ascii")
 
     @classmethod
     def from_bytes(cls, content: bytes) -> InlinePayloadBody:
-        return cls(content_base64=b64encode(content).decode("ascii"))
+        return cls(content_base64=content)
 
     def content_bytes(self) -> bytes:
-        return b64decode(self.content_base64, validate=True)
+        return self.content
 
 
 class BlobPayloadBody(BaseModel):

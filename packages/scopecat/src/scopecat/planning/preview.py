@@ -6,7 +6,7 @@ from typing import Literal
 
 from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.execution.local.program import ComputeOperation, OutputInput
-from scopecat.execution.program import RunCoverageEffect, RunProgram
+from scopecat.execution.program import RunProgram
 from scopecat.measurements.records import RecordPlan, ValueRecordPlan
 from scopecat.planning.preview_models import (
     ExperimentPreview,
@@ -25,6 +25,7 @@ from scopecat.sdk.compute import compute_capture_names_internal
 type _BindingKind = Literal["input", "coordinate", "parameter"]
 type _BindingKey = tuple[_BindingKind, str]
 _BUNDLE_FIELD_IMPLEMENTATION = "internal:scopecat.bundle-field@1"
+_PREVIEW_POINT_LIMIT = 64
 
 
 def build_run_program_preview(
@@ -34,8 +35,11 @@ def build_run_program_preview(
 ) -> ExperimentPreview:
     """Project stable user-visible facts from a closed RunProgram."""
 
+    program.coverage.preflight()
     selected = program.measurements
     catalog = program.points
+    point_count = catalog.contract.point_count
+    preview_ordinals = _preview_point_ordinals(point_count)
     bindings, binding_edges = (
         ((), ()) if invocation is None else _preview_binding_graph(invocation)
     )
@@ -44,13 +48,15 @@ def build_run_program_preview(
         experiment_kind=catalog.experiment_kind,
         schema=selected.schema,
         coordinate_ids=tuple(selected.coordinate_ids),
+        total_point_count=point_count,
         points=tuple(
             ExperimentPreviewPoint(
                 point_index=resolved.ordinal,
                 coordinates=dict(resolved.coordinates),
             )
-            for resolved in catalog.points
+            for resolved in (catalog.points[ordinal] for ordinal in preview_ordinals)
         ),
+        points_truncated=point_count > len(preview_ordinals),
         records=tuple(
             ExperimentPreviewRecord(
                 id=record.id,
@@ -60,7 +66,7 @@ def build_run_program_preview(
                 dtype=record.dtype,
                 dims=("point", *(axis.id for axis in record.axes)),
                 shape=(
-                    len(catalog.points),
+                    point_count,
                     *(axis.size for axis in record.axes),
                 ),
             )
@@ -70,6 +76,13 @@ def build_run_program_preview(
         bindings=bindings,
         binding_edges=binding_edges,
     )
+
+
+def _preview_point_ordinals(point_count: int) -> tuple[int, ...]:
+    if point_count <= _PREVIEW_POINT_LIMIT:
+        return tuple(range(point_count))
+    edge_count = _PREVIEW_POINT_LIMIT // 2
+    return (*range(edge_count), *range(point_count - edge_count, point_count))
 
 
 def _preview_binding_graph(
@@ -164,14 +177,8 @@ def _parameter_contract_id(contract: ParameterContract) -> str:
 
 def _preview_computes(program: RunProgram) -> tuple[ExperimentPreviewCompute, ...]:
     host_operations: dict[str, ComputeOperation] = {}
-    for covered in program.coverage:
-        if isinstance(covered, RunCoverageEffect) and isinstance(
-            covered.operation, ComputeOperation
-        ):
-            host_operations.setdefault(
-                covered.operation.logical_compute_node_id,
-                covered.operation,
-            )
+    for operation in program.preview_compute_operations:
+        host_operations.setdefault(operation.logical_compute_node_id, operation)
 
     value_record_demands = {
         record.value_id: f"record:{record.id}"

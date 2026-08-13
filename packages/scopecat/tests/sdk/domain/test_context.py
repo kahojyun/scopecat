@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
 
-import pytest
 from scopecat_testkit.authoring import bind_invocation, load_config
 from scopecat_testkit.domain import domain_call
 
@@ -17,12 +16,11 @@ from scopecat.planning.domain_bridge import (
 from scopecat.planning.domain_results import domain_result_product_use_ids
 from scopecat.planning.point_materialization import (
     MaterializedBoundPoints,
-    materialize_bound_points,
+    prepare_bound_points,
 )
 from scopecat.program.domain import domain_program
 from scopecat.program.products import ModuleProductDecl, ProductValueSpec
 from scopecat.sdk.domain import (
-    DomainBatchPartition,
     DomainBatchRequest,
     DomainPointRef,
     DomainPreparationBuilder,
@@ -109,7 +107,7 @@ def _domain_scenario(
         config_profile=load_config(),
     )
     bound = resolved
-    bound_points = materialize_bound_points(bound)
+    bound_points = prepare_bound_points(bound)
     return bound_points
 
 
@@ -132,13 +130,6 @@ def _batch_context(
         point_ordinals,
         batch_ordinal=batch_ordinal,
     )
-
-
-def test_domain_batch_partition_builds_ordered_positive_sizes() -> None:
-    assert DomainBatchPartition.with_maximum_size(5, 2).batch_sizes == (2, 2, 1)
-    assert DomainBatchPartition.with_maximum_size(0, 2).batch_sizes == ()
-    with pytest.raises(ValueError, match="positive integers"):
-        DomainBatchPartition((2, 0))
 
 
 def test_compute_input_remains_a_direct_domain_result_when_not_recorded(

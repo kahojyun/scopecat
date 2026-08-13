@@ -35,3 +35,6 @@ class CanonicalMeasurementBuffer:
     @property
     def pending_indices(self) -> tuple[int, ...]:
         return tuple(sorted(self._pending))
+
+
+__all__ = ["CanonicalMeasurementBuffer"]

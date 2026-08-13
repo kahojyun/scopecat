@@ -26,7 +26,7 @@ from scopecat.planning.measurement_projection import (
 )
 from scopecat.planning.point_materialization import (
     MaterializedBoundPoints,
-    materialize_bound_points,
+    prepare_bound_points,
 )
 from scopecat.program.point_domain import point_axis_values
 
@@ -48,7 +48,7 @@ class MeasurementAssemblyScenario:
 
     @property
     def points(self) -> tuple[RunPoint, ...]:
-        return project_run_point_catalog(self.bound_points).points
+        return tuple(project_run_point_catalog(self.bound_points).points)
 
 
 def measurement_assembly_scenario(
@@ -137,7 +137,7 @@ def measurement_assembly_scenario(
         product_uses=uses,
         record_uses=tuple(records),
     )
-    bound_points = materialize_bound_points(
+    bound_points = prepare_bound_points(
         bind_program_facts(program, build_config_environment(load_config()))
     )
     return MeasurementAssemblyScenario(

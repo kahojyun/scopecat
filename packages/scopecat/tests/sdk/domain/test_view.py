@@ -12,7 +12,7 @@ from scopecat.planning.domain_bridge import (
 )
 from scopecat.planning.domain_results import domain_result_product_use_ids
 from scopecat.planning.point_materialization import (
-    materialize_bound_points,
+    prepare_bound_points,
 )
 from scopecat.program.domain import domain_program
 from scopecat.program.products import (
@@ -77,7 +77,7 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
         config_profile=load_config(),
     )
     bound = resolved
-    bound_points = materialize_bound_points(bound)
+    bound_points = prepare_bound_points(bound)
 
     execution = bound.program.program.domain_executions[0]
     execution_id = execution.id

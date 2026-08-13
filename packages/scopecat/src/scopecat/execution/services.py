@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Protocol
 
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.records.run import RunManifest
@@ -20,6 +21,14 @@ def _effects_are_ready() -> bool:
     return True
 
 
+class RunCoverageWriter(Protocol):
+    """Commit bounded contiguous logical-point progress."""
+
+    def advance(self, *, start_index: int, point_count: int) -> None: ...
+
+    def flush(self) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionSession:
     """Bind one run's effect ports so execution cannot mix storage scopes."""
@@ -30,6 +39,7 @@ class ExecutionSession:
     journal: ExecutionJournal
     measurements: MeasurementDatasetWriter
     instruments: RunInstrumentHost
+    coverage: RunCoverageWriter | None = None
     cancellation_requested: Callable[[], bool] = _never_cancel
     effects_ready: Callable[[], bool] = _effects_are_ready
 

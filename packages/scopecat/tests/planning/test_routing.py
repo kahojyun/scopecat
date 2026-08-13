@@ -120,6 +120,31 @@ def test_all_interfaces_must_bind_every_selected_entity() -> None:
     assert binding.instrument_id == "complete"
 
 
+def test_manifest_candidate_footprint_excludes_incomplete_routes() -> None:
+    routing = RoutingView(
+        routes=(
+            _route(
+                "complete",
+                "complete",
+                ("test.prepare/v1", "q0", None),
+                ("test.measure/v1", "q0", None),
+            ),
+            _route(
+                "prepare-only",
+                "prepare-only",
+                ("test.prepare/v1", "q1", None),
+            ),
+        )
+    )
+
+    manifest = routing.bind_port(
+        port_id=_port("stack"),
+        interfaces=("test.prepare/v1", "test.measure/v1"),
+    )
+
+    assert manifest.candidate_instrument_ids == ("complete",)
+
+
 def test_shared_endpoint_serves_only_the_route_entity_scope() -> None:
     routing = RoutingView(
         routes=(

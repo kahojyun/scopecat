@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Literal, cast, overload, override
 
 from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.diagnostics import compiler_problem
@@ -18,7 +18,7 @@ from scopecat.compiler.point_domain import (
     MaterializedPoint,
     MaterializedPointDomain,
     PointDomainEvaluationError,
-    materialize_point_domain,
+    prepare_point_domain,
 )
 from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.evaluation import (
@@ -44,11 +44,11 @@ from scopecat.program.logical import LogicalDomainExecution
 
 @dataclass(frozen=True, slots=True)
 class MaterializedBoundPoints:
-    """One bound plan with eagerly materialized points and parameter bindings."""
+    """One bound plan with random-access point and parameter views."""
 
     bound_plan: BoundPlan
     point_domain: MaterializedPointDomain
-    point_parameters: tuple[ParameterRelationData, ...]
+    point_parameters: Sequence[ParameterRelationData]
 
     def __post_init__(self) -> None:
         if len(self.point_parameters) != len(self.point_domain.points):
@@ -66,16 +66,6 @@ class MaterializedBoundPoints:
 
         selected_input_ids = tuple(input_ids)
         selected = tuple(ordinals)
-        entries = {
-            point.logical_ordinal: (point, parameters)
-            for point, parameters in zip(
-                self.point_domain.points,
-                self.point_parameters,
-                strict=True,
-            )
-        }
-        if any(ordinal not in entries for ordinal in selected):
-            raise ValueError("point selection contains an unknown ordinal")
         execution = next(
             item
             for item in self.bound_plan.program.program.domain_executions
@@ -99,7 +89,8 @@ class MaterializedBoundPoints:
             input_id: [] for input_id in selected_input_ids
         }
         for ordinal in selected:
-            point, parameters = entries[ordinal]
+            point = self.point_domain.points[ordinal]
+            parameters = self.point_parameters[ordinal]
             input_values = _domain_inputs(
                 execution,
                 BoundValueResolver(
@@ -122,64 +113,105 @@ class MaterializedBoundPoints:
         )
 
 
-def materialize_bound_points(bound: BoundPlan) -> MaterializedBoundPoints:
-    """Eagerly close the bound point space before target compilation."""
+def prepare_bound_points(bound: BoundPlan) -> MaterializedBoundPoints:
+    """Prepare point-local evaluation without scanning the complete domain."""
 
-    point_domain = _materialize_bound_point_domain(bound)
-    point_parameters = tuple(
-        resolve_point_parameters(
-            bound.environment.parameters,
-            bound.bindings.parameter_overlays,
-            point_row=point.row,
-        )
-        for point in point_domain.points
-    )
+    try:
+        point_domain = _prepare_bound_point_domain(bound)
+    except ValueValidationError as error:
+        raise CheckFailed(
+            (
+                compiler_problem(
+                    "module_point_value_type_mismatch",
+                    str(error),
+                    model_location("points"),
+                    phase=ProblemPhase.PLANNING,
+                ),
+            )
+        ) from error
     return MaterializedBoundPoints(
         bound_plan=bound,
         point_domain=point_domain,
-        point_parameters=point_parameters,
+        point_parameters=_PointParameterSequence(
+            bound,
+            point_domain.points,
+        ),
     )
 
 
-def _materialize_bound_point_domain(
+class _PointParameterSequence(Sequence[ParameterRelationData]):
+    __slots__ = ("_bound", "_points")
+
+    def __init__(
+        self,
+        bound: BoundPlan,
+        points: Sequence[MaterializedPoint],
+    ) -> None:
+        self._bound = bound
+        self._points = points
+
+    @override
+    def __len__(self) -> int:
+        return len(self._points)
+
+    @overload
+    def __getitem__(self, index: int) -> ParameterRelationData: ...
+
+    @overload
+    def __getitem__(
+        self,
+        index: slice,
+    ) -> tuple[ParameterRelationData, ...]: ...
+
+    @override
+    def __getitem__(
+        self,
+        index: int | slice,
+    ) -> ParameterRelationData | tuple[ParameterRelationData, ...]:
+        if isinstance(index, slice):
+            return tuple(self[ordinal] for ordinal in range(*index.indices(len(self))))
+        point = self._points[index]
+        return resolve_point_parameters(
+            self._bound.environment.parameters,
+            self._bound.bindings.parameter_overlays,
+            point_row=point.row,
+        )
+
+
+def _prepare_bound_point_domain(
     bound: BoundPlan,
 ) -> MaterializedPointDomain:
-    problems: list[Problem] = []
     entity_columns = bound.point_domain.entity_columns
+
+    def normalize(row: Row) -> Row:
+        problems: list[Problem] = []
+        selected = _normalize_point_domain_row(
+            row,
+            entity_columns=entity_columns,
+            environment=bound.environment,
+            problems=problems,
+        )
+        if problems:
+            raise CheckFailed(problems)
+        return selected
+
     try:
-        point_domain = materialize_point_domain(
+        return prepare_point_domain(
             bound.point_domain,
             bound.environment.parameters,
-            row_normalizer=lambda row: _normalize_point_domain_row(
-                row,
-                entity_columns=entity_columns,
-                environment=bound.environment,
-                problems=problems,
-            ),
+            row_normalizer=normalize,
         )
     except PointDomainEvaluationError as error:
-        problems.append(
-            compiler_problem(
-                "experiment_points_evaluation_failed",
-                f"experiment point domain failed: {error.error}",
-                model_location("point_domain", *error.path),
-                phase=ProblemPhase.PLANNING,
+        raise CheckFailed(
+            (
+                compiler_problem(
+                    "experiment_points_evaluation_failed",
+                    f"experiment point domain failed: {error.error}",
+                    model_location("point_domain", *error.path),
+                    phase=ProblemPhase.PLANNING,
+                ),
             )
-        )
-        raise CheckFailed(problems) from error
-    except ValueValidationError as error:
-        problems.append(
-            compiler_problem(
-                "module_point_value_type_mismatch",
-                str(error),
-                model_location("points"),
-                phase=ProblemPhase.PLANNING,
-            )
-        )
-        raise CheckFailed(problems) from error
-    if bool(problems):
-        raise CheckFailed(problems)
-    return point_domain
+        ) from error
 
 
 def _domain_inputs(

@@ -166,13 +166,11 @@ def _virtual_plant_preparation(
                     {
                         "instrument_id": input_id.instrument_id,
                         "component_path": list(input_id.component_path),
-                        "samples": list(
-                            _synthesize_trace(
-                                sample_count=entry.sample_count,
-                                sample_rate_hz=artifact.sample_rate_hz,
-                                windows=tuple(windows),
-                                desired=desired,
-                            )
+                        "samples": _synthesize_trace(
+                            sample_count=entry.sample_count,
+                            sample_rate_hz=artifact.sample_rate_hz,
+                            windows=tuple(windows),
+                            desired=desired,
                         ),
                     }
                 )
@@ -224,7 +222,7 @@ def _synthesize_trace(
     sample_rate_hz: int,
     windows: tuple[DigitizerAcquisitionWindow, ...],
     desired: tuple[DigitizerValue, ...],
-) -> tuple[float, ...]:
+) -> NDArray[np.float64]:
     rows: list[NDArray[np.float64]] = []
     targets: list[float] = []
     for window, value in zip(windows, desired, strict=True):
@@ -246,14 +244,14 @@ def _synthesize_trace(
         rows.extend((coefficients, quadrature))
         targets.extend((value.real, value.imag))
     if not rows:
-        return (0.0,) * sample_count
+        return np.zeros(sample_count, dtype=np.float64)
     matrix = np.stack(rows)
     solution, _residuals, _rank, _singular_values = np.linalg.lstsq(
         matrix,
         np.asarray(targets),
         rcond=None,
     )
-    return tuple(float(sample) for sample in solution)
+    return np.asarray(solution, dtype=np.float64)
 
 
 __all__ = [

@@ -16,6 +16,7 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
+    MeasurementDatasetBatch,
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
@@ -26,6 +27,7 @@ from scopecat.runs.admission import RunSkeleton, build_run_admission
 from scopecat.runs.refs import MANIFEST_REF
 from scopecat.runs.repository import RunRepository
 from scopecat.sdk.instruments.execution import RunInstrumentHost
+from scopecat_server.services.active_measurements import ActiveMeasurementStore
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
@@ -133,6 +135,10 @@ class SQLiteTestExecutionJournal(SQLiteExecutionJournal):
 class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository):
     """Own transactions for in-process execution tests."""
 
+    def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
+        super().__init__(runs, run_id=run_id)
+        self._active = ActiveMeasurementStore()
+
     def initialize(
         self,
         header: MeasurementDatasetHeader,
@@ -143,7 +149,18 @@ class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository)
                 connection,
                 prepared,
             )
+            self._active.initialize(header)
             return receipt
+
+    def ingest(
+        self,
+        batch: MeasurementDatasetBatch,
+    ) -> tuple[MeasurementDatasetReceipt, ...]:
+        self._active.ingest(batch)
+        return self._flush(force=False)
+
+    def flush(self) -> tuple[MeasurementDatasetReceipt, ...]:
+        return self._flush(force=True)
 
     def append(self, append: MeasurementDatasetAppend) -> MeasurementDatasetReceipt:
         prepared = self.prepare_append(append)
@@ -162,6 +179,19 @@ class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository)
                 prepared,
             )
             return receipt
+
+    def _flush(self, *, force: bool) -> tuple[MeasurementDatasetReceipt, ...]:
+        receipts: list[MeasurementDatasetReceipt] = []
+        while records := self._active.next_chunk(self._run_id, force=force):
+            append = MeasurementDatasetAppend(
+                run_id=self._run_id,
+                header_content_hash=self._active.header_content_hash(self._run_id),
+                start_index=self._active.durable_record_count(self._run_id),
+                records=records,
+            )
+            receipts.append(self.append(append))
+            self._active.commit_chunk(self._run_id, records)
+        return tuple(receipts)
 
 
 @dataclass(frozen=True, slots=True)

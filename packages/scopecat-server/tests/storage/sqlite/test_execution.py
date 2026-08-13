@@ -38,6 +38,7 @@ from scopecat_testkit.server.runtime import (
     SQLiteTestExecutionJournal as SQLiteExecutionJournal,
 )
 
+from scopecat_server.storage.sqlite import measurement_arrow
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.execution import (
     ExecutionJournalConflict,
@@ -183,6 +184,34 @@ def _commit_seal(
     prepared = repository.prepare_seal(seal)
     with _sqlite_transaction(runs) as connection:
         repository.seal_prepared_in_transaction(connection, prepared)
+
+
+def test_measurement_repository_reuses_schema_hash_for_appends(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runs = _runs(tmp_path)
+    repository = SQLiteMeasurementDatasetRepository(runs, run_id="run-cached-schema")
+    header = _header("run-cached-schema", point_count=2)
+    original = measurement_arrow.measurement_dataset_schema_hash
+    hash_calls = 0
+
+    def counted_hash(dataset_schema: MeasurementDatasetSchema) -> str:
+        nonlocal hash_calls
+        hash_calls += 1
+        return original(dataset_schema)
+
+    monkeypatch.setattr(
+        measurement_arrow,
+        "measurement_dataset_schema_hash",
+        counted_hash,
+    )
+
+    _commit_header(runs, repository, header)
+    _commit_append(runs, repository, _append(header, point_index=0))
+    _commit_append(runs, repository, _append(header, point_index=1))
+
+    assert hash_calls == 1
 
 
 def _transitions(run_id: str) -> tuple[ExecutionTransition, ...]:

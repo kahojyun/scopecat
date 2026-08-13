@@ -97,6 +97,7 @@ def _prepared(
         state_requirements=requirements,
         realtime_write_footprint=(),
         realtime_state_invalidations=(),
+        next_batch_max_points=1,
         invocation=cast("ErasedDomainInvocation", object()),
         setup=cast("ErasedDomainSetup", setup),
         runtime=cast("ErasedDomainRuntime", realtime),

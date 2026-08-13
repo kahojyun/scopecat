@@ -385,6 +385,15 @@ class MeasurementPreview(_ViewModel):
     truncated: bool = False
 
 
+class MeasurementLivePreview(_ViewModel):
+    """Latest daemon-received measurement, whether or not it is durable yet."""
+
+    active: bool = False
+    latest: MeasurementRecord | None = None
+    received_record_count: int = Field(default=0, ge=0)
+    durable_record_count: int = Field(default=0, ge=0)
+
+
 class MeasurementSliceQuery(_ViewModel):
     """One bounded product-grid slice selected by authored axis indices."""
 
@@ -541,6 +550,7 @@ __all__ = [
     "InstrumentView",
     "MeasurementArrowColumn",
     "MeasurementArrowQuery",
+    "MeasurementLivePreview",
     "MeasurementPreview",
     "MeasurementSlice",
     "MeasurementSliceQuery",

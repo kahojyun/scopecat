@@ -22,12 +22,13 @@ from scopecat.project import load_application_factory
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 
+from scopecat_server.command_payloads import CommandPayloadService
+from scopecat_server.services.active_measurements import ActiveMeasurementStore
 from scopecat_server.services.admission import AdmissionService
 from scopecat_server.services.application import DaemonApplication
 from scopecat_server.services.config import ConfigService
 from scopecat_server.services.executor import ExecutorService
 from scopecat_server.services.leases import OwnershipLeaseSupervisor
-from scopecat_server.services.payloads import CommandPayloadService
 from scopecat_server.services.runs import RunService
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
@@ -108,12 +109,13 @@ class LocalDaemonRuntime:
                 sqlite,
                 runs=runs,
             )
-            payloads = CommandPayloadService(project_store.objects)
+            payloads = CommandPayloadService()
 
             services = ProjectStateServices(
                 runs=runs,
                 config_registry=config_registry.read_unit_of_work,
             )
+            active_measurements = ActiveMeasurementStore()
             instrument_actors = InstrumentActorRegistry()
             config_service = ConfigService(
                 control=control,
@@ -126,6 +128,7 @@ class LocalDaemonRuntime:
                 control=control,
                 runs=runs,
                 services=services,
+                active_measurements=active_measurements,
             )
             admission = AdmissionService(
                 control=control,
@@ -146,6 +149,7 @@ class LocalDaemonRuntime:
                 control=control,
                 runs=runs,
                 instruments=instruments,
+                active_measurements=active_measurements,
                 lease_ttl=lease_ttl,
             )
             project_id = _project_id(self.project_root)

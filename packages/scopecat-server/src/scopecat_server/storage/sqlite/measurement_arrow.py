@@ -85,6 +85,8 @@ class _AppendIdentity:
 def encode_measurement_append(
     append: MeasurementDatasetAppend,
     dataset_schema: MeasurementDatasetSchema,
+    *,
+    dataset_schema_hash: str | None = None,
 ) -> bytes:
     """Encode one append using columns derived from its registered schema."""
 
@@ -93,7 +95,9 @@ def encode_measurement_append(
             _FORMAT_KEY: MEASUREMENT_APPEND_ARROW_FORMAT.encode(),
             _RUN_ID_KEY: append.run_id.encode(),
             _HEADER_CONTENT_HASH_KEY: append.header_content_hash.encode(),
-            _DATASET_SCHEMA_HASH_KEY: _dataset_schema_hash(dataset_schema).encode(),
+            _DATASET_SCHEMA_HASH_KEY: (
+                dataset_schema_hash or measurement_dataset_schema_hash(dataset_schema)
+            ).encode(),
             _START_INDEX_KEY: str(append.start_index).encode(),
             _OPERATION_ID_KEY: append.operation_id.encode(),
             _CONTENT_HASH_KEY: append.content_hash.encode(),
@@ -123,10 +127,16 @@ def encode_measurement_append(
 def decode_measurement_append(
     content: bytes,
     dataset_schema: MeasurementDatasetSchema,
+    *,
+    dataset_schema_hash: str | None = None,
 ) -> MeasurementDatasetAppend:
     """Decode a complete append and verify its embedded durable identity."""
 
-    batch, identity = _read_batch(content, dataset_schema=dataset_schema)
+    batch, identity = _read_batch(
+        content,
+        dataset_schema=dataset_schema,
+        dataset_schema_hash=dataset_schema_hash,
+    )
     records = _decode_records(
         batch,
         run_id=identity.run_id,
@@ -161,10 +171,15 @@ def decode_measurement_record_slice(
     offset: int,
     length: int,
     variable_ids: Sequence[str] | None = None,
+    dataset_schema_hash: str | None = None,
 ) -> tuple[MeasurementRecord, ...]:
     """Decode a contiguous row and variable projection from one chunk."""
 
-    batch, identity = _read_batch(content, dataset_schema=dataset_schema)
+    batch, identity = _read_batch(
+        content,
+        dataset_schema=dataset_schema,
+        dataset_schema_hash=dataset_schema_hash,
+    )
     if offset < 0 or length < 0 or offset + length > batch.num_rows:
         raise MeasurementArrowCodecError("measurement Arrow slice is out of bounds")
     records = _decode_records(
@@ -189,10 +204,15 @@ def decode_measurement_record_indices(
     indices: Sequence[int],
     *,
     variable_ids: Sequence[str] | None = None,
+    dataset_schema_hash: str | None = None,
 ) -> tuple[MeasurementRecord, ...]:
     """Decode selected rows and variables in caller order from one chunk."""
 
-    batch, identity = _read_batch(content, dataset_schema=dataset_schema)
+    batch, identity = _read_batch(
+        content,
+        dataset_schema=dataset_schema,
+        dataset_schema_hash=dataset_schema_hash,
+    )
     selected = tuple(indices)
     if any(index < 0 or index >= batch.num_rows for index in selected):
         raise MeasurementArrowCodecError(
@@ -444,6 +464,7 @@ def _read_batch(
     content: bytes,
     *,
     dataset_schema: MeasurementDatasetSchema,
+    dataset_schema_hash: str | None,
 ) -> tuple[pa.RecordBatch, _AppendIdentity]:
     try:
         reader = pa.ipc.open_file(pa.BufferReader(content))
@@ -459,6 +480,7 @@ def _read_batch(
         identity = _decode_identity(
             schema.metadata,
             dataset_schema=dataset_schema,
+            dataset_schema_hash=dataset_schema_hash,
         )
         batch = reader.get_batch(0)
     except MeasurementArrowCodecError:
@@ -480,6 +502,7 @@ def _decode_identity(
     metadata: Mapping[bytes, bytes] | None,
     *,
     dataset_schema: MeasurementDatasetSchema,
+    dataset_schema_hash: str | None,
 ) -> _AppendIdentity:
     if metadata is None:
         raise MeasurementArrowCodecError("measurement Arrow metadata is missing")
@@ -502,7 +525,10 @@ def _decode_identity(
         raise MeasurementArrowCodecError(
             f"unsupported measurement Arrow format: {format_version}"
         )
-    if schema_hash != _dataset_schema_hash(dataset_schema):
+    expected_schema_hash = dataset_schema_hash or measurement_dataset_schema_hash(
+        dataset_schema
+    )
+    if schema_hash != expected_schema_hash:
         raise MeasurementArrowCodecError(
             "measurement Arrow chunk does not match its registered dataset schema"
         )
@@ -513,7 +539,9 @@ def _decode_identity(
     return identity
 
 
-def _dataset_schema_hash(dataset_schema: MeasurementDatasetSchema) -> str:
+def measurement_dataset_schema_hash(
+    dataset_schema: MeasurementDatasetSchema,
+) -> str:
     return model_wire_content_hash(dataset_schema)
 
 
@@ -805,4 +833,5 @@ __all__ = [
     "decode_measurement_record_indices",
     "decode_measurement_record_slice",
     "encode_measurement_append",
+    "measurement_dataset_schema_hash",
 ]

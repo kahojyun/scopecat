@@ -96,6 +96,10 @@ export default function App() {
             exact: true,
           });
           void queryClient.resetQueries({
+            queryKey: ["measurements", "live", runId],
+            exact: true,
+          });
+          void queryClient.resetQueries({
             queryKey: ["measurement-slice", runId],
           });
           void queryClient.resetQueries({

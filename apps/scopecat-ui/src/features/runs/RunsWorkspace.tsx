@@ -10,6 +10,7 @@ import {
   Unplug,
 } from "lucide-react";
 import {
+  getMeasurementLivePreview,
   getMeasurementPreview,
   getMeasurementSlice,
   getMeasurementTracePreview,
@@ -21,7 +22,13 @@ import {
   resolveAttention,
 } from "./run-api";
 import { errorMessage, formatRelative, shorten, titleCase } from "../../lib/presentation";
-import type { ProjectHealth, ProjectRun, ProjectRunPage } from "../../types";
+import type {
+  MeasurementLivePreview,
+  MeasurementPreview,
+  ProjectHealth,
+  ProjectRun,
+  ProjectRunPage,
+} from "../../types";
 import { useConfirmationDialog, type ConfirmationRequest } from "../../ui/ConfirmationDialog";
 import { classes, eyebrow, secondaryButton } from "../../ui/styles";
 import { RunDetail } from "./RunDetail";
@@ -105,6 +112,28 @@ export function RunsWorkspace({
     queryFn: ({ signal }) => getMeasurementPreview(selectedRunId!, signal),
     enabled: selectedRunId !== undefined,
   });
+  const selectedRunStatus =
+    runDetailQuery.data?.status ??
+    runsQuery.data?.items.find((run) => run.runId === selectedRunId)?.status;
+  const selectedRunIsActive =
+    selectedRunStatus === undefined || ["accepted", "running"].includes(selectedRunStatus);
+  const liveMeasurementQueryKey = ["measurements", "live", selectedRunId] as const;
+  const liveMeasurementsQuery = useQuery({
+    queryKey: liveMeasurementQueryKey,
+    queryFn: async ({ signal }) => {
+      const previous = queryClient.getQueryData<MeasurementLivePreview>(liveMeasurementQueryKey);
+      const current = await getMeasurementLivePreview(
+        selectedRunId!,
+        signal,
+        previous?.receivedRecordCount,
+      );
+      return current.active && current.latest === undefined && previous?.active
+        ? { ...current, latest: previous.latest }
+        : current;
+    },
+    enabled: selectedRunId !== undefined,
+    refetchInterval: selectedRunIsActive ? 250 : false,
+  });
   const analysesQuery = useQuery({
     queryKey: ["analyses", selectedRunId],
     queryFn: ({ signal }) => getRunAnalyses(selectedRunId!, signal),
@@ -138,7 +167,10 @@ export function RunsWorkspace({
       : indexedRuns;
   }, [olderRunPages, runDetailQuery.data, runsQuery.data]);
   const nextRunCursor = olderRunPages.length > 0 ? olderRunPages.at(-1)?.nextCursor : runHeadCursor;
-  const measurements = measurementsQuery.data;
+  const measurements = useMemo(
+    () => mergeMeasurementPreviews(measurementsQuery.data, liveMeasurementsQuery.data),
+    [liveMeasurementsQuery.data, measurementsQuery.data],
+  );
   const slicePlan = useMemo(
     () => measurementSlicePlan(measurements?.schema),
     [measurements?.schema],
@@ -487,6 +519,30 @@ function StatusItem({
       </small>
     </article>
   );
+}
+
+function mergeMeasurementPreviews(
+  durable: MeasurementPreview | undefined,
+  live: MeasurementLivePreview | undefined,
+): MeasurementPreview | undefined {
+  const latest = live?.active ? live.latest : undefined;
+  if (!durable && !latest) return undefined;
+  const durableItems = durable?.items ?? [];
+  const items =
+    latest && !durableItems.some((record) => record.point_index === latest.point_index)
+      ? [...durableItems, latest]
+      : durableItems;
+  const livePointIndex =
+    live && latest && live.receivedRecordCount > live.durableRecordCount
+      ? latest.point_index
+      : undefined;
+  return {
+    ...durable,
+    items,
+    recordCount: live?.active ? live.receivedRecordCount : durable?.recordCount,
+    durableRecordCount: live?.active ? live.durableRecordCount : durable?.durableRecordCount,
+    livePointIndex,
+  };
 }
 
 function RunListItem({

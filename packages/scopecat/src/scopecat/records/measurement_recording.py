@@ -96,8 +96,8 @@ class MeasurementDatasetHeader(_FrozenRecordingModel):
         return model_wire_content_hash(self)
 
 
-class MeasurementDatasetAppend(_FrozenRecordingModel):
-    """One idempotent append to a canonical run dataset."""
+class MeasurementDatasetBatch(_FrozenRecordingModel):
+    """One contiguous record batch offered to a dataset writer."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -116,20 +116,26 @@ class MeasurementDatasetAppend(_FrozenRecordingModel):
         return value
 
     @model_validator(mode="after")
-    def validate_record_identity(self) -> MeasurementDatasetAppend:
+    def validate_record_identity(self) -> MeasurementDatasetBatch:
         if any(record.run_id != self.run_id for record in self.records):
-            raise ValueError("measurement dataset append and record run ids must match")
+            raise ValueError("measurement dataset batch and record run ids must match")
         indices = tuple(record.point_index for record in self.records)
         if indices != tuple(
             range(self.start_index, self.start_index + len(self.records))
         ):
             raise ValueError(
-                "measurement dataset append records must be contiguous from start_index"
+                "measurement dataset batch records must be contiguous from start_index"
             )
         logical_ids = tuple(record.logical_point_id for record in self.records)
         if len(logical_ids) != len(set(logical_ids)):
-            raise ValueError("measurement dataset logical point ids must be unique")
+            raise ValueError(
+                "measurement dataset batch logical point ids must be unique"
+            )
         return self
+
+
+class MeasurementDatasetAppend(MeasurementDatasetBatch):
+    """One idempotent durable append to a canonical run dataset."""
 
     @property
     def operation_id(self) -> str:
@@ -223,6 +229,7 @@ def measurement_dataset_content_hash(
 __all__ = [
     "CANONICAL_MEASUREMENT_DATASET_REF",
     "MeasurementDatasetAppend",
+    "MeasurementDatasetBatch",
     "MeasurementDatasetHeader",
     "MeasurementDatasetReceipt",
     "MeasurementDatasetSeal",

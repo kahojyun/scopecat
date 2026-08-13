@@ -12,6 +12,7 @@ from scopecat_testkit.measurement_assembly import (
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductUseId
+from scopecat.kernel.value_types import Payload, Scalar
 from scopecat.measurements.points import RunPointContract
 from scopecat.measurements.results import (
     InstrumentAcquisitionEvidence,
@@ -21,6 +22,7 @@ from scopecat.measurements.values import (
     MeasurementValueCatalog,
     seal_measurement_values,
 )
+from scopecat.program.point_domain import point_axis_values
 
 
 def _scenario(*, point_values: tuple[float, ...] = (0.0, 1.0), use_count: int = 3):
@@ -42,10 +44,10 @@ def test_catalog_fingerprint_ignores_unserializable_opaque_axis_values() -> None
                 experiment_kind="test",
                 point_count=1,
                 coordinate_columns=(),
-                domain_axis_sizes=(("opaque", 1),),
-                domain_axis_values=(
-                    (
+                domain_axes=(
+                    point_axis_values(
                         "opaque",
+                        Scalar(Payload("opaque")),
                         (PayloadValue(schema_id="opaque", payload=payload),),
                     ),
                 ),

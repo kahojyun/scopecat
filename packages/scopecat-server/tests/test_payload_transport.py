@@ -52,14 +52,15 @@ from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 from scopecat_testkit.instrument_drivers import SignalInstrumentDriver, load_config
 
 from scopecat_server import LocalDaemonRuntime
-from scopecat_server.instruments.backend import LocalInstrumentBackendEndpoint
-from scopecat_server.instruments.worker import SubprocessInstrumentBackendEndpoint
-from scopecat_server.services.payloads import (
+from scopecat_server.command_payloads import (
     DEFAULT_MAX_PAYLOAD_OBJECT_BYTES,
     CommandPayloadService,
     CommandPayloadTooLarge,
+    run_payload_scope,
+    session_payload_scope,
 )
-from scopecat_server.storage.sqlite.object_store import ImmutableObjectStore
+from scopecat_server.instruments.backend import LocalInstrumentBackendEndpoint
+from scopecat_server.instruments.worker import SubprocessInstrumentBackendEndpoint
 
 _PAYLOAD_BYTES = b"\x00\xff\x80SCPI\x00program\n"
 _MEDIA_TYPE = "application/octet-stream"
@@ -190,6 +191,8 @@ def test_binary_command_payload_crosses_real_json_http_boundary(
         )
 
         assert receipt.problems == ()
+        assert runtime.application.payloads.spooled_size_bytes() == 0
+        assert not _payload_object_path(runtime, payload.content_hash).exists()
         [driver] = provider.drivers
         assert driver.consumed_payloads == [_PAYLOAD_BYTES]
         [started] = [
@@ -239,6 +242,7 @@ def test_direct_invoke_uses_the_same_payload_object_boundary(
             "source-0",
             command,
         )
+        assert runtime.application.payloads.spooled_size_bytes() == 0
         daemon.close_instrument_session(session.session_id)
 
         assert receipt.status == "invoked"
@@ -321,6 +325,7 @@ def test_direct_invoke_idempotency_uses_payload_content_not_transport_body(
         stored = _put_session_payload_object(
             transport,
             session.session_id,
+            "canonical-invoke",
             _PAYLOAD_BYTES,
             content_hash=inline.content_hash,
         )
@@ -354,6 +359,7 @@ def test_direct_invoke_idempotency_uses_payload_content_not_transport_body(
             path,
             json=first.model_dump(mode="json"),
         )
+        assert runtime.application.payloads.spooled_size_bytes() == 0
         second_response = transport.post(
             path,
             json=second.model_dump(mode="json"),
@@ -384,6 +390,7 @@ def test_binary_blob_payload_is_materialized_before_driver_call(
             transport,
             run_id,
             lease_id,
+            "blob-batch",
             _PAYLOAD_BYTES,
             content_hash=inline.content_hash,
         )
@@ -429,7 +436,10 @@ def test_payload_object_upload_rejects_hash_mismatch(tmp_path: Path) -> None:
                 f"payload-objects/{wrong_hexdigest}"
             ),
             content=_PAYLOAD_BYTES,
-            headers={"content-type": _MEDIA_TYPE},
+            headers={
+                "content-type": _MEDIA_TYPE,
+                "x-scopecat-payload-command-id": "hash-mismatch",
+            },
         )
         daemon.close_instrument_session(session.session_id)
 
@@ -474,6 +484,7 @@ def test_payload_object_upload_rejects_oversize_before_storage(
             headers={
                 "content-length": str(DEFAULT_MAX_PAYLOAD_OBJECT_BYTES + 1),
                 "content-type": _MEDIA_TYPE,
+                "x-scopecat-payload-command-id": "oversize",
             },
         )
         daemon.close_instrument_session(session.session_id)
@@ -488,10 +499,7 @@ def test_payload_object_stream_enforces_limit_across_chunks(
     tmp_path: Path,
 ) -> None:
     content = b"five!"
-    objects = ImmutableObjectStore(tmp_path / "objects")
-    objects.bootstrap()
     service = CommandPayloadService(
-        objects,
         max_object_bytes=4,
         max_inline_bytes=4,
     )
@@ -504,19 +512,17 @@ def test_payload_object_stream_enforces_limit_across_chunks(
         asyncio.run(
             service.put_object_stream(
                 chunks(),
+                scope=session_payload_scope("session", "oversize"),
                 expected_content_hash=sha256_content_hash(content),
             )
         )
 
-    assert not objects.path_for(sha256_content_hash(content)).exists()
+    assert service.spooled_size_bytes() == 0
 
 
-def test_blob_descriptor_is_bounded_before_object_store_read(tmp_path: Path) -> None:
+def test_blob_descriptor_is_bounded_before_spool_read() -> None:
     content = b"five!"
-    objects = ImmutableObjectStore(tmp_path / "objects")
-    objects.bootstrap()
     service = CommandPayloadService(
-        objects,
         max_object_bytes=4,
         max_inline_bytes=4,
     )
@@ -532,7 +538,10 @@ def test_blob_descriptor_is_bounded_before_object_store_read(tmp_path: Path) -> 
     )
 
     with pytest.raises(CommandPayloadTooLarge):
-        service.materialize_payloads({blob.id: blob})
+        service.materialize_payloads(
+            {blob.id: blob},
+            scope=run_payload_scope("run", "oversized"),
+        )
 
 
 def test_closed_direct_session_cannot_leave_an_uploaded_payload(
@@ -553,7 +562,16 @@ def test_closed_direct_session_cannot_leave_an_uploaded_payload(
                 instrument_ids=("source-0",),
             )
         )
+        _put_session_payload_object(
+            transport,
+            session.session_id,
+            "orphan-upload",
+            content,
+            content_hash=payload.content_hash,
+        )
+        assert runtime.application.payloads.spooled_size_bytes() == len(content)
         daemon.close_instrument_session(session.session_id)
+        assert runtime.application.payloads.spooled_size_bytes() == 0
         object_path = _payload_object_path(runtime, payload.content_hash)
         assert not object_path.exists()
 
@@ -600,7 +618,7 @@ def test_stale_run_lease_cannot_leave_an_uploaded_payload(tmp_path: Path) -> Non
         assert driver.consumed_payloads == []
 
 
-def test_missing_payload_blob_is_rejected_before_driver_call(tmp_path: Path) -> None:
+def test_payload_blob_cannot_cross_hardware_operation_scope(tmp_path: Path) -> None:
     provider = _PayloadProvider()
     with (
         _runtime(tmp_path, provider) as runtime,
@@ -619,6 +637,14 @@ def test_missing_payload_blob_is_rejected_before_driver_call(tmp_path: Path) -> 
             content=_PAYLOAD_BYTES,
             blob_ref=inline.content_hash,
         )
+        _put_run_payload_object(
+            transport,
+            run_id,
+            lease_id,
+            "different-batch",
+            _PAYLOAD_BYTES,
+            content_hash=inline.content_hash,
+        )
 
         with pytest.raises(httpx2.HTTPStatusError) as caught:
             daemon.execute_run_hardware(
@@ -632,9 +658,12 @@ def test_missing_payload_blob_is_rejected_before_driver_call(tmp_path: Path) -> 
 
         assert caught.value.response.status_code == 422
         assert "payload object was not found" in caught.value.response.text
+        assert runtime.application.payloads.spooled_size_bytes() == len(_PAYLOAD_BYTES)
         [driver] = provider.drivers
         assert driver.consumed_payloads == []
         assert driver.invoked == []
+
+    assert runtime.application.payloads.spooled_size_bytes() == 0
 
 
 def test_batch_materializes_all_payloads_before_first_driver_call(
@@ -675,6 +704,7 @@ def test_batch_materializes_all_payloads_before_first_driver_call(
         ).batch.actions
         command = RunHardwareBatchCommand(
             lease_id=lease_id,
+            sequence=0,
             batch=RunHardwareBatch(
                 operation_id="atomic-materialization",
                 actions=(valid_action, missing_action),
@@ -719,6 +749,7 @@ def test_payload_invocations_are_not_suppressed_by_reused_payload_id(
         ).batch.actions
         command = RunHardwareBatchCommand(
             lease_id=lease_id,
+            sequence=0,
             batch=RunHardwareBatch(
                 operation_id="reused-program-content-change",
                 actions=(first_action, second_action),
@@ -761,6 +792,7 @@ def test_batch_prevalidates_every_action_before_first_driver_call(
         )
         command = RunHardwareBatchCommand(
             lease_id=lease_id,
+            sequence=0,
             batch=RunHardwareBatch(
                 operation_id=f"preflight-{invalid_contract}",
                 actions=(valid_action, invalid_action),
@@ -824,6 +856,7 @@ def _daemon_client(transport: TestClient) -> DaemonClient:
 def _put_session_payload_object(
     transport: TestClient,
     session_id: str,
+    command_id: str,
     content: bytes,
     *,
     content_hash: str,
@@ -834,7 +867,10 @@ def _put_session_payload_object(
             f"{content_hash.removeprefix('sha256:')}"
         ),
         content=content,
-        headers={"content-type": _MEDIA_TYPE},
+        headers={
+            "content-type": _MEDIA_TYPE,
+            "x-scopecat-payload-command-id": command_id,
+        },
     )
     assert response.status_code == 201
     return PayloadObjectReceipt.model_validate(response.json())
@@ -844,6 +880,7 @@ def _put_run_payload_object(
     transport: TestClient,
     run_id: str,
     lease_id: str,
+    operation_id: str,
     content: bytes,
     *,
     content_hash: str,
@@ -857,6 +894,7 @@ def _put_run_payload_object(
         headers={
             "content-type": _MEDIA_TYPE,
             "x-scopecat-lease-id": lease_id,
+            "x-scopecat-payload-operation-id": operation_id,
         },
     )
     assert response.status_code == 201
@@ -959,9 +997,12 @@ def _payload_batch(
     lease_id: str,
     operation_id: str,
     payload: CommandPayload,
+    *,
+    sequence: int = 0,
 ) -> RunHardwareBatchCommand:
     return RunHardwareBatchCommand(
         lease_id=lease_id,
+        sequence=sequence,
         batch=RunHardwareBatch(
             operation_id=operation_id,
             actions=(

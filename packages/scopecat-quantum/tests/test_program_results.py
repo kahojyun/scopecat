@@ -21,7 +21,7 @@ from scopecat.planning.domain_bridge import (
     make_domain_call_view,
 )
 from scopecat.planning.domain_results import domain_result_product_use_ids
-from scopecat.planning.point_materialization import materialize_bound_points
+from scopecat.planning.point_materialization import prepare_bound_points
 from scopecat.program.logical import LogicalDomainExecution, LogicalProgram
 from scopecat.program.point_domain import point_axis_values
 from scopecat.sdk.domain import (
@@ -136,7 +136,7 @@ def _preparation(
             _REPO_ROOT / "fixtures" / "core" / "simple_scan" / "config-snapshot.json"
         )
     )
-    bound_points = materialize_bound_points(
+    bound_points = prepare_bound_points(
         bind_program_facts(
             program,
             execution,

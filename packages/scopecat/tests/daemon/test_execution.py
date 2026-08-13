@@ -9,6 +9,7 @@ import pytest
 from pydantic import BaseModel
 from scopecat_testkit.workflow_fixtures import load_config
 
+import scopecat.daemon.execution as daemon_execution
 from scopecat.control.models import RunPlanSummary
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.execution import daemon_execution_session
@@ -17,10 +18,15 @@ from scopecat.daemon.wire import (
     ExecutionTransitionClaim,
     ExecutorLease,
     ExecutorStartRequest,
-    MeasurementAppendCommand,
+    MeasurementFlushCommand,
+    MeasurementFlushReceipt,
     MeasurementHeaderCommand,
+    MeasurementIngestCommand,
+    MeasurementIngestReceipt,
     MeasurementSealCommand,
     RunAdmission,
+    RunCoverageAdvanceCommand,
+    RunCoverageState,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -65,7 +71,10 @@ from scopecat.sdk.instruments.execution import (
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 
 
-def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> None:
+def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(daemon_execution, "monotonic", lambda: 1.0)
     submission = RunSubmission(
         submission_id="submission-1",
         config=load_config(),
@@ -97,6 +106,9 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
     transition_commands: list[ExecutionTransitionAppend | ExecutionTransitionClaim] = []
     terminal_commands: list[TerminalRunCommitCommand] = []
     hardware_operation_ids: list[str] = []
+    hardware_sequences: list[int] = []
+    coverage_ranges: list[tuple[int, int]] = []
+    measurement_ingest_ranges: list[tuple[int, int]] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
@@ -121,8 +133,19 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
             command = RunHardwareBatchCommand.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
             hardware_operation_ids.append(command.batch.operation_id)
+            hardware_sequences.append(command.sequence)
             return _model(
                 RunHardwareBatchReceipt(operation_id=command.batch.operation_id)
+            )
+        if path.endswith("/coverage/advance"):
+            command = RunCoverageAdvanceCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            coverage_ranges.append((command.start_index, command.point_count))
+            return _model(
+                RunCoverageState(
+                    run_id="run-1",
+                    completed_point_count=command.start_index + command.point_count,
+                )
             )
         if path.endswith("/hardware/finish"):
             command = RunHardwareFinishCommand.model_validate_json(request.content)
@@ -143,10 +166,29 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
             _remember_fence(fences, "run-1", command)
             transition_commands.append(command)
             return _model(committed_transition)
-        if path.endswith("/measurements/append"):
-            command = MeasurementAppendCommand.model_validate_json(request.content)
+        if path.endswith("/measurements/ingest"):
+            command = MeasurementIngestCommand.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
-            return _model(_measurement_receipt(command.append))
+            measurement_ingest_ranges.append(
+                (command.batch.start_index, len(command.batch.records))
+            )
+            return _model(
+                MeasurementIngestReceipt(
+                    run_id="run-1",
+                    received_record_count=1,
+                    durable_record_count=0,
+                )
+            )
+        if path.endswith("/measurements/flush"):
+            command = MeasurementFlushCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            return _model(
+                MeasurementFlushReceipt(
+                    run_id="run-1",
+                    durable_record_count=1,
+                    durable_receipts=(_measurement_receipt(append),),
+                )
+            )
         if path.endswith("/measurements/header"):
             command = MeasurementHeaderCommand.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
@@ -182,6 +224,8 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
     journal = session.journal
     measurements = session.measurements
     instruments = session.instruments
+    coverage = session.coverage
+    assert coverage is not None
     assert instruments.observed_state == (
         InstrumentStateSnapshot(instrument_id="source-0"),
     )
@@ -208,6 +252,9 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
         ),
     )
     assert instruments.execute(batch).operation_id == batch.operation_id
+    coverage.advance(start_index=0, point_count=1)
+    coverage.advance(start_index=1, point_count=2)
+    coverage.flush()
     assert (
         instruments.finish(operation_id="hardware.finish", failed=False).operation_id
         == "hardware.finish"
@@ -229,7 +276,31 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
         for command in transition_commands
     } == {execution_transition_content_hash(transition)}
     assert measurements.initialize(header) == _header_receipt(header)
-    assert measurements.append(append) == _measurement_receipt(append)
+    assert measurements.ingest(append) == ()
+    second = append.model_copy(
+        update={
+            "start_index": 1,
+            "records": (
+                record.model_copy(
+                    update={"logical_point_id": "point-1", "point_index": 1}
+                ),
+            ),
+        }
+    )
+    third = append.model_copy(
+        update={
+            "start_index": 2,
+            "records": (
+                record.model_copy(
+                    update={"logical_point_id": "point-2", "point_index": 2}
+                ),
+            ),
+        }
+    )
+    assert measurements.ingest(second) == ()
+    assert measurements.ingest(third) == ()
+    assert measurements.flush() == (_measurement_receipt(append),)
+    assert measurement_ingest_ranges == [(0, 1), (1, 2)]
     assert measurements.seal(seal) == _seal_receipt(seal)
 
     outcome = _outcome()
@@ -256,6 +327,8 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
         "hardware.batch-1",
         "hardware.finish",
     ]
+    assert hardware_sequences == [0]
+    assert coverage_ranges == [(0, 1), (1, 2)]
 
 
 def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> None:

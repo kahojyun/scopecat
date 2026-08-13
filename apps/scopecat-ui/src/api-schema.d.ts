@@ -532,6 +532,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/measurements/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Measurement Live Preview */
+        get: operations["measurement_live_preview_api_v1_runs__run_id__measurements_live_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/measurements/preview": {
         parameters: {
             query?: never;
@@ -1751,7 +1768,7 @@ export interface components {
         };
         /**
          * InlinePayloadBody
-         * @description Base64 wire representation of one complete encoded payload.
+         * @description One complete encoded payload with base64 confined to JSON transport.
          */
         InlinePayloadBody: {
             /** Content Base64 */
@@ -2315,10 +2332,10 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension-Output"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v8
+             * @default scopecat.measurement_dataset_schema.v9
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v8";
+            format_version: "scopecat.measurement_dataset_schema.v9";
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
             point_domain: components["schemas"]["MeasurementPointDomain-Output"];
             /** Primary Coordinates */
@@ -2352,6 +2369,28 @@ export interface components {
         };
         /** @enum {string} */
         MeasurementDType: "float64" | "int64" | "complex128" | "bool" | "string";
+        /**
+         * MeasurementLivePreview
+         * @description Latest daemon-received measurement, whether or not it is durable yet.
+         */
+        MeasurementLivePreview: {
+            /**
+             * Active
+             * @default false
+             */
+            active: boolean;
+            /**
+             * Durable Record Count
+             * @default 0
+             */
+            durable_record_count: number;
+            latest?: components["schemas"]["MeasurementRecord-Output"] | null;
+            /**
+             * Received Record Count
+             * @default 0
+             */
+            received_record_count: number;
+        };
         "MeasurementMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
         };
@@ -2378,9 +2417,9 @@ export interface components {
             id: string;
             /** Size */
             size: number;
-            /** Values */
-            values: (components["schemas"]["MeasurementScalar-Output"] | null)[];
+            source: components["schemas"]["MeasurementPointDomainAxisSource-Output"];
         };
+        "MeasurementPointDomainAxisSource-Output": components["schemas"]["MeasurementPointDomainValuesSource-Output"] | components["schemas"]["MeasurementPointDomainRangeSource-Output"] | components["schemas"]["MeasurementPointDomainLinearSource-Output"];
         /**
          * MeasurementPointDomainColumn
          * @description One ordered coordinate column in a point-cloud domain.
@@ -2388,6 +2427,45 @@ export interface components {
         MeasurementPointDomainColumn: {
             /** Id */
             id: string;
+        };
+        /**
+         * MeasurementPointDomainLinearSource
+         * @description One compact centered durable product-grid coordinate range.
+         */
+        "MeasurementPointDomainLinearSource-Output": {
+            center: components["schemas"]["MeasurementScalar-Output"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "linear";
+            span: components["schemas"]["MeasurementScalar-Output"];
+        };
+        /**
+         * MeasurementPointDomainRangeSource
+         * @description One compact inclusive durable product-grid coordinate range.
+         */
+        "MeasurementPointDomainRangeSource-Output": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "range";
+            start: components["schemas"]["MeasurementScalar-Output"];
+            stop: components["schemas"]["MeasurementScalar-Output"];
+        };
+        /**
+         * MeasurementPointDomainValuesSource
+         * @description One explicit durable product-grid coordinate source.
+         */
+        "MeasurementPointDomainValuesSource-Output": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "values";
+            /** Values */
+            values: (components["schemas"]["MeasurementScalar-Output"] | null)[];
         };
         /**
          * MeasurementPreview
@@ -4560,6 +4638,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunMeasurementDatasetResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    measurement_live_preview_api_v1_runs__run_id__measurements_live_get: {
+        parameters: {
+            query?: {
+                after_record_count?: number | null;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeasurementLivePreview"];
                 };
             };
             /** @description Validation Error */

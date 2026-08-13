@@ -82,6 +82,7 @@ export type AnalysisParameterProposalReference =
   components["schemas"]["AnalysisParameterProposalReference"];
 export type AnalysisTableView = components["schemas"]["AnalysisTableView"];
 export type MeasurementDatasetSchema = components["schemas"]["MeasurementDatasetSchema-Output"];
+export type MeasurementLivePreview = components["schemas"]["MeasurementLivePreview"];
 export type MeasurementRecord = components["schemas"]["MeasurementRecord-Output"];
 export type MeasurementSlice = components["schemas"]["MeasurementSlice"];
 export type MeasurementTracePreview = components["schemas"]["MeasurementTracePreview"];

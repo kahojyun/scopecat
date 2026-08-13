@@ -5,10 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from math import isfinite, prod
-from typing import Generic, Never, TypeVar, cast
-
-import numpy as np
-from numpy.typing import NDArray
+from typing import Generic, Never, TypeVar
 
 from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.kernel.quantity import Quantity
@@ -75,18 +72,35 @@ def point_axis_range_values(
 ) -> tuple[ScanRangeValue, ...]:
     """Generate one inclusive coordinate range with NumPy linspace semantics."""
 
+    return tuple(
+        point_axis_range_value(start, stop, count, index) for index in range(count)
+    )
+
+
+def point_axis_range_value(
+    start: ScanRangeValue,
+    stop: ScanRangeValue,
+    count: int,
+    index: int,
+) -> ScanRangeValue:
+    """Generate one random-access value from an inclusive coordinate range."""
+
+    if not 0 <= index < count:
+        raise IndexError(index)
+
     if isinstance(start, Quantity):
         if not isinstance(stop, Quantity):
             msg = "range endpoints must both be quantities or both be numeric"
             raise TypeError(msg)
         converted_stop = stop.to(start.unit)
-        return tuple(
-            Quantity(value=value, unit=start.unit)
-            for value in _float_linspace(
+        return Quantity(
+            value=_float_linspace_value(
                 start.value,
                 converted_stop.value,
                 count,
-            )
+                index,
+            ),
+            unit=start.unit,
         )
     if isinstance(stop, Quantity):
         msg = "range endpoints must both be quantities or both be numeric"
@@ -101,35 +115,27 @@ def point_axis_range_values(
             msg = "integer point axis range must have an integral step"
             raise ValueError(msg)
         step = difference // last_index
-        return tuple(start + step * index for index in range(count))
-    return _float_linspace(float(start), float(stop), count)
+        return start + step * index
+    return _float_linspace_value(float(start), float(stop), count, index)
 
 
-def _float_linspace(
+def _float_linspace_value(
     start: float,
     stop: float,
     count: int,
-) -> tuple[float, ...]:
-    """Interpolate finite endpoints without overflowing their difference."""
+    index: int,
+) -> float:
+    """Interpolate one finite endpoint pair without overflowing its difference."""
 
-    if isfinite(stop - start):
-        values: NDArray[np.float64] = np.linspace(
-            start,
-            stop,
-            num=count,
-            dtype=np.float64,
-        )
-    else:
-        weights: NDArray[np.float64] = np.linspace(
-            0.0,
-            1.0,
-            num=count,
-            dtype=np.float64,
-        )
-        values = start * (1.0 - weights) + stop * weights
-    values[0] = start
-    values[-1] = stop
-    return tuple(float(cast("np.float64", values[index])) for index in range(count))
+    if index == 0:
+        return start
+    if index == count - 1:
+        return stop
+    difference = stop - start
+    if isfinite(difference):
+        return start + index * (difference / (count - 1))
+    weight = index / (count - 1)
+    return start * (1.0 - weight) + stop * weight
 
 
 @dataclass(frozen=True, slots=True)
