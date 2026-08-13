@@ -1,4 +1,5 @@
 import type {
+  AdaptiveRegion,
   AnalysisArtifactReference,
   AnalysisDatasetDerivation,
   AnalysisDatasetReference,
@@ -44,6 +45,12 @@ export interface RunPlanSummary {
   pointLimit: number;
   coordinateIds: string[];
   coordinateSpecs: PointCoordinateSpec[];
+  adaptiveCoordinateIds: string[];
+  adaptiveScope?: "per_region" | "global";
+  perRegionPointLimit?: number;
+  adaptiveRegionCount: number;
+  adaptiveRegions: AdaptiveRegion[];
+  adaptiveRegionsTruncated: boolean;
   sampledPoints: Record<string, unknown>[];
   sampledPointsTruncated: boolean;
   recordIds: string[];

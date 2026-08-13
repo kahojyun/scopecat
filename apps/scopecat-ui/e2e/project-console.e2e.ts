@@ -179,16 +179,17 @@ def wait_for_release(path: Path) -> None:
 class GatedOptimizer:
     id = "ui-e2e.gated-optimizer"
 
-    def propose(self, context: sc.PointOptimizerContext):
-        if context.completed_point_count == 2:
+    def propose(self, context: sc.DomainOptimizerContext):
+        region = context.region
+        assert region is not None
+        if region.completed_point_count == 2:
             OPTIMIZER_READY.write_text("ready", encoding="utf-8")
             wait_for_release(RELEASE_OPTIMIZER)
-            return sc.PointProposalAttempt(
-                {"x": 0.5},
-                source="optimizer",
-                based_on_completed_point_count=context.completed_point_count,
+            return sc.DomainProposalAttempt(
+                sc.ResolvedDomainFragment.points(({"x": 0.5},)),
+                based_on_region_revisions={region.id: region.revision},
             )
-        if context.completed_point_count == 4:
+        if region.completed_point_count == 4:
             QUEUE_ACCEPTED_READY.write_text("ready", encoding="utf-8")
             wait_for_release(RELEASE_FINISH)
         return sc.OptimizationComplete("browser queue exercised")
@@ -526,16 +527,16 @@ test("queues a free off-grid point into a running adaptive compiler", async ({ d
     const detail = page.getByRole("region", { name: "Selected run details" });
     await expect(detail.getByTestId("run-status")).toHaveText("Running");
     const inspection = detail.getByTestId("run-inspection-card");
-    await inspection.getByRole("button", { name: /free/i }).click();
-    await inspection.getByRole("spinbutton", { name: "x" }).fill("0.375");
-    await expect(inspection.getByText(/Will queue free point:.*0\.375/)).toBeVisible();
+    await inspection.getByRole("button", { name: "Free scan" }).click();
+    await inspection.getByLabel("x values").fill("0.375");
+    await expect(inspection.getByText(/x \[0\.375\]/)).toBeVisible();
 
     const queueResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
         response.url().endsWith(`/api/v1/runs/${runId}/point-plan/queue`),
     );
-    await inspection.getByRole("button", { name: "Queue point" }).click();
+    await inspection.getByRole("button", { name: "Add scan" }).click();
     await expectResponseOk(await queueResponse, "POST");
     await expect(inspection.getByText("pending", { exact: true })).toBeVisible();
 

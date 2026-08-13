@@ -692,11 +692,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Run Point Queue */
-        get: operations["get_run_point_queue_api_v1_runs__run_id__point_plan_queue_get"];
+        /** Get Run Domain Queue */
+        get: operations["get_run_domain_queue_api_v1_runs__run_id__point_plan_queue_get"];
         put?: never;
-        /** Enqueue Run Point */
-        post: operations["enqueue_run_point_api_v1_runs__run_id__point_plan_queue_post"];
+        /** Enqueue Run Domain */
+        post: operations["enqueue_run_domain_api_v1_runs__run_id__point_plan_queue_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -712,8 +712,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Resolve Run Point */
-        post: operations["resolve_run_point_api_v1_runs__run_id__point_plan_resolve_post"];
+        /** Resolve Run Domain */
+        post: operations["resolve_run_domain_api_v1_runs__run_id__point_plan_resolve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -924,6 +924,20 @@ export interface components {
             activation: components["schemas"]["ConfigRegistryActivationRecord"];
             config: components["schemas"]["ConfigProfileSnapshot-Output"];
             entry: components["schemas"]["ConfigRegistryEntry"];
+        };
+        /**
+         * AdaptiveRegionSpec
+         * @description One stable outer-domain region admitted for adaptive extension.
+         */
+        "AdaptiveRegionSpec-Output": {
+            /** Coordinates */
+            coordinates: {
+                [key: string]: components["schemas"]["PointCoordinateValue-Output"];
+            };
+            /** Id */
+            id: string;
+            /** Initial Point Count */
+            initial_point_count: number;
         };
         /** AnalysisArtifactRecordOutput */
         AnalysisArtifactRecordOutput: {
@@ -2921,31 +2935,30 @@ export interface components {
             /** Label */
             label?: string | null;
         };
-        /**
-         * OperatorPointRequestView
-         * @description Durable operator intent before it becomes a freshness-bearing proposal.
-         */
-        OperatorPointRequestView: {
-            /** Coordinate Fingerprint */
-            coordinate_fingerprint: string;
+        /** OperatorDomainRequestView */
+        OperatorDomainRequestView: {
             /**
              * Coordinate Mode
              * @enum {string}
              */
             coordinate_mode: "snap" | "free";
-            /** Coordinates */
-            coordinates: {
-                [key: string]: components["schemas"]["RunPointCoordinateValue-Output"];
-            };
+            fragment: components["schemas"]["RunDomainFragmentView-Output"];
+            /** Region Count */
+            region_count: number;
+            /**
+             * Region Ids
+             * @default []
+             */
+            region_ids: string[];
+            region_scope: components["schemas"]["OperatorRegionScope"];
             /** Request Fingerprint */
             request_fingerprint: string;
             /** Request Id */
             request_id: string;
-            /** Requested Coordinates */
-            requested_coordinates: {
-                [key: string]: components["schemas"]["RunPointCoordinateValue-Output"];
-            };
+            requested_fragment: components["schemas"]["RunDomainFragmentView-Output"];
         };
+        /** @enum {string} */
+        OperatorRegionScope: "current" | "selected" | "all";
         "ParameterAtomValue-Input": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | boolean | number | string;
         "ParameterAtomValue-Output": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | boolean | number | string;
         /**
@@ -3179,23 +3192,25 @@ export interface components {
             kind: "replace_parameter";
             value: components["schemas"]["StoredParameterValue-Input"];
         };
-        /** ResolvedRunPointSelectionView */
-        ResolvedRunPointSelectionView: {
+        /** ResolvedRunDomainView */
+        ResolvedRunDomainView: {
             /**
              * Coordinate Mode
              * @enum {string}
              */
             coordinate_mode: "snap" | "free";
-            /** Coordinates */
-            coordinates: {
-                [key: string]: components["schemas"]["RunPointCoordinateValue-Output"];
-            };
-            /** Requested Coordinates */
-            requested_coordinates: {
-                [key: string]: components["schemas"]["RunPointCoordinateValue-Output"];
-            };
-            /** Sampled Point Index */
-            sampled_point_index?: number | null;
+            fragment: components["schemas"]["RunDomainFragmentView-Output"];
+            /** Region Count */
+            region_count: number;
+            /**
+             * Region Ids
+             * @default []
+             */
+            region_ids: string[];
+            region_scope: components["schemas"]["OperatorRegionScope"];
+            requested_fragment: components["schemas"]["RunDomainFragmentView-Output"];
+            /** Total Point Count */
+            total_point_count: number;
         };
         /** @constant */
         ResourceKind: "instrument";
@@ -3527,6 +3542,51 @@ export interface components {
              */
             resources: components["schemas"]["RunResourceView"][];
         };
+        /** RunDomainAroundSourceView */
+        RunDomainAroundSourceView: {
+            /** Center */
+            center: number | components["schemas"]["scopecat__kernel__quantity__Quantity"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "around";
+            /** Points */
+            points: number;
+            /** Span */
+            span: number | components["schemas"]["scopecat__kernel__quantity__Quantity"];
+        };
+        "RunDomainAxisSourceView-Input": components["schemas"]["RunDomainValuesSourceView-Input"] | components["schemas"]["RunDomainRangeSourceView"] | components["schemas"]["RunDomainAroundSourceView"];
+        "RunDomainAxisSourceView-Output": components["schemas"]["RunDomainValuesSourceView-Output"] | components["schemas"]["RunDomainRangeSourceView"] | components["schemas"]["RunDomainAroundSourceView"];
+        /** RunDomainAxisView */
+        "RunDomainAxisView-Input": {
+            /** Axis Id */
+            axis_id: string;
+            source: components["schemas"]["RunDomainAxisSourceView-Input"];
+        };
+        /** RunDomainAxisView */
+        "RunDomainAxisView-Output": {
+            /** Axis Id */
+            axis_id: string;
+            source: components["schemas"]["RunDomainAxisSourceView-Output"];
+        };
+        /** RunDomainEnqueueCommand */
+        RunDomainEnqueueCommand: {
+            /**
+             * Coordinate Mode
+             * @enum {string}
+             */
+            coordinate_mode: "snap" | "free";
+            fragment: components["schemas"]["RunDomainFragmentInput"];
+            /**
+             * Region Ids
+             * @default []
+             */
+            region_ids: string[];
+            region_scope: components["schemas"]["OperatorRegionScope"];
+            /** Request Id */
+            request_id: string;
+        };
         /**
          * RunDomainExecutionView
          * @description Compact target-authored provenance for one domain execution.
@@ -3579,13 +3639,161 @@ export interface components {
              */
             updated_at: string;
         };
+        /** RunDomainFragmentInput */
+        RunDomainFragmentInput: {
+            /** Axes */
+            axes: components["schemas"]["RunDomainAxisView-Input"][];
+            /**
+             * Layout
+             * @enum {string}
+             */
+            layout: "grid" | "point_cloud";
+        };
+        /** RunDomainFragmentView */
+        "RunDomainFragmentView-Output": {
+            /** Axes */
+            axes: components["schemas"]["RunDomainAxisView-Output"][];
+            /** Fragment Fingerprint */
+            fragment_fingerprint: string;
+            /**
+             * Layout
+             * @enum {string}
+             */
+            layout: "grid" | "point_cloud";
+            /** Point Count */
+            point_count: number;
+        };
+        /**
+         * RunDomainInspectionEvent
+         * @description One transient domain decision and all compiled point inspections.
+         */
+        "RunDomainInspectionEvent-Output": {
+            /**
+             * Accepted Points
+             * @default []
+             */
+            accepted_points: components["schemas"]["ReviewPointView-Output"][];
+            fragment: components["schemas"]["RunDomainFragmentView-Output"];
+            /**
+             * Inspections
+             * @default []
+             */
+            inspections: components["schemas"]["ReviewInspectionView-Output"][];
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "accepted" | "rejected";
+            /** Proposal Index */
+            proposal_index: number;
+            /** Reason */
+            reason?: string | null;
+            /** Region Ids */
+            region_ids: string[];
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "author" | "optimizer" | "operator";
+        };
+        /** RunDomainQueueEntryView */
+        RunDomainQueueEntryView: {
+            /**
+             * Accepted Point Count
+             * @default 0
+             */
+            accepted_point_count: number;
+            /** Accepted Point Start */
+            accepted_point_start?: number | null;
+            /** Decision Operation Id */
+            decision_operation_id?: string | null;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Queue Index */
+            queue_index: number;
+            /** Reason */
+            reason?: string | null;
+            request: components["schemas"]["OperatorDomainRequestView"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "accepted" | "rejected" | "cancelled";
+        };
+        /** RunDomainQueueView */
+        RunDomainQueueView: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["RunDomainQueueEntryView"][];
+            /** Run Id */
+            run_id: string;
+        };
+        /** RunDomainRangeSourceView */
+        RunDomainRangeSourceView: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "range";
+            /** Points */
+            points: number;
+            /** Start */
+            start: number | components["schemas"]["scopecat__kernel__quantity__Quantity"];
+            /** Stop */
+            stop: number | components["schemas"]["scopecat__kernel__quantity__Quantity"];
+        };
+        /** RunDomainResolveCommand */
+        RunDomainResolveCommand: {
+            /**
+             * Coordinate Mode
+             * @enum {string}
+             */
+            coordinate_mode: "snap" | "free";
+            fragment: components["schemas"]["RunDomainFragmentInput"];
+            /**
+             * Region Ids
+             * @default []
+             */
+            region_ids: string[];
+            region_scope: components["schemas"]["OperatorRegionScope"];
+        };
+        /** RunDomainValuesSourceView */
+        "RunDomainValuesSourceView-Input": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "values";
+            /** Values */
+            values: components["schemas"]["RunPointCoordinateValue-Input"][];
+        };
+        /** RunDomainValuesSourceView */
+        "RunDomainValuesSourceView-Output": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "values";
+            /** Values */
+            values: components["schemas"]["RunPointCoordinateValue-Output"][];
+        };
         /** RunInspectionView */
         RunInspectionView: {
             /**
              * Items
              * @default []
              */
-            items: components["schemas"]["RunPointInspectionEvent-Output"][];
+            items: components["schemas"]["RunDomainInspectionEvent-Output"][];
             /**
              * Items Truncated
              * @default false
@@ -3662,6 +3870,28 @@ export interface components {
          */
         RunPlanView: {
             /**
+             * Adaptive Coordinate Ids
+             * @default []
+             */
+            adaptive_coordinate_ids: string[];
+            /**
+             * Adaptive Region Count
+             * @default 0
+             */
+            adaptive_region_count: number;
+            /**
+             * Adaptive Regions
+             * @default []
+             */
+            adaptive_regions: components["schemas"]["AdaptiveRegionSpec-Output"][];
+            /**
+             * Adaptive Regions Truncated
+             * @default false
+             */
+            adaptive_regions_truncated: boolean;
+            /** Adaptive Scope */
+            adaptive_scope?: ("per_region" | "global") | null;
+            /**
              * Coordinates
              * @default []
              */
@@ -3672,6 +3902,8 @@ export interface components {
             experiment_kind: string;
             /** Initial Point Count */
             initial_point_count: number;
+            /** Per Region Point Limit */
+            per_region_point_limit?: number | null;
             /** Point Count */
             point_count?: number | null;
             /** Point Limit */
@@ -3701,50 +3933,9 @@ export interface components {
         };
         "RunPointCoordinateValue-Input": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | null;
         "RunPointCoordinateValue-Output": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | null;
-        /** RunPointEnqueueCommand */
-        RunPointEnqueueCommand: {
-            /**
-             * Coordinate Mode
-             * @enum {string}
-             */
-            coordinate_mode: "snap" | "free";
-            /** Coordinates */
-            coordinates: {
-                [key: string]: components["schemas"]["RunPointCoordinateValue-Input"];
-            };
-            /** Request Id */
-            request_id: string;
-        };
-        /**
-         * RunPointInspectionEvent
-         * @description One transient optimizer decision and its compiled target inspection.
-         */
-        "RunPointInspectionEvent-Output": {
-            accepted_point?: components["schemas"]["ReviewPointView-Output"] | null;
-            candidate: components["schemas"]["ReviewPointView-Output"];
-            /**
-             * Inspections
-             * @default []
-             */
-            inspections: components["schemas"]["ReviewInspectionView-Output"][];
-            /**
-             * Occurred At
-             * Format: date-time
-             */
-            occurred_at: string;
-            /**
-             * Outcome
-             * @enum {string}
-             */
-            outcome: "accepted" | "rejected";
-            /** Proposal Index */
-            proposal_index: number;
-            /** Reason */
-            reason?: string | null;
-        };
         /**
          * RunPointPlanView
-         * @description Durable adaptive point-plan progress without transient waveforms.
+         * @description Durable adaptive point inventory and domain-decision progress.
          */
         RunPointPlanView: {
             /** Accepted Point Count */
@@ -3765,50 +3956,6 @@ export interface components {
             run_id: string;
             /** Stop Reason */
             stop_reason?: string | null;
-        };
-        /** RunPointQueueEntryView */
-        RunPointQueueEntryView: {
-            /** Accepted Point Index */
-            accepted_point_index?: number | null;
-            /** Decision Operation Id */
-            decision_operation_id?: string | null;
-            /**
-             * Occurred At
-             * Format: date-time
-             */
-            occurred_at: string;
-            /** Queue Index */
-            queue_index: number;
-            /** Reason */
-            reason?: string | null;
-            request: components["schemas"]["OperatorPointRequestView"];
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "pending" | "accepted" | "rejected" | "cancelled";
-        };
-        /** RunPointQueueView */
-        RunPointQueueView: {
-            /**
-             * Items
-             * @default []
-             */
-            items: components["schemas"]["RunPointQueueEntryView"][];
-            /** Run Id */
-            run_id: string;
-        };
-        /** RunPointResolveCommand */
-        RunPointResolveCommand: {
-            /**
-             * Coordinate Mode
-             * @enum {string}
-             */
-            coordinate_mode: "snap" | "free";
-            /** Coordinates */
-            coordinates: {
-                [key: string]: components["schemas"]["RunPointCoordinateValue-Input"];
-            };
         };
         /** RunRecordJsonResult */
         RunRecordJsonResult: {
@@ -5393,7 +5540,7 @@ export interface operations {
             };
         };
     };
-    get_run_point_queue_api_v1_runs__run_id__point_plan_queue_get: {
+    get_run_domain_queue_api_v1_runs__run_id__point_plan_queue_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -5410,7 +5557,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunPointQueueView"];
+                    "application/json": components["schemas"]["RunDomainQueueView"];
                 };
             };
             /** @description Validation Error */
@@ -5424,7 +5571,7 @@ export interface operations {
             };
         };
     };
-    enqueue_run_point_api_v1_runs__run_id__point_plan_queue_post: {
+    enqueue_run_domain_api_v1_runs__run_id__point_plan_queue_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -5435,7 +5582,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RunPointEnqueueCommand"];
+                "application/json": components["schemas"]["RunDomainEnqueueCommand"];
             };
         };
         responses: {
@@ -5445,7 +5592,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunPointQueueEntryView"];
+                    "application/json": components["schemas"]["RunDomainQueueEntryView"];
                 };
             };
             /** @description Validation Error */
@@ -5459,7 +5606,7 @@ export interface operations {
             };
         };
     };
-    resolve_run_point_api_v1_runs__run_id__point_plan_resolve_post: {
+    resolve_run_domain_api_v1_runs__run_id__point_plan_resolve_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -5470,7 +5617,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RunPointResolveCommand"];
+                "application/json": components["schemas"]["RunDomainResolveCommand"];
             };
         };
         responses: {
@@ -5480,7 +5627,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResolvedRunPointSelectionView"];
+                    "application/json": components["schemas"]["ResolvedRunDomainView"];
                 };
             };
             /** @description Validation Error */

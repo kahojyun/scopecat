@@ -7,26 +7,29 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunInspectionFeed } from "../../api-contract";
 import type { ProjectRun } from "../../types";
-import { enqueueRunPoint, getRunPointQueue, resolveRunPoint } from "./run-api";
+import { enqueueRunDomain, getRunDomainQueue, resolveRunDomain } from "./run-api";
 import { RunInspectionCard } from "./RunInspectionCard";
 
 vi.mock("../../ui/EChart", () => ({
   EChart: ({ ariaLabel }: { ariaLabel: string }) => <div role="img" aria-label={ariaLabel} />,
 }));
 vi.mock("./run-api", () => ({
-  enqueueRunPoint: vi.fn(),
-  getRunPointQueue: vi.fn(),
-  resolveRunPoint: vi.fn(),
+  enqueueRunDomain: vi.fn(),
+  getRunDomainQueue: vi.fn(),
+  resolveRunDomain: vi.fn(),
 }));
 
 afterEach(cleanup);
 beforeEach(() => {
-  vi.mocked(getRunPointQueue).mockResolvedValue({ run_id: "run-1", items: [] });
-  vi.mocked(resolveRunPoint).mockResolvedValue({
+  vi.mocked(getRunDomainQueue).mockResolvedValue({ run_id: "run-1", items: [] });
+  vi.mocked(resolveRunDomain).mockResolvedValue({
     coordinate_mode: "snap",
-    requested_coordinates: { drive_frequency: { value: 5.16, unit: "GHz" } },
-    coordinates: { drive_frequency: { value: 5.2, unit: "GHz" } },
-    sampled_point_index: 2,
+    region_scope: "current",
+    region_ids: [],
+    requested_fragment: fragment(5.16, "sha256:requested"),
+    fragment: fragment(5.2, "sha256:resolved"),
+    region_count: 1,
+    total_point_count: 1,
   });
 });
 
@@ -54,18 +57,21 @@ describe("RunInspectionCard", () => {
   });
 
   it("keeps snapping explicit and queues the displayed physical coordinates", async () => {
-    vi.mocked(enqueueRunPoint).mockResolvedValue({
+    vi.mocked(enqueueRunDomain).mockResolvedValue({
       queue_index: 0,
       occurred_at: "2026-08-13T10:00:00Z",
       request: {
-        request_id: "operator-point.1",
+        request_id: "operator-domain.1",
         coordinate_mode: "snap",
-        requested_coordinates: { drive_frequency: { value: 5.16, unit: "GHz" } },
-        coordinates: { drive_frequency: { value: 5.2, unit: "GHz" } },
-        coordinate_fingerprint: "sha256:queued",
+        region_scope: "current",
+        region_ids: [],
+        region_count: 1,
+        requested_fragment: fragment(5.16, "sha256:requested"),
+        fragment: fragment(5.2, "sha256:resolved"),
         request_fingerprint: "sha256:request",
       },
       status: "pending",
+      accepted_point_count: 0,
     });
     renderCard(
       <RunInspectionCard
@@ -77,21 +83,36 @@ describe("RunInspectionCard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "snap" }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: /drive_frequency/i }), {
+    fireEvent.click(screen.getByRole("button", { name: "Snap scan" }));
+    fireEvent.change(screen.getByLabelText("drive_frequency values"), {
       target: { value: "5.16" },
     });
-    expect((await screen.findByText(/Will queue snapped point/)).closest("p")).toHaveTextContent(
-      "5.2 GHz",
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Queue point" }));
+    const preview = await screen.findByText((_, element) => {
+      if (element?.tagName !== "P") return false;
+      return element.textContent?.includes("values will be snapped explicitly") ?? false;
+    });
+    expect(preview).toHaveTextContent("1 points across 1 region");
+    expect(preview).toHaveTextContent("drive_frequency [5.2]");
+    fireEvent.click(screen.getByRole("button", { name: "Add scan" }));
 
     await waitFor(() =>
-      expect(enqueueRunPoint).toHaveBeenCalledWith(
+      expect(enqueueRunDomain).toHaveBeenCalledWith(
         "run-1",
         expect.objectContaining({
           coordinate_mode: "snap",
-          coordinates: { drive_frequency: { value: 5.16, unit: "GHz" } },
+          region_scope: "current",
+          fragment: expect.objectContaining({
+            layout: "grid",
+            axes: [
+              {
+                axis_id: "drive_frequency",
+                source: {
+                  kind: "values",
+                  values: [{ value: 5.16, unit: "GHz" }],
+                },
+              },
+            ],
+          }),
         }),
       ),
     );
@@ -131,6 +152,11 @@ function projectRun(active: boolean): ProjectRun {
       initialPointCount: 1,
       pointLimit: 4,
       coordinateIds: ["drive_frequency"],
+      adaptiveCoordinateIds: ["drive_frequency"],
+      adaptiveScope: "per_region",
+      adaptiveRegionCount: 1,
+      adaptiveRegions: [{ id: "region-0", coordinates: {}, initial_point_count: 1 }],
+      adaptiveRegionsTruncated: false,
       coordinateSpecs: [
         {
           id: "drive_frequency",
@@ -170,18 +196,18 @@ function event(proposalIndex: number, pointIndex: number, frequency: number) {
   return {
     proposal_index: proposalIndex,
     occurred_at: "2026-08-13T10:00:00Z",
-    candidate: {
-      coordinates: { drive_frequency: { value: frequency, unit: "GHz" } },
-      proposal_fingerprint: `sha256:proposal-${proposalIndex}`,
-      source: "optimizer" as const,
-    },
+    fragment: fragment(frequency, `sha256:fragment-${proposalIndex}`),
+    region_ids: ["region-0"],
+    source: "optimizer" as const,
     outcome: "accepted" as const,
-    accepted_point: {
-      point_index: pointIndex,
-      coordinates: { drive_frequency: { value: frequency, unit: "GHz" } },
-      proposal_fingerprint: `sha256:proposal-${proposalIndex}`,
-      source: "optimizer" as const,
-    },
+    accepted_points: [
+      {
+        point_index: pointIndex,
+        coordinates: { drive_frequency: { value: frequency, unit: "GHz" } },
+        proposal_fingerprint: `sha256:proposal-${proposalIndex}`,
+        source: "optimizer" as const,
+      },
+    ],
     inspections: [
       {
         operation_id: `capture:batch-${pointIndex}`,
@@ -227,5 +253,19 @@ function event(proposalIndex: number, pointIndex: number, frequency: number) {
         },
       },
     ],
+  };
+}
+
+function fragment(value: number, fingerprint: string) {
+  return {
+    layout: "grid" as const,
+    axes: [
+      {
+        axis_id: "drive_frequency",
+        source: { kind: "values" as const, values: [{ value, unit: "GHz" }] },
+      },
+    ],
+    point_count: 1,
+    fragment_fingerprint: fingerprint,
   };
 }

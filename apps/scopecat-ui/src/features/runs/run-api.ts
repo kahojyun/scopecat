@@ -10,10 +10,10 @@ import type {
   RunResourceView,
   RunSummaryPage,
   RunInspectionFeed,
-  RunPointEnqueueCommand,
-  RunPointQueue,
-  RunPointResolveCommand,
-  ResolvedRunPointSelection,
+  ResolvedRunDomain,
+  RunDomainEnqueueCommand,
+  RunDomainQueue,
+  RunDomainResolveCommand,
 } from "../../api-contract";
 import { ApiError, apiClient, apiData } from "../../api-client";
 import { decodeMeasurementArrowRecord } from "./measurement-arrow";
@@ -93,10 +93,10 @@ export async function getRunInspections(
   );
 }
 
-export async function getRunPointQueue(
+export async function getRunDomainQueue(
   runId: string,
   signal?: AbortSignal,
-): Promise<RunPointQueue> {
+): Promise<RunDomainQueue> {
   return apiData(
     apiClient.GET("/api/v1/runs/{run_id}/point-plan/queue", {
       params: { path: { run_id: runId } },
@@ -105,10 +105,10 @@ export async function getRunPointQueue(
   );
 }
 
-export async function enqueueRunPoint(
+export async function enqueueRunDomain(
   runId: string,
-  command: RunPointEnqueueCommand,
-): Promise<RunPointQueue["items"][number]> {
+  command: RunDomainEnqueueCommand,
+): Promise<RunDomainQueue["items"][number]> {
   return apiData(
     apiClient.POST("/api/v1/runs/{run_id}/point-plan/queue", {
       params: { path: { run_id: runId } },
@@ -117,11 +117,11 @@ export async function enqueueRunPoint(
   );
 }
 
-export async function resolveRunPoint(
+export async function resolveRunDomain(
   runId: string,
-  command: RunPointResolveCommand,
+  command: RunDomainResolveCommand,
   signal?: AbortSignal,
-): Promise<ResolvedRunPointSelection> {
+): Promise<ResolvedRunDomain> {
   return apiData(
     apiClient.POST("/api/v1/runs/{run_id}/point-plan/resolve", {
       params: { path: { run_id: runId } },
@@ -467,6 +467,12 @@ function normalizeRun(
       pointLimit: plan.point_limit,
       coordinateIds: plan.coordinates.map((coordinate) => coordinate.id),
       coordinateSpecs: plan.coordinates,
+      adaptiveCoordinateIds: plan.adaptive_coordinate_ids,
+      adaptiveScope: plan.adaptive_scope ?? undefined,
+      perRegionPointLimit: plan.per_region_point_limit ?? undefined,
+      adaptiveRegionCount: plan.adaptive_region_count,
+      adaptiveRegions: plan.adaptive_regions,
+      adaptiveRegionsTruncated: plan.adaptive_regions_truncated,
       sampledPoints: plan.sampled_points,
       sampledPointsTruncated: plan.sampled_points_truncated,
       recordIds: plan.record_ids ?? [],
