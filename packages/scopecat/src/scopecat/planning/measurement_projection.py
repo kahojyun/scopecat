@@ -11,7 +11,12 @@ from scopecat.compiler.relations.evaluation import evaluate_scalar
 from scopecat.compiler.value_resolution import BoundValueResolver
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.value_types import Scalar
-from scopecat.measurements.points import RunPoint, RunPointCatalog, RunPointContract
+from scopecat.measurements.points import (
+    AcceptedRunPoint,
+    PointCandidate,
+    RunPointCatalog,
+    RunPointContract,
+)
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import MeasurementValueCatalog
 from scopecat.planning.point_materialization import MaterializedBoundPoints
@@ -76,7 +81,7 @@ def project_run_point_catalog(
     )
 
 
-class _RunPointSequence(Sequence[RunPoint]):
+class _RunPointSequence(Sequence[AcceptedRunPoint]):
     __slots__ = ("_coordinate_ids", "_ordinals", "_points")
 
     def __init__(
@@ -95,26 +100,30 @@ class _RunPointSequence(Sequence[RunPoint]):
         return len(self._ordinals)
 
     @overload
-    def __getitem__(self, index: int) -> RunPoint: ...
+    def __getitem__(self, index: int) -> AcceptedRunPoint: ...
 
     @overload
-    def __getitem__(self, index: slice) -> tuple[RunPoint, ...]: ...
+    def __getitem__(self, index: slice) -> tuple[AcceptedRunPoint, ...]: ...
 
     @override
-    def __getitem__(self, index: int | slice) -> RunPoint | tuple[RunPoint, ...]:
+    def __getitem__(
+        self, index: int | slice
+    ) -> AcceptedRunPoint | tuple[AcceptedRunPoint, ...]:
         if isinstance(index, slice):
             return tuple(self[offset] for offset in range(*index.indices(len(self))))
         point = self._points[self._ordinals[index]]
-        return RunPoint(
-            point.logical_id,
-            {
-                coordinate_id: point.row[coordinate_id]
-                for coordinate_id in self._coordinate_ids
-            },
+        return AcceptedRunPoint.accept(
+            PointCandidate(
+                {
+                    coordinate_id: point.row[coordinate_id]
+                    for coordinate_id in self._coordinate_ids
+                }
+            ),
+            logical_id=point.logical_id,
         )
 
     @override
-    def __iter__(self) -> Iterator[RunPoint]:
+    def __iter__(self) -> Iterator[AcceptedRunPoint]:
         return (self[index] for index in range(len(self)))
 
 

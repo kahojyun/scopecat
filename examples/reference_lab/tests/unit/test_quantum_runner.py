@@ -302,7 +302,7 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
     assert preview.selected_point is not None
     assert preview.selected_point.point_index == 14
     [inspection] = preview.domain_inspections
-    assert inspection.point_indices == (14,)
+    assert inspection.point_index == 14
     assert inspection.content["schema"] == (
         "reference_lab.list_mode_artifact_inspection.v1"
     )
@@ -313,6 +313,24 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
         coordinates=preview.selected_point.coordinates
     )
     assert selected_again.selected_point == preview.selected_point
+
+    free = lab.prepare(invocation).preview(
+        coordinates={
+            "beta": sc.Quantity(0.137, "ns"),
+            "amplification": 2,
+        },
+        coordinate_mode="free",
+    )
+    assert free.selected_point is not None
+    assert free.selected_point.point_index is None
+    assert free.selected_point.coordinates == {
+        "beta": sc.Quantity(0.137, "ns"),
+        "amplification": 2,
+    }
+    [free_inspection] = free.domain_inspections
+    assert free_inspection.point_index is None
+    [free_entry] = cast("list[dict[str, object]]", free_inspection.content["entries"])
+    assert cast("str", free_entry["entry_id"]).endswith(".point-0")
 
     bound = bind_program(
         compile_invocation(invocation).program,

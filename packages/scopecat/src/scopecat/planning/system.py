@@ -26,6 +26,7 @@ from scopecat.execution.program import (
     RunCoveredOperation,
     RunDomainJob,
     RunHostBinding,
+    RunPointInspection,
     RunProgram,
 )
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
@@ -41,6 +42,7 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_identity import scalar_values_equal
+from scopecat.measurements.points import PointCandidate
 from scopecat.measurements.projection import select_measurement_projection
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.domain_bridge import (
@@ -68,6 +70,7 @@ from scopecat.planning.measurement_projection import (
 from scopecat.planning.point_materialization import (
     MaterializedBoundPoints,
     prepare_bound_points,
+    prepare_candidate_bound_points,
 )
 from scopecat.planning.point_order import point_execution_ordinals
 from scopecat.planning.provider_binding import (
@@ -842,11 +845,11 @@ def _compile_coverage(
     initial_local_probe: _InitialLocalProbe | None,
     catalog: InstrumentContractCatalog,
 ) -> RunCoverage:
-    if not point_ordinals:
-        return RunCoverage(lambda: iter(()))
     compiler = system.domain_compiler
 
     def operations() -> Iterator[RunCoveredOperation]:
+        if not point_ordinals:
+            return iter(())
         return _validated_coverage(
             _coverage_operations(
                 compiler=compiler,
@@ -868,20 +871,35 @@ def _compile_coverage(
     def preflight() -> None:
         inspect(point_ordinals[0])
 
-    def inspect(point_index: int) -> tuple[RunDomainJob, ...]:
-        if point_index not in point_ordinals:
-            raise IndexError(point_index)
+    def inspect(point: int | PointCandidate) -> RunPointInspection:
+        if isinstance(point, int):
+            if point not in point_ordinals:
+                raise IndexError(point)
+            point_index: int | None = point
+            candidate = PointCandidate(
+                coordinates=bound_points.point_domain.points[point].row,
+            )
+            selected_bound_points = bound_points
+            selected_ordinal = point
+        else:
+            point_index = None
+            candidate, selected_bound_points = prepare_candidate_bound_points(
+                bound_points,
+                point,
+            )
+            selected_ordinal = 0
         selected_operations = _validated_coverage(
             _coverage_operations(
                 compiler=compiler,
-                bound_points=bound_points,
-                point_ordinals=(point_index,),
+                bound_points=selected_bound_points,
+                point_ordinals=(selected_ordinal,),
                 effects=bound.program.program.effects,
                 domain_calls=domain_calls,
                 local_target=local_target,
                 initial_local_probe=(
                     initial_local_probe
                     if initial_local_probe is not None
+                    and point_index is not None
                     and initial_local_probe.ordinal == point_index
                     else None
                 ),
@@ -893,16 +911,20 @@ def _compile_coverage(
                 catalog=catalog,
             ),
         )
-        return tuple(
-            operation
-            for operation in selected_operations
-            if isinstance(operation, RunDomainJob)
+        return RunPointInspection(
+            point_index=point_index,
+            candidate=candidate,
+            jobs=tuple(
+                operation
+                for operation in selected_operations
+                if isinstance(operation, RunDomainJob)
+            ),
         )
 
     return RunCoverage(
         operations,
-        preflight=preflight if domain_calls else None,
-        inspect=inspect if domain_calls else None,
+        preflight=preflight if domain_calls and point_ordinals else None,
+        inspect=inspect,
     )
 
 

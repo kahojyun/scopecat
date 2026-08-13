@@ -30,6 +30,7 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
@@ -38,6 +39,7 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.value_data import Row
 from scopecat.kernel.value_types import Scalar, Table, ValueType
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
+from scopecat.measurements.points import PointCandidate
 from scopecat.program.expressions import ArrayExpr, LiteralArrayExpr, ScalarExpr
 from scopecat.program.logical import LogicalDomainExecution
 
@@ -135,6 +137,72 @@ def prepare_bound_points(bound: BoundPlan) -> MaterializedBoundPoints:
         point_parameters=_PointParameterSequence(
             bound,
             point_domain.points,
+        ),
+    )
+
+
+def prepare_candidate_bound_points(
+    prepared: MaterializedBoundPoints,
+    candidate: PointCandidate,
+) -> tuple[PointCandidate, MaterializedBoundPoints]:
+    """Resolve and bind one unaccepted coordinate row in an isolated domain."""
+
+    bound = prepared.bound_plan
+    problems: list[Problem] = []
+    normalized = _normalize_point_domain_row(
+        dict(candidate.coordinates),
+        entity_columns=bound.point_domain.entity_columns,
+        environment=bound.environment,
+        problems=problems,
+    )
+    if problems:
+        raise CheckFailed(problems)
+    try:
+        rows = cast(
+            "tuple[Row, ...]",
+            coerce_literal(
+                bound.point_domain.value_type,
+                (normalized,),
+                path=("inspection", "point"),
+            ),
+        )
+    except ValueValidationError as error:
+        raise CheckFailed(
+            (
+                compiler_problem(
+                    "inspection_point_value_type_mismatch",
+                    str(error),
+                    model_location("inspection", "point"),
+                    phase=ProblemPhase.PLANNING,
+                ),
+            )
+        ) from error
+    [row] = rows
+    resolved = PointCandidate(
+        coordinates=row,
+        source=candidate.source,
+        based_on_completed_point_count=candidate.based_on_completed_point_count,
+    )
+    fingerprint = resolved.coordinate_fingerprint.removeprefix("sha256:")
+    domain_id = PointDomainId(
+        program_id=bound.point_domain.id.program_id,
+        domain_id=f"{bound.point_domain.id.domain_id}.inspection-{fingerprint[:16]}",
+    )
+    point = MaterializedPoint(
+        logical_id=LogicalPointId(domain_id, 0),
+        row=row,
+    )
+    point_domain = MaterializedPointDomain(
+        id=domain_id,
+        points=(point,),
+        layout="point_cloud",
+    )
+    return (
+        resolved,
+        MaterializedBoundPoints(
+            bound_plan=bound,
+            point_domain=point_domain,
+            point_parameters=_PointParameterSequence(bound, point_domain.points),
         ),
     )
 

@@ -4,20 +4,90 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Literal
 
+from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainLayout
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import TableColumn
 from scopecat.program.point_domain import PointAxes, point_axis_size
 
+type PointCandidateSource = Literal["author", "optimizer", "operator"]
+
 
 @dataclass(frozen=True, slots=True)
-class RunPoint:
+class PointCandidate:
+    """One canonical coordinate row proposed for inspection or run admission."""
+
+    coordinates: Mapping[str, CellValue]
+    source: PointCandidateSource = "author"
+    based_on_completed_point_count: int | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            self.based_on_completed_point_count is not None
+            and self.based_on_completed_point_count < 0
+        ):
+            raise ValueError("completed point count must be non-negative")
+        object.__setattr__(
+            self,
+            "coordinates",
+            MappingProxyType(dict(self.coordinates)),
+        )
+
+    @property
+    def coordinate_fingerprint(self) -> str:
+        return "sha256:" + stable_content_hash(
+            content_fingerprint(dict(self.coordinates))
+        )
+
+    @property
+    def proposal_fingerprint(self) -> str:
+        return "sha256:" + stable_content_hash(
+            content_fingerprint(
+                {
+                    "schema": "scopecat.point_candidate.v1",
+                    "coordinates": dict(self.coordinates),
+                    "source": self.source,
+                    "based_on_completed_point_count": (
+                        self.based_on_completed_point_count
+                    ),
+                }
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AcceptedRunPoint:
     """One closed logical point retained by the executable program."""
 
     logical_id: LogicalPointId
     coordinates: Mapping[str, CellValue]
+    proposal_fingerprint: str | None = None
+    source: PointCandidateSource = "author"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "coordinates",
+            MappingProxyType(dict(self.coordinates)),
+        )
+
+    @classmethod
+    def accept(
+        cls,
+        candidate: PointCandidate,
+        *,
+        logical_id: LogicalPointId,
+    ) -> AcceptedRunPoint:
+        return cls(
+            logical_id=logical_id,
+            coordinates=candidate.coordinates,
+            proposal_fingerprint=candidate.proposal_fingerprint,
+            source=candidate.source,
+        )
 
     @property
     def ordinal(self) -> int:
@@ -63,7 +133,7 @@ class RunPointCatalog:
     """Run-owned point inventory, which may project a subset of the full contract."""
 
     contract: RunPointContract
-    points: Sequence[RunPoint]
+    points: Sequence[AcceptedRunPoint]
 
     @property
     def experiment_id(self) -> str:
@@ -78,4 +148,10 @@ class RunPointCatalog:
         return self.contract.coordinate_ids
 
 
-__all__ = ["RunPoint", "RunPointCatalog", "RunPointContract"]
+__all__ = [
+    "AcceptedRunPoint",
+    "PointCandidate",
+    "PointCandidateSource",
+    "RunPointCatalog",
+    "RunPointContract",
+]

@@ -59,6 +59,7 @@ from scopecat.execution.program import (
     RunDomainJob,
 )
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
+from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.product_identity import product_use
 from scopecat.kernel.quantity import Quantity
@@ -970,6 +971,42 @@ def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
     ]
 
 
+def test_free_preview_compiles_a_canonical_unplanned_point() -> None:
+    frequency_type = Scalar(QuantityType(unit="GHz"))
+    point_type = Table(columns=(TableColumn("frequency", frequency_type),))
+    domain_input = verified_scalar_expr(
+        point_col("frequency", frequency_type),
+        bindings=ExpressionTypeBindings(point_row=RowType.from_table(point_type)),
+        expected_type=frequency_type,
+    )
+    bound = _bound_program(domain_input=domain_input)
+    compiler = _DomainCompiler("tests.free-preview")
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(bound)
+
+    preview = build_run_program_preview(
+        plan,
+        coordinates={"frequency": Quantity(5050.0, "MHz")},
+        coordinate_mode="free",
+    )
+
+    assert preview.selected_point is not None
+    assert preview.selected_point.point_index is None
+    assert not preview.selected_point.is_planned
+    assert preview.selected_point.source == "operator"
+    assert preview.selected_point.coordinates == {"frequency": Quantity(5.05, "GHz")}
+    assert preview.selected_point.proposal_fingerprint is not None
+    assert preview.domain_inspections == ()
+    assert compiler.prepared_inputs == [(Quantity(5.05, "GHz"),)]
+    [request] = compiler.compile_requests
+    assert request.point_ordinals == (0,)
+    assert cast(
+        "LogicalPointId", request.points[0].native
+    ).domain_id.domain_id.startswith("root.inspection-")
+
+
 def test_domain_target_initial_batch_must_fit_the_complete_point_space() -> None:
     bound = _bound_program(point_count=2)
     compiler = _DomainCompiler(
@@ -1718,3 +1755,24 @@ def test_zero_point_domain_plan_retains_direct_product_ownership() -> None:
     )
     assert compiler.compile_calls == 0
     assert tuple(plan.points.points) == ()
+
+
+def test_zero_point_domain_can_inspect_a_free_seed_candidate() -> None:
+    bound = _bound_program(point_count=0)
+    compiler = _DomainCompiler("tests.zero-point-candidate")
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(bound)
+
+    preview = build_run_program_preview(
+        plan,
+        coordinates={"frequency": Quantity(5.0, "GHz")},
+        coordinate_mode="free",
+    )
+
+    assert preview.total_point_count == 0
+    assert preview.selected_point is not None
+    assert preview.selected_point.point_index is None
+    assert preview.selected_point.coordinates == {"frequency": Quantity(5.0, "GHz")}
+    assert compiler.compile_calls == 1

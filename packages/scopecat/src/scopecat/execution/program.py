@@ -20,7 +20,7 @@ if TYPE_CHECKING:
         DomainTargetRequirement,
         ResourceRequirement,
     )
-    from scopecat.measurements.points import RunPointCatalog
+    from scopecat.measurements.points import PointCandidate, RunPointCatalog
     from scopecat.measurements.projection import MeasurementProjection
     from scopecat.records.config import ConfigContentHash
     from scopecat.sdk.domain.execution import PreparedDomainExecution
@@ -68,6 +68,15 @@ class RunCoverageCheckpoint:
 type RunCoveredOperation = RunCoverageCheckpoint | RunCoverageEffect | RunDomainJob
 
 
+@dataclass(frozen=True, slots=True)
+class RunPointInspection:
+    """Pure compilation result for one planned or unaccepted coordinate row."""
+
+    point_index: int | None
+    candidate: PointCandidate
+    jobs: tuple[RunDomainJob, ...]
+
+
 class RunCoverage:
     """A lazy operation stream rebuilt for each planning or execution pass."""
 
@@ -78,7 +87,7 @@ class RunCoverage:
         factory: Callable[[], Iterator[RunCoveredOperation]],
         *,
         preflight: Callable[[], None] | None = None,
-        inspect: Callable[[int], tuple[RunDomainJob, ...]] | None = None,
+        inspect: Callable[[int | PointCandidate], RunPointInspection] | None = None,
     ) -> None:
         self._factory = factory
         self._preflight = preflight
@@ -93,12 +102,12 @@ class RunCoverage:
         if self._preflight is not None:
             self._preflight()
 
-    def inspect(self, point_index: int) -> tuple[RunDomainJob, ...]:
+    def inspect(self, point: int | PointCandidate) -> RunPointInspection | None:
         """Compile target-owned inspection data for exactly one logical point."""
 
         if self._inspect is None:
-            return ()
-        return self._inspect(point_index)
+            return None
+        return self._inspect(point)
 
 
 @dataclass(frozen=True, slots=True)

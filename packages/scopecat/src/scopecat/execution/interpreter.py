@@ -46,7 +46,7 @@ from scopecat.kernel.problems import (
     ProblemPhase,
 )
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.measurements.points import RunPoint
+from scopecat.measurements.points import AcceptedRunPoint
 from scopecat.measurements.projection import (
     ProjectedMeasurementDataset,
     project_measurement_records,
@@ -115,7 +115,7 @@ def _execute_run(
     measurement_buffer = CanonicalMeasurementBuffer()
 
     def commit_coverage(
-        points: tuple[RunPoint, ...],
+        points: tuple[AcceptedRunPoint, ...],
         candidates: tuple[MeasurementValueCandidate, ...],
         value_candidates: tuple[ValueRecordCandidate, ...],
     ) -> None:
@@ -326,7 +326,7 @@ def _execute_run(
 
 def _advance_unrecorded_coverage(
     session: ExecutionSession,
-    points: tuple[RunPoint, ...],
+    points: tuple[AcceptedRunPoint, ...],
     *,
     completed_point_count: int,
 ) -> int:

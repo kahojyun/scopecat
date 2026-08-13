@@ -17,6 +17,7 @@ from scopecat.authoring.experiments import Experiment, ExperimentInvocation
 from scopecat.config.candidates import CandidateConfig
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import DaemonHealth
+from scopecat.planning.preview import PreviewCoordinateMode
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.system import ExperimentSystemBuilder
 from scopecat.program.values import MetadataValue
@@ -42,6 +43,7 @@ class PreparedLabExperiment:
         *,
         point: PreviewPoint = "first",
         coordinates: Mapping[str, object] | None = None,
+        coordinate_mode: PreviewCoordinateMode = "exact",
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -53,6 +55,7 @@ class PreparedLabExperiment:
             config=self.config,
             point=point,
             coordinates=coordinates,
+            coordinate_mode=coordinate_mode,
             name=name,
             tags=tags,
             description=description,
@@ -182,6 +185,7 @@ class LabClient:
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
         point: PreviewPoint = "first",
         coordinates: Mapping[str, object] | None = None,
+        coordinate_mode: PreviewCoordinateMode = "exact",
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -193,6 +197,7 @@ class LabClient:
         return self.prepare(experiment, config=config).preview(
             point=point,
             coordinates=coordinates,
+            coordinate_mode=coordinate_mode,
             name=name,
             tags=tags,
             description=description,
@@ -228,6 +233,7 @@ class LabClient:
         config: ConfigProfileSnapshot,
         point: PreviewPoint = "first",
         coordinates: Mapping[str, object] | None = None,
+        coordinate_mode: PreviewCoordinateMode = "exact",
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -239,6 +245,7 @@ class LabClient:
             config=config,
             point=point,
             coordinates=coordinates,
+            coordinate_mode=coordinate_mode,
             name=name,
             tags=tags,
             description=description,

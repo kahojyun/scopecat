@@ -17,7 +17,7 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity
-from scopecat.measurements.points import RunPoint, RunPointContract
+from scopecat.measurements.points import AcceptedRunPoint, RunPointContract
 from scopecat.measurements.products import ProductDef
 from scopecat.measurements.records import measurement_axis_scalar
 from scopecat.program.point_domain import (
@@ -156,7 +156,7 @@ class MeasurementValueCandidate:
 class ClosedMeasurementProductValue:
     """One checked host value with producer-neutral logical identity."""
 
-    point: RunPoint = field(repr=False)
+    point: AcceptedRunPoint = field(repr=False)
     product_use: ProductUse = field(repr=False)
     _product: ProductDef = field(repr=False)
     _value: MeasurementValue = field(repr=False)
@@ -164,7 +164,7 @@ class ClosedMeasurementProductValue:
 
     def __init__(
         self,
-        point: RunPoint,
+        point: AcceptedRunPoint,
         product_use: ProductUse,
         product: ProductDef,
         value: MeasurementValue,
@@ -242,7 +242,7 @@ def seal_measurement_values(
     catalog: MeasurementValueCatalog,
     candidates: Sequence[MeasurementValueCandidate],
     *,
-    points: Sequence[RunPoint],
+    points: Sequence[AcceptedRunPoint],
 ) -> ClosedMeasurementProductValues:
     """Close the canonical logical value inventory for one admitted coverage."""
 

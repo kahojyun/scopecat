@@ -21,7 +21,7 @@ from scopecat.kernel.resource_identity import (
     ResourceRequirement,
     logical_resource_port_id,
 )
-from scopecat.measurements.points import RunPoint
+from scopecat.measurements.points import AcceptedRunPoint
 from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.sdk.instruments.commands import (
@@ -145,7 +145,7 @@ def _collect_program(
     signal_use = product_use(product_id("signal"))
     return LocalEffectInspection(
         points=(
-            RunPoint(
+            AcceptedRunPoint(
                 logical_id=LogicalPointId(PointDomainId("product-lookup", "root"), 0),
                 coordinates={},
             ),

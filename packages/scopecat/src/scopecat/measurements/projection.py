@@ -13,7 +13,7 @@ from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.value_data import CellValue
-from scopecat.measurements.points import RunPoint
+from scopecat.measurements.points import AcceptedRunPoint
 from scopecat.measurements.products import ProductDef
 from scopecat.measurements.records import (
     BoundRecordUse,
@@ -44,12 +44,14 @@ from scopecat.records.measurement import (
 )
 
 type StaticValueCandidateSource = Callable[
-    [Sequence[RunPoint]],
+    [Sequence[AcceptedRunPoint]],
     tuple[ValueRecordCandidate, ...],
 ]
 
 
-def _no_static_values(_points: Sequence[RunPoint]) -> tuple[ValueRecordCandidate, ...]:
+def _no_static_values(
+    _points: Sequence[AcceptedRunPoint],
+) -> tuple[ValueRecordCandidate, ...]:
     return ()
 
 
@@ -111,7 +113,7 @@ class MeasurementProjection:
 
     def static_value_candidates(
         self,
-        points: Sequence[RunPoint],
+        points: Sequence[AcceptedRunPoint],
     ) -> tuple[ValueRecordCandidate, ...]:
         """Materialize static recorded values only for one execution coverage."""
 
@@ -244,7 +246,7 @@ def project_measurement_records(
     product_values: ClosedMeasurementProductValues,
     *,
     run_id: str,
-    points: Sequence[RunPoint],
+    points: Sequence[AcceptedRunPoint],
     value_candidates: Sequence[ValueRecordCandidate] = (),
 ) -> ProjectedMeasurementDataset:
     """Project one closed admitted point range without changing product values."""
@@ -340,7 +342,7 @@ def _projected_values(
     role: MeasurementVariableRole,
     product_values: ClosedMeasurementProductValues,
     value_candidates: Mapping[tuple[LogicalPointId, ValueId], object],
-    point: RunPoint,
+    point: AcceptedRunPoint,
 ) -> dict[str, MeasurementValue]:
     projected: dict[str, MeasurementValue] = {}
     for record in records:
@@ -375,7 +377,7 @@ def _projected_acquisition_evidence(
     records: Sequence[DatasetRecordPlan],
     *,
     product_values: ClosedMeasurementProductValues,
-    point: RunPoint,
+    point: AcceptedRunPoint,
 ) -> dict[str, InstrumentAcquisitionEvidence]:
     acquisition_evidence: dict[str, InstrumentAcquisitionEvidence] = {}
     for record in records:

@@ -25,7 +25,7 @@ from scopecat.kernel.value_types import (
 from scopecat.kernel.value_types import (
     Quantity as QuantityType,
 )
-from scopecat.measurements.points import RunPoint
+from scopecat.measurements.points import AcceptedRunPoint
 from scopecat.measurements.products import ProductAxisDef
 from scopecat.measurements.projection import (
     MeasurementProjection,
@@ -697,7 +697,7 @@ def test_projection_normalizes_compiler_coordinates_to_measurement_scalars() -> 
             projection,
             assembled,
             run_id="coordinate-normalization-run",
-            points=(RunPoint(original.logical_id, {"x": source}),),
+            points=(AcceptedRunPoint(original.logical_id, {"x": source}),),
         )
 
         assert projected.records[0].coordinates == {"x": expected}

@@ -21,7 +21,7 @@ from scopecat.kernel.errors import CheckFailed, ProblemFailure
 from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.planning.compilation import compile_run_program
-from scopecat.planning.preview import build_run_program_preview
+from scopecat.planning.preview import PreviewCoordinateMode, build_run_program_preview
 from scopecat.planning.service import PlannedRun
 from scopecat.planning.system import ExperimentSystem
 from scopecat.project_state import ProjectStateServices
@@ -122,6 +122,7 @@ def check_experiment(
     operator: str | None = None,
     preview_point: int | Literal["first", "middle", "last"] = "first",
     preview_coordinates: Mapping[str, object] | None = None,
+    preview_coordinate_mode: PreviewCoordinateMode = "exact",
 ) -> ExperimentCheckResult:
     """Build a preview while returning expected authoring and planning failures."""
 
@@ -142,6 +143,7 @@ def check_experiment(
         build_experiment_system=build_experiment_system,
         preview_point=preview_point,
         preview_coordinates=preview_coordinates,
+        preview_coordinate_mode=preview_coordinate_mode,
     )
 
 
@@ -155,6 +157,7 @@ def _check_compiled_experiment(
     build_experiment_system: TestExperimentSystemBuilder | None,
     preview_point: int | Literal["first", "middle", "last"],
     preview_coordinates: Mapping[str, object] | None,
+    preview_coordinate_mode: PreviewCoordinateMode,
 ) -> ExperimentCheckResult:
     try:
         selected_config, _config_source = resolve_test_config(
@@ -179,6 +182,7 @@ def _check_compiled_experiment(
             invocation=invocation,
             point=preview_point,
             coordinates=preview_coordinates,
+            coordinate_mode=preview_coordinate_mode,
         )
         problems: tuple[Problem, ...] = ()
     except ProblemFailure as error:

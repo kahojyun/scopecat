@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Literal
+from typing import Literal, cast
 
 from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.execution.local.program import ComputeOperation, OutputInput
-from scopecat.execution.program import RunProgram
+from scopecat.execution.program import RunPointInspection, RunProgram
+from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_identity import scalar_values_equal
+from scopecat.measurements.points import PointCandidate
 from scopecat.measurements.records import RecordPlan, ValueRecordPlan
 from scopecat.planning.preview_models import (
     ExperimentPreview,
@@ -28,6 +30,7 @@ from scopecat.sdk.compute import compute_capture_names_internal
 
 type _BindingKind = Literal["input", "coordinate", "parameter"]
 type _BindingKey = tuple[_BindingKind, str]
+type PreviewCoordinateMode = Literal["exact", "free"]
 _BUNDLE_FIELD_IMPLEMENTATION = "internal:scopecat.bundle-field@1"
 _PREVIEW_POINT_LIMIT = 64
 
@@ -38,25 +41,35 @@ def build_run_program_preview(
     invocation: ExperimentInvocation | None = None,
     point: int | Literal["first", "middle", "last"] = "first",
     coordinates: Mapping[str, object] | None = None,
+    coordinate_mode: PreviewCoordinateMode = "exact",
 ) -> ExperimentPreview:
     """Project stable user-visible facts from a closed RunProgram."""
 
     selected = program.measurements
     catalog = program.points
     point_count = catalog.contract.point_count
-    selected_point_index = _selected_point_index(
+    selected_point_index, free_candidate = _selected_point(
         program,
         point=point,
         coordinates=coordinates,
+        coordinate_mode=coordinate_mode,
     )
-    selected_point = (
+    planned_point = (
         None if selected_point_index is None else catalog.points[selected_point_index]
     )
-    domain_inspections = (
-        ()
-        if selected_point_index is None
-        else _preview_domain_inspections(program, selected_point_index)
+    point_inspection = (
+        program.coverage.inspect(free_candidate)
+        if free_candidate is not None
+        else (
+            None
+            if selected_point_index is None
+            else program.coverage.inspect(selected_point_index)
+        )
     )
+    selected_candidate = (
+        point_inspection.candidate if point_inspection is not None else free_candidate
+    )
+    domain_inspections = _preview_domain_inspections(point_inspection)
     preview_ordinals = _preview_point_ordinals(point_count)
     bindings, binding_edges = (
         ((), ()) if invocation is None else _preview_binding_graph(invocation)
@@ -92,10 +105,14 @@ def build_run_program_preview(
         ),
         selected_point=(
             None
-            if selected_point is None
-            else ExperimentPreviewPoint(
-                point_index=selected_point.ordinal,
-                coordinates=dict(selected_point.coordinates),
+            if planned_point is None and selected_candidate is None
+            else _preview_selected_point(
+                coordinate_ids=catalog.coordinate_ids,
+                point_index=selected_point_index,
+                planned_coordinates=(
+                    None if planned_point is None else planned_point.coordinates
+                ),
+                candidate=selected_candidate,
             )
         ),
         domain_inspections=domain_inspections,
@@ -105,32 +122,45 @@ def build_run_program_preview(
     )
 
 
-def _selected_point_index(
+def _selected_point(
     program: RunProgram,
     *,
     point: int | Literal["first", "middle", "last"],
     coordinates: Mapping[str, object] | None,
-) -> int | None:
+    coordinate_mode: PreviewCoordinateMode,
+) -> tuple[int | None, PointCandidate | None]:
     catalog = program.points
     point_count = catalog.contract.point_count
+    if coordinate_mode == "free":
+        if coordinates is None:
+            raise ValueError("free preview requires coordinates")
+        if point != "first":
+            raise ValueError("select a free preview point by coordinates only")
+        return (
+            None,
+            PointCandidate(
+                coordinates=cast("Mapping[str, CellValue]", coordinates),
+                source="operator",
+            ),
+        )
     if point_count == 0:
         if coordinates is not None:
             raise ValueError("an empty experiment has no selectable coordinates")
-        return None
+        return None, None
     if coordinates is not None:
         if point != "first":
             raise ValueError("select a preview point by index or coordinates, not both")
-        return _point_index_for_coordinates(program, coordinates)
+        return _point_index_for_coordinates(program, coordinates), None
     if isinstance(point, int):
         if not 0 <= point < point_count:
             raise IndexError(point)
-        return point
+        return point, None
     if point == "first":
-        return 0
+        return 0, None
     if point == "middle":
-        return (point_count - 1) // 2
+        return (point_count - 1) // 2, None
     if point == "last":
-        return point_count - 1
+        return point_count - 1, None
     raise ValueError(f"unsupported preview point selector {point!r}")
 
 
@@ -178,12 +208,35 @@ def _point_index_for_coordinates(
     return ordinal
 
 
+def _preview_selected_point(
+    *,
+    coordinate_ids: tuple[str, ...],
+    point_index: int | None,
+    planned_coordinates: Mapping[str, object] | None,
+    candidate: PointCandidate | None,
+) -> ExperimentPreviewPoint:
+    coordinates = planned_coordinates if candidate is None else candidate.coordinates
+    assert coordinates is not None
+    return ExperimentPreviewPoint(
+        point_index=point_index,
+        coordinates={
+            coordinate_id: coordinates[coordinate_id]
+            for coordinate_id in coordinate_ids
+        },
+        proposal_fingerprint=(
+            None if candidate is None else candidate.proposal_fingerprint
+        ),
+        source="author" if candidate is None else candidate.source,
+    )
+
+
 def _preview_domain_inspections(
-    program: RunProgram,
-    point_index: int,
+    inspection: RunPointInspection | None,
 ) -> tuple[ExperimentPreviewDomainInspection, ...]:
+    if inspection is None:
+        return ()
     inspections: list[ExperimentPreviewDomainInspection] = []
-    for job in program.coverage.inspect(point_index):
+    for job in inspection.jobs:
         content = job.execution.inspection
         if content is None:
             continue
@@ -191,7 +244,7 @@ def _preview_domain_inspections(
         inspections.append(
             ExperimentPreviewDomainInspection(
                 operation_id=job.id,
-                point_indices=job.point_ordinals,
+                point_index=inspection.point_index,
                 target_id=intent.target_id,
                 artifact_id=intent.artifact_id,
                 artifact_fingerprint=intent.artifact_fingerprint,

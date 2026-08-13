@@ -12,8 +12,14 @@ from scopecat.records.measurement import MeasurementDatasetSchema
 
 @dataclass(frozen=True)
 class ExperimentPreviewPoint:
-    point_index: int
+    point_index: int | None
     coordinates: dict[str, object]
+    proposal_fingerprint: str | None = None
+    source: Literal["author", "optimizer", "operator"] = "author"
+
+    @property
+    def is_planned(self) -> bool:
+        return self.point_index is not None
 
 
 @dataclass(frozen=True)
@@ -73,7 +79,7 @@ class ExperimentPreviewDomainInspection:
     """One target-owned, non-durable inspection for the selected point."""
 
     operation_id: str
-    point_indices: tuple[int, ...]
+    point_index: int | None
     target_id: str
     artifact_id: str
     artifact_fingerprint: str

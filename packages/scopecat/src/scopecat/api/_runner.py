@@ -33,7 +33,7 @@ from scopecat.daemon.wire import (
     RunSubmission,
 )
 from scopecat.execution.interpreter import execute_admitted_run
-from scopecat.planning.preview import build_run_program_preview
+from scopecat.planning.preview import PreviewCoordinateMode, build_run_program_preview
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
 from scopecat.planning.service import PlannedRun, plan_experiment_invocation
@@ -124,6 +124,7 @@ class _DaemonRunner:
         config: ConfigProfileSnapshot | None = None,
         point: int | Literal["first", "middle", "last"] = "first",
         coordinates: Mapping[str, object] | None = None,
+        coordinate_mode: PreviewCoordinateMode = "exact",
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -145,6 +146,7 @@ class _DaemonRunner:
             invocation=experiment,
             point=point,
             coordinates=coordinates,
+            coordinate_mode=coordinate_mode,
         )
 
     def _plan(
