@@ -571,6 +571,48 @@ class SQLiteRunPointLedger:
             """,
             (command.operation_id, command.reason, self._run_id),
         )
+        self._cancel_pending_queue_in_transaction(
+            connection,
+            reason=f"point plan closed: {command.reason}",
+        )
+        view = self.read_in_transaction(connection)
+        assert view is not None
+        return view
+
+    def abandon_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        operation_id: str,
+        reason: str,
+    ) -> RunPointPlanView | None:
+        """Close an unfinished adaptive plan after a non-successful terminal result."""
+
+        plan = self.read_in_transaction(connection)
+        if plan is None or plan.plan_closed:
+            return plan
+        connection.execute(
+            """
+            UPDATE execution_point_plans
+            SET plan_closed = 1, stop_operation_id = ?, stop_reason = ?
+            WHERE run_id = ?
+            """,
+            (operation_id, reason, self._run_id),
+        )
+        self._cancel_pending_queue_in_transaction(
+            connection,
+            reason=f"point plan abandoned: {reason}",
+        )
+        view = self.read_in_transaction(connection)
+        assert view is not None
+        return view
+
+    def _cancel_pending_queue_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        reason: str,
+    ) -> None:
         pending = tuple(
             entry
             for entry in self.queue_in_transaction(connection).items
@@ -583,7 +625,7 @@ class SQLiteRunPointLedger:
                 occurred_at=entry.occurred_at,
                 candidate=entry.candidate,
                 status="cancelled",
-                reason=f"point plan closed: {command.reason}",
+                reason=reason,
             )
             connection.execute(
                 """
@@ -597,9 +639,6 @@ class SQLiteRunPointLedger:
                     cancelled.operation_id,
                 ),
             )
-        view = self.read_in_transaction(connection)
-        assert view is not None
-        return view
 
 
 class SQLiteExecutionJournal:

@@ -806,6 +806,15 @@ class ExecutorService:
                     connection,
                     control,
                 )
+            else:
+                SQLiteRunPointLedger(
+                    self._runs,
+                    run_id=run_id,
+                ).abandon_in_transaction(
+                    connection,
+                    operation_id=f"point-plan.terminal.{commit.outcome.result}",
+                    reason=f"run {commit.outcome.result}",
+                )
             prepared = replace(prepared, commit=commit)
             manifest = self._runs.commit_prepared_terminal_in_transaction(
                 connection,

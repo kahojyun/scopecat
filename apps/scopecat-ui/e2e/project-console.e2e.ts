@@ -32,15 +32,26 @@ interface ProcessCompletion {
   stderr: string;
 }
 
-interface ControlledExperiment {
+interface RunningExperiment {
+  child: ChildProcess;
+  completion: Promise<ProcessCompletion>;
+}
+
+interface ControlledExperiment extends RunningExperiment {
   acceptedReady: string;
   releaseAccepted: string;
   runningReady: string;
   releaseRunning: string;
   measurementReady: string;
   releaseMeasurement: string;
-  child: ChildProcess;
-  completion: Promise<ProcessCompletion>;
+}
+
+interface AdaptiveExperiment extends RunningExperiment {
+  runIdReady: string;
+  optimizerReady: string;
+  releaseOptimizer: string;
+  queueAcceptedReady: string;
+  releaseFinish: string;
 }
 
 interface CandidateAnalysis {
@@ -134,6 +145,77 @@ with project.connect() as lab:
         client.start_executor = original_start
         client.ingest_measurements = original_ingest
     summary = {"run_id": run.id, "status": run.manifest.status}
+
+print(summary)
+`;
+
+const ADAPTIVE_EXPERIMENT_SOURCE = `\
+"""Pause an adaptive run so the browser can queue a free physical point."""
+
+from __future__ import annotations
+
+import time
+from pathlib import Path
+
+import scopecat as sc
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+CONTROL_ROOT = PROJECT_ROOT / ".scopecat"
+RUN_ID_READY = CONTROL_ROOT / "e2e-adaptive-run-id"
+OPTIMIZER_READY = CONTROL_ROOT / "e2e-adaptive-optimizer-ready"
+RELEASE_OPTIMIZER = CONTROL_ROOT / "e2e-adaptive-release-optimizer"
+QUEUE_ACCEPTED_READY = CONTROL_ROOT / "e2e-adaptive-queue-accepted"
+RELEASE_FINISH = CONTROL_ROOT / "e2e-adaptive-release-finish"
+
+
+def wait_for_release(path: Path) -> None:
+    deadline = time.monotonic() + 45
+    while not path.exists():
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"timed out waiting for {path.name}")
+        time.sleep(0.02)
+
+
+class GatedOptimizer:
+    id = "ui-e2e.gated-optimizer"
+
+    def propose(self, context: sc.PointOptimizerContext):
+        if context.completed_point_count == 2:
+            OPTIMIZER_READY.write_text("ready", encoding="utf-8")
+            wait_for_release(RELEASE_OPTIMIZER)
+            return sc.PointCandidate(
+                {"x": 0.5},
+                source="optimizer",
+                based_on_completed_point_count=context.completed_point_count,
+            )
+        if context.completed_point_count == 4:
+            QUEUE_ACCEPTED_READY.write_text("ready", encoding="utf-8")
+            wait_for_release(RELEASE_FINISH)
+        return sc.OptimizationComplete("browser queue exercised")
+
+
+@sc.experiment(id="ui_e2e_adaptive_scan")
+def adaptive_scan(experiment: sc.ExperimentContext) -> sc.CoordinateRef[float]:
+    return experiment.scan("x", (0.0, 1.0))
+
+
+project = sc.open_project(PROJECT_ROOT)
+with project.connect() as lab:
+    client = lab._client
+    original_start = client.start_executor
+
+    def observed_start(run_id, request):
+        lease = original_start(run_id, request)
+        RUN_ID_READY.write_text(run_id, encoding="utf-8")
+        return lease
+
+    client.start_executor = observed_start
+    try:
+        prepared = lab.prepare(adaptive_scan().adaptive(GatedOptimizer(), max_points=5))
+        run = prepared.run(name="Adaptive operator queue E2E")
+        summary = {"run_id": run.id, "status": run.manifest.status}
+    finally:
+        client.start_executor = original_start
 
 print(summary)
 `;
@@ -434,6 +516,42 @@ test("open console reconnects SSE and follows a live notebook run", async ({ dae
   }
 });
 
+test("queues a free off-grid point into a running adaptive compiler", async ({ daemon, page }) => {
+  const experiment = await startAdaptiveExperiment(daemon.projectRoot);
+  try {
+    const runId = await waitForMarker(experiment.runIdReady, experiment);
+    await waitForMarker(experiment.optimizerReady, experiment);
+    await page.goto(`${daemon.baseUrl}/?run=${encodeURIComponent(runId)}`);
+
+    const detail = page.getByRole("region", { name: "Selected run details" });
+    await expect(detail.getByTestId("run-status")).toHaveText("Running");
+    const inspection = detail.getByTestId("run-inspection-card");
+    await inspection.getByRole("button", { name: /free/i }).click();
+    await inspection.getByRole("spinbutton", { name: "x" }).fill("0.375");
+    await expect(inspection.getByText(/Will queue free point:.*0\.375/)).toBeVisible();
+
+    const queueResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith(`/api/v1/runs/${runId}/point-plan/queue`),
+    );
+    await inspection.getByRole("button", { name: "Queue point" }).click();
+    await expectResponseOk(await queueResponse, "POST");
+    await expect(inspection.getByText("pending", { exact: true })).toBeVisible();
+
+    await writeFile(experiment.releaseOptimizer, "", "utf8");
+    await waitForMarker(experiment.queueAcceptedReady, experiment);
+    await expect(inspection.getByText(/accepted.*point #4/i)).toBeVisible();
+
+    await writeFile(experiment.releaseFinish, "", "utf8");
+    const completion = await experiment.completion;
+    expectProcessOk(completion);
+    await expect(detail.getByTestId("run-status")).toHaveText("Succeeded");
+  } finally {
+    await finishAdaptiveExperiment(experiment);
+  }
+});
+
 async function readRegistry(page: Page, baseUrl: string): Promise<ConfigRegistryView> {
   const response = await page.request.get(`${baseUrl}/api/v1/config-registry`);
   await expectResponseOk(response, "GET");
@@ -565,7 +683,52 @@ async function startControlledExperiment(projectRoot: string): Promise<Controlle
   };
 }
 
-async function waitForMarker(path: string, experiment: ControlledExperiment): Promise<string> {
+async function startAdaptiveExperiment(projectRoot: string): Promise<AdaptiveExperiment> {
+  const script = join(projectRoot, "e2e_adaptive_run.py");
+  const runIdReady = join(projectRoot, ".scopecat/e2e-adaptive-run-id");
+  const optimizerReady = join(projectRoot, ".scopecat/e2e-adaptive-optimizer-ready");
+  const releaseOptimizer = join(projectRoot, ".scopecat/e2e-adaptive-release-optimizer");
+  const queueAcceptedReady = join(projectRoot, ".scopecat/e2e-adaptive-queue-accepted");
+  const releaseFinish = join(projectRoot, ".scopecat/e2e-adaptive-release-finish");
+  await writeFile(script, ADAPTIVE_EXPERIMENT_SOURCE, "utf8");
+
+  const environment = { ...process.env };
+  delete environment.SCOPECAT_DAEMON_URL;
+  const child = spawn("uv", ["run", "--locked", "--project", REPOSITORY_ROOT, "python", script], {
+    cwd: projectRoot,
+    env: environment,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr?.on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  const completion = new Promise<ProcessCompletion>((resolveCompletion) => {
+    child.once("error", (error) => {
+      stderr += `\n${error.message}`;
+    });
+    child.once("close", (code, signal) => {
+      resolveCompletion({ code, signal, stdout, stderr });
+    });
+  });
+  return {
+    runIdReady,
+    optimizerReady,
+    releaseOptimizer,
+    queueAcceptedReady,
+    releaseFinish,
+    child,
+    completion,
+  };
+}
+
+async function waitForMarker(path: string, experiment: RunningExperiment): Promise<string> {
   await expect
     .poll(
       async () => {
@@ -610,8 +773,19 @@ async function finishControlledExperiment(experiment: ControlledExperiment): Pro
   }
 }
 
+async function finishAdaptiveExperiment(experiment: AdaptiveExperiment): Promise<void> {
+  await Promise.all([
+    writeFile(experiment.releaseOptimizer, "", "utf8"),
+    writeFile(experiment.releaseFinish, "", "utf8"),
+  ]);
+  if ((await processResultWithin(experiment, 5_000)) === undefined) {
+    experiment.child.kill("SIGTERM");
+    await experiment.completion;
+  }
+}
+
 async function processResultWithin(
-  experiment: ControlledExperiment,
+  experiment: RunningExperiment,
   timeoutMs: number,
 ): Promise<ProcessCompletion | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined;

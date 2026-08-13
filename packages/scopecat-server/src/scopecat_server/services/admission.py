@@ -57,6 +57,7 @@ from scopecat_server.storage.sqlite.control_plane import (
     ControlPlaneNotFound,
     SQLiteControlPlane,
 )
+from scopecat_server.storage.sqlite.execution import SQLiteRunPointLedger
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
@@ -313,6 +314,14 @@ class AdmissionService:
                 released = self._control.release_run_resources_in_transaction(
                     connection,
                     run_id,
+                )
+                SQLiteRunPointLedger(
+                    self._runs,
+                    run_id=run_id,
+                ).abandon_in_transaction(
+                    connection,
+                    operation_id="point-plan.reconcile.executor-loss",
+                    reason="executor loss reconciled",
                 )
                 self._runs.commit_prepared_terminal_in_transaction(
                     connection,

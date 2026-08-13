@@ -2399,6 +2399,64 @@ def test_closed_point_plan_cannot_succeed_before_full_coverage(tmp_path: Path) -
             )
 
 
+def test_failed_adaptive_run_abandons_pending_operator_points(tmp_path: Path) -> None:
+    submission = _submission("failed-adaptive-queue").model_copy(
+        update={
+            "plan": RunPlanSummary(
+                experiment_id="scratch",
+                experiment_kind="scratch",
+                point_count=None,
+                initial_point_count=1,
+                point_limit=3,
+                coordinate_ids=("frequency",),
+                run_resource_requirements=(
+                    RunResourceRequirement(id="source-0", kind="instrument"),
+                ),
+            )
+        }
+    )
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(submission)
+        lease = runtime.application.executor.start_executor(
+            admission.run_id,
+            ExecutorStartRequest(executor_id="failed-adaptive-test"),
+        )
+        runtime.application.executor.enqueue_run_point(
+            admission.run_id,
+            RunPointEnqueueCommand(
+                operation_id="pending-at-failure",
+                coordinates={"frequency": Quantity(5.2, "GHz")},
+            ),
+        )
+        manifest = runtime.application.executor.commit_terminal(
+            admission.run_id,
+            TerminalRunCommitCommand(
+                lease_id=lease.lease_id,
+                outcome=RunOutcome(
+                    run_id=admission.run_id,
+                    result="failed",
+                    certainty="known",
+                    problems=(
+                        problem(
+                            "test.adaptive_failure",
+                            "adaptive execution failed",
+                            phase=ProblemPhase.EXECUTION,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        point_plan = runtime.application.executor.run_point_plan(admission.run_id)
+        queue = runtime.application.executor.run_point_queue(admission.run_id)
+
+    assert manifest.outcome is not None
+    assert manifest.outcome.result == "failed"
+    assert point_plan.plan_closed
+    assert point_plan.stop_reason == "run failed"
+    assert queue.items[0].status == "cancelled"
+    assert queue.items[0].reason == "point plan abandoned: run failed"
+
+
 def test_queued_run_cancellation_is_immediate_durable_and_idempotent(
     tmp_path: Path,
 ) -> None:
@@ -3265,7 +3323,21 @@ def test_restart_quarantines_executor_until_operator_reconciles(
     tmp_path: Path,
 ) -> None:
     with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
-        submission = _submission("operator-recovery", point_count=2)
+        submission = _submission("operator-recovery").model_copy(
+            update={
+                "plan": RunPlanSummary(
+                    experiment_id="scratch",
+                    experiment_kind="scratch",
+                    point_count=None,
+                    initial_point_count=1,
+                    point_limit=3,
+                    coordinate_ids=("frequency",),
+                    run_resource_requirements=(
+                        RunResourceRequirement(id="source-0", kind="instrument"),
+                    ),
+                )
+            }
+        )
         admission = runtime.application.submit_run(submission)
         lease = runtime.application.executor.start_executor(
             admission.run_id,
@@ -3281,6 +3353,20 @@ def test_restart_quarantines_executor_until_operator_reconciles(
                 point_count=1,
             ),
         )
+        runtime.application.executor.initialize_run_point_plan(
+            admission.run_id,
+            RunPointPlanInitializeCommand(
+                lease_id=lease.lease_id,
+                operation_id=POINT_PLAN_INITIALIZE_OPERATION_ID,
+            ),
+        )
+        runtime.application.executor.enqueue_run_point(
+            admission.run_id,
+            RunPointEnqueueCommand(
+                operation_id="queue-before-restart",
+                coordinates={"frequency": Quantity(5.2, "GHz")},
+            ),
+        )
         run_id = admission.run_id
 
     with LocalDaemonRuntime(tmp_path) as reopened:
@@ -3290,6 +3376,10 @@ def test_restart_quarantines_executor_until_operator_reconciles(
         assert _resource_claims(tmp_path)[0].status == "quarantined"
         coverage = reopened.application.executor.run_coverage(run_id)
         assert coverage.completed_point_count == 1
+        interrupted_plan = reopened.application.executor.run_point_plan(run_id)
+        interrupted_queue = reopened.application.executor.run_point_queue(run_id)
+        assert not interrupted_plan.plan_closed
+        assert interrupted_queue.items[0].status == "pending"
         with pytest.raises(BackendConflict, match="attention_required"):
             reopened.application.executor.start_executor(
                 run_id,
@@ -3305,6 +3395,14 @@ def test_restart_quarantines_executor_until_operator_reconciles(
         assert manifest.outcome is not None
         assert manifest.outcome.certainty == "indeterminate"
         assert manifest.outcome.problems[0].code == "daemon.executor_loss_reconciled"
+        abandoned_plan = reopened.application.executor.run_point_plan(run_id)
+        abandoned_queue = reopened.application.executor.run_point_queue(run_id)
+        assert abandoned_plan.plan_closed
+        assert abandoned_plan.stop_reason == "executor loss reconciled"
+        assert abandoned_queue.items[0].status == "cancelled"
+        assert abandoned_queue.items[0].reason == (
+            "point plan abandoned: executor loss reconciled"
+        )
         assert _resource_claims(tmp_path) == ()
         with pytest.raises(BackendConflict, match="not ready to start"):
             reopened.application.executor.start_executor(
