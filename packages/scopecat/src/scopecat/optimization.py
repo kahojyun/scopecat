@@ -8,6 +8,9 @@ from typing import Literal, Protocol
 from scopecat.measurements.points import AcceptedRunPoint, PointCandidate
 from scopecat.records.measurement import MeasurementRecord
 
+OPTIMIZER_OBSERVATION_WINDOW = 256
+OPTIMIZER_DECISION_WINDOW = 1024
+
 
 @dataclass(frozen=True, slots=True)
 class CompletedPointObservation:
@@ -58,38 +61,54 @@ class PointProposalDecision:
 
 @dataclass(frozen=True, slots=True)
 class PointProposalLedger:
-    """Immutable proposal decisions for one adaptive run."""
+    """Immutable recent proposal decisions plus exact run-wide counters."""
 
     initial_point_count: int
     entries: tuple[PointProposalDecision, ...] = ()
+    entry_offset: int = 0
+    accepted_count_before: int = 0
+    rejected_count_before: int = 0
+    accepted_count_in_window: int = 0
+    rejected_count_in_window: int = 0
 
     def __post_init__(self) -> None:
         if self.initial_point_count < 0:
             raise ValueError("initial point count must be non-negative")
-        if tuple(entry.proposal_index for entry in self.entries) != tuple(
-            range(len(self.entries))
-        ):
-            raise ValueError("proposal ledger indices must be contiguous")
-        accepted_ordinals = tuple(
-            entry.accepted_point.ordinal
-            for entry in self.entries
-            if entry.accepted_point is not None
-        )
-        if accepted_ordinals != tuple(
-            range(
-                self.initial_point_count,
-                self.initial_point_count + len(accepted_ordinals),
+        if (
+            min(
+                self.entry_offset,
+                self.accepted_count_before,
+                self.rejected_count_before,
+                self.accepted_count_in_window,
+                self.rejected_count_in_window,
             )
+            < 0
         ):
-            raise ValueError("accepted optimizer points must extend one logical prefix")
+            raise ValueError("proposal ledger counters must be non-negative")
+        if self.accepted_count_before + self.rejected_count_before != self.entry_offset:
+            raise ValueError("proposal ledger prefix counters must match its offset")
+        if self.accepted_count_in_window + self.rejected_count_in_window != len(
+            self.entries
+        ):
+            raise ValueError("proposal ledger window counters must match its entries")
+        if self.entries and (
+            self.entries[0].proposal_index != self.entry_offset
+            or self.entries[-1].proposal_index
+            != self.entry_offset + len(self.entries) - 1
+        ):
+            raise ValueError("proposal ledger indices must bound one contiguous window")
 
     @property
     def accepted_count(self) -> int:
-        return sum(entry.outcome == "accepted" for entry in self.entries)
+        return self.accepted_count_before + self.accepted_count_in_window
 
     @property
     def rejected_count(self) -> int:
-        return len(self.entries) - self.accepted_count
+        return self.rejected_count_before + self.rejected_count_in_window
+
+    @property
+    def decision_count(self) -> int:
+        return self.entry_offset + len(self.entries)
 
     @property
     def next_logical_ordinal(self) -> int:
@@ -109,12 +128,17 @@ class PointProposalLedger:
             (
                 *self.entries,
                 PointProposalDecision(
-                    proposal_index=len(self.entries),
+                    proposal_index=self.decision_count,
                     candidate=candidate,
                     outcome="accepted",
                     accepted_point=point,
                 ),
             ),
+            entry_offset=self.entry_offset,
+            accepted_count_before=self.accepted_count_before,
+            rejected_count_before=self.rejected_count_before,
+            accepted_count_in_window=self.accepted_count_in_window + 1,
+            rejected_count_in_window=self.rejected_count_in_window,
         )
 
     def reject(self, candidate: PointCandidate, *, reason: str) -> PointProposalLedger:
@@ -125,36 +149,67 @@ class PointProposalLedger:
             (
                 *self.entries,
                 PointProposalDecision(
-                    proposal_index=len(self.entries),
+                    proposal_index=self.decision_count,
                     candidate=candidate,
                     outcome="rejected",
                     reason=reason,
                 ),
             ),
+            entry_offset=self.entry_offset,
+            accepted_count_before=self.accepted_count_before,
+            rejected_count_before=self.rejected_count_before,
+            accepted_count_in_window=self.accepted_count_in_window,
+            rejected_count_in_window=self.rejected_count_in_window + 1,
+        )
+
+    def recent(self, limit: int = OPTIMIZER_DECISION_WINDOW) -> PointProposalLedger:
+        """Bound retained decision objects without losing exact prefix counts."""
+
+        if limit <= 0:
+            raise ValueError("proposal ledger window must be positive")
+        dropped = self.entries[:-limit]
+        if not dropped:
+            return self
+        dropped_accepted = sum(entry.outcome == "accepted" for entry in dropped)
+        dropped_rejected = len(dropped) - dropped_accepted
+        return PointProposalLedger(
+            initial_point_count=self.initial_point_count,
+            entries=self.entries[-limit:],
+            entry_offset=self.entry_offset + len(dropped),
+            accepted_count_before=self.accepted_count_before + dropped_accepted,
+            rejected_count_before=self.rejected_count_before + dropped_rejected,
+            accepted_count_in_window=(self.accepted_count_in_window - dropped_accepted),
+            rejected_count_in_window=(self.rejected_count_in_window - dropped_rejected),
         )
 
 
 @dataclass(frozen=True, slots=True)
 class PointOptimizerContext:
-    """Complete immutable facts supplied for one optimizer decision."""
+    """Exact counters and bounded recent facts for one optimizer decision."""
 
     observations: tuple[CompletedPointObservation, ...]
     ledger: PointProposalLedger
     point_limit: int
+    completed_point_count: int
 
     def __post_init__(self) -> None:
         if self.point_limit <= 0:
             raise ValueError("adaptive point limit must be positive")
-        if len(self.observations) != (
+        if self.completed_point_count != (
             self.ledger.initial_point_count + self.ledger.accepted_count
         ):
-            raise ValueError("optimizer observations must cover every accepted point")
-        if len(self.observations) > self.point_limit:
+            raise ValueError("optimizer completed count must cover accepted points")
+        if self.completed_point_count > self.point_limit:
             raise ValueError("optimizer observations exceed the adaptive point limit")
+        observation_start = self.completed_point_count - len(self.observations)
+        if observation_start < 0 or tuple(
+            observation.point.ordinal for observation in self.observations
+        ) != tuple(range(observation_start, self.completed_point_count)):
+            raise ValueError("optimizer observations must be one completed suffix")
 
     @property
-    def completed_point_count(self) -> int:
-        return len(self.observations)
+    def observation_start_index(self) -> int:
+        return self.completed_point_count - len(self.observations)
 
     @property
     def remaining_point_count(self) -> int:
@@ -203,6 +258,8 @@ class AdaptivePointPlan:
 
 
 __all__ = [
+    "OPTIMIZER_DECISION_WINDOW",
+    "OPTIMIZER_OBSERVATION_WINDOW",
     "AdaptivePointPlan",
     "CompletedPointObservation",
     "OptimizationComplete",

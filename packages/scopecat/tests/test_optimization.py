@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections import deque
+
 import pytest
 
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
@@ -47,6 +49,7 @@ def test_optimizer_context_and_ledger_preserve_proposal_identity() -> None:
         observations=(CompletedPointObservation(initial),),
         ledger=ledger,
         point_limit=3,
+        completed_point_count=1,
     )
 
     candidate = _Optimizer().propose(context)
@@ -70,6 +73,40 @@ def test_optimizer_context_and_ledger_preserve_proposal_identity() -> None:
         accepted.proposal_fingerprint
     )
     assert ledger.entries[1].reason == "duplicate coordinate"
+
+
+def test_optimizer_context_retains_bounded_suffixes_with_exact_totals() -> None:
+    ledger = PointProposalLedger(initial_point_count=0)
+    recent_points: deque[AcceptedRunPoint] = deque(maxlen=4)
+    for index in range(40):
+        candidate = PointCandidate(
+            {"x": float(index)},
+            source="optimizer",
+            based_on_completed_point_count=ledger.accepted_count,
+        )
+        if index % 2:
+            point = _point(ledger.next_logical_ordinal, candidate)
+            recent_points.append(point)
+            ledger = ledger.accept(candidate, point).recent(8)
+        else:
+            ledger = ledger.reject(candidate, reason="retry").recent(8)
+
+    context = PointOptimizerContext(
+        observations=tuple(CompletedPointObservation(point) for point in recent_points),
+        ledger=ledger,
+        point_limit=24,
+        completed_point_count=20,
+    )
+
+    assert ledger.decision_count == 40
+    assert ledger.entry_offset == 32
+    assert len(ledger.entries) == 8
+    assert ledger.accepted_count == ledger.rejected_count == 20
+    assert ledger.next_logical_ordinal == 20
+    assert context.observation_start_index == 16
+    assert tuple(item.point.ordinal for item in context.observations) == tuple(
+        range(16, 20)
+    )
 
 
 def test_ledger_rejects_non_contiguous_accepted_point() -> None:

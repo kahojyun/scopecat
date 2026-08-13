@@ -34,7 +34,6 @@ from scopecat.execution.persistence import (
 from scopecat.execution.program import (
     RunCoveredOperation,
     RunDomainJob,
-    RunPointInspection,
     RunProgram,
 )
 from scopecat.execution.services import (
@@ -67,6 +66,7 @@ from scopecat.measurements.values import (
     seal_measurement_values,
 )
 from scopecat.optimization import (
+    OPTIMIZER_OBSERVATION_WINDOW,
     CompletedPointObservation,
     OptimizationComplete,
     PointOptimizerContext,
@@ -200,7 +200,7 @@ def _execute_run(
             )
             for point in points
         }
-        point_state.observations.extend(
+        point_state.add_observations(
             CompletedPointObservation(
                 point=point,
                 records=records_by_point[point.ordinal],
@@ -593,8 +593,8 @@ class _ExecutionPointState:
     points: list[AcceptedRunPoint]
     observations: list[CompletedPointObservation]
     ledger: PointProposalLedger | None
-    inspections: list[RunPointInspection]
     proposal_writer: RunPointProposalWriter | None
+    completed_point_count: int
 
     @classmethod
     def create(
@@ -613,9 +613,18 @@ class _ExecutionPointState:
                 if adaptive is None
                 else adaptive.ledger(initial_point_count=len(points))
             ),
-            inspections=[],
             proposal_writer=proposal_writer,
+            completed_point_count=0,
         )
+
+    def add_observations(
+        self,
+        observations: Iterator[CompletedPointObservation],
+    ) -> None:
+        added = tuple(observations)
+        self.completed_point_count += len(added)
+        self.observations.extend(added)
+        del self.observations[:-OPTIMIZER_OBSERVATION_WINDOW]
 
 
 def _execution_coverage(
@@ -633,7 +642,7 @@ def _execution_coverage(
     if ledger is None:
         raise AssertionError("adaptive execution requires a proposal ledger")
     while len(state.points) < adaptive.max_points:
-        if len(ledger.entries) >= adaptive.proposal_limit:
+        if ledger.decision_count >= adaptive.proposal_limit:
             raise RuntimeError("optimizer exceeded the adaptive proposal limit")
         queued = (
             None
@@ -648,13 +657,14 @@ def _execution_coverage(
                     observations=tuple(state.observations),
                     ledger=ledger,
                     point_limit=adaptive.max_points,
+                    completed_point_count=state.completed_point_count,
                 )
             )
         )
         if isinstance(proposal, OptimizationComplete):
             if state.proposal_writer is not None:
                 state.proposal_writer.close(
-                    completed_point_count=len(state.observations),
+                    completed_point_count=state.completed_point_count,
                     reason=proposal.reason,
                 )
             break
@@ -662,11 +672,11 @@ def _execution_coverage(
             proposal = PointCandidate(
                 coordinates=proposal.coordinates,
                 source=proposal.source,
-                based_on_completed_point_count=len(state.observations),
+                based_on_completed_point_count=state.completed_point_count,
             )
         rejection = _proposal_rejection(proposal, state)
         if rejection is not None:
-            ledger = ledger.reject(proposal, reason=rejection)
+            ledger = ledger.reject(proposal, reason=rejection).recent()
             state.ledger = ledger
             if state.proposal_writer is not None:
                 state.proposal_writer.append(
@@ -680,7 +690,7 @@ def _execution_coverage(
         try:
             accepted = program.coverage.accept(proposal)
         except CheckFailed as error:
-            ledger = ledger.reject(proposal, reason=str(error))
+            ledger = ledger.reject(proposal, reason=str(error)).recent()
             state.ledger = ledger
             if state.proposal_writer is not None:
                 state.proposal_writer.append(
@@ -692,8 +702,7 @@ def _execution_coverage(
                 )
             continue
         state.points.append(accepted.point)
-        state.inspections.append(accepted.inspection)
-        ledger = ledger.accept(proposal, accepted.point)
+        ledger = ledger.accept(proposal, accepted.point).recent()
         state.ledger = ledger
         if state.proposal_writer is not None:
             state.proposal_writer.append(
@@ -706,7 +715,7 @@ def _execution_coverage(
     else:
         if state.proposal_writer is not None:
             state.proposal_writer.close(
-                completed_point_count=len(state.observations),
+                completed_point_count=state.completed_point_count,
                 reason="point budget exhausted",
             )
 
@@ -716,10 +725,10 @@ def _proposal_rejection(
     state: _ExecutionPointState,
 ) -> str | None:
     based_on = proposal.based_on_completed_point_count
-    if based_on is not None and based_on != len(state.observations):
+    if based_on is not None and based_on != state.completed_point_count:
         return (
             f"proposal was based on {based_on} completed points; "
-            f"the run has {len(state.observations)}"
+            f"the run has {state.completed_point_count}"
         )
     return None
 

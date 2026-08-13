@@ -423,6 +423,20 @@ still grow with completed point count; neither contains waveform payloads. The
 daemon's live compiled-inspection feed retains only the latest 64 proposal
 events, and every inspection already enforces point, waveform, and sample
 budgets. It is an operator view, not durable run content.
+Adaptive optimizer calls likewise receive exact run-wide counters but only the
+latest 1,024 point decisions and 256 completed-point observations. Durable
+point decisions remain queryable through the daemon ledger; heavyweight
+measurement records no longer accumulate in the in-process optimizer context.
+Run the long-run memory probe with:
+
+```console
+uv run python scripts/benchmark_adaptive_optimizer.py --decisions 20000
+```
+
+The emitted `retained_decisions` and `retained_observations` must stay at their
+fixed windows as `decisions` grows; `retained_bytes` and `peak_bytes` provide
+local regression measurements without baking machine-specific thresholds into
+the semantic suite.
 The
 daemon retains the latest received measurement for the live Arrow view plus the
 bounded not-yet-durable prefix. That state exists only while its executor lease is
