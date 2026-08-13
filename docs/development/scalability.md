@@ -425,20 +425,25 @@ events, and every inspection already enforces point, waveform, and sample
 budgets. It is an operator view, not durable run content.
 Adaptive optimizer calls likewise receive exact run-wide counters but only the
 latest 1,024 point decisions and 256 completed-point observations. Durable
-point decisions remain queryable through the daemon ledger; heavyweight
-measurement records no longer accumulate in the in-process optimizer context.
+point decisions remain queryable through the daemon ledger. Completed-point
+observations retain canonical point identity plus metadata-free scalar and
+unavailable observable values. Array values, acquisition evidence, record
+metadata, and scalar metadata are deliberately omitted; optimizers that need a
+trace-derived feature should declare a scalar measurement compute for that
+feature. Heavyweight measurement records therefore do not accumulate in the
+in-process optimizer context.
 Run the long-run memory probe with:
 
 ```console
 uv run python scripts/benchmark_adaptive_optimizer.py --decisions 20000
 ```
 
+The probe feeds a distinct 256 KiB waveform through every retained observation.
 The emitted `retained_decisions` and `retained_observations` must stay at their
-fixed windows as `decisions` grows; `retained_bytes` and `peak_bytes` provide
-local regression measurements without baking machine-specific thresholds into
-the semantic suite.
-The
-daemon retains the latest received measurement for the live Arrow view plus the
+fixed windows, `retained_array_observables` must remain zero, and retained
+tracemalloc/RSS measurements must not include the reported discarded waveform
+payload.
+The daemon retains the latest received measurement for the live Arrow view plus the
 bounded not-yet-durable prefix. That state exists only while its executor lease is
 active and is released on seal, terminal commit, lease loss, or daemon shutdown.
 Inline command payloads retain raw bytes in memory and convert to base64 only

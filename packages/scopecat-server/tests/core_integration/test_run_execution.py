@@ -75,7 +75,7 @@ class _TwoPointOptimizer:
         context: PointOptimizerContext,
     ) -> PointProposalAttempt | OptimizationComplete:
         self.contexts.append(context)
-        run_id = context.observations[0].records[0].run_id
+        run_id = context.observations[0].measurements[0].run_id
         self.durable_point_counts.append(
             SQLiteMeasurementDatasetRepository(
                 sqlite_run_repository(self.project_root),
@@ -253,7 +253,8 @@ def test_adaptive_execution_observes_and_runs_optimizer_points_in_one_session(
         optimizer.contexts[1].ledger.entries[0].reason or ""
     )
     assert all(
-        len(context.observations[-1].records) == 1 for context in optimizer.contexts
+        len(context.observations[-1].measurements) == 1
+        for context in optimizer.contexts
     )
     assert len(dataset.records) == 5
     assert [record.point_index for record in dataset.records] == list(range(5))

@@ -71,6 +71,7 @@ from scopecat.optimization import (
     OptimizationComplete,
     PointOptimizerContext,
     PointProposalLedger,
+    project_completed_point_observation,
 )
 from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
@@ -197,9 +198,9 @@ def _execute_run(
             for point in points
         }
         point_state.add_observations(
-            CompletedPointObservation(
-                point=point,
-                records=records_by_point[point.ordinal],
+            project_completed_point_observation(
+                point,
+                records_by_point[point.ordinal],
             )
             for point in points
         )

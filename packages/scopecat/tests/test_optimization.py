@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 
+import numpy as np
 import pytest
 
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
@@ -12,6 +13,13 @@ from scopecat.optimization import (
     OptimizationComplete,
     PointOptimizerContext,
     PointProposalLedger,
+    project_completed_point_observation,
+)
+from scopecat.records.measurement import (
+    MeasurementArray,
+    MeasurementRecord,
+    MeasurementScalar,
+    MeasurementUnavailable,
 )
 
 
@@ -75,6 +83,51 @@ def test_optimizer_context_and_ledger_preserve_proposal_identity() -> None:
         accepted.proposal_fingerprint
     )
     assert ledger.entries[1].reason == "duplicate coordinate"
+
+
+def test_optimizer_observation_projection_retains_only_metadata_free_scalars() -> None:
+    point = _point(0, PointProposalAttempt({"x": 0.0}))
+    record = MeasurementRecord(
+        run_id="run-adaptive",
+        logical_point_id="point-0",
+        point_index=0,
+        coordinates={},
+        observables={
+            "score": MeasurementScalar.create(
+                value=0.25,
+                unit="V",
+                metadata={"raw": "large acquisition metadata"},
+            ),
+            "trace": MeasurementArray.create(
+                values=np.arange(4096, dtype=np.float64),
+                unit="V",
+                metadata={"channel": "readout"},
+            ),
+            "missing": MeasurementUnavailable.create(
+                reason="missing",
+                dtype="float64",
+                unit="V",
+                shape=(),
+                metadata={"driver": "detail"},
+            ),
+        },
+        metadata={"batch": "discarded"},
+    )
+
+    observation = project_completed_point_observation(point, (record,))
+
+    [measurement] = observation.measurements
+    assert measurement.run_id == "run-adaptive"
+    assert measurement.logical_point_id == "point-0"
+    assert measurement.omitted_array_ids == ("trace",)
+    assert set(measurement.observables) == {"score", "missing"}
+    score = measurement.observables["score"]
+    missing = measurement.observables["missing"]
+    assert isinstance(score, MeasurementScalar)
+    assert isinstance(missing, MeasurementUnavailable)
+    assert score.value == 0.25
+    assert score.metadata == {}
+    assert missing.metadata == {}
 
 
 def test_optimizer_context_retains_bounded_suffixes_with_exact_totals() -> None:

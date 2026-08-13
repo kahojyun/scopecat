@@ -2,22 +2,89 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Literal, Protocol
 
 from scopecat.measurements.points import AcceptedRunPoint, PointProposalAttempt
-from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.measurement import (
+    MeasurementRecord,
+    MeasurementScalar,
+    MeasurementUnavailable,
+)
 
 OPTIMIZER_OBSERVATION_WINDOW = 256
 OPTIMIZER_DECISION_WINDOW = 1024
 
 
 @dataclass(frozen=True, slots=True)
+class OptimizerMeasurementObservation:
+    """Lightweight scalar measurement facts retained for one completed point."""
+
+    run_id: str
+    logical_point_id: str | None
+    observables: Mapping[str, MeasurementScalar | MeasurementUnavailable]
+    omitted_array_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "observables",
+            MappingProxyType(dict(self.observables)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class CompletedPointObservation:
-    """One accepted point and the durable-shaped records visible to an optimizer."""
+    """One accepted point and its bounded optimizer-facing measurement projection."""
 
     point: AcceptedRunPoint
-    records: tuple[MeasurementRecord, ...] = ()
+    measurements: tuple[OptimizerMeasurementObservation, ...] = ()
+
+
+def project_completed_point_observation(
+    point: AcceptedRunPoint,
+    records: Sequence[MeasurementRecord],
+) -> CompletedPointObservation:
+    """Drop arrays, evidence, and metadata before retaining optimizer context."""
+
+    return CompletedPointObservation(
+        point=point,
+        measurements=tuple(
+            _project_optimizer_measurement(record) for record in records
+        ),
+    )
+
+
+def _project_optimizer_measurement(
+    record: MeasurementRecord,
+) -> OptimizerMeasurementObservation:
+    observables: dict[str, MeasurementScalar | MeasurementUnavailable] = {}
+    omitted_array_ids: list[str] = []
+    for observable_id, value in record.observables.items():
+        if isinstance(value, MeasurementScalar):
+            observables[observable_id] = MeasurementScalar.create(
+                value=value.value,
+                dtype=value.dtype,
+                unit=value.unit,
+            )
+        elif isinstance(value, MeasurementUnavailable):
+            observables[observable_id] = MeasurementUnavailable.create(
+                reason=value.reason,
+                dtype=value.dtype,
+                unit=value.unit,
+                shape=value.shape,
+                metadata={},
+            )
+        else:
+            omitted_array_ids.append(observable_id)
+    return OptimizerMeasurementObservation(
+        run_id=record.run_id,
+        logical_point_id=record.logical_point_id,
+        observables=observables,
+        omitted_array_ids=tuple(omitted_array_ids),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,9 +380,11 @@ __all__ = [
     "AdaptivePointPlan",
     "CompletedPointObservation",
     "OptimizationComplete",
+    "OptimizerMeasurementObservation",
     "PointOptimizer",
     "PointOptimizerContext",
     "PointProposalDecision",
     "PointProposalLedger",
     "PointProposalOutcome",
+    "project_completed_point_observation",
 ]

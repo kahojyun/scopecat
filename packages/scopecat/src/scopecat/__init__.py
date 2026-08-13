@@ -119,6 +119,7 @@ if TYPE_CHECKING:
         AdaptivePointPlan,
         CompletedPointObservation,
         OptimizationComplete,
+        OptimizerMeasurementObservation,
         PointOptimizer,
         PointOptimizerContext,
         PointProposalDecision,
@@ -258,6 +259,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "CompletedPointObservation",
     ),
     "OptimizationComplete": ("scopecat.optimization", "OptimizationComplete"),
+    "OptimizerMeasurementObservation": (
+        "scopecat.optimization",
+        "OptimizerMeasurementObservation",
+    ),
     "PointOptimizer": ("scopecat.optimization", "PointOptimizer"),
     "PointOptimizerContext": (
         "scopecat.optimization",
