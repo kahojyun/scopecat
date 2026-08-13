@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from scopecat.adaptive_coordination import AdaptiveDomainCoordinator
+from scopecat.adaptive_coordination import (
+    AdaptiveDomainCoordinator,
+    derive_adaptive_region_layout,
+)
 from scopecat.adaptive_domains import (
     DomainProposalAttempt,
     OperatorDomainRequest,
@@ -98,9 +101,20 @@ def _accept_bound(
 
 
 def test_static_outer_scan_creates_independent_adaptive_regions() -> None:
-    coordinator = _coordinator()
+    plan = AdaptiveDomainPlan(
+        _Optimizer(),
+        total_point_limit=12,
+        adaptive_coordinate_ids=("frequency",),
+        per_region_point_limit=6,
+    )
+    layout = derive_adaptive_region_layout(plan, _catalog())
+    coordinator = AdaptiveDomainCoordinator.create(plan, _catalog())
 
     first, second = coordinator.regions
+    assert layout.coordinate_ids == ("temperature", "frequency")
+    assert layout.adaptive_coordinate_ids == ("frequency",)
+    assert layout.outer_coordinate_ids == ("temperature",)
+    assert layout.regions == coordinator.regions
     assert first.coordinates == {"temperature": 10.0}
     assert second.coordinates == {"temperature": 20.0}
     assert first.point_count == second.point_count == 2

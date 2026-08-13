@@ -213,9 +213,12 @@ class RunPointPlanService:
             )
             available_region_ids = {region.id for region in plan.adaptive_regions}
             if command.region_scope == "selected":
-                unknown = sorted(set(command.region_ids) - available_region_ids)
-                if unknown:
-                    raise ValueError("unknown adaptive regions: " + ", ".join(unknown))
+                if not plan.adaptive_regions_truncated:
+                    unknown = sorted(set(command.region_ids) - available_region_ids)
+                    if unknown:
+                        raise ValueError(
+                            "unknown adaptive regions: " + ", ".join(unknown)
+                        )
                 region_count = len(command.region_ids)
             elif command.region_scope == "current":
                 if command.region_ids:

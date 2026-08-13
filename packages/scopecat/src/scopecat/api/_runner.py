@@ -12,7 +12,7 @@ from uuid import uuid4
 
 import httpx2
 
-from scopecat.adaptive_coordination import AdaptiveDomainCoordinator
+from scopecat.adaptive_coordination import derive_adaptive_region_layout
 from scopecat.api.review import ExperimentReviewHandle, create_experiment_review
 from scopecat.authoring import MetadataValue
 from scopecat.authoring.experiments import ExperimentInvocation
@@ -309,12 +309,12 @@ def _executor_lease_timing(lease: ExecutorLease) -> tuple[float, float]:
 def _run_plan_summary(planned: PlannedRun) -> RunPlanSummary:
     program = planned.program
     adaptive = program.adaptive_domain_plan
-    coordinator = (
+    region_layout = (
         None
         if adaptive is None
-        else AdaptiveDomainCoordinator.create(adaptive, program.points)
+        else derive_adaptive_region_layout(adaptive, program.points)
     )
-    adaptive_regions = () if coordinator is None else coordinator.regions
+    adaptive_regions = () if region_layout is None else region_layout.regions
     sampled_adaptive_regions = adaptive_regions[:256]
     coordinates, sampled_points, sampled_points_truncated = point_coordinate_contract(
         program.points

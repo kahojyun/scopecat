@@ -36,6 +36,66 @@ class BoundDomainProposal:
     candidates: tuple[PointProposalAttempt, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class AdaptiveRegionLayout:
+    """Pure initial partition of an adaptive run across its static outer axes."""
+
+    coordinate_ids: tuple[str, ...]
+    adaptive_coordinate_ids: tuple[str, ...]
+    outer_coordinate_ids: tuple[str, ...]
+    regions: tuple[AdaptiveRegion, ...]
+
+
+def derive_adaptive_region_layout(
+    plan: AdaptiveDomainPlan,
+    catalog: RunPointCatalog,
+) -> AdaptiveRegionLayout:
+    coordinate_ids = catalog.coordinate_ids
+    adaptive_ids = plan.adaptive_coordinate_ids or coordinate_ids
+    unknown = sorted(set(adaptive_ids) - set(coordinate_ids))
+    if unknown:
+        raise ValueError(
+            "adaptive coordinates are not admitted axes: " + ", ".join(unknown)
+        )
+    adaptive_id_set = set(adaptive_ids)
+    outer_ids = tuple(
+        coordinate_id
+        for coordinate_id in coordinate_ids
+        if coordinate_id not in adaptive_id_set
+    )
+    grouped = _initial_regions(catalog, outer_ids)
+    if not grouped:
+        if outer_ids:
+            raise ValueError(
+                "an adaptive plan with static outer axes requires seeded points"
+            )
+        grouped[_outer_fingerprint({})] = ({}, 0)
+    plan.validate_initial_point_count(len(catalog.points))
+    region_limit = plan.per_region_point_limit or plan.total_point_limit
+    regions: list[AdaptiveRegion] = []
+    for index, (fingerprint, (coordinates, point_count)) in enumerate(grouped.items()):
+        if point_count > region_limit:
+            raise ValueError(
+                "initial region points exceed the adaptive region point limit"
+            )
+        regions.append(
+            AdaptiveRegion(
+                id=f"region-{index}.{fingerprint[:12]}",
+                coordinates=coordinates,
+                point_count=point_count,
+                completed_point_count=0,
+                revision=0,
+                point_limit=region_limit,
+            )
+        )
+    return AdaptiveRegionLayout(
+        coordinate_ids=coordinate_ids,
+        adaptive_coordinate_ids=adaptive_ids,
+        outer_coordinate_ids=outer_ids,
+        regions=tuple(regions),
+    )
+
+
 @dataclass(slots=True)
 class _RegionState:
     id: str
@@ -84,54 +144,29 @@ class AdaptiveDomainCoordinator:
         plan: AdaptiveDomainPlan,
         catalog: RunPointCatalog,
     ) -> AdaptiveDomainCoordinator:
-        coordinate_ids = catalog.coordinate_ids
-        adaptive_ids = plan.adaptive_coordinate_ids or coordinate_ids
-        unknown = sorted(set(adaptive_ids) - set(coordinate_ids))
-        if unknown:
-            raise ValueError(
-                "adaptive coordinates are not admitted axes: " + ", ".join(unknown)
-            )
-        outer_ids = tuple(
-            coordinate_id
-            for coordinate_id in coordinate_ids
-            if coordinate_id not in set(adaptive_ids)
-        )
-        grouped = _initial_regions(catalog, outer_ids)
-        if not grouped:
-            if outer_ids:
-                raise ValueError(
-                    "an adaptive plan with static outer axes requires seeded points"
-                )
-            grouped[_outer_fingerprint({})] = ({}, 0)
-        region_limit = plan.per_region_point_limit or plan.total_point_limit
-        regions: dict[str, _RegionState] = {}
-        region_ids: dict[str, str] = {}
-        for index, (fingerprint, (coordinates, point_count)) in enumerate(
-            grouped.items()
-        ):
-            if point_count > region_limit:
-                raise ValueError(
-                    "initial region points exceed the adaptive region point limit"
-                )
-            region_id = f"region-{index}.{fingerprint[:12]}"
-            regions[region_id] = _RegionState(
-                id=region_id,
-                coordinates=coordinates,
-                point_count=point_count,
+        layout = derive_adaptive_region_layout(plan, catalog)
+        regions = {
+            region.id: _RegionState(
+                id=region.id,
+                coordinates=dict(region.coordinates),
+                point_count=region.point_count,
                 completed_point_count=0,
                 revision=0,
-                point_limit=region_limit,
-                ledger=DomainProposalLedger(point_count),
+                point_limit=region.point_limit,
+                ledger=DomainProposalLedger(region.point_count),
             )
-            region_ids[fingerprint] = region_id
-        plan.validate_initial_point_count(len(catalog.points))
+            for region in layout.regions
+        }
         return cls(
             plan=plan,
-            coordinate_ids=coordinate_ids,
-            adaptive_coordinate_ids=adaptive_ids,
-            outer_coordinate_ids=outer_ids,
+            coordinate_ids=layout.coordinate_ids,
+            adaptive_coordinate_ids=layout.adaptive_coordinate_ids,
+            outer_coordinate_ids=layout.outer_coordinate_ids,
             _regions=regions,
-            _region_id_by_outer_fingerprint=region_ids,
+            _region_id_by_outer_fingerprint={
+                _outer_fingerprint(dict(region.coordinates)): region.id
+                for region in layout.regions
+            },
             _global_ledger=DomainProposalLedger(len(catalog.points)),
             _global_observations=[],
             accepted_point_count=len(catalog.points),
@@ -396,4 +431,9 @@ def _initial_regions(
     return grouped
 
 
-__all__ = ["AdaptiveDomainCoordinator", "BoundDomainProposal"]
+__all__ = [
+    "AdaptiveDomainCoordinator",
+    "AdaptiveRegionLayout",
+    "BoundDomainProposal",
+    "derive_adaptive_region_layout",
+]

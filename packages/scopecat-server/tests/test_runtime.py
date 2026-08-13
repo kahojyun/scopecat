@@ -2415,6 +2415,62 @@ def test_run_point_resolution_preserves_raw_input_and_makes_snap_explicit(
     assert queued.request.fragment == snap.fragment
 
 
+def test_selected_region_resolution_defers_to_executor_when_region_sample_is_truncated(
+    tmp_path: Path,
+) -> None:
+    submission = _submission("truncated-adaptive-regions").model_copy(
+        update={
+            "plan": RunPlanSummary(
+                experiment_id="scratch",
+                experiment_kind="scratch",
+                point_count=None,
+                initial_point_count=0,
+                point_limit=4,
+                adaptive_coordinate_ids=("frequency",),
+                adaptive_scope="per_region",
+                adaptive_region_count=300,
+                adaptive_regions=(
+                    AdaptiveRegionSpec(
+                        id="region-0",
+                        coordinates={},
+                        initial_point_count=0,
+                    ),
+                ),
+                adaptive_regions_truncated=True,
+                coordinates=(
+                    PointCoordinateSpec(
+                        id="frequency",
+                        kind="quantity",
+                        unit="GHz",
+                        sampled_values=(Quantity(5.0, "GHz"),),
+                    ),
+                ),
+                run_resource_requirements=(
+                    RunResourceRequirement(id="source-0", kind="instrument"),
+                ),
+            )
+        }
+    )
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(submission)
+        resolved = runtime.application.point_plans.resolve(
+            admission.run_id,
+            RunDomainResolveCommand(
+                coordinate_mode="free",
+                region_scope="selected",
+                region_ids=("region-299",),
+                fragment=RunDomainFragmentInput.from_fragment(
+                    ResolvedDomainFragment.points(
+                        ({"frequency": Quantity(5.1, "GHz")},)
+                    )
+                ),
+            ),
+        )
+
+    assert resolved.region_ids == ("region-299",)
+    assert resolved.region_count == 1
+
+
 def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
     submission = _submission("adaptive-ledger").model_copy(
         update={
