@@ -18,11 +18,15 @@ from scopecat.control.models import (
     ExecutorLease as ControlExecutorLease,
 )
 from scopecat.daemon.points import (
+    POINT_PLAN_INITIALIZE_OPERATION_ID,
     RunPointDecisionCommand,
     RunPointDecisionView,
+    RunPointEnqueueCommand,
     RunPointPlanCloseCommand,
     RunPointPlanInitializeCommand,
     RunPointPlanView,
+    RunPointQueueEntryView,
+    RunPointQueueView,
 )
 from scopecat.daemon.reviews import RunInspectionAppendCommand, RunInspectionView
 from scopecat.daemon.wire import (
@@ -235,6 +239,68 @@ class ExecutorService:
                 command,
                 completed_point_count=completed,
             )
+
+    def run_point_queue(self, run_id: str) -> RunPointQueueView:
+        self._control_run(run_id)
+        return SQLiteRunPointLedger(self._runs, run_id=run_id).queue()
+
+    def next_queued_run_point(self, run_id: str) -> RunPointQueueView:
+        self._control_run(run_id)
+        entry = SQLiteRunPointLedger(self._runs, run_id=run_id).next_pending()
+        return RunPointQueueView(
+            run_id=run_id,
+            items=() if entry is None else (entry,),
+        )
+
+    def enqueue_run_point(
+        self,
+        run_id: str,
+        command: RunPointEnqueueCommand,
+    ) -> RunPointQueueEntryView:
+        try:
+            with self._control.write_transaction() as connection:
+                run = self._control.get_run_in_transaction(connection, run_id)
+                if run.state != "leased":
+                    raise ControlPlaneConflict(
+                        "operator points can be queued only while a run is active"
+                    )
+                if set(command.candidate.coordinates) != set(
+                    run.admission.plan.coordinate_ids
+                ):
+                    raise ControlPlaneConflict(
+                        "queued point coordinates do not match the admitted axes"
+                    )
+                ledger = SQLiteRunPointLedger(
+                    self._runs,
+                    run_id=run_id,
+                )
+                if ledger.read_in_transaction(connection) is None:
+                    plan = run.admission.plan
+                    ledger.initialize_in_transaction(
+                        connection,
+                        operation_id=POINT_PLAN_INITIALIZE_OPERATION_ID,
+                        initial_point_count=plan.initial_point_count,
+                        point_limit=plan.point_limit,
+                        plan_closed=plan.point_count is not None,
+                    )
+                entry, created = ledger.enqueue_in_transaction(connection, command)
+                if created:
+                    self._control.append_event_in_transaction(
+                        connection,
+                        DurableEventInput(
+                            run_id=run_id,
+                            kind="point_candidate_queued",
+                            payload={
+                                "queue_index": entry.queue_index,
+                                "operation_id": entry.operation_id,
+                            },
+                        ),
+                    )
+                return entry
+        except ControlPlaneNotFound as error:
+            raise BackendNotFound(str(error)) from error
+        except (ControlPlaneConflict, ExecutionJournalConflict) as error:
+            raise BackendConflict(str(error)) from error
 
     def append_run_inspection(
         self,

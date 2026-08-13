@@ -31,8 +31,10 @@ from scopecat.control.models import (
     RunResourceRequirement,
 )
 from scopecat.daemon.points import (
+    POINT_PLAN_INITIALIZE_OPERATION_ID,
     RunPointCandidateView,
     RunPointDecisionCommand,
+    RunPointEnqueueCommand,
     RunPointPlanCloseCommand,
     RunPointPlanInitializeCommand,
 )
@@ -2203,6 +2205,7 @@ def test_open_point_plan_can_succeed_below_its_limit_and_exposes_coverage(
                 point_count=None,
                 initial_point_count=1,
                 point_limit=3,
+                coordinate_ids=("frequency",),
                 run_resource_requirements=(
                     RunResourceRequirement(id="source-0", kind="instrument"),
                 ),
@@ -2278,6 +2281,7 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
                 point_count=None,
                 initial_point_count=1,
                 point_limit=3,
+                coordinate_ids=("frequency",),
                 run_resource_requirements=(
                     RunResourceRequirement(id="source-0", kind="instrument"),
                 ),
@@ -2290,13 +2294,6 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
             admission.run_id,
             ExecutorStartRequest(executor_id="adaptive-ledger-test"),
         )
-        initialized = runtime.application.executor.initialize_run_point_plan(
-            admission.run_id,
-            RunPointPlanInitializeCommand(
-                lease_id=lease.lease_id,
-                operation_id="initialize",
-            ),
-        )
         runtime.application.executor.advance_run_coverage(
             admission.run_id,
             RunCoverageAdvanceCommand(
@@ -2305,9 +2302,31 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
                 point_count=1,
             ),
         )
-        candidate = PointCandidate(
+        queued_candidate = PointCandidate(
             {"frequency": Quantity(5.2, "GHz")},
-            source="optimizer",
+            source="operator",
+        )
+        queued = runtime.application.executor.enqueue_run_point(
+            admission.run_id,
+            RunPointEnqueueCommand(
+                operation_id="queue-1",
+                candidate=RunPointCandidateView(
+                    coordinates={"frequency": Quantity(5.2, "GHz")},
+                    proposal_fingerprint=queued_candidate.proposal_fingerprint,
+                    source="operator",
+                ),
+            ),
+        )
+        initialized = runtime.application.executor.initialize_run_point_plan(
+            admission.run_id,
+            RunPointPlanInitializeCommand(
+                lease_id=lease.lease_id,
+                operation_id=POINT_PLAN_INITIALIZE_OPERATION_ID,
+            ),
+        )
+        candidate = PointCandidate(
+            queued_candidate.coordinates,
+            source="operator",
             based_on_completed_point_count=1,
         )
         decision = runtime.application.executor.append_run_point_decision(
@@ -2315,10 +2334,11 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
             RunPointDecisionCommand(
                 lease_id=lease.lease_id,
                 operation_id="decision-1",
+                queue_operation_id=queued.operation_id,
                 candidate=RunPointCandidateView(
                     coordinates={"frequency": Quantity(5.2, "GHz")},
                     proposal_fingerprint=candidate.proposal_fingerprint,
-                    source="optimizer",
+                    source="operator",
                     based_on_completed_point_count=1,
                 ),
                 outcome="accepted",
@@ -2350,8 +2370,13 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
 
     with LocalDaemonRuntime(tmp_path) as restarted:
         restored = restarted.application.executor.run_point_plan(admission.run_id)
+        restored_queue = restarted.application.executor.run_point_queue(
+            admission.run_id
+        )
 
     assert restored == closed
+    assert restored_queue.items[0].status == "accepted"
+    assert restored_queue.items[0].accepted_point_index == 1
 
 
 def test_closed_point_plan_cannot_succeed_before_full_coverage(tmp_path: Path) -> None:

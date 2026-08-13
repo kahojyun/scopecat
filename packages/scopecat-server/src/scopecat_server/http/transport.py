@@ -24,9 +24,12 @@ from scopecat.daemon.endpoint import (
 from scopecat.daemon.points import (
     RunPointDecisionCommand,
     RunPointDecisionView,
+    RunPointEnqueueCommand,
     RunPointPlanCloseCommand,
     RunPointPlanInitializeCommand,
     RunPointPlanView,
+    RunPointQueueEntryView,
+    RunPointQueueView,
 )
 from scopecat.daemon.reviews import (
     ReviewCompileCommand,
@@ -761,6 +764,21 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         command: RunPointPlanCloseCommand,
     ) -> RunPointPlanView:
         return application.executor.close_run_point_plan(run_id, command)
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/queue")
+    def get_run_point_queue(run_id: str) -> RunPointQueueView:
+        return application.executor.run_point_queue(run_id)
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/queue/next")
+    def get_next_queued_run_point(run_id: str) -> RunPointQueueView:
+        return application.executor.next_queued_run_point(run_id)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/queue")
+    def enqueue_run_point(
+        run_id: str,
+        command: RunPointEnqueueCommand,
+    ) -> RunPointQueueEntryView:
+        return application.executor.enqueue_run_point(run_id, command)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/inspections")
     def get_run_inspections(run_id: str) -> RunInspectionView:

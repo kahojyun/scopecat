@@ -14,6 +14,7 @@ import pytest
 from scopecat.daemon.points import (
     RunPointCandidateView,
     RunPointDecisionCommand,
+    RunPointEnqueueCommand,
     RunPointPlanCloseCommand,
 )
 from scopecat.kernel.problems import (
@@ -224,6 +225,100 @@ def _point_decision_command(
         outcome=outcome,
         reason=reason,
     )
+
+
+def test_operator_point_queue_is_fifo_bounded_and_resolved_by_decisions(
+    tmp_path: Path,
+) -> None:
+    runs = _runs(tmp_path)
+    run_id = "operator-queue-run"
+    queued_candidate = PointCandidate(
+        {"frequency": Quantity(5.15, "GHz")},
+        source="operator",
+    )
+    enqueue = RunPointEnqueueCommand(
+        operation_id="queue-1",
+        candidate=RunPointCandidateView(
+            coordinates={"frequency": Quantity(5.15, "GHz")},
+            proposal_fingerprint=queued_candidate.proposal_fingerprint,
+            source="operator",
+        ),
+    )
+    second_enqueue = enqueue.model_copy(update={"operation_id": "queue-2"})
+    with _sqlite_transaction(runs) as connection:
+        connection.execute(
+            """
+            INSERT INTO scheduler_runs(
+                submission_id, run_id, state, updated_at, admission_json
+            )
+            VALUES (?, ?, 'leased', ?, '{}')
+            """,
+            ("operator-queue-submission", run_id, datetime.now(UTC).isoformat()),
+        )
+        ledger = SQLiteRunPointLedger(runs, run_id=run_id)
+        ledger.initialize_in_transaction(
+            connection,
+            operation_id="initialize",
+            initial_point_count=1,
+            point_limit=3,
+            plan_closed=False,
+        )
+        first, first_created = ledger.enqueue_in_transaction(connection, enqueue)
+        retry, retry_created = ledger.enqueue_in_transaction(connection, enqueue)
+        second, _ = ledger.enqueue_in_transaction(connection, second_enqueue)
+        with pytest.raises(ExecutionJournalConflict, match="remaining budget"):
+            ledger.enqueue_in_transaction(
+                connection,
+                enqueue.model_copy(update={"operation_id": "queue-3"}),
+            )
+
+    assert first == retry
+    assert first_created
+    assert not retry_created
+    assert ledger.next_pending() == first
+    normalized = PointCandidate(
+        queued_candidate.coordinates,
+        source="operator",
+        based_on_completed_point_count=1,
+    )
+    with _sqlite_transaction(runs) as connection:
+        decision = ledger.append_decision_in_transaction(
+            connection,
+            RunPointDecisionCommand(
+                lease_id="lease-1",
+                operation_id="decision-1",
+                queue_operation_id=first.operation_id,
+                candidate=RunPointCandidateView(
+                    coordinates={"frequency": Quantity(5.15, "GHz")},
+                    proposal_fingerprint=normalized.proposal_fingerprint,
+                    source="operator",
+                    based_on_completed_point_count=1,
+                ),
+                outcome="accepted",
+            ),
+            completed_point_count=1,
+        )
+        closed = ledger.close_in_transaction(
+            connection,
+            RunPointPlanCloseCommand(
+                lease_id="lease-1",
+                operation_id="close",
+                based_on_completed_point_count=2,
+                reason="operator sweep complete",
+            ),
+            completed_point_count=2,
+        )
+
+    queue = ledger.queue()
+    assert decision.accepted_point is not None
+    assert decision.accepted_point.point_index == 1
+    assert decision.queue_operation_id == first.operation_id
+    assert closed.plan_closed
+    assert queue.items[0].status == "accepted"
+    assert queue.items[0].accepted_point_index == 1
+    assert queue.items[1].operation_id == second.operation_id
+    assert queue.items[1].status == "cancelled"
+    assert queue.items[1].reason == "point plan closed: operator sweep complete"
 
 
 def _header(

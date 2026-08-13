@@ -8,6 +8,7 @@ from typing import Protocol
 
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.execution.program import RunPointInspection
+from scopecat.measurements.points import PointCandidate
 from scopecat.optimization import PointProposalDecision
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import TerminalRunCommit
@@ -31,15 +32,25 @@ class RunCoverageWriter(Protocol):
     def flush(self) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class QueuedRunPointCandidate:
+    operation_id: str
+    candidate: PointCandidate
+
+
 class RunPointProposalWriter(Protocol):
     """Commit point-plan facts and publish bounded live inspections."""
 
     def initialize(self) -> None: ...
 
+    def next_queued(self) -> QueuedRunPointCandidate | None: ...
+
     def append(
         self,
         decision: PointProposalDecision,
         inspection: RunPointInspection | None,
+        *,
+        queue_operation_id: str | None = None,
     ) -> None: ...
 
     def close(self, *, completed_point_count: int, reason: str) -> None: ...

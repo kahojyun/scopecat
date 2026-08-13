@@ -12,6 +12,7 @@ from pydantic import BaseModel, JsonValue, TypeAdapter
 
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.points import (
+    POINT_PLAN_INITIALIZE_OPERATION_ID,
     RunPointCandidateView,
     RunPointCoordinateValue,
     RunPointDecisionCommand,
@@ -45,9 +46,10 @@ from scopecat.daemon.wire import (
     TerminalRunCommitCommand,
 )
 from scopecat.execution.program import RunPointInspection
-from scopecat.execution.services import ExecutionSession
+from scopecat.execution.services import ExecutionSession, QueuedRunPointCandidate
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.problems import Problem
+from scopecat.kernel.value_data import CellValue
 from scopecat.measurements.points import AcceptedRunPoint, PointCandidate
 from scopecat.optimization import PointProposalDecision
 from scopecat.records.config import config_content_hash
@@ -79,7 +81,6 @@ _MEASUREMENT_TRANSPORT_VALUE_BYTE_LIMIT = 8 * 1024 * 1024
 _MEASUREMENT_TRANSPORT_LATENCY_SECONDS = 0.1
 _COVERAGE_TRANSPORT_POINT_LIMIT = 256
 _COVERAGE_TRANSPORT_LATENCY_SECONDS = 0.1
-_POINT_PLAN_INITIALIZE_OPERATION_ID = "point-plan.initialize.v1"
 
 
 class ExecutorLeaseLostError(RuntimeError):
@@ -323,7 +324,32 @@ class _DaemonRunPointProposals:
             self._authority.run_id,
             RunPointPlanInitializeCommand(
                 lease_id=self._authority.fence(),
-                operation_id=_POINT_PLAN_INITIALIZE_OPERATION_ID,
+                operation_id=POINT_PLAN_INITIALIZE_OPERATION_ID,
+            ),
+        )
+
+    def next_queued(self) -> QueuedRunPointCandidate | None:
+        pending = next(
+            (
+                entry
+                for entry in self._authority.client.get_next_queued_run_point(
+                    self._authority.run_id
+                ).items
+                if entry.status == "pending"
+            ),
+            None,
+        )
+        if pending is None:
+            return None
+        candidate = pending.candidate
+        return QueuedRunPointCandidate(
+            operation_id=pending.operation_id,
+            candidate=PointCandidate(
+                coordinates=cast("dict[str, CellValue]", candidate.coordinates),
+                source=candidate.source,
+                based_on_completed_point_count=(
+                    candidate.based_on_completed_point_count
+                ),
             ),
         )
 
@@ -331,12 +357,18 @@ class _DaemonRunPointProposals:
         self,
         decision: PointProposalDecision,
         inspection: RunPointInspection | None,
+        *,
+        queue_operation_id: str | None = None,
     ) -> None:
         durable = self._authority.client.append_run_point_decision(
             self._authority.run_id,
             RunPointDecisionCommand(
                 lease_id=self._authority.fence(),
-                operation_id=_point_decision_operation_id(decision),
+                operation_id=_point_decision_operation_id(
+                    decision,
+                    queue_operation_id=queue_operation_id,
+                ),
+                queue_operation_id=queue_operation_id,
                 candidate=_point_candidate(decision.candidate),
                 outcome=decision.outcome,
                 reason=decision.reason,
@@ -599,13 +631,18 @@ def _point_candidate(candidate: PointCandidate) -> RunPointCandidateView:
     )
 
 
-def _point_decision_operation_id(decision: PointProposalDecision) -> str:
+def _point_decision_operation_id(
+    decision: PointProposalDecision,
+    *,
+    queue_operation_id: str | None,
+) -> str:
     return "point-decision." + stable_content_hash(
         content_fingerprint(
             {
                 "schema": "scopecat.point_decision_operation.v1",
                 "proposal_index": decision.proposal_index,
                 "proposal_fingerprint": decision.candidate.proposal_fingerprint,
+                "queue_operation_id": queue_operation_id,
                 "outcome": decision.outcome,
                 "reason": decision.reason,
             }

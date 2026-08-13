@@ -635,11 +635,20 @@ def _execution_coverage(
     while len(state.points) < adaptive.max_points:
         if len(ledger.entries) >= adaptive.proposal_limit:
             raise RuntimeError("optimizer exceeded the adaptive proposal limit")
-        proposal = adaptive.optimizer.propose(
-            PointOptimizerContext(
-                observations=tuple(state.observations),
-                ledger=ledger,
-                point_limit=adaptive.max_points,
+        queued = (
+            None
+            if state.proposal_writer is None
+            else state.proposal_writer.next_queued()
+        )
+        proposal = (
+            queued.candidate
+            if queued is not None
+            else adaptive.optimizer.propose(
+                PointOptimizerContext(
+                    observations=tuple(state.observations),
+                    ledger=ledger,
+                    point_limit=adaptive.max_points,
+                )
             )
         )
         if isinstance(proposal, OptimizationComplete):
@@ -660,7 +669,13 @@ def _execution_coverage(
             ledger = ledger.reject(proposal, reason=rejection)
             state.ledger = ledger
             if state.proposal_writer is not None:
-                state.proposal_writer.append(ledger.entries[-1], None)
+                state.proposal_writer.append(
+                    ledger.entries[-1],
+                    None,
+                    queue_operation_id=(
+                        None if queued is None else queued.operation_id
+                    ),
+                )
             continue
         try:
             accepted = program.coverage.accept(proposal)
@@ -668,14 +683,24 @@ def _execution_coverage(
             ledger = ledger.reject(proposal, reason=str(error))
             state.ledger = ledger
             if state.proposal_writer is not None:
-                state.proposal_writer.append(ledger.entries[-1], None)
+                state.proposal_writer.append(
+                    ledger.entries[-1],
+                    None,
+                    queue_operation_id=(
+                        None if queued is None else queued.operation_id
+                    ),
+                )
             continue
         state.points.append(accepted.point)
         state.inspections.append(accepted.inspection)
         ledger = ledger.accept(proposal, accepted.point)
         state.ledger = ledger
         if state.proposal_writer is not None:
-            state.proposal_writer.append(ledger.entries[-1], accepted.inspection)
+            state.proposal_writer.append(
+                ledger.entries[-1],
+                accepted.inspection,
+                queue_operation_id=(None if queued is None else queued.operation_id),
+            )
         yield from accepted.operations
         durable_progress()
     else:

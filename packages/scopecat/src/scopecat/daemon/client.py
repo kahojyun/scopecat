@@ -20,9 +20,12 @@ from scopecat.control.models import (
 from scopecat.daemon.points import (
     RunPointDecisionCommand,
     RunPointDecisionView,
+    RunPointEnqueueCommand,
     RunPointPlanCloseCommand,
     RunPointPlanInitializeCommand,
     RunPointPlanView,
+    RunPointQueueEntryView,
+    RunPointQueueView,
 )
 from scopecat.daemon.reviews import (
     ReviewCompileCommand,
@@ -868,6 +871,29 @@ class DaemonClient:
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/close",
             command,
             RunPointPlanView,
+        )
+
+    def get_run_point_queue(self, run_id: str) -> RunPointQueueView:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/queue",
+            RunPointQueueView,
+        )
+
+    def get_next_queued_run_point(self, run_id: str) -> RunPointQueueView:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/queue/next",
+            RunPointQueueView,
+        )
+
+    def enqueue_run_point(
+        self,
+        run_id: str,
+        command: RunPointEnqueueCommand,
+    ) -> RunPointQueueEntryView:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/queue",
+            command,
+            RunPointQueueEntryView,
         )
 
     def get_run_inspections(self, run_id: str) -> RunInspectionView:

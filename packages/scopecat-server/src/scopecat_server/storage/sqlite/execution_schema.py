@@ -34,6 +34,21 @@ CREATE TABLE IF NOT EXISTS execution_point_decisions (
     UNIQUE (run_id, operation_id)
 );
 
+CREATE TABLE IF NOT EXISTS execution_point_queue (
+    run_id TEXT NOT NULL REFERENCES execution_point_plans(run_id) ON DELETE CASCADE,
+    queue_index INTEGER NOT NULL CHECK (queue_index >= 0),
+    operation_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (
+        status IN ('pending', 'accepted', 'rejected', 'cancelled')
+    ),
+    decision_operation_id TEXT,
+    entry_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, queue_index),
+    UNIQUE (run_id, operation_id),
+    FOREIGN KEY (run_id, decision_operation_id)
+        REFERENCES execution_point_decisions(run_id, operation_id)
+);
+
 CREATE TABLE IF NOT EXISTS execution_run_points (
     run_id TEXT NOT NULL REFERENCES execution_point_plans(run_id) ON DELETE CASCADE,
     point_index INTEGER NOT NULL CHECK (point_index >= 0),

@@ -17,8 +17,11 @@ from scopecat.daemon.points import (
     AcceptedRunPointView,
     RunPointDecisionCommand,
     RunPointDecisionView,
+    RunPointEnqueueCommand,
     RunPointPlanCloseCommand,
     RunPointPlanView,
+    RunPointQueueEntryView,
+    RunPointQueueView,
 )
 from scopecat.records.execution_journal import (
     ExecutionTransition,
@@ -154,6 +157,127 @@ class SQLiteRunPointLedger:
             ),
         )
 
+    def queue(self) -> RunPointQueueView:
+        with self._runs.sqlite.read_transaction() as connection:
+            return self.queue_in_transaction(connection)
+
+    def queue_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+    ) -> RunPointQueueView:
+        rows = _all(
+            connection.execute(
+                """
+                SELECT entry_json
+                FROM execution_point_queue
+                WHERE run_id = ?
+                ORDER BY queue_index
+                """,
+                (self._run_id,),
+            )
+        )
+        return RunPointQueueView(
+            run_id=self._run_id,
+            items=tuple(
+                RunPointQueueEntryView.model_validate_json(_text(row, "entry_json"))
+                for row in rows
+            ),
+        )
+
+    def next_pending(self) -> RunPointQueueEntryView | None:
+        with self._runs.sqlite.read_transaction() as connection:
+            row = _one(
+                connection.execute(
+                    """
+                    SELECT entry_json
+                    FROM execution_point_queue
+                    WHERE run_id = ? AND status = 'pending'
+                    ORDER BY queue_index
+                    LIMIT 1
+                    """,
+                    (self._run_id,),
+                )
+            )
+        return (
+            None
+            if row is None
+            else RunPointQueueEntryView.model_validate_json(_text(row, "entry_json"))
+        )
+
+    def enqueue_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        command: RunPointEnqueueCommand,
+    ) -> tuple[RunPointQueueEntryView, bool]:
+        existing = _one(
+            connection.execute(
+                """
+                SELECT entry_json
+                FROM execution_point_queue
+                WHERE run_id = ? AND operation_id = ?
+                """,
+                (self._run_id, command.operation_id),
+            )
+        )
+        if existing is not None:
+            entry = RunPointQueueEntryView.model_validate_json(
+                _text(existing, "entry_json")
+            )
+            if entry.candidate != command.candidate:
+                raise ExecutionJournalConflict(
+                    "point queue operation conflicts with durable state"
+                )
+            return entry, False
+        plan = self.read_in_transaction(connection)
+        if plan is None:
+            raise ExecutionJournalConflict("point plan is not initialized")
+        if plan.plan_closed:
+            raise ExecutionJournalConflict("point plan is already closed")
+        pending_count = _scalar_int(
+            connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM execution_point_queue
+                WHERE run_id = ? AND status = 'pending'
+                """,
+                (self._run_id,),
+            )
+        )
+        if pending_count >= plan.point_limit - plan.accepted_point_count:
+            raise ExecutionJournalConflict("point queue exceeds the remaining budget")
+        queue_index = _scalar_int(
+            connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM execution_point_queue
+                WHERE run_id = ?
+                """,
+                (self._run_id,),
+            )
+        )
+        entry = RunPointQueueEntryView(
+            queue_index=queue_index,
+            operation_id=command.operation_id,
+            occurred_at=datetime.now(UTC),
+            candidate=command.candidate,
+            status="pending",
+        )
+        connection.execute(
+            """
+            INSERT INTO execution_point_queue(
+                run_id, queue_index, operation_id, status, entry_json
+            )
+            VALUES (?, ?, ?, 'pending', ?)
+            """,
+            (
+                self._run_id,
+                entry.queue_index,
+                entry.operation_id,
+                entry.model_dump_json(),
+            ),
+        )
+        return entry, True
+
     def initialize_in_transaction(
         self,
         connection: sqlite3.Connection,
@@ -238,6 +362,7 @@ class SQLiteRunPointLedger:
                 decision.candidate != command.candidate
                 or decision.outcome != command.outcome
                 or decision.reason != command.reason
+                or decision.queue_operation_id != command.queue_operation_id
             ):
                 raise ExecutionJournalConflict(
                     "point decision operation conflicts with durable state"
@@ -248,6 +373,10 @@ class SQLiteRunPointLedger:
             raise ExecutionJournalConflict("point plan is not initialized")
         if plan.plan_closed:
             raise ExecutionJournalConflict("point plan is already closed")
+        queued_entry = self._queued_entry_for_decision_in_transaction(
+            connection,
+            command,
+        )
         based_on = command.candidate.based_on_completed_point_count
         if (
             command.outcome == "accepted"
@@ -271,6 +400,7 @@ class SQLiteRunPointLedger:
             )
         decision = RunPointDecisionView(
             operation_id=command.operation_id,
+            queue_operation_id=command.queue_operation_id,
             proposal_index=plan.decision_count,
             occurred_at=datetime.now(UTC),
             candidate=command.candidate,
@@ -315,7 +445,83 @@ class SQLiteRunPointLedger:
                 """,
                 (self._run_id,),
             )
+        if queued_entry is not None:
+            self._resolve_queue_entry_in_transaction(
+                connection,
+                queued_entry,
+                decision,
+            )
         return decision
+
+    def _queued_entry_for_decision_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        command: RunPointDecisionCommand,
+    ) -> RunPointQueueEntryView | None:
+        if command.queue_operation_id is None:
+            return None
+        row = _one(
+            connection.execute(
+                """
+                SELECT entry_json
+                FROM execution_point_queue
+                WHERE run_id = ? AND operation_id = ?
+                """,
+                (self._run_id, command.queue_operation_id),
+            )
+        )
+        if row is None:
+            raise ExecutionJournalConflict("queued point candidate does not exist")
+        entry = RunPointQueueEntryView.model_validate_json(_text(row, "entry_json"))
+        if entry.status != "pending":
+            raise ExecutionJournalConflict("queued point candidate is already resolved")
+        queued = entry.candidate
+        decided = command.candidate
+        if (
+            queued.coordinates != decided.coordinates
+            or queued.source != decided.source
+            or (
+                queued.based_on_completed_point_count is not None
+                and queued.based_on_completed_point_count
+                != decided.based_on_completed_point_count
+            )
+        ):
+            raise ExecutionJournalConflict(
+                "point decision does not match its queued candidate"
+            )
+        return entry
+
+    def _resolve_queue_entry_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        entry: RunPointQueueEntryView,
+        decision: RunPointDecisionView,
+    ) -> None:
+        accepted = decision.accepted_point
+        resolved = RunPointQueueEntryView(
+            queue_index=entry.queue_index,
+            operation_id=entry.operation_id,
+            occurred_at=entry.occurred_at,
+            candidate=entry.candidate,
+            status=decision.outcome,
+            decision_operation_id=decision.operation_id,
+            accepted_point_index=(None if accepted is None else accepted.point_index),
+            reason=decision.reason,
+        )
+        connection.execute(
+            """
+            UPDATE execution_point_queue
+            SET status = ?, decision_operation_id = ?, entry_json = ?
+            WHERE run_id = ? AND operation_id = ?
+            """,
+            (
+                resolved.status,
+                resolved.decision_operation_id,
+                resolved.model_dump_json(),
+                self._run_id,
+                resolved.operation_id,
+            ),
+        )
 
     def close_in_transaction(
         self,
@@ -364,6 +570,32 @@ class SQLiteRunPointLedger:
             """,
             (command.operation_id, command.reason, self._run_id),
         )
+        pending = tuple(
+            entry
+            for entry in self.queue_in_transaction(connection).items
+            if entry.status == "pending"
+        )
+        for entry in pending:
+            cancelled = RunPointQueueEntryView(
+                queue_index=entry.queue_index,
+                operation_id=entry.operation_id,
+                occurred_at=entry.occurred_at,
+                candidate=entry.candidate,
+                status="cancelled",
+                reason=f"point plan closed: {command.reason}",
+            )
+            connection.execute(
+                """
+                UPDATE execution_point_queue
+                SET status = 'cancelled', entry_json = ?
+                WHERE run_id = ? AND operation_id = ?
+                """,
+                (
+                    cancelled.model_dump_json(),
+                    self._run_id,
+                    cancelled.operation_id,
+                ),
+            )
         view = self.read_in_transaction(connection)
         assert view is not None
         return view
@@ -1255,6 +1487,12 @@ def _publish_ref(
 
 def _one(cursor: sqlite3.Cursor) -> sqlite3.Row | None:
     return cast("sqlite3.Row | None", cursor.fetchone())
+
+
+def _scalar_int(cursor: sqlite3.Cursor) -> int:
+    row = _one(cursor)
+    assert row is not None
+    return cast("int", row[0])
 
 
 def _all(cursor: sqlite3.Cursor) -> list[sqlite3.Row]:

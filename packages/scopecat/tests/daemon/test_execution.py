@@ -20,6 +20,7 @@ from scopecat.daemon.points import (
     RunPointPlanCloseCommand,
     RunPointPlanInitializeCommand,
     RunPointPlanView,
+    RunPointQueueView,
 )
 from scopecat.daemon.reviews import (
     RunInspectionAppendCommand,
@@ -179,6 +180,8 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                     plan_closed=False,
                 )
             )
+        if path.endswith("/point-plan/queue/next") and request.method == "GET":
+            return _model(RunPointQueueView(run_id="run-1"))
         if path.endswith("/point-plan/decisions"):
             command = RunPointDecisionCommand.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
@@ -311,6 +314,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
         InstrumentStateSnapshot(instrument_id="source-0"),
     )
     point_proposals.initialize()
+    assert point_proposals.next_queued() is None
 
     batch = RunHardwareBatch(
         operation_id="hardware.batch-1",

@@ -14,6 +14,8 @@ from scopecat.measurements.points import PointCandidate, PointCandidateSource
 
 type RunPointCoordinateValue = bool | int | float | str | Quantity | EntityRef | None
 
+POINT_PLAN_INITIALIZE_OPERATION_ID = "point-plan.initialize.v1"
+
 
 class _PointModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -52,6 +54,7 @@ class RunPointDecisionView(_PointModel):
     """One durable ordered decision about a point candidate."""
 
     operation_id: str = Field(min_length=1)
+    queue_operation_id: str | None = Field(default=None, min_length=1)
     proposal_index: int = Field(ge=0)
     occurred_at: datetime
     candidate: RunPointCandidateView
@@ -108,6 +111,7 @@ class RunPointPlanInitializeCommand(_PointModel):
 class RunPointDecisionCommand(_PointModel):
     lease_id: str = Field(min_length=1)
     operation_id: str = Field(min_length=1)
+    queue_operation_id: str | None = Field(default=None, min_length=1)
     candidate: RunPointCandidateView
     outcome: Literal["accepted", "rejected"]
     reason: str | None = None
@@ -121,6 +125,64 @@ class RunPointDecisionCommand(_PointModel):
         return self
 
 
+class RunPointEnqueueCommand(_PointModel):
+    operation_id: str = Field(min_length=1)
+    candidate: RunPointCandidateView
+
+    @model_validator(mode="after")
+    def validate_source(self) -> RunPointEnqueueCommand:
+        if self.candidate.source != "operator":
+            raise ValueError("queued point candidate must have operator source")
+        return self
+
+
+class RunPointQueueEntryView(_PointModel):
+    queue_index: int = Field(ge=0)
+    operation_id: str = Field(min_length=1)
+    occurred_at: datetime
+    candidate: RunPointCandidateView
+    status: Literal["pending", "accepted", "rejected", "cancelled"]
+    decision_operation_id: str | None = Field(default=None, min_length=1)
+    accepted_point_index: int | None = Field(default=None, ge=0)
+    reason: str | None = None
+
+    @model_validator(mode="after")
+    def validate_status(self) -> RunPointQueueEntryView:
+        if self.status == "pending":
+            if (
+                self.decision_operation_id is not None
+                or self.accepted_point_index is not None
+                or self.reason is not None
+            ):
+                raise ValueError("pending queue entry cannot have a resolution")
+        elif self.status == "accepted":
+            if (
+                self.decision_operation_id is None
+                or self.accepted_point_index is None
+                or self.reason is not None
+            ):
+                raise ValueError("accepted queue entry requires its accepted decision")
+        elif self.status == "rejected":
+            if (
+                self.decision_operation_id is None
+                or self.accepted_point_index is not None
+                or not self.reason
+            ):
+                raise ValueError("rejected queue entry requires its rejected decision")
+        elif (
+            self.decision_operation_id is not None
+            or self.accepted_point_index is not None
+            or not self.reason
+        ):
+            raise ValueError("cancelled queue entry requires only a reason")
+        return self
+
+
+class RunPointQueueView(_PointModel):
+    run_id: str = Field(min_length=1)
+    items: tuple[RunPointQueueEntryView, ...] = ()
+
+
 class RunPointPlanCloseCommand(_PointModel):
     lease_id: str = Field(min_length=1)
     operation_id: str = Field(min_length=1)
@@ -129,12 +191,16 @@ class RunPointPlanCloseCommand(_PointModel):
 
 
 __all__ = [
+    "POINT_PLAN_INITIALIZE_OPERATION_ID",
     "AcceptedRunPointView",
     "RunPointCandidateView",
     "RunPointCoordinateValue",
     "RunPointDecisionCommand",
     "RunPointDecisionView",
+    "RunPointEnqueueCommand",
     "RunPointPlanCloseCommand",
     "RunPointPlanInitializeCommand",
     "RunPointPlanView",
+    "RunPointQueueEntryView",
+    "RunPointQueueView",
 ]

@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from scopecat.execution.program import RunPointInspection
+from scopecat.execution.services import QueuedRunPointCandidate
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.points import PointCandidate
-from scopecat.optimization import OptimizationComplete, PointOptimizerContext
+from scopecat.optimization import (
+    OptimizationComplete,
+    PointOptimizerContext,
+    PointProposalDecision,
+)
 from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementScalar
@@ -93,6 +100,47 @@ class _TwoPointOptimizer:
             source="optimizer",
             based_on_completed_point_count=context.completed_point_count,
         )
+
+
+class _StopOptimizer:
+    id = "tests.stop-optimizer"
+
+    def propose(
+        self,
+        context: PointOptimizerContext,
+    ) -> OptimizationComplete:
+        del context
+        return OptimizationComplete("operator point completed")
+
+
+@dataclass
+class _OperatorQueuePort:
+    queued: QueuedRunPointCandidate | None
+    decisions: list[PointProposalDecision]
+    closed_reason: str | None = None
+
+    def initialize(self) -> None:
+        pass
+
+    def next_queued(self) -> QueuedRunPointCandidate | None:
+        queued = self.queued
+        self.queued = None
+        return queued
+
+    def append(
+        self,
+        decision: PointProposalDecision,
+        inspection: RunPointInspection | None,
+        *,
+        queue_operation_id: str | None = None,
+    ) -> None:
+        del inspection
+        assert queue_operation_id == "operator-queue-1"
+        self.decisions.append(decision)
+
+    def close(self, *, completed_point_count: int, reason: str) -> None:
+        assert completed_point_count == 4
+        self.closed_reason = reason
 
 
 def test_state_evidence_requires_matching_observed_and_baseline_order() -> None:
@@ -199,4 +247,49 @@ def test_adaptive_execution_observes_and_runs_optimizer_points_in_one_session(
     )
     assert dataset.records[-1].coordinates["drive_frequency"] == (
         MeasurementScalar.create(dtype="float64", value=5.3, unit="GHz")
+    )
+
+
+def test_adaptive_execution_compiles_queued_operator_point_before_optimizer(
+    tmp_path: Path,
+) -> None:
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
+    queue = _OperatorQueuePort(
+        queued=QueuedRunPointCandidate(
+            operation_id="operator-queue-1",
+            candidate=PointCandidate(
+                {"drive_frequency": Quantity(5.17, "GHz")},
+                source="operator",
+            ),
+        ),
+        decisions=[],
+    )
+
+    manifest = execute_invocation_run(
+        config=config,
+        experiment=load_invocation().adaptive(_StopOptimizer(), max_points=5),
+        system=composition.system,
+        instrument_backend=composition.backend,
+        project_root=tmp_path,
+        point_proposals=queue,
+    )
+    dataset = read_run_measurement_dataset(
+        run_id=manifest.run_id,
+        services=sqlite_project_services(tmp_path),
+    ).dataset
+
+    assert manifest.status == "completed"
+    assert len(queue.decisions) == 1
+    assert queue.decisions[0].candidate.source == "operator"
+    assert queue.decisions[0].candidate.based_on_completed_point_count == 3
+    assert queue.decisions[0].accepted_point is not None
+    assert queue.decisions[0].accepted_point.ordinal == 3
+    assert queue.closed_reason == "operator point completed"
+    assert len(dataset.records) == 4
+    assert dataset.records[-1].coordinates["drive_frequency"] == (
+        MeasurementScalar.create(dtype="float64", value=5.17, unit="GHz")
     )
