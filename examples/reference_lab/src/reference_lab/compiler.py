@@ -270,7 +270,7 @@ class QuantumLabCompiler:
                 artifact.target_artifact,
                 max_list_entries=self._target.max_list_entries,
             ),
-            inspection=inspect_list_mode_artifact(artifact.target_artifact).payload(),
+            inspection=inspect_list_mode_artifact(artifact.target_artifact),
             mapping=mapping,
             invocation=invocation,
             runtime=runtime,

@@ -40,6 +40,7 @@ from reference_lab.targets.list_mode import (
     ListModeDomainRuntime,
     MappedListModeTarget,
     configured_list_mode_target,
+    point_realization_fingerprint,
 )
 from reference_lab.virtual_lab.execution import virtual_quantum_runtime
 from reference_lab.workflows.drag_beta_calibration import drag_beta_program
@@ -303,11 +304,10 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
     assert preview.selected_point.point_index == 14
     [inspection] = preview.domain_inspections
     assert inspection.point_index == 14
-    assert inspection.content["schema"] == (
-        "reference_lab.list_mode_artifact_inspection.v1"
-    )
-    [entry] = cast("list[dict[str, object]]", inspection.content["entries"])
-    assert cast("str", entry["entry_id"]).endswith(".point-14")
+    assert inspection.content.schema_id == ("scopecat.compiled_artifact_inspection.v1")
+    assert inspection.content.kind == "reference_lab.list_mode.v1"
+    [entry] = inspection.content.points
+    assert entry.target_entry_id.endswith(".point-14")
 
     selected_again = lab.prepare(invocation).preview(
         coordinates=preview.selected_point.coordinates
@@ -329,8 +329,8 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
     }
     [free_inspection] = free.domain_inspections
     assert free_inspection.point_index is None
-    [free_entry] = cast("list[dict[str, object]]", free_inspection.content["entries"])
-    assert cast("str", free_entry["entry_id"]).endswith(".point-0")
+    [free_entry] = free_inspection.content.points
+    assert free_entry.target_entry_id.endswith(".point-0")
 
     bound = bind_program(
         compile_invocation(invocation).program,
@@ -350,14 +350,17 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
         item for item in actual.entries if item.entry_id.value.endswith("point-14")
     )
     preview_hashes = {
-        waveform["channel_id"]: waveform["samples_sha256"]
-        for waveform in cast("list[dict[str, str]]", entry["waveforms"])
+        waveform.channel_id: waveform.samples_sha256 for waveform in entry.waveforms
     }
     actual_hashes = {
         waveform.channel_id.value: waveform.samples_sha256
         for waveform in actual_entry.waveforms
     }
     assert preview_hashes == actual_hashes
+    assert entry.realization_fingerprint == point_realization_fingerprint(
+        actual,
+        actual_entry,
+    )
 
 
 def test_target_and_device_dsp_follow_the_same_integrated_iq_semantics(

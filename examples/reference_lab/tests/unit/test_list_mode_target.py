@@ -685,13 +685,15 @@ def test_list_mode_artifact_inspection_is_bounded_and_preserves_peaks() -> None:
             max_samples_per_waveform=10,
         ),
     )
-    [entry] = inspection.entries
+    [entry] = inspection.points
     [preview] = entry.waveforms
     source = artifact.entries[0].waveforms[0].samples
 
-    assert inspection.entry_count == 2
-    assert inspection.entries_truncated
-    assert inspection.max_abs_boundary_error_seconds == Decimal("4E-10")
+    assert inspection.schema_id == "scopecat.compiled_artifact_inspection.v1"
+    assert inspection.kind == "reference_lab.list_mode.v1"
+    assert inspection.point_count == 2
+    assert inspection.points_truncated
+    assert inspection.fact("max_abs_boundary_error_seconds").value == "4E-10"
     assert entry.waveform_count == 2
     assert entry.waveforms_truncated
     assert preview.source_sample_count == 100
@@ -699,11 +701,17 @@ def test_list_mode_artifact_inspection_is_bounded_and_preserves_peaks() -> None:
     assert preview.sample_indices == tuple(sorted(preview.sample_indices))
     assert preview.peak_abs == float(cast("np.float64", np.max(np.abs(source))))
     assert preview.peak_abs == max(abs(sample) for sample in preview.samples)
-    assert inspection.payload()["preview_bounds"] == {
-        "max_entries": 1,
-        "max_channels_per_entry": 1,
-        "max_samples_per_waveform": 10,
-    }
+    assert inspection.bounds.max_points == 1
+    assert inspection.bounds.max_waveforms_per_point == 1
+    assert inspection.bounds.max_samples_per_waveform == 10
+
+    complete = inspect_list_mode_artifact(
+        artifact,
+        bounds=ArtifactInspectionBounds(max_entries=2),
+    )
+    assert complete.points[0].realization_fingerprint == (
+        complete.points[1].realization_fingerprint
+    )
 
 
 def test_list_mode_applies_shift_phase_before_playback() -> None:

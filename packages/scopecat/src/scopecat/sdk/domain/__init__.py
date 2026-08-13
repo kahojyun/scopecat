@@ -17,6 +17,13 @@ if TYPE_CHECKING:
         DomainStateRequirement,
         PreparedDomainExecution,
     )
+    from scopecat.sdk.domain.inspection import (
+        CompiledArtifactInspection,
+        CompiledInspectionBounds,
+        CompiledInspectionFact,
+        CompiledPointInspection,
+        CompiledWaveformInspection,
+    )
     from scopecat.sdk.domain.job import (
         DomainInvocationSpec,
         DomainResultValue,
@@ -60,6 +67,13 @@ _JOB_EXPORTS = (
     "DomainInvocationSpec",
     "DomainResultValue",
 )
+_INSPECTION_EXPORTS = (
+    "CompiledArtifactInspection",
+    "CompiledInspectionBounds",
+    "CompiledInspectionFact",
+    "CompiledPointInspection",
+    "CompiledWaveformInspection",
+)
 _RESULT_MAPPING_EXPORTS = (
     "DomainMappedResult",
     "DomainResultBinding",
@@ -88,6 +102,7 @@ _EXPORTS = {
     **{name: ("scopecat.sdk.domain.batch", name) for name in _BATCH_EXPORTS},
     **{name: ("scopecat.sdk.domain.execution", name) for name in _EXECUTION_EXPORTS},
     **{name: ("scopecat.sdk.domain.job", name) for name in _JOB_EXPORTS},
+    **{name: ("scopecat.sdk.domain.inspection", name) for name in _INSPECTION_EXPORTS},
     **{
         name: ("scopecat.sdk.domain.result_mapping", name)
         for name in _RESULT_MAPPING_EXPORTS
@@ -117,6 +132,11 @@ def __dir__() -> list[str]:
 
 
 __all__ = [
+    "CompiledArtifactInspection",
+    "CompiledInspectionBounds",
+    "CompiledInspectionFact",
+    "CompiledPointInspection",
+    "CompiledWaveformInspection",
     "DomainBatchInputs",
     "DomainBatchRequest",
     "DomainCallView",

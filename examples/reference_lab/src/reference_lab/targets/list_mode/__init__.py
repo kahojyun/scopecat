@@ -21,10 +21,8 @@ from reference_lab.targets.list_mode.execution_model import (
 )
 from reference_lab.targets.list_mode.inspection import (
     ArtifactInspectionBounds,
-    EntryInspection,
-    ListModeArtifactInspection,
-    WaveformPreview,
     inspect_list_mode_artifact,
+    point_realization_fingerprint,
 )
 from reference_lab.targets.list_mode.model import (
     ListModeArtifact,
@@ -34,20 +32,18 @@ from reference_lab.targets.list_mode.model import (
 __all__ = [
     "AcquisitionResponse",
     "ArtifactInspectionBounds",
-    "EntryInspection",
     "ListModeArtifact",
-    "ListModeArtifactInspection",
     "ListModeDomainRuntime",
     "ListModeRun",
     "ListModeTarget",
     "ListModeTargetCompiler",
     "MappedListModeTarget",
-    "WaveformPreview",
     "configured_list_mode_target",
     "inspect_list_mode_artifact",
     "list_mode_measurement_invocation_spec",
     "list_mode_realtime_write_footprint",
     "list_mode_setup_state_invalidations",
     "list_mode_state_requirements",
+    "point_realization_fingerprint",
     "realize_executed_measurements",
 ]

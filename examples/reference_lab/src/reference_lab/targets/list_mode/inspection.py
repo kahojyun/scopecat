@@ -4,17 +4,27 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Literal, cast
+from typing import cast
 
 import numpy as np
 from numpy.typing import NDArray
-from scopecat.kernel.json_types import JsonValue
-from scopecat_quantum.waveforms import TimingQuantizationMode
+from scopecat.sdk.domain import (
+    CompiledArtifactInspection,
+    CompiledInspectionBounds,
+    CompiledInspectionFact,
+    CompiledPointInspection,
+    CompiledWaveformInspection,
+)
 
 from reference_lab.targets.list_mode.model import (
     AwgChannelWaveform,
     ListModeArtifact,
     ListModeEntry,
+    acquisition_slot_identity_payload,
+    awg_waveform_identity_payload,
+    canonical_fingerprint,
+    pulse_event_identity_payload,
+    signal_key,
 )
 
 
@@ -35,153 +45,142 @@ class ArtifactInspectionBounds:
             raise ValueError("waveform previews require at least two samples")
 
 
-@dataclass(frozen=True, slots=True)
-class WaveformPreview:
-    """One physical channel's statistics and bounded plot samples."""
-
-    channel_id: str
-    instrument_id: str
-    peak_abs: float
-    rms: float
-    source_sample_count: int
-    samples_sha256: str
-    sample_indices: tuple[int, ...]
-    samples: tuple[float, ...]
-    downsampling: Literal["none", "minmax"]
-
-    def payload(self) -> dict[str, JsonValue]:
-        return cast(
-            "dict[str, JsonValue]",
-            {
-                "channel_id": self.channel_id,
-                "instrument_id": self.instrument_id,
-                "peak_abs": self.peak_abs,
-                "rms": self.rms,
-                "source_sample_count": self.source_sample_count,
-                "samples_sha256": self.samples_sha256,
-                "sample_indices": list(self.sample_indices),
-                "samples": list(self.samples),
-                "downsampling": self.downsampling,
-            },
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class EntryInspection:
-    """Bounded physical realization summary for one list entry."""
-
-    list_index: int
-    entry_id: str
-    program_id: str
-    sample_count: int
-    event_count: int
-    acquisition_count: int
-    max_abs_boundary_error_seconds: Decimal
-    waveform_count: int
-    waveforms_truncated: bool
-    waveforms: tuple[WaveformPreview, ...]
-
-    def payload(self) -> dict[str, JsonValue]:
-        return cast(
-            "dict[str, JsonValue]",
-            {
-                "list_index": self.list_index,
-                "entry_id": self.entry_id,
-                "program_id": self.program_id,
-                "sample_count": self.sample_count,
-                "event_count": self.event_count,
-                "acquisition_count": self.acquisition_count,
-                "max_abs_boundary_error_seconds": str(
-                    self.max_abs_boundary_error_seconds
-                ),
-                "waveform_count": self.waveform_count,
-                "waveforms_truncated": self.waveforms_truncated,
-                "waveforms": [waveform.payload() for waveform in self.waveforms],
-            },
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class ListModeArtifactInspection:
-    """Compact target facts intended for a selected-point preview only."""
-
-    semantics_id: str
-    sample_rate_hz: int
-    timing_quantization: TimingQuantizationMode
-    repetitions: int
-    entry_count: int
-    max_abs_boundary_error_seconds: Decimal
-    entries_truncated: bool
-    bounds: ArtifactInspectionBounds
-    entries: tuple[EntryInspection, ...]
-
-    def payload(self) -> dict[str, JsonValue]:
-        return cast(
-            "dict[str, JsonValue]",
-            {
-                "schema": "reference_lab.list_mode_artifact_inspection.v1",
-                "semantics_id": self.semantics_id,
-                "sample_rate_hz": self.sample_rate_hz,
-                "timing_quantization": self.timing_quantization,
-                "repetitions": self.repetitions,
-                "entry_count": self.entry_count,
-                "max_abs_boundary_error_seconds": str(
-                    self.max_abs_boundary_error_seconds
-                ),
-                "preview_bounds": {
-                    "max_entries": self.bounds.max_entries,
-                    "max_channels_per_entry": self.bounds.max_channels_per_entry,
-                    "max_samples_per_waveform": self.bounds.max_samples_per_waveform,
-                },
-                "entries_truncated": self.entries_truncated,
-                "warnings": [],
-                "entries": [entry.payload() for entry in self.entries],
-            },
-        )
-
-
 def inspect_list_mode_artifact(
     artifact: ListModeArtifact,
     *,
     bounds: ArtifactInspectionBounds | None = None,
-) -> ListModeArtifactInspection:
+) -> CompiledArtifactInspection:
     """Return deterministic statistics and min/max waveform previews."""
 
     selected_bounds = bounds or ArtifactInspectionBounds()
     selected_entries = artifact.entries[: selected_bounds.max_entries]
-    entries = tuple(
-        _inspect_entry(entry, bounds=selected_bounds) for entry in selected_entries
-    )
-    return ListModeArtifactInspection(
-        semantics_id=artifact.waveform_semantics_id,
-        sample_rate_hz=artifact.sample_rate_hz,
-        timing_quantization=artifact.timing_quantization,
-        repetitions=artifact.repetitions,
-        entry_count=len(artifact.entries),
-        max_abs_boundary_error_seconds=max(
-            (_max_boundary_error(entry) for entry in artifact.entries),
-            default=Decimal(0),
+    return CompiledArtifactInspection(
+        kind="reference_lab.list_mode.v1",
+        facts=(
+            CompiledInspectionFact("semantics_id", artifact.waveform_semantics_id),
+            CompiledInspectionFact(
+                "sample_rate_hz", artifact.sample_rate_hz, unit="Hz"
+            ),
+            CompiledInspectionFact("timing_quantization", artifact.timing_quantization),
+            CompiledInspectionFact("repetitions", artifact.repetitions),
+            CompiledInspectionFact(
+                "max_abs_boundary_error_seconds",
+                str(
+                    max(
+                        (_max_boundary_error(entry) for entry in artifact.entries),
+                        default=Decimal(0),
+                    )
+                ),
+                unit="s",
+            ),
         ),
-        entries_truncated=len(selected_entries) < len(artifact.entries),
-        bounds=selected_bounds,
-        entries=entries,
+        point_count=len(artifact.entries),
+        points_truncated=len(selected_entries) < len(artifact.entries),
+        bounds=CompiledInspectionBounds(
+            max_points=selected_bounds.max_entries,
+            max_waveforms_per_point=selected_bounds.max_channels_per_entry,
+            max_samples_per_waveform=selected_bounds.max_samples_per_waveform,
+        ),
+        points=tuple(
+            _inspect_entry(artifact, entry, bounds=selected_bounds)
+            for entry in selected_entries
+        ),
+    )
+
+
+def point_realization_fingerprint(
+    artifact: ListModeArtifact,
+    entry: ListModeEntry,
+) -> str:
+    """Identify one realization independently of target batch partitioning."""
+
+    return canonical_fingerprint(
+        {
+            "schema": "reference_lab.list_mode_point_realization.v1",
+            "target_id": artifact.target_id.value,
+            "compiler_id": artifact.compiler_id.value,
+            "capability_fingerprint": artifact.capability_fingerprint,
+            "configuration_fingerprint": artifact.configuration_fingerprint,
+            "repetitions": artifact.repetitions,
+            "sample_rate_hz": artifact.sample_rate_hz,
+            "waveform_semantics_id": artifact.waveform_semantics_id,
+            "timing_quantization": artifact.timing_quantization,
+            "program_id": entry.program_id.value,
+            "sample_count": entry.sample_count,
+            "event_timings": [
+                {
+                    "event_id": pulse_event_identity_payload(timing.event_id),
+                    "requested_start_seconds": str(timing.requested_start_seconds),
+                    "requested_duration_seconds": str(
+                        timing.requested_duration_seconds
+                    ),
+                    "start_sample": timing.start_sample,
+                    "sample_count": timing.sample_count,
+                    "realized_start_seconds": str(timing.realized_start_seconds),
+                    "realized_duration_seconds": str(timing.realized_duration_seconds),
+                    "start_error_seconds": str(timing.start_error_seconds),
+                    "duration_error_seconds": str(timing.duration_error_seconds),
+                }
+                for timing in entry.event_timings
+            ],
+            "waveforms": [
+                awg_waveform_identity_payload(waveform) for waveform in entry.waveforms
+            ],
+            "acquisitions": [
+                {
+                    "event_id": pulse_event_identity_payload(window.event_id),
+                    "slot_id": acquisition_slot_identity_payload(window.slot_id),
+                    "signal": signal_key(window.signal),
+                    "input_id": window.input_id.value,
+                    "instrument_id": window.input_id.instrument_id,
+                    "component_path": list(window.input_id.component_path),
+                    "demodulator_slot_id": window.demodulator_slot_id.value,
+                    "intent": {
+                        "semantics_id": window.intent.semantics_id,
+                        "output_representation": window.intent.output_representation,
+                        "demodulation_frequency_hz": float(
+                            window.intent.demodulation_frequency_hz
+                        ).hex(),
+                        "integration_weight": window.intent.integration_weight,
+                        "normalization": window.intent.normalization,
+                    },
+                    "lowering": {
+                        "execution": window.lowering.execution,
+                        "device_result_representation": (
+                            window.lowering.device_result_representation
+                        ),
+                    },
+                    "start_sample": window.start_sample,
+                    "sample_count": window.sample_count,
+                }
+                for window in entry.acquisitions
+            ],
+        }
     )
 
 
 def _inspect_entry(
+    artifact: ListModeArtifact,
     entry: ListModeEntry,
     *,
     bounds: ArtifactInspectionBounds,
-) -> EntryInspection:
+) -> CompiledPointInspection:
     selected_waveforms = entry.waveforms[: bounds.max_channels_per_entry]
-    return EntryInspection(
-        list_index=entry.list_index,
-        entry_id=entry.entry_id.value,
-        program_id=entry.program_id.value,
-        sample_count=entry.sample_count,
-        event_count=len(entry.event_timings),
-        acquisition_count=len(entry.acquisitions),
-        max_abs_boundary_error_seconds=_max_boundary_error(entry),
+    return CompiledPointInspection(
+        realization_fingerprint=point_realization_fingerprint(artifact, entry),
+        target_entry_id=entry.entry_id.value,
+        facts=(
+            CompiledInspectionFact("list_index", entry.list_index),
+            CompiledInspectionFact("program_id", entry.program_id.value),
+            CompiledInspectionFact("sample_count", entry.sample_count),
+            CompiledInspectionFact("event_count", len(entry.event_timings)),
+            CompiledInspectionFact("acquisition_count", len(entry.acquisitions)),
+            CompiledInspectionFact(
+                "max_abs_boundary_error_seconds",
+                str(_max_boundary_error(entry)),
+                unit="s",
+            ),
+        ),
         waveform_count=len(entry.waveforms),
         waveforms_truncated=len(selected_waveforms) < len(entry.waveforms),
         waveforms=tuple(
@@ -211,13 +210,13 @@ def _preview_waveform(
     waveform: AwgChannelWaveform,
     *,
     max_samples: int,
-) -> WaveformPreview:
+) -> CompiledWaveformInspection:
     samples = waveform.samples
     sample_indices = _minmax_indices(samples, max_samples=max_samples)
     selected_samples = tuple(
         float(cast("np.float64", samples[index])) for index in sample_indices
     )
-    return WaveformPreview(
+    return CompiledWaveformInspection(
         channel_id=waveform.channel_id.value,
         instrument_id=waveform.channel_id.instrument_id,
         peak_abs=(
@@ -257,8 +256,6 @@ def _minmax_indices(
 
 __all__ = [
     "ArtifactInspectionBounds",
-    "EntryInspection",
-    "ListModeArtifactInspection",
-    "WaveformPreview",
     "inspect_list_mode_artifact",
+    "point_realization_fingerprint",
 ]

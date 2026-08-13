@@ -7,7 +7,6 @@ from types import MappingProxyType
 from typing import cast
 
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
-from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_identity import scalar_values_equal
@@ -25,6 +24,7 @@ from scopecat.sdk.domain.execution import (
     ErasedDomainSetup,
     PreparedDomainExecution,
 )
+from scopecat.sdk.domain.inspection import CompiledArtifactInspection
 from scopecat.sdk.domain.invocation import (
     DomainOutputValue,
     close_domain_invocation,
@@ -107,7 +107,7 @@ class DomainPreparationBuilder:
         realtime_write_footprint: Sequence[DomainStateAddress],
         realtime_state_invalidations: Sequence[DomainStateAddress],
         next_batch_max_points: int,
-        inspection: dict[str, JsonValue] | None = None,
+        inspection: CompiledArtifactInspection | None = None,
         mapping: DomainResultMapping[ResultAddressT],
         invocation: DomainInvocationSpec[PayloadT],
         runtime: DomainRuntime[PayloadT, ResultT],

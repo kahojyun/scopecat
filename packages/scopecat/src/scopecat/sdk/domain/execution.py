@@ -15,9 +15,9 @@ from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
 
 from scopecat.kernel.interface_identity import InterfaceId
-from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.state import StateValue
 from scopecat.measurements.values import MeasurementValueCandidate
+from scopecat.sdk.domain.inspection import CompiledArtifactInspection
 from scopecat.sdk.domain.invocation import ClosedDomainInvocation
 from scopecat.sdk.domain.runtime import (
     DomainExecutionResult,
@@ -91,7 +91,7 @@ class PreparedDomainExecution:
     setup: ErasedDomainSetup | None = field(repr=False, compare=False)
     runtime: ErasedDomainRuntime = field(repr=False, compare=False)
     realize: ErasedDomainRealizer = field(repr=False, compare=False)
-    inspection: dict[str, JsonValue] | None = field(
+    inspection: CompiledArtifactInspection | None = field(
         default=None,
         repr=False,
         compare=False,

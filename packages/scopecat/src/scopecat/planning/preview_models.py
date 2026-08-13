@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from scopecat.kernel.json_types import JsonValue
 from scopecat.program.measurement_types import MeasurementVariableRole
 from scopecat.records.measurement import MeasurementDatasetSchema
+from scopecat.sdk.domain.inspection import CompiledArtifactInspection
 
 
 @dataclass(frozen=True)
@@ -83,7 +83,7 @@ class ExperimentPreviewDomainInspection:
     target_id: str
     artifact_id: str
     artifact_fingerprint: str
-    content: dict[str, JsonValue]
+    content: CompiledArtifactInspection
 
 
 @dataclass(frozen=True)

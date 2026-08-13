@@ -248,7 +248,7 @@ def _preview_domain_inspections(
                 target_id=intent.target_id,
                 artifact_id=intent.artifact_id,
                 artifact_fingerprint=intent.artifact_fingerprint,
-                content=dict(content),
+                content=content,
             )
         )
     return tuple(inspections)
