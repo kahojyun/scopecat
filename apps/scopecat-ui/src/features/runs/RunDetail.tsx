@@ -169,7 +169,7 @@ export function RunDetail({
       )}
 
       <div className="mt-[18px] grid grid-cols-[minmax(0,1.55fr)_minmax(250px,0.85fr)] gap-3 max-[1100px]:grid-cols-[minmax(0,1.25fr)_minmax(230px,0.9fr)] max-[680px]:grid-cols-[minmax(0,1fr)]">
-        <ProgressCard run={run} events={events} />
+        <ProgressCard run={run} events={events} measurements={measurements} />
         <RunProposals key={run.runId} runId={run.runId} />
         <AnalysisCard
           analyses={analyses}

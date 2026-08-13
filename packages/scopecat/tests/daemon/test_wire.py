@@ -50,6 +50,8 @@ from scopecat.daemon.wire import (
     InstrumentInventoryMigrationReceipt,
     InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenReceipt,
+    RunCoverageAdvanceCommand,
+    RunCoverageState,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -555,6 +557,7 @@ def test_run_hardware_commands_bind_fence_and_batch_identity() -> None:
     )
     execute = RunHardwareBatchCommand(
         lease_id="lease-1",
+        sequence=0,
         batch=batch,
     )
     finish = RunHardwareFinishCommand(
@@ -582,6 +585,27 @@ def test_run_hardware_commands_bind_fence_and_batch_identity() -> None:
         RunHardwareBatch(
             operation_id="hardware.duplicate",
             actions=(batch.actions[0], batch.actions[0]),
+        )
+
+
+def test_run_coverage_wire_models_require_a_nonempty_prefix() -> None:
+    command = RunCoverageAdvanceCommand(
+        lease_id="lease-1",
+        start_index=2,
+        point_count=3,
+    )
+    state = RunCoverageState(run_id="run-1", completed_point_count=5)
+
+    assert (
+        RunCoverageAdvanceCommand.model_validate_json(command.model_dump_json())
+        == command
+    )
+    assert RunCoverageState.model_validate_json(state.model_dump_json()) == state
+    with pytest.raises(ValidationError):
+        RunCoverageAdvanceCommand(
+            lease_id="lease-1",
+            start_index=0,
+            point_count=0,
         )
 
 

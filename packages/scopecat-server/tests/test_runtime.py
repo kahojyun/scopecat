@@ -67,11 +67,13 @@ from scopecat.daemon.wire import (
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
     ManualConfigDraftRevisionSource,
-    MeasurementAppendCommand,
+    MeasurementFlushCommand,
     MeasurementHeaderCommand,
+    MeasurementIngestCommand,
     RunAdmission,
     RunAttachmentCommand,
     RunCancellationReceipt,
+    RunCoverageAdvanceCommand,
     RunSubmission,
     TerminalRunCommitCommand,
 )
@@ -105,7 +107,7 @@ from scopecat.records.measurement import (
     MeasurementVariable,
 )
 from scopecat.records.measurement_recording import (
-    MeasurementDatasetAppend,
+    MeasurementDatasetBatch,
     MeasurementDatasetHeader,
 )
 from scopecat.records.parameter import ScalarParameterValue
@@ -207,6 +209,8 @@ def _run_repository(project_root: Path) -> SQLiteRunRepository:
 
 def _submission(
     submission_id: str = "submission-1",
+    *,
+    point_count: int = 1,
 ) -> RunSubmission:
     return RunSubmission(
         submission_id=submission_id,
@@ -215,7 +219,7 @@ def _submission(
         plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
-            point_count=1,
+            point_count=point_count,
             run_resource_requirements=(
                 RunResourceRequirement(id="source-0", kind="instrument"),
             ),
@@ -2011,6 +2015,69 @@ def test_executor_start_is_atomic_idempotent_and_quiet_when_resources_busy(
         ] == ["run_admitted"]
 
 
+def test_run_coverage_is_contiguous_durable_and_retryable(tmp_path: Path) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(
+            _submission("coverage-prefix", point_count=3)
+        )
+        lease = runtime.application.executor.start_executor(
+            admission.run_id,
+            ExecutorStartRequest(executor_id="notebook-1"),
+        )
+        executor = runtime.application.executor
+
+        initial = executor.run_coverage(admission.run_id)
+        first = executor.advance_run_coverage(
+            admission.run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=lease.lease_id,
+                start_index=0,
+                point_count=1,
+            ),
+        )
+        retry = executor.advance_run_coverage(
+            admission.run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=lease.lease_id,
+                start_index=0,
+                point_count=1,
+            ),
+        )
+
+        with pytest.raises(BackendConflict, match="conflicts with durable run state"):
+            executor.advance_run_coverage(
+                admission.run_id,
+                RunCoverageAdvanceCommand(
+                    lease_id=lease.lease_id,
+                    start_index=2,
+                    point_count=1,
+                ),
+            )
+
+        completed = executor.advance_run_coverage(
+            admission.run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=lease.lease_id,
+                start_index=1,
+                point_count=2,
+            ),
+        )
+        historical_retry = executor.advance_run_coverage(
+            admission.run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=lease.lease_id,
+                start_index=0,
+                point_count=1,
+            ),
+        )
+
+        assert initial.completed_point_count == 0
+        assert first.completed_point_count == 1
+        assert retry == first
+        assert completed.completed_point_count == 3
+        assert historical_retry == completed
+
+
 def test_queued_run_cancellation_is_immediate_durable_and_idempotent(
     tmp_path: Path,
 ) -> None:
@@ -2296,7 +2363,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
         client = TestClient(runtime.app())
         admission_response = client.post(
             "/api/v1/runs",
-            json=_submission().model_dump(mode="json"),
+            json=_submission(point_count=4).model_dump(mode="json"),
         )
         run_id = RunAdmission.model_validate(admission_response.json()).run_id
         accepted = _manifest(runtime, run_id)
@@ -2409,7 +2476,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
             ),
             expected_record_count=4,
         )
-        measurement_append = MeasurementDatasetAppend(
+        measurement_batch = MeasurementDatasetBatch(
             run_id=run_id,
             header_content_hash=measurement_header.content_hash,
             start_index=0,
@@ -2431,12 +2498,22 @@ def test_effect_is_fenced_and_terminal_updates_control(
             ).model_dump(mode="json"),
         )
         measurement_response = client.post(
-            f"/api/v1/runs/{run_id}/measurements/append",
-            json=MeasurementAppendCommand(
+            f"/api/v1/runs/{run_id}/measurements/ingest",
+            json=MeasurementIngestCommand(
                 lease_id=lease.lease_id,
-                append=measurement_append,
+                batch=measurement_batch,
             ).model_dump(mode="json"),
         )
+        pending_preview = client.get(f"/api/v1/runs/{run_id}/measurements/preview")
+        live_preview = client.get(f"/api/v1/runs/{run_id}/measurements/live")
+        pending_coverage = client.get(f"/api/v1/runs/{run_id}/coverage")
+        flush_response = client.post(
+            f"/api/v1/runs/{run_id}/measurements/flush",
+            json=MeasurementFlushCommand(
+                lease_id=lease.lease_id,
+            ).model_dump(mode="json"),
+        )
+        durable_coverage = client.get(f"/api/v1/runs/{run_id}/coverage")
         detail = client.get(f"/api/v1/runs/{run_id}")
         measurement_preview = client.get(f"/api/v1/runs/{run_id}/measurements/preview")
         measurement_arrow = client.post(
@@ -2546,6 +2623,16 @@ def test_effect_is_fenced_and_terminal_updates_control(
 
         assert header_response.status_code == 200
         assert measurement_response.status_code == 200
+        assert measurement_response.json()["received_record_count"] == 4
+        assert measurement_response.json()["durable_record_count"] == 0
+        assert pending_preview.json()["items"] == []
+        assert live_preview.json()["latest"]["point_index"] == 3
+        assert live_preview.json()["received_record_count"] == 4
+        assert live_preview.json()["durable_record_count"] == 0
+        assert pending_coverage.json()["completed_point_count"] == 0
+        assert flush_response.status_code == 200
+        assert flush_response.json()["durable_record_count"] == 4
+        assert durable_coverage.json()["completed_point_count"] == 4
         assert detail.json()["control"]["state"] == "leased"
         assert detail.json()["manifest"]["outcome"] is None
         assert detail.json()["resources"][0]["status"] == "active"
@@ -2744,7 +2831,7 @@ def test_effect_and_terminal_publication_roll_back_with_control(
             ),
             expected_record_count=1,
         )
-        append = MeasurementDatasetAppend(
+        batch = MeasurementDatasetBatch(
             run_id=admission.run_id,
             header_content_hash=header.content_hash,
             start_index=0,
@@ -2755,6 +2842,13 @@ def test_effect_and_terminal_publication_roll_back_with_control(
             MeasurementHeaderCommand(
                 lease_id=lease.lease_id,
                 header=header,
+            ),
+        )
+        runtime.application.executor.ingest_measurements(
+            admission.run_id,
+            MeasurementIngestCommand(
+                lease_id=lease.lease_id,
+                batch=batch,
             ),
         )
 
@@ -2769,11 +2863,10 @@ def test_effect_and_terminal_publication_roll_back_with_control(
                 fail_event,
             )
             with pytest.raises(RuntimeError, match="event publication failed"):
-                runtime.application.executor.append_measurements(
+                runtime.application.executor.flush_measurements(
                     admission.run_id,
-                    MeasurementAppendCommand(
+                    MeasurementFlushCommand(
                         lease_id=lease.lease_id,
-                        append=append,
                     ),
                 )
 

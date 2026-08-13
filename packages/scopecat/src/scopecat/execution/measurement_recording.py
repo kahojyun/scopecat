@@ -8,7 +8,11 @@ from typing import Protocol, cast
 from pydantic import JsonValue
 
 from scopecat.execution.effects.journaled import JournaledEffectBoundary
-from scopecat.execution.ports.measurement import MeasurementDatasetWriter
+from scopecat.execution.ports.measurement import (
+    DurableMeasurementDatasetWriter,
+    MeasurementDatasetLifecycleWriter,
+    MeasurementDatasetWriter,
+)
 from scopecat.kernel.errors import MeasurementRecordingError
 from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.measurements.datasets import RAW_MEASUREMENTS_DATASET_ID
@@ -16,6 +20,7 @@ from scopecat.measurements.projection import ProjectedMeasurementDataset
 from scopecat.records.execution_journal import ExecutionStage
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
+    MeasurementDatasetBatch,
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
@@ -33,7 +38,7 @@ class _DatasetOperation(Protocol):
 
 def initialize_measurement_dataset(
     header: MeasurementDatasetHeader,
-    writer: MeasurementDatasetWriter,
+    writer: MeasurementDatasetLifecycleWriter,
     journal: ExecutionJournal,
 ) -> MeasurementDatasetReceipt:
     """Publish the canonical dataset contract before writing point records."""
@@ -54,7 +59,7 @@ def initialize_measurement_dataset(
 
 def append_measurement_dataset(
     dataset: ProjectedMeasurementDataset,
-    writer: MeasurementDatasetWriter,
+    writer: DurableMeasurementDatasetWriter,
     journal: ExecutionJournal,
     *,
     header: MeasurementDatasetHeader,
@@ -85,13 +90,33 @@ def append_measurement_dataset(
     )
 
 
+def ingest_measurement_dataset(
+    dataset: ProjectedMeasurementDataset,
+    writer: MeasurementDatasetWriter,
+    *,
+    header: MeasurementDatasetHeader,
+) -> tuple[MeasurementDatasetReceipt, ...]:
+    """Offer one contiguous live range to the daemon-owned durable buffer."""
+
+    records = dataset.records
+    if not records:
+        return ()
+    batch = MeasurementDatasetBatch(
+        run_id=dataset.run_id,
+        header_content_hash=header.content_hash,
+        start_index=records[0].point_index,
+        records=records,
+    )
+    return writer.ingest(batch)
+
+
 def seal_measurement_dataset(
     *,
     run_id: str,
     header: MeasurementDatasetHeader,
     point_count: int,
     append_content_hashes: tuple[str, ...],
-    writer: MeasurementDatasetWriter,
+    writer: MeasurementDatasetLifecycleWriter,
     journal: ExecutionJournal,
 ) -> MeasurementDatasetReceipt:
     """Seal the dataset after all admitted point ranges have been appended."""
@@ -267,6 +292,7 @@ __all__ = [
     "MeasurementDatasetSeal",
     "MeasurementDatasetWriter",
     "append_measurement_dataset",
+    "ingest_measurement_dataset",
     "initialize_measurement_dataset",
     "seal_measurement_dataset",
 ]

@@ -704,6 +704,7 @@ def test_batch_materializes_all_payloads_before_first_driver_call(
         ).batch.actions
         command = RunHardwareBatchCommand(
             lease_id=lease_id,
+            sequence=0,
             batch=RunHardwareBatch(
                 operation_id="atomic-materialization",
                 actions=(valid_action, missing_action),
@@ -748,6 +749,7 @@ def test_payload_invocations_are_not_suppressed_by_reused_payload_id(
         ).batch.actions
         command = RunHardwareBatchCommand(
             lease_id=lease_id,
+            sequence=0,
             batch=RunHardwareBatch(
                 operation_id="reused-program-content-change",
                 actions=(first_action, second_action),
@@ -790,6 +792,7 @@ def test_batch_prevalidates_every_action_before_first_driver_call(
         )
         command = RunHardwareBatchCommand(
             lease_id=lease_id,
+            sequence=0,
             batch=RunHardwareBatch(
                 operation_id=f"preflight-{invalid_contract}",
                 actions=(valid_action, invalid_action),
@@ -994,9 +997,12 @@ def _payload_batch(
     lease_id: str,
     operation_id: str,
     payload: CommandPayload,
+    *,
+    sequence: int = 0,
 ) -> RunHardwareBatchCommand:
     return RunHardwareBatchCommand(
         lease_id=lease_id,
+        sequence=sequence,
         batch=RunHardwareBatch(
             operation_id=operation_id,
             actions=(

@@ -31,6 +31,7 @@ from scopecat.daemon.views import (
     InstrumentListView,
     InstrumentView,
     MeasurementArrowQuery,
+    MeasurementLivePreview,
     MeasurementPreview,
     MeasurementSlice,
     MeasurementSliceQuery,
@@ -71,13 +72,18 @@ from scopecat.daemon.wire import (
     InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
-    MeasurementAppendCommand,
+    MeasurementFlushCommand,
+    MeasurementFlushReceipt,
     MeasurementHeaderCommand,
+    MeasurementIngestCommand,
+    MeasurementIngestReceipt,
     MeasurementSealCommand,
     PayloadObjectReceipt,
     RunAdmission,
     RunAttachmentCommand,
     RunCancellationReceipt,
+    RunCoverageAdvanceCommand,
+    RunCoverageState,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -550,6 +556,16 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> MeasurementPreview:
         return application.runs.measurement_preview(run_id, limit=limit)
 
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/measurements/live")
+    def measurement_live_preview(
+        run_id: str,
+        after_record_count: Annotated[int | None, Query(ge=0)] = None,
+    ) -> MeasurementLivePreview:
+        return application.runs.measurement_live_preview(
+            run_id,
+            after_record_count=after_record_count,
+        )
+
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/query")
     def query_measurements(
         run_id: str,
@@ -620,6 +636,17 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> ExecutorLease:
         return application.executor.heartbeat_executor(run_id, heartbeat)
 
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/coverage")
+    def get_run_coverage(run_id: str) -> RunCoverageState:
+        return application.executor.run_coverage(run_id)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/coverage/advance")
+    def advance_run_coverage(
+        run_id: str,
+        command: RunCoverageAdvanceCommand,
+    ) -> RunCoverageState:
+        return application.executor.advance_run_coverage(run_id, command)
+
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/instruments/provision")
     def provision_run_instruments(
         run_id: str,
@@ -665,13 +692,20 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         _require_run_id(run_id, command.header.run_id)
         return application.executor.initialize_measurements(run_id, command)
 
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/append")
-    def append_measurements(
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/ingest")
+    def ingest_measurements(
         run_id: str,
-        command: MeasurementAppendCommand,
-    ) -> MeasurementDatasetReceipt:
-        _require_run_id(run_id, command.append.run_id)
-        return application.executor.append_measurements(run_id, command)
+        command: MeasurementIngestCommand,
+    ) -> MeasurementIngestReceipt:
+        _require_run_id(run_id, command.batch.run_id)
+        return application.executor.ingest_measurements(run_id, command)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/flush")
+    def flush_measurements(
+        run_id: str,
+        command: MeasurementFlushCommand,
+    ) -> MeasurementFlushReceipt:
+        return application.executor.flush_measurements(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/seal")
     def seal_measurements(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from threading import Lock
+from time import monotonic
 from typing import Protocol
 
 from pydantic import BaseModel, JsonValue, TypeAdapter
@@ -15,10 +16,12 @@ from scopecat.daemon.wire import (
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
-    MeasurementAppendCommand,
+    MeasurementFlushCommand,
     MeasurementHeaderCommand,
+    MeasurementIngestCommand,
     MeasurementSealCommand,
     RunAdmission,
+    RunCoverageAdvanceCommand,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -32,8 +35,9 @@ from scopecat.kernel.problems import Problem
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.measurement import MeasurementArray, MeasurementRecord
 from scopecat.records.measurement_recording import (
-    MeasurementDatasetAppend,
+    MeasurementDatasetBatch,
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
@@ -48,6 +52,11 @@ from scopecat.sdk.instruments.execution import (
 
 _JSON_DOCUMENT = TypeAdapter(dict[str, JsonValue])
 _PROVISION_OPERATION_ID = "lifecycle.provide-instruments"
+_MEASUREMENT_TRANSPORT_RECORD_LIMIT = 64
+_MEASUREMENT_TRANSPORT_VALUE_BYTE_LIMIT = 8 * 1024 * 1024
+_MEASUREMENT_TRANSPORT_LATENCY_SECONDS = 0.1
+_COVERAGE_TRANSPORT_POINT_LIMIT = 256
+_COVERAGE_TRANSPORT_LATENCY_SECONDS = 0.1
 
 
 class ExecutorLeaseLostError(RuntimeError):
@@ -88,6 +97,7 @@ def daemon_execution_session(
         lease_supervisor=lease_supervisor,
     )
     instruments = _DaemonRunInstrumentHost(authority)
+    coverage = _DaemonRunCoverage(authority)
 
     def begin() -> None:
         authority.start()
@@ -101,6 +111,7 @@ def daemon_execution_session(
         journal=_DaemonExecutionJournal(authority),
         measurements=_DaemonMeasurementRepository(authority),
         instruments=instruments,
+        coverage=coverage,
         cancellation_requested=authority.cancellation_requested,
         effects_ready=lambda: instruments.provisioned,
     )
@@ -225,35 +236,136 @@ class _DaemonExecutionJournal:
         )
 
 
+class _DaemonRunCoverage:
+    """Coalesce no-dataset point progress before durable daemon writes."""
+
+    def __init__(self, authority: _LeaseAuthority) -> None:
+        self._authority = authority
+        self._pending_start: int | None = None
+        self._pending_count = 0
+        self._last_send_at: float | None = None
+
+    def advance(self, *, start_index: int, point_count: int) -> None:
+        if point_count < 1:
+            raise ValueError("coverage advance must be non-empty")
+        if self._pending_start is None:
+            self._pending_start = start_index
+        elif start_index != self._pending_start + self._pending_count:
+            raise ValueError("coverage advances must be contiguous")
+        self._pending_count += point_count
+        now = monotonic()
+        if (
+            self._last_send_at is None
+            or self._pending_count >= _COVERAGE_TRANSPORT_POINT_LIMIT
+            or now - self._last_send_at >= _COVERAGE_TRANSPORT_LATENCY_SECONDS
+        ):
+            self._send_pending(now=now)
+
+    def flush(self) -> None:
+        self._send_pending()
+
+    def _send_pending(self, *, now: float | None = None) -> None:
+        start_index = self._pending_start
+        point_count = self._pending_count
+        if start_index is None:
+            return
+        state = self._authority.client.advance_run_coverage(
+            self._authority.run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=self._authority.fence(),
+                start_index=start_index,
+                point_count=point_count,
+            ),
+        )
+        expected_count = start_index + point_count
+        if state.run_id != self._authority.run_id:
+            raise ValueError("run coverage receipt does not match its request")
+        if state.completed_point_count != expected_count:
+            raise ValueError("run coverage receipt did not commit the requested prefix")
+        self._pending_start = None
+        self._pending_count = 0
+        self._last_send_at = monotonic() if now is None else now
+
+
 class _DaemonMeasurementRepository:
     def __init__(self, authority: _LeaseAuthority) -> None:
         self._authority = authority
+        self._pending: list[MeasurementRecord] = []
+        self._pending_value_bytes = 0
+        self._last_send_at: float | None = None
+        self._header_content_hash: str | None = None
 
     def initialize(
         self,
         header: MeasurementDatasetHeader,
     ) -> MeasurementDatasetReceipt:
         lease_id = self._authority.fence()
-        return self._authority.client.initialize_measurements(
+        receipt = self._authority.client.initialize_measurements(
             self._authority.run_id,
             MeasurementHeaderCommand(
                 lease_id=lease_id,
                 header=header,
             ),
         )
+        self._header_content_hash = header.content_hash
+        return receipt
 
-    def append(
+    def ingest(
         self,
-        append: MeasurementDatasetAppend,
-    ) -> MeasurementDatasetReceipt:
+        batch: MeasurementDatasetBatch,
+    ) -> tuple[MeasurementDatasetReceipt, ...]:
+        self._pending.extend(batch.records)
+        self._pending_value_bytes += sum(
+            _measurement_record_value_bytes(record) for record in batch.records
+        )
+        now = monotonic()
+        if (
+            self._last_send_at is None
+            or len(self._pending) >= _MEASUREMENT_TRANSPORT_RECORD_LIMIT
+            or self._pending_value_bytes >= _MEASUREMENT_TRANSPORT_VALUE_BYTE_LIMIT
+            or now - self._last_send_at >= _MEASUREMENT_TRANSPORT_LATENCY_SECONDS
+        ):
+            return self._send_pending(now=now)
+        return ()
+
+    def _send_pending(
+        self,
+        *,
+        now: float | None = None,
+    ) -> tuple[MeasurementDatasetReceipt, ...]:
+        if not self._pending:
+            return ()
+        records = tuple(self._pending)
+        header_content_hash = self._header_content_hash
+        if header_content_hash is None:
+            raise RuntimeError("measurement transport requires an initialized header")
+        batch = MeasurementDatasetBatch(
+            run_id=self._authority.run_id,
+            header_content_hash=header_content_hash,
+            start_index=records[0].point_index,
+            records=records,
+        )
         lease_id = self._authority.fence()
-        return self._authority.client.append_measurements(
+        receipt = self._authority.client.ingest_measurements(
             self._authority.run_id,
-            MeasurementAppendCommand(
+            MeasurementIngestCommand(
                 lease_id=lease_id,
-                append=append,
+                batch=batch,
             ),
         )
+        self._pending.clear()
+        self._pending_value_bytes = 0
+        self._last_send_at = monotonic() if now is None else now
+        return receipt.durable_receipts
+
+    def flush(self) -> tuple[MeasurementDatasetReceipt, ...]:
+        receipts = list(self._send_pending())
+        receipt = self._authority.client.flush_measurements(
+            self._authority.run_id,
+            MeasurementFlushCommand(lease_id=self._authority.fence()),
+        )
+        receipts.extend(receipt.durable_receipts)
+        return tuple(receipts)
 
     def seal(self, seal: MeasurementDatasetSeal) -> MeasurementDatasetReceipt:
         lease_id = self._authority.fence()
@@ -272,6 +384,7 @@ class _DaemonRunInstrumentHost:
     def __init__(self, authority: _LeaseAuthority) -> None:
         self._authority = authority
         self._provisioning: RunInstrumentProvisionReceipt | None = None
+        self._next_batch_sequence = 0
         self._lock = Lock()
 
     @property
@@ -320,13 +433,18 @@ class _DaemonRunInstrumentHost:
             return self._provisioning
 
     def execute(self, batch: RunHardwareBatch) -> RunHardwareBatchReceipt:
-        return self._authority.client.execute_run_hardware(
-            self._authority.run_id,
-            RunHardwareBatchCommand(
-                lease_id=self._authority.fence(),
-                batch=batch,
-            ),
-        )
+        with self._lock:
+            sequence = self._next_batch_sequence
+            receipt = self._authority.client.execute_run_hardware(
+                self._authority.run_id,
+                RunHardwareBatchCommand(
+                    lease_id=self._authority.fence(),
+                    sequence=sequence,
+                    batch=batch,
+                ),
+            )
+            self._next_batch_sequence = sequence + 1
+            return receipt
 
     def finish(
         self,
@@ -353,6 +471,15 @@ class _DaemonRunInstrumentHost:
 
 def _json_document(model: BaseModel) -> dict[str, JsonValue]:
     return _JSON_DOCUMENT.validate_python(model.model_dump(mode="json"))
+
+
+def _measurement_record_value_bytes(record: MeasurementRecord) -> int:
+    return sum(
+        value.values.nbytes
+        for values in (record.coordinates, record.observables)
+        for value in values.values()
+        if isinstance(value, MeasurementArray)
+    )
 
 
 __all__ = [

@@ -1,7 +1,7 @@
 """Typed wire contracts shared by daemon servers and Python clients.
 
-The models contain durable data only. In particular, execution keeps
-``RunProgram`` and its Python closures in the client process.
+Execution keeps ``RunProgram`` and its Python closures in the client process.
+Wire receipts distinguish accepted live data from durable evidence explicitly.
 """
 
 from __future__ import annotations
@@ -50,8 +50,9 @@ from scopecat.records.config import (
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import (
-    MeasurementDatasetAppend,
+    MeasurementDatasetBatch,
     MeasurementDatasetHeader,
+    MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
 )
 from scopecat.records.parameter_change import (
@@ -498,6 +499,20 @@ class _FencedCommand(_WireModel):
     lease_id: NonEmptyText
 
 
+class RunCoverageState(_WireModel):
+    """Durable contiguous logical-point prefix for one run."""
+
+    run_id: NonEmptyText
+    completed_point_count: int = Field(ge=0)
+
+
+class RunCoverageAdvanceCommand(_FencedCommand):
+    """Commit the next contiguous logical-point range."""
+
+    start_index: int = Field(ge=0)
+    point_count: int = Field(gt=0)
+
+
 class _FencedOperationCommand(_FencedCommand):
     operation_id: NonEmptyText
 
@@ -552,6 +567,9 @@ class RunInstrumentProvisionReceipt(_WireModel):
 
 
 class RunHardwareBatchCommand(_FencedCommand):
+    """Execute the next batch or retry the immediately preceding sequence."""
+
+    sequence: int = Field(ge=0)
     batch: RunHardwareBatch
 
 
@@ -581,8 +599,29 @@ class MeasurementHeaderCommand(_FencedCommand):
     header: MeasurementDatasetHeader
 
 
-class MeasurementAppendCommand(_FencedCommand):
-    append: MeasurementDatasetAppend
+class MeasurementIngestCommand(_FencedCommand):
+    batch: MeasurementDatasetBatch
+
+
+class MeasurementIngestReceipt(_WireModel):
+    """Acknowledge records received by the daemon and any completed flushes."""
+
+    run_id: NonEmptyText
+    received_record_count: int = Field(ge=0)
+    durable_record_count: int = Field(ge=0)
+    durable_receipts: tuple[MeasurementDatasetReceipt, ...] = ()
+
+
+class MeasurementFlushCommand(_FencedCommand):
+    """Force all daemon-buffered measurement records to durable storage."""
+
+
+class MeasurementFlushReceipt(_WireModel):
+    """Report the durable prefix after an explicit buffer flush."""
+
+    run_id: NonEmptyText
+    durable_record_count: int = Field(ge=0)
+    durable_receipts: tuple[MeasurementDatasetReceipt, ...] = ()
 
 
 class MeasurementSealCommand(_FencedCommand):
@@ -831,13 +870,18 @@ __all__ = [
     "InstrumentSessionOpenCommand",
     "InstrumentSessionOpenReceipt",
     "ManualConfigDraftRevisionSource",
-    "MeasurementAppendCommand",
+    "MeasurementFlushCommand",
+    "MeasurementFlushReceipt",
     "MeasurementHeaderCommand",
+    "MeasurementIngestCommand",
+    "MeasurementIngestReceipt",
     "MeasurementSealCommand",
     "PayloadObjectReceipt",
     "RunAdmission",
     "RunAttachmentCommand",
     "RunCancellationReceipt",
+    "RunCoverageAdvanceCommand",
+    "RunCoverageState",
     "RunInstrumentProvisionCommand",
     "RunInstrumentProvisionReceipt",
     "RunSubmission",

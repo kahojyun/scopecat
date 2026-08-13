@@ -14,6 +14,7 @@ import { ApiError, apiClient, apiData } from "../../api-client";
 import type {
   ContentEntry,
   MeasurementPreview,
+  MeasurementLivePreview,
   MeasurementSlicePreview,
   ProjectEvent,
   ProjectRun,
@@ -91,6 +92,28 @@ export async function getMeasurementPreview(
     items: response.items ?? [],
     schema: response.dataset_schema ?? undefined,
     truncated: response.truncated ?? false,
+  };
+}
+
+export async function getMeasurementLivePreview(
+  runId: string,
+  signal?: AbortSignal,
+  afterRecordCount?: number,
+): Promise<MeasurementLivePreview> {
+  const response = await apiData(
+    apiClient.GET("/api/v1/runs/{run_id}/measurements/live", {
+      params: {
+        path: { run_id: runId },
+        query: { after_record_count: afterRecordCount },
+      },
+      signal,
+    }),
+  );
+  return {
+    active: response.active,
+    latest: response.latest ?? undefined,
+    receivedRecordCount: response.received_record_count,
+    durableRecordCount: response.durable_record_count,
   };
 }
 

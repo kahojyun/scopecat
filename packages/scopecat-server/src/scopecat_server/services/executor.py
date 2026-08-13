@@ -23,16 +23,24 @@ from scopecat.daemon.wire import (
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
-    MeasurementAppendCommand,
+    MeasurementFlushCommand,
+    MeasurementFlushReceipt,
     MeasurementHeaderCommand,
+    MeasurementIngestCommand,
+    MeasurementIngestReceipt,
     MeasurementSealCommand,
     RunCancellationReceipt,
+    RunCoverageAdvanceCommand,
+    RunCoverageState,
     TerminalRunCommitCommand,
 )
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.execution_journal import ExecutionTransition
-from scopecat.records.measurement_recording import MeasurementDatasetReceipt
+from scopecat.records.measurement_recording import (
+    MeasurementDatasetAppend,
+    MeasurementDatasetReceipt,
+)
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import (
     RunModelWrite,
@@ -50,10 +58,12 @@ from scopecat_server.storage.sqlite.execution import (
     ExecutionJournalConflict,
     SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
+    SQLiteRunCoverage,
 )
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
+from .active_measurements import ActiveMeasurementConflict, ActiveMeasurementStore
 
 if TYPE_CHECKING:
     from ..instruments.service import InstrumentService
@@ -72,11 +82,13 @@ class ExecutorService:
         control: SQLiteControlPlane,
         runs: SQLiteRunRepository,
         instruments: InstrumentService,
+        active_measurements: ActiveMeasurementStore,
         lease_ttl: timedelta | None = None,
     ) -> None:
         self._control = control
         self._runs = runs
         self._instruments = instruments
+        self._active_measurements = active_measurements
         self._lease_ttl = lease_ttl or timedelta(seconds=30)
         self._heartbeat_interval_seconds = self._lease_ttl.total_seconds() / 3
         self._measurement_repositories: dict[
@@ -116,6 +128,37 @@ class ExecutorService:
         return self._wire_lease(
             renewed,
             cancellation_requested_at=current.cancellation_requested_at,
+        )
+
+    def run_coverage(self, run_id: str) -> RunCoverageState:
+        self._control_run(run_id)
+        completed = SQLiteRunCoverage(self._runs, run_id=run_id).read()
+        return RunCoverageState(
+            run_id=run_id,
+            completed_point_count=completed,
+        )
+
+    def advance_run_coverage(
+        self,
+        run_id: str,
+        command: RunCoverageAdvanceCommand,
+    ) -> RunCoverageState:
+        coverage = SQLiteRunCoverage(self._runs, run_id=run_id)
+        with self.fenced_write(run_id, token=command.lease_id) as connection:
+            run = self._control.get_run_in_transaction(connection, run_id)
+            end_index = command.start_index + command.point_count
+            if end_index > run.admission.plan.point_count:
+                raise ExecutionJournalConflict(
+                    "coverage range exceeds the admitted point count"
+                )
+            completed, _advanced = coverage.advance_in_transaction(
+                connection,
+                start_index=command.start_index,
+                point_count=command.point_count,
+            )
+        return RunCoverageState(
+            run_id=run_id,
+            completed_point_count=completed,
         )
 
     def cancel_run(self, run_id: str) -> RunCancellationReceipt:
@@ -205,34 +248,51 @@ class ExecutorService:
         except ExecutionJournalConflict as error:
             raise BackendConflict(str(error)) from error
 
-    def append_measurements(
+    def ingest_measurements(
         self,
         run_id: str,
-        command: MeasurementAppendCommand,
-    ) -> MeasurementDatasetReceipt:
-        repository = self._measurement_repository(run_id)
+        command: MeasurementIngestCommand,
+    ) -> MeasurementIngestReceipt:
+        self.fence_executor(run_id, command.lease_id)
         try:
-            prepared = repository.prepare_append(command.append)
-        except ExecutionJournalConflict as error:
-            raise BackendConflict(
-                "measurement command conflicts with durable state"
-            ) from error
-        with self.fenced_write(
-            run_id,
-            token=command.lease_id,
-        ) as connection:
-            receipt, created = repository.append_prepared_in_transaction(
-                connection,
-                prepared,
+            self._active_measurements.ingest(command.batch)
+            receipts = self._flush_measurements(
+                run_id,
+                token=command.lease_id,
+                force=False,
             )
-            if created:
-                self.append_effect_event_in_transaction(
-                    connection,
-                    run_id,
-                    "measurements_appended",
-                    command.append.operation_id,
-                )
-        return receipt
+            preview = self._active_measurements.preview(run_id)
+        except ActiveMeasurementConflict as error:
+            raise BackendConflict(str(error)) from error
+        return MeasurementIngestReceipt(
+            run_id=run_id,
+            received_record_count=preview.received_record_count,
+            durable_record_count=preview.durable_record_count,
+            durable_receipts=receipts,
+        )
+
+    def flush_measurements(
+        self,
+        run_id: str,
+        command: MeasurementFlushCommand,
+    ) -> MeasurementFlushReceipt:
+        self.fence_executor(run_id, command.lease_id)
+        try:
+            receipts = self._flush_measurements(
+                run_id,
+                token=command.lease_id,
+                force=True,
+            )
+            durable_record_count = self._active_measurements.durable_record_count(
+                run_id
+            )
+        except ActiveMeasurementConflict as error:
+            raise BackendConflict(str(error)) from error
+        return MeasurementFlushReceipt(
+            run_id=run_id,
+            durable_record_count=durable_record_count,
+            durable_receipts=receipts,
+        )
 
     def initialize_measurements(
         self,
@@ -250,6 +310,11 @@ class ExecutorService:
             run_id,
             token=command.lease_id,
         ) as connection:
+            run = self._control.get_run_in_transaction(connection, run_id)
+            if command.header.expected_record_count != run.admission.plan.point_count:
+                raise ExecutionJournalConflict(
+                    "measurement point count differs from the admitted run plan"
+                )
             receipt, created = repository.header_prepared_in_transaction(
                 connection,
                 prepared,
@@ -261,6 +326,10 @@ class ExecutorService:
                     "measurement_dataset_initialized",
                     command.header.operation_id,
                 )
+        try:
+            self._active_measurements.initialize(command.header)
+        except ActiveMeasurementConflict as error:
+            raise BackendConflict(str(error)) from error
         return receipt
 
     def seal_measurements(
@@ -268,6 +337,11 @@ class ExecutorService:
         run_id: str,
         command: MeasurementSealCommand,
     ) -> MeasurementDatasetReceipt:
+        active = self._active_measurements.preview(run_id)
+        if active.received_record_count != active.durable_record_count:
+            raise BackendConflict(
+                "measurement dataset must flush all received records before sealing"
+            )
         repository = self._measurement_repository(run_id)
         try:
             prepared = repository.prepare_seal(command.seal)
@@ -291,7 +365,54 @@ class ExecutorService:
                     command.seal.operation_id,
                 )
         self._measurement_repositories.pop(run_id, None)
+        self._active_measurements.clear(run_id)
         return receipt
+
+    def _flush_measurements(
+        self,
+        run_id: str,
+        *,
+        token: str,
+        force: bool,
+    ) -> tuple[MeasurementDatasetReceipt, ...]:
+        repository = self._measurement_repository(run_id)
+        coverage = SQLiteRunCoverage(self._runs, run_id=run_id)
+        receipts: list[MeasurementDatasetReceipt] = []
+        while records := self._active_measurements.next_chunk(run_id, force=force):
+            append = MeasurementDatasetAppend(
+                run_id=run_id,
+                header_content_hash=self._active_measurements.header_content_hash(
+                    run_id
+                ),
+                start_index=self._active_measurements.durable_record_count(run_id),
+                records=records,
+            )
+            try:
+                prepared = repository.prepare_append(append)
+            except ExecutionJournalConflict as error:
+                raise BackendConflict(
+                    "measurement command conflicts with durable state"
+                ) from error
+            with self.fenced_write(run_id, token=token) as connection:
+                receipt, created = repository.append_prepared_in_transaction(
+                    connection,
+                    prepared,
+                )
+                coverage.advance_in_transaction(
+                    connection,
+                    start_index=append.start_index,
+                    point_count=len(append.records),
+                )
+                if created:
+                    self.append_effect_event_in_transaction(
+                        connection,
+                        run_id,
+                        "measurements_appended",
+                        append.operation_id,
+                    )
+            self._active_measurements.commit_chunk(run_id, records)
+            receipts.append(receipt)
+        return tuple(receipts)
 
     def _measurement_repository(
         self,
@@ -331,6 +452,7 @@ class ExecutorService:
                 raise BackendConflict("run already has a different terminal outcome")
             self._instruments.release_run(run_id)
             self._measurement_repositories.pop(run_id, None)
+            self._active_measurements.clear(run_id)
             return manifest
         self._instruments.finalize_run(
             run_id,
@@ -352,6 +474,7 @@ class ExecutorService:
                 raise
         self._instruments.release_run(run_id)
         self._measurement_repositories.pop(run_id, None)
+        self._active_measurements.clear(run_id)
         return manifest
 
     def _start_execution(

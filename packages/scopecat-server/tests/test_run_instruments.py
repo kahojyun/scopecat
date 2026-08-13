@@ -609,6 +609,7 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
             lease_id,
             "batch-2",
             _apply_action("source-0", effect_id="apply-2"),
+            sequence=1,
         )
         assert not instruments.execute_run_hardware(run_id, unchanged).problems
         assert len(driver.applied) == 1
@@ -627,6 +628,7 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
             "run_hardware_batch_started",
             "run_hardware_batch_finished",
         ]
+        assert [event.payload["sequence"] for event in batch_events] == [0, 0, 1, 1]
         assert batch_events[0].payload["batch"] == command.batch.model_dump(mode="json")
         assert batch_events[1].payload["completed_effect_ids"] == [
             "apply-1",
@@ -950,7 +952,7 @@ def test_run_start_skips_unit_equivalent_default_state(tmp_path: Path) -> None:
         assert driver.applied == []
 
 
-def test_batch_retry_replays_before_reexecuting_after_state_change(
+def test_batch_retry_expires_after_later_progress(
     tmp_path: Path,
 ) -> None:
     provider = _Provider(driver_type=_VariantDriver)
@@ -983,13 +985,14 @@ def test_batch_retry_replays_before_reexecuting_after_state_change(
                     mode="current",
                     current_level=0.02,
                 ),
+                sequence=1,
             ),
         )
-        replay = instruments.execute_run_hardware(run_id, voltage)
 
         assert not first.problems
         assert not switched.problems
-        assert replay == first
+        with pytest.raises(BackendConflict, match="receipt has expired"):
+            instruments.execute_run_hardware(run_id, voltage)
         assert len(driver.applied) == 2
 
 
@@ -1038,6 +1041,7 @@ def test_batch_preflights_state_sized_axes_from_opening_and_projected_state(
                     effect_id="collect-four-points",
                     size=4,
                 ),
+                sequence=1,
             ),
         )
 
@@ -1063,6 +1067,7 @@ def test_batch_preflights_state_sized_axes_from_opening_and_projected_state(
                     effect_id="collect-four-after-five",
                     size=4,
                 ),
+                sequence=2,
             ),
         )
 
@@ -1134,6 +1139,7 @@ def test_batch_projects_acquisition_preconditions_before_any_side_effect(
                     effect_id="collect-enabled-output",
                     result_id="monitored_voltage",
                 ),
+                sequence=1,
             ),
         )
 
@@ -1141,21 +1147,10 @@ def test_batch_projects_acquisition_preconditions_before_any_side_effect(
         assert len(driver.applied) == 1
         assert len(driver.collect_requests) == 1
 
-        assert instruments.execute_run_hardware(run_id, rejected_command) == rejected
+        with pytest.raises(BackendConflict, match="receipt has expired"):
+            instruments.execute_run_hardware(run_id, rejected_command)
         assert len(driver.applied) == 1
         assert len(driver.collect_requests) == 1
-        with pytest.raises(BackendConflict, match="different operation content"):
-            instruments.execute_run_hardware(
-                run_id,
-                _batch_command(
-                    lease_id,
-                    "collect-with-disabled-output",
-                    _variant_collect_action(
-                        effect_id="different-content",
-                        result_id="monitored_voltage",
-                    ),
-                ),
-            )
 
 
 def test_live_collect_rejection_preserves_problem_context_and_replays(
@@ -1204,6 +1199,7 @@ def test_live_collect_rejection_preserves_problem_context_and_replays(
                     effect_id="collect-current-after-resync",
                     result_id="monitored_current",
                 ),
+                sequence=1,
             ),
         )
 
@@ -1293,6 +1289,26 @@ def test_batch_id_rejects_different_content(tmp_path: Path) -> None:
         )
         with pytest.raises(BackendConflict, match="different operation content"):
             instruments.execute_run_hardware(run_id, changed)
+
+
+def test_batch_sequence_rejects_gap_before_hardware_effect(tmp_path: Path) -> None:
+    provider = _Provider()
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, load_config())
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+        command = _batch_command(
+            lease_id,
+            "batch-2",
+            _apply_action("source-0", effect_id="apply-2"),
+            sequence=1,
+        )
+
+        with pytest.raises(BackendConflict, match="sequence has a gap"):
+            instruments.execute_run_hardware(run_id, command)
+
+        assert driver.applied == []
 
 
 def test_unknown_driver_action_quarantines_and_discards_run_state(
@@ -2247,9 +2263,11 @@ def _batch_command(
     lease_id: str,
     operation_id: str,
     *actions: RunHardwareApply | RunHardwareInvoke | RunHardwareCollect,
+    sequence: int = 0,
 ) -> RunHardwareBatchCommand:
     return RunHardwareBatchCommand(
         lease_id=lease_id,
+        sequence=sequence,
         batch=RunHardwareBatch(
             operation_id=operation_id,
             actions=actions,

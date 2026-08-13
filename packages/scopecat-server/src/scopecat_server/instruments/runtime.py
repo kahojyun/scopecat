@@ -867,6 +867,13 @@ class InstrumentRuntime:
             provision = context.provision
             if provision is None or provision.receipt.status != "ready":
                 raise BackendConflict("run hardware is not ready")
+            next_sequence = provision.next_batch_sequence
+            if request.sequence > next_sequence:
+                self._payloads.release(payload_scope)
+                raise BackendConflict("run hardware batch sequence has a gap")
+            if request.sequence < next_sequence - 1:
+                self._payloads.release(payload_scope)
+                raise BackendConflict("run hardware batch receipt has expired")
             try:
                 canonical_request = self._payloads.canonicalize_hardware_command(
                     request,
@@ -875,13 +882,14 @@ class InstrumentRuntime:
             except CommandPayloadError:
                 self._payloads.release(payload_scope)
                 raise
-            cached = provision.batches.get(canonical_request.batch.operation_id)
-            if cached is not None:
+            if request.sequence < next_sequence:
+                cached = provision.latest_batch
+                assert cached is not None
                 cached_request, cached_receipt = cached
                 if cached_request != canonical_request:
                     self._payloads.release(payload_scope)
                     raise BackendConflict(
-                        "hardware batch id has different operation content"
+                        "run hardware batch sequence has different operation content"
                     )
                 self._payloads.release(payload_scope)
                 return cached_receipt
@@ -898,10 +906,11 @@ class InstrumentRuntime:
                     operation_id=canonical_request.batch.operation_id,
                     problems=preflight_problems,
                 )
-                provision.batches[canonical_request.batch.operation_id] = (
+                provision.latest_batch = (
                     canonical_request,
                     receipt,
                 )
+                provision.next_batch_sequence += 1
                 self._payloads.release(payload_scope)
                 return receipt
             try:
@@ -943,7 +952,10 @@ class InstrumentRuntime:
                 operation_id=canonical_request.batch.operation_id,
                 event_kind="run_hardware_batch_started",
                 status=None,
-                details={"batch": batch_evidence},
+                details={
+                    "sequence": canonical_request.sequence,
+                    "batch": batch_evidence,
+                },
             )
             values: list[RunHardwareValue] = []
             problems: list[Problem] = []
@@ -1044,10 +1056,11 @@ class InstrumentRuntime:
                 )
                 self._payloads.release(payload_scope)
                 return receipt
-            provision.batches[canonical_request.batch.operation_id] = (
+            provision.latest_batch = (
                 canonical_request,
                 receipt,
             )
+            provision.next_batch_sequence += 1
             self._payloads.release(payload_scope)
             return receipt
 
@@ -1062,6 +1075,7 @@ class InstrumentRuntime:
         effect_receipts: Sequence[JsonValue] = (),
     ) -> None:
         receipt_evidence: dict[str, JsonValue] = {
+            "sequence": request.sequence,
             "completed_effect_ids": list(completed_effect_ids),
             "effect_receipts": list(effect_receipts),
             "problem_codes": [item.code for item in receipt.problems],

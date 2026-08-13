@@ -64,13 +64,18 @@ from scopecat.daemon.wire import (
     InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
-    MeasurementAppendCommand,
+    MeasurementFlushCommand,
+    MeasurementFlushReceipt,
     MeasurementHeaderCommand,
+    MeasurementIngestCommand,
+    MeasurementIngestReceipt,
     MeasurementSealCommand,
     PayloadObjectReceipt,
     RunAdmission,
     RunAttachmentCommand,
     RunCancellationReceipt,
+    RunCoverageAdvanceCommand,
+    RunCoverageState,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -704,6 +709,23 @@ class DaemonClient:
             ExecutorLease,
         )
 
+    def get_run_coverage(self, run_id: str) -> RunCoverageState:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/coverage",
+            RunCoverageState,
+        )
+
+    def advance_run_coverage(
+        self,
+        run_id: str,
+        command: RunCoverageAdvanceCommand,
+    ) -> RunCoverageState:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/coverage/advance",
+            command,
+            RunCoverageState,
+        )
+
     def provision_run_instruments(
         self,
         run_id: str,
@@ -775,15 +797,26 @@ class DaemonClient:
             MeasurementDatasetReceipt,
         )
 
-    def append_measurements(
+    def ingest_measurements(
         self,
         run_id: str,
-        command: MeasurementAppendCommand,
-    ) -> MeasurementDatasetReceipt:
+        command: MeasurementIngestCommand,
+    ) -> MeasurementIngestReceipt:
         return self._post_model(
-            f"{_API_PREFIX}/runs/{run_id}/measurements/append",
+            f"{_API_PREFIX}/runs/{run_id}/measurements/ingest",
             command,
-            MeasurementDatasetReceipt,
+            MeasurementIngestReceipt,
+        )
+
+    def flush_measurements(
+        self,
+        run_id: str,
+        command: MeasurementFlushCommand,
+    ) -> MeasurementFlushReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/runs/{run_id}/measurements/flush",
+            command,
+            MeasurementFlushReceipt,
         )
 
     def seal_measurements(

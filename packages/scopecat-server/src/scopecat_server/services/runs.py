@@ -22,6 +22,7 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.views import (
     MeasurementArrowQuery,
+    MeasurementLivePreview,
     MeasurementPreview,
     MeasurementSlice,
     MeasurementSliceQuery,
@@ -107,6 +108,7 @@ from scopecat_server.storage.sqlite.execution import (
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
+from .active_measurements import ActiveMeasurementStore
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -218,10 +220,12 @@ class RunService:
         control: SQLiteControlPlane,
         runs: SQLiteRunRepository,
         services: ProjectStateServices,
+        active_measurements: ActiveMeasurementStore,
     ) -> None:
         self._control = control
         self._runs = runs
         self._services = services
+        self._active_measurements = active_measurements
 
     def list_runs(
         self,
@@ -660,6 +664,21 @@ class RunService:
             items=items,
             dataset_schema=terminal_schema or live_schema,
             truncated=next_offset is not None,
+        )
+
+    def measurement_live_preview(
+        self,
+        run_id: str,
+        *,
+        after_record_count: int | None,
+    ) -> MeasurementLivePreview:
+        """Return daemon-received measurement state without forcing persistence."""
+
+        with self._config_errors():
+            self._runs.read_manifest(run_id)
+        return self._active_measurements.preview(
+            run_id,
+            after_record_count=after_record_count,
         )
 
     def measurement_slice(

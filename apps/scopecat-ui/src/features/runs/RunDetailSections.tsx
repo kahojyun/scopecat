@@ -29,9 +29,17 @@ import { MeasurementDataPreview } from "./MeasurementDataPreview";
 import { canPreviewRunContent, getRunContent } from "./run-api";
 import type { MeasurementTraceQueryPlan } from "./measurement-visualization";
 
-export function ProgressCard({ run, events }: { run: ProjectRun; events: ProjectEvent[] }) {
+export function ProgressCard({
+  run,
+  events,
+  measurements,
+}: {
+  run: ProjectRun;
+  events: ProjectEvent[];
+  measurements?: MeasurementPreview;
+}) {
   const expected = run.plan.pointCount;
-  const completed = completedPoints(run, events);
+  const completed = Math.max(completedPoints(run, events), measurements?.recordCount ?? 0);
   const terminal = ["succeeded", "failed", "cancelled"].includes(run.status);
   const hasProgress = expected !== undefined && expected > 0;
   const progressValue = hasProgress
@@ -635,7 +643,7 @@ function MeasurementRecords({
     return (
       <InlineEmpty
         title="No measurement records"
-        detail="Measurements appear here as the executor commits them."
+        detail="Measurements appear here as the daemon receives them."
       />
     );
   }

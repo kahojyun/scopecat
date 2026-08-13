@@ -532,6 +532,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/measurements/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Measurement Live Preview */
+        get: operations["measurement_live_preview_api_v1_runs__run_id__measurements_live_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/measurements/preview": {
         parameters: {
             query?: never;
@@ -2352,6 +2369,28 @@ export interface components {
         };
         /** @enum {string} */
         MeasurementDType: "float64" | "int64" | "complex128" | "bool" | "string";
+        /**
+         * MeasurementLivePreview
+         * @description Latest daemon-received measurement, whether or not it is durable yet.
+         */
+        MeasurementLivePreview: {
+            /**
+             * Active
+             * @default false
+             */
+            active: boolean;
+            /**
+             * Durable Record Count
+             * @default 0
+             */
+            durable_record_count: number;
+            latest?: components["schemas"]["MeasurementRecord-Output"] | null;
+            /**
+             * Received Record Count
+             * @default 0
+             */
+            received_record_count: number;
+        };
         "MeasurementMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
         };
@@ -4599,6 +4638,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunMeasurementDatasetResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    measurement_live_preview_api_v1_runs__run_id__measurements_live_get: {
+        parameters: {
+            query?: {
+                after_record_count?: number | null;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeasurementLivePreview"];
                 };
             };
             /** @description Validation Error */

@@ -1,6 +1,11 @@
 """SQLite execution-index tables."""
 
 EXECUTION_TABLES_SQL = """
+CREATE TABLE IF NOT EXISTS execution_coverage (
+    run_id TEXT PRIMARY KEY REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,
+    completed_point_count INTEGER NOT NULL CHECK (completed_point_count >= 0)
+);
+
 CREATE TABLE IF NOT EXISTS execution_measurement_headers (
     run_id TEXT PRIMARY KEY,
     operation_id TEXT NOT NULL UNIQUE,

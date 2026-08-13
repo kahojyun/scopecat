@@ -45,6 +45,63 @@ class PreparedExecutionRecord[TModel: BaseModel]:
     stored: StoredObject
 
 
+class SQLiteRunCoverage:
+    """Persist the contiguous logical-point prefix completed by a run."""
+
+    def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
+        self._runs = runs
+        self._run_id = run_id
+
+    def read(self) -> int:
+        with self._runs.sqlite.read_transaction() as connection:
+            return self.read_in_transaction(connection)
+
+    def read_in_transaction(self, connection: sqlite3.Connection) -> int:
+        row = _one(
+            connection.execute(
+                """
+                SELECT completed_point_count
+                FROM execution_coverage
+                WHERE run_id = ?
+                """,
+                (self._run_id,),
+            )
+        )
+        return 0 if row is None else _integer(row, "completed_point_count")
+
+    def advance_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        start_index: int,
+        point_count: int,
+    ) -> tuple[int, bool]:
+        """Advance one contiguous range or accept an already covered retry."""
+
+        if start_index < 0 or point_count < 1:
+            raise ExecutionJournalConflict("coverage range must be non-empty")
+        completed = self.read_in_transaction(connection)
+        end_index = start_index + point_count
+        if end_index <= completed:
+            return completed, False
+        if start_index < completed:
+            raise ExecutionJournalConflict(
+                "coverage range partially overlaps the completed prefix"
+            )
+        if start_index > completed:
+            raise ExecutionJournalConflict("coverage range is not the next prefix")
+        connection.execute(
+            """
+            INSERT INTO execution_coverage(run_id, completed_point_count)
+            VALUES (?, ?)
+            ON CONFLICT(run_id) DO UPDATE SET
+                completed_point_count = excluded.completed_point_count
+            """,
+            (self._run_id, end_index),
+        )
+        return end_index, True
+
+
 class SQLiteExecutionJournal:
     """Append effect transitions to the canonical durable-event stream."""
 

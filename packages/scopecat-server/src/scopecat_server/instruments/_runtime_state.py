@@ -135,14 +135,14 @@ class RunFinalized:
 type RunFinalization = RunFinalizing | RunFinalized
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class RunProvision:
+    """Provisioned run state with one bounded transport-retry receipt."""
+
     command: RunInstrumentProvisionCommand
     receipt: RunInstrumentProvisionReceipt
-    batches: dict[
-        str,
-        tuple[RunHardwareBatchCommand, RunHardwareBatchReceipt],
-    ] = field(default_factory=dict)
+    next_batch_sequence: int = 0
+    latest_batch: tuple[RunHardwareBatchCommand, RunHardwareBatchReceipt] | None = None
 
 
 @dataclass(slots=True)

@@ -23,6 +23,7 @@ from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 
 from scopecat_server.command_payloads import CommandPayloadService
+from scopecat_server.services.active_measurements import ActiveMeasurementStore
 from scopecat_server.services.admission import AdmissionService
 from scopecat_server.services.application import DaemonApplication
 from scopecat_server.services.config import ConfigService
@@ -114,6 +115,7 @@ class LocalDaemonRuntime:
                 runs=runs,
                 config_registry=config_registry.read_unit_of_work,
             )
+            active_measurements = ActiveMeasurementStore()
             instrument_actors = InstrumentActorRegistry()
             config_service = ConfigService(
                 control=control,
@@ -126,6 +128,7 @@ class LocalDaemonRuntime:
                 control=control,
                 runs=runs,
                 services=services,
+                active_measurements=active_measurements,
             )
             admission = AdmissionService(
                 control=control,
@@ -146,6 +149,7 @@ class LocalDaemonRuntime:
                 control=control,
                 runs=runs,
                 instruments=instruments,
+                active_measurements=active_measurements,
                 lease_ttl=lease_ttl,
             )
             project_id = _project_id(self.project_root)
