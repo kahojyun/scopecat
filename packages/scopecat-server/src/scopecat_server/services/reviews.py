@@ -19,8 +19,8 @@ from scopecat.daemon.reviews import (
     ReviewSessionListView,
     ReviewSessionView,
     ReviewWorkItem,
+    RunDomainInspectionEvent,
     RunInspectionView,
-    RunPointInspectionEvent,
 )
 
 from ..errors import BackendConflict, BackendNotFound
@@ -41,7 +41,7 @@ class _ReviewSession:
 
 @dataclass(slots=True)
 class _RunInspectionFeed:
-    items: deque[RunPointInspectionEvent] = field(
+    items: deque[RunDomainInspectionEvent] = field(
         default_factory=lambda: deque(maxlen=_RUN_INSPECTION_EVENT_LIMIT)
     )
     total_proposal_count: int = 0
@@ -155,7 +155,7 @@ class ReviewService:
     def append_run_inspection(
         self,
         run_id: str,
-        event: RunPointInspectionEvent,
+        event: RunDomainInspectionEvent,
     ) -> RunInspectionView:
         with self._lock:
             feed = self._run_inspections.setdefault(run_id, _RunInspectionFeed())

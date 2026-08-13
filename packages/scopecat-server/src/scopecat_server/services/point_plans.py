@@ -3,24 +3,23 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import cast
 
+from scopecat.adaptive_domains import ResolvedDomainFragment
 from scopecat.control.models import ControlRun, DurableEventInput
 from scopecat.daemon.points import (
-    ResolvedRunPointSelectionView,
-    RunPointCoordinateValue,
-    RunPointDecisionCommand,
-    RunPointDecisionView,
-    RunPointEnqueueCommand,
+    ResolvedRunDomainView,
+    RunDomainDecisionCommand,
+    RunDomainDecisionView,
+    RunDomainEnqueueCommand,
+    RunDomainFragmentView,
+    RunDomainQueueEntryView,
+    RunDomainQueueView,
+    RunDomainResolveCommand,
     RunPointPlanCloseCommand,
     RunPointPlanView,
-    RunPointQueueEntryView,
-    RunPointQueueView,
-    RunPointResolveCommand,
 )
 from scopecat.planning.point_selection import (
-    ResolvedPointSelection,
-    resolve_point_selection,
+    resolve_domain_fragment,
 )
 
 from scopecat_server.storage.sqlite.control_plane import (
@@ -80,14 +79,14 @@ class RunPointPlanService:
         assert plan is not None, "admitted run is missing its point plan"
         return plan
 
-    def queue(self, run_id: str) -> RunPointQueueView:
+    def queue(self, run_id: str) -> RunDomainQueueView:
         self._require_run(run_id)
         return self._ledger(run_id).queue()
 
-    def next_queued(self, run_id: str) -> RunPointQueueView:
+    def next_queued(self, run_id: str) -> RunDomainQueueView:
         self._require_run(run_id)
         entry = self._ledger(run_id).next_pending()
-        return RunPointQueueView(
+        return RunDomainQueueView(
             run_id=run_id,
             items=() if entry is None else (entry,),
         )
@@ -95,34 +94,28 @@ class RunPointPlanService:
     def enqueue(
         self,
         run_id: str,
-        command: RunPointEnqueueCommand,
-    ) -> RunPointQueueEntryView:
+        command: RunDomainEnqueueCommand,
+    ) -> RunDomainQueueEntryView:
         try:
             with self._control.write_transaction() as connection:
                 run = self._control.get_run_in_transaction(connection, run_id)
                 if run.state != "leased":
                     raise ControlPlaneConflict(
-                        "operator points can be queued only while a run is active"
+                        "operator domains can be queued only while a run is active"
                     )
-                if set(command.coordinates) != set(run.admission.plan.coordinate_ids):
-                    raise ControlPlaneConflict(
-                        "queued point coordinates do not match the admitted axes"
-                    )
-                resolved = self._resolve(run, command)
+                resolved, region_count = self._resolve(run, command)
                 entry, created = self._ledger(run_id).enqueue_in_transaction(
                     connection,
                     command,
-                    resolved_coordinates=cast(
-                        "dict[str, RunPointCoordinateValue]",
-                        dict(resolved.coordinates),
-                    ),
+                    resolved_fragment=resolved,
+                    region_count=region_count,
                 )
                 if created:
                     self._control.append_event_in_transaction(
                         connection,
                         DurableEventInput(
                             run_id=run_id,
-                            kind="operator_point_requested",
+                            kind="operator_domain_requested",
                             payload={
                                 "queue_index": entry.queue_index,
                                 "request_id": entry.request.request_id,
@@ -138,31 +131,31 @@ class RunPointPlanService:
     def resolve(
         self,
         run_id: str,
-        command: RunPointResolveCommand,
-    ) -> ResolvedRunPointSelectionView:
+        command: RunDomainResolveCommand,
+    ) -> ResolvedRunDomainView:
         run = self._require_run(run_id)
         try:
-            resolved = self._resolve(run, command)
+            resolved, region_count = self._resolve(run, command)
         except ControlPlaneConflict as error:
             raise BackendConflict(str(error)) from error
-        return ResolvedRunPointSelectionView(
+        return ResolvedRunDomainView(
             coordinate_mode=command.coordinate_mode,
-            requested_coordinates=command.coordinates,
-            coordinates=cast(
-                "dict[str, RunPointCoordinateValue]",
-                dict(resolved.coordinates),
-            ),
-            sampled_point_index=resolved.sampled_point_index,
+            region_scope=command.region_scope,
+            region_ids=command.region_ids,
+            requested_fragment=command.fragment,
+            fragment=RunDomainFragmentView.from_fragment(resolved),
+            region_count=region_count,
+            total_point_count=region_count * resolved.point_count,
         )
 
     def append_decision_in_transaction(
         self,
         connection: sqlite3.Connection,
         run_id: str,
-        command: RunPointDecisionCommand,
+        command: RunDomainDecisionCommand,
         *,
         completed_point_count: int,
-    ) -> RunPointDecisionView:
+    ) -> RunDomainDecisionView:
         return self._ledger(run_id).append_decision_in_transaction(
             connection,
             command,
@@ -205,16 +198,35 @@ class RunPointPlanService:
     @staticmethod
     def _resolve(
         run: ControlRun,
-        command: RunPointEnqueueCommand | RunPointResolveCommand,
-    ) -> ResolvedPointSelection:
+        command: RunDomainEnqueueCommand | RunDomainResolveCommand,
+    ) -> tuple[ResolvedDomainFragment, int]:
         try:
-            return resolve_point_selection(
-                run.admission.plan.coordinates,
-                command.coordinates,
-                mode=command.coordinate_mode,
-                sampled_points=run.admission.plan.sampled_points,
-                sampled_points_truncated=run.admission.plan.sampled_points_truncated,
+            plan = run.admission.plan
+            specs = tuple(
+                spec
+                for spec in plan.coordinates
+                if spec.id in set(plan.adaptive_coordinate_ids)
             )
+            resolved = resolve_domain_fragment(
+                specs,
+                command.fragment.fragment(),
+                mode=command.coordinate_mode,
+            )
+            available_region_ids = {region.id for region in plan.adaptive_regions}
+            if command.region_scope == "selected":
+                unknown = sorted(set(command.region_ids) - available_region_ids)
+                if unknown:
+                    raise ValueError("unknown adaptive regions: " + ", ".join(unknown))
+                region_count = len(command.region_ids)
+            elif command.region_scope == "current":
+                if command.region_ids:
+                    raise ValueError("current domain scope cannot select region ids")
+                region_count = 1
+            else:
+                if command.region_ids:
+                    raise ValueError("all domain scope cannot select region ids")
+                region_count = plan.adaptive_region_count
+            return resolved, region_count
         except ValueError as error:
             raise ControlPlaneConflict(str(error)) from error
 

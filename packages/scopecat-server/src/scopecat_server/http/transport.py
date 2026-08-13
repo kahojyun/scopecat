@@ -22,15 +22,15 @@ from scopecat.daemon.endpoint import (
     DAEMON_SHUTDOWN_TOKEN_HEADER,
 )
 from scopecat.daemon.points import (
-    ResolvedRunPointSelectionView,
-    RunPointDecisionCommand,
-    RunPointDecisionView,
-    RunPointEnqueueCommand,
+    ResolvedRunDomainView,
+    RunDomainDecisionCommand,
+    RunDomainDecisionView,
+    RunDomainEnqueueCommand,
+    RunDomainQueueEntryView,
+    RunDomainQueueView,
+    RunDomainResolveCommand,
     RunPointPlanCloseCommand,
     RunPointPlanView,
-    RunPointQueueEntryView,
-    RunPointQueueView,
-    RunPointResolveCommand,
 )
 from scopecat.daemon.reviews import (
     ReviewCompileCommand,
@@ -746,11 +746,11 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         return application.point_plans.read(run_id)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/decisions")
-    def append_run_point_decision(
+    def append_run_domain_decision(
         run_id: str,
-        command: RunPointDecisionCommand,
-    ) -> RunPointDecisionView:
-        return application.executor.append_run_point_decision(run_id, command)
+        command: RunDomainDecisionCommand,
+    ) -> RunDomainDecisionView:
+        return application.executor.append_run_domain_decision(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/close")
     def close_run_point_plan(
@@ -760,25 +760,25 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         return application.executor.close_run_point_plan(run_id, command)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/queue")
-    def get_run_point_queue(run_id: str) -> RunPointQueueView:
+    def get_run_domain_queue(run_id: str) -> RunDomainQueueView:
         return application.point_plans.queue(run_id)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/queue/next")
-    def get_next_queued_run_point(run_id: str) -> RunPointQueueView:
+    def get_next_queued_run_domain(run_id: str) -> RunDomainQueueView:
         return application.point_plans.next_queued(run_id)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/queue")
-    def enqueue_run_point(
+    def enqueue_run_domain(
         run_id: str,
-        command: RunPointEnqueueCommand,
-    ) -> RunPointQueueEntryView:
+        command: RunDomainEnqueueCommand,
+    ) -> RunDomainQueueEntryView:
         return application.point_plans.enqueue(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/resolve")
-    def resolve_run_point(
+    def resolve_run_domain(
         run_id: str,
-        command: RunPointResolveCommand,
-    ) -> ResolvedRunPointSelectionView:
+        command: RunDomainResolveCommand,
+    ) -> ResolvedRunDomainView:
         return application.point_plans.resolve(run_id, command)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/inspections")

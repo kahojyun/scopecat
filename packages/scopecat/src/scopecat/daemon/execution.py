@@ -12,17 +12,18 @@ from pydantic import BaseModel, JsonValue, TypeAdapter
 
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.points import (
+    AcceptedRunPointView,
+    RunDomainDecisionCommand,
+    RunDomainProposalAttemptView,
     RunPointCoordinateValue,
-    RunPointDecisionCommand,
     RunPointPlanCloseCommand,
-    RunPointProposalAttemptView,
 )
 from scopecat.daemon.reviews import (
     ReviewCoordinateValue,
     ReviewInspectionView,
     ReviewPointView,
+    RunDomainInspectionEvent,
     RunInspectionAppendCommand,
-    RunPointInspectionEvent,
 )
 from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
@@ -44,16 +45,11 @@ from scopecat.daemon.wire import (
     TerminalRunCommitCommand,
 )
 from scopecat.execution.program import RunPointInspection
-from scopecat.execution.services import ExecutionSession, QueuedOperatorPointRequest
+from scopecat.execution.services import ExecutionSession, QueuedOperatorDomainRequest
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
-from scopecat.kernel.points import (
-    AcceptedRunPoint,
-    OperatorPointRequest,
-    PointProposalAttempt,
-)
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import Problem
-from scopecat.kernel.value_data import CellValue
-from scopecat.optimization import PointProposalDecision
+from scopecat.optimization import DomainProposalDecision
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
@@ -124,7 +120,7 @@ def daemon_execution_session(
     )
     instruments = _DaemonRunInstrumentHost(authority)
     coverage = _DaemonRunCoverage(authority)
-    point_proposals = _DaemonRunPointProposals(authority)
+    domain_proposals = _DaemonRunDomainProposals(authority)
 
     def begin() -> None:
         authority.start()
@@ -139,7 +135,7 @@ def daemon_execution_session(
         measurements=_DaemonMeasurementRepository(authority),
         instruments=instruments,
         coverage=coverage,
-        point_proposals=point_proposals,
+        domain_proposals=domain_proposals,
         cancellation_requested=authority.cancellation_requested,
         effects_ready=lambda: instruments.provisioned,
     )
@@ -315,17 +311,17 @@ class _DaemonRunCoverage:
         self._last_send_at = monotonic() if now is None else now
 
 
-class _DaemonRunPointProposals:
-    """Persist point decisions and publish bounded transient inspections."""
+class _DaemonRunDomainProposals:
+    """Persist domain decisions and publish bounded transient inspections."""
 
     def __init__(self, authority: _LeaseAuthority) -> None:
         self._authority = authority
 
-    def next_queued(self) -> QueuedOperatorPointRequest | None:
+    def next_queued(self) -> QueuedOperatorDomainRequest | None:
         pending = next(
             (
                 entry
-                for entry in self._authority.client.get_next_queued_run_point(
+                for entry in self._authority.client.get_next_queued_run_domain(
                     self._authority.run_id
                 ).items
                 if entry.status == "pending"
@@ -334,39 +330,43 @@ class _DaemonRunPointProposals:
         )
         if pending is None:
             return None
-        return QueuedOperatorPointRequest(
-            request=OperatorPointRequest(
-                request_id=pending.request.request_id,
-                coordinate_mode=pending.request.coordinate_mode,
-                requested_coordinates=cast(
-                    "dict[str, CellValue]",
-                    pending.request.requested_coordinates,
-                ),
-                coordinates=cast(
-                    "dict[str, CellValue]",
-                    pending.request.coordinates,
-                ),
-            ),
-        )
+        return QueuedOperatorDomainRequest(request=pending.request.request())
 
     def append(
         self,
-        decision: PointProposalDecision,
-        inspection: RunPointInspection | None,
+        decision: DomainProposalDecision,
+        inspections: tuple[RunPointInspection, ...],
         *,
         operator_request_id: str | None = None,
     ) -> None:
-        durable = self._authority.client.append_run_point_decision(
+        accepted_points = tuple(
+            AcceptedRunPointView(
+                point_index=point.ordinal,
+                coordinates=cast(
+                    "dict[str, RunPointCoordinateValue]",
+                    dict(point.coordinates),
+                ),
+                proposal_fingerprint=cast("str", point.proposal_fingerprint),
+                source=point.source,
+                region_id=cast("str", point.region_id),
+                domain_proposal_fingerprint=cast(
+                    "str", point.domain_proposal_fingerprint
+                ),
+            )
+            for point in decision.accepted_points
+        )
+        durable = self._authority.client.append_run_domain_decision(
             self._authority.run_id,
-            RunPointDecisionCommand(
+            RunDomainDecisionCommand(
                 lease_id=self._authority.fence(),
-                operation_id=_point_decision_operation_id(
+                operation_id=_domain_decision_operation_id(
                     decision,
                     operator_request_id=operator_request_id,
                 ),
                 operator_request_id=operator_request_id,
-                proposal=_point_proposal_attempt(decision.candidate),
+                proposal=RunDomainProposalAttemptView.from_proposal(decision.proposal),
                 outcome=decision.outcome,
+                accepted_points=accepted_points,
                 reason=decision.reason,
             ),
         )
@@ -374,30 +374,25 @@ class _DaemonRunPointProposals:
             raise ValueError("daemon assigned a different proposal index")
         if durable.outcome != decision.outcome:
             raise ValueError("daemon recorded a different proposal outcome")
-        if decision.accepted_point is not None:
-            accepted = durable.accepted_point
-            if (
-                accepted is None
-                or accepted.point_index != decision.accepted_point.ordinal
-            ):
-                raise ValueError("daemon assigned a different accepted point ordinal")
+        if durable.accepted_points != accepted_points:
+            raise ValueError("daemon recorded different accepted domain points")
         with suppress(Exception):
             self._authority.client.append_run_inspection(
                 self._authority.run_id,
                 RunInspectionAppendCommand(
                     lease_id=self._authority.fence(),
-                    event=RunPointInspectionEvent(
+                    event=RunDomainInspectionEvent(
                         proposal_index=durable.proposal_index,
                         occurred_at=durable.occurred_at,
-                        candidate=_review_point(decision.candidate),
+                        fragment=durable.proposal.fragment,
+                        region_ids=durable.proposal.region_ids,
+                        source=durable.proposal.source,
                         outcome=durable.outcome,
-                        accepted_point=(
-                            None
-                            if decision.accepted_point is None
-                            else _review_point(decision.accepted_point)
+                        accepted_points=tuple(
+                            _review_point(point) for point in decision.accepted_points
                         ),
                         reason=durable.reason,
-                        inspections=_review_inspections(inspection),
+                        inspections=_review_inspections(inspections),
                     ),
                 ),
             )
@@ -603,9 +598,9 @@ class _DaemonRunInstrumentHost:
         return receipt
 
 
-def _review_point(point: PointProposalAttempt | AcceptedRunPoint) -> ReviewPointView:
+def _review_point(point: AcceptedRunPoint) -> ReviewPointView:
     return ReviewPointView(
-        point_index=(point.ordinal if isinstance(point, AcceptedRunPoint) else None),
+        point_index=point.ordinal,
         coordinates=cast(
             "dict[str, ReviewCoordinateValue]",
             dict(point.coordinates),
@@ -615,31 +610,17 @@ def _review_point(point: PointProposalAttempt | AcceptedRunPoint) -> ReviewPoint
     )
 
 
-def _point_proposal_attempt(
-    proposal: PointProposalAttempt,
-) -> RunPointProposalAttemptView:
-    return RunPointProposalAttemptView(
-        coordinates=cast(
-            "dict[str, RunPointCoordinateValue]",
-            dict(proposal.coordinates),
-        ),
-        proposal_fingerprint=proposal.proposal_fingerprint,
-        source=proposal.source,
-        based_on_completed_point_count=proposal.based_on_completed_point_count,
-    )
-
-
-def _point_decision_operation_id(
-    decision: PointProposalDecision,
+def _domain_decision_operation_id(
+    decision: DomainProposalDecision,
     *,
     operator_request_id: str | None,
 ) -> str:
-    return "point-decision." + stable_content_hash(
+    return "domain-decision." + stable_content_hash(
         content_fingerprint(
             {
-                "schema": "scopecat.point_decision_operation.v1",
+                "schema": "scopecat.domain_decision_operation.v1",
                 "proposal_index": decision.proposal_index,
-                "proposal_fingerprint": decision.candidate.proposal_fingerprint,
+                "proposal_fingerprint": decision.proposal.proposal_fingerprint,
                 "operator_request_id": operator_request_id,
                 "outcome": decision.outcome,
                 "reason": decision.reason,
@@ -665,26 +646,25 @@ def _point_plan_close_operation_id(
 
 
 def _review_inspections(
-    inspection: RunPointInspection | None,
+    inspections: tuple[RunPointInspection, ...],
 ) -> tuple[ReviewInspectionView, ...]:
-    if inspection is None:
-        return ()
     projected: list[ReviewInspectionView] = []
-    for job in inspection.jobs:
-        content = job.execution.inspection
-        if content is None:
-            continue
-        intent = job.execution.invocation.intent
-        projected.append(
-            ReviewInspectionView(
-                operation_id=job.id,
-                point_index=inspection.point_index,
-                target_id=intent.target_id,
-                artifact_id=intent.artifact_id,
-                artifact_fingerprint=intent.artifact_fingerprint,
-                content=content,
+    for inspection in inspections:
+        for job in inspection.jobs:
+            content = job.execution.inspection
+            if content is None:
+                continue
+            intent = job.execution.invocation.intent
+            projected.append(
+                ReviewInspectionView(
+                    operation_id=job.id,
+                    point_index=inspection.point_index,
+                    target_id=intent.target_id,
+                    artifact_id=intent.artifact_id,
+                    artifact_fingerprint=intent.artifact_fingerprint,
+                    content=content,
+                )
             )
-        )
     return tuple(projected)
 
 

@@ -13,16 +13,15 @@ from typing import cast
 
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
+from scopecat.adaptive_domains import ResolvedDomainFragment
 from scopecat.daemon.points import (
-    AcceptedRunPointView,
-    RunPointCoordinateValue,
-    RunPointDecisionCommand,
-    RunPointDecisionView,
-    RunPointEnqueueCommand,
+    RunDomainDecisionCommand,
+    RunDomainDecisionView,
+    RunDomainEnqueueCommand,
+    RunDomainQueueEntryView,
+    RunDomainQueueView,
     RunPointPlanCloseCommand,
     RunPointPlanView,
-    RunPointQueueEntryView,
-    RunPointQueueView,
 )
 from scopecat.records.execution_journal import (
     ExecutionTransition,
@@ -174,14 +173,14 @@ class SQLiteRunPointLedger:
             ),
         )
 
-    def queue(self) -> RunPointQueueView:
+    def queue(self) -> RunDomainQueueView:
         with self._runs.sqlite.read_transaction() as connection:
             return self.queue_in_transaction(connection)
 
     def queue_in_transaction(
         self,
         connection: sqlite3.Connection,
-    ) -> RunPointQueueView:
+    ) -> RunDomainQueueView:
         rows = _all(
             connection.execute(
                 """
@@ -193,15 +192,15 @@ class SQLiteRunPointLedger:
                 (self._run_id,),
             )
         )
-        return RunPointQueueView(
+        return RunDomainQueueView(
             run_id=self._run_id,
             items=tuple(
-                RunPointQueueEntryView.model_validate_json(_text(row, "entry_json"))
+                RunDomainQueueEntryView.model_validate_json(_text(row, "entry_json"))
                 for row in rows
             ),
         )
 
-    def next_pending(self) -> RunPointQueueEntryView | None:
+    def next_pending(self) -> RunDomainQueueEntryView | None:
         with self._runs.sqlite.read_transaction() as connection:
             row = _one(
                 connection.execute(
@@ -218,17 +217,21 @@ class SQLiteRunPointLedger:
         return (
             None
             if row is None
-            else RunPointQueueEntryView.model_validate_json(_text(row, "entry_json"))
+            else RunDomainQueueEntryView.model_validate_json(_text(row, "entry_json"))
         )
 
     def enqueue_in_transaction(
         self,
         connection: sqlite3.Connection,
-        command: RunPointEnqueueCommand,
+        command: RunDomainEnqueueCommand,
         *,
-        resolved_coordinates: dict[str, RunPointCoordinateValue],
-    ) -> tuple[RunPointQueueEntryView, bool]:
-        request = command.point_request(resolved_coordinates)
+        resolved_fragment: ResolvedDomainFragment,
+        region_count: int,
+    ) -> tuple[RunDomainQueueEntryView, bool]:
+        request = command.domain_request(
+            resolved_fragment,
+            region_count=region_count,
+        )
         existing = _one(
             connection.execute(
                 """
@@ -240,12 +243,12 @@ class SQLiteRunPointLedger:
             )
         )
         if existing is not None:
-            entry = RunPointQueueEntryView.model_validate_json(
+            entry = RunDomainQueueEntryView.model_validate_json(
                 _text(existing, "entry_json")
             )
             if entry.request != request:
                 raise ExecutionJournalConflict(
-                    "operator point request conflicts with durable state"
+                    "operator domain request conflicts with durable state"
                 )
             return entry, False
         plan = self.read_in_transaction(connection)
@@ -253,18 +256,16 @@ class SQLiteRunPointLedger:
             raise ExecutionJournalConflict("point plan is not initialized")
         if plan.plan_closed:
             raise ExecutionJournalConflict("point plan is already closed")
-        pending_count = _scalar_int(
-            connection.execute(
-                """
-                SELECT COUNT(*)
-                FROM execution_point_queue
-                WHERE run_id = ? AND status = 'pending'
-                """,
-                (self._run_id,),
-            )
+        pending_count = sum(
+            entry.request.request().total_point_count
+            for entry in self.queue_in_transaction(connection).items
+            if entry.status == "pending"
         )
-        if pending_count >= plan.point_limit - plan.accepted_point_count:
-            raise ExecutionJournalConflict("point queue exceeds the remaining budget")
+        if (
+            pending_count + request.request().total_point_count
+            > plan.point_limit - plan.accepted_point_count
+        ):
+            raise ExecutionJournalConflict("domain queue exceeds the remaining budget")
         queue_index = _scalar_int(
             connection.execute(
                 """
@@ -275,7 +276,7 @@ class SQLiteRunPointLedger:
                 (self._run_id,),
             )
         )
-        entry = RunPointQueueEntryView(
+        entry = RunDomainQueueEntryView(
             queue_index=queue_index,
             occurred_at=datetime.now(UTC),
             request=request,
@@ -359,10 +360,11 @@ class SQLiteRunPointLedger:
     def append_decision_in_transaction(
         self,
         connection: sqlite3.Connection,
-        command: RunPointDecisionCommand,
+        command: RunDomainDecisionCommand,
         *,
         completed_point_count: int,
-    ) -> RunPointDecisionView:
+    ) -> RunDomainDecisionView:
+        del completed_point_count
         existing = _one(
             connection.execute(
                 """
@@ -374,12 +376,13 @@ class SQLiteRunPointLedger:
             )
         )
         if existing is not None:
-            decision = RunPointDecisionView.model_validate_json(
+            decision = RunDomainDecisionView.model_validate_json(
                 _text(existing, "decision_json")
             )
             if (
                 decision.proposal != command.proposal
                 or decision.outcome != command.outcome
+                or decision.accepted_points != command.accepted_points
                 or decision.reason != command.reason
                 or decision.operator_request_id != command.operator_request_id
             ):
@@ -396,35 +399,37 @@ class SQLiteRunPointLedger:
             connection,
             command,
         )
-        based_on = command.proposal.based_on_completed_point_count
-        if (
-            command.outcome == "accepted"
-            and based_on is not None
-            and based_on != completed_point_count
-        ):
-            raise ExecutionJournalConflict(
-                "point decision is based on stale completed coverage"
-            )
-        accepted_point = None
+        accepted_points = command.accepted_points
         if command.outcome == "accepted":
-            if plan.accepted_point_count >= plan.point_limit:
+            if plan.accepted_point_count + len(accepted_points) > plan.point_limit:
                 raise ExecutionJournalConflict(
-                    "point decision exceeds the point budget"
+                    "domain decision exceeds the point budget"
                 )
-            accepted_point = AcceptedRunPointView(
-                point_index=plan.accepted_point_count,
-                coordinates=command.proposal.coordinates,
-                proposal_fingerprint=command.proposal.proposal_fingerprint,
-                source=command.proposal.source,
-            )
-        decision = RunPointDecisionView(
+            if tuple(point.point_index for point in accepted_points) != tuple(
+                range(
+                    plan.accepted_point_count,
+                    plan.accepted_point_count + len(accepted_points),
+                )
+            ):
+                raise ExecutionJournalConflict(
+                    "accepted domain points must extend the durable point prefix"
+                )
+            if any(
+                point.domain_proposal_fingerprint
+                != command.proposal.proposal_fingerprint
+                for point in accepted_points
+            ):
+                raise ExecutionJournalConflict(
+                    "accepted points do not match their domain proposal"
+                )
+        decision = RunDomainDecisionView(
             operation_id=command.operation_id,
             operator_request_id=command.operator_request_id,
             proposal_index=plan.decision_count,
             occurred_at=datetime.now(UTC),
             proposal=command.proposal,
             outcome=command.outcome,
-            accepted_point=accepted_point,
+            accepted_points=accepted_points,
             reason=command.reason,
         )
         connection.execute(
@@ -441,28 +446,31 @@ class SQLiteRunPointLedger:
                 decision.model_dump_json(),
             ),
         )
-        if accepted_point is not None:
-            connection.execute(
+        if accepted_points:
+            connection.executemany(
                 """
                 INSERT INTO execution_run_points(
                     run_id, point_index, decision_operation_id, point_json
                 )
                 VALUES (?, ?, ?, ?)
                 """,
-                (
-                    self._run_id,
-                    accepted_point.point_index,
-                    decision.operation_id,
-                    accepted_point.model_dump_json(),
+                tuple(
+                    (
+                        self._run_id,
+                        accepted_point.point_index,
+                        decision.operation_id,
+                        accepted_point.model_dump_json(),
+                    )
+                    for accepted_point in accepted_points
                 ),
             )
             connection.execute(
                 """
                 UPDATE execution_point_plans
-                SET accepted_point_count = accepted_point_count + 1
+                SET accepted_point_count = accepted_point_count + ?
                 WHERE run_id = ?
                 """,
-                (self._run_id,),
+                (len(accepted_points), self._run_id),
             )
         if queued_entry is not None:
             self._resolve_queue_entry_in_transaction(
@@ -475,8 +483,8 @@ class SQLiteRunPointLedger:
     def _queued_entry_for_decision_in_transaction(
         self,
         connection: sqlite3.Connection,
-        command: RunPointDecisionCommand,
-    ) -> RunPointQueueEntryView | None:
+        command: RunDomainDecisionCommand,
+    ) -> RunDomainQueueEntryView | None:
         if command.operator_request_id is None:
             return None
         row = _one(
@@ -490,30 +498,33 @@ class SQLiteRunPointLedger:
             )
         )
         if row is None:
-            raise ExecutionJournalConflict("operator point request does not exist")
-        entry = RunPointQueueEntryView.model_validate_json(_text(row, "entry_json"))
+            raise ExecutionJournalConflict("operator domain request does not exist")
+        entry = RunDomainQueueEntryView.model_validate_json(_text(row, "entry_json"))
         if entry.status != "pending":
-            raise ExecutionJournalConflict("operator point request is already resolved")
-        if entry.request.coordinates != command.proposal.coordinates:
             raise ExecutionJournalConflict(
-                "point proposal does not match its operator request"
+                "operator domain request is already resolved"
+            )
+        if entry.request.fragment != command.proposal.fragment:
+            raise ExecutionJournalConflict(
+                "domain proposal does not match its operator request"
             )
         return entry
 
     def _resolve_queue_entry_in_transaction(
         self,
         connection: sqlite3.Connection,
-        entry: RunPointQueueEntryView,
-        decision: RunPointDecisionView,
+        entry: RunDomainQueueEntryView,
+        decision: RunDomainDecisionView,
     ) -> None:
-        accepted = decision.accepted_point
-        resolved = RunPointQueueEntryView(
+        accepted = decision.accepted_points
+        resolved = RunDomainQueueEntryView(
             queue_index=entry.queue_index,
             occurred_at=entry.occurred_at,
             request=entry.request,
             status=decision.outcome,
             decision_operation_id=decision.operation_id,
-            accepted_point_index=(None if accepted is None else accepted.point_index),
+            accepted_point_start=(None if not accepted else accepted[0].point_index),
+            accepted_point_count=len(accepted),
             reason=decision.reason,
         )
         connection.execute(
@@ -626,7 +637,7 @@ class SQLiteRunPointLedger:
             if entry.status == "pending"
         )
         for entry in pending:
-            cancelled = RunPointQueueEntryView(
+            cancelled = RunDomainQueueEntryView(
                 queue_index=entry.queue_index,
                 occurred_at=entry.occurred_at,
                 request=entry.request,

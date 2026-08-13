@@ -18,8 +18,8 @@ from scopecat.control.models import (
     ExecutorLease as ControlExecutorLease,
 )
 from scopecat.daemon.points import (
-    RunPointDecisionCommand,
-    RunPointDecisionView,
+    RunDomainDecisionCommand,
+    RunDomainDecisionView,
     RunPointPlanCloseCommand,
     RunPointPlanView,
 )
@@ -173,11 +173,11 @@ class ExecutorService:
             completed_point_count=completed,
         )
 
-    def append_run_point_decision(
+    def append_run_domain_decision(
         self,
         run_id: str,
-        command: RunPointDecisionCommand,
-    ) -> RunPointDecisionView:
+        command: RunDomainDecisionCommand,
+    ) -> RunDomainDecisionView:
         coverage = SQLiteRunCoverage(self._runs, run_id=run_id)
         with self.fenced_write(run_id, token=command.lease_id) as connection:
             completed = coverage.read_in_transaction(connection)

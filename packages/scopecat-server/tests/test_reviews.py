@@ -5,7 +5,9 @@ from pathlib import Path
 
 import httpx2
 from fastapi.testclient import TestClient
+from scopecat.adaptive_domains import ResolvedDomainFragment
 from scopecat.daemon.client import DaemonClient
+from scopecat.daemon.points import RunDomainFragmentView
 from scopecat.daemon.reviews import (
     ReviewCompilationResult,
     ReviewCompileCommand,
@@ -13,7 +15,7 @@ from scopecat.daemon.reviews import (
     ReviewCoordinateSpec,
     ReviewPointView,
     ReviewSessionCreateCommand,
-    RunPointInspectionEvent,
+    RunDomainInspectionEvent,
 )
 from scopecat.kernel.quantity import Quantity
 
@@ -93,14 +95,14 @@ def test_run_inspection_feed_exposes_optimizer_decisions(tmp_path: Path) -> None
         TestClient(runtime.app()) as transport,
         _daemon_client(transport) as client,
     ):
-        event = RunPointInspectionEvent(
+        event = RunDomainInspectionEvent(
             proposal_index=0,
             occurred_at=datetime.now(UTC),
-            candidate=ReviewPointView(
-                coordinates={"beta": Quantity(0.137, "ns")},
-                proposal_fingerprint="sha256:proposal",
-                source="optimizer",
+            fragment=RunDomainFragmentView.from_fragment(
+                ResolvedDomainFragment.points(({"beta": Quantity(0.137, "ns")},))
             ),
+            region_ids=("region-0",),
+            source="optimizer",
             outcome="rejected",
             reason="proposal used stale observations",
         )

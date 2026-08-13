@@ -18,13 +18,13 @@ from scopecat.control.models import (
     EventPage,
 )
 from scopecat.daemon.points import (
-    RunPointDecisionCommand,
-    RunPointDecisionView,
-    RunPointEnqueueCommand,
+    RunDomainDecisionCommand,
+    RunDomainDecisionView,
+    RunDomainEnqueueCommand,
+    RunDomainQueueEntryView,
+    RunDomainQueueView,
     RunPointPlanCloseCommand,
     RunPointPlanView,
-    RunPointQueueEntryView,
-    RunPointQueueView,
 )
 from scopecat.daemon.reviews import (
     ReviewCompileCommand,
@@ -839,15 +839,15 @@ class DaemonClient:
             RunPointPlanView,
         )
 
-    def append_run_point_decision(
+    def append_run_domain_decision(
         self,
         run_id: str,
-        command: RunPointDecisionCommand,
-    ) -> RunPointDecisionView:
+        command: RunDomainDecisionCommand,
+    ) -> RunDomainDecisionView:
         return self._post_idempotent_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/decisions",
             command,
-            RunPointDecisionView,
+            RunDomainDecisionView,
         )
 
     def close_run_point_plan(
@@ -861,27 +861,27 @@ class DaemonClient:
             RunPointPlanView,
         )
 
-    def get_run_point_queue(self, run_id: str) -> RunPointQueueView:
+    def get_run_domain_queue(self, run_id: str) -> RunDomainQueueView:
         return self._get_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/queue",
-            RunPointQueueView,
+            RunDomainQueueView,
         )
 
-    def get_next_queued_run_point(self, run_id: str) -> RunPointQueueView:
+    def get_next_queued_run_domain(self, run_id: str) -> RunDomainQueueView:
         return self._get_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/queue/next",
-            RunPointQueueView,
+            RunDomainQueueView,
         )
 
-    def enqueue_run_point(
+    def enqueue_run_domain(
         self,
         run_id: str,
-        command: RunPointEnqueueCommand,
-    ) -> RunPointQueueEntryView:
+        command: RunDomainEnqueueCommand,
+    ) -> RunDomainQueueEntryView:
         return self._post_idempotent_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/queue",
             command,
-            RunPointQueueEntryView,
+            RunDomainQueueEntryView,
         )
 
     def get_run_inspections(self, run_id: str) -> RunInspectionView:

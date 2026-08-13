@@ -12,6 +12,7 @@ from scopecat.control.models import (
     PointCoordinateSpec,
     PointCoordinateValue,
 )
+from scopecat.daemon.points import RunDomainFragmentView
 from scopecat.inspection import CompiledArtifactInspection
 
 type ReviewCoordinateValue = PointCoordinateValue
@@ -123,26 +124,26 @@ class ReviewSessionCloseReceipt(_ReviewModel):
     closed_at: datetime
 
 
-class RunPointInspectionEvent(_ReviewModel):
-    """One transient optimizer decision and its compiled target inspection."""
+class RunDomainInspectionEvent(_ReviewModel):
+    """One transient domain decision and all compiled point inspections."""
 
     proposal_index: int = Field(ge=0)
     occurred_at: datetime
-    candidate: ReviewPointView
+    fragment: RunDomainFragmentView
+    region_ids: tuple[str, ...]
+    source: Literal["author", "optimizer", "operator"]
     outcome: Literal["accepted", "rejected"]
-    accepted_point: ReviewPointView | None = None
+    accepted_points: tuple[ReviewPointView, ...] = ()
     reason: str | None = None
     inspections: tuple[ReviewInspectionView, ...] = ()
 
     @model_validator(mode="after")
-    def validate_outcome(self) -> RunPointInspectionEvent:
-        if self.candidate.point_index is not None:
-            raise ValueError("proposal candidates cannot have a run point index")
+    def validate_outcome(self) -> RunDomainInspectionEvent:
         if self.outcome == "accepted":
-            if self.accepted_point is None or self.reason is not None:
-                raise ValueError("accepted run proposal requires an accepted point")
-        elif self.accepted_point is not None or not self.reason:
-            raise ValueError("rejected run proposal requires a reason")
+            if not self.accepted_points or self.reason is not None:
+                raise ValueError("accepted domain proposal requires accepted points")
+        elif self.accepted_points or not self.reason:
+            raise ValueError("rejected domain proposal requires a reason")
         if self.outcome == "rejected" and self.inspections:
             raise ValueError("rejected run proposal cannot have compiled inspections")
         return self
@@ -150,12 +151,12 @@ class RunPointInspectionEvent(_ReviewModel):
 
 class RunInspectionAppendCommand(_ReviewModel):
     lease_id: str = Field(min_length=1)
-    event: RunPointInspectionEvent
+    event: RunDomainInspectionEvent
 
 
 class RunInspectionView(_ReviewModel):
     run_id: str = Field(min_length=1)
-    items: tuple[RunPointInspectionEvent, ...] = ()
+    items: tuple[RunDomainInspectionEvent, ...] = ()
     total_proposal_count: int = Field(default=0, ge=0)
     items_truncated: bool = False
 
@@ -177,7 +178,7 @@ __all__ = [
     "ReviewSessionListView",
     "ReviewSessionView",
     "ReviewWorkItem",
+    "RunDomainInspectionEvent",
     "RunInspectionAppendCommand",
     "RunInspectionView",
-    "RunPointInspectionEvent",
 ]

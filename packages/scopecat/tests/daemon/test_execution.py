@@ -10,16 +10,20 @@ from pydantic import BaseModel
 from scopecat_testkit.workflow_fixtures import load_config
 
 import scopecat.daemon.execution as daemon_execution
-from scopecat.control.models import RunPlanSummary
+from scopecat.adaptive_domains import DomainProposalAttempt, ResolvedDomainFragment
+from scopecat.control.models import (
+    AdaptiveRegionSpec,
+    PointCoordinateSpec,
+    RunPlanSummary,
+)
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.execution import daemon_execution_session
 from scopecat.daemon.points import (
-    AcceptedRunPointView,
-    RunPointDecisionCommand,
-    RunPointDecisionView,
+    RunDomainDecisionCommand,
+    RunDomainDecisionView,
+    RunDomainQueueView,
     RunPointPlanCloseCommand,
     RunPointPlanView,
-    RunPointQueueView,
 )
 from scopecat.daemon.reviews import (
     RunInspectionAppendCommand,
@@ -51,7 +55,7 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import StateValue
 from scopecat.measurements.recording_arrow import decode_measurement_append
-from scopecat.optimization import PointProposalDecision
+from scopecat.optimization import DomainProposalDecision
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import (
     ExecutionTransition,
@@ -101,6 +105,22 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
             point_count=None,
             initial_point_count=1,
             point_limit=3,
+            adaptive_coordinate_ids=("frequency",),
+            adaptive_scope="per_region",
+            adaptive_region_count=1,
+            adaptive_regions=(
+                AdaptiveRegionSpec(
+                    id="region-0", coordinates={}, initial_point_count=1
+                ),
+            ),
+            coordinates=(
+                PointCoordinateSpec(
+                    id="frequency",
+                    kind="quantity",
+                    dimension="frequency",
+                    unit="GHz",
+                ),
+            ),
         ),
     )
     admission = RunAdmission(
@@ -167,24 +187,18 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                 )
             )
         if path.endswith("/point-plan/queue/next") and request.method == "GET":
-            return _model(RunPointQueueView(run_id="run-1"))
+            return _model(RunDomainQueueView(run_id="run-1"))
         if path.endswith("/point-plan/decisions"):
-            command = RunPointDecisionCommand.model_validate_json(request.content)
+            command = RunDomainDecisionCommand.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
-            accepted_point = AcceptedRunPointView(
-                point_index=1,
-                coordinates=command.proposal.coordinates,
-                proposal_fingerprint=command.proposal.proposal_fingerprint,
-                source=command.proposal.source,
-            )
             return _model(
-                RunPointDecisionView(
+                RunDomainDecisionView(
                     operation_id=command.operation_id,
                     proposal_index=0,
                     occurred_at=_NOW,
                     proposal=command.proposal,
                     outcome="accepted",
-                    accepted_point=accepted_point,
+                    accepted_points=command.accepted_points,
                 )
             )
         if path.endswith("/point-plan/close"):
@@ -292,16 +306,16 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     measurements = session.measurements
     instruments = session.instruments
     coverage = session.coverage
-    point_proposals = session.point_proposals
+    domain_proposals = session.domain_proposals
     assert coverage is not None
-    assert point_proposals is not None
+    assert domain_proposals is not None
     assert instruments.observed_state == (
         InstrumentStateSnapshot(instrument_id="source-0"),
     )
     assert instruments.baseline_state == (
         InstrumentStateSnapshot(instrument_id="source-0"),
     )
-    assert point_proposals.next_queued() is None
+    assert domain_proposals.next_queued() is None
 
     batch = RunHardwareBatch(
         operation_id="hardware.batch-1",
@@ -325,25 +339,33 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     coverage.advance(start_index=0, point_count=1)
     coverage.advance(start_index=1, point_count=2)
     coverage.flush()
+    proposal = DomainProposalAttempt(
+        ResolvedDomainFragment.points(({"frequency": Quantity(5.2, "GHz")},)),
+        region_ids=("region-0",),
+        source="optimizer",
+        based_on_region_revisions={"region-0": 1},
+    )
     candidate = PointProposalAttempt(
         {"frequency": Quantity(5.2, "GHz")},
         source="optimizer",
-        based_on_completed_point_count=1,
+        region_id="region-0",
+        domain_proposal_fingerprint=proposal.proposal_fingerprint,
+        based_on_region_revision=1,
     )
     accepted_point = AcceptedRunPoint.accept(
         candidate,
         logical_id=LogicalPointId(PointDomainId("scratch", "points"), 1),
     )
-    point_proposals.append(
-        PointProposalDecision(
+    domain_proposals.append(
+        DomainProposalDecision(
             proposal_index=0,
-            candidate=candidate,
+            proposal=proposal,
             outcome="accepted",
-            accepted_point=accepted_point,
+            accepted_points=(accepted_point,),
         ),
-        None,
+        (),
     )
-    point_proposals.close(completed_point_count=2, reason="test complete")
+    domain_proposals.close(completed_point_count=2, reason="test complete")
     assert (
         instruments.finish(operation_id="hardware.finish", failed=False).operation_id
         == "hardware.finish"
@@ -418,8 +440,8 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     ]
     assert hardware_sequences == [0]
     assert coverage_ranges == [(0, 1), (1, 2)]
-    assert inspection_commands[0].event.accepted_point is not None
-    assert inspection_commands[0].event.accepted_point.point_index == 1
+    assert len(inspection_commands[0].event.accepted_points) == 1
+    assert inspection_commands[0].event.accepted_points[0].point_index == 1
 
 
 def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> None:

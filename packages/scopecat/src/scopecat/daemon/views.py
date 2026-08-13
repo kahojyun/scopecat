@@ -14,6 +14,7 @@ from scopecat.config.registry.records import (
     ConfigRegistryEntry,
 )
 from scopecat.control.models import (
+    AdaptiveRegionSpec,
     ControlRunState,
     PointCoordinateSpec,
     PointCoordinateValue,
@@ -160,6 +161,12 @@ class RunPlanView(_ViewModel):
     point_count: int | None = Field(default=None, ge=0)
     initial_point_count: int = Field(ge=0)
     point_limit: int = Field(ge=0)
+    adaptive_coordinate_ids: tuple[str, ...] = ()
+    adaptive_scope: Literal["per_region", "global"] | None = None
+    per_region_point_limit: int | None = Field(default=None, ge=1)
+    adaptive_region_count: int = Field(default=0, ge=0)
+    adaptive_regions: tuple[AdaptiveRegionSpec, ...] = ()
+    adaptive_regions_truncated: bool = False
     coordinates: tuple[PointCoordinateSpec, ...] = ()
     sampled_points: tuple[dict[str, PointCoordinateValue], ...] = ()
     sampled_points_truncated: bool = False

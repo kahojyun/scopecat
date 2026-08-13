@@ -11,11 +11,14 @@ from threading import Barrier
 from typing import Literal
 
 import pytest
+from scopecat.adaptive_domains import DomainProposalAttempt, ResolvedDomainFragment
 from scopecat.daemon.points import (
-    RunPointDecisionCommand,
-    RunPointEnqueueCommand,
+    AcceptedRunPointView,
+    RunDomainDecisionCommand,
+    RunDomainEnqueueCommand,
+    RunDomainFragmentView,
+    RunDomainProposalAttemptView,
     RunPointPlanCloseCommand,
-    RunPointProposalAttemptView,
 )
 from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.problems import (
@@ -117,9 +120,10 @@ def test_adaptive_point_ledger_persists_idempotent_decisions_and_closure(
             point_limit=5,
             plan_closed=False,
         )
-        first_command = _point_decision_command(
+        first_command = _domain_decision_command(
             operation_id="decision-1",
-            based_on_completed_point_count=2,
+            point_start=2,
+            point_count=2,
         )
         accepted = ledger.append_decision_in_transaction(
             connection,
@@ -131,30 +135,22 @@ def test_adaptive_point_ledger_persists_idempotent_decisions_and_closure(
             first_command,
             completed_point_count=2,
         )
-        second = ledger.append_decision_in_transaction(
-            connection,
-            _point_decision_command(
-                operation_id="decision-2",
-                based_on_completed_point_count=3,
-            ),
-            completed_point_count=3,
-        )
         rejected = ledger.append_decision_in_transaction(
             connection,
-            _point_decision_command(
-                operation_id="decision-3",
-                based_on_completed_point_count=1,
+            _domain_decision_command(
+                operation_id="decision-2",
+                point_start=4,
                 outcome="rejected",
                 reason="stale optimizer state",
             ),
             completed_point_count=4,
         )
-        with pytest.raises(ExecutionJournalConflict, match="stale completed"):
+        with pytest.raises(ExecutionJournalConflict, match="point prefix"):
             ledger.append_decision_in_transaction(
                 connection,
-                _point_decision_command(
-                    operation_id="stale-accepted",
-                    based_on_completed_point_count=1,
+                _domain_decision_command(
+                    operation_id="noncontiguous",
+                    point_start=3,
                 ),
                 completed_point_count=4,
             )
@@ -177,14 +173,11 @@ def test_adaptive_point_ledger_persists_idempotent_decisions_and_closure(
 
     assert initialized.accepted_point_count == 2
     assert accepted == retry
-    assert accepted.accepted_point is not None
-    assert accepted.accepted_point.point_index == 2
-    assert second.accepted_point is not None
-    assert second.accepted_point.point_index == 3
+    assert tuple(point.point_index for point in accepted.accepted_points) == (2, 3)
     assert rejected.outcome == "rejected"
     assert closed == close_retry
     assert closed.accepted_point_count == 4
-    assert closed.decision_count == 3
+    assert closed.decision_count == 2
     assert closed.plan_closed
     assert closed.stop_reason == "optimizer converged"
     assert SQLiteRunPointLedger(runs, run_id=run_id).read() == closed
@@ -201,28 +194,48 @@ def test_adaptive_point_ledger_persists_idempotent_decisions_and_closure(
     assert row["point_count"] == 2
 
 
-def _point_decision_command(
+def _domain_decision_command(
     *,
     operation_id: str,
-    based_on_completed_point_count: int,
+    point_start: int,
+    point_count: int = 1,
     outcome: Literal["accepted", "rejected"] = "accepted",
     reason: str | None = None,
-) -> RunPointDecisionCommand:
-    candidate = PointProposalAttempt(
-        {"frequency": Quantity(5.2, "GHz")},
-        source="optimizer",
-        based_on_completed_point_count=based_on_completed_point_count,
+) -> RunDomainDecisionCommand:
+    fragment = ResolvedDomainFragment.points(
+        tuple(
+            {"frequency": Quantity(5.2 + index / 10, "GHz")}
+            for index in range(point_count)
+        )
     )
-    return RunPointDecisionCommand(
+    proposal = DomainProposalAttempt(
+        fragment,
+        region_ids=("region-0",),
+        based_on_region_revisions={"region-0": 2},
+    )
+    accepted_points = tuple(
+        AcceptedRunPointView(
+            point_index=point_start + index,
+            coordinates=row,
+            proposal_fingerprint=PointProposalAttempt(
+                row,
+                source="optimizer",
+                region_id="region-0",
+                domain_proposal_fingerprint=proposal.proposal_fingerprint,
+                based_on_region_revision=2,
+            ).proposal_fingerprint,
+            source="optimizer",
+            region_id="region-0",
+            domain_proposal_fingerprint=proposal.proposal_fingerprint,
+        )
+        for index, row in enumerate(fragment.rows())
+    )
+    return RunDomainDecisionCommand(
         lease_id="lease-1",
         operation_id=operation_id,
-        proposal=RunPointProposalAttemptView(
-            coordinates={"frequency": Quantity(5.2, "GHz")},
-            proposal_fingerprint=candidate.proposal_fingerprint,
-            source="optimizer",
-            based_on_completed_point_count=based_on_completed_point_count,
-        ),
+        proposal=RunDomainProposalAttemptView.from_proposal(proposal),
         outcome=outcome,
+        accepted_points=accepted_points if outcome == "accepted" else (),
         reason=reason,
     )
 
@@ -232,14 +245,12 @@ def test_operator_point_queue_is_fifo_bounded_and_resolved_by_decisions(
 ) -> None:
     runs = _runs(tmp_path)
     run_id = "operator-queue-run"
-    queued_candidate = PointProposalAttempt(
-        {"frequency": Quantity(5.15, "GHz")},
-        source="operator",
-    )
-    enqueue = RunPointEnqueueCommand(
+    fragment = ResolvedDomainFragment.points(({"frequency": Quantity(5.15, "GHz")},))
+    enqueue = RunDomainEnqueueCommand(
         request_id="queue-1",
         coordinate_mode="free",
-        coordinates={"frequency": Quantity(5.15, "GHz")},
+        region_scope="current",
+        fragment=RunDomainFragmentView.from_fragment(fragment),
     )
     second_enqueue = enqueue.model_copy(update={"request_id": "queue-2"})
     with _sqlite_transaction(runs) as connection:
@@ -263,48 +274,64 @@ def test_operator_point_queue_is_fifo_bounded_and_resolved_by_decisions(
         first, first_created = ledger.enqueue_in_transaction(
             connection,
             enqueue,
-            resolved_coordinates=enqueue.coordinates,
+            resolved_fragment=fragment,
+            region_count=1,
         )
         retry, retry_created = ledger.enqueue_in_transaction(
             connection,
             enqueue,
-            resolved_coordinates=enqueue.coordinates,
+            resolved_fragment=fragment,
+            region_count=1,
         )
         second, _ = ledger.enqueue_in_transaction(
             connection,
             second_enqueue,
-            resolved_coordinates=second_enqueue.coordinates,
+            resolved_fragment=fragment,
+            region_count=1,
         )
         with pytest.raises(ExecutionJournalConflict, match="remaining budget"):
             ledger.enqueue_in_transaction(
                 connection,
                 enqueue.model_copy(update={"request_id": "queue-3"}),
-                resolved_coordinates=enqueue.coordinates,
+                resolved_fragment=fragment,
+                region_count=1,
             )
 
     assert first == retry
     assert first_created
     assert not retry_created
     assert ledger.next_pending() == first
-    normalized = PointProposalAttempt(
-        queued_candidate.coordinates,
+    proposal = DomainProposalAttempt(
+        fragment,
+        region_ids=("region-0",),
         source="operator",
-        based_on_completed_point_count=1,
+    )
+    [row] = fragment.rows()
+    normalized = PointProposalAttempt(
+        row,
+        source="operator",
+        region_id="region-0",
+        domain_proposal_fingerprint=proposal.proposal_fingerprint,
     )
     with _sqlite_transaction(runs) as connection:
         decision = ledger.append_decision_in_transaction(
             connection,
-            RunPointDecisionCommand(
+            RunDomainDecisionCommand(
                 lease_id="lease-1",
                 operation_id="decision-1",
                 operator_request_id=first.request.request_id,
-                proposal=RunPointProposalAttemptView(
-                    coordinates={"frequency": Quantity(5.15, "GHz")},
-                    proposal_fingerprint=normalized.proposal_fingerprint,
-                    source="operator",
-                    based_on_completed_point_count=1,
-                ),
+                proposal=RunDomainProposalAttemptView.from_proposal(proposal),
                 outcome="accepted",
+                accepted_points=(
+                    AcceptedRunPointView(
+                        point_index=1,
+                        coordinates=row,
+                        proposal_fingerprint=normalized.proposal_fingerprint,
+                        source="operator",
+                        region_id="region-0",
+                        domain_proposal_fingerprint=proposal.proposal_fingerprint,
+                    ),
+                ),
             ),
             completed_point_count=1,
         )
@@ -320,12 +347,12 @@ def test_operator_point_queue_is_fifo_bounded_and_resolved_by_decisions(
         )
 
     queue = ledger.queue()
-    assert decision.accepted_point is not None
-    assert decision.accepted_point.point_index == 1
+    assert decision.accepted_points[0].point_index == 1
     assert decision.operator_request_id == first.request.request_id
     assert closed.plan_closed
     assert queue.items[0].status == "accepted"
-    assert queue.items[0].accepted_point_index == 1
+    assert queue.items[0].accepted_point_start == 1
+    assert queue.items[0].accepted_point_count == 1
     assert queue.items[1].request.request_id == second.request.request_id
     assert queue.items[1].status == "cancelled"
     assert queue.items[1].reason == "point plan closed: operator sweep complete"

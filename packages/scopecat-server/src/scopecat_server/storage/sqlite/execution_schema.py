@@ -55,7 +55,6 @@ CREATE TABLE IF NOT EXISTS execution_run_points (
     decision_operation_id TEXT NOT NULL,
     point_json TEXT NOT NULL,
     PRIMARY KEY (run_id, point_index),
-    UNIQUE (run_id, decision_operation_id),
     FOREIGN KEY (run_id, decision_operation_id)
         REFERENCES execution_point_decisions(run_id, operation_id)
 );

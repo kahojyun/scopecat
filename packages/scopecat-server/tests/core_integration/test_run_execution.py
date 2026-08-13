@@ -4,14 +4,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from scopecat.adaptive_domains import (
+    DomainProposalAttempt,
+    OperatorDomainRequest,
+    ResolvedDomainFragment,
+)
 from scopecat.execution.program import RunPointInspection
-from scopecat.execution.services import QueuedOperatorPointRequest
-from scopecat.kernel.points import OperatorPointRequest, PointProposalAttempt
+from scopecat.execution.services import QueuedOperatorDomainRequest
 from scopecat.kernel.quantity import Quantity
 from scopecat.optimization import (
+    DomainOptimizerContext,
+    DomainProposalDecision,
     OptimizationComplete,
-    PointOptimizerContext,
-    PointProposalDecision,
 )
 from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.instrument import InstrumentStateSnapshot
@@ -62,19 +66,20 @@ class _CountingProvider:
         return self.delegate.connect(context)
 
 
-class _TwoPointOptimizer:
+class _TwoDomainOptimizer:
     id = "tests.two-point-optimizer"
 
     def __init__(self, project_root: Path) -> None:
         self.project_root = project_root
-        self.contexts: list[PointOptimizerContext] = []
+        self.contexts: list[DomainOptimizerContext] = []
         self.durable_point_counts: list[int] = []
 
     def propose(
         self,
-        context: PointOptimizerContext,
-    ) -> PointProposalAttempt | OptimizationComplete:
+        context: DomainOptimizerContext,
+    ) -> DomainProposalAttempt | OptimizationComplete:
         self.contexts.append(context)
+        assert context.region is not None
         run_id = context.observations[0].measurements[0].run_id
         self.durable_point_counts.append(
             SQLiteMeasurementDatasetRepository(
@@ -82,23 +87,31 @@ class _TwoPointOptimizer:
                 run_id=run_id,
             ).measurement_record_count()
         )
-        if context.completed_point_count >= 5:
+        if context.region.completed_point_count >= 5:
             return OptimizationComplete("two adaptive points completed")
         if not context.ledger.entries:
-            return PointProposalAttempt(
-                {"drive_frequency": Quantity(5.15, "GHz")},
-                source="optimizer",
-                based_on_completed_point_count=context.completed_point_count - 1,
+            return DomainProposalAttempt(
+                ResolvedDomainFragment.points(
+                    ({"drive_frequency": Quantity(5.15, "GHz")},)
+                ),
+                region_ids=(context.region.id,),
+                based_on_region_revisions={
+                    context.region.id: context.region.revision - 1
+                },
             )
-        return PointProposalAttempt(
-            {
-                "drive_frequency": Quantity(
-                    5.2 + 0.1 * (context.completed_point_count - 3),
-                    "GHz",
+        return DomainProposalAttempt(
+            ResolvedDomainFragment.points(
+                (
+                    {
+                        "drive_frequency": Quantity(
+                            5.2 + 0.1 * (context.region.completed_point_count - 3),
+                            "GHz",
+                        )
+                    },
                 )
-            },
-            source="optimizer",
-            based_on_completed_point_count=context.completed_point_count,
+            ),
+            region_ids=(context.region.id,),
+            based_on_region_revisions={context.region.id: context.region.revision},
         )
 
 
@@ -107,7 +120,7 @@ class _StopOptimizer:
 
     def propose(
         self,
-        context: PointOptimizerContext,
+        context: DomainOptimizerContext,
     ) -> OptimizationComplete:
         del context
         return OptimizationComplete("operator point completed")
@@ -116,22 +129,25 @@ class _StopOptimizer:
 class _AlwaysStaleOptimizer:
     id = "tests.always-stale-optimizer"
 
-    def propose(self, context: PointOptimizerContext) -> PointProposalAttempt:
-        return PointProposalAttempt(
-            {"drive_frequency": Quantity(5.16, "GHz")},
-            source="optimizer",
-            based_on_completed_point_count=context.completed_point_count - 1,
+    def propose(self, context: DomainOptimizerContext) -> DomainProposalAttempt:
+        assert context.region is not None
+        return DomainProposalAttempt(
+            ResolvedDomainFragment.points(
+                ({"drive_frequency": Quantity(5.16, "GHz")},)
+            ),
+            region_ids=(context.region.id,),
+            based_on_region_revisions={context.region.id: context.region.revision - 1},
         )
 
 
 @dataclass
 class _OperatorQueuePort:
-    queued: QueuedOperatorPointRequest | None
-    decisions: list[PointProposalDecision]
+    queued: QueuedOperatorDomainRequest | None
+    decisions: list[DomainProposalDecision]
     closed_reason: str | None = None
     empty_polls_before_ready: int = 0
 
-    def next_queued(self) -> QueuedOperatorPointRequest | None:
+    def next_queued(self) -> QueuedOperatorDomainRequest | None:
         if self.empty_polls_before_ready > 0:
             self.empty_polls_before_ready -= 1
             return None
@@ -141,13 +157,13 @@ class _OperatorQueuePort:
 
     def append(
         self,
-        decision: PointProposalDecision,
-        inspection: RunPointInspection | None,
+        decision: DomainProposalDecision,
+        inspections: tuple[RunPointInspection, ...],
         *,
         operator_request_id: str | None = None,
     ) -> None:
-        del inspection
-        if decision.candidate.source == "operator":
+        del inspections
+        if decision.proposal.source == "operator":
             assert operator_request_id == "operator-queue-1"
         else:
             assert operator_request_id is None
@@ -226,7 +242,7 @@ def test_adaptive_execution_observes_and_runs_optimizer_points_in_one_session(
         config=config,
         provider=TestSignalInstrumentProvider(),
     )
-    optimizer = _TwoPointOptimizer(tmp_path)
+    optimizer = _TwoDomainOptimizer(tmp_path)
 
     manifest = execute_invocation_run(
         config=config,
@@ -241,7 +257,12 @@ def test_adaptive_execution_observes_and_runs_optimizer_points_in_one_session(
     ).dataset
 
     assert manifest.status == "completed"
-    assert [context.completed_point_count for context in optimizer.contexts] == [
+    completed_counts = [
+        context.region.completed_point_count
+        for context in optimizer.contexts
+        if context.region
+    ]
+    assert completed_counts == [
         3,
         3,
         4,
@@ -249,9 +270,7 @@ def test_adaptive_execution_observes_and_runs_optimizer_points_in_one_session(
     ]
     assert optimizer.durable_point_counts == [3, 3, 4, 5]
     assert optimizer.contexts[1].ledger.entries[0].outcome == "rejected"
-    assert "based on 2 completed points" in (
-        optimizer.contexts[1].ledger.entries[0].reason or ""
-    )
+    assert "stale" in (optimizer.contexts[1].ledger.entries[0].reason or "")
     assert all(
         len(context.observations[-1].measurements) == 1
         for context in optimizer.contexts
@@ -275,12 +294,19 @@ def test_adaptive_execution_compiles_queued_operator_point_before_optimizer(
         provider=TestSignalInstrumentProvider(),
     )
     queue = _OperatorQueuePort(
-        queued=QueuedOperatorPointRequest(
-            request=OperatorPointRequest(
+        queued=QueuedOperatorDomainRequest(
+            request=OperatorDomainRequest(
                 request_id="operator-queue-1",
                 coordinate_mode="free",
-                requested_coordinates={"drive_frequency": Quantity(5.17, "GHz")},
-                coordinates={"drive_frequency": Quantity(5.17, "GHz")},
+                region_scope="current",
+                region_ids=(),
+                region_count=1,
+                requested_fragment=ResolvedDomainFragment.points(
+                    ({"drive_frequency": Quantity(5.17, "GHz")},)
+                ),
+                fragment=ResolvedDomainFragment.points(
+                    ({"drive_frequency": Quantity(5.17, "GHz")},)
+                ),
             ),
         ),
         decisions=[],
@@ -292,7 +318,7 @@ def test_adaptive_execution_compiles_queued_operator_point_before_optimizer(
         system=composition.system,
         instrument_backend=composition.backend,
         project_root=tmp_path,
-        point_proposals=queue,
+        domain_proposals=queue,
     )
     dataset = read_run_measurement_dataset(
         run_id=manifest.run_id,
@@ -301,10 +327,8 @@ def test_adaptive_execution_compiles_queued_operator_point_before_optimizer(
 
     assert manifest.status == "completed"
     assert len(queue.decisions) == 1
-    assert queue.decisions[0].candidate.source == "operator"
-    assert queue.decisions[0].candidate.based_on_completed_point_count == 3
-    assert queue.decisions[0].accepted_point is not None
-    assert queue.decisions[0].accepted_point.ordinal == 3
+    assert queue.decisions[0].proposal.source == "operator"
+    assert queue.decisions[0].accepted_points[0].ordinal == 3
     assert queue.closed_reason == "operator point completed"
     assert len(dataset.records) == 4
     assert dataset.records[-1].coordinates["drive_frequency"] == (
@@ -322,12 +346,19 @@ def test_operator_request_remains_eligible_after_optimizer_retry_budget(
     )
     optimizer_limit = 4 * 4
     queue = _OperatorQueuePort(
-        queued=QueuedOperatorPointRequest(
-            request=OperatorPointRequest(
+        queued=QueuedOperatorDomainRequest(
+            request=OperatorDomainRequest(
                 request_id="operator-queue-1",
                 coordinate_mode="free",
-                requested_coordinates={"drive_frequency": Quantity(5.17, "GHz")},
-                coordinates={"drive_frequency": Quantity(5.17, "GHz")},
+                region_scope="current",
+                region_ids=(),
+                region_count=1,
+                requested_fragment=ResolvedDomainFragment.points(
+                    ({"drive_frequency": Quantity(5.17, "GHz")},)
+                ),
+                fragment=ResolvedDomainFragment.points(
+                    ({"drive_frequency": Quantity(5.17, "GHz")},)
+                ),
             ),
         ),
         decisions=[],
@@ -343,12 +374,12 @@ def test_operator_request_remains_eligible_after_optimizer_retry_budget(
         system=composition.system,
         instrument_backend=composition.backend,
         project_root=tmp_path,
-        point_proposals=queue,
+        domain_proposals=queue,
     )
 
     assert len(queue.decisions) == optimizer_limit + 1
     assert all(
-        decision.candidate.source == "optimizer" for decision in queue.decisions[:-1]
+        decision.proposal.source == "optimizer" for decision in queue.decisions[:-1]
     )
-    assert queue.decisions[-1].candidate.source == "operator"
+    assert queue.decisions[-1].proposal.source == "operator"
     assert queue.decisions[-1].outcome == "accepted"

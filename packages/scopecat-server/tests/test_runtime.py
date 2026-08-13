@@ -13,6 +13,7 @@ from typing import Literal, Never, cast
 import pyarrow as pa
 import pytest
 from fastapi.testclient import TestClient
+from scopecat.adaptive_domains import DomainProposalAttempt, ResolvedDomainFragment
 from scopecat.analysis.datasets import DerivedDataset
 from scopecat.application import LabApplication
 from scopecat.config.changes import parameter_change_proposal_from_updates
@@ -21,6 +22,7 @@ from scopecat.config.inventory import InstrumentInventoryRekey
 from scopecat.config.parameters import ReplaceParameter, replace_scalar_parameter
 from scopecat.config.registry import ActiveConfigRegistrySnapshot
 from scopecat.control.models import (
+    AdaptiveRegionSpec,
     DurableEvent,
     DurableEventInput,
     EventPage,
@@ -32,11 +34,13 @@ from scopecat.control.models import (
     RunResourceRequirement,
 )
 from scopecat.daemon.points import (
-    RunPointDecisionCommand,
-    RunPointEnqueueCommand,
+    AcceptedRunPointView,
+    RunDomainDecisionCommand,
+    RunDomainEnqueueCommand,
+    RunDomainFragmentView,
+    RunDomainProposalAttemptView,
+    RunDomainResolveCommand,
     RunPointPlanCloseCommand,
-    RunPointProposalAttemptView,
-    RunPointResolveCommand,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -2212,6 +2216,14 @@ def test_open_point_plan_can_succeed_below_its_limit_and_exposes_coverage(
                 point_count=None,
                 initial_point_count=1,
                 point_limit=3,
+                adaptive_coordinate_ids=("frequency",),
+                adaptive_scope="per_region",
+                adaptive_region_count=1,
+                adaptive_regions=(
+                    AdaptiveRegionSpec(
+                        id="region-0", coordinates={}, initial_point_count=1
+                    ),
+                ),
                 coordinates=(
                     PointCoordinateSpec(
                         id="frequency",
@@ -2292,6 +2304,16 @@ def test_run_point_resolution_preserves_raw_input_and_makes_snap_explicit(
                 point_count=None,
                 initial_point_count=2,
                 point_limit=4,
+                adaptive_coordinate_ids=("frequency",),
+                adaptive_scope="per_region",
+                adaptive_region_count=1,
+                adaptive_regions=(
+                    AdaptiveRegionSpec(
+                        id="region-0",
+                        coordinates={},
+                        initial_point_count=2,
+                    ),
+                ),
                 coordinates=(
                     PointCoordinateSpec(
                         id="frequency",
@@ -2323,44 +2345,68 @@ def test_run_point_resolution_preserves_raw_input_and_makes_snap_explicit(
         )
         snap = runtime.application.point_plans.resolve(
             admission.run_id,
-            RunPointResolveCommand(
+            RunDomainResolveCommand(
                 coordinate_mode="snap",
-                coordinates={"frequency": Quantity(5.16, "GHz")},
+                region_scope="current",
+                fragment=RunDomainFragmentView.from_fragment(
+                    ResolvedDomainFragment.points(
+                        ({"frequency": Quantity(5.16, "GHz")},)
+                    )
+                ),
             ),
         )
         free = runtime.application.point_plans.resolve(
             admission.run_id,
-            RunPointResolveCommand(
+            RunDomainResolveCommand(
                 coordinate_mode="free",
-                coordinates={"frequency": Quantity(4.5, "GHz")},
+                region_scope="current",
+                fragment=RunDomainFragmentView.from_fragment(
+                    ResolvedDomainFragment.points(
+                        ({"frequency": Quantity(4.5, "GHz")},)
+                    )
+                ),
             ),
         )
         queued = runtime.application.point_plans.enqueue(
             admission.run_id,
-            RunPointEnqueueCommand(
+            RunDomainEnqueueCommand(
                 request_id="operator-snap",
                 coordinate_mode="snap",
-                coordinates={"frequency": Quantity(5.16, "GHz")},
+                region_scope="current",
+                fragment=RunDomainFragmentView.from_fragment(
+                    ResolvedDomainFragment.points(
+                        ({"frequency": Quantity(5.16, "GHz")},)
+                    )
+                ),
             ),
         )
 
         with pytest.raises(BackendConflict, match="at least"):
             runtime.application.point_plans.resolve(
                 admission.run_id,
-                RunPointResolveCommand(
+                RunDomainResolveCommand(
                     coordinate_mode="free",
-                    coordinates={"frequency": Quantity(3.5, "GHz")},
+                    region_scope="current",
+                    fragment=RunDomainFragmentView.from_fragment(
+                        ResolvedDomainFragment.points(
+                            ({"frequency": Quantity(3.5, "GHz")},)
+                        )
+                    ),
                 ),
             )
 
-    assert snap.requested_coordinates == {"frequency": Quantity(5.16, "GHz")}
-    assert snap.coordinates == {"frequency": Quantity(5.2, "GHz")}
-    assert snap.sampled_point_index == 1
-    assert free.coordinates == {"frequency": Quantity(4.5, "GHz")}
-    assert free.sampled_point_index is None
+    assert tuple(snap.requested_fragment.fragment().rows()) == (
+        {"frequency": Quantity(5.16, "GHz")},
+    )
+    assert tuple(snap.fragment.fragment().rows()) == (
+        {"frequency": Quantity(5.2, "GHz")},
+    )
+    assert tuple(free.fragment.fragment().rows()) == (
+        {"frequency": Quantity(4.5, "GHz")},
+    )
     assert queued.request.coordinate_mode == "snap"
-    assert queued.request.requested_coordinates == snap.requested_coordinates
-    assert queued.request.coordinates == snap.coordinates
+    assert queued.request.requested_fragment == snap.requested_fragment
+    assert queued.request.fragment == snap.fragment
 
 
 def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
@@ -2372,6 +2418,16 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
                 point_count=None,
                 initial_point_count=1,
                 point_limit=3,
+                adaptive_coordinate_ids=("frequency",),
+                adaptive_scope="per_region",
+                adaptive_region_count=1,
+                adaptive_regions=(
+                    AdaptiveRegionSpec(
+                        id="region-0",
+                        coordinates={},
+                        initial_point_count=1,
+                    ),
+                ),
                 coordinates=(
                     PointCoordinateSpec(
                         id="frequency",
@@ -2402,34 +2458,44 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
                 point_count=1,
             ),
         )
-        queued_candidate = PointProposalAttempt(
-            {"frequency": Quantity(5.2, "GHz")},
-            source="operator",
-        )
+        fragment = ResolvedDomainFragment.points(({"frequency": Quantity(5.2, "GHz")},))
         queued = runtime.application.point_plans.enqueue(
             admission.run_id,
-            RunPointEnqueueCommand(
+            RunDomainEnqueueCommand(
                 request_id="queue-1",
                 coordinate_mode="free",
-                coordinates={"frequency": Quantity(5.2, "GHz")},
+                region_scope="current",
+                fragment=RunDomainFragmentView.from_fragment(fragment),
             ),
         )
-        candidate = PointProposalAttempt(
-            queued_candidate.coordinates,
+        proposal = DomainProposalAttempt(
+            fragment,
+            region_ids=("region-0",),
             source="operator",
-            based_on_completed_point_count=1,
         )
-        decision = runtime.application.executor.append_run_point_decision(
+        [row] = fragment.rows()
+        candidate = PointProposalAttempt(
+            row,
+            source="operator",
+            region_id="region-0",
+            domain_proposal_fingerprint=proposal.proposal_fingerprint,
+        )
+        decision = runtime.application.executor.append_run_domain_decision(
             admission.run_id,
-            RunPointDecisionCommand(
+            RunDomainDecisionCommand(
                 lease_id=lease.lease_id,
                 operation_id="decision-1",
                 operator_request_id=queued.request.request_id,
-                proposal=RunPointProposalAttemptView(
-                    coordinates={"frequency": Quantity(5.2, "GHz")},
-                    proposal_fingerprint=candidate.proposal_fingerprint,
-                    source="operator",
-                    based_on_completed_point_count=1,
+                proposal=RunDomainProposalAttemptView.from_proposal(proposal),
+                accepted_points=(
+                    AcceptedRunPointView(
+                        point_index=1,
+                        coordinates=row,
+                        proposal_fingerprint=candidate.proposal_fingerprint,
+                        source="operator",
+                        region_id="region-0",
+                        domain_proposal_fingerprint=proposal.proposal_fingerprint,
+                    ),
                 ),
                 outcome="accepted",
             ),
@@ -2453,8 +2519,7 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
         )
 
         assert initialized.accepted_point_count == 1
-        assert decision.accepted_point is not None
-        assert decision.accepted_point.point_index == 1
+        assert decision.accepted_points[0].point_index == 1
         assert closed.accepted_point_count == 2
         assert closed.plan_closed
 
@@ -2464,7 +2529,7 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
 
     assert restored == closed
     assert restored_queue.items[0].status == "accepted"
-    assert restored_queue.items[0].accepted_point_index == 1
+    assert restored_queue.items[0].accepted_point_start == 1
 
 
 def test_closed_point_plan_cannot_succeed_before_full_coverage(tmp_path: Path) -> None:
@@ -2500,6 +2565,14 @@ def test_failed_adaptive_run_abandons_pending_operator_points(tmp_path: Path) ->
                 point_count=None,
                 initial_point_count=1,
                 point_limit=3,
+                adaptive_coordinate_ids=("frequency",),
+                adaptive_scope="per_region",
+                adaptive_region_count=1,
+                adaptive_regions=(
+                    AdaptiveRegionSpec(
+                        id="region-0", coordinates={}, initial_point_count=1
+                    ),
+                ),
                 coordinates=(
                     PointCoordinateSpec(
                         id="frequency",
@@ -2523,10 +2596,15 @@ def test_failed_adaptive_run_abandons_pending_operator_points(tmp_path: Path) ->
         )
         runtime.application.point_plans.enqueue(
             admission.run_id,
-            RunPointEnqueueCommand(
+            RunDomainEnqueueCommand(
                 request_id="pending-at-failure",
                 coordinate_mode="free",
-                coordinates={"frequency": Quantity(5.2, "GHz")},
+                region_scope="current",
+                fragment=RunDomainFragmentView.from_fragment(
+                    ResolvedDomainFragment.points(
+                        ({"frequency": Quantity(5.2, "GHz")},)
+                    )
+                ),
             ),
         )
         manifest = runtime.application.executor.commit_terminal(
@@ -3432,6 +3510,14 @@ def test_restart_quarantines_executor_until_operator_reconciles(
                     point_count=None,
                     initial_point_count=1,
                     point_limit=3,
+                    adaptive_coordinate_ids=("frequency",),
+                    adaptive_scope="per_region",
+                    adaptive_region_count=1,
+                    adaptive_regions=(
+                        AdaptiveRegionSpec(
+                            id="region-0", coordinates={}, initial_point_count=1
+                        ),
+                    ),
                     coordinates=(
                         PointCoordinateSpec(
                             id="frequency",
@@ -3464,10 +3550,15 @@ def test_restart_quarantines_executor_until_operator_reconciles(
         )
         runtime.application.point_plans.enqueue(
             admission.run_id,
-            RunPointEnqueueCommand(
+            RunDomainEnqueueCommand(
                 request_id="queue-before-restart",
                 coordinate_mode="free",
-                coordinates={"frequency": Quantity(5.2, "GHz")},
+                region_scope="current",
+                fragment=RunDomainFragmentView.from_fragment(
+                    ResolvedDomainFragment.points(
+                        ({"frequency": Quantity(5.2, "GHz")},)
+                    )
+                ),
             ),
         )
         run_id = admission.run_id
