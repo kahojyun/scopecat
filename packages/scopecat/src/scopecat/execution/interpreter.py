@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from scopecat.adaptive_coordination import AdaptiveDomainCoordinator
 from scopecat.adaptive_domains import (
@@ -580,12 +580,7 @@ def _execute_instrument_effects(
         points=point_state.points,
         success_state=program.success_state,
     )
-    return replace(
-        result,
-        proposal_ledger=(
-            None if point_state.coordinator is None else point_state.coordinator.ledger
-        ),
-    )
+    return result
 
 
 @dataclass(slots=True)

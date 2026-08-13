@@ -39,7 +39,6 @@ class BoundDomainProposal:
 class _RegionState:
     id: str
     coordinates: dict[str, CellValue]
-    initial_point_count: int
     point_count: int
     completed_point_count: int
     revision: int
@@ -58,6 +57,7 @@ class _RegionState:
             revision=self.revision,
             point_limit=self.point_limit,
             closed=self.closed,
+            stop_reason=self.stop_reason,
         )
 
 
@@ -116,7 +116,6 @@ class AdaptiveDomainCoordinator:
             regions[region_id] = _RegionState(
                 id=region_id,
                 coordinates=coordinates,
-                initial_point_count=point_count,
                 point_count=point_count,
                 completed_point_count=0,
                 revision=0,

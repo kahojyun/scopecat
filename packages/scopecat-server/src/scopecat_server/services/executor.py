@@ -178,14 +178,11 @@ class ExecutorService:
         run_id: str,
         command: RunDomainDecisionCommand,
     ) -> RunDomainDecisionView:
-        coverage = SQLiteRunCoverage(self._runs, run_id=run_id)
         with self.fenced_write(run_id, token=command.lease_id) as connection:
-            completed = coverage.read_in_transaction(connection)
             return self._point_plans.append_decision_in_transaction(
                 connection,
                 run_id,
                 command,
-                completed_point_count=completed,
             )
 
     def close_run_point_plan(

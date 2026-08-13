@@ -128,12 +128,10 @@ def test_adaptive_point_ledger_persists_idempotent_decisions_and_closure(
         accepted = ledger.append_decision_in_transaction(
             connection,
             first_command,
-            completed_point_count=2,
         )
         retry = ledger.append_decision_in_transaction(
             connection,
             first_command,
-            completed_point_count=2,
         )
         rejected = ledger.append_decision_in_transaction(
             connection,
@@ -143,7 +141,6 @@ def test_adaptive_point_ledger_persists_idempotent_decisions_and_closure(
                 outcome="rejected",
                 reason="stale optimizer state",
             ),
-            completed_point_count=4,
         )
         with pytest.raises(ExecutionJournalConflict, match="point prefix"):
             ledger.append_decision_in_transaction(
@@ -152,7 +149,6 @@ def test_adaptive_point_ledger_persists_idempotent_decisions_and_closure(
                     operation_id="noncontiguous",
                     point_start=3,
                 ),
-                completed_point_count=4,
             )
         close = RunPointPlanCloseCommand(
             lease_id="lease-1",
@@ -333,7 +329,6 @@ def test_operator_point_queue_is_fifo_bounded_and_resolved_by_decisions(
                     ),
                 ),
             ),
-            completed_point_count=1,
         )
         closed = ledger.close_in_transaction(
             connection,

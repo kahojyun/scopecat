@@ -90,7 +90,7 @@ class OptimizationComplete:
             raise ValueError("optimization completion reason must be non-empty")
 
 
-type PointProposalOutcome = Literal["accepted", "rejected"]
+type DomainProposalOutcome = Literal["accepted", "rejected"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +99,7 @@ class DomainProposalDecision:
 
     proposal_index: int
     proposal: DomainProposalAttempt
-    outcome: PointProposalOutcome
+    outcome: DomainProposalOutcome
     accepted_points: tuple[AcceptedRunPoint, ...] = ()
     reason: str | None = None
 
@@ -332,10 +332,10 @@ __all__ = [
     "DomainOptimizerContext",
     "DomainProposalDecision",
     "DomainProposalLedger",
+    "DomainProposalOutcome",
     "OptimizationComplete",
     "OptimizerMeasurementObservation",
     "OptimizerObservationValue",
     "OptimizerScalarObservation",
     "OptimizerUnavailableObservation",
-    "PointProposalOutcome",
 ]

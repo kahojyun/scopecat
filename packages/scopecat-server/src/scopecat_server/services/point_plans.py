@@ -155,13 +155,10 @@ class RunPointPlanService:
         connection: sqlite3.Connection,
         run_id: str,
         command: RunDomainDecisionCommand,
-        *,
-        completed_point_count: int,
     ) -> RunDomainDecisionView:
         return self._ledger(run_id).append_decision_in_transaction(
             connection,
             command,
-            completed_point_count=completed_point_count,
         )
 
     def close_in_transaction(

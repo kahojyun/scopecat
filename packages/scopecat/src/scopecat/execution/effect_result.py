@@ -10,7 +10,6 @@ from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import Problem
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import MeasurementValueCandidate
-from scopecat.optimization import DomainProposalLedger
 from scopecat.records.instrument import InstrumentStateSnapshot
 
 type CoverageMeasurementObserver = Callable[
@@ -33,7 +32,6 @@ class RunEffectResult:
     final_state: tuple[InstrumentStateSnapshot, ...]
     indeterminate: bool = False
     cancelled: bool = False
-    proposal_ledger: DomainProposalLedger | None = None
     domain_failure: tuple[RunDomainJob, BaseException] | None = field(
         default=None,
         compare=False,

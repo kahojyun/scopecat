@@ -228,6 +228,7 @@ class AdaptiveRegion:
     revision: int
     point_limit: int
     closed: bool = False
+    stop_reason: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -246,6 +247,8 @@ class AdaptiveRegion:
             raise ValueError("completed region points cannot exceed accepted points")
         if self.point_count > self.point_limit:
             raise ValueError("accepted region points cannot exceed its limit")
+        if self.closed != (self.stop_reason is not None):
+            raise ValueError("closed adaptive regions require exactly one stop reason")
         object.__setattr__(
             self, "coordinates", MappingProxyType(dict(self.coordinates))
         )

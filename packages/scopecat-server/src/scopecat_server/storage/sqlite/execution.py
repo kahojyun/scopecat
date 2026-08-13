@@ -361,10 +361,7 @@ class SQLiteRunPointLedger:
         self,
         connection: sqlite3.Connection,
         command: RunDomainDecisionCommand,
-        *,
-        completed_point_count: int,
     ) -> RunDomainDecisionView:
-        del completed_point_count
         existing = _one(
             connection.execute(
                 """
