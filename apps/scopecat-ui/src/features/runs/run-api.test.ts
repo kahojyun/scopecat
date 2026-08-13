@@ -61,6 +61,7 @@ describe("run daemon reads", () => {
             control: {
               state: "closed",
               completed_point_count: 1,
+              point_plan: staticPointPlan("run/1"),
               admission: {
                 run_id: "run/1",
                 display_name: "Ramsey calibration",
@@ -145,6 +146,7 @@ describe("run daemon reads", () => {
             control: {
               state: "attention_required",
               completed_point_count: 0,
+              point_plan: staticPointPlan("run/attention"),
               attention_reason: "executor_lease_expired",
               admission: {
                 run_id: "run/attention",
@@ -398,6 +400,7 @@ describe("run daemon reads", () => {
                 sequence: path.includes("before=") ? 1 : 2,
                 state: "queued",
                 completed_point_count: 0,
+                point_plan: staticPointPlan(path.includes("before=") ? "run-old" : "run-new"),
                 admission: {
                   run_id: path.includes("before=") ? "run-old" : "run-new",
                   plan: {
@@ -591,6 +594,7 @@ function runSummary(runId: string, state: "queued" | "leased") {
       sequence: state === "leased" ? 2 : 1,
       state,
       completed_point_count: 0,
+      point_plan: staticPointPlan(runId),
       admission: {
         run_id: runId,
         plan: {
@@ -606,6 +610,18 @@ function runSummary(runId: string, state: "queued" | "leased") {
       run_id: runId,
       contents: [],
     },
+  };
+}
+
+function staticPointPlan(runId: string) {
+  return {
+    run_id: runId,
+    initial_point_count: 1,
+    accepted_point_count: 1,
+    point_limit: 1,
+    decision_count: 0,
+    plan_closed: true,
+    stop_reason: "static point plan",
   };
 }
 

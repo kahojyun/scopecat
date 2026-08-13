@@ -558,21 +558,10 @@ class ExecutorService:
             self._active_measurements.clear(run_id)
             return manifest
         if commit.outcome.result == "succeeded":
-            completed_point_count = SQLiteRunCoverage(
-                self._runs,
-                run_id=run_id,
-            ).read()
-            plan = control_run.admission.plan
-            if (
-                completed_point_count < plan.initial_point_count
-                or completed_point_count > plan.point_limit
-                or (
-                    plan.point_count is not None
-                    and completed_point_count != plan.point_count
-                )
-            ):
-                raise BackendConflict(
-                    "successful run coverage does not match its admitted point extent"
+            with self._runs.sqlite.read_transaction() as connection:
+                self._validate_successful_point_progress_in_transaction(
+                    connection,
+                    control_run,
                 )
         self._instruments.finalize_run(
             run_id,
@@ -748,6 +737,11 @@ class ExecutorService:
         ) as connection:
             control = self._control.get_run_in_transaction(connection, run_id)
             commit = _honor_cancellation(control, commit)
+            if commit.outcome.result == "succeeded":
+                self._validate_successful_point_progress_in_transaction(
+                    connection,
+                    control,
+                )
             prepared = replace(prepared, commit=commit)
             manifest = self._runs.commit_prepared_terminal_in_transaction(
                 connection,
@@ -759,6 +753,40 @@ class ExecutorService:
                 executor_token=token,
             )
             return manifest
+
+    def _validate_successful_point_progress_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        control: ControlRun,
+    ) -> None:
+        run_id = control.run_id
+        completed = SQLiteRunCoverage(
+            self._runs,
+            run_id=run_id,
+        ).read_in_transaction(connection)
+        admitted = control.admission.plan
+        if completed < admitted.initial_point_count or completed > admitted.point_limit:
+            raise BackendConflict(
+                "successful run coverage does not match its admitted point extent"
+            )
+        if admitted.point_count is not None:
+            if completed != admitted.point_count:
+                raise BackendConflict(
+                    "successful run coverage does not match its admitted point extent"
+                )
+            return
+        point_plan = SQLiteRunPointLedger(
+            self._runs,
+            run_id=run_id,
+        ).read_in_transaction(connection)
+        if point_plan is None or not point_plan.plan_closed:
+            raise BackendConflict(
+                "successful adaptive run requires a closed durable point plan"
+            )
+        if completed != point_plan.accepted_point_count:
+            raise BackendConflict(
+                "successful adaptive run coverage does not match its accepted prefix"
+            )
 
 
 def _matches_terminal_intent(

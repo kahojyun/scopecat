@@ -45,6 +45,15 @@ export interface RunPlanSummary {
   recordIds: string[];
 }
 
+export interface RunPointPlanProgress {
+  initialPointCount: number;
+  acceptedPointCount: number;
+  pointLimit: number;
+  decisionCount: number;
+  closed: boolean;
+  stopReason?: string;
+}
+
 export interface ProjectRun {
   sequence?: number;
   runId: string;
@@ -61,6 +70,7 @@ export interface ProjectRun {
   result?: string;
   certainty?: string;
   progressCompleted?: number;
+  pointPlan: RunPointPlanProgress;
   plan: RunPlanSummary;
   resources: RunResource[];
   contents: ContentEntry[];

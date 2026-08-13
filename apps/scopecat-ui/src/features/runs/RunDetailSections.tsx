@@ -41,7 +41,9 @@ export function ProgressCard({
   const expected = run.plan.pointCount;
   const completed = Math.max(completedPoints(run, events), measurements?.recordCount ?? 0);
   const terminal = ["succeeded", "failed", "cancelled"].includes(run.status);
-  const target = expected ?? run.plan.pointLimit;
+  const adaptive = expected === undefined;
+  const accepted = run.pointPlan.acceptedPointCount;
+  const target = expected ?? (run.pointPlan.closed ? accepted : run.pointPlan.pointLimit);
   const hasProgress = target > 0;
   const progressValue = hasProgress
     ? terminal && run.status === "succeeded" && expected !== undefined
@@ -74,10 +76,16 @@ export function ProgressCard({
           />
           <div className="mt-[7px] flex justify-between text-[0.65rem] text-text-dim max-[460px]:flex-wrap max-[460px]:gap-2 [&_strong]:text-text-soft">
             <span>
-              <strong>{progressValue ?? 0}</strong> / {target} points
-              {expected === undefined ? " max" : ""}
+              <strong>{progressValue ?? 0}</strong> / {adaptive ? accepted : target} points
+              {adaptive && ` accepted · ${run.pointPlan.pointLimit} max`}
             </span>
-            <span>{events.length} durable events</span>
+            <span>
+              {adaptive
+                ? run.pointPlan.closed
+                  ? run.pointPlan.stopReason
+                  : `${run.pointPlan.decisionCount} decisions · plan open`
+                : `${events.length} durable events`}
+            </span>
           </div>
         </>
       ) : (
@@ -454,11 +462,15 @@ export function DataCard({
       {hasPlanMetadata && (
         <div className="mb-[13px] grid grid-cols-3 gap-2 rounded-[8px] border border-line bg-[rgb(255_255_255_/_1%)] p-2.5 max-[460px]:grid-cols-1">
           <Fact
-            label={run.plan.pointCount === undefined ? "Initial / max points" : "Planned points"}
+            label={
+              run.plan.pointCount === undefined
+                ? "Initial / accepted / max points"
+                : "Planned points"
+            }
             value={
               run.plan.pointCount !== undefined
                 ? run.plan.pointCount.toLocaleString()
-                : `${run.plan.initialPointCount.toLocaleString()} / ${run.plan.pointLimit.toLocaleString()}`
+                : `${run.pointPlan.initialPointCount.toLocaleString()} / ${run.pointPlan.acceptedPointCount.toLocaleString()} / ${run.pointPlan.pointLimit.toLocaleString()}`
             }
           />
           <Fact label="Coordinates" value={String(run.plan.coordinateIds.length)} />

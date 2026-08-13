@@ -19,6 +19,7 @@ from scopecat.daemon.client import (
     DaemonConflictError,
     DaemonNotFoundError,
 )
+from scopecat.daemon.points import RunPointPlanView
 from scopecat.daemon.views import (
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
@@ -594,6 +595,15 @@ def _control_run() -> RunControlView:
         state="queued",
         updated_at=_NOW,
         completed_point_count=0,
+        point_plan=RunPointPlanView(
+            run_id="run-1",
+            initial_point_count=1,
+            accepted_point_count=1,
+            point_limit=1,
+            decision_count=0,
+            plan_closed=True,
+            stop_reason="static point plan",
+        ),
     )
 
 

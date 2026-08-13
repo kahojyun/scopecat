@@ -409,6 +409,14 @@ function normalizeRun(
     result: outcome?.result,
     certainty: outcome?.certainty,
     progressCompleted: control.completed_point_count,
+    pointPlan: {
+      initialPointCount: control.point_plan.initial_point_count,
+      acceptedPointCount: control.point_plan.accepted_point_count,
+      pointLimit: control.point_plan.point_limit,
+      decisionCount: control.point_plan.decision_count,
+      closed: control.point_plan.plan_closed,
+      stopReason: control.point_plan.stop_reason ?? undefined,
+    },
     plan: {
       pointCount: plan.point_count ?? undefined,
       initialPointCount: plan.initial_point_count,

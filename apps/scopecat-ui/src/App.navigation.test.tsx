@@ -363,6 +363,13 @@ describe("config provenance navigation", () => {
       status: "running" as const,
       stateLabel: "Running",
       progressCompleted: 2,
+      pointPlan: {
+        initialPointCount: 1,
+        acceptedPointCount: 3,
+        pointLimit: 4,
+        decisionCount: 2,
+        closed: false,
+      },
       plan: {
         coordinateIds: ["frequency"],
         recordIds: ["signal"],
@@ -379,9 +386,10 @@ describe("config provenance navigation", () => {
       name: "2 of 4 points complete",
     });
     expect(progress).toBeVisible();
-    expect(progress.closest("article")).toHaveTextContent("2 / 4 points max");
-    expect(screen.getByText("Initial / max points")).toBeVisible();
-    expect(screen.getByText("1 / 4")).toBeVisible();
+    expect(progress.closest("article")).toHaveTextContent("2 / 3 points accepted · 4 max");
+    expect(progress.closest("article")).toHaveTextContent("2 decisions · plan open");
+    expect(screen.getByText("Initial / accepted / max points")).toBeVisible();
+    expect(screen.getByText("1 / 3 / 4")).toBeVisible();
   });
 
   it("keeps distinct records in one bounded measurement preview", async () => {
@@ -596,6 +604,14 @@ function projectRun(runId: string): ProjectRun {
     status: "succeeded",
     stateLabel: "Succeeded",
     updatedAt: "2026-07-24T08:00:00Z",
+    pointPlan: {
+      initialPointCount: 0,
+      acceptedPointCount: 0,
+      pointLimit: 0,
+      decisionCount: 0,
+      closed: true,
+      stopReason: "static point plan",
+    },
     plan: {
       initialPointCount: 0,
       pointLimit: 0,

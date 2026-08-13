@@ -44,6 +44,7 @@ from scopecat.daemon.client import (
     DaemonUnavailableError,
 )
 from scopecat.daemon.execution import ExecutorLeaseLostError
+from scopecat.daemon.points import RunPointPlanView
 from scopecat.daemon.views import (
     ActiveConfigView,
     ConfigDraftPreview,
@@ -128,6 +129,15 @@ def test_remote_run_uses_full_dataset_batches_and_projected_arrow_pages() -> Non
             state="closed",
             updated_at=_NOW,
             completed_point_count=3,
+            point_plan=RunPointPlanView(
+                run_id=manifest.run_id,
+                initial_point_count=3,
+                accepted_point_count=3,
+                point_limit=3,
+                decision_count=0,
+                plan_closed=True,
+                stop_reason="static point plan",
+            ),
         ),
         manifest=manifest,
     )

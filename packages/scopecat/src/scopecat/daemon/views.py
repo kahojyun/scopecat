@@ -19,6 +19,7 @@ from scopecat.control.models import (
     RunResourceRequirement,
 )
 from scopecat.daemon.health import DaemonHealth
+from scopecat.daemon.points import RunPointPlanView
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import Problem
 from scopecat.measurements.datasets import (
@@ -181,6 +182,7 @@ class RunControlView(_ViewModel):
     attention_reason: str | None = None
     cancellation_requested_at: datetime | None = None
     completed_point_count: int = Field(ge=0)
+    point_plan: RunPointPlanView
 
     @property
     def run_id(self) -> str:

@@ -3408,6 +3408,7 @@ export interface components {
             cancellation_requested_at?: string | null;
             /** Completed Point Count */
             completed_point_count: number;
+            point_plan: components["schemas"]["RunPointPlanView"];
             /** Sequence */
             sequence: number;
             state: components["schemas"]["ControlRunState"];
@@ -3621,6 +3622,26 @@ export interface components {
             proposal_index: number;
             /** Reason */
             reason?: string | null;
+        };
+        /**
+         * RunPointPlanView
+         * @description Durable adaptive point-plan progress without transient waveforms.
+         */
+        RunPointPlanView: {
+            /** Accepted Point Count */
+            accepted_point_count: number;
+            /** Decision Count */
+            decision_count: number;
+            /** Initial Point Count */
+            initial_point_count: number;
+            /** Plan Closed */
+            plan_closed: boolean;
+            /** Point Limit */
+            point_limit: number;
+            /** Run Id */
+            run_id: string;
+            /** Stop Reason */
+            stop_reason?: string | null;
         };
         /** RunRecordJsonResult */
         RunRecordJsonResult: {

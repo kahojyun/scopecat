@@ -2215,6 +2215,13 @@ def test_open_point_plan_can_succeed_below_its_limit_and_exposes_coverage(
             admission.run_id,
             ExecutorStartRequest(executor_id="notebook-adaptive"),
         )
+        initialized = runtime.application.executor.initialize_run_point_plan(
+            admission.run_id,
+            RunPointPlanInitializeCommand(
+                lease_id=lease.lease_id,
+                operation_id="initialize-adaptive-coverage",
+            ),
+        )
         runtime.application.executor.advance_run_coverage(
             admission.run_id,
             RunCoverageAdvanceCommand(
@@ -2223,22 +2230,40 @@ def test_open_point_plan_can_succeed_below_its_limit_and_exposes_coverage(
                 point_count=1,
             ),
         )
+        terminal = TerminalRunCommitCommand(
+            lease_id=lease.lease_id,
+            outcome=RunOutcome(
+                run_id=admission.run_id,
+                result="succeeded",
+                certainty="known",
+            ),
+        )
+        with pytest.raises(BackendConflict, match="closed durable point plan"):
+            runtime.application.executor.commit_terminal(
+                admission.run_id,
+                terminal,
+            )
+        closed = runtime.application.executor.close_run_point_plan(
+            admission.run_id,
+            RunPointPlanCloseCommand(
+                lease_id=lease.lease_id,
+                operation_id="close-adaptive-coverage",
+                based_on_completed_point_count=1,
+                reason="optimizer converged",
+            ),
+        )
         manifest = runtime.application.executor.commit_terminal(
             admission.run_id,
-            TerminalRunCommitCommand(
-                lease_id=lease.lease_id,
-                outcome=RunOutcome(
-                    run_id=admission.run_id,
-                    result="succeeded",
-                    certainty="known",
-                ),
-            ),
+            terminal,
         )
         view = runtime.application.runs.get_run(admission.run_id)
 
+    assert not initialized.plan_closed
+    assert closed.plan_closed
     assert manifest.outcome is not None
     assert manifest.outcome.result == "succeeded"
     assert view.control.completed_point_count == 1
+    assert view.control.point_plan == closed
     assert view.control.admission.plan.point_count is None
     assert view.control.admission.plan.initial_point_count == 1
     assert view.control.admission.plan.point_limit == 3
