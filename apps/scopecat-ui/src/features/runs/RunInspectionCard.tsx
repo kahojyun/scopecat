@@ -5,6 +5,7 @@ import { errorMessage } from "../../lib/presentation";
 import { classes, countBadge, detailCard } from "../../ui/styles";
 import type { ProjectRun } from "../../types";
 import { CompiledInspectionView } from "../inspections/CompiledInspectionView";
+import { formatCoordinateValue } from "../inspections/coordinate-codec";
 import { RunDomainQueueControl } from "./RunDomainQueueControl";
 
 type InspectionEvent = RunInspectionFeed["items"][number];
@@ -57,7 +58,7 @@ export function RunInspectionCard({
         </div>
         <span className={countBadge}>{feed?.total_proposal_count ?? items.length}</span>
       </div>
-      <RunDomainQueueControl run={run} inspections={items} />
+      <RunDomainQueueControl run={run} />
       {error ? (
         <EmptyInspection title="Inspection feed unavailable" detail={errorMessage(error)} warning />
       ) : pending && !feed ? (
@@ -207,32 +208,17 @@ function formatDomainEvent(event: InspectionEvent): string {
     .map((axis) => {
       const source = axis.source;
       if (source.kind === "values") {
-        return `${axis.axis_id} [${source.values.map(coordinateText).join(", ")}]`;
+        return `${axis.axis_id} [${source.values.map(formatCoordinateValue).join(", ")}]`;
       }
       if (source.kind === "range") {
-        return `${axis.axis_id} ${coordinateText(source.start)}→${coordinateText(source.stop)} (${source.points})`;
+        return `${axis.axis_id} ${formatCoordinateValue(source.start)}→${formatCoordinateValue(source.stop)} (${source.points})`;
       }
-      return `${axis.axis_id} around ${coordinateText(source.center)} span ${coordinateText(source.span)} (${source.points})`;
+      return `${axis.axis_id} around ${formatCoordinateValue(source.center)} span ${formatCoordinateValue(source.span)} (${source.points})`;
     })
     .join(" × ");
   const regions =
     event.region_ids.length === 1 ? event.region_ids[0] : `${event.region_ids.length} regions`;
   return `${axes} · ${regions}`;
-}
-
-function coordinateText(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "object" && "value" in value && typeof value.value === "number") {
-    const unit = "unit" in value && typeof value.unit === "string" ? ` ${value.unit}` : "";
-    return `${value.value}${unit}`;
-  }
-  if (typeof value === "object") {
-    return "id" in value && typeof value.id === "string" ? value.id : "";
-  }
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return `${value}`;
-  }
-  return "";
 }
 
 function EmptyInspection({

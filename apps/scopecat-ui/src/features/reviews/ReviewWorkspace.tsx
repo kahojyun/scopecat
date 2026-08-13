@@ -4,15 +4,16 @@ import { CircleOff, LoaderCircle, Radio, Send, Waves } from "lucide-react";
 import type { PointCoordinateSpec, ReviewCompileCommand, ReviewSession } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
 import { classes, primaryButton } from "../../ui/styles";
+import { CompiledInspectionView } from "../inspections/CompiledInspectionView";
 import {
-  CompiledInspectionView,
-  formatInspectionCoordinates as formatCoordinates,
-} from "../inspections/CompiledInspectionView";
+  coordinateInputValue,
+  formatCoordinateMapping,
+  parseCoordinate,
+} from "../inspections/coordinate-codec";
 import { compileReviewPoint, getReview, getReviews } from "./review-api";
 
 type PointMode = "exact" | "snap" | "free";
 type CoordinateDraft = Record<string, string>;
-type CoordinateInput = NonNullable<ReviewCompileCommand["coordinates"]>[string];
 
 export function ReviewWorkspace({ daemonUnavailable }: { daemonUnavailable: boolean }) {
   const [selectedId, setSelectedId] = useState(reviewIdFromLocation);
@@ -224,7 +225,7 @@ function PointCompiler({
             </option>
             {session.planned_points.map((point, index) => (
               <option key={point.point_index ?? "candidate"} value={index}>
-                #{(point.point_index ?? 0) + 1} · {formatCoordinates(point.coordinates)}
+                #{(point.point_index ?? 0) + 1} · {formatCoordinateMapping(point.coordinates)}
               </option>
             ))}
           </select>
@@ -343,7 +344,7 @@ function InspectionResult({ session }: { session: ReviewSession }) {
               : `Planned point #${result.point.point_index + 1}`}
           </span>
           <div className="mt-1 text-[0.7rem] font-semibold text-text-soft">
-            {formatCoordinates(result.point.coordinates)}
+            {formatCoordinateMapping(result.point.coordinates)}
           </div>
         </div>
         {result.point.proposal_fingerprint && (
@@ -367,25 +368,6 @@ function coordinateDraft(
       coordinateInputValue(current?.[spec.id] ?? spec.sampled_values[0] ?? ""),
     ]),
   );
-}
-
-function parseCoordinate(spec: PointCoordinateSpec, encoded: string): CoordinateInput {
-  if (spec.kind === "bool") return encoded === "true";
-  if (spec.kind === "int") return Number.parseInt(encoded, 10);
-  if (spec.kind === "float") return Number(encoded);
-  if (spec.kind === "quantity") return { value: Number(encoded), unit: spec.unit ?? "" };
-  if (spec.kind === "entity") return { id: encoded, metadata: {} };
-  return encoded;
-}
-
-function coordinateInputValue(value: unknown): string {
-  if (typeof value === "object" && value !== null && "value" in value) {
-    return String(value.value);
-  }
-  if (typeof value === "object" && value !== null && "id" in value) {
-    return String(value.id);
-  }
-  return String(value);
 }
 
 function SessionState({ active }: { active: boolean }) {

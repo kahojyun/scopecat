@@ -1,33 +1,10 @@
 import { useMemo } from "react";
+import type { ReviewSession } from "../../api-contract";
 import { EChart, type EChartsCoreOption } from "../../ui/EChart";
 
-type InspectionFact = { id: string; unit?: string | null; value?: unknown };
-type CompiledWaveform = {
-  channel_id: string;
-  instrument_id: string;
-  peak_abs: number;
-  rms: number;
-  source_sample_count: number;
-  sample_indices: number[];
-  samples: number[];
-};
-type CompiledPoint = {
-  realization_fingerprint: string;
-  facts: InspectionFact[];
-  waveform_count: number;
-  waveforms_truncated: boolean;
-  waveforms: CompiledWaveform[];
-};
-type PresentedInspection = {
-  operation_id: string;
-  target_id: string;
-  artifact_id: string;
-  content: {
-    kind: string;
-    facts: InspectionFact[];
-    points: CompiledPoint[];
-  };
-};
+type PresentedInspection = NonNullable<ReviewSession["latest_result"]>["inspections"][number];
+type PresentedPoint = PresentedInspection["content"]["points"][number];
+type PresentedFact = PresentedInspection["content"]["facts"][number];
 
 export function CompiledInspectionView({
   inspections,
@@ -71,7 +48,7 @@ export function CompiledInspectionView({
   );
 }
 
-function PointInspection({ point }: { point: CompiledPoint }) {
+function PointInspection({ point }: { point: PresentedPoint }) {
   const option = useMemo(() => waveformChartOption(point), [point]);
   return (
     <div className="grid gap-3 rounded-md border border-line bg-panel p-3">
@@ -118,7 +95,7 @@ function PointInspection({ point }: { point: CompiledPoint }) {
   );
 }
 
-function FactGrid({ facts }: { facts: InspectionFact[] }) {
+function FactGrid({ facts }: { facts: PresentedFact[] }) {
   return (
     <dl className="m-0 grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-2">
       {facts.map((fact) => (
@@ -135,7 +112,7 @@ function FactGrid({ facts }: { facts: InspectionFact[] }) {
   );
 }
 
-function waveformChartOption(point: CompiledPoint): EChartsCoreOption {
+function waveformChartOption(point: PresentedPoint): EChartsCoreOption {
   return {
     animation: false,
     backgroundColor: "transparent",
@@ -164,12 +141,6 @@ function waveformChartOption(point: CompiledPoint): EChartsCoreOption {
       type: "line",
     })),
   };
-}
-
-export function formatInspectionCoordinates(coordinates: Record<string, unknown>): string {
-  return Object.entries(coordinates)
-    .map(([id, value]) => `${id}=${formatInspectionValue(value)}`)
-    .join(" · ");
 }
 
 export function formatInspectionValue(value: unknown): string {

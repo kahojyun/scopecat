@@ -56,7 +56,7 @@ describe("RunInspectionCard", () => {
     expect(screen.getAllByRole("img", { name: "Compiled physical waveforms" })).toHaveLength(2);
   });
 
-  it("keeps snapping explicit and queues the displayed physical coordinates", async () => {
+  it("previews snapping and enqueues the domain without resolving it twice", async () => {
     vi.mocked(enqueueRunDomain).mockResolvedValue({
       queue_index: 0,
       occurred_at: "2026-08-13T10:00:00Z",
@@ -92,7 +92,8 @@ describe("RunInspectionCard", () => {
       return element.textContent?.includes("values will be snapped explicitly") ?? false;
     });
     expect(preview).toHaveTextContent("1 points across 1 region");
-    expect(preview).toHaveTextContent("drive_frequency [5.2]");
+    expect(preview).toHaveTextContent("drive_frequency [5.2 GHz]");
+    const resolutionCount = vi.mocked(resolveRunDomain).mock.calls.length;
     fireEvent.click(screen.getByRole("button", { name: "Add scan" }));
 
     await waitFor(() =>
@@ -116,6 +117,8 @@ describe("RunInspectionCard", () => {
         }),
       ),
     );
+    expect(resolveRunDomain).toHaveBeenCalledTimes(resolutionCount);
+    expect(screen.queryByRole("button", { name: "Inspect" })).not.toBeInTheDocument();
   });
 });
 

@@ -7,16 +7,21 @@ import type {
   RunDomainEnqueueCommand,
   RunDomainQueue,
   RunDomainResolveCommand,
-  RunInspectionFeed,
 } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
 import { classes, primaryButton } from "../../ui/styles";
 import type { ProjectRun } from "../../types";
-import { formatInspectionCoordinates } from "../inspections/CompiledInspectionView";
+import {
+  coordinateInputValue,
+  formatCoordinateMapping,
+  formatCoordinateValue,
+  isNumericCoordinate,
+  parseCoordinate,
+  parseLinearCoordinate,
+} from "../inspections/coordinate-codec";
 import { enqueueRunDomain, getRunDomainQueue, resolveRunDomain } from "./run-api";
 
-type CoordinateValue = Extract<RunDomainAxis["source"], { kind: "values" }>["values"][number];
-type InputMode = "inspect" | "snap" | "free";
+type InputMode = "snap" | "free";
 type SourceKind = "values" | "range" | "around";
 type RegionScope = RunDomainResolveCommand["region_scope"];
 
@@ -32,13 +37,7 @@ interface AxisDraft {
 
 type DomainDraft = Record<string, AxisDraft>;
 
-export function RunDomainQueueControl({
-  run,
-  inspections,
-}: {
-  run: ProjectRun;
-  inspections: RunInspectionFeed["items"];
-}) {
+export function RunDomainQueueControl({ run }: { run: ProjectRun }) {
   const queryClient = useQueryClient();
   const adaptive = run.plan.pointCount === undefined;
   const active = run.status === "running" && adaptive && !run.pointPlan.closed;
@@ -53,17 +52,13 @@ export function RunDomainQueueControl({
     refetchInterval: active ? 250 : false,
   });
   const enqueue = useMutation({
-    mutationFn: async (command: RunDomainEnqueueCommand) => {
-      const { request_id: _, ...resolveCommand } = command;
-      await resolveRunDomain(run.runId, resolveCommand);
-      return enqueueRunDomain(run.runId, command);
-    },
+    mutationFn: (command: RunDomainEnqueueCommand) => enqueueRunDomain(run.runId, command),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["run-domain-queue", run.runId] });
       await queryClient.invalidateQueries({ queryKey: ["events", "run", run.runId] });
     },
   });
-  const [mode, setMode] = useState<InputMode>("inspect");
+  const [mode, setMode] = useState<InputMode>("snap");
   const [scope, setScope] = useState<RegionScope>(
     run.plan.adaptiveScope === "global" ? "all" : "current",
   );
@@ -72,7 +67,7 @@ export function RunDomainQueueControl({
   const [inputError, setInputError] = useState<string>();
 
   useEffect(() => {
-    setMode("inspect");
+    setMode("snap");
     setScope(run.plan.adaptiveScope === "global" ? "all" : "current");
     setSelectedRegions([]);
     setInputError(undefined);
@@ -87,7 +82,6 @@ export function RunDomainQueueControl({
   }, [specs]);
 
   const resolveCommand = useMemo<RunDomainResolveCommand | undefined>(() => {
-    if (mode === "inspect") return undefined;
     try {
       const regionIds = scope === "selected" ? selectedRegions : [];
       if (scope === "selected" && regionIds.length === 0) return undefined;
@@ -140,7 +134,7 @@ export function RunDomainQueueControl({
           </p>
         </div>
         <div className="flex gap-1 rounded-md border border-line bg-panel p-1" role="group">
-          {(["inspect", "snap", "free"] as const).map((item) => (
+          {(["snap", "free"] as const).map((item) => (
             <button
               className={classes(
                 "cursor-pointer rounded px-2.5 py-1.5 text-[0.61rem] font-bold text-text-dim",
@@ -153,106 +147,98 @@ export function RunDomainQueueControl({
               }}
               type="button"
             >
-              {item === "inspect" ? "Inspect" : `${capitalize(item)} scan`}
+              {`${capitalize(item)} scan`}
             </button>
           ))}
         </div>
       </div>
 
-      {mode === "inspect" ? (
-        <p className="m-0 rounded border border-dashed border-line px-3 py-2 text-[0.61rem] text-text-dim">
-          {inspections.length > 0
-            ? "Select a compiled point below to inspect its exact waveform and compare realizations."
-            : "No compiled point is available yet. Add a snapped or free scan while the run is active."}
-        </p>
-      ) : (
-        <form onSubmit={submit}>
-          <div className="mb-3 flex flex-wrap items-end gap-2.5">
-            <label className="grid gap-1 text-[0.59rem] font-bold text-text-dim">
-              Apply to
-              <select
-                className="rounded-md border border-line bg-panel px-2.5 py-2 text-[0.66rem] text-text-soft"
-                onChange={(event) => setScope(event.target.value as RegionScope)}
-                value={scope}
-              >
-                {run.plan.adaptiveScope !== "global" && (
-                  <option value="current">Current region</option>
-                )}
-                <option value="all">All regions</option>
-                <option value="selected">Selected regions</option>
-              </select>
-            </label>
-            <span className="pb-2 text-[0.59rem] text-text-dim">
-              {scope === "current"
-                ? "The executor binds this scan to its current outer static point."
-                : scope === "all"
-                  ? `Targets all ${run.plan.adaptiveRegionCount} admitted regions.`
-                  : "Choose explicit outer static regions below."}
-            </span>
-          </div>
-
-          {scope === "selected" && (
-            <RegionSelector run={run} selected={selectedRegions} setSelected={setSelectedRegions} />
-          )}
-
-          <div className="grid gap-2.5">
-            {specs.map((spec) => (
-              <AxisEditor
-                draft={draft[spec.id] ?? initialAxisDraft(spec)}
-                key={spec.id}
-                onChange={(next) => setDraft((current) => ({ ...current, [spec.id]: next }))}
-                runId={run.runId}
-                spec={spec}
-              />
-            ))}
-          </div>
-
-          {resolution.data && (
-            <p className="mt-2.5 mb-0 rounded border border-line bg-panel px-2.5 py-2 text-[0.59rem] text-text-dim">
-              <strong className="text-text-soft">
-                {resolution.data.total_point_count.toLocaleString()} points
-              </strong>{" "}
-              across {resolution.data.region_count.toLocaleString()} region
-              {resolution.data.region_count === 1 ? "" : "s"} ·{" "}
-              {fragmentSummary(resolution.data.fragment)}
-              {mode === "snap" &&
-                resolution.data.fragment.fragment_fingerprint !==
-                  resolution.data.requested_fragment.fragment_fingerprint && (
-                  <> · values will be snapped explicitly</>
-                )}
-            </p>
-          )}
-
-          <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            <button
-              className={primaryButton}
-              disabled={!active || enqueue.isPending || specs.length === 0}
-              type="submit"
+      <form onSubmit={submit}>
+        <div className="mb-3 flex flex-wrap items-end gap-2.5">
+          <label className="grid gap-1 text-[0.59rem] font-bold text-text-dim">
+            Apply to
+            <select
+              className="rounded-md border border-line bg-panel px-2.5 py-2 text-[0.66rem] text-text-soft"
+              onChange={(event) => setScope(event.target.value as RegionScope)}
+              value={scope}
             >
-              {enqueue.isPending ? (
-                <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />
-              ) : (
-                <Plus size={14} aria-hidden="true" />
+              {run.plan.adaptiveScope !== "global" && (
+                <option value="current">Current region</option>
               )}
-              Add scan
-            </button>
-            <span className="text-[0.59rem] text-text-dim">
-              {!active
-                ? run.pointPlan.closed
-                  ? "The adaptive point plan is closed."
-                  : "Adding scans becomes available while the executor owns this run."
-                : mode === "snap"
-                  ? "Previewed values are snapped to admitted samples before queueing."
-                  : "Free values are compiled as entered, including off-grid coordinates."}
-            </span>
-            {(inputError || resolution.error || enqueue.error) && (
-              <span className="w-full text-[0.61rem] text-red" role="alert">
-                {inputError ?? errorMessage(resolution.error ?? enqueue.error)}
-              </span>
+              <option value="all">All regions</option>
+              <option value="selected">Selected regions</option>
+            </select>
+          </label>
+          <span className="pb-2 text-[0.59rem] text-text-dim">
+            {scope === "current"
+              ? "The executor binds this scan to its current outer static point."
+              : scope === "all"
+                ? `Targets all ${run.plan.adaptiveRegionCount} admitted regions.`
+                : "Choose explicit outer static regions below."}
+          </span>
+        </div>
+
+        {scope === "selected" && (
+          <RegionSelector run={run} selected={selectedRegions} setSelected={setSelectedRegions} />
+        )}
+
+        <div className="grid gap-2.5">
+          {specs.map((spec) => (
+            <AxisEditor
+              draft={draft[spec.id] ?? initialAxisDraft(spec)}
+              key={spec.id}
+              onChange={(next) => setDraft((current) => ({ ...current, [spec.id]: next }))}
+              runId={run.runId}
+              spec={spec}
+            />
+          ))}
+        </div>
+
+        {resolution.data && (
+          <p className="mt-2.5 mb-0 rounded border border-line bg-panel px-2.5 py-2 text-[0.59rem] text-text-dim">
+            <strong className="text-text-soft">
+              {resolution.data.total_point_count.toLocaleString()} points
+            </strong>{" "}
+            across {resolution.data.region_count.toLocaleString()} region
+            {resolution.data.region_count === 1 ? "" : "s"} ·{" "}
+            {fragmentSummary(resolution.data.fragment)}
+            {mode === "snap" &&
+              resolution.data.fragment.fragment_fingerprint !==
+                resolution.data.requested_fragment.fragment_fingerprint && (
+                <> · values will be snapped explicitly</>
+              )}
+          </p>
+        )}
+
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          <button
+            className={primaryButton}
+            disabled={!active || enqueue.isPending || specs.length === 0}
+            type="submit"
+          >
+            {enqueue.isPending ? (
+              <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />
+            ) : (
+              <Plus size={14} aria-hidden="true" />
             )}
-          </div>
-        </form>
-      )}
+            Add scan
+          </button>
+          <span className="text-[0.59rem] text-text-dim">
+            {!active
+              ? run.pointPlan.closed
+                ? "The adaptive point plan is closed."
+                : "Adding scans becomes available while the executor owns this run."
+              : mode === "snap"
+                ? "Previewed values are snapped to admitted samples before queueing."
+                : "Free values are compiled as entered, including off-grid coordinates."}
+          </span>
+          {(inputError || resolution.error || enqueue.error) && (
+            <span className="w-full text-[0.61rem] text-red" role="alert">
+              {inputError ?? errorMessage(resolution.error ?? enqueue.error)}
+            </span>
+          )}
+        </div>
+      </form>
 
       {queue.data && queue.data.items.length > 0 && <DomainQueue queue={queue.data} />}
     </div>
@@ -270,7 +256,7 @@ function AxisEditor({
   runId: string;
   spec: PointCoordinateSpec;
 }) {
-  const linear = numericCoordinate(spec);
+  const linear = isNumericCoordinate(spec);
   return (
     <fieldset className="rounded-md border border-line bg-panel p-2.5">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -302,8 +288,8 @@ function AxisEditor({
           {spec.sampled_values.length > 0 && (
             <datalist id={`run-domain-${runId}-${spec.id}`}>
               {spec.sampled_values.map((value, index) => (
-                <option key={index} value={coordinateText(value)}>
-                  {coordinateText(value)}
+                <option key={index} value={coordinateInputValue(value)}>
+                  {formatCoordinateValue(value)}
                 </option>
               ))}
             </datalist>
@@ -398,7 +384,7 @@ function RegionSelector({
             type="checkbox"
           />
           <span className="font-bold">{region.id}</span>
-          <span className="text-text-dim">{formatInspectionCoordinates(region.coordinates)}</span>
+          <span className="text-text-dim">{formatCoordinateMapping(region.coordinates)}</span>
         </label>
       ))}
       {run.plan.adaptiveRegionsTruncated && (
@@ -495,7 +481,7 @@ function buildAxis(spec: PointCoordinateSpec, draft: AxisDraft | undefined): Run
 }
 
 function initialAxisDraft(spec: PointCoordinateSpec): AxisDraft {
-  const values = spec.sampled_values.slice(0, 3).map(coordinateText).filter(Boolean);
+  const values = spec.sampled_values.slice(0, 3).map(coordinateInputValue).filter(Boolean);
   const first = values[0] ?? "";
   const last = values.at(-1) ?? first;
   return {
@@ -514,12 +500,12 @@ function fragmentSummary(fragment: RunDomainQueue["items"][number]["request"]["f
     .map((axis) => {
       const source = axis.source;
       if (source.kind === "values") {
-        return `${axis.axis_id} [${source.values.map(coordinateText).join(", ")}]`;
+        return `${axis.axis_id} [${source.values.map(formatCoordinateValue).join(", ")}]`;
       }
       if (source.kind === "range") {
-        return `${axis.axis_id} ${coordinateText(source.start)}→${coordinateText(source.stop)} (${source.points})`;
+        return `${axis.axis_id} ${formatCoordinateValue(source.start)}→${formatCoordinateValue(source.stop)} (${source.points})`;
       }
-      return `${axis.axis_id} around ${coordinateText(source.center)} ± ${coordinateText(source.span)} (${source.points})`;
+      return `${axis.axis_id} around ${formatCoordinateValue(source.center)} ± ${formatCoordinateValue(source.span)} (${source.points})`;
     })
     .join(" × ");
 }
@@ -528,55 +514,6 @@ function regionSummary(request: RunDomainQueue["items"][number]["request"]): str
   if (request.region_scope === "current") return "current region";
   if (request.region_scope === "all") return `${request.region_count} regions`;
   return `${request.region_ids.length} selected regions`;
-}
-
-function coordinateText(value: unknown): string {
-  if (value === undefined || value === null) return "";
-  if (typeof value === "object") {
-    if ("value" in value && typeof value.value === "number") return String(value.value);
-    if ("id" in value && typeof value.id === "string") return value.id;
-    return "";
-  }
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return `${value}`;
-  return "";
-}
-
-function numericCoordinate(spec: PointCoordinateSpec): boolean {
-  return spec.kind === "int" || spec.kind === "float" || spec.kind === "quantity";
-}
-
-function parseLinearCoordinate(
-  spec: PointCoordinateSpec,
-  encoded: string,
-): number | Extract<CoordinateValue, { value: number }> {
-  const value = parseCoordinate(spec, encoded);
-  if (typeof value === "number") return value;
-  if (typeof value === "object" && value !== null && "value" in value) return value;
-  throw new Error(`${spec.id} does not support a linear source`);
-}
-
-function parseCoordinate(spec: PointCoordinateSpec, encoded: string): CoordinateValue {
-  if (!encoded.trim()) throw new Error(`${spec.id} requires a value`);
-  if (spec.kind === "bool") {
-    if (encoded !== "true" && encoded !== "false") throw new Error(`${spec.id} must be boolean`);
-    return encoded === "true";
-  }
-  if (spec.kind === "int" || spec.kind === "float") {
-    const value = Number(encoded);
-    if (!Number.isFinite(value)) throw new Error(`${spec.id} must be numeric`);
-    if (spec.kind === "int" && !Number.isInteger(value)) {
-      throw new Error(`${spec.id} must be an integer`);
-    }
-    return value;
-  }
-  if (spec.kind === "quantity") {
-    const value = Number(encoded);
-    if (!Number.isFinite(value)) throw new Error(`${spec.id} must be numeric`);
-    return { value, unit: spec.unit ?? "" };
-  }
-  if (spec.kind === "entity") return { id: encoded, metadata: {} };
-  return encoded;
 }
 
 function capitalize(value: string): string {
