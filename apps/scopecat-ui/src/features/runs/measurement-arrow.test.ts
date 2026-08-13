@@ -59,7 +59,7 @@ describe("live measurement Arrow", () => {
     );
     const content = tableToIPC(table, "file");
 
-    expect(decodeMeasurementArrowRecord(content.slice().buffer as ArrayBuffer)).toMatchObject({
+    expect(decodeMeasurementArrowRecord(content.slice().buffer)).toMatchObject({
       run_id: "run-arrow",
       logical_point_id: "point-7",
       point_index: 7,

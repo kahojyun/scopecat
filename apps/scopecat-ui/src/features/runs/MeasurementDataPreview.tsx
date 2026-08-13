@@ -420,7 +420,7 @@ function fixedCoordinateValueLabel(
   coordinate: Extract<MeasurementChartPlan, { kind: "heatmap" }>["fixedCoordinates"][number],
 ): string {
   const value = coordinate.value;
-  if (value === undefined) return `Index ${coordinate.index! + 1}`;
+  if (value === undefined) return `Index ${coordinate.index + 1}`;
   const rendered =
     typeof value === "boolean"
       ? value

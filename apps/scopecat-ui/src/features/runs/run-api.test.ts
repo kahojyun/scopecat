@@ -645,7 +645,7 @@ function liveArrowResponse(
     base.batches,
   );
   const content = tableToIPC(table, "file");
-  return new Response(content.slice().buffer as ArrayBuffer, {
+  return new Response(content.slice().buffer, {
     status: 200,
     headers: {
       "Content-Type": "application/vnd.apache.arrow.file",
