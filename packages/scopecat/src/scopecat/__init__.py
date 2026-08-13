@@ -15,6 +15,13 @@ from importlib import import_module
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from scopecat.adaptive_domains import (
+        AdaptiveRegion,
+        DomainProposalAttempt,
+        RegionOptimizationComplete,
+        ResolvedDomainAxis,
+        ResolvedDomainFragment,
+    )
     from scopecat.analysis.datasets import (
         DerivedDataset,
         DerivedDatasetField,
@@ -251,6 +258,23 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "TemporaryInstrumentRef",
     ),
     "Quantity": ("scopecat.kernel.quantity", "Quantity"),
+    "AdaptiveRegion": ("scopecat.adaptive_domains", "AdaptiveRegion"),
+    "DomainProposalAttempt": (
+        "scopecat.adaptive_domains",
+        "DomainProposalAttempt",
+    ),
+    "RegionOptimizationComplete": (
+        "scopecat.adaptive_domains",
+        "RegionOptimizationComplete",
+    ),
+    "ResolvedDomainAxis": (
+        "scopecat.adaptive_domains",
+        "ResolvedDomainAxis",
+    ),
+    "ResolvedDomainFragment": (
+        "scopecat.adaptive_domains",
+        "ResolvedDomainFragment",
+    ),
     "PointProposalAttempt": (
         "scopecat.kernel.points",
         "PointProposalAttempt",
