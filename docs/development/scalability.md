@@ -375,7 +375,10 @@ The present architecture provides a direct end-to-end baseline:
 - local target preparation retains static route manifests and materializes one
   initial physical probe for fast validation and preview. Execution reuses that
   probe in its first bounded coverage batch instead of lowering the first point
-  again. The user-visible point preview samples at most 64 edge points;
+  again. An explicit domain inspection compiles only its selected logical point
+  and returns target-owned waveform statistics and min/max samples under a hard
+  response budget without persisting them. The general point preview samples at
+  most 64 edge points;
   local-only coverage starts with 32 points and then uses batches of at most 256
   points;
 - domain compilation uses a backend-declared point capacity but prepares only

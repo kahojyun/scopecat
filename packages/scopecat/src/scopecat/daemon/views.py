@@ -221,6 +221,7 @@ class RunDomainExecutionView(_ViewModel):
     target_id: str = Field(min_length=1)
     compiler_id: str = Field(min_length=1)
     artifact_id: str = Field(min_length=1)
+    artifact_fingerprint: str = Field(min_length=1)
     state: Literal["started", "completed", "failed", "unknown"]
     execution_summary: dict[str, JsonValue]
     receipt_status: Literal["completed", "not_executed", "unknown"] | None = None

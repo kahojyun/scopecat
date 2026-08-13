@@ -253,6 +253,8 @@ def test_lab_preview_and_run_are_direct_prepare_shortcuts(
         (
             "preview",
             {
+                "point": "first",
+                "coordinates": None,
                 "name": "preview",
                 "tags": (),
                 "description": None,

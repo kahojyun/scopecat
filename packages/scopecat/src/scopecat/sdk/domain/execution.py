@@ -15,6 +15,7 @@ from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
 
 from scopecat.kernel.interface_identity import InterfaceId
+from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.state import StateValue
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.sdk.domain.invocation import ClosedDomainInvocation
@@ -90,6 +91,11 @@ class PreparedDomainExecution:
     setup: ErasedDomainSetup | None = field(repr=False, compare=False)
     runtime: ErasedDomainRuntime = field(repr=False, compare=False)
     realize: ErasedDomainRealizer = field(repr=False, compare=False)
+    inspection: dict[str, JsonValue] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         if self.next_batch_max_points <= 0:

@@ -241,6 +241,29 @@ def point_axis_size[CenterT](source: PointAxisSource[CenterT]) -> int:
     return len(source.values) if isinstance(source, PointAxisValues) else source.count
 
 
+def point_axis_value(
+    source: PointAxisSource[Quantity],
+    index: int,
+) -> CellValue:
+    """Return one evaluated axis value without materializing the whole axis."""
+
+    if isinstance(source, PointAxisValues):
+        return source.values[index]
+    if isinstance(source, PointAxisRange):
+        return point_axis_range_value(
+            source.start,
+            source.stop,
+            source.count,
+            index,
+        )
+    return point_axis_linear_value(
+        source.center,
+        source.span,
+        source.count,
+        index,
+    )
+
+
 def iter_point_axis_linear[CenterT](
     axes: PointAxes[CenterT],
 ) -> Iterator[tuple[PointDomainPath, PointAxisLinear[CenterT]]]:

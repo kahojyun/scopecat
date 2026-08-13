@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Self
+from typing import Literal, Self
 
 from scopecat.api._config import LabConfigOperations
 from scopecat.api._control import LabControlOperations
@@ -25,6 +25,7 @@ from scopecat.records.run import RunConfigSource
 from scopecat.runs.selectors import RunSelector
 
 type ExperimentSpec = ExperimentInvocation | Experiment[...]
+type PreviewPoint = int | Literal["first", "middle", "last"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +40,8 @@ class PreparedLabExperiment:
     def preview(
         self,
         *,
+        point: PreviewPoint = "first",
+        coordinates: Mapping[str, object] | None = None,
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -48,6 +51,8 @@ class PreparedLabExperiment:
         return self.lab.preview_invocation(
             self.invocation,
             config=self.config,
+            point=point,
+            coordinates=coordinates,
             name=name,
             tags=tags,
             description=description,
@@ -175,6 +180,8 @@ class LabClient:
         experiment: ExperimentSpec,
         *,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
+        point: PreviewPoint = "first",
+        coordinates: Mapping[str, object] | None = None,
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -184,6 +191,8 @@ class LabClient:
         """Preview an experiment without requiring an explicit prepare step."""
 
         return self.prepare(experiment, config=config).preview(
+            point=point,
+            coordinates=coordinates,
             name=name,
             tags=tags,
             description=description,
@@ -217,6 +226,8 @@ class LabClient:
         invocation: ExperimentInvocation,
         *,
         config: ConfigProfileSnapshot,
+        point: PreviewPoint = "first",
+        coordinates: Mapping[str, object] | None = None,
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -226,6 +237,8 @@ class LabClient:
         return self._runner.preview(
             invocation,
             config=config,
+            point=point,
+            coordinates=coordinates,
             name=name,
             tags=tags,
             description=description,

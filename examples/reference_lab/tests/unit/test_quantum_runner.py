@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import assert_type
+from typing import assert_type, cast
 
 import pytest
 import scopecat as sc
@@ -38,6 +38,7 @@ from reference_lab.quantum_runner import (
 )
 from reference_lab.targets.list_mode import (
     ListModeDomainRuntime,
+    MappedListModeTarget,
     configured_list_mode_target,
 )
 from reference_lab.virtual_lab.execution import virtual_quantum_runtime
@@ -271,6 +272,74 @@ def test_quantum_target_executes_through_reserved_bare_instruments(
         if state.component_path == ["outputs", "ch9"] and state.property_id == "offset"
     )
     assert guard_offset == sc.Quantity(0.007, "V")
+
+
+def test_quantum_preview_inspects_only_the_selected_point_without_device_effects(
+    tmp_path: Path,
+) -> None:
+    config = bootstrap_config()
+    provider = ReferenceLabProvider(seed=7)
+    composition = compose_test_instruments(
+        config=config,
+        provider=provider,
+        domain_compiler=QuantumLabCompiler(
+            target=_configured_target(config, provider),
+            runtime_selector=virtual_quantum_runtime,
+        ),
+        payload_codecs=reference_lab_payload_codecs(),
+    )
+    lab = in_process_lab(
+        tmp_path,
+        config=config,
+        system=composition.system,
+        instrument_backend=composition.backend,
+    )
+    invocation = drag_beta_experiment()
+
+    preview = lab.prepare(invocation).preview(point="last")
+
+    assert lab.runs() == ()
+    assert preview.selected_point is not None
+    assert preview.selected_point.point_index == 14
+    [inspection] = preview.domain_inspections
+    assert inspection.point_indices == (14,)
+    assert inspection.content["schema"] == (
+        "reference_lab.list_mode_artifact_inspection.v1"
+    )
+    [entry] = cast("list[dict[str, object]]", inspection.content["entries"])
+    assert cast("str", entry["entry_id"]).endswith(".point-14")
+
+    selected_again = lab.prepare(invocation).preview(
+        coordinates=preview.selected_point.coordinates
+    )
+    assert selected_again.selected_point == preview.selected_point
+
+    bound = bind_program(
+        compile_invocation(invocation).program,
+        build_config_environment(config),
+    )
+    plan = compile_run_program(composition.system, bound=bound)
+    actual_job = next(
+        operation
+        for operation in plan.coverage
+        if isinstance(operation, RunDomainJob) and 14 in operation.point_ordinals
+    )
+    actual = cast(
+        "MappedListModeTarget",
+        actual_job.execution.invocation.payload,
+    ).artifact
+    actual_entry = next(
+        item for item in actual.entries if item.entry_id.value.endswith("point-14")
+    )
+    preview_hashes = {
+        waveform["channel_id"]: waveform["samples_sha256"]
+        for waveform in cast("list[dict[str, str]]", entry["waveforms"])
+    }
+    actual_hashes = {
+        waveform.channel_id.value: waveform.samples_sha256
+        for waveform in actual_entry.waveforms
+    }
+    assert preview_hashes == actual_hashes
 
 
 def test_target_and_device_dsp_follow_the_same_integrated_iq_semantics(

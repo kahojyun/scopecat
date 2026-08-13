@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from threading import Event, Lock, Thread
 from time import monotonic
-from typing import override
+from typing import Literal, override
 from uuid import uuid4
 
 import httpx2
@@ -122,6 +122,8 @@ class _DaemonRunner:
         experiment: ExperimentInvocation,
         *,
         config: ConfigProfileSnapshot | None = None,
+        point: int | Literal["first", "middle", "last"] = "first",
+        coordinates: Mapping[str, object] | None = None,
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -141,6 +143,8 @@ class _DaemonRunner:
         return build_run_program_preview(
             planned.program,
             invocation=experiment,
+            point=point,
+            coordinates=coordinates,
         )
 
     def _plan(

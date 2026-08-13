@@ -873,6 +873,7 @@ def _domain_execution_views(
                     target_id=intent.target_id,
                     compiler_id=intent.compiler_id,
                     artifact_id=intent.artifact_id,
+                    artifact_fingerprint=intent.artifact_fingerprint,
                     state="started",
                     execution_summary=intent.execution_summary,
                     started_at=transition.timestamp,

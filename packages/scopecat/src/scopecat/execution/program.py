@@ -71,16 +71,18 @@ type RunCoveredOperation = RunCoverageCheckpoint | RunCoverageEffect | RunDomain
 class RunCoverage:
     """A lazy operation stream rebuilt for each planning or execution pass."""
 
-    __slots__ = ("_factory", "_preflight")
+    __slots__ = ("_factory", "_inspect", "_preflight")
 
     def __init__(
         self,
         factory: Callable[[], Iterator[RunCoveredOperation]],
         *,
         preflight: Callable[[], None] | None = None,
+        inspect: Callable[[int], tuple[RunDomainJob, ...]] | None = None,
     ) -> None:
         self._factory = factory
         self._preflight = preflight
+        self._inspect = inspect
 
     def __iter__(self) -> Iterator[RunCoveredOperation]:
         return self._factory()
@@ -90,6 +92,13 @@ class RunCoverage:
 
         if self._preflight is not None:
             self._preflight()
+
+    def inspect(self, point_index: int) -> tuple[RunDomainJob, ...]:
+        """Compile target-owned inspection data for exactly one logical point."""
+
+        if self._inspect is None:
+            return ()
+        return self._inspect(point_index)
 
 
 @dataclass(frozen=True, slots=True)

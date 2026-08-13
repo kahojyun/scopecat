@@ -3192,6 +3192,8 @@ export interface components {
          * @description Compact target-authored provenance for one domain execution.
          */
         RunDomainExecutionView: {
+            /** Artifact Fingerprint */
+            artifact_fingerprint: string;
             /** Artifact Id */
             artifact_id: string;
             /** Compiler Id */

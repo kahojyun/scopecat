@@ -464,6 +464,31 @@ for edge in preview.binding_edges:
     print(edge.source, edge.relation, edge.target)
 ```
 
+Domain targets may also expose a bounded, non-durable inspection for one exact
+logical point. Select by position or by the complete authored coordinate row:
+
+```python
+preview = lab.preview(experiment, point="middle")
+# Equivalent selectors: "first", "last", or a zero-based logical point index.
+
+selected = preview.selected_point
+for compiled in preview.domain_inspections:
+    print(compiled.target_id, compiled.artifact_fingerprint)
+    print(compiled.content)
+
+same_point = lab.preview(
+    experiment,
+    coordinates=selected.coordinates,
+)
+```
+
+This compiles only the selected logical point and never admits a run, reserves
+resources, invokes an instrument operation, or publishes the waveform projection. The
+reference list-mode target returns requested/realized timing, channel
+identities, peak and RMS values, content hashes, and a bounded min/max waveform
+preview. The full waveform remains transient compiler data; a normal run keeps
+only compact execution provenance.
+
 Placement is either `host` (all inputs exist before acquisition) or
 `observation` (at least one input is a measured product). `demanded_by` names
 the returned record, downstream compute, payload, or experiment effect that

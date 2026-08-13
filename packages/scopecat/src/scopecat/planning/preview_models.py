@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from scopecat.kernel.json_types import JsonValue
 from scopecat.program.measurement_types import MeasurementVariableRole
 from scopecat.records.measurement import MeasurementDatasetSchema
 
@@ -68,6 +69,18 @@ class ExperimentPreviewBindingEdge:
 
 
 @dataclass(frozen=True)
+class ExperimentPreviewDomainInspection:
+    """One target-owned, non-durable inspection for the selected point."""
+
+    operation_id: str
+    point_indices: tuple[int, ...]
+    target_id: str
+    artifact_id: str
+    artifact_fingerprint: str
+    content: dict[str, JsonValue]
+
+
+@dataclass(frozen=True)
 class ExperimentPreview:
     """Stable experiment shape that a user can review before execution."""
 
@@ -79,6 +92,8 @@ class ExperimentPreview:
     points: tuple[ExperimentPreviewPoint, ...]
     points_truncated: bool
     records: tuple[ExperimentPreviewRecord, ...]
+    selected_point: ExperimentPreviewPoint | None = None
+    domain_inspections: tuple[ExperimentPreviewDomainInspection, ...] = ()
     computes: tuple[ExperimentPreviewCompute, ...] = ()
     bindings: tuple[ExperimentPreviewBinding, ...] = ()
     binding_edges: tuple[ExperimentPreviewBindingEdge, ...] = ()

@@ -866,13 +866,43 @@ def _compile_coverage(
         )
 
     def preflight() -> None:
-        for operation in operations():
-            if isinstance(operation, RunDomainJob | RunCoverageCheckpoint):
-                return
+        inspect(point_ordinals[0])
+
+    def inspect(point_index: int) -> tuple[RunDomainJob, ...]:
+        if point_index not in point_ordinals:
+            raise IndexError(point_index)
+        selected_operations = _validated_coverage(
+            _coverage_operations(
+                compiler=compiler,
+                bound_points=bound_points,
+                point_ordinals=(point_index,),
+                effects=bound.program.program.effects,
+                domain_calls=domain_calls,
+                local_target=local_target,
+                initial_local_probe=(
+                    initial_local_probe
+                    if initial_local_probe is not None
+                    and initial_local_probe.ordinal == point_index
+                    else None
+                ),
+            ),
+            validator=_CoverageValidator(
+                domain_instrument_ids=(
+                    () if compiler is None else compiler.instrument_ids
+                ),
+                catalog=catalog,
+            ),
+        )
+        return tuple(
+            operation
+            for operation in selected_operations
+            if isinstance(operation, RunDomainJob)
+        )
 
     return RunCoverage(
         operations,
         preflight=preflight if domain_calls else None,
+        inspect=inspect if domain_calls else None,
     )
 
 

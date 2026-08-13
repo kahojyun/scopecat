@@ -5,7 +5,9 @@ from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import cast
 
+import numpy as np
 import pytest
 from scopecat import Quantity
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
@@ -61,10 +63,12 @@ from reference_lab.physical_policies import (
 )
 from reference_lab.provider import ReferenceLabProvider
 from reference_lab.targets.list_mode import (
+    ArtifactInspectionBounds,
     ListModeArtifact,
     ListModeTarget,
     ListModeTargetCompiler,
     configured_list_mode_target,
+    inspect_list_mode_artifact,
 )
 from reference_lab.targets.list_mode.device_execution import InstrumentListModeRuntime
 from reference_lab.targets.list_mode.model import IqMixerCalibration
@@ -643,6 +647,54 @@ def test_list_mode_renders_gaussian_and_records_realized_timing() -> None:
     assert waveforms[binding.q_channel_id] == pytest.approx(
         tuple(sample.imag for sample in carrier)
     )
+
+
+def test_list_mode_artifact_inspection_is_bounded_and_preserves_peaks() -> None:
+    target = _target()
+    scheduled = schedule(
+        PulseProgram(
+            id=PulseProgramId("preview"),
+            body=Play(
+                PulseEventId("preview-play"),
+                DRIVE_Q0,
+                Gaussian(
+                    duration=Quantity(100.4, "ns"),
+                    amplitude=Quantity(0.8, "arb"),
+                    sigma=Quantity(2, "ns"),
+                ),
+            ),
+        )
+    )
+    compiler, request = _request(target, (scheduled, scheduled), repetitions=3)
+    artifact = compiler.compile(request)
+
+    inspection = inspect_list_mode_artifact(
+        artifact,
+        bounds=ArtifactInspectionBounds(
+            max_entries=1,
+            max_channels_per_entry=1,
+            max_samples_per_waveform=10,
+        ),
+    )
+    [entry] = inspection.entries
+    [preview] = entry.waveforms
+    source = artifact.entries[0].waveforms[0].samples
+
+    assert inspection.entry_count == 2
+    assert inspection.entries_truncated
+    assert inspection.max_abs_boundary_error_seconds == Decimal("4E-10")
+    assert entry.waveform_count == 2
+    assert entry.waveforms_truncated
+    assert preview.source_sample_count == 100
+    assert len(preview.samples) <= 10
+    assert preview.sample_indices == tuple(sorted(preview.sample_indices))
+    assert preview.peak_abs == float(cast("np.float64", np.max(np.abs(source))))
+    assert preview.peak_abs == max(abs(sample) for sample in preview.samples)
+    assert inspection.payload()["preview_bounds"] == {
+        "max_entries": 1,
+        "max_channels_per_entry": 1,
+        "max_samples_per_waveform": 10,
+    }
 
 
 def test_list_mode_applies_shift_phase_before_playback() -> None:

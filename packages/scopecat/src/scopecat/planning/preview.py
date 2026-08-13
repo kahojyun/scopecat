@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Literal
 
 from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.execution.local.program import ComputeOperation, OutputInput
 from scopecat.execution.program import RunProgram
+from scopecat.kernel.value_identity import scalar_values_equal
 from scopecat.measurements.records import RecordPlan, ValueRecordPlan
 from scopecat.planning.preview_models import (
     ExperimentPreview,
@@ -14,10 +16,12 @@ from scopecat.planning.preview_models import (
     ExperimentPreviewBindingEdge,
     ExperimentPreviewBindingRef,
     ExperimentPreviewCompute,
+    ExperimentPreviewDomainInspection,
     ExperimentPreviewPoint,
     ExperimentPreviewRecord,
 )
 from scopecat.program.parameters import ParameterContract, ParameterValueContract
+from scopecat.program.point_domain import point_axis_size, point_axis_value
 from scopecat.program.scans import AroundScanSource, RangeScanSource, ValuesScanSource
 from scopecat.program.value_refs import ValueRef, internal_value_ref_parameter_contracts
 from scopecat.sdk.compute import compute_capture_names_internal
@@ -32,13 +36,27 @@ def build_run_program_preview(
     program: RunProgram,
     *,
     invocation: ExperimentInvocation | None = None,
+    point: int | Literal["first", "middle", "last"] = "first",
+    coordinates: Mapping[str, object] | None = None,
 ) -> ExperimentPreview:
     """Project stable user-visible facts from a closed RunProgram."""
 
-    program.coverage.preflight()
     selected = program.measurements
     catalog = program.points
     point_count = catalog.contract.point_count
+    selected_point_index = _selected_point_index(
+        program,
+        point=point,
+        coordinates=coordinates,
+    )
+    selected_point = (
+        None if selected_point_index is None else catalog.points[selected_point_index]
+    )
+    domain_inspections = (
+        ()
+        if selected_point_index is None
+        else _preview_domain_inspections(program, selected_point_index)
+    )
     preview_ordinals = _preview_point_ordinals(point_count)
     bindings, binding_edges = (
         ((), ()) if invocation is None else _preview_binding_graph(invocation)
@@ -72,10 +90,115 @@ def build_run_program_preview(
             )
             for record in selected.records
         ),
+        selected_point=(
+            None
+            if selected_point is None
+            else ExperimentPreviewPoint(
+                point_index=selected_point.ordinal,
+                coordinates=dict(selected_point.coordinates),
+            )
+        ),
+        domain_inspections=domain_inspections,
         computes=_preview_computes(program),
         bindings=bindings,
         binding_edges=binding_edges,
     )
+
+
+def _selected_point_index(
+    program: RunProgram,
+    *,
+    point: int | Literal["first", "middle", "last"],
+    coordinates: Mapping[str, object] | None,
+) -> int | None:
+    catalog = program.points
+    point_count = catalog.contract.point_count
+    if point_count == 0:
+        if coordinates is not None:
+            raise ValueError("an empty experiment has no selectable coordinates")
+        return None
+    if coordinates is not None:
+        if point != "first":
+            raise ValueError("select a preview point by index or coordinates, not both")
+        return _point_index_for_coordinates(program, coordinates)
+    if isinstance(point, int):
+        if not 0 <= point < point_count:
+            raise IndexError(point)
+        return point
+    if point == "first":
+        return 0
+    if point == "middle":
+        return (point_count - 1) // 2
+    if point == "last":
+        return point_count - 1
+    raise ValueError(f"unsupported preview point selector {point!r}")
+
+
+def _point_index_for_coordinates(
+    program: RunProgram,
+    coordinates: Mapping[str, object],
+) -> int:
+    contract = program.points.contract
+    axes = contract.domain_axes
+    axis_ids = tuple(axis.id for axis in axes)
+    if set(coordinates) != set(axis_ids):
+        missing = sorted(set(axis_ids) - set(coordinates))
+        extra = sorted(set(coordinates) - set(axis_ids))
+        details: list[str] = []
+        if missing:
+            details.append("missing " + ", ".join(missing))
+        if extra:
+            details.append("unknown " + ", ".join(extra))
+        raise ValueError(
+            "preview coordinates must identify every axis (" + "; ".join(details) + ")"
+        )
+    selected_indices: list[int] = []
+    for axis in axes:
+        requested = coordinates[axis.id]
+        selected = next(
+            (
+                index
+                for index in range(point_axis_size(axis.source))
+                if scalar_values_equal(point_axis_value(axis.source, index), requested)
+            ),
+            None,
+        )
+        if selected is None:
+            raise ValueError(
+                f"preview coordinate {axis.id!r} has no value equal to {requested!r}"
+            )
+        selected_indices.append(selected)
+    if contract.domain_layout == "point_cloud":
+        if len(set(selected_indices)) > 1:
+            raise ValueError("preview coordinates do not identify one point-cloud row")
+        return selected_indices[0] if selected_indices else 0
+    ordinal = 0
+    for axis, selected in zip(axes, selected_indices, strict=True):
+        ordinal = ordinal * point_axis_size(axis.source) + selected
+    return ordinal
+
+
+def _preview_domain_inspections(
+    program: RunProgram,
+    point_index: int,
+) -> tuple[ExperimentPreviewDomainInspection, ...]:
+    inspections: list[ExperimentPreviewDomainInspection] = []
+    for job in program.coverage.inspect(point_index):
+        content = job.execution.inspection
+        if content is None:
+            continue
+        intent = job.execution.invocation.intent
+        inspections.append(
+            ExperimentPreviewDomainInspection(
+                operation_id=job.id,
+                point_indices=job.point_ordinals,
+                target_id=intent.target_id,
+                artifact_id=intent.artifact_id,
+                artifact_fingerprint=intent.artifact_fingerprint,
+                content=dict(content),
+            )
+        )
+    return tuple(inspections)
 
 
 def _preview_point_ordinals(point_count: int) -> tuple[int, ...]:

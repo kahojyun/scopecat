@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
 from scopecat.api.run import (
     RunHandle,
@@ -71,8 +73,21 @@ class InProcessPreparedExperiment:
             build_experiment_system=self.build_experiment_system,
         )
 
-    def preview(self) -> ExperimentPreview:
-        result = self.check()
+    def preview(
+        self,
+        *,
+        point: int | Literal["first", "middle", "last"] = "first",
+        coordinates: Mapping[str, object] | None = None,
+    ) -> ExperimentPreview:
+        result = check_experiment(
+            self.invocation,
+            services=self.lab.services,
+            config=self.config,
+            system=self.system,
+            build_experiment_system=self.build_experiment_system,
+            preview_point=point,
+            preview_coordinates=coordinates,
+        )
         if result.preview is None:
             raise CheckFailed(result.problems)
         return result.preview

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from typing import Literal
 
 from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.compiler.bind import bind_program
@@ -119,6 +120,8 @@ def check_experiment(
     build_experiment_system: TestExperimentSystemBuilder | None = None,
     metadata: Mapping[str, object] | None = None,
     operator: str | None = None,
+    preview_point: int | Literal["first", "middle", "last"] = "first",
+    preview_coordinates: Mapping[str, object] | None = None,
 ) -> ExperimentCheckResult:
     """Build a preview while returning expected authoring and planning failures."""
 
@@ -137,6 +140,8 @@ def check_experiment(
         config=config,
         system=system,
         build_experiment_system=build_experiment_system,
+        preview_point=preview_point,
+        preview_coordinates=preview_coordinates,
     )
 
 
@@ -148,6 +153,8 @@ def _check_compiled_experiment(
     config: str | ConfigProfileSnapshot | CandidateConfig,
     system: ExperimentSystem | None,
     build_experiment_system: TestExperimentSystemBuilder | None,
+    preview_point: int | Literal["first", "middle", "last"],
+    preview_coordinates: Mapping[str, object] | None,
 ) -> ExperimentCheckResult:
     try:
         selected_config, _config_source = resolve_test_config(
@@ -170,6 +177,8 @@ def _check_compiled_experiment(
         preview = build_run_program_preview(
             compile_run_program(selected_system, bound=bound),
             invocation=invocation,
+            point=preview_point,
+            coordinates=preview_coordinates,
         )
         problems: tuple[Problem, ...] = ()
     except ProblemFailure as error:
