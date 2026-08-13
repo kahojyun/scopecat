@@ -7,6 +7,12 @@ from dataclasses import dataclass
 from math import inf
 from typing import Literal, cast
 
+from scopecat.adaptive_domains import (
+    ResolvedDomainAxis,
+    ResolvedDomainFragment,
+    ResolvedRangeSource,
+    ResolvedValuesSource,
+)
 from scopecat.control.models import (
     PointCoordinateSpec,
     PointCoordinateValue,
@@ -144,7 +150,7 @@ def resolve_point_selection(
             "point coordinates must identify every axis (" + "; ".join(details) + ")"
         )
     normalized = {
-        spec.id: _coerce_coordinate(spec, coordinates[spec.id]) for spec in specs
+        spec.id: coerce_point_coordinate(spec, coordinates[spec.id]) for spec in specs
     }
     if mode == "free":
         return ResolvedPointSelection(mode=mode, coordinates=normalized)
@@ -181,7 +187,7 @@ def resolve_point_selection(
     )
 
 
-def _coerce_coordinate(spec: PointCoordinateSpec, value: object) -> CellValue:
+def coerce_point_coordinate(spec: PointCoordinateSpec, value: object) -> CellValue:
     if spec.kind == "bool":
         atom = Bool()
     elif spec.kind == "int":
@@ -211,6 +217,85 @@ def _coerce_coordinate(spec: PointCoordinateSpec, value: object) -> CellValue:
         "CellValue",
         coerce_literal(Scalar(atom), value, path=("coordinates", spec.id)),
     )
+
+
+def resolve_domain_fragment(
+    specs: Sequence[PointCoordinateSpec],
+    fragment: ResolvedDomainFragment,
+    *,
+    mode: Literal["snap", "free"],
+) -> ResolvedDomainFragment:
+    """Coerce a compact fragment and explicitly snap generated values if requested."""
+
+    by_id = {spec.id: spec for spec in specs}
+    if set(fragment.coordinate_ids) != set(by_id):
+        raise ValueError("domain fragment must contain every selected coordinate")
+    axes: list[ResolvedDomainAxis] = []
+    for axis in fragment.axes:
+        spec = by_id[axis.id]
+        source = axis.source
+        if mode == "snap":
+            values = tuple(
+                _snap_coordinate(spec, coerce_point_coordinate(spec, value))
+                for value in axis.iter_values()
+            )
+            axes.append(ResolvedDomainAxis.values_axis(axis.id, values))
+        elif isinstance(source, ResolvedValuesSource):
+            axes.append(
+                ResolvedDomainAxis.values_axis(
+                    axis.id,
+                    tuple(
+                        coerce_point_coordinate(spec, value) for value in source.values
+                    ),
+                )
+            )
+        elif isinstance(source, ResolvedRangeSource):
+            axes.append(
+                ResolvedDomainAxis.range_axis(
+                    axis.id,
+                    cast(
+                        "float | Quantity",
+                        coerce_point_coordinate(spec, source.start),
+                    ),
+                    cast(
+                        "float | Quantity",
+                        coerce_point_coordinate(spec, source.stop),
+                    ),
+                    points=source.points,
+                )
+            )
+        else:
+            center = cast(
+                "float | Quantity",
+                coerce_point_coordinate(spec, source.center),
+            )
+            axes.append(
+                ResolvedDomainAxis.around_axis(
+                    axis.id,
+                    center,
+                    source.span,
+                    points=source.points,
+                )
+            )
+    return ResolvedDomainFragment(tuple(axes), layout=fragment.layout)
+
+
+def _snap_coordinate(
+    spec: PointCoordinateSpec,
+    requested: CellValue,
+) -> CellValue:
+    if spec.sampled_values_truncated:
+        raise ValueError(f"snap requires complete sampling for {spec.id!r}")
+    if not spec.sampled_values:
+        raise ValueError(f"snap requires sampled values for {spec.id!r}")
+    distances = tuple(
+        _normalized_value_distance(requested, value, spec.sampled_values)
+        for value in spec.sampled_values
+    )
+    selected = min(range(len(distances)), key=distances.__getitem__)
+    if distances[selected] == inf:
+        raise ValueError(f"no sampled value matches {spec.id!r}")
+    return cast("CellValue", spec.sampled_values[selected])
 
 
 def _nearest_point_index(

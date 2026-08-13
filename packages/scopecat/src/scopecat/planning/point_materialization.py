@@ -181,7 +181,9 @@ def prepare_candidate_bound_points(
     resolved = PointProposalAttempt(
         coordinates=row,
         source=candidate.source,
-        based_on_completed_point_count=candidate.based_on_completed_point_count,
+        region_id=candidate.region_id,
+        domain_proposal_fingerprint=candidate.domain_proposal_fingerprint,
+        based_on_region_revision=candidate.based_on_region_revision,
     )
     fingerprint = resolved.coordinate_fingerprint.removeprefix("sha256:")
     domain_id = PointDomainId(
@@ -226,6 +228,42 @@ def append_candidate_bound_point(
     )
     return (
         resolved,
+        MaterializedBoundPoints(
+            bound_plan=prepared.bound_plan,
+            point_domain=point_domain,
+            point_parameters=_PointParameterSequence(
+                prepared.bound_plan,
+                point_domain.points,
+            ),
+        ),
+    )
+
+
+def append_candidate_bound_points(
+    prepared: MaterializedBoundPoints,
+    candidates: Sequence[PointProposalAttempt],
+) -> tuple[tuple[PointProposalAttempt, ...], MaterializedBoundPoints]:
+    """Resolve and append one complete proposal fragment atomically."""
+
+    resolved_rows = tuple(
+        prepare_candidate_bound_points(prepared, candidate)[0]
+        for candidate in candidates
+    )
+    start = len(prepared.point_domain.points)
+    appended = tuple(
+        MaterializedPoint(
+            logical_id=LogicalPointId(prepared.point_domain.id, start + index),
+            row=dict(candidate.coordinates),
+        )
+        for index, candidate in enumerate(resolved_rows)
+    )
+    point_domain = MaterializedPointDomain(
+        id=prepared.point_domain.id,
+        points=(*prepared.point_domain.points, *appended),
+        layout="point_cloud",
+    )
+    return (
+        resolved_rows,
         MaterializedBoundPoints(
             bound_plan=prepared.bound_plan,
             point_domain=point_domain,

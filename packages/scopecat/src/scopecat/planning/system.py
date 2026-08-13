@@ -45,7 +45,7 @@ from scopecat.kernel.resource_identity import (
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_identity import scalar_values_equal
 from scopecat.measurements.projection import select_measurement_projection
-from scopecat.optimization import AdaptivePointPlan
+from scopecat.optimization import AdaptiveDomainPlan
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
@@ -71,7 +71,7 @@ from scopecat.planning.measurement_projection import (
 )
 from scopecat.planning.point_materialization import (
     MaterializedBoundPoints,
-    append_candidate_bound_point,
+    append_candidate_bound_points,
     prepare_bound_points,
     prepare_candidate_bound_points,
 )
@@ -127,12 +127,12 @@ class ExperimentSystem:
         self,
         bound: BoundPlan,
         *,
-        adaptive_point_plan: AdaptivePointPlan | None = None,
+        adaptive_domain_plan: AdaptiveDomainPlan | None = None,
     ) -> RunProgram:
         return _compile_system_program(
             system=self,
             bound=bound,
-            adaptive_point_plan=adaptive_point_plan,
+            adaptive_domain_plan=adaptive_domain_plan,
         )
 
 
@@ -163,7 +163,7 @@ def _compile_system_program(
     *,
     system: ExperimentSystem,
     bound: BoundPlan,
-    adaptive_point_plan: AdaptivePointPlan | None,
+    adaptive_domain_plan: AdaptiveDomainPlan | None,
 ) -> RunProgram:
     config = bound.environment.config
     catalog = system.instrument_catalog
@@ -244,10 +244,10 @@ def _compile_system_program(
     accepted_bound_points = _AcceptedBoundPointState(bound_points)
     point_domain = bound_points.point_domain
     point_limit = (
-        None if adaptive_point_plan is None else adaptive_point_plan.max_points
+        None if adaptive_domain_plan is None else adaptive_domain_plan.total_point_limit
     )
-    if adaptive_point_plan is not None:
-        adaptive_point_plan.ledger(initial_point_count=len(point_domain.points))
+    if adaptive_domain_plan is not None:
+        adaptive_domain_plan.validate_initial_point_count(len(point_domain.points))
     logical = bound.program.program
     execution_ordinals = point_execution_ordinals(
         point_domain,
@@ -392,7 +392,7 @@ def _compile_system_program(
         ),
         resource_requirements=resource_requirements,
         domain_target_requirement=domain_target_requirement,
-        adaptive_point_plan=adaptive_point_plan,
+        adaptive_domain_plan=adaptive_domain_plan,
     )
 
 
@@ -951,56 +951,69 @@ def _compile_coverage(
         )
 
     def accept(candidate: PointProposalAttempt) -> RunAcceptedPointCoverage:
-        resolved, extended_bound_points = append_candidate_bound_point(
+        return accept_all((candidate,))[0]
+
+    def accept_all(
+        candidates: tuple[PointProposalAttempt, ...],
+    ) -> tuple[RunAcceptedPointCoverage, ...]:
+        resolved, extended_bound_points = append_candidate_bound_points(
             accepted_bound_points.current,
-            candidate,
+            candidates,
         )
-        ordinal = len(accepted_bound_points.current.point_domain.points)
-        selected_operations = tuple(
-            _validated_coverage(
-                _coverage_operations(
-                    compiler=compiler,
-                    bound_points=extended_bound_points,
-                    point_ordinals=(ordinal,),
-                    effects=bound.program.program.effects,
-                    domain_calls=domain_calls,
-                    local_target=local_target,
-                    initial_local_probe=None,
-                    initial_batch_ordinal=ordinal,
-                ),
-                validator=_CoverageValidator(
-                    domain_instrument_ids=(
-                        () if compiler is None else compiler.instrument_ids
+        start = len(accepted_bound_points.current.point_domain.points)
+        accepted: list[RunAcceptedPointCoverage] = []
+        for offset, candidate in enumerate(resolved):
+            ordinal = start + offset
+            selected_operations = tuple(
+                _validated_coverage(
+                    _coverage_operations(
+                        compiler=compiler,
+                        bound_points=extended_bound_points,
+                        point_ordinals=(ordinal,),
+                        effects=bound.program.program.effects,
+                        domain_calls=domain_calls,
+                        local_target=local_target,
+                        initial_local_probe=None,
+                        initial_batch_ordinal=ordinal,
                     ),
-                    catalog=catalog,
+                    validator=_CoverageValidator(
+                        domain_instrument_ids=(
+                            () if compiler is None else compiler.instrument_ids
+                        ),
+                        catalog=catalog,
+                    ),
+                )
+            )
+            point = AcceptedRunPoint.accept(
+                candidate,
+                logical_id=(
+                    extended_bound_points.point_domain.points[ordinal].logical_id
                 ),
             )
-        )
-        point = AcceptedRunPoint.accept(
-            resolved,
-            logical_id=extended_bound_points.point_domain.points[ordinal].logical_id,
-        )
-        inspection = RunPointInspection(
-            point_index=ordinal,
-            candidate=resolved,
-            jobs=tuple(
-                operation
-                for operation in selected_operations
-                if isinstance(operation, RunDomainJob)
-            ),
-        )
+            accepted.append(
+                RunAcceptedPointCoverage(
+                    point=point,
+                    operations=selected_operations,
+                    inspection=RunPointInspection(
+                        point_index=ordinal,
+                        candidate=candidate,
+                        jobs=tuple(
+                            operation
+                            for operation in selected_operations
+                            if isinstance(operation, RunDomainJob)
+                        ),
+                    ),
+                )
+            )
         accepted_bound_points.current = extended_bound_points
-        return RunAcceptedPointCoverage(
-            point=point,
-            operations=selected_operations,
-            inspection=inspection,
-        )
+        return tuple(accepted)
 
     return RunCoverage(
         operations,
         preflight=preflight if domain_calls and point_ordinals else None,
         inspect=inspect,
         accept=accept,
+        accept_all=accept_all,
     )
 
 

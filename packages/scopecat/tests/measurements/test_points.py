@@ -7,7 +7,6 @@ import pytest
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.points import (
     AcceptedRunPoint,
-    OperatorPointRequest,
     PointProposalAttempt,
 )
 from scopecat.kernel.quantity import Quantity
@@ -24,7 +23,9 @@ def test_point_proposal_has_stable_coordinate_and_attempt_identities() -> None:
     optimized = PointProposalAttempt(
         coordinates,
         source="optimizer",
-        based_on_completed_point_count=4,
+        region_id="region-0",
+        domain_proposal_fingerprint="sha256:domain",
+        based_on_region_revision=4,
     )
 
     assert authored.coordinate_fingerprint == optimized.coordinate_fingerprint
@@ -35,25 +36,24 @@ def test_point_proposal_has_stable_coordinate_and_attempt_identities() -> None:
         )
 
 
-def test_operator_request_identity_is_independent_of_boundary_freshness() -> None:
-    request = OperatorPointRequest(
-        request_id="operator-1",
-        coordinate_mode="free",
-        requested_coordinates={"frequency": Quantity(5.0, "GHz")},
-        coordinates={"frequency": Quantity(5.0, "GHz")},
-    )
+def test_normalized_point_identity_includes_region_freshness() -> None:
+    coordinates = {"frequency": Quantity(5.0, "GHz")}
     first = PointProposalAttempt(
-        request.coordinates,
+        coordinates,
         source="operator",
-        based_on_completed_point_count=2,
+        region_id="region-0",
+        domain_proposal_fingerprint="sha256:domain",
+        based_on_region_revision=2,
     )
     second = PointProposalAttempt(
-        request.coordinates,
+        coordinates,
         source="operator",
-        based_on_completed_point_count=3,
+        region_id="region-0",
+        domain_proposal_fingerprint="sha256:domain",
+        based_on_region_revision=3,
     )
 
-    assert request.coordinate_fingerprint == first.coordinate_fingerprint
+    assert first.coordinate_fingerprint == second.coordinate_fingerprint
     assert first.proposal_fingerprint != second.proposal_fingerprint
 
 

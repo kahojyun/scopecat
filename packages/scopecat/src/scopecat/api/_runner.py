@@ -7,15 +7,18 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from threading import Event, Lock, Thread
 from time import monotonic
-from typing import Literal, override
+from typing import Literal, cast, override
 from uuid import uuid4
 
 import httpx2
 
+from scopecat.adaptive_coordination import AdaptiveDomainCoordinator
 from scopecat.api.review import ExperimentReviewHandle, create_experiment_review
 from scopecat.authoring import MetadataValue
 from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.control.models import (
+    AdaptiveRegionSpec,
+    PointCoordinateValue,
     RunDomainTargetRequirement,
     RunPlanSummary,
     RunResourceRequirement,
@@ -305,6 +308,14 @@ def _executor_lease_timing(lease: ExecutorLease) -> tuple[float, float]:
 
 def _run_plan_summary(planned: PlannedRun) -> RunPlanSummary:
     program = planned.program
+    adaptive = program.adaptive_domain_plan
+    coordinator = (
+        None
+        if adaptive is None
+        else AdaptiveDomainCoordinator.create(adaptive, program.points)
+    )
+    adaptive_regions = () if coordinator is None else coordinator.regions
+    sampled_adaptive_regions = adaptive_regions[:256]
     coordinates, sampled_points, sampled_points_truncated = point_coordinate_contract(
         program.points
     )
@@ -323,6 +334,35 @@ def _run_plan_summary(planned: PlannedRun) -> RunPlanSummary:
         point_count=program.points.contract.point_count,
         initial_point_count=len(program.points.points),
         point_limit=program.points.contract.point_limit,
+        adaptive_coordinate_ids=(
+            ()
+            if program.adaptive_domain_plan is None
+            else program.adaptive_domain_plan.adaptive_coordinate_ids
+            or program.points.coordinate_ids
+        ),
+        adaptive_scope=(
+            None
+            if program.adaptive_domain_plan is None
+            else program.adaptive_domain_plan.scope
+        ),
+        per_region_point_limit=(
+            None if adaptive is None else adaptive.per_region_point_limit
+        ),
+        adaptive_region_count=len(adaptive_regions),
+        adaptive_regions=tuple(
+            AdaptiveRegionSpec(
+                id=region.id,
+                coordinates=cast(
+                    "dict[str, PointCoordinateValue]",
+                    dict(region.coordinates),
+                ),
+                initial_point_count=region.point_count,
+            )
+            for region in sampled_adaptive_regions
+        ),
+        adaptive_regions_truncated=(
+            len(sampled_adaptive_regions) < len(adaptive_regions)
+        ),
         coordinates=coordinates,
         sampled_points=sampled_points,
         sampled_points_truncated=sampled_points_truncated,

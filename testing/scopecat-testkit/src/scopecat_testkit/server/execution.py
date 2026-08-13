@@ -9,7 +9,7 @@ from pathlib import Path
 from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.interpreter import execute_admitted_run
-from scopecat.execution.services import RunPointProposalWriter
+from scopecat.execution.services import RunDomainProposalWriter
 from scopecat.planning.service import plan_experiment_invocation
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot, instrument_bindings
@@ -96,7 +96,7 @@ def execute_invocation_run(
     config_source: RunConfigSource | None = None,
     metadata: Mapping[str, object] | None = None,
     operator: str | None = None,
-    point_proposals: RunPointProposalWriter | None = None,
+    domain_proposals: RunDomainProposalWriter | None = None,
 ) -> RunManifest:
     """Execute an authored invocation through test-local SQLite ports."""
 
@@ -128,7 +128,7 @@ def execute_invocation_run(
                 ),
                 instrument_ids=planned.program.resource_order,
             ),
-            point_proposals=point_proposals,
+            domain_proposals=domain_proposals,
         ),
     )
 

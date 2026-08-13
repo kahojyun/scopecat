@@ -5,6 +5,7 @@ from scopecat.adaptive_domains import (
     DomainProposalAttempt,
     ResolvedDomainAxis,
     ResolvedDomainFragment,
+    ResolvedRangeSource,
 )
 from scopecat.kernel.quantity import Quantity
 
@@ -53,6 +54,7 @@ def test_range_and_around_axes_resolve_concrete_quantity_values() -> None:
     )
     assert ranged.values == expected
     assert around.values == expected
+    assert isinstance(ranged.source, ResolvedRangeSource)
 
 
 def test_domain_proposal_identity_includes_regions_and_freshness() -> None:

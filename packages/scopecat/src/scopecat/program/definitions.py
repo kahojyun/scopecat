@@ -6,9 +6,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Generic, Self, TypeVar, cast
 
+from scopecat.adaptive_domains import AdaptiveScope
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.value_types import ValueType
-from scopecat.optimization import AdaptivePointPlan, PointOptimizer
+from scopecat.optimization import AdaptiveDomainPlan, DomainOptimizer
 from scopecat.program.bindings import (
     BindingIntent,
     EnsureStateIntent,
@@ -108,7 +109,7 @@ class ExperimentInvocation(Generic[_ExperimentResultT_co]):
         default_factory=empty_program_mapping
     )
     point_plan_override: PointPlan | None = None
-    adaptive_point_plan: AdaptivePointPlan | None = field(
+    adaptive_domain_plan: AdaptiveDomainPlan | None = field(
         default=None,
         repr=False,
     )
@@ -139,24 +140,30 @@ class ExperimentInvocation(Generic[_ExperimentResultT_co]):
 
     def adaptive(
         self,
-        optimizer: PointOptimizer,
+        optimizer: DomainOptimizer,
         *,
         max_points: int,
+        axes: Sequence[CoordinateRef | str] = (),
+        scope: AdaptiveScope = "per_region",
+        per_region_max_points: int | None = None,
     ) -> Self:
-        """Generate later points from completed observations up to one hard limit."""
+        """Extend selected coordinates with compatible optimizer domains."""
 
         return replace(
             self,
-            adaptive_point_plan=AdaptivePointPlan(
+            adaptive_domain_plan=AdaptiveDomainPlan(
                 optimizer=optimizer,
-                max_points=max_points,
+                total_point_limit=max_points,
+                adaptive_coordinate_ids=tuple(_axis_target_id(axis) for axis in axes),
+                scope=scope,
+                per_region_point_limit=per_region_max_points,
             ),
         )
 
     def without_adaptation(self) -> Self:
         """Retain the authored point plan but remove its optimizer policy."""
 
-        return replace(self, adaptive_point_plan=None)
+        return replace(self, adaptive_domain_plan=None)
 
     def unbind(self, *input_ids: str) -> Self:
         """Remove invocation overrides so definition defaults apply again."""

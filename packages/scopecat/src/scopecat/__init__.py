@@ -123,16 +123,16 @@ if TYPE_CHECKING:
     from scopecat.kernel.points import PointProposalAttempt
     from scopecat.kernel.quantity import Quantity
     from scopecat.optimization import (
-        AdaptivePointPlan,
+        AdaptiveDomainPlan,
         CompletedPointObservation,
+        DomainOptimizer,
+        DomainOptimizerContext,
+        DomainProposalDecision,
+        DomainProposalLedger,
         OptimizationComplete,
         OptimizerMeasurementObservation,
         OptimizerScalarObservation,
         OptimizerUnavailableObservation,
-        PointOptimizer,
-        PointOptimizerContext,
-        PointProposalDecision,
-        PointProposalLedger,
     )
     from scopecat.planning.system import ExperimentSystem
     from scopecat.project import open_project
@@ -279,7 +279,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.kernel.points",
         "PointProposalAttempt",
     ),
-    "AdaptivePointPlan": ("scopecat.optimization", "AdaptivePointPlan"),
+    "AdaptiveDomainPlan": ("scopecat.optimization", "AdaptiveDomainPlan"),
     "CompletedPointObservation": (
         "scopecat.optimization",
         "CompletedPointObservation",
@@ -297,16 +297,19 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.optimization",
         "OptimizerUnavailableObservation",
     ),
-    "PointOptimizer": ("scopecat.optimization", "PointOptimizer"),
-    "PointOptimizerContext": (
+    "DomainOptimizer": ("scopecat.optimization", "DomainOptimizer"),
+    "DomainOptimizerContext": (
         "scopecat.optimization",
-        "PointOptimizerContext",
+        "DomainOptimizerContext",
     ),
-    "PointProposalDecision": (
+    "DomainProposalDecision": (
         "scopecat.optimization",
-        "PointProposalDecision",
+        "DomainProposalDecision",
     ),
-    "PointProposalLedger": ("scopecat.optimization", "PointProposalLedger"),
+    "DomainProposalLedger": (
+        "scopecat.optimization",
+        "DomainProposalLedger",
+    ),
     "open_project": ("scopecat.project", "open_project"),
     "analysis_step": ("scopecat.api.analysis", "analysis_step"),
     "instrument": ("scopecat.api.instruments", "instrument"),

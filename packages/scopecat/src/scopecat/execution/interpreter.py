@@ -5,6 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 
+from scopecat.adaptive_coordination import AdaptiveDomainCoordinator
+from scopecat.adaptive_domains import (
+    RegionOptimizationComplete,
+)
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.effect_result import (
     CoverageMeasurementObserver,
@@ -41,7 +45,7 @@ from scopecat.execution.program import (
 )
 from scopecat.execution.services import (
     ExecutionSession,
-    RunPointProposalWriter,
+    RunDomainProposalWriter,
 )
 from scopecat.kernel.errors import (
     CheckFailed,
@@ -53,7 +57,7 @@ from scopecat.kernel.errors import (
     RunFailed,
     RunIndeterminate,
 )
-from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
@@ -69,11 +73,8 @@ from scopecat.measurements.values import (
     seal_measurement_values,
 )
 from scopecat.optimization import (
-    OPTIMIZER_OBSERVATION_WINDOW,
     CompletedPointObservation,
     OptimizationComplete,
-    PointOptimizerContext,
-    PointProposalLedger,
 )
 from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
@@ -123,7 +124,7 @@ def _execute_run(
     projection = program.measurements
     point_state = _ExecutionPointState.create(
         program,
-        proposal_writer=session.point_proposals,
+        proposal_writer=session.domain_proposals,
     )
     run_id = session.run_id
     journal = session.journal
@@ -579,15 +580,19 @@ def _execute_instrument_effects(
         points=point_state.points,
         success_state=program.success_state,
     )
-    return replace(result, proposal_ledger=point_state.ledger)
+    return replace(
+        result,
+        proposal_ledger=(
+            None if point_state.coordinator is None else point_state.coordinator.ledger
+        ),
+    )
 
 
 @dataclass(slots=True)
 class _ExecutionPointState:
     points: list[AcceptedRunPoint]
-    observations: list[CompletedPointObservation]
-    ledger: PointProposalLedger | None
-    proposal_writer: RunPointProposalWriter | None
+    coordinator: AdaptiveDomainCoordinator | None
+    proposal_writer: RunDomainProposalWriter | None
     completed_point_count: int
 
     @classmethod
@@ -595,17 +600,16 @@ class _ExecutionPointState:
         cls,
         program: RunProgram,
         *,
-        proposal_writer: RunPointProposalWriter | None,
+        proposal_writer: RunDomainProposalWriter | None,
     ) -> _ExecutionPointState:
-        adaptive = program.adaptive_point_plan
+        adaptive = program.adaptive_domain_plan
         points = list(program.points.points)
         return cls(
             points=points,
-            observations=[],
-            ledger=(
+            coordinator=(
                 None
                 if adaptive is None
-                else adaptive.ledger(initial_point_count=len(points))
+                else AdaptiveDomainCoordinator.create(adaptive, program.points)
             ),
             proposal_writer=proposal_writer,
             completed_point_count=0,
@@ -617,8 +621,9 @@ class _ExecutionPointState:
     ) -> None:
         added = tuple(observations)
         self.completed_point_count += len(added)
-        self.observations.extend(added)
-        del self.observations[:-OPTIMIZER_OBSERVATION_WINDOW]
+        if self.coordinator is not None:
+            for observation in added:
+                self.coordinator.add_observation(observation)
 
 
 def _execution_coverage(
@@ -628,109 +633,70 @@ def _execution_coverage(
     durable_progress: Callable[[], None],
 ) -> Iterator[RunCoveredOperation]:
     yield from program.coverage
-    adaptive = program.adaptive_point_plan
+    adaptive = program.adaptive_domain_plan
     if adaptive is None:
         return
     durable_progress()
-    ledger = state.ledger
-    if ledger is None:
-        raise AssertionError("adaptive execution requires a proposal ledger")
-    while len(state.points) < adaptive.max_points:
+    coordinator = state.coordinator
+    if coordinator is None:
+        raise AssertionError("adaptive execution requires a domain coordinator")
+    while len(state.points) < adaptive.total_point_limit and not coordinator.closed:
         queued = (
             None
             if state.proposal_writer is None
             else state.proposal_writer.next_queued()
         )
-        if queued is None and ledger.optimizer_attempt_count >= adaptive.proposal_limit:
+        context = coordinator.optimizer_context()
+        if context is None:
+            break
+        if (
+            queued is None
+            and coordinator.ledger.optimizer_attempt_count >= adaptive.proposal_limit
+        ):
             raise RuntimeError("optimizer exceeded the adaptive proposal limit")
         proposal = (
-            PointProposalAttempt(
-                coordinates=queued.request.coordinates,
-                source="operator",
-                based_on_completed_point_count=state.completed_point_count,
-            )
+            coordinator.operator_proposal(queued.request)
             if queued is not None
-            else adaptive.optimizer.propose(
-                PointOptimizerContext(
-                    observations=tuple(state.observations),
-                    ledger=ledger,
-                    point_limit=adaptive.max_points,
-                    completed_point_count=state.completed_point_count,
-                )
-            )
+            else adaptive.optimizer.propose(context)
         )
-        if isinstance(proposal, OptimizationComplete):
-            if state.proposal_writer is not None:
-                state.proposal_writer.close(
-                    completed_point_count=state.completed_point_count,
-                    reason=proposal.reason,
-                )
-            break
-        if proposal.based_on_completed_point_count is None:
-            proposal = PointProposalAttempt(
-                coordinates=proposal.coordinates,
-                source=proposal.source,
-                based_on_completed_point_count=state.completed_point_count,
+        if isinstance(proposal, RegionOptimizationComplete | OptimizationComplete):
+            coordinator.apply_completion(
+                proposal,
+                region_id=None if context.region is None else context.region.id,
             )
-        rejection = _proposal_rejection(proposal, state)
-        if rejection is not None:
-            ledger = ledger.reject(proposal, reason=rejection).recent()
-            state.ledger = ledger
-            if state.proposal_writer is not None:
-                state.proposal_writer.append(
-                    ledger.entries[-1],
-                    None,
-                    operator_request_id=(
-                        None if queued is None else queued.request.request_id
-                    ),
-                )
             continue
         try:
-            accepted = program.coverage.accept(proposal)
-        except CheckFailed as error:
-            ledger = ledger.reject(proposal, reason=str(error)).recent()
-            state.ledger = ledger
+            bound = coordinator.bind(proposal)
+            accepted = program.coverage.accept_all(bound.candidates)
+        except (CheckFailed, ValueError) as error:
+            coordinator.reject(proposal, reason=str(error))
             if state.proposal_writer is not None:
                 state.proposal_writer.append(
-                    ledger.entries[-1],
-                    None,
+                    coordinator.ledger.entries[-1],
+                    (),
                     operator_request_id=(
                         None if queued is None else queued.request.request_id
                     ),
                 )
             continue
-        state.points.append(accepted.point)
-        ledger = ledger.accept(proposal, accepted.point).recent()
-        state.ledger = ledger
+        coordinator.accept(bound, tuple(item.point for item in accepted))
         if state.proposal_writer is not None:
             state.proposal_writer.append(
-                ledger.entries[-1],
-                accepted.inspection,
+                coordinator.ledger.entries[-1],
+                tuple(item.inspection for item in accepted),
                 operator_request_id=(
                     None if queued is None else queued.request.request_id
                 ),
             )
-        yield from accepted.operations
+        state.points.extend(item.point for item in accepted)
+        for item in accepted:
+            yield from item.operations
         durable_progress()
-    else:
-        if state.proposal_writer is not None:
-            state.proposal_writer.close(
-                completed_point_count=state.completed_point_count,
-                reason="point budget exhausted",
-            )
-
-
-def _proposal_rejection(
-    proposal: PointProposalAttempt,
-    state: _ExecutionPointState,
-) -> str | None:
-    based_on = proposal.based_on_completed_point_count
-    if based_on is not None and based_on != state.completed_point_count:
-        return (
-            f"proposal was based on {based_on} completed points; "
-            f"the run has {state.completed_point_count}"
+    if state.proposal_writer is not None:
+        state.proposal_writer.close(
+            completed_point_count=state.completed_point_count,
+            reason=coordinator.stop_reason or "point budget exhausted",
         )
-    return None
 
 
 def _effect_problems(

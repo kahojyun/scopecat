@@ -7,7 +7,13 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal, Protocol
 
-from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
+from scopecat.adaptive_domains import (
+    AdaptiveRegion,
+    AdaptiveScope,
+    DomainProposalAttempt,
+    RegionOptimizationComplete,
+)
+from scopecat.kernel.points import AcceptedRunPoint
 
 OPTIMIZER_OBSERVATION_WINDOW = 256
 OPTIMIZER_DECISION_WINDOW = 1024
@@ -88,291 +94,248 @@ type PointProposalOutcome = Literal["accepted", "rejected"]
 
 
 @dataclass(frozen=True, slots=True)
-class PointProposalDecision:
-    """One ordered runner decision about an optimizer candidate."""
+class DomainProposalDecision:
+    """One ordered decision about a proposed compatible domain fragment."""
 
     proposal_index: int
-    candidate: PointProposalAttempt
+    proposal: DomainProposalAttempt
     outcome: PointProposalOutcome
-    accepted_point: AcceptedRunPoint | None = None
+    accepted_points: tuple[AcceptedRunPoint, ...] = ()
     reason: str | None = None
 
     def __post_init__(self) -> None:
         if self.proposal_index < 0:
             raise ValueError("proposal index must be non-negative")
         if self.outcome == "accepted":
-            if self.accepted_point is None or self.reason is not None:
-                raise ValueError("accepted proposal requires only an accepted point")
-            if (
-                self.accepted_point.proposal_fingerprint
-                != self.candidate.proposal_fingerprint
+            if not self.accepted_points or self.reason is not None:
+                raise ValueError(
+                    "accepted domain proposal requires only accepted points"
+                )
+            if any(
+                point.domain_proposal_fingerprint != self.proposal.proposal_fingerprint
+                for point in self.accepted_points
             ):
-                raise ValueError("accepted point must retain its proposal fingerprint")
-        elif self.accepted_point is not None or not self.reason:
-            raise ValueError("rejected proposal requires only a non-empty reason")
+                raise ValueError(
+                    "accepted points must retain their domain proposal identity"
+                )
+        elif self.accepted_points or not self.reason:
+            raise ValueError("rejected domain proposal requires only a reason")
 
 
 @dataclass(frozen=True, slots=True)
-class PointProposalLedger:
-    """Immutable recent proposal decisions plus exact run-wide counters."""
+class DomainProposalLedger:
+    """Bounded recent domain decisions for one adaptive region."""
 
     initial_point_count: int
-    entries: tuple[PointProposalDecision, ...] = ()
+    entries: tuple[DomainProposalDecision, ...] = ()
     entry_offset: int = 0
-    accepted_count_before: int = 0
+    accepted_point_count_before: int = 0
     rejected_count_before: int = 0
-    author_attempt_count_before: int = 0
     optimizer_attempt_count_before: int = 0
-    operator_attempt_count_before: int = 0
-    accepted_count_in_window: int = 0
-    rejected_count_in_window: int = 0
 
     def __post_init__(self) -> None:
-        if self.initial_point_count < 0:
-            raise ValueError("initial point count must be non-negative")
         if (
             min(
+                self.initial_point_count,
                 self.entry_offset,
-                self.accepted_count_before,
+                self.accepted_point_count_before,
                 self.rejected_count_before,
-                self.author_attempt_count_before,
                 self.optimizer_attempt_count_before,
-                self.operator_attempt_count_before,
-                self.accepted_count_in_window,
-                self.rejected_count_in_window,
             )
             < 0
         ):
-            raise ValueError("proposal ledger counters must be non-negative")
-        if self.accepted_count_before + self.rejected_count_before != self.entry_offset:
-            raise ValueError("proposal ledger prefix counters must match its offset")
-        if (
-            self.author_attempt_count_before
-            + self.optimizer_attempt_count_before
-            + self.operator_attempt_count_before
-            != self.entry_offset
-        ):
-            raise ValueError("proposal ledger source counters must match its offset")
-        if self.accepted_count_in_window + self.rejected_count_in_window != len(
-            self.entries
-        ):
-            raise ValueError("proposal ledger window counters must match its entries")
+            raise ValueError("domain proposal ledger counters must be non-negative")
         if self.entries and (
             self.entries[0].proposal_index != self.entry_offset
             or self.entries[-1].proposal_index
             != self.entry_offset + len(self.entries) - 1
         ):
-            raise ValueError("proposal ledger indices must bound one contiguous window")
-
-    @property
-    def accepted_count(self) -> int:
-        return self.accepted_count_before + self.accepted_count_in_window
-
-    @property
-    def rejected_count(self) -> int:
-        return self.rejected_count_before + self.rejected_count_in_window
+            raise ValueError("domain decisions must form one contiguous window")
 
     @property
     def decision_count(self) -> int:
         return self.entry_offset + len(self.entries)
 
     @property
+    def accepted_point_count(self) -> int:
+        return self.accepted_point_count_before + sum(
+            len(entry.accepted_points)
+            for entry in self.entries
+            if entry.outcome == "accepted"
+        )
+
+    @property
+    def rejected_count(self) -> int:
+        return self.rejected_count_before + sum(
+            entry.outcome == "rejected" for entry in self.entries
+        )
+
+    @property
+    def point_count(self) -> int:
+        return self.initial_point_count + self.accepted_point_count
+
+    @property
     def optimizer_attempt_count(self) -> int:
         return self.optimizer_attempt_count_before + sum(
-            entry.candidate.source == "optimizer" for entry in self.entries
+            entry.proposal.source == "optimizer" for entry in self.entries
         )
-
-    @property
-    def operator_attempt_count(self) -> int:
-        return self.operator_attempt_count_before + sum(
-            entry.candidate.source == "operator" for entry in self.entries
-        )
-
-    @property
-    def next_logical_ordinal(self) -> int:
-        return self.initial_point_count + self.accepted_count
 
     def accept(
         self,
-        candidate: PointProposalAttempt,
-        point: AcceptedRunPoint,
-    ) -> PointProposalLedger:
-        """Return a ledger extended by one admitted candidate."""
-
-        if point.ordinal != self.next_logical_ordinal:
-            raise ValueError("accepted optimizer point must extend the logical prefix")
-        return PointProposalLedger(
-            self.initial_point_count,
-            (
+        proposal: DomainProposalAttempt,
+        points: tuple[AcceptedRunPoint, ...],
+    ) -> DomainProposalLedger:
+        return DomainProposalLedger(
+            initial_point_count=self.initial_point_count,
+            entries=(
                 *self.entries,
-                PointProposalDecision(
+                DomainProposalDecision(
                     proposal_index=self.decision_count,
-                    candidate=candidate,
+                    proposal=proposal,
                     outcome="accepted",
-                    accepted_point=point,
+                    accepted_points=points,
                 ),
             ),
             entry_offset=self.entry_offset,
-            accepted_count_before=self.accepted_count_before,
+            accepted_point_count_before=self.accepted_point_count_before,
             rejected_count_before=self.rejected_count_before,
-            author_attempt_count_before=self.author_attempt_count_before,
             optimizer_attempt_count_before=self.optimizer_attempt_count_before,
-            operator_attempt_count_before=self.operator_attempt_count_before,
-            accepted_count_in_window=self.accepted_count_in_window + 1,
-            rejected_count_in_window=self.rejected_count_in_window,
         )
 
     def reject(
         self,
-        candidate: PointProposalAttempt,
+        proposal: DomainProposalAttempt,
         *,
         reason: str,
-    ) -> PointProposalLedger:
-        """Return a ledger extended by one rejected candidate."""
-
-        return PointProposalLedger(
-            self.initial_point_count,
-            (
+    ) -> DomainProposalLedger:
+        return DomainProposalLedger(
+            initial_point_count=self.initial_point_count,
+            entries=(
                 *self.entries,
-                PointProposalDecision(
+                DomainProposalDecision(
                     proposal_index=self.decision_count,
-                    candidate=candidate,
+                    proposal=proposal,
                     outcome="rejected",
                     reason=reason,
                 ),
             ),
             entry_offset=self.entry_offset,
-            accepted_count_before=self.accepted_count_before,
+            accepted_point_count_before=self.accepted_point_count_before,
             rejected_count_before=self.rejected_count_before,
-            author_attempt_count_before=self.author_attempt_count_before,
             optimizer_attempt_count_before=self.optimizer_attempt_count_before,
-            operator_attempt_count_before=self.operator_attempt_count_before,
-            accepted_count_in_window=self.accepted_count_in_window,
-            rejected_count_in_window=self.rejected_count_in_window + 1,
         )
 
-    def recent(self, limit: int = OPTIMIZER_DECISION_WINDOW) -> PointProposalLedger:
-        """Bound retained decision objects without losing exact prefix counts."""
-
+    def recent(self, limit: int = OPTIMIZER_DECISION_WINDOW) -> DomainProposalLedger:
         if limit <= 0:
-            raise ValueError("proposal ledger window must be positive")
+            raise ValueError("domain decision window must be positive")
         dropped = self.entries[:-limit]
         if not dropped:
             return self
-        dropped_accepted = sum(entry.outcome == "accepted" for entry in dropped)
-        dropped_rejected = len(dropped) - dropped_accepted
-        dropped_authored = sum(entry.candidate.source == "author" for entry in dropped)
-        dropped_optimizer = sum(
-            entry.candidate.source == "optimizer" for entry in dropped
-        )
-        dropped_operator = len(dropped) - dropped_authored - dropped_optimizer
-        return PointProposalLedger(
+        return DomainProposalLedger(
             initial_point_count=self.initial_point_count,
             entries=self.entries[-limit:],
             entry_offset=self.entry_offset + len(dropped),
-            accepted_count_before=self.accepted_count_before + dropped_accepted,
-            rejected_count_before=self.rejected_count_before + dropped_rejected,
-            author_attempt_count_before=(
-                self.author_attempt_count_before + dropped_authored
+            accepted_point_count_before=self.accepted_point_count_before
+            + sum(
+                len(entry.accepted_points)
+                for entry in dropped
+                if entry.outcome == "accepted"
             ),
-            optimizer_attempt_count_before=(
-                self.optimizer_attempt_count_before + dropped_optimizer
-            ),
-            operator_attempt_count_before=(
-                self.operator_attempt_count_before + dropped_operator
-            ),
-            accepted_count_in_window=(self.accepted_count_in_window - dropped_accepted),
-            rejected_count_in_window=(self.rejected_count_in_window - dropped_rejected),
+            rejected_count_before=self.rejected_count_before
+            + sum(entry.outcome == "rejected" for entry in dropped),
+            optimizer_attempt_count_before=self.optimizer_attempt_count_before
+            + sum(entry.proposal.source == "optimizer" for entry in dropped),
         )
 
 
 @dataclass(frozen=True, slots=True)
-class PointOptimizerContext:
-    """Exact counters and bounded recent facts for one optimizer decision."""
+class DomainOptimizerContext:
+    """Region-scoped observations and exact budgets for one domain decision."""
 
+    region: AdaptiveRegion | None
+    regions: tuple[AdaptiveRegion, ...]
     observations: tuple[CompletedPointObservation, ...]
-    ledger: PointProposalLedger
-    point_limit: int
-    completed_point_count: int
+    ledger: DomainProposalLedger
+    total_point_limit: int
+    accepted_point_count: int
 
     def __post_init__(self) -> None:
-        if self.point_limit <= 0:
-            raise ValueError("adaptive point limit must be positive")
-        if self.completed_point_count != (
-            self.ledger.initial_point_count + self.ledger.accepted_count
-        ):
-            raise ValueError("optimizer completed count must cover accepted points")
-        if self.completed_point_count > self.point_limit:
-            raise ValueError("optimizer observations exceed the adaptive point limit")
-        observation_start = self.completed_point_count - len(self.observations)
-        if observation_start < 0 or tuple(
-            observation.point.ordinal for observation in self.observations
-        ) != tuple(range(observation_start, self.completed_point_count)):
-            raise ValueError("optimizer observations must be one completed suffix")
+        if self.total_point_limit <= 0:
+            raise ValueError("adaptive total point limit must be positive")
+        if not self.regions:
+            raise ValueError("domain optimizer context requires at least one region")
+        if self.region is not None and self.region.id not in {
+            region.id for region in self.regions
+        }:
+            raise ValueError("selected optimizer region is not in the run")
+        if not 0 <= self.accepted_point_count <= self.total_point_limit:
+            raise ValueError("accepted point count exceeds the adaptive total limit")
 
     @property
-    def observation_start_index(self) -> int:
-        return self.completed_point_count - len(self.observations)
-
-    @property
-    def remaining_point_count(self) -> int:
-        return self.point_limit - self.completed_point_count
+    def remaining_total_point_count(self) -> int:
+        return self.total_point_limit - self.accepted_point_count
 
 
-class PointOptimizer(Protocol):
-    """Pure next-point strategy retained by the local execution process."""
+class DomainOptimizer(Protocol):
+    """Pure compatible-domain strategy retained by the local executor."""
 
     @property
     def id(self) -> str: ...
 
     def propose(
         self,
-        context: PointOptimizerContext,
-    ) -> PointProposalAttempt | OptimizationComplete: ...
+        context: DomainOptimizerContext,
+    ) -> DomainProposalAttempt | RegionOptimizationComplete | OptimizationComplete: ...
 
 
 @dataclass(frozen=True, slots=True)
-class AdaptivePointPlan:
-    """Bounded optimizer policy paired with an invocation's initial point plan."""
+class AdaptiveDomainPlan:
+    """Composable outer-static and inner-adaptive domain policy."""
 
-    optimizer: PointOptimizer = field(repr=False, compare=False)
-    max_points: int
+    optimizer: DomainOptimizer = field(repr=False, compare=False)
+    total_point_limit: int
+    adaptive_coordinate_ids: tuple[str, ...] = ()
+    scope: AdaptiveScope = "per_region"
+    per_region_point_limit: int | None = None
     optimizer_id: str = field(init=False)
 
     def __post_init__(self) -> None:
         if not self.optimizer.id:
-            raise ValueError("point optimizer id must be non-empty")
-        if self.max_points <= 0:
-            raise ValueError("adaptive point limit must be positive")
+            raise ValueError("domain optimizer id must be non-empty")
+        if self.total_point_limit <= 0:
+            raise ValueError("adaptive total point limit must be positive")
+        if self.per_region_point_limit is not None and self.per_region_point_limit <= 0:
+            raise ValueError("adaptive region point limit must be positive")
+        if len(self.adaptive_coordinate_ids) != len(set(self.adaptive_coordinate_ids)):
+            raise ValueError("adaptive coordinate ids must be unique")
+        if any(not coordinate_id for coordinate_id in self.adaptive_coordinate_ids):
+            raise ValueError("adaptive coordinate ids must be non-empty")
         object.__setattr__(self, "optimizer_id", self.optimizer.id)
 
-    def ledger(self, *, initial_point_count: int) -> PointProposalLedger:
-        """Create the empty ledger after the initial plan has materialized."""
-
-        if initial_point_count > self.max_points:
+    def validate_initial_point_count(self, initial_point_count: int) -> None:
+        if initial_point_count > self.total_point_limit:
             raise ValueError("initial point plan exceeds the adaptive point limit")
-        return PointProposalLedger(initial_point_count)
 
     @property
     def proposal_limit(self) -> int:
         """Bound rejected retries while leaving room for optimizer correction."""
 
-        return self.max_points * 4
+        return self.total_point_limit * 4
 
 
 __all__ = [
     "OPTIMIZER_DECISION_WINDOW",
     "OPTIMIZER_OBSERVATION_WINDOW",
-    "AdaptivePointPlan",
+    "AdaptiveDomainPlan",
     "CompletedPointObservation",
+    "DomainOptimizer",
+    "DomainOptimizerContext",
+    "DomainProposalDecision",
+    "DomainProposalLedger",
     "OptimizationComplete",
     "OptimizerMeasurementObservation",
     "OptimizerObservationValue",
     "OptimizerScalarObservation",
     "OptimizerUnavailableObservation",
-    "PointOptimizer",
-    "PointOptimizerContext",
-    "PointProposalDecision",
-    "PointProposalLedger",
     "PointProposalOutcome",
 ]

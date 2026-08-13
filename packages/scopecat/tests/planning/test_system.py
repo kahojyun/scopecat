@@ -74,9 +74,9 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, Table, TableColumn
 from scopecat.measurements.results import MeasurementValue
 from scopecat.optimization import (
-    AdaptivePointPlan,
+    AdaptiveDomainPlan,
+    DomainOptimizerContext,
     OptimizationComplete,
-    PointOptimizerContext,
 )
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.local_effects import LocalTargetPlan, MaterializedLocalEffects
@@ -135,8 +135,8 @@ class _CompleteOptimizer:
 
     def propose(
         self,
-        context: PointOptimizerContext,
-    ) -> sc.PointProposalAttempt | OptimizationComplete:
+        context: DomainOptimizerContext,
+    ) -> sc.DomainProposalAttempt | OptimizationComplete:
         del context
         return OptimizationComplete()
 
@@ -1826,9 +1826,10 @@ def test_adaptive_plan_uses_an_open_point_extent_with_a_hard_limit() -> None:
         domain_compiler=_DomainCompiler("tests.adaptive"),
     ).compile(
         bound,
-        adaptive_point_plan=AdaptivePointPlan(
+        adaptive_domain_plan=AdaptiveDomainPlan(
             _CompleteOptimizer(),
-            max_points=5,
+            total_point_limit=5,
+            adaptive_coordinate_ids=("frequency",),
         ),
     )
 
@@ -1857,9 +1858,10 @@ def test_adaptive_coverage_accepts_candidates_into_the_canonical_run_domain() ->
         domain_compiler=compiler,
     ).compile(
         bound,
-        adaptive_point_plan=AdaptivePointPlan(
+        adaptive_domain_plan=AdaptiveDomainPlan(
             _CompleteOptimizer(),
-            max_points=5,
+            total_point_limit=5,
+            adaptive_coordinate_ids=("frequency",),
         ),
     )
 
@@ -1867,14 +1869,12 @@ def test_adaptive_coverage_accepts_candidates_into_the_canonical_run_domain() ->
         sc.PointProposalAttempt(
             {"frequency": Quantity(5.3, "GHz")},
             source="optimizer",
-            based_on_completed_point_count=2,
         )
     )
     next_accepted = plan.coverage.accept(
         sc.PointProposalAttempt(
             {"frequency": Quantity(5.5, "GHz")},
             source="optimizer",
-            based_on_completed_point_count=3,
         )
     )
 

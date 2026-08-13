@@ -32,7 +32,7 @@ from scopecat.kernel.value_type_compatibility import (
     describe_value_type,
     is_assignable,
 )
-from scopecat.optimization import AdaptivePointPlan
+from scopecat.optimization import AdaptiveDomainPlan
 from scopecat.program.definitions import ExperimentInvocation
 from scopecat.program.logical import LogicalProgram
 from scopecat.program.point_domain import analyze_point_domain
@@ -46,7 +46,7 @@ from scopecat.program.scans import (
 )
 from scopecat.program.value_refs import ValueRef
 from scopecat.records.run_request import (
-    AdaptivePointPlanRecord,
+    AdaptiveDomainPlanRecord,
     GridDomainRecord,
     PointPlanRecord,
     RunRequest,
@@ -59,7 +59,7 @@ class CompiledInvocation:
 
     program: VerifiedLogicalProgram
     request: RunRequest
-    adaptive_point_plan: AdaptivePointPlan | None = field(
+    adaptive_domain_plan: AdaptiveDomainPlan | None = field(
         default=None,
         repr=False,
     )
@@ -118,7 +118,7 @@ def compile_invocation(
     return CompiledInvocation(
         program=verify_logical_program(logical),
         request=request,
-        adaptive_point_plan=invocation.adaptive_point_plan,
+        adaptive_domain_plan=invocation.adaptive_domain_plan,
     )
 
 
@@ -217,12 +217,21 @@ def _materialized_request(
                 repeat_mode=point_plan.repeat_mode,
                 traversal=point_plan.traversal,
             ),
-            "adaptive_point_plan": (
+            "adaptive_domain_plan": (
                 None
-                if invocation.adaptive_point_plan is None
-                else AdaptivePointPlanRecord(
-                    optimizer_id=invocation.adaptive_point_plan.optimizer_id,
-                    max_points=invocation.adaptive_point_plan.max_points,
+                if invocation.adaptive_domain_plan is None
+                else AdaptiveDomainPlanRecord(
+                    optimizer_id=invocation.adaptive_domain_plan.optimizer_id,
+                    total_point_limit=(
+                        invocation.adaptive_domain_plan.total_point_limit
+                    ),
+                    adaptive_coordinate_ids=(
+                        invocation.adaptive_domain_plan.adaptive_coordinate_ids
+                    ),
+                    scope=invocation.adaptive_domain_plan.scope,
+                    per_region_point_limit=(
+                        invocation.adaptive_domain_plan.per_region_point_limit
+                    ),
                 )
             ),
             "operator": operator,

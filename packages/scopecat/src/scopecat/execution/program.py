@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     )
     from scopecat.measurements.points import RunPointCatalog
     from scopecat.measurements.projection import MeasurementProjection
-    from scopecat.optimization import AdaptivePointPlan
+    from scopecat.optimization import AdaptiveDomainPlan
     from scopecat.records.config import ConfigContentHash
     from scopecat.sdk.domain.execution import PreparedDomainExecution
     from scopecat.sdk.instruments.contracts import InstrumentDescription
@@ -91,7 +91,7 @@ class RunAcceptedPointCoverage:
 class RunCoverage:
     """A lazy operation stream rebuilt for each planning or execution pass."""
 
-    __slots__ = ("_accept", "_factory", "_inspect", "_preflight")
+    __slots__ = ("_accept", "_accept_all", "_factory", "_inspect", "_preflight")
 
     def __init__(
         self,
@@ -102,11 +102,17 @@ class RunCoverage:
         | None = None,
         accept: Callable[[PointProposalAttempt], RunAcceptedPointCoverage]
         | None = None,
+        accept_all: Callable[
+            [tuple[PointProposalAttempt, ...]],
+            tuple[RunAcceptedPointCoverage, ...],
+        ]
+        | None = None,
     ) -> None:
         self._factory = factory
         self._preflight = preflight
         self._inspect = inspect
         self._accept = accept
+        self._accept_all = accept_all
 
     def __iter__(self) -> Iterator[RunCoveredOperation]:
         return self._factory()
@@ -131,6 +137,16 @@ class RunCoverage:
             raise ValueError("run coverage does not accept adaptive points")
         return self._accept(candidate)
 
+    def accept_all(
+        self,
+        candidates: tuple[PointProposalAttempt, ...],
+    ) -> tuple[RunAcceptedPointCoverage, ...]:
+        """Compile and atomically append one complete domain fragment."""
+
+        if self._accept_all is None:
+            raise ValueError("run coverage does not accept adaptive domains")
+        return self._accept_all(candidates)
+
 
 @dataclass(frozen=True, slots=True)
 class RunProgram:
@@ -149,7 +165,7 @@ class RunProgram:
     measurements: MeasurementProjection = field(repr=False)
     resource_requirements: tuple[ResourceRequirement, ...]
     domain_target_requirement: DomainTargetRequirement | None
-    adaptive_point_plan: AdaptivePointPlan | None = field(
+    adaptive_domain_plan: AdaptiveDomainPlan | None = field(
         default=None,
         repr=False,
     )

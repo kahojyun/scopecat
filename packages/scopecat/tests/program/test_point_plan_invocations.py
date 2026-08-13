@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from scopecat.kernel.points import PointProposalAttempt
+from scopecat.adaptive_domains import DomainProposalAttempt
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Int, Scalar
-from scopecat.optimization import OptimizationComplete, PointOptimizerContext
+from scopecat.optimization import DomainOptimizerContext, OptimizationComplete
 from scopecat.program.definitions import (
     ExperimentDef,
     ExperimentInvocation,
@@ -30,8 +30,8 @@ class _Optimizer:
 
     def propose(
         self,
-        context: PointOptimizerContext,
-    ) -> PointProposalAttempt | OptimizationComplete:
+        context: DomainOptimizerContext,
+    ) -> DomainProposalAttempt | OptimizationComplete:
         del context
         return OptimizationComplete()
 
@@ -130,10 +130,10 @@ def test_adaptive_policy_is_orthogonal_to_initial_point_edits() -> None:
         GridSpec((_axis("x", 1, 2),)),
         repeat=2,
     )
-    assert edited.adaptive_point_plan is not None
-    assert edited.adaptive_point_plan.optimizer is optimizer
-    assert edited.adaptive_point_plan.max_points == 7
-    assert edited.without_adaptation().adaptive_point_plan is None
+    assert edited.adaptive_domain_plan is not None
+    assert edited.adaptive_domain_plan.optimizer is optimizer
+    assert edited.adaptive_domain_plan.total_point_limit == 7
+    assert edited.without_adaptation().adaptive_domain_plan is None
 
 
 def test_definition_verification_discovers_inputs_from_point_plan_axes() -> None:

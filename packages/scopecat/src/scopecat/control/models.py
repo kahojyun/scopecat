@@ -110,6 +110,14 @@ class PointCoordinateSpec(_ControlModel):
     sampled_values_truncated: bool = False
 
 
+class AdaptiveRegionSpec(_ControlModel):
+    """One stable outer-domain region admitted for adaptive extension."""
+
+    id: str = Field(min_length=1)
+    coordinates: dict[str, PointCoordinateValue]
+    initial_point_count: int = Field(ge=0)
+
+
 class RunPlanSummary(_ControlModel):
     """Bounded scheduling and presentation facts for an in-process plan."""
 
@@ -118,6 +126,12 @@ class RunPlanSummary(_ControlModel):
     point_count: int | None = Field(default=None, ge=0)
     initial_point_count: int = Field(ge=0)
     point_limit: int = Field(ge=0)
+    adaptive_coordinate_ids: tuple[str, ...] = ()
+    adaptive_scope: Literal["per_region", "global"] | None = None
+    per_region_point_limit: int | None = Field(default=None, ge=1)
+    adaptive_region_count: int = Field(default=0, ge=0)
+    adaptive_regions: tuple[AdaptiveRegionSpec, ...] = ()
+    adaptive_regions_truncated: bool = False
     coordinates: tuple[PointCoordinateSpec, ...] = ()
     sampled_points: tuple[dict[str, PointCoordinateValue], ...] = ()
     sampled_points_truncated: bool = False
@@ -151,6 +165,35 @@ class RunPlanSummary(_ControlModel):
         expected = set(coordinate_ids)
         if any(set(point) != expected for point in self.sampled_points):
             raise ValueError("sampled points must contain every coordinate")
+        if not set(self.adaptive_coordinate_ids).issubset(expected):
+            raise ValueError("adaptive coordinates must reference admitted axes")
+        if len(self.adaptive_coordinate_ids) != len(set(self.adaptive_coordinate_ids)):
+            raise ValueError("adaptive coordinate ids must be unique")
+        adaptive = self.point_count is None
+        if adaptive != (self.adaptive_scope is not None):
+            raise ValueError("open point plans require an adaptive scope")
+        if not adaptive and (
+            self.adaptive_coordinate_ids
+            or self.per_region_point_limit is not None
+            or self.adaptive_region_count
+            or self.adaptive_regions
+            or self.adaptive_regions_truncated
+        ):
+            raise ValueError("static point plans cannot declare adaptive axes")
+        if adaptive:
+            if self.adaptive_region_count < 1:
+                raise ValueError("adaptive point plans require at least one region")
+            if len(self.adaptive_regions) > self.adaptive_region_count:
+                raise ValueError("adaptive region sample exceeds its total count")
+            if self.adaptive_regions_truncated != (
+                len(self.adaptive_regions) < self.adaptive_region_count
+            ):
+                raise ValueError("adaptive region truncation must match its sample")
+            outer_ids = expected - set(self.adaptive_coordinate_ids)
+            if any(
+                set(region.coordinates) != outer_ids for region in self.adaptive_regions
+            ):
+                raise ValueError("adaptive regions must identify every outer axis")
         return self
 
     @property

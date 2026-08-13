@@ -20,14 +20,20 @@ class PointProposalAttempt:
 
     coordinates: Mapping[str, CellValue]
     source: PointProposalSource = "author"
-    based_on_completed_point_count: int | None = None
+    region_id: str | None = None
+    domain_proposal_fingerprint: str | None = None
+    based_on_region_revision: int | None = None
 
     def __post_init__(self) -> None:
         if (
-            self.based_on_completed_point_count is not None
-            and self.based_on_completed_point_count < 0
+            self.based_on_region_revision is not None
+            and self.based_on_region_revision < 0
         ):
-            raise ValueError("completed point count must be non-negative")
+            raise ValueError("region revision must be non-negative")
+        if (self.region_id is None) != (self.domain_proposal_fingerprint is None):
+            raise ValueError(
+                "normalized domain points require both region and proposal identity"
+            )
         object.__setattr__(
             self,
             "coordinates",
@@ -45,56 +51,12 @@ class PointProposalAttempt:
         return "sha256:" + stable_content_hash(
             content_fingerprint(
                 {
-                    "schema": "scopecat.point_proposal_attempt.v1",
+                    "schema": "scopecat.point_proposal_attempt.v2",
                     "coordinates": dict(self.coordinates),
                     "source": self.source,
-                    "based_on_completed_point_count": (
-                        self.based_on_completed_point_count
-                    ),
-                }
-            )
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class OperatorPointRequest:
-    """One durable operator request, independent of proposal freshness."""
-
-    request_id: str
-    coordinate_mode: Literal["snap", "free"]
-    requested_coordinates: Mapping[str, CellValue]
-    coordinates: Mapping[str, CellValue]
-
-    def __post_init__(self) -> None:
-        if not self.request_id:
-            raise ValueError("operator point request id must be non-empty")
-        object.__setattr__(
-            self,
-            "requested_coordinates",
-            MappingProxyType(dict(self.requested_coordinates)),
-        )
-        object.__setattr__(
-            self,
-            "coordinates",
-            MappingProxyType(dict(self.coordinates)),
-        )
-
-    @property
-    def coordinate_fingerprint(self) -> str:
-        return "sha256:" + stable_content_hash(
-            content_fingerprint(dict(self.coordinates))
-        )
-
-    @property
-    def request_fingerprint(self) -> str:
-        return "sha256:" + stable_content_hash(
-            content_fingerprint(
-                {
-                    "schema": "scopecat.operator_point_request.v1",
-                    "request_id": self.request_id,
-                    "coordinate_mode": self.coordinate_mode,
-                    "requested_coordinates": dict(self.requested_coordinates),
-                    "resolved_coordinates": dict(self.coordinates),
+                    "region_id": self.region_id,
+                    "domain_proposal_fingerprint": (self.domain_proposal_fingerprint),
+                    "based_on_region_revision": self.based_on_region_revision,
                 }
             )
         )
@@ -108,6 +70,8 @@ class AcceptedRunPoint:
     coordinates: Mapping[str, CellValue]
     proposal_fingerprint: str | None = None
     source: PointProposalSource = "author"
+    region_id: str | None = None
+    domain_proposal_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -128,6 +92,8 @@ class AcceptedRunPoint:
             coordinates=candidate.coordinates,
             proposal_fingerprint=candidate.proposal_fingerprint,
             source=candidate.source,
+            region_id=candidate.region_id,
+            domain_proposal_fingerprint=candidate.domain_proposal_fingerprint,
         )
 
     @property
@@ -145,7 +111,6 @@ class AcceptedRunPoint:
 
 __all__ = [
     "AcceptedRunPoint",
-    "OperatorPointRequest",
     "PointProposalAttempt",
     "PointProposalSource",
 ]

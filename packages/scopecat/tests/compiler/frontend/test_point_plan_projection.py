@@ -14,8 +14,8 @@ class _Optimizer:
 
     def propose(
         self,
-        context: sc.PointOptimizerContext,
-    ) -> sc.PointProposalAttempt | sc.OptimizationComplete:
+        context: sc.DomainOptimizerContext,
+    ) -> sc.DomainProposalAttempt | sc.OptimizationComplete:
         del context
         return sc.OptimizationComplete()
 
@@ -64,13 +64,16 @@ def test_compile_records_adaptive_policy_without_serializing_optimizer() -> None
         experiment.grid(sc.axis(x, (0, 1)))
 
     optimizer = _Optimizer()
-    compiled = compile_invocation(adaptive_grid().adaptive(optimizer, max_points=8))
+    compiled = compile_invocation(
+        adaptive_grid().adaptive(optimizer, max_points=8, axes=(x,))
+    )
 
-    assert compiled.adaptive_point_plan is not None
-    assert compiled.adaptive_point_plan.optimizer is optimizer
-    assert compiled.request.adaptive_point_plan is not None
-    assert compiled.request.adaptive_point_plan.optimizer_id == "test.optimizer"
-    assert compiled.request.adaptive_point_plan.max_points == 8
+    assert compiled.adaptive_domain_plan is not None
+    assert compiled.adaptive_domain_plan.optimizer is optimizer
+    assert compiled.request.adaptive_domain_plan is not None
+    assert compiled.request.adaptive_domain_plan.optimizer_id == "test.optimizer"
+    assert compiled.request.adaptive_domain_plan.total_point_limit == 8
+    assert compiled.request.adaptive_domain_plan.adaptive_coordinate_ids == ("x",)
     assert "optimizer" not in compiled.request.model_dump(mode="json")
 
 

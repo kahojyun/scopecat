@@ -10,7 +10,7 @@ from typing import cast
 
 from pydantic import BaseModel
 from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
-from scopecat.execution.services import ExecutionSession, RunPointProposalWriter
+from scopecat.execution.services import ExecutionSession, RunDomainProposalWriter
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution_journal import ExecutionTransition
@@ -278,7 +278,7 @@ def sqlite_execution_session(
     *,
     runs: SQLiteRunRepository | None = None,
     instruments: RunInstrumentHost | None = None,
-    point_proposals: RunPointProposalWriter | None = None,
+    domain_proposals: RunDomainProposalWriter | None = None,
 ) -> SQLiteExecutionSession:
     """Bind one run's execution ports to isolated SQLite persistence."""
 
@@ -293,7 +293,7 @@ def sqlite_execution_session(
             run_id=run_id,
         ),
         instruments=instruments or TestRunInstrumentHost(),
-        point_proposals=point_proposals,
+        domain_proposals=domain_proposals,
     )
 
 
