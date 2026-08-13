@@ -135,8 +135,9 @@ class _CompleteOptimizer:
 
     def propose(
         self,
-        _context: PointOptimizerContext,
+        context: PointOptimizerContext,
     ) -> sc.PointCandidate | OptimizationComplete:
+        del context
         return OptimizationComplete()
 
 
@@ -1821,3 +1822,48 @@ def test_adaptive_plan_uses_an_open_point_extent_with_a_hard_limit() -> None:
     assert preview.initial_point_count == 2
     assert preview.point_limit == 5
     assert preview.records[0].shape[0] is None
+
+
+def test_adaptive_coverage_accepts_candidates_into_the_canonical_run_domain() -> None:
+    bound = _bound_program(point_count=2)
+    compiler = _DomainCompiler("tests.adaptive-accept")
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(
+        bound,
+        adaptive_point_plan=AdaptivePointPlan(
+            _CompleteOptimizer(),
+            max_points=5,
+        ),
+    )
+
+    accepted = plan.coverage.accept(
+        sc.PointCandidate(
+            {"frequency": Quantity(5.3, "GHz")},
+            source="optimizer",
+            based_on_completed_point_count=2,
+        )
+    )
+    next_accepted = plan.coverage.accept(
+        sc.PointCandidate(
+            {"frequency": Quantity(5.5, "GHz")},
+            source="optimizer",
+            based_on_completed_point_count=3,
+        )
+    )
+
+    assert accepted.point.ordinal == 2
+    assert accepted.point.coordinates == {"frequency": Quantity(5.3, "GHz")}
+    assert accepted.inspection.point_index == 2
+    assert [job.point_ordinals for job in accepted.inspection.jobs] == [(2,)]
+    assert next_accepted.point.ordinal == 3
+    assert [request.point_ordinals for request in compiler.compile_requests] == [
+        (2,),
+        (3,),
+    ]
+    assert [request.batch_ordinal for request in compiler.compile_requests] == [2, 3]
+    assert all(
+        isinstance(operation, RunCoverageCheckpoint | RunDomainJob)
+        for operation in accepted.operations
+    )

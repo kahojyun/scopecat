@@ -20,6 +20,7 @@ from scopecat.execution.local.program import (
     LocalOperation,
 )
 from scopecat.execution.program import (
+    RunAcceptedPointCoverage,
     RunCoverage,
     RunCoverageCheckpoint,
     RunCoverageEffect,
@@ -42,7 +43,7 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_identity import scalar_values_equal
-from scopecat.measurements.points import PointCandidate
+from scopecat.measurements.points import AcceptedRunPoint, PointCandidate
 from scopecat.measurements.projection import select_measurement_projection
 from scopecat.optimization import AdaptivePointPlan
 from scopecat.planning.catalog import InstrumentContractCatalog
@@ -70,6 +71,7 @@ from scopecat.planning.measurement_projection import (
 )
 from scopecat.planning.point_materialization import (
     MaterializedBoundPoints,
+    append_candidate_bound_point,
     prepare_bound_points,
     prepare_candidate_bound_points,
 )
@@ -95,6 +97,13 @@ from scopecat.sdk.payloads import PayloadCodecRegistry
 
 _INITIAL_LOCAL_COVERAGE_BATCH_SIZE = 32
 _MAX_LOCAL_COVERAGE_BATCH_SIZE = 256
+
+
+@dataclass(slots=True)
+class _AcceptedBoundPointState:
+    """Shared materialized point prefix used by compilation and projection."""
+
+    current: MaterializedBoundPoints
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +241,7 @@ def _compile_system_program(
     if local_instrument_required and catalog.problems:
         raise ProviderContractError(catalog.problems)
     bound_points = prepare_bound_points(bound)
+    accepted_bound_points = _AcceptedBoundPointState(bound_points)
     point_domain = bound_points.point_domain
     point_limit = (
         None if adaptive_point_plan is None else adaptive_point_plan.max_points
@@ -258,7 +268,7 @@ def _compile_system_program(
         bound.bindings.record_uses,
         result_fields=logical.result_fields,
         static_value_source=lambda points: project_static_value_record_candidates(
-            bound_points,
+            accepted_bound_points.current,
             tuple(
                 binding.value_id
                 for compute in bound.bindings.measurement_computes
@@ -309,6 +319,7 @@ def _compile_system_program(
         local_target=local_target,
         initial_local_probe=initial_local_probe,
         catalog=catalog,
+        accepted_bound_points=accepted_bound_points,
     )
     domain_instrument_ids = (
         ()
@@ -861,6 +872,7 @@ def _compile_coverage(
     local_target: LocalTargetPlan | None,
     initial_local_probe: _InitialLocalProbe | None,
     catalog: InstrumentContractCatalog,
+    accepted_bound_points: _AcceptedBoundPointState,
 ) -> RunCoverage:
     compiler = system.domain_compiler
 
@@ -938,10 +950,57 @@ def _compile_coverage(
             ),
         )
 
+    def accept(candidate: PointCandidate) -> RunAcceptedPointCoverage:
+        resolved, extended_bound_points = append_candidate_bound_point(
+            accepted_bound_points.current,
+            candidate,
+        )
+        ordinal = len(accepted_bound_points.current.point_domain.points)
+        selected_operations = tuple(
+            _validated_coverage(
+                _coverage_operations(
+                    compiler=compiler,
+                    bound_points=extended_bound_points,
+                    point_ordinals=(ordinal,),
+                    effects=bound.program.program.effects,
+                    domain_calls=domain_calls,
+                    local_target=local_target,
+                    initial_local_probe=None,
+                    initial_batch_ordinal=ordinal,
+                ),
+                validator=_CoverageValidator(
+                    domain_instrument_ids=(
+                        () if compiler is None else compiler.instrument_ids
+                    ),
+                    catalog=catalog,
+                ),
+            )
+        )
+        point = AcceptedRunPoint.accept(
+            resolved,
+            logical_id=extended_bound_points.point_domain.points[ordinal].logical_id,
+        )
+        inspection = RunPointInspection(
+            point_index=ordinal,
+            candidate=resolved,
+            jobs=tuple(
+                operation
+                for operation in selected_operations
+                if isinstance(operation, RunDomainJob)
+            ),
+        )
+        accepted_bound_points.current = extended_bound_points
+        return RunAcceptedPointCoverage(
+            point=point,
+            operations=selected_operations,
+            inspection=inspection,
+        )
+
     return RunCoverage(
         operations,
         preflight=preflight if domain_calls and point_ordinals else None,
         inspect=inspect,
+        accept=accept,
     )
 
 
@@ -954,9 +1013,12 @@ def _coverage_operations(
     domain_calls: dict[str, DomainCallView],
     local_target: LocalTargetPlan | None,
     initial_local_probe: _InitialLocalProbe | None,
+    initial_batch_ordinal: int = 0,
 ) -> Iterator[RunCoveredOperation | _MaterializedLocalCoverage]:
     next_batch_ordinals = {
-        effect.id: 0 for effect in effects if isinstance(effect, LogicalDomainExecution)
+        effect.id: initial_batch_ordinal
+        for effect in effects
+        if isinstance(effect, LogicalDomainExecution)
     }
     previous_static_frame: tuple[tuple[ApplyStateOperation, ...], ...] | None = None
     has_previous_static_frame = False

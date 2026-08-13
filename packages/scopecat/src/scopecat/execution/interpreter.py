@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from dataclasses import dataclass, replace
+
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.effect_result import (
     CoverageMeasurementObserver,
@@ -28,11 +31,17 @@ from scopecat.execution.measurement_recording import (
 from scopecat.execution.persistence import (
     validate_run_measurements,
 )
-from scopecat.execution.program import RunDomainJob, RunProgram
+from scopecat.execution.program import (
+    RunCoveredOperation,
+    RunDomainJob,
+    RunPointInspection,
+    RunProgram,
+)
 from scopecat.execution.services import (
     ExecutionSession,
 )
 from scopecat.kernel.errors import (
+    CheckFailed,
     DomainRuntimeFailure,
     DomainRuntimePersistenceError,
     MeasurementRecordingError,
@@ -46,7 +55,7 @@ from scopecat.kernel.problems import (
     ProblemPhase,
 )
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.measurements.points import AcceptedRunPoint
+from scopecat.measurements.points import AcceptedRunPoint, PointCandidate
 from scopecat.measurements.projection import (
     ProjectedMeasurementDataset,
     project_measurement_records,
@@ -55,6 +64,12 @@ from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
     seal_measurement_values,
+)
+from scopecat.optimization import (
+    CompletedPointObservation,
+    OptimizationComplete,
+    PointOptimizerContext,
+    PointProposalLedger,
 )
 from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
@@ -102,7 +117,7 @@ def _execute_run(
 ) -> RunManifest:
     host = program.host
     projection = program.measurements
-    point_count = len(program.points.points)
+    point_state = _ExecutionPointState.create(program)
     run_id = session.run_id
     journal = session.journal
     measurements = session.measurements
@@ -155,20 +170,34 @@ def _execute_run(
                 points,
                 completed_point_count=completed_coverage_count,
             )
-            return
-        ready_records = measurement_buffer.add(projected.records)
-        if not ready_records:
-            return
-        if dataset_header is None:
-            raise ValueError("projected measurements require a dataset header")
-        ingest_measurement_dataset(
-            ProjectedMeasurementDataset(projection, run_id, ready_records),
-            measurements,
-            header=dataset_header,
-        )
-        recorded_measurement_count += len(ready_records)
-        record_content_hashes.extend(
-            measurement_record_content_hash(record) for record in ready_records
+        else:
+            ready_records = measurement_buffer.add(projected.records)
+            if ready_records:
+                if dataset_header is None:
+                    raise ValueError("projected measurements require a dataset header")
+                ingest_measurement_dataset(
+                    ProjectedMeasurementDataset(projection, run_id, ready_records),
+                    measurements,
+                    header=dataset_header,
+                )
+                recorded_measurement_count += len(ready_records)
+                record_content_hashes.extend(
+                    measurement_record_content_hash(record) for record in ready_records
+                )
+        records_by_point = {
+            point.ordinal: tuple(
+                record
+                for record in projected.records
+                if record.point_index == point.ordinal
+            )
+            for point in points
+        }
+        point_state.observations.extend(
+            CompletedPointObservation(
+                point=point,
+                records=records_by_point[point.ordinal],
+            )
+            for point in points
         )
 
     effect_result = _execute_or_cancel_effects(
@@ -177,6 +206,7 @@ def _execute_run(
         coverage_observer=commit_coverage,
         header_failure=header_failure,
         cancelled_without_effects=cancelled_without_effects,
+        point_state=point_state,
     )
 
     problems = _effect_problems(
@@ -294,7 +324,9 @@ def _execute_run(
             None if seal_receipt is None else seal_receipt.dataset_content_hash
         ),
         dataset_schema=dataset_schema,
-        expected_record_count=(point_count if projection.has_dataset else None),
+        expected_record_count=(
+            len(point_state.points) if projection.has_dataset else None
+        ),
         instrument_state=instrument_state,
     )
     models: list[RunModelWrite] = []
@@ -413,6 +445,7 @@ def _execute_or_cancel_effects(
     coverage_observer: CoverageMeasurementObserver,
     header_failure: MeasurementRecordingError | None,
     cancelled_without_effects: bool,
+    point_state: _ExecutionPointState,
 ) -> RunEffectResult:
     if cancelled_without_effects:
         return RunEffectResult(
@@ -441,6 +474,7 @@ def _execute_or_cancel_effects(
         program=program,
         session=session,
         coverage_observer=coverage_observer,
+        point_state=point_state,
     )
 
 
@@ -469,6 +503,7 @@ def _execute_instrument_effects(
     program: RunProgram,
     session: ExecutionSession,
     coverage_observer: CoverageMeasurementObserver,
+    point_state: _ExecutionPointState,
 ) -> RunEffectResult:
     instruments = session.instruments
     setup_problems = list(instruments.setup_problems)
@@ -521,11 +556,89 @@ def _execute_instrument_effects(
         ),
         cancellation_requested=session.cancellation_requested,
     )
-    return engine.run(
-        program.coverage,
-        points=program.points.points,
+    result = engine.run(
+        _execution_coverage(program, point_state),
+        points=point_state.points,
         success_state=program.success_state,
     )
+    return replace(result, proposal_ledger=point_state.ledger)
+
+
+@dataclass(slots=True)
+class _ExecutionPointState:
+    points: list[AcceptedRunPoint]
+    observations: list[CompletedPointObservation]
+    ledger: PointProposalLedger | None
+    inspections: list[RunPointInspection]
+
+    @classmethod
+    def create(cls, program: RunProgram) -> _ExecutionPointState:
+        adaptive = program.adaptive_point_plan
+        points = list(program.points.points)
+        return cls(
+            points=points,
+            observations=[],
+            ledger=(
+                None
+                if adaptive is None
+                else adaptive.ledger(initial_point_count=len(points))
+            ),
+            inspections=[],
+        )
+
+
+def _execution_coverage(
+    program: RunProgram,
+    state: _ExecutionPointState,
+) -> Iterator[RunCoveredOperation]:
+    yield from program.coverage
+    adaptive = program.adaptive_point_plan
+    if adaptive is None:
+        return
+    ledger = state.ledger
+    if ledger is None:
+        raise AssertionError("adaptive execution requires a proposal ledger")
+    while len(state.points) < adaptive.max_points:
+        if len(ledger.entries) >= adaptive.proposal_limit:
+            raise RuntimeError("optimizer exceeded the adaptive proposal limit")
+        proposal = adaptive.optimizer.propose(
+            PointOptimizerContext(
+                observations=tuple(state.observations),
+                ledger=ledger,
+                point_limit=adaptive.max_points,
+            )
+        )
+        if isinstance(proposal, OptimizationComplete):
+            break
+        rejection = _proposal_rejection(proposal, state)
+        if rejection is not None:
+            ledger = ledger.reject(proposal, reason=rejection)
+            state.ledger = ledger
+            continue
+        try:
+            accepted = program.coverage.accept(proposal)
+        except CheckFailed as error:
+            ledger = ledger.reject(proposal, reason=str(error))
+            state.ledger = ledger
+            continue
+        state.points.append(accepted.point)
+        state.inspections.append(accepted.inspection)
+        ledger = ledger.accept(proposal, accepted.point)
+        state.ledger = ledger
+        yield from accepted.operations
+
+
+def _proposal_rejection(
+    proposal: PointCandidate,
+    state: _ExecutionPointState,
+) -> str | None:
+    based_on = proposal.based_on_completed_point_count
+    if based_on is not None and based_on != len(state.observations):
+        return (
+            f"proposal was based on {based_on} completed points; "
+            f"the run has {len(state.observations)}"
+        )
+    return None
 
 
 def _effect_problems(

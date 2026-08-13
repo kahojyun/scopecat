@@ -207,6 +207,36 @@ def prepare_candidate_bound_points(
     )
 
 
+def append_candidate_bound_point(
+    prepared: MaterializedBoundPoints,
+    candidate: PointCandidate,
+) -> tuple[PointCandidate, MaterializedBoundPoints]:
+    """Resolve and append one candidate to the canonical run point domain."""
+
+    resolved, isolated = prepare_candidate_bound_points(prepared, candidate)
+    ordinal = len(prepared.point_domain.points)
+    point = MaterializedPoint(
+        logical_id=LogicalPointId(prepared.point_domain.id, ordinal),
+        row=isolated.point_domain.points[0].row,
+    )
+    point_domain = MaterializedPointDomain(
+        id=prepared.point_domain.id,
+        points=(*prepared.point_domain.points, point),
+        layout="point_cloud",
+    )
+    return (
+        resolved,
+        MaterializedBoundPoints(
+            bound_plan=prepared.bound_plan,
+            point_domain=point_domain,
+            point_parameters=_PointParameterSequence(
+                prepared.bound_plan,
+                point_domain.points,
+            ),
+        ),
+    )
+
+
 class _PointParameterSequence(Sequence[ParameterRelationData]):
     __slots__ = ("_bound", "_points")
 

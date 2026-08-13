@@ -195,6 +195,12 @@ class AdaptivePointPlan:
             raise ValueError("initial point plan exceeds the adaptive point limit")
         return PointProposalLedger(initial_point_count)
 
+    @property
+    def proposal_limit(self) -> int:
+        """Bound rejected retries while leaving room for optimizer correction."""
+
+        return self.max_points * 4
+
 
 __all__ = [
     "AdaptivePointPlan",

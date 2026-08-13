@@ -20,7 +20,11 @@ if TYPE_CHECKING:
         DomainTargetRequirement,
         ResourceRequirement,
     )
-    from scopecat.measurements.points import PointCandidate, RunPointCatalog
+    from scopecat.measurements.points import (
+        AcceptedRunPoint,
+        PointCandidate,
+        RunPointCatalog,
+    )
     from scopecat.measurements.projection import MeasurementProjection
     from scopecat.optimization import AdaptivePointPlan
     from scopecat.records.config import ConfigContentHash
@@ -78,10 +82,19 @@ class RunPointInspection:
     jobs: tuple[RunDomainJob, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class RunAcceptedPointCoverage:
+    """One accepted candidate and its eagerly validated bounded operations."""
+
+    point: AcceptedRunPoint
+    operations: tuple[RunCoveredOperation, ...]
+    inspection: RunPointInspection
+
+
 class RunCoverage:
     """A lazy operation stream rebuilt for each planning or execution pass."""
 
-    __slots__ = ("_factory", "_inspect", "_preflight")
+    __slots__ = ("_accept", "_factory", "_inspect", "_preflight")
 
     def __init__(
         self,
@@ -89,10 +102,12 @@ class RunCoverage:
         *,
         preflight: Callable[[], None] | None = None,
         inspect: Callable[[int | PointCandidate], RunPointInspection] | None = None,
+        accept: Callable[[PointCandidate], RunAcceptedPointCoverage] | None = None,
     ) -> None:
         self._factory = factory
         self._preflight = preflight
         self._inspect = inspect
+        self._accept = accept
 
     def __iter__(self) -> Iterator[RunCoveredOperation]:
         return self._factory()
@@ -109,6 +124,13 @@ class RunCoverage:
         if self._inspect is None:
             return None
         return self._inspect(point)
+
+    def accept(self, candidate: PointCandidate) -> RunAcceptedPointCoverage:
+        """Compile and atomically append one candidate to the run point domain."""
+
+        if self._accept is None:
+            raise ValueError("run coverage does not accept adaptive points")
+        return self._accept(candidate)
 
 
 @dataclass(frozen=True, slots=True)
