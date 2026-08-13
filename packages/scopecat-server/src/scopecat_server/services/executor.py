@@ -493,6 +493,28 @@ class ExecutorService:
         self._active_measurements.clear(run_id)
         return manifest
 
+    def reconcile_volatile_state(self) -> None:
+        """Release measurement state whose executor can no longer write."""
+
+        for run_id in self._active_measurements.run_ids():
+            try:
+                run = self._control.get_run(run_id)
+            except ControlPlaneNotFound:
+                self._discard_measurement_state(run_id)
+                continue
+            if run.state != "leased":
+                self._discard_measurement_state(run_id)
+
+    def close(self) -> None:
+        """Release all process-local executor state during daemon shutdown."""
+
+        self._measurement_repositories.clear()
+        self._active_measurements.clear_all()
+
+    def _discard_measurement_state(self, run_id: str) -> None:
+        self._measurement_repositories.pop(run_id, None)
+        self._active_measurements.clear(run_id)
+
     def _start_execution(
         self,
         run_id: str,

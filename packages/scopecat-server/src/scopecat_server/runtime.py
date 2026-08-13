@@ -155,6 +155,7 @@ class LocalDaemonRuntime:
             project_id = _project_id(self.project_root)
             lease_supervisor = OwnershipLeaseSupervisor(
                 instruments=instruments,
+                executor=executor,
                 shutdown_timeout_seconds=instrument_shutdown_grace.total_seconds(),
             )
             application = DaemonApplication(

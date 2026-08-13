@@ -421,7 +421,8 @@ and live prepared target artifacts are bounded by the current physical batch.
 During active execution the completed point index set and durable scalar results
 still grow with completed point count; neither contains waveform payloads. The
 daemon retains the latest received measurement for the live Arrow view plus the
-bounded not-yet-durable prefix.
+bounded not-yet-durable prefix. That state exists only while its executor lease is
+active and is released on seal, terminal commit, lease loss, or daemon shutdown.
 Inline command payloads retain raw bytes in memory and convert to base64 only
 for an actual JSON wire representation; the daemon client uploads those bytes
 to an operation-scoped content-addressed spool before posting a control command

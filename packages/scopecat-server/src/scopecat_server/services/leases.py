@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..instruments.service import InstrumentService
+    from .executor import ExecutorService
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +20,12 @@ class OwnershipLeaseSupervisor:
         self,
         *,
         instruments: InstrumentService,
+        executor: ExecutorService,
         supervisor_interval_seconds: float = 0.5,
         shutdown_timeout_seconds: float = 5.0,
     ) -> None:
         self._instruments = instruments
+        self._executor = executor
         self._supervisor_interval_seconds = supervisor_interval_seconds
         self._shutdown_timeout_seconds = shutdown_timeout_seconds
         self._stop = Event()
@@ -73,7 +76,10 @@ class OwnershipLeaseSupervisor:
     def _supervise(self) -> None:
         while not self._stop.wait(self._supervisor_interval_seconds):
             try:
-                self._instruments.expire_leases()
+                try:
+                    self._instruments.expire_leases()
+                finally:
+                    self._executor.reconcile_volatile_state()
             except Exception:
                 self._supervisor_failed = True
                 logger.exception("ownership lease supervisor iteration failed")
@@ -82,3 +88,4 @@ class OwnershipLeaseSupervisor:
 
     def _reconcile_startup(self) -> None:
         self._instruments.reconcile_startup()
+        self._executor.reconcile_volatile_state()

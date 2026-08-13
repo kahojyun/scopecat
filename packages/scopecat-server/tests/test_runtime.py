@@ -479,6 +479,102 @@ def test_lease_supervisor_health_recovers_after_one_failed_iteration(
         assert runtime.application.health().status == "ok"
 
 
+def test_lease_supervisor_releases_unflushed_live_measurements(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(
+        tmp_path,
+        bootstrap_config=_config(),
+        lease_ttl=timedelta(seconds=1),
+    ) as runtime:
+        admission = runtime.application.submit_run(_submission("lost-live-data"))
+        lease = runtime.application.executor.start_executor(
+            admission.run_id,
+            ExecutorStartRequest(executor_id="notebook-1"),
+        )
+        header = MeasurementDatasetHeader(
+            run_id=admission.run_id,
+            recording_contract_fingerprint="test.recording.v1",
+            dataset_schema=MeasurementDatasetSchema(
+                dataset_id="raw-measurements",
+                point_domain=MeasurementProductGridPointDomain(axes=[]),
+                dimensions=[
+                    MeasurementDimension(id="point", kind="point", size=1),
+                    MeasurementDimension(id="sample", kind="trace", size=4),
+                ],
+                variables=[
+                    MeasurementVariable(
+                        id="waveform",
+                        role="observable",
+                        dtype="float64",
+                        dims=["point", "sample"],
+                    )
+                ],
+            ),
+            expected_record_count=1,
+        )
+        record = MeasurementRecord(
+            run_id=admission.run_id,
+            logical_point_id="point-0",
+            point_index=0,
+            coordinates={},
+            observables={
+                "waveform": MeasurementArray.create(
+                    dtype="float64",
+                    values=(0.0, 1.0, 2.0, 3.0),
+                )
+            },
+        )
+        runtime.application.executor.initialize_measurements(
+            admission.run_id,
+            MeasurementHeaderCommand(lease_id=lease.lease_id, header=header),
+        )
+        runtime.application.executor.ingest_measurements(
+            admission.run_id,
+            lease_id=lease.lease_id,
+            content=encode_measurement_append(
+                MeasurementDatasetAppend(
+                    run_id=admission.run_id,
+                    header_content_hash=header.content_hash,
+                    start_index=0,
+                    records=(record,),
+                ),
+                header.dataset_schema,
+            ),
+        )
+
+        live = runtime.application.runs.measurement_live_preview(
+            admission.run_id,
+            after_record_count=None,
+        )
+        assert live.active
+        assert live.received_record_count == 1
+        assert live.durable_record_count == 0
+
+        control = _control_run(runtime, admission.run_id)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            control = _control_run(runtime, admission.run_id)
+            live = runtime.application.runs.measurement_live_preview(
+                admission.run_id,
+                after_record_count=None,
+            )
+            if control.state == "attention_required" and not live.active:
+                break
+            time.sleep(0.01)
+
+        assert control.state == "attention_required"
+        assert not live.active
+        assert live.latest is None
+        assert (
+            runtime.application.runs.measurement_preview(
+                admission.run_id,
+                limit=10,
+            ).items
+            == ()
+        )
+
+
 def test_runtime_shutdown_unblocks_an_active_lease_supervisor(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2934,12 +3030,20 @@ def test_restart_quarantines_executor_until_operator_reconciles(
     tmp_path: Path,
 ) -> None:
     with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
-        submission = _submission("operator-recovery")
+        submission = _submission("operator-recovery", point_count=2)
         admission = runtime.application.submit_run(submission)
-        runtime.application.executor.start_executor(
+        lease = runtime.application.executor.start_executor(
             admission.run_id,
             ExecutorStartRequest(
                 executor_id="notebook-1",
+            ),
+        )
+        runtime.application.executor.advance_run_coverage(
+            admission.run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=lease.lease_id,
+                start_index=0,
+                point_count=1,
             ),
         )
         run_id = admission.run_id
@@ -2949,6 +3053,13 @@ def test_restart_quarantines_executor_until_operator_reconciles(
         assert attention.state == "attention_required"
         assert attention.attention_reason == "daemon_restarted"
         assert _resource_claims(tmp_path)[0].status == "quarantined"
+        coverage = reopened.application.executor.run_coverage(run_id)
+        assert coverage.completed_point_count == 1
+        with pytest.raises(BackendConflict, match="attention_required"):
+            reopened.application.executor.start_executor(
+                run_id,
+                ExecutorStartRequest(executor_id="notebook-2"),
+            )
 
         resolved = reopened.application.resolve_attention(run_id)
         assert resolved.state == "closed"
@@ -2960,3 +3071,8 @@ def test_restart_quarantines_executor_until_operator_reconciles(
         assert manifest.outcome.certainty == "indeterminate"
         assert manifest.outcome.problems[0].code == "daemon.executor_loss_reconciled"
         assert _resource_claims(tmp_path) == ()
+        with pytest.raises(BackendConflict, match="not ready to start"):
+            reopened.application.executor.start_executor(
+                run_id,
+                ExecutorStartRequest(executor_id="notebook-2"),
+            )

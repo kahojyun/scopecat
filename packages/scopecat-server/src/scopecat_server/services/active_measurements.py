@@ -166,6 +166,18 @@ class ActiveMeasurementStore:
         with self._lock:
             self._datasets.pop(run_id, None)
 
+    def run_ids(self) -> tuple[str, ...]:
+        """Return a stable snapshot of runs retaining volatile measurement state."""
+
+        with self._lock:
+            return tuple(self._datasets)
+
+    def clear_all(self) -> None:
+        """Release every process-local measurement dataset."""
+
+        with self._lock:
+            self._datasets.clear()
+
     def _require(self, run_id: str) -> _ActiveMeasurementDataset:
         try:
             return self._datasets[run_id]
