@@ -37,7 +37,7 @@ from scopecat.daemon.points import (
     AcceptedRunPointView,
     RunDomainDecisionCommand,
     RunDomainEnqueueCommand,
-    RunDomainFragmentView,
+    RunDomainFragmentInput,
     RunDomainProposalAttemptView,
     RunDomainResolveCommand,
     RunPointPlanCloseCommand,
@@ -2354,7 +2354,7 @@ def test_run_point_resolution_preserves_raw_input_and_makes_snap_explicit(
             RunDomainResolveCommand(
                 coordinate_mode="snap",
                 region_scope="current",
-                fragment=RunDomainFragmentView.from_fragment(
+                fragment=RunDomainFragmentInput.from_fragment(
                     ResolvedDomainFragment.points(
                         ({"frequency": Quantity(5.16, "GHz")},)
                     )
@@ -2366,7 +2366,7 @@ def test_run_point_resolution_preserves_raw_input_and_makes_snap_explicit(
             RunDomainResolveCommand(
                 coordinate_mode="free",
                 region_scope="current",
-                fragment=RunDomainFragmentView.from_fragment(
+                fragment=RunDomainFragmentInput.from_fragment(
                     ResolvedDomainFragment.points(
                         ({"frequency": Quantity(4.5, "GHz")},)
                     )
@@ -2379,7 +2379,7 @@ def test_run_point_resolution_preserves_raw_input_and_makes_snap_explicit(
                 request_id="operator-snap",
                 coordinate_mode="snap",
                 region_scope="current",
-                fragment=RunDomainFragmentView.from_fragment(
+                fragment=RunDomainFragmentInput.from_fragment(
                     ResolvedDomainFragment.points(
                         ({"frequency": Quantity(5.16, "GHz")},)
                     )
@@ -2393,7 +2393,7 @@ def test_run_point_resolution_preserves_raw_input_and_makes_snap_explicit(
                 RunDomainResolveCommand(
                     coordinate_mode="free",
                     region_scope="current",
-                    fragment=RunDomainFragmentView.from_fragment(
+                    fragment=RunDomainFragmentInput.from_fragment(
                         ResolvedDomainFragment.points(
                             ({"frequency": Quantity(3.5, "GHz")},)
                         )
@@ -2471,7 +2471,7 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
                 request_id="queue-1",
                 coordinate_mode="free",
                 region_scope="current",
-                fragment=RunDomainFragmentView.from_fragment(fragment),
+                fragment=RunDomainFragmentInput.from_fragment(fragment),
             ),
         )
         proposal = DomainProposalAttempt(
@@ -2606,7 +2606,7 @@ def test_failed_adaptive_run_abandons_pending_operator_points(tmp_path: Path) ->
                 request_id="pending-at-failure",
                 coordinate_mode="free",
                 region_scope="current",
-                fragment=RunDomainFragmentView.from_fragment(
+                fragment=RunDomainFragmentInput.from_fragment(
                     ResolvedDomainFragment.points(
                         ({"frequency": Quantity(5.2, "GHz")},)
                     )
@@ -3560,7 +3560,7 @@ def test_restart_quarantines_executor_until_operator_reconciles(
                 request_id="queue-before-restart",
                 coordinate_mode="free",
                 region_scope="current",
-                fragment=RunDomainFragmentView.from_fragment(
+                fragment=RunDomainFragmentInput.from_fragment(
                     ResolvedDomainFragment.points(
                         ({"frequency": Quantity(5.2, "GHz")},)
                     )

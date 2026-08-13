@@ -16,7 +16,7 @@ from scopecat.daemon.points import (
     AcceptedRunPointView,
     RunDomainDecisionCommand,
     RunDomainEnqueueCommand,
-    RunDomainFragmentView,
+    RunDomainFragmentInput,
     RunDomainProposalAttemptView,
     RunPointPlanCloseCommand,
 )
@@ -250,7 +250,7 @@ def test_operator_point_queue_is_fifo_bounded_and_resolved_by_decisions(
         request_id="queue-1",
         coordinate_mode="free",
         region_scope="current",
-        fragment=RunDomainFragmentView.from_fragment(fragment),
+        fragment=RunDomainFragmentInput.from_fragment(fragment),
     )
     second_enqueue = enqueue.model_copy(update={"request_id": "queue-2"})
     with _sqlite_transaction(runs) as connection:
