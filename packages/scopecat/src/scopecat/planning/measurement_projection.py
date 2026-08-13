@@ -13,7 +13,7 @@ from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.points import (
     AcceptedRunPoint,
-    PointCandidate,
+    PointProposalAttempt,
     RunPointCatalog,
     RunPointContract,
 )
@@ -123,7 +123,7 @@ class _RunPointSequence(Sequence[AcceptedRunPoint]):
             return tuple(self[offset] for offset in range(*index.indices(len(self))))
         point = self._points[self._ordinals[index]]
         return AcceptedRunPoint.accept(
-            PointCandidate(
+            PointProposalAttempt(
                 {
                     coordinate_id: point.row[coordinate_id]
                     for coordinate_id in self._coordinate_ids

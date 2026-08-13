@@ -136,7 +136,7 @@ class _CompleteOptimizer:
     def propose(
         self,
         context: PointOptimizerContext,
-    ) -> sc.PointCandidate | OptimizationComplete:
+    ) -> sc.PointProposalAttempt | OptimizationComplete:
         del context
         return OptimizationComplete()
 
@@ -1864,14 +1864,14 @@ def test_adaptive_coverage_accepts_candidates_into_the_canonical_run_domain() ->
     )
 
     accepted = plan.coverage.accept(
-        sc.PointCandidate(
+        sc.PointProposalAttempt(
             {"frequency": Quantity(5.3, "GHz")},
             source="optimizer",
             based_on_completed_point_count=2,
         )
     )
     next_accepted = plan.coverage.accept(
-        sc.PointCandidate(
+        sc.PointProposalAttempt(
             {"frequency": Quantity(5.5, "GHz")},
             source="optimizer",
             based_on_completed_point_count=3,

@@ -55,7 +55,7 @@ from scopecat.kernel.problems import (
     ProblemPhase,
 )
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.measurements.points import AcceptedRunPoint, PointCandidate
+from scopecat.measurements.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.measurements.projection import (
     ProjectedMeasurementDataset,
     project_measurement_records,
@@ -641,7 +641,11 @@ def _execution_coverage(
             else state.proposal_writer.next_queued()
         )
         proposal = (
-            queued.candidate
+            PointProposalAttempt(
+                coordinates=queued.request.coordinates,
+                source="operator",
+                based_on_completed_point_count=state.completed_point_count,
+            )
             if queued is not None
             else adaptive.optimizer.propose(
                 PointOptimizerContext(
@@ -660,7 +664,7 @@ def _execution_coverage(
                 )
             break
         if proposal.based_on_completed_point_count is None:
-            proposal = PointCandidate(
+            proposal = PointProposalAttempt(
                 coordinates=proposal.coordinates,
                 source=proposal.source,
                 based_on_completed_point_count=state.completed_point_count,
@@ -673,8 +677,8 @@ def _execution_coverage(
                 state.proposal_writer.append(
                     ledger.entries[-1],
                     None,
-                    queue_operation_id=(
-                        None if queued is None else queued.operation_id
+                    operator_request_id=(
+                        None if queued is None else queued.request.request_id
                     ),
                 )
             continue
@@ -687,8 +691,8 @@ def _execution_coverage(
                 state.proposal_writer.append(
                     ledger.entries[-1],
                     None,
-                    queue_operation_id=(
-                        None if queued is None else queued.operation_id
+                    operator_request_id=(
+                        None if queued is None else queued.request.request_id
                     ),
                 )
             continue
@@ -699,7 +703,9 @@ def _execution_coverage(
             state.proposal_writer.append(
                 ledger.entries[-1],
                 accepted.inspection,
-                queue_operation_id=(None if queued is None else queued.operation_id),
+                operator_request_id=(
+                    None if queued is None else queued.request.request_id
+                ),
             )
         yield from accepted.operations
         durable_progress()
@@ -712,7 +718,7 @@ def _execution_coverage(
 
 
 def _proposal_rejection(
-    proposal: PointCandidate,
+    proposal: PointProposalAttempt,
     state: _ExecutionPointState,
 ) -> str | None:
     based_on = proposal.based_on_completed_point_count

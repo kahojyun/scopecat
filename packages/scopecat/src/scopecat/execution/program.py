@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     )
     from scopecat.measurements.points import (
         AcceptedRunPoint,
-        PointCandidate,
+        PointProposalAttempt,
         RunPointCatalog,
     )
     from scopecat.measurements.projection import MeasurementProjection
@@ -78,7 +78,7 @@ class RunPointInspection:
     """Pure compilation result for one planned or unaccepted coordinate row."""
 
     point_index: int | None
-    candidate: PointCandidate
+    candidate: PointProposalAttempt
     jobs: tuple[RunDomainJob, ...]
 
 
@@ -101,8 +101,10 @@ class RunCoverage:
         factory: Callable[[], Iterator[RunCoveredOperation]],
         *,
         preflight: Callable[[], None] | None = None,
-        inspect: Callable[[int | PointCandidate], RunPointInspection] | None = None,
-        accept: Callable[[PointCandidate], RunAcceptedPointCoverage] | None = None,
+        inspect: Callable[[int | PointProposalAttempt], RunPointInspection]
+        | None = None,
+        accept: Callable[[PointProposalAttempt], RunAcceptedPointCoverage]
+        | None = None,
     ) -> None:
         self._factory = factory
         self._preflight = preflight
@@ -118,14 +120,14 @@ class RunCoverage:
         if self._preflight is not None:
             self._preflight()
 
-    def inspect(self, point: int | PointCandidate) -> RunPointInspection | None:
+    def inspect(self, point: int | PointProposalAttempt) -> RunPointInspection | None:
         """Compile target-owned inspection data for exactly one logical point."""
 
         if self._inspect is None:
             return None
         return self._inspect(point)
 
-    def accept(self, candidate: PointCandidate) -> RunAcceptedPointCoverage:
+    def accept(self, candidate: PointProposalAttempt) -> RunAcceptedPointCoverage:
         """Compile and atomically append one candidate to the run point domain."""
 
         if self._accept is None:

@@ -251,7 +251,7 @@ class ExecutorService:
                             kind="point_candidate_queued",
                             payload={
                                 "queue_index": entry.queue_index,
-                                "operation_id": entry.operation_id,
+                                "request_id": entry.request.request_id,
                             },
                         ),
                     )

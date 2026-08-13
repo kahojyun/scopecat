@@ -14,15 +14,15 @@ from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import TableColumn
 from scopecat.program.point_domain import PointAxes, point_axis_size
 
-type PointCandidateSource = Literal["author", "optimizer", "operator"]
+type PointProposalSource = Literal["author", "optimizer", "operator"]
 
 
 @dataclass(frozen=True, slots=True)
-class PointCandidate:
-    """One canonical coordinate row proposed for inspection or run admission."""
+class PointProposalAttempt:
+    """One freshness-bearing coordinate proposal evaluated at a run boundary."""
 
     coordinates: Mapping[str, CellValue]
-    source: PointCandidateSource = "author"
+    source: PointProposalSource = "author"
     based_on_completed_point_count: int | None = None
 
     def __post_init__(self) -> None:
@@ -48,7 +48,7 @@ class PointCandidate:
         return "sha256:" + stable_content_hash(
             content_fingerprint(
                 {
-                    "schema": "scopecat.point_candidate.v1",
+                    "schema": "scopecat.point_proposal_attempt.v1",
                     "coordinates": dict(self.coordinates),
                     "source": self.source,
                     "based_on_completed_point_count": (
@@ -60,13 +60,36 @@ class PointCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class OperatorPointRequest:
+    """One durable operator request, independent of proposal freshness."""
+
+    request_id: str
+    coordinates: Mapping[str, CellValue]
+
+    def __post_init__(self) -> None:
+        if not self.request_id:
+            raise ValueError("operator point request id must be non-empty")
+        object.__setattr__(
+            self,
+            "coordinates",
+            MappingProxyType(dict(self.coordinates)),
+        )
+
+    @property
+    def coordinate_fingerprint(self) -> str:
+        return "sha256:" + stable_content_hash(
+            content_fingerprint(dict(self.coordinates))
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class AcceptedRunPoint:
     """One closed logical point retained by the executable program."""
 
     logical_id: LogicalPointId
     coordinates: Mapping[str, CellValue]
     proposal_fingerprint: str | None = None
-    source: PointCandidateSource = "author"
+    source: PointProposalSource = "author"
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -78,7 +101,7 @@ class AcceptedRunPoint:
     @classmethod
     def accept(
         cls,
-        candidate: PointCandidate,
+        candidate: PointProposalAttempt,
         *,
         logical_id: LogicalPointId,
     ) -> AcceptedRunPoint:
@@ -159,8 +182,9 @@ class RunPointCatalog:
 
 __all__ = [
     "AcceptedRunPoint",
-    "PointCandidate",
-    "PointCandidateSource",
+    "OperatorPointRequest",
+    "PointProposalAttempt",
+    "PointProposalSource",
     "RunPointCatalog",
     "RunPointContract",
 ]

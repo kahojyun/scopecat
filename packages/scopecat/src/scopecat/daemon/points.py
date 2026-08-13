@@ -10,7 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_data import CellValue
-from scopecat.measurements.points import PointCandidate, PointCandidateSource
+from scopecat.measurements.points import (
+    OperatorPointRequest,
+    PointProposalAttempt,
+    PointProposalSource,
+)
 
 type RunPointCoordinateValue = bool | int | float | str | Quantity | EntityRef | None
 
@@ -19,23 +23,41 @@ class _PointModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class RunPointCandidateView(_PointModel):
-    """Canonical candidate content crossing the daemon boundary."""
+class RunPointProposalAttemptView(_PointModel):
+    """Canonical freshness-bearing proposal crossing the daemon boundary."""
 
     coordinates: dict[str, RunPointCoordinateValue]
     proposal_fingerprint: str = Field(min_length=1)
-    source: PointCandidateSource
+    source: PointProposalSource
     based_on_completed_point_count: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
-    def validate_fingerprint(self) -> RunPointCandidateView:
-        candidate = PointCandidate(
+    def validate_fingerprint(self) -> RunPointProposalAttemptView:
+        proposal = PointProposalAttempt(
             coordinates=cast("dict[str, CellValue]", self.coordinates),
             source=self.source,
             based_on_completed_point_count=self.based_on_completed_point_count,
         )
-        if candidate.proposal_fingerprint != self.proposal_fingerprint:
-            raise ValueError("point candidate fingerprint does not match its content")
+        if proposal.proposal_fingerprint != self.proposal_fingerprint:
+            raise ValueError("point proposal fingerprint does not match its content")
+        return self
+
+
+class OperatorPointRequestView(_PointModel):
+    """Durable operator intent before it becomes a freshness-bearing proposal."""
+
+    request_id: str = Field(min_length=1)
+    coordinates: dict[str, RunPointCoordinateValue]
+    coordinate_fingerprint: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_fingerprint(self) -> OperatorPointRequestView:
+        request = OperatorPointRequest(
+            request_id=self.request_id,
+            coordinates=cast("dict[str, CellValue]", self.coordinates),
+        )
+        if request.coordinate_fingerprint != self.coordinate_fingerprint:
+            raise ValueError("operator point request fingerprint does not match")
         return self
 
 
@@ -45,17 +67,17 @@ class AcceptedRunPointView(_PointModel):
     point_index: int = Field(ge=0)
     coordinates: dict[str, RunPointCoordinateValue]
     proposal_fingerprint: str = Field(min_length=1)
-    source: PointCandidateSource
+    source: PointProposalSource
 
 
 class RunPointDecisionView(_PointModel):
-    """One durable ordered decision about a point candidate."""
+    """One durable ordered decision about a point proposal attempt."""
 
     operation_id: str = Field(min_length=1)
-    queue_operation_id: str | None = Field(default=None, min_length=1)
+    operator_request_id: str | None = Field(default=None, min_length=1)
     proposal_index: int = Field(ge=0)
     occurred_at: datetime
-    candidate: RunPointCandidateView
+    proposal: RunPointProposalAttemptView
     outcome: Literal["accepted", "rejected"]
     accepted_point: AcceptedRunPointView | None = None
     reason: str | None = None
@@ -69,11 +91,11 @@ class RunPointDecisionView(_PointModel):
                 )
             if (
                 self.accepted_point.proposal_fingerprint
-                != self.candidate.proposal_fingerprint
-                or self.accepted_point.coordinates != self.candidate.coordinates
-                or self.accepted_point.source != self.candidate.source
+                != self.proposal.proposal_fingerprint
+                or self.accepted_point.coordinates != self.proposal.coordinates
+                or self.accepted_point.source != self.proposal.source
             ):
-                raise ValueError("accepted point must retain its candidate content")
+                raise ValueError("accepted point must retain its proposal content")
         elif self.accepted_point is not None or not self.reason:
             raise ValueError("rejected point decision requires only a reason")
         return self
@@ -104,8 +126,8 @@ class RunPointPlanView(_PointModel):
 class RunPointDecisionCommand(_PointModel):
     lease_id: str = Field(min_length=1)
     operation_id: str = Field(min_length=1)
-    queue_operation_id: str | None = Field(default=None, min_length=1)
-    candidate: RunPointCandidateView
+    operator_request_id: str | None = Field(default=None, min_length=1)
+    proposal: RunPointProposalAttemptView
     outcome: Literal["accepted", "rejected"]
     reason: str | None = None
 
@@ -119,29 +141,25 @@ class RunPointDecisionCommand(_PointModel):
 
 
 class RunPointEnqueueCommand(_PointModel):
-    operation_id: str = Field(min_length=1)
+    request_id: str = Field(min_length=1)
     coordinates: dict[str, RunPointCoordinateValue]
-    based_on_completed_point_count: int | None = Field(default=None, ge=0)
 
-    def point_candidate(self) -> RunPointCandidateView:
-        candidate = PointCandidate(
+    def point_request(self) -> OperatorPointRequestView:
+        request = OperatorPointRequest(
+            request_id=self.request_id,
             coordinates=cast("dict[str, CellValue]", self.coordinates),
-            source="operator",
-            based_on_completed_point_count=self.based_on_completed_point_count,
         )
-        return RunPointCandidateView(
+        return OperatorPointRequestView(
+            request_id=self.request_id,
             coordinates=self.coordinates,
-            proposal_fingerprint=candidate.proposal_fingerprint,
-            source="operator",
-            based_on_completed_point_count=self.based_on_completed_point_count,
+            coordinate_fingerprint=request.coordinate_fingerprint,
         )
 
 
 class RunPointQueueEntryView(_PointModel):
     queue_index: int = Field(ge=0)
-    operation_id: str = Field(min_length=1)
     occurred_at: datetime
-    candidate: RunPointCandidateView
+    request: OperatorPointRequestView
     status: Literal["pending", "accepted", "rejected", "cancelled"]
     decision_operation_id: str | None = Field(default=None, min_length=1)
     accepted_point_index: int | None = Field(default=None, ge=0)
@@ -193,13 +211,14 @@ class RunPointPlanCloseCommand(_PointModel):
 
 __all__ = [
     "AcceptedRunPointView",
-    "RunPointCandidateView",
+    "OperatorPointRequestView",
     "RunPointCoordinateValue",
     "RunPointDecisionCommand",
     "RunPointDecisionView",
     "RunPointEnqueueCommand",
     "RunPointPlanCloseCommand",
     "RunPointPlanView",
+    "RunPointProposalAttemptView",
     "RunPointQueueEntryView",
     "RunPointQueueView",
 ]

@@ -31,10 +31,10 @@ from scopecat.control.models import (
     RunResourceRequirement,
 )
 from scopecat.daemon.points import (
-    RunPointCandidateView,
     RunPointDecisionCommand,
     RunPointEnqueueCommand,
     RunPointPlanCloseCommand,
+    RunPointProposalAttemptView,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -85,7 +85,7 @@ from scopecat.daemon.wire import (
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.measurements.points import PointCandidate
+from scopecat.measurements.points import PointProposalAttempt
 from scopecat.measurements.recording_arrow import (
     decode_measurement_append,
     encode_measurement_append,
@@ -2295,18 +2295,18 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
                 point_count=1,
             ),
         )
-        queued_candidate = PointCandidate(
+        queued_candidate = PointProposalAttempt(
             {"frequency": Quantity(5.2, "GHz")},
             source="operator",
         )
         queued = runtime.application.executor.enqueue_run_point(
             admission.run_id,
             RunPointEnqueueCommand(
-                operation_id="queue-1",
+                request_id="queue-1",
                 coordinates={"frequency": Quantity(5.2, "GHz")},
             ),
         )
-        candidate = PointCandidate(
+        candidate = PointProposalAttempt(
             queued_candidate.coordinates,
             source="operator",
             based_on_completed_point_count=1,
@@ -2316,8 +2316,8 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
             RunPointDecisionCommand(
                 lease_id=lease.lease_id,
                 operation_id="decision-1",
-                queue_operation_id=queued.operation_id,
-                candidate=RunPointCandidateView(
+                operator_request_id=queued.request.request_id,
+                proposal=RunPointProposalAttemptView(
                     coordinates={"frequency": Quantity(5.2, "GHz")},
                     proposal_fingerprint=candidate.proposal_fingerprint,
                     source="operator",
@@ -2410,7 +2410,7 @@ def test_failed_adaptive_run_abandons_pending_operator_points(tmp_path: Path) ->
         runtime.application.executor.enqueue_run_point(
             admission.run_id,
             RunPointEnqueueCommand(
-                operation_id="pending-at-failure",
+                request_id="pending-at-failure",
                 coordinates={"frequency": Quantity(5.2, "GHz")},
             ),
         )
@@ -3342,7 +3342,7 @@ def test_restart_quarantines_executor_until_operator_reconciles(
         runtime.application.executor.enqueue_run_point(
             admission.run_id,
             RunPointEnqueueCommand(
-                operation_id="queue-before-restart",
+                request_id="queue-before-restart",
                 coordinates={"frequency": Quantity(5.2, "GHz")},
             ),
         )

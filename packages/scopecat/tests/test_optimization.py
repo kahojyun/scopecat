@@ -5,7 +5,7 @@ from collections import deque
 import pytest
 
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
-from scopecat.measurements.points import AcceptedRunPoint, PointCandidate
+from scopecat.measurements.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.optimization import (
     AdaptivePointPlan,
     CompletedPointObservation,
@@ -21,17 +21,17 @@ class _Optimizer:
     def propose(
         self,
         context: PointOptimizerContext,
-    ) -> PointCandidate | OptimizationComplete:
+    ) -> PointProposalAttempt | OptimizationComplete:
         if context.remaining_point_count == 0:
             return OptimizationComplete("point budget exhausted")
-        return PointCandidate(
+        return PointProposalAttempt(
             {"x": context.completed_point_count + 0.5},
             source="optimizer",
             based_on_completed_point_count=context.completed_point_count,
         )
 
 
-def _point(ordinal: int, candidate: PointCandidate) -> AcceptedRunPoint:
+def _point(ordinal: int, candidate: PointProposalAttempt) -> AcceptedRunPoint:
     return AcceptedRunPoint.accept(
         candidate,
         logical_id=LogicalPointId(
@@ -42,7 +42,7 @@ def _point(ordinal: int, candidate: PointCandidate) -> AcceptedRunPoint:
 
 
 def test_optimizer_context_and_ledger_preserve_proposal_identity() -> None:
-    initial_candidate = PointCandidate({"x": 0.0})
+    initial_candidate = PointProposalAttempt({"x": 0.0})
     initial = _point(0, initial_candidate)
     ledger = PointProposalLedger(initial_point_count=1)
     context = PointOptimizerContext(
@@ -53,13 +53,13 @@ def test_optimizer_context_and_ledger_preserve_proposal_identity() -> None:
     )
 
     candidate = _Optimizer().propose(context)
-    assert isinstance(candidate, PointCandidate)
+    assert isinstance(candidate, PointProposalAttempt)
     assert candidate.source == "optimizer"
     assert candidate.based_on_completed_point_count == 1
 
     accepted = _point(1, candidate)
     ledger = ledger.accept(candidate, accepted)
-    rejected = PointCandidate(
+    rejected = PointProposalAttempt(
         {"x": 1.5},
         source="optimizer",
         based_on_completed_point_count=2,
@@ -79,7 +79,7 @@ def test_optimizer_context_retains_bounded_suffixes_with_exact_totals() -> None:
     ledger = PointProposalLedger(initial_point_count=0)
     recent_points: deque[AcceptedRunPoint] = deque(maxlen=4)
     for index in range(40):
-        candidate = PointCandidate(
+        candidate = PointProposalAttempt(
             {"x": float(index)},
             source="optimizer",
             based_on_completed_point_count=ledger.accepted_count,
@@ -111,7 +111,7 @@ def test_optimizer_context_retains_bounded_suffixes_with_exact_totals() -> None:
 
 def test_ledger_rejects_non_contiguous_accepted_point() -> None:
     ledger = PointProposalLedger(initial_point_count=2)
-    candidate = PointCandidate({"x": 3.0}, source="optimizer")
+    candidate = PointProposalAttempt({"x": 3.0}, source="optimizer")
 
     with pytest.raises(ValueError, match="logical prefix"):
         ledger.accept(candidate, _point(3, candidate))

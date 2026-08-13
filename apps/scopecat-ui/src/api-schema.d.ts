@@ -2904,6 +2904,20 @@ export interface components {
             /** Label */
             label?: string | null;
         };
+        /**
+         * OperatorPointRequestView
+         * @description Durable operator intent before it becomes a freshness-bearing proposal.
+         */
+        OperatorPointRequestView: {
+            /** Coordinate Fingerprint */
+            coordinate_fingerprint: string;
+            /** Coordinates */
+            coordinates: {
+                [key: string]: components["schemas"]["RunPointCoordinateValue-Output"];
+            };
+            /** Request Id */
+            request_id: string;
+        };
         "ParameterAtomValue-Input": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | boolean | number | string;
         "ParameterAtomValue-Output": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | boolean | number | string;
         /**
@@ -3042,8 +3056,6 @@ export interface components {
         };
         PersistableScalarWire: components["schemas"]["_PersistableScalarModel"];
         PersistableValueType: components["schemas"]["_PersistableValueTypeWire"];
-        /** @enum {string} */
-        PointCandidateSource: "author" | "optimizer" | "operator";
         /**
          * Problem
          * @description One expected, structured finding without presentation policy.
@@ -3616,33 +3628,16 @@ export interface components {
              */
             run_resource_requirements: components["schemas"]["RunResourceRequirement"][];
         };
-        /**
-         * RunPointCandidateView
-         * @description Canonical candidate content crossing the daemon boundary.
-         */
-        "RunPointCandidateView-Output": {
-            /** Based On Completed Point Count */
-            based_on_completed_point_count?: number | null;
-            /** Coordinates */
-            coordinates: {
-                [key: string]: components["schemas"]["RunPointCoordinateValue-Output"];
-            };
-            /** Proposal Fingerprint */
-            proposal_fingerprint: string;
-            source: components["schemas"]["PointCandidateSource"];
-        };
         "RunPointCoordinateValue-Input": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | null;
         "RunPointCoordinateValue-Output": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | null;
         /** RunPointEnqueueCommand */
         RunPointEnqueueCommand: {
-            /** Based On Completed Point Count */
-            based_on_completed_point_count?: number | null;
             /** Coordinates */
             coordinates: {
                 [key: string]: components["schemas"]["RunPointCoordinateValue-Input"];
             };
-            /** Operation Id */
-            operation_id: string;
+            /** Request Id */
+            request_id: string;
         };
         /**
          * RunPointInspectionEvent
@@ -3695,7 +3690,6 @@ export interface components {
         RunPointQueueEntryView: {
             /** Accepted Point Index */
             accepted_point_index?: number | null;
-            candidate: components["schemas"]["RunPointCandidateView-Output"];
             /** Decision Operation Id */
             decision_operation_id?: string | null;
             /**
@@ -3703,12 +3697,11 @@ export interface components {
              * Format: date-time
              */
             occurred_at: string;
-            /** Operation Id */
-            operation_id: string;
             /** Queue Index */
             queue_index: number;
             /** Reason */
             reason?: string | null;
+            request: components["schemas"]["OperatorPointRequestView"];
             /**
              * Status
              * @enum {string}

@@ -12,10 +12,10 @@ from typing import Literal
 
 import pytest
 from scopecat.daemon.points import (
-    RunPointCandidateView,
     RunPointDecisionCommand,
     RunPointEnqueueCommand,
     RunPointPlanCloseCommand,
+    RunPointProposalAttemptView,
 )
 from scopecat.kernel.problems import (
     ProblemPhase,
@@ -23,7 +23,7 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements import recording_arrow
-from scopecat.measurements.points import PointCandidate
+from scopecat.measurements.points import PointProposalAttempt
 from scopecat.records.execution_journal import (
     ExecutionTransition,
     execution_transition_content_hash,
@@ -208,7 +208,7 @@ def _point_decision_command(
     outcome: Literal["accepted", "rejected"] = "accepted",
     reason: str | None = None,
 ) -> RunPointDecisionCommand:
-    candidate = PointCandidate(
+    candidate = PointProposalAttempt(
         {"frequency": Quantity(5.2, "GHz")},
         source="optimizer",
         based_on_completed_point_count=based_on_completed_point_count,
@@ -216,7 +216,7 @@ def _point_decision_command(
     return RunPointDecisionCommand(
         lease_id="lease-1",
         operation_id=operation_id,
-        candidate=RunPointCandidateView(
+        proposal=RunPointProposalAttemptView(
             coordinates={"frequency": Quantity(5.2, "GHz")},
             proposal_fingerprint=candidate.proposal_fingerprint,
             source="optimizer",
@@ -232,15 +232,15 @@ def test_operator_point_queue_is_fifo_bounded_and_resolved_by_decisions(
 ) -> None:
     runs = _runs(tmp_path)
     run_id = "operator-queue-run"
-    queued_candidate = PointCandidate(
+    queued_candidate = PointProposalAttempt(
         {"frequency": Quantity(5.15, "GHz")},
         source="operator",
     )
     enqueue = RunPointEnqueueCommand(
-        operation_id="queue-1",
+        request_id="queue-1",
         coordinates={"frequency": Quantity(5.15, "GHz")},
     )
-    second_enqueue = enqueue.model_copy(update={"operation_id": "queue-2"})
+    second_enqueue = enqueue.model_copy(update={"request_id": "queue-2"})
     with _sqlite_transaction(runs) as connection:
         connection.execute(
             """
@@ -265,14 +265,14 @@ def test_operator_point_queue_is_fifo_bounded_and_resolved_by_decisions(
         with pytest.raises(ExecutionJournalConflict, match="remaining budget"):
             ledger.enqueue_in_transaction(
                 connection,
-                enqueue.model_copy(update={"operation_id": "queue-3"}),
+                enqueue.model_copy(update={"request_id": "queue-3"}),
             )
 
     assert first == retry
     assert first_created
     assert not retry_created
     assert ledger.next_pending() == first
-    normalized = PointCandidate(
+    normalized = PointProposalAttempt(
         queued_candidate.coordinates,
         source="operator",
         based_on_completed_point_count=1,
@@ -283,8 +283,8 @@ def test_operator_point_queue_is_fifo_bounded_and_resolved_by_decisions(
             RunPointDecisionCommand(
                 lease_id="lease-1",
                 operation_id="decision-1",
-                queue_operation_id=first.operation_id,
-                candidate=RunPointCandidateView(
+                operator_request_id=first.request.request_id,
+                proposal=RunPointProposalAttemptView(
                     coordinates={"frequency": Quantity(5.15, "GHz")},
                     proposal_fingerprint=normalized.proposal_fingerprint,
                     source="operator",
@@ -308,11 +308,11 @@ def test_operator_point_queue_is_fifo_bounded_and_resolved_by_decisions(
     queue = ledger.queue()
     assert decision.accepted_point is not None
     assert decision.accepted_point.point_index == 1
-    assert decision.queue_operation_id == first.operation_id
+    assert decision.operator_request_id == first.request.request_id
     assert closed.plan_closed
     assert queue.items[0].status == "accepted"
     assert queue.items[0].accepted_point_index == 1
-    assert queue.items[1].operation_id == second.operation_id
+    assert queue.items[1].request.request_id == second.request.request_id
     assert queue.items[1].status == "cancelled"
     assert queue.items[1].reason == "point plan closed: operator sweep complete"
 

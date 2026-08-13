@@ -4,7 +4,7 @@ import pytest
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Int, Scalar
-from scopecat.measurements.points import PointCandidate
+from scopecat.measurements.points import PointProposalAttempt
 from scopecat.optimization import OptimizationComplete, PointOptimizerContext
 from scopecat.program.definitions import (
     ExperimentDef,
@@ -31,7 +31,7 @@ class _Optimizer:
     def propose(
         self,
         context: PointOptimizerContext,
-    ) -> PointCandidate | OptimizationComplete:
+    ) -> PointProposalAttempt | OptimizationComplete:
         del context
         return OptimizationComplete()
 

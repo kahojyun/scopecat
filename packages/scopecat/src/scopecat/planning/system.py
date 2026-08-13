@@ -43,7 +43,7 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_identity import scalar_values_equal
-from scopecat.measurements.points import AcceptedRunPoint, PointCandidate
+from scopecat.measurements.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.measurements.projection import select_measurement_projection
 from scopecat.optimization import AdaptivePointPlan
 from scopecat.planning.catalog import InstrumentContractCatalog
@@ -900,12 +900,12 @@ def _compile_coverage(
     def preflight() -> None:
         inspect(point_ordinals[0])
 
-    def inspect(point: int | PointCandidate) -> RunPointInspection:
+    def inspect(point: int | PointProposalAttempt) -> RunPointInspection:
         if isinstance(point, int):
             if point not in point_ordinals:
                 raise IndexError(point)
             point_index: int | None = point
-            candidate = PointCandidate(
+            candidate = PointProposalAttempt(
                 coordinates=bound_points.point_domain.points[point].row,
             )
             selected_bound_points = bound_points
@@ -950,7 +950,7 @@ def _compile_coverage(
             ),
         )
 
-    def accept(candidate: PointCandidate) -> RunAcceptedPointCoverage:
+    def accept(candidate: PointProposalAttempt) -> RunAcceptedPointCoverage:
         resolved, extended_bound_points = append_candidate_bound_point(
             accepted_bound_points.current,
             candidate,

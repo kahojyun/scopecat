@@ -15,7 +15,7 @@ from scopecat.kernel.value_identity import (
     quantity_comparison_values,
     scalar_values_equal,
 )
-from scopecat.measurements.points import PointCandidate
+from scopecat.measurements.points import PointProposalAttempt
 from scopecat.measurements.records import RecordPlan, ValueRecordPlan
 from scopecat.planning.preview_models import (
     ExperimentPreview,
@@ -136,7 +136,7 @@ def _selected_point(
     point: int | Literal["first", "middle", "last"],
     coordinates: Mapping[str, object] | None,
     coordinate_mode: PreviewCoordinateMode,
-) -> tuple[int | None, PointCandidate | None]:
+) -> tuple[int | None, PointProposalAttempt | None]:
     catalog = program.points
     point_count = len(catalog.points)
     if coordinate_mode == "free":
@@ -146,7 +146,7 @@ def _selected_point(
             raise ValueError("select a free preview point by coordinates only")
         return (
             None,
-            PointCandidate(
+            PointProposalAttempt(
                 coordinates=cast("Mapping[str, CellValue]", coordinates),
                 source="operator",
             ),
@@ -321,7 +321,7 @@ def _preview_selected_point(
     coordinate_ids: tuple[str, ...],
     point_index: int | None,
     planned_coordinates: Mapping[str, object] | None,
-    candidate: PointCandidate | None,
+    candidate: PointProposalAttempt | None,
 ) -> ExperimentPreviewPoint:
     coordinates = planned_coordinates if candidate is None else candidate.coordinates
     assert coordinates is not None

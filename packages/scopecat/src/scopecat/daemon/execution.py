@@ -12,10 +12,10 @@ from pydantic import BaseModel, JsonValue, TypeAdapter
 
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.points import (
-    RunPointCandidateView,
     RunPointCoordinateValue,
     RunPointDecisionCommand,
     RunPointPlanCloseCommand,
+    RunPointProposalAttemptView,
 )
 from scopecat.daemon.reviews import (
     ReviewCoordinateValue,
@@ -48,7 +48,11 @@ from scopecat.execution.services import ExecutionSession, QueuedRunPointCandidat
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.problems import Problem
 from scopecat.kernel.value_data import CellValue
-from scopecat.measurements.points import AcceptedRunPoint, PointCandidate
+from scopecat.measurements.points import (
+    AcceptedRunPoint,
+    OperatorPointRequest,
+    PointProposalAttempt,
+)
 from scopecat.optimization import PointProposalDecision
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
@@ -330,14 +334,12 @@ class _DaemonRunPointProposals:
         )
         if pending is None:
             return None
-        candidate = pending.candidate
         return QueuedRunPointCandidate(
-            operation_id=pending.operation_id,
-            candidate=PointCandidate(
-                coordinates=cast("dict[str, CellValue]", candidate.coordinates),
-                source=candidate.source,
-                based_on_completed_point_count=(
-                    candidate.based_on_completed_point_count
+            request=OperatorPointRequest(
+                request_id=pending.request.request_id,
+                coordinates=cast(
+                    "dict[str, CellValue]",
+                    pending.request.coordinates,
                 ),
             ),
         )
@@ -347,7 +349,7 @@ class _DaemonRunPointProposals:
         decision: PointProposalDecision,
         inspection: RunPointInspection | None,
         *,
-        queue_operation_id: str | None = None,
+        operator_request_id: str | None = None,
     ) -> None:
         durable = self._authority.client.append_run_point_decision(
             self._authority.run_id,
@@ -355,10 +357,10 @@ class _DaemonRunPointProposals:
                 lease_id=self._authority.fence(),
                 operation_id=_point_decision_operation_id(
                     decision,
-                    queue_operation_id=queue_operation_id,
+                    operator_request_id=operator_request_id,
                 ),
-                queue_operation_id=queue_operation_id,
-                candidate=_point_candidate(decision.candidate),
+                operator_request_id=operator_request_id,
+                proposal=_point_proposal_attempt(decision.candidate),
                 outcome=decision.outcome,
                 reason=decision.reason,
             ),
@@ -596,7 +598,7 @@ class _DaemonRunInstrumentHost:
         return receipt
 
 
-def _review_point(point: PointCandidate | AcceptedRunPoint) -> ReviewPointView:
+def _review_point(point: PointProposalAttempt | AcceptedRunPoint) -> ReviewPointView:
     return ReviewPointView(
         point_index=(point.ordinal if isinstance(point, AcceptedRunPoint) else None),
         coordinates=cast(
@@ -608,22 +610,24 @@ def _review_point(point: PointCandidate | AcceptedRunPoint) -> ReviewPointView:
     )
 
 
-def _point_candidate(candidate: PointCandidate) -> RunPointCandidateView:
-    return RunPointCandidateView(
+def _point_proposal_attempt(
+    proposal: PointProposalAttempt,
+) -> RunPointProposalAttemptView:
+    return RunPointProposalAttemptView(
         coordinates=cast(
             "dict[str, RunPointCoordinateValue]",
-            dict(candidate.coordinates),
+            dict(proposal.coordinates),
         ),
-        proposal_fingerprint=candidate.proposal_fingerprint,
-        source=candidate.source,
-        based_on_completed_point_count=candidate.based_on_completed_point_count,
+        proposal_fingerprint=proposal.proposal_fingerprint,
+        source=proposal.source,
+        based_on_completed_point_count=proposal.based_on_completed_point_count,
     )
 
 
 def _point_decision_operation_id(
     decision: PointProposalDecision,
     *,
-    queue_operation_id: str | None,
+    operator_request_id: str | None,
 ) -> str:
     return "point-decision." + stable_content_hash(
         content_fingerprint(
@@ -631,7 +635,7 @@ def _point_decision_operation_id(
                 "schema": "scopecat.point_decision_operation.v1",
                 "proposal_index": decision.proposal_index,
                 "proposal_fingerprint": decision.candidate.proposal_fingerprint,
-                "queue_operation_id": queue_operation_id,
+                "operator_request_id": operator_request_id,
                 "outcome": decision.outcome,
                 "reason": decision.reason,
             }

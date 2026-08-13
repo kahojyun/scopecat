@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
-from scopecat.measurements.points import AcceptedRunPoint, PointCandidate
+from scopecat.measurements.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.records.measurement import MeasurementRecord
 
 OPTIMIZER_OBSERVATION_WINDOW = 256
@@ -39,7 +39,7 @@ class PointProposalDecision:
     """One ordered runner decision about an optimizer candidate."""
 
     proposal_index: int
-    candidate: PointCandidate
+    candidate: PointProposalAttempt
     outcome: PointProposalOutcome
     accepted_point: AcceptedRunPoint | None = None
     reason: str | None = None
@@ -116,7 +116,7 @@ class PointProposalLedger:
 
     def accept(
         self,
-        candidate: PointCandidate,
+        candidate: PointProposalAttempt,
         point: AcceptedRunPoint,
     ) -> PointProposalLedger:
         """Return a ledger extended by one admitted candidate."""
@@ -141,7 +141,12 @@ class PointProposalLedger:
             rejected_count_in_window=self.rejected_count_in_window,
         )
 
-    def reject(self, candidate: PointCandidate, *, reason: str) -> PointProposalLedger:
+    def reject(
+        self,
+        candidate: PointProposalAttempt,
+        *,
+        reason: str,
+    ) -> PointProposalLedger:
         """Return a ledger extended by one rejected candidate."""
 
         return PointProposalLedger(
@@ -225,7 +230,7 @@ class PointOptimizer(Protocol):
     def propose(
         self,
         context: PointOptimizerContext,
-    ) -> PointCandidate | OptimizationComplete: ...
+    ) -> PointProposalAttempt | OptimizationComplete: ...
 
 
 @dataclass(frozen=True, slots=True)

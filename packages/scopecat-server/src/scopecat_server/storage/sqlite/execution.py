@@ -209,24 +209,24 @@ class SQLiteRunPointLedger:
         connection: sqlite3.Connection,
         command: RunPointEnqueueCommand,
     ) -> tuple[RunPointQueueEntryView, bool]:
-        candidate = command.point_candidate()
+        request = command.point_request()
         existing = _one(
             connection.execute(
                 """
                 SELECT entry_json
                 FROM execution_point_queue
-                WHERE run_id = ? AND operation_id = ?
+                WHERE run_id = ? AND request_id = ?
                 """,
-                (self._run_id, command.operation_id),
+                (self._run_id, command.request_id),
             )
         )
         if existing is not None:
             entry = RunPointQueueEntryView.model_validate_json(
                 _text(existing, "entry_json")
             )
-            if entry.candidate != candidate:
+            if entry.request != request:
                 raise ExecutionJournalConflict(
-                    "point queue operation conflicts with durable state"
+                    "operator point request conflicts with durable state"
                 )
             return entry, False
         plan = self.read_in_transaction(connection)
@@ -258,22 +258,21 @@ class SQLiteRunPointLedger:
         )
         entry = RunPointQueueEntryView(
             queue_index=queue_index,
-            operation_id=command.operation_id,
             occurred_at=datetime.now(UTC),
-            candidate=candidate,
+            request=request,
             status="pending",
         )
         connection.execute(
             """
             INSERT INTO execution_point_queue(
-                run_id, queue_index, operation_id, status, entry_json
+                run_id, queue_index, request_id, status, entry_json
             )
             VALUES (?, ?, ?, 'pending', ?)
             """,
             (
                 self._run_id,
                 entry.queue_index,
-                entry.operation_id,
+                entry.request.request_id,
                 entry.model_dump_json(),
             ),
         )
@@ -360,10 +359,10 @@ class SQLiteRunPointLedger:
                 _text(existing, "decision_json")
             )
             if (
-                decision.candidate != command.candidate
+                decision.proposal != command.proposal
                 or decision.outcome != command.outcome
                 or decision.reason != command.reason
-                or decision.queue_operation_id != command.queue_operation_id
+                or decision.operator_request_id != command.operator_request_id
             ):
                 raise ExecutionJournalConflict(
                     "point decision operation conflicts with durable state"
@@ -378,7 +377,7 @@ class SQLiteRunPointLedger:
             connection,
             command,
         )
-        based_on = command.candidate.based_on_completed_point_count
+        based_on = command.proposal.based_on_completed_point_count
         if (
             command.outcome == "accepted"
             and based_on is not None
@@ -395,16 +394,16 @@ class SQLiteRunPointLedger:
                 )
             accepted_point = AcceptedRunPointView(
                 point_index=plan.accepted_point_count,
-                coordinates=command.candidate.coordinates,
-                proposal_fingerprint=command.candidate.proposal_fingerprint,
-                source=command.candidate.source,
+                coordinates=command.proposal.coordinates,
+                proposal_fingerprint=command.proposal.proposal_fingerprint,
+                source=command.proposal.source,
             )
         decision = RunPointDecisionView(
             operation_id=command.operation_id,
-            queue_operation_id=command.queue_operation_id,
+            operator_request_id=command.operator_request_id,
             proposal_index=plan.decision_count,
             occurred_at=datetime.now(UTC),
-            candidate=command.candidate,
+            proposal=command.proposal,
             outcome=command.outcome,
             accepted_point=accepted_point,
             reason=command.reason,
@@ -459,36 +458,26 @@ class SQLiteRunPointLedger:
         connection: sqlite3.Connection,
         command: RunPointDecisionCommand,
     ) -> RunPointQueueEntryView | None:
-        if command.queue_operation_id is None:
+        if command.operator_request_id is None:
             return None
         row = _one(
             connection.execute(
                 """
                 SELECT entry_json
                 FROM execution_point_queue
-                WHERE run_id = ? AND operation_id = ?
+                WHERE run_id = ? AND request_id = ?
                 """,
-                (self._run_id, command.queue_operation_id),
+                (self._run_id, command.operator_request_id),
             )
         )
         if row is None:
-            raise ExecutionJournalConflict("queued point candidate does not exist")
+            raise ExecutionJournalConflict("operator point request does not exist")
         entry = RunPointQueueEntryView.model_validate_json(_text(row, "entry_json"))
         if entry.status != "pending":
-            raise ExecutionJournalConflict("queued point candidate is already resolved")
-        queued = entry.candidate
-        decided = command.candidate
-        if (
-            queued.coordinates != decided.coordinates
-            or queued.source != decided.source
-            or (
-                queued.based_on_completed_point_count is not None
-                and queued.based_on_completed_point_count
-                != decided.based_on_completed_point_count
-            )
-        ):
+            raise ExecutionJournalConflict("operator point request is already resolved")
+        if entry.request.coordinates != command.proposal.coordinates:
             raise ExecutionJournalConflict(
-                "point decision does not match its queued candidate"
+                "point proposal does not match its operator request"
             )
         return entry
 
@@ -501,9 +490,8 @@ class SQLiteRunPointLedger:
         accepted = decision.accepted_point
         resolved = RunPointQueueEntryView(
             queue_index=entry.queue_index,
-            operation_id=entry.operation_id,
             occurred_at=entry.occurred_at,
-            candidate=entry.candidate,
+            request=entry.request,
             status=decision.outcome,
             decision_operation_id=decision.operation_id,
             accepted_point_index=(None if accepted is None else accepted.point_index),
@@ -513,14 +501,14 @@ class SQLiteRunPointLedger:
             """
             UPDATE execution_point_queue
             SET status = ?, decision_operation_id = ?, entry_json = ?
-            WHERE run_id = ? AND operation_id = ?
+            WHERE run_id = ? AND request_id = ?
             """,
             (
                 resolved.status,
                 resolved.decision_operation_id,
                 resolved.model_dump_json(),
                 self._run_id,
-                resolved.operation_id,
+                resolved.request.request_id,
             ),
         )
 
@@ -621,9 +609,8 @@ class SQLiteRunPointLedger:
         for entry in pending:
             cancelled = RunPointQueueEntryView(
                 queue_index=entry.queue_index,
-                operation_id=entry.operation_id,
                 occurred_at=entry.occurred_at,
-                candidate=entry.candidate,
+                request=entry.request,
                 status="cancelled",
                 reason=reason,
             )
@@ -631,12 +618,12 @@ class SQLiteRunPointLedger:
                 """
                 UPDATE execution_point_queue
                 SET status = 'cancelled', entry_json = ?
-                WHERE run_id = ? AND operation_id = ?
+                WHERE run_id = ? AND request_id = ?
                 """,
                 (
                     cancelled.model_dump_json(),
                     self._run_id,
-                    cancelled.operation_id,
+                    cancelled.request.request_id,
                 ),
             )
 

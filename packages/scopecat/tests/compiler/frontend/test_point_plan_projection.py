@@ -15,7 +15,7 @@ class _Optimizer:
     def propose(
         self,
         context: sc.PointOptimizerContext,
-    ) -> sc.PointCandidate | sc.OptimizationComplete:
+    ) -> sc.PointProposalAttempt | sc.OptimizationComplete:
         del context
         return sc.OptimizationComplete()
 

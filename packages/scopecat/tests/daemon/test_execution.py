@@ -49,7 +49,7 @@ from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import StateValue
-from scopecat.measurements.points import AcceptedRunPoint, PointCandidate
+from scopecat.measurements.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.measurements.recording_arrow import decode_measurement_append
 from scopecat.optimization import PointProposalDecision
 from scopecat.records.config import config_content_hash
@@ -173,16 +173,16 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
             _remember_fence(fences, "run-1", command)
             accepted_point = AcceptedRunPointView(
                 point_index=1,
-                coordinates=command.candidate.coordinates,
-                proposal_fingerprint=command.candidate.proposal_fingerprint,
-                source=command.candidate.source,
+                coordinates=command.proposal.coordinates,
+                proposal_fingerprint=command.proposal.proposal_fingerprint,
+                source=command.proposal.source,
             )
             return _model(
                 RunPointDecisionView(
                     operation_id=command.operation_id,
                     proposal_index=0,
                     occurred_at=_NOW,
-                    candidate=command.candidate,
+                    proposal=command.proposal,
                     outcome="accepted",
                     accepted_point=accepted_point,
                 )
@@ -323,7 +323,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     coverage.advance(start_index=0, point_count=1)
     coverage.advance(start_index=1, point_count=2)
     coverage.flush()
-    candidate = PointCandidate(
+    candidate = PointProposalAttempt(
         {"frequency": Quantity(5.2, "GHz")},
         source="optimizer",
         based_on_completed_point_count=1,

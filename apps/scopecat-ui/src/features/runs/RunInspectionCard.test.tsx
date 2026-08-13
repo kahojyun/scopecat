@@ -49,12 +49,11 @@ describe("RunInspectionCard", () => {
   it("keeps snapping explicit and queues the displayed physical coordinates", async () => {
     vi.mocked(enqueueRunPoint).mockResolvedValue({
       queue_index: 0,
-      operation_id: "operator-point.1",
       occurred_at: "2026-08-13T10:00:00Z",
-      candidate: {
+      request: {
+        request_id: "operator-point.1",
         coordinates: { drive_frequency: { value: 5.2, unit: "GHz" } },
-        proposal_fingerprint: "sha256:queued",
-        source: "operator",
+        coordinate_fingerprint: "sha256:queued",
       },
       status: "pending",
     });

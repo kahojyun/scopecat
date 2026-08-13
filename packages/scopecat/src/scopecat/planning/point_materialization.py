@@ -39,7 +39,7 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.value_data import Row
 from scopecat.kernel.value_types import Scalar, Table, ValueType
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
-from scopecat.measurements.points import PointCandidate
+from scopecat.measurements.points import PointProposalAttempt
 from scopecat.program.expressions import ArrayExpr, LiteralArrayExpr, ScalarExpr
 from scopecat.program.logical import LogicalDomainExecution
 
@@ -143,8 +143,8 @@ def prepare_bound_points(bound: BoundPlan) -> MaterializedBoundPoints:
 
 def prepare_candidate_bound_points(
     prepared: MaterializedBoundPoints,
-    candidate: PointCandidate,
-) -> tuple[PointCandidate, MaterializedBoundPoints]:
+    candidate: PointProposalAttempt,
+) -> tuple[PointProposalAttempt, MaterializedBoundPoints]:
     """Resolve and bind one unaccepted coordinate row in an isolated domain."""
 
     bound = prepared.bound_plan
@@ -178,7 +178,7 @@ def prepare_candidate_bound_points(
             )
         ) from error
     [row] = rows
-    resolved = PointCandidate(
+    resolved = PointProposalAttempt(
         coordinates=row,
         source=candidate.source,
         based_on_completed_point_count=candidate.based_on_completed_point_count,
@@ -209,8 +209,8 @@ def prepare_candidate_bound_points(
 
 def append_candidate_bound_point(
     prepared: MaterializedBoundPoints,
-    candidate: PointCandidate,
-) -> tuple[PointCandidate, MaterializedBoundPoints]:
+    candidate: PointProposalAttempt,
+) -> tuple[PointProposalAttempt, MaterializedBoundPoints]:
     """Resolve and append one candidate to the canonical run point domain."""
 
     resolved, isolated = prepare_candidate_bound_points(prepared, candidate)

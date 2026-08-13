@@ -8,7 +8,7 @@ from typing import Protocol
 
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.execution.program import RunPointInspection
-from scopecat.measurements.points import PointCandidate
+from scopecat.measurements.points import OperatorPointRequest
 from scopecat.optimization import PointProposalDecision
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import TerminalRunCommit
@@ -34,8 +34,7 @@ class RunCoverageWriter(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class QueuedRunPointCandidate:
-    operation_id: str
-    candidate: PointCandidate
+    request: OperatorPointRequest
 
 
 class RunPointProposalWriter(Protocol):
@@ -48,7 +47,7 @@ class RunPointProposalWriter(Protocol):
         decision: PointProposalDecision,
         inspection: RunPointInspection | None,
         *,
-        queue_operation_id: str | None = None,
+        operator_request_id: str | None = None,
     ) -> None: ...
 
     def close(self, *, completed_point_count: int, reason: str) -> None: ...

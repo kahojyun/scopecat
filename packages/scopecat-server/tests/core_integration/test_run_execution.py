@@ -7,7 +7,7 @@ import pytest
 from scopecat.execution.program import RunPointInspection
 from scopecat.execution.services import QueuedRunPointCandidate
 from scopecat.kernel.quantity import Quantity
-from scopecat.measurements.points import PointCandidate
+from scopecat.measurements.points import OperatorPointRequest, PointProposalAttempt
 from scopecat.optimization import (
     OptimizationComplete,
     PointOptimizerContext,
@@ -73,7 +73,7 @@ class _TwoPointOptimizer:
     def propose(
         self,
         context: PointOptimizerContext,
-    ) -> PointCandidate | OptimizationComplete:
+    ) -> PointProposalAttempt | OptimizationComplete:
         self.contexts.append(context)
         run_id = context.observations[0].records[0].run_id
         self.durable_point_counts.append(
@@ -85,12 +85,12 @@ class _TwoPointOptimizer:
         if context.completed_point_count >= 5:
             return OptimizationComplete("two adaptive points completed")
         if not context.ledger.entries:
-            return PointCandidate(
+            return PointProposalAttempt(
                 {"drive_frequency": Quantity(5.15, "GHz")},
                 source="optimizer",
                 based_on_completed_point_count=context.completed_point_count - 1,
             )
-        return PointCandidate(
+        return PointProposalAttempt(
             {
                 "drive_frequency": Quantity(
                     5.2 + 0.1 * (context.completed_point_count - 3),
@@ -119,9 +119,6 @@ class _OperatorQueuePort:
     decisions: list[PointProposalDecision]
     closed_reason: str | None = None
 
-    def initialize(self) -> None:
-        pass
-
     def next_queued(self) -> QueuedRunPointCandidate | None:
         queued = self.queued
         self.queued = None
@@ -132,10 +129,10 @@ class _OperatorQueuePort:
         decision: PointProposalDecision,
         inspection: RunPointInspection | None,
         *,
-        queue_operation_id: str | None = None,
+        operator_request_id: str | None = None,
     ) -> None:
         del inspection
-        assert queue_operation_id == "operator-queue-1"
+        assert operator_request_id == "operator-queue-1"
         self.decisions.append(decision)
 
     def close(self, *, completed_point_count: int, reason: str) -> None:
@@ -260,10 +257,9 @@ def test_adaptive_execution_compiles_queued_operator_point_before_optimizer(
     )
     queue = _OperatorQueuePort(
         queued=QueuedRunPointCandidate(
-            operation_id="operator-queue-1",
-            candidate=PointCandidate(
-                {"drive_frequency": Quantity(5.17, "GHz")},
-                source="operator",
+            request=OperatorPointRequest(
+                request_id="operator-queue-1",
+                coordinates={"drive_frequency": Quantity(5.17, "GHz")},
             ),
         ),
         decisions=[],

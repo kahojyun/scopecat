@@ -114,7 +114,7 @@ if TYPE_CHECKING:
         entity_ref,
     )
     from scopecat.kernel.quantity import Quantity
-    from scopecat.measurements.points import PointCandidate
+    from scopecat.measurements.points import PointProposalAttempt
     from scopecat.optimization import (
         AdaptivePointPlan,
         CompletedPointObservation,
@@ -248,7 +248,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "TemporaryInstrumentRef",
     ),
     "Quantity": ("scopecat.kernel.quantity", "Quantity"),
-    "PointCandidate": ("scopecat.measurements.points", "PointCandidate"),
+    "PointProposalAttempt": (
+        "scopecat.measurements.points",
+        "PointProposalAttempt",
+    ),
     "AdaptivePointPlan": ("scopecat.optimization", "AdaptivePointPlan"),
     "CompletedPointObservation": (
         "scopecat.optimization",

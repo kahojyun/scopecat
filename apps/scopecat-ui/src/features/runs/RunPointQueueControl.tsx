@@ -84,7 +84,7 @@ export function RunPointQueueControl({
       const selected = mode === "snap" ? snapCoordinates(specs, coordinates) : coordinates;
       setInputError(undefined);
       enqueue.mutate({
-        operation_id: `operator-point.${globalThis.crypto.randomUUID()}`,
+        request_id: `operator-point.${globalThis.crypto.randomUUID()}`,
         coordinates: selected,
       });
     } catch (error) {
@@ -201,10 +201,10 @@ export function RunPointQueueControl({
           {queue.data.items.map((item) => (
             <div
               className="flex flex-wrap items-center justify-between gap-2 rounded border border-line bg-panel px-2.5 py-2 text-[0.59rem]"
-              key={item.operation_id}
+              key={item.request.request_id}
             >
               <span className="truncate text-text-soft">
-                {formatInspectionCoordinates(item.candidate.coordinates)}
+                {formatInspectionCoordinates(item.request.coordinates)}
               </span>
               <span
                 className={classes(
