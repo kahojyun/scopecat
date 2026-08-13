@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
@@ -560,8 +560,19 @@ def _execute_instrument_effects(
         ),
         cancellation_requested=session.cancellation_requested,
     )
+
+    def commit_durable_progress() -> None:
+        _flush_execution_progress(
+            session,
+            has_dataset=program.measurements.has_dataset,
+        )
+
     result = engine.run(
-        _execution_coverage(program, point_state),
+        _execution_coverage(
+            program,
+            point_state,
+            durable_progress=commit_durable_progress,
+        ),
         points=point_state.points,
         success_state=program.success_state,
     )
@@ -601,11 +612,14 @@ class _ExecutionPointState:
 def _execution_coverage(
     program: RunProgram,
     state: _ExecutionPointState,
+    *,
+    durable_progress: Callable[[], None],
 ) -> Iterator[RunCoveredOperation]:
     yield from program.coverage
     adaptive = program.adaptive_point_plan
     if adaptive is None:
         return
+    durable_progress()
     ledger = state.ledger
     if ledger is None:
         raise AssertionError("adaptive execution requires a proposal ledger")
@@ -643,6 +657,7 @@ def _execution_coverage(
         if state.proposal_writer is not None:
             state.proposal_writer.append(ledger.entries[-1], accepted.inspection)
         yield from accepted.operations
+        durable_progress()
 
 
 def _proposal_rejection(

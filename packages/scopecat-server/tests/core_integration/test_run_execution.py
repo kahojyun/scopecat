@@ -17,6 +17,7 @@ from scopecat.sdk.instruments import (
     InstrumentProviderDescription,
 )
 from scopecat_testkit.instrument_host import compose_test_instruments
+from scopecat_testkit.server.composition import sqlite_run_repository
 from scopecat_testkit.server.execution import execute_invocation_run
 from scopecat_testkit.server.runtime import sqlite_project_services
 from scopecat_testkit.signal_instruments import TestSignalInstrumentProvider
@@ -25,6 +26,8 @@ from scopecat_testkit.workflow_fixtures import (
     load_config,
     load_invocation,
 )
+
+from scopecat_server.storage.sqlite.execution import SQLiteMeasurementDatasetRepository
 
 
 class _CountingProvider:
@@ -55,14 +58,23 @@ class _CountingProvider:
 class _TwoPointOptimizer:
     id = "tests.two-point-optimizer"
 
-    def __init__(self) -> None:
+    def __init__(self, project_root: Path) -> None:
+        self.project_root = project_root
         self.contexts: list[PointOptimizerContext] = []
+        self.durable_point_counts: list[int] = []
 
     def propose(
         self,
         context: PointOptimizerContext,
     ) -> PointCandidate | OptimizationComplete:
         self.contexts.append(context)
+        run_id = context.observations[0].records[0].run_id
+        self.durable_point_counts.append(
+            SQLiteMeasurementDatasetRepository(
+                sqlite_run_repository(self.project_root),
+                run_id=run_id,
+            ).measurement_record_count()
+        )
         if context.completed_point_count >= 5:
             return OptimizationComplete("two adaptive points completed")
         if not context.ledger.entries:
@@ -151,7 +163,7 @@ def test_adaptive_execution_observes_and_runs_optimizer_points_in_one_session(
         config=config,
         provider=TestSignalInstrumentProvider(),
     )
-    optimizer = _TwoPointOptimizer()
+    optimizer = _TwoPointOptimizer(tmp_path)
 
     manifest = execute_invocation_run(
         config=config,
@@ -172,6 +184,7 @@ def test_adaptive_execution_observes_and_runs_optimizer_points_in_one_session(
         4,
         5,
     ]
+    assert optimizer.durable_point_counts == [3, 3, 4, 5]
     assert optimizer.contexts[1].ledger.entries[0].outcome == "rejected"
     assert "based on 2 completed points" in (
         optimizer.contexts[1].ledger.entries[0].reason or ""
