@@ -15,6 +15,8 @@ from scopecat.config.registry.records import (
 )
 from scopecat.control.models import (
     ControlRunState,
+    PointCoordinateSpec,
+    PointCoordinateValue,
     ResourceOwnerKind,
     RunResourceRequirement,
 )
@@ -158,9 +160,15 @@ class RunPlanView(_ViewModel):
     point_count: int | None = Field(default=None, ge=0)
     initial_point_count: int = Field(ge=0)
     point_limit: int = Field(ge=0)
-    coordinate_ids: tuple[str, ...] = ()
+    coordinates: tuple[PointCoordinateSpec, ...] = ()
+    sampled_points: tuple[dict[str, PointCoordinateValue], ...] = ()
+    sampled_points_truncated: bool = False
     record_ids: tuple[str, ...] = ()
     run_resource_requirements: tuple[RunResourceRequirement, ...] = ()
+
+    @property
+    def coordinate_ids(self) -> tuple[str, ...]:
+        return tuple(spec.id for spec in self.coordinates)
 
 
 class RunAdmissionView(_ViewModel):

@@ -12,6 +12,8 @@ import type {
   RunInspectionFeed,
   RunPointEnqueueCommand,
   RunPointQueue,
+  RunPointResolveCommand,
+  ResolvedRunPointSelection,
 } from "../../api-contract";
 import { ApiError, apiClient, apiData } from "../../api-client";
 import { decodeMeasurementArrowRecord } from "./measurement-arrow";
@@ -111,6 +113,20 @@ export async function enqueueRunPoint(
     apiClient.POST("/api/v1/runs/{run_id}/point-plan/queue", {
       params: { path: { run_id: runId } },
       body: command,
+    }),
+  );
+}
+
+export async function resolveRunPoint(
+  runId: string,
+  command: RunPointResolveCommand,
+  signal?: AbortSignal,
+): Promise<ResolvedRunPointSelection> {
+  return apiData(
+    apiClient.POST("/api/v1/runs/{run_id}/point-plan/resolve", {
+      params: { path: { run_id: runId } },
+      body: command,
+      signal,
     }),
   );
 }
@@ -449,7 +465,10 @@ function normalizeRun(
       pointCount: plan.point_count ?? undefined,
       initialPointCount: plan.initial_point_count,
       pointLimit: plan.point_limit,
-      coordinateIds: plan.coordinate_ids ?? [],
+      coordinateIds: plan.coordinates.map((coordinate) => coordinate.id),
+      coordinateSpecs: plan.coordinates,
+      sampledPoints: plan.sampled_points,
+      sampledPointsTruncated: plan.sampled_points_truncated,
       recordIds: plan.record_ids ?? [],
     },
     resources:

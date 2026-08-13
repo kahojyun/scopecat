@@ -7,12 +7,11 @@ from threading import Event, Thread
 from typing import Self, cast
 
 from scopecat.authoring.experiments import ExperimentInvocation
+from scopecat.control.models import PointCoordinateSpec, PointCoordinateValue
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.reviews import (
     ReviewCompilationResult,
     ReviewCompletionCommand,
-    ReviewCoordinateSpec,
-    ReviewCoordinateValue,
     ReviewInspectionView,
     ReviewPointView,
     ReviewSessionCreateCommand,
@@ -20,13 +19,10 @@ from scopecat.daemon.reviews import (
     ReviewWorkItem,
 )
 from scopecat.execution.program import RunProgram
-from scopecat.kernel.value_types import Bool, Entity, Float, Int, String
-from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.planning.point_selection import point_coordinate_contract
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.preview_models import ExperimentPreview, ExperimentPreviewPoint
-from scopecat.program.point_domain import point_axis_size, point_axis_value
 
-_PLANNED_VALUE_LIMIT = 256
 _WORKER_POLL_SECONDS = 0.2
 _HEARTBEAT_POLL_COUNT = 25
 
@@ -156,54 +152,9 @@ def create_experiment_review(
     )
 
 
-def _coordinate_specs(program: RunProgram) -> tuple[ReviewCoordinateSpec, ...]:
-    axes = {axis.id: axis for axis in program.points.contract.domain_axes}
-    specs: list[ReviewCoordinateSpec] = []
-    for column in program.points.contract.coordinate_columns:
-        atom = column.value_type.atom
-        axis = axes[column.id]
-        size = point_axis_size(axis.source)
-        values = tuple(
-            cast("ReviewCoordinateValue", point_axis_value(axis.source, index))
-            for index in range(min(size, _PLANNED_VALUE_LIMIT))
-        )
-        if isinstance(atom, Bool):
-            kind = "bool"
-            minimum = maximum = unit = choices = None
-        elif isinstance(atom, Int):
-            kind = "int"
-            minimum, maximum = atom.minimum, atom.maximum
-            unit = choices = None
-        elif isinstance(atom, Float):
-            kind = "float"
-            minimum, maximum = atom.minimum, atom.maximum
-            unit = choices = None
-        elif isinstance(atom, String):
-            kind = "string"
-            minimum = maximum = unit = None
-            choices = atom.choices
-        elif isinstance(atom, QuantityType):
-            kind = "quantity"
-            minimum, maximum, unit = atom.minimum, atom.maximum, atom.unit
-            choices = None
-        elif isinstance(atom, Entity):
-            kind = "entity"
-            minimum = maximum = unit = choices = None
-        else:
-            raise TypeError(f"unsupported review coordinate type {type(atom).__name__}")
-        specs.append(
-            ReviewCoordinateSpec(
-                id=column.id,
-                kind=kind,
-                unit=unit,
-                minimum=minimum,
-                maximum=maximum,
-                choices=choices,
-                planned_values=values,
-                planned_values_truncated=size > len(values),
-            )
-        )
-    return tuple(specs)
+def _coordinate_specs(program: RunProgram) -> tuple[PointCoordinateSpec, ...]:
+    coordinates, _, _ = point_coordinate_contract(program.points)
+    return coordinates
 
 
 def _review_result(
@@ -235,7 +186,7 @@ def _review_result(
 def _review_point(selected: ExperimentPreviewPoint) -> ReviewPointView:
     return ReviewPointView(
         point_index=selected.point_index,
-        coordinates=cast("dict[str, ReviewCoordinateValue]", selected.coordinates),
+        coordinates=cast("dict[str, PointCoordinateValue]", selected.coordinates),
         proposal_fingerprint=selected.proposal_fingerprint,
         source=selected.source,
     )

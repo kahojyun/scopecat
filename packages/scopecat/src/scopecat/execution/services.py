@@ -33,14 +33,14 @@ class RunCoverageWriter(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class QueuedRunPointCandidate:
+class QueuedOperatorPointRequest:
     request: OperatorPointRequest
 
 
 class RunPointProposalWriter(Protocol):
     """Commit point-plan facts and publish bounded live inspections."""
 
-    def next_queued(self) -> QueuedRunPointCandidate | None: ...
+    def next_queued(self) -> QueuedOperatorPointRequest | None: ...
 
     def append(
         self,

@@ -2,37 +2,25 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleDot, LoaderCircle, Send } from "lucide-react";
 import type {
-  MeasurementValue,
+  PointCoordinateSpec,
   RunInspectionFeed,
   RunPointEnqueueCommand,
+  RunPointResolveCommand,
 } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
 import { classes, primaryButton } from "../../ui/styles";
-import type { MeasurementPreview, ProjectRun } from "../../types";
+import type { ProjectRun } from "../../types";
 import { formatInspectionCoordinates } from "../inspections/CompiledInspectionView";
-import { enqueueRunPoint, getRunPointQueue } from "./run-api";
+import { enqueueRunPoint, getRunPointQueue, resolveRunPoint } from "./run-api";
 
 type QueueCoordinate = RunPointEnqueueCommand["coordinates"][string];
 type QueueMode = "exact" | "snap" | "free";
 type CoordinateDraft = Record<string, string>;
-type ProductGridAxis = Extract<
-  NonNullable<MeasurementPreview["schema"]>["point_domain"],
-  { kind: "product_grid" }
->["axes"][number];
-
-interface AxisInputSpec {
-  id: string;
-  unit?: string;
-  values: QueueCoordinate[];
-}
-
 export function RunPointQueueControl({
   run,
-  measurements,
   inspections,
 }: {
   run: ProjectRun;
-  measurements?: MeasurementPreview;
   inspections: RunInspectionFeed["items"];
 }) {
   const queryClient = useQueryClient();
@@ -45,47 +33,61 @@ export function RunPointQueueControl({
     refetchInterval: active ? 250 : false,
   });
   const enqueue = useMutation({
-    mutationFn: (command: RunPointEnqueueCommand) => enqueueRunPoint(run.runId, command),
+    mutationFn: async (command: RunPointEnqueueCommand) => {
+      await resolveRunPoint(run.runId, {
+        coordinate_mode: command.coordinate_mode,
+        coordinates: command.coordinates,
+      });
+      return enqueueRunPoint(run.runId, command);
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["run-point-queue", run.runId] });
       await queryClient.invalidateQueries({ queryKey: ["events", "run", run.runId] });
     },
   });
-  const specs = useMemo(() => coordinateSpecs(run, measurements), [measurements, run]);
+  const specs = run.plan.coordinateSpecs;
   const [mode, setMode] = useState<QueueMode>("exact");
   const [draft, setDraft] = useState<CoordinateDraft>({});
   const [inputError, setInputError] = useState<string>();
   useEffect(() => {
     setDraft((current) =>
       Object.fromEntries(
-        specs.map((spec) => [spec.id, current[spec.id] ?? coordinateText(spec.values[0])]),
+        specs.map((spec) => [spec.id, current[spec.id] ?? coordinateText(spec.sampled_values[0])]),
       ),
     );
   }, [specs]);
 
-  const parsed = useMemo(() => {
+  const resolveCommand = useMemo<RunPointResolveCommand | undefined>(() => {
     if (mode === "exact") return undefined;
     try {
-      const coordinates = Object.fromEntries(
-        specs.map((spec) => [spec.id, parseCoordinate(spec, draft[spec.id] ?? "")]),
-      );
-      return mode === "snap" ? snapCoordinates(specs, coordinates) : coordinates;
+      return {
+        coordinate_mode: mode,
+        coordinates: Object.fromEntries(
+          specs.map((spec) => [spec.id, parseCoordinate(spec, draft[spec.id] ?? "")]),
+        ),
+      };
     } catch {
       return undefined;
     }
   }, [draft, mode, specs]);
+  const resolution = useQuery({
+    queryKey: ["run-point-resolution", run.runId, resolveCommand],
+    queryFn: ({ signal }) => {
+      if (!resolveCommand) throw new Error("point selection is incomplete");
+      return resolveRunPoint(run.runId, resolveCommand, signal);
+    },
+    enabled: active && resolveCommand !== undefined,
+    retry: false,
+  });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     try {
-      const coordinates = Object.fromEntries(
-        specs.map((spec) => [spec.id, parseCoordinate(spec, draft[spec.id] ?? "")]),
-      );
-      const selected = mode === "snap" ? snapCoordinates(specs, coordinates) : coordinates;
+      if (!resolveCommand) throw new Error("enter every point coordinate");
       setInputError(undefined);
       enqueue.mutate({
         request_id: `operator-point.${globalThis.crypto.randomUUID()}`,
-        coordinates: selected,
+        ...resolveCommand,
       });
     } catch (error) {
       setInputError(errorMessage(error));
@@ -140,16 +142,18 @@ export function RunPointQueueControl({
                 </span>
                 <input
                   className="rounded-md border border-line bg-panel px-2.5 py-2 text-[0.66rem] font-medium text-text-soft"
-                  list={spec.values.length > 0 ? `run-point-${run.runId}-${spec.id}` : undefined}
+                  list={
+                    spec.sampled_values.length > 0 ? `run-point-${run.runId}-${spec.id}` : undefined
+                  }
                   onChange={(event) =>
                     setDraft((current) => ({ ...current, [spec.id]: event.target.value }))
                   }
-                  type={numericCoordinate(spec.values[0]) ? "number" : "text"}
+                  type={numericCoordinate(spec) ? "number" : "text"}
                   value={draft[spec.id] ?? ""}
                 />
-                {spec.values.length > 0 && (
+                {spec.sampled_values.length > 0 && (
                   <datalist id={`run-point-${run.runId}-${spec.id}`}>
-                    {spec.values.map((value, index) => (
+                    {spec.sampled_values.map((value, index) => (
                       <option key={index} value={coordinateText(value)}>
                         {coordinateText(value)}
                       </option>
@@ -159,10 +163,12 @@ export function RunPointQueueControl({
               </label>
             ))}
           </div>
-          {parsed && (
+          {resolution.data && (
             <p className="mt-2 mb-0 text-[0.59rem] text-text-dim">
               {mode === "snap" ? "Will queue snapped point: " : "Will queue free point: "}
-              <strong className="text-text-soft">{formatInspectionCoordinates(parsed)}</strong>
+              <strong className="text-text-soft">
+                {formatInspectionCoordinates(resolution.data.coordinates)}
+              </strong>
             </p>
           )}
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
@@ -187,9 +193,9 @@ export function RunPointQueueControl({
                   ? "Snapping is explicit; the resolved coordinates are shown before queueing."
                   : "Free coordinates are compiled without silent snapping."}
             </span>
-            {(inputError || enqueue.error) && (
+            {(inputError || resolution.error || enqueue.error) && (
               <span className="w-full text-[0.61rem] text-red" role="alert">
-                {inputError ?? errorMessage(enqueue.error)}
+                {inputError ?? errorMessage(resolution.error ?? enqueue.error)}
               </span>
             )}
           </div>
@@ -206,6 +212,13 @@ export function RunPointQueueControl({
               <span className="truncate text-text-soft">
                 {formatInspectionCoordinates(item.request.coordinates)}
               </span>
+              {item.request.coordinate_mode === "snap" &&
+                JSON.stringify(item.request.requested_coordinates) !==
+                  JSON.stringify(item.request.coordinates) && (
+                  <span className="w-full text-text-dim">
+                    Requested {formatInspectionCoordinates(item.request.requested_coordinates)}
+                  </span>
+                )}
               <span
                 className={classes(
                   "inline-flex items-center gap-1 font-bold capitalize",
@@ -229,154 +242,41 @@ export function RunPointQueueControl({
   );
 }
 
-function coordinateSpecs(
-  run: ProjectRun,
-  measurements: MeasurementPreview | undefined,
-): AxisInputSpec[] {
-  const schemaAxes =
-    measurements?.schema?.point_domain.kind === "product_grid"
-      ? measurements.schema.point_domain.axes
-      : [];
-  return run.plan.coordinateIds.map((id) => {
-    const axis = schemaAxes.find((item) => item.id === id);
-    const values = [
-      ...(axis ? axisValues(axis) : []),
-      ...(measurements?.items.map((record) => measurementCoordinate(record.coordinates[id])) ?? []),
-    ].filter((value): value is QueueCoordinate => value !== undefined);
-    return {
-      id,
-      unit: coordinateUnit(values[0]),
-      values: uniqueCoordinates(values),
-    };
-  });
-}
-
-function axisValues(axis: ProductGridAxis): QueueCoordinate[] {
-  const source = axis.source;
-  if (source.kind === "values") {
-    return source.values
-      .map(measurementCoordinate)
-      .filter((value): value is QueueCoordinate => value !== undefined);
-  }
-  const start = source.kind === "range" ? source.start : linearEdge(source.center, source.span, -1);
-  const stop = source.kind === "range" ? source.stop : linearEdge(source.center, source.span, 1);
-  if (axis.size <= 1) return [measurementCoordinate(start)].filter(isCoordinate);
-  const startValue = numericMeasurement(start);
-  const stopValue = numericMeasurement(stop);
-  if (startValue === undefined || stopValue === undefined) return [];
-  return Array.from({ length: axis.size }, (_, index) =>
-    scalarCoordinate(start, startValue + ((stopValue - startValue) * index) / (axis.size - 1)),
-  );
-}
-
-function linearEdge(
-  center: Extract<MeasurementValue, { kind: "scalar" }>,
-  span: Extract<MeasurementValue, { kind: "scalar" }>,
-  direction: -1 | 1,
-) {
-  const centerValue = numericMeasurement(center);
-  const spanValue = numericMeasurement(span);
-  if (centerValue === undefined || spanValue === undefined) return center;
-  return { ...center, value: centerValue + (direction * spanValue) / 2 };
-}
-
-function measurementCoordinate(
-  value: MeasurementValue | null | undefined,
-): QueueCoordinate | undefined {
-  if (!value || value.kind !== "scalar" || typeof value.value === "object") return undefined;
-  return scalarCoordinate(value, value.value);
-}
-
-function scalarCoordinate(
-  scalar: Extract<MeasurementValue, { kind: "scalar" }>,
-  value: boolean | number | string,
-): QueueCoordinate {
-  return scalar.unit && typeof value === "number" ? { value, unit: scalar.unit } : value;
-}
-
-function numericMeasurement(
-  scalar: Extract<MeasurementValue, { kind: "scalar" }>,
-): number | undefined {
-  return typeof scalar.value === "number" ? scalar.value : undefined;
-}
-
-function uniqueCoordinates(values: QueueCoordinate[]): QueueCoordinate[] {
-  return [...new Map(values.map((value) => [JSON.stringify(value), value])).values()];
-}
-
-function coordinateText(value: QueueCoordinate | undefined): string {
+function coordinateText(value: unknown): string {
   if (value === undefined || value === null) return "";
-  if (typeof value === "object") return "value" in value ? String(value.value) : value.id;
-  return String(value);
+  if (typeof value === "object") {
+    if ("value" in value && typeof value.value === "number") return String(value.value);
+    if ("id" in value && typeof value.id === "string") return value.id;
+    return "";
+  }
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return `${value}`;
+  return "";
 }
 
-function coordinateUnit(value: QueueCoordinate | undefined): string | undefined {
-  return typeof value === "object" && value !== null && "unit" in value ? value.unit : undefined;
+function numericCoordinate(spec: PointCoordinateSpec): boolean {
+  return spec.kind === "int" || spec.kind === "float" || spec.kind === "quantity";
 }
 
-function numericCoordinate(value: QueueCoordinate | undefined): boolean {
-  return typeof value === "number" || coordinateUnit(value) !== undefined;
-}
-
-function parseCoordinate(spec: AxisInputSpec, encoded: string): QueueCoordinate {
+function parseCoordinate(spec: PointCoordinateSpec, encoded: string): QueueCoordinate {
   if (!encoded.trim()) throw new Error(`${spec.id} requires a value`);
-  const exemplar = spec.values[0];
-  if (typeof exemplar === "boolean") {
+  if (spec.kind === "bool") {
     if (encoded !== "true" && encoded !== "false") throw new Error(`${spec.id} must be boolean`);
     return encoded === "true";
   }
-  if (typeof exemplar === "number") {
+  if (spec.kind === "int" || spec.kind === "float") {
     const value = Number(encoded);
     if (!Number.isFinite(value)) throw new Error(`${spec.id} must be numeric`);
+    if (spec.kind === "int" && !Number.isInteger(value)) {
+      throw new Error(`${spec.id} must be an integer`);
+    }
     return value;
   }
-  if (typeof exemplar === "object" && exemplar !== null && "unit" in exemplar) {
+  if (spec.kind === "quantity") {
     const value = Number(encoded);
     if (!Number.isFinite(value)) throw new Error(`${spec.id} must be numeric`);
-    return { value, unit: exemplar.unit };
+    return { value, unit: spec.unit ?? "" };
   }
+  if (spec.kind === "entity") return { id: encoded, metadata: {} };
   return encoded;
-}
-
-function snapCoordinates(
-  specs: AxisInputSpec[],
-  coordinates: Record<string, QueueCoordinate>,
-): Record<string, QueueCoordinate> {
-  return Object.fromEntries(
-    specs.map((spec) => {
-      if (spec.values.length === 0) {
-        throw new Error(`${spec.id} has no known scan values; use Free mode`);
-      }
-      const requested = coordinates[spec.id];
-      const requestedNumber = coordinateNumber(requested);
-      if (requestedNumber === undefined) {
-        const exact = spec.values.find(
-          (value) => coordinateText(value) === coordinateText(requested),
-        );
-        if (exact === undefined) throw new Error(`${spec.id} has no matching scan value`);
-        return [spec.id, exact];
-      }
-      return [
-        spec.id,
-        spec.values.reduce((nearest, value) => {
-          const candidate = coordinateNumber(value);
-          if (candidate === undefined) return nearest;
-          return Math.abs(candidate - requestedNumber) <
-            Math.abs((coordinateNumber(nearest) ?? Number.POSITIVE_INFINITY) - requestedNumber)
-            ? value
-            : nearest;
-        }),
-      ];
-    }),
-  );
-}
-
-function coordinateNumber(value: QueueCoordinate | undefined): number | undefined {
-  if (typeof value === "number") return value;
-  if (typeof value === "object" && value !== null && "unit" in value) return value.value;
-  return undefined;
-}
-
-function isCoordinate(value: QueueCoordinate | undefined): value is QueueCoordinate {
-  return value !== undefined;
 }

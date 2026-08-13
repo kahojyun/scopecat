@@ -44,7 +44,7 @@ from scopecat.daemon.wire import (
     TerminalRunCommitCommand,
 )
 from scopecat.execution.program import RunPointInspection
-from scopecat.execution.services import ExecutionSession, QueuedRunPointCandidate
+from scopecat.execution.services import ExecutionSession, QueuedOperatorPointRequest
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.problems import Problem
 from scopecat.kernel.value_data import CellValue
@@ -321,7 +321,7 @@ class _DaemonRunPointProposals:
     def __init__(self, authority: _LeaseAuthority) -> None:
         self._authority = authority
 
-    def next_queued(self) -> QueuedRunPointCandidate | None:
+    def next_queued(self) -> QueuedOperatorPointRequest | None:
         pending = next(
             (
                 entry
@@ -334,9 +334,14 @@ class _DaemonRunPointProposals:
         )
         if pending is None:
             return None
-        return QueuedRunPointCandidate(
+        return QueuedOperatorPointRequest(
             request=OperatorPointRequest(
                 request_id=pending.request.request_id,
+                coordinate_mode=pending.request.coordinate_mode,
+                requested_coordinates=cast(
+                    "dict[str, CellValue]",
+                    pending.request.requested_coordinates,
+                ),
                 coordinates=cast(
                     "dict[str, CellValue]",
                     pending.request.coordinates,

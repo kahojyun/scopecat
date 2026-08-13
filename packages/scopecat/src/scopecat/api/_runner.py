@@ -34,6 +34,7 @@ from scopecat.daemon.wire import (
     RunSubmission,
 )
 from scopecat.execution.interpreter import execute_admitted_run
+from scopecat.planning.point_selection import point_coordinate_contract
 from scopecat.planning.preview import PreviewCoordinateMode, build_run_program_preview
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
@@ -304,6 +305,9 @@ def _executor_lease_timing(lease: ExecutorLease) -> tuple[float, float]:
 
 def _run_plan_summary(planned: PlannedRun) -> RunPlanSummary:
     program = planned.program
+    coordinates, sampled_points, sampled_points_truncated = point_coordinate_contract(
+        program.points
+    )
     host = program.host
     descriptions = (
         ()
@@ -319,7 +323,9 @@ def _run_plan_summary(planned: PlannedRun) -> RunPlanSummary:
         point_count=program.points.contract.point_count,
         initial_point_count=len(program.points.points),
         point_limit=program.points.contract.point_limit,
-        coordinate_ids=program.measurements.coordinate_ids,
+        coordinates=coordinates,
+        sampled_points=sampled_points,
+        sampled_points_truncated=sampled_points_truncated,
         record_ids=tuple(record.id for record in program.measurements.records),
         host_instrument_order=program.resource_order,
         host_provider_id=None if host is None else host.provider_id,

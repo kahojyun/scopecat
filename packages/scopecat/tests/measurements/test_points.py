@@ -38,6 +38,8 @@ def test_point_proposal_has_stable_coordinate_and_attempt_identities() -> None:
 def test_operator_request_identity_is_independent_of_boundary_freshness() -> None:
     request = OperatorPointRequest(
         request_id="operator-1",
+        coordinate_mode="free",
+        requested_coordinates={"frequency": Quantity(5.0, "GHz")},
         coordinates={"frequency": Quantity(5.0, "GHz")},
     )
     first = PointProposalAttempt(

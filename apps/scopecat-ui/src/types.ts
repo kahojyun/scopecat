@@ -11,6 +11,7 @@ import type {
   AnalysisTableView,
   MeasurementDatasetSchema,
   MeasurementRecord,
+  PointCoordinateSpec,
 } from "./api-contract";
 
 export type PresentationRunStatus =
@@ -42,6 +43,9 @@ export interface RunPlanSummary {
   initialPointCount: number;
   pointLimit: number;
   coordinateIds: string[];
+  coordinateSpecs: PointCoordinateSpec[];
+  sampledPoints: Record<string, unknown>[];
+  sampledPointsTruncated: boolean;
   recordIds: string[];
 }
 

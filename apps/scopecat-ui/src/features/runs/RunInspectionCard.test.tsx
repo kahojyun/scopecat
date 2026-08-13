@@ -6,8 +6,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunInspectionFeed } from "../../api-contract";
-import type { MeasurementPreview, ProjectRun } from "../../types";
-import { enqueueRunPoint, getRunPointQueue } from "./run-api";
+import type { ProjectRun } from "../../types";
+import { enqueueRunPoint, getRunPointQueue, resolveRunPoint } from "./run-api";
 import { RunInspectionCard } from "./RunInspectionCard";
 
 vi.mock("../../ui/EChart", () => ({
@@ -16,11 +16,18 @@ vi.mock("../../ui/EChart", () => ({
 vi.mock("./run-api", () => ({
   enqueueRunPoint: vi.fn(),
   getRunPointQueue: vi.fn(),
+  resolveRunPoint: vi.fn(),
 }));
 
 afterEach(cleanup);
 beforeEach(() => {
   vi.mocked(getRunPointQueue).mockResolvedValue({ run_id: "run-1", items: [] });
+  vi.mocked(resolveRunPoint).mockResolvedValue({
+    coordinate_mode: "snap",
+    requested_coordinates: { drive_frequency: { value: 5.16, unit: "GHz" } },
+    coordinates: { drive_frequency: { value: 5.2, unit: "GHz" } },
+    sampled_point_index: 2,
+  });
 });
 
 describe("RunInspectionCard", () => {
@@ -52,8 +59,11 @@ describe("RunInspectionCard", () => {
       occurred_at: "2026-08-13T10:00:00Z",
       request: {
         request_id: "operator-point.1",
+        coordinate_mode: "snap",
+        requested_coordinates: { drive_frequency: { value: 5.16, unit: "GHz" } },
         coordinates: { drive_frequency: { value: 5.2, unit: "GHz" } },
         coordinate_fingerprint: "sha256:queued",
+        request_fingerprint: "sha256:request",
       },
       status: "pending",
     });
@@ -64,7 +74,6 @@ describe("RunInspectionCard", () => {
         pending={false}
         completedPointCount={1}
         run={projectRun(true)}
-        measurements={measurementPreview()}
       />,
     );
 
@@ -72,14 +81,17 @@ describe("RunInspectionCard", () => {
     fireEvent.change(screen.getByRole("spinbutton", { name: /drive_frequency/i }), {
       target: { value: "5.16" },
     });
-    expect(screen.getByText(/Will queue snapped point/).closest("p")).toHaveTextContent("5.2 GHz");
+    expect((await screen.findByText(/Will queue snapped point/)).closest("p")).toHaveTextContent(
+      "5.2 GHz",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Queue point" }));
 
     await waitFor(() =>
       expect(enqueueRunPoint).toHaveBeenCalledWith(
         "run-1",
         expect.objectContaining({
-          coordinates: { drive_frequency: { value: 5.2, unit: "GHz" } },
+          coordinate_mode: "snap",
+          coordinates: { drive_frequency: { value: 5.16, unit: "GHz" } },
         }),
       ),
     );
@@ -119,41 +131,29 @@ function projectRun(active: boolean): ProjectRun {
       initialPointCount: 1,
       pointLimit: 4,
       coordinateIds: ["drive_frequency"],
+      coordinateSpecs: [
+        {
+          id: "drive_frequency",
+          kind: "quantity",
+          dimension: "frequency",
+          unit: "GHz",
+          minimum: null,
+          maximum: null,
+          finite: true,
+          choices: null,
+          entity_kind: null,
+          sampled_values: [5, 5.1, 5.2].map((value) => ({ value, unit: "GHz" })),
+          sampled_values_truncated: false,
+        },
+      ],
+      sampledPoints: [5, 5.1, 5.2].map((value) => ({
+        drive_frequency: { value, unit: "GHz" },
+      })),
+      sampledPointsTruncated: false,
       recordIds: ["signal"],
     },
     resources: [],
     contents: [],
-  };
-}
-
-function measurementPreview(): MeasurementPreview {
-  return {
-    items: [],
-    schema: {
-      dataset_id: "raw-measurements",
-      format_version: "scopecat.measurement_dataset_schema.v10",
-      record_schema: "scopecat.measurement_record.v4",
-      point_domain: {
-        kind: "product_grid",
-        axes: [
-          {
-            id: "drive_frequency",
-            size: 3,
-            source: {
-              kind: "values",
-              values: [5, 5.1, 5.2].map((value) => ({
-                kind: "scalar" as const,
-                dtype: "float64" as const,
-                unit: "GHz",
-                value,
-              })),
-            },
-          },
-        ],
-      },
-      dimensions: [{ id: "point", kind: "point", size: 3 }],
-      variables: [],
-    },
   };
 }
 

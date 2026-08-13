@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import sqlite3
+from typing import cast
 
 from scopecat.control.models import ControlRun, DurableEventInput
 from scopecat.daemon.points import (
+    ResolvedRunPointSelectionView,
+    RunPointCoordinateValue,
     RunPointDecisionCommand,
     RunPointDecisionView,
     RunPointEnqueueCommand,
@@ -13,6 +16,11 @@ from scopecat.daemon.points import (
     RunPointPlanView,
     RunPointQueueEntryView,
     RunPointQueueView,
+    RunPointResolveCommand,
+)
+from scopecat.planning.point_selection import (
+    ResolvedPointSelection,
+    resolve_point_selection,
 )
 
 from scopecat_server.storage.sqlite.control_plane import (
@@ -100,9 +108,14 @@ class RunPointPlanService:
                     raise ControlPlaneConflict(
                         "queued point coordinates do not match the admitted axes"
                     )
+                resolved = self._resolve(run, command)
                 entry, created = self._ledger(run_id).enqueue_in_transaction(
                     connection,
                     command,
+                    resolved_coordinates=cast(
+                        "dict[str, RunPointCoordinateValue]",
+                        dict(resolved.coordinates),
+                    ),
                 )
                 if created:
                     self._control.append_event_in_transaction(
@@ -121,6 +134,26 @@ class RunPointPlanService:
             raise BackendNotFound(str(error)) from error
         except (ControlPlaneConflict, ExecutionJournalConflict) as error:
             raise BackendConflict(str(error)) from error
+
+    def resolve(
+        self,
+        run_id: str,
+        command: RunPointResolveCommand,
+    ) -> ResolvedRunPointSelectionView:
+        run = self._require_run(run_id)
+        try:
+            resolved = self._resolve(run, command)
+        except ControlPlaneConflict as error:
+            raise BackendConflict(str(error)) from error
+        return ResolvedRunPointSelectionView(
+            coordinate_mode=command.coordinate_mode,
+            requested_coordinates=command.coordinates,
+            coordinates=cast(
+                "dict[str, RunPointCoordinateValue]",
+                dict(resolved.coordinates),
+            ),
+            sampled_point_index=resolved.sampled_point_index,
+        )
 
     def append_decision_in_transaction(
         self,
@@ -168,6 +201,22 @@ class RunPointPlanService:
 
     def _ledger(self, run_id: str) -> SQLiteRunPointLedger:
         return SQLiteRunPointLedger(self._runs, run_id=run_id)
+
+    @staticmethod
+    def _resolve(
+        run: ControlRun,
+        command: RunPointEnqueueCommand | RunPointResolveCommand,
+    ) -> ResolvedPointSelection:
+        try:
+            return resolve_point_selection(
+                run.admission.plan.coordinates,
+                command.coordinates,
+                mode=command.coordinate_mode,
+                sampled_points=run.admission.plan.sampled_points,
+                sampled_points_truncated=run.admission.plan.sampled_points_truncated,
+            )
+        except ValueError as error:
+            raise ControlPlaneConflict(str(error)) from error
 
     def _require_run(self, run_id: str) -> ControlRun:
         try:

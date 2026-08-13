@@ -3,20 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from math import inf
-from typing import Literal, cast
+from typing import Literal
 
 from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.execution.local.program import ComputeOperation, OutputInput
 from scopecat.execution.program import RunPointInspection, RunProgram
-from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.value_data import CellValue
-from scopecat.kernel.value_identity import (
-    quantity_comparison_values,
-    scalar_values_equal,
-)
 from scopecat.measurements.points import PointProposalAttempt
 from scopecat.measurements.records import RecordPlan, ValueRecordPlan
+from scopecat.planning.point_selection import (
+    point_coordinate_contract,
+    resolve_point_selection,
+)
 from scopecat.planning.preview_models import (
     ExperimentPreview,
     ExperimentPreviewBinding,
@@ -28,7 +25,6 @@ from scopecat.planning.preview_models import (
     ExperimentPreviewRecord,
 )
 from scopecat.program.parameters import ParameterContract, ParameterValueContract
-from scopecat.program.point_domain import point_axis_size, point_axis_value
 from scopecat.program.scans import AroundScanSource, RangeScanSource, ValuesScanSource
 from scopecat.program.value_refs import ValueRef, internal_value_ref_parameter_contracts
 from scopecat.sdk.compute import compute_capture_names_internal
@@ -144,12 +140,14 @@ def _selected_point(
             raise ValueError("free preview requires coordinates")
         if point != "first":
             raise ValueError("select a free preview point by coordinates only")
-        return (
-            None,
-            PointProposalAttempt(
-                coordinates=cast("Mapping[str, CellValue]", coordinates),
-                source="operator",
-            ),
+        specs, _, _ = point_coordinate_contract(
+            catalog,
+            sampled_point_limit=max(point_count, 1),
+        )
+        resolved = resolve_point_selection(specs, coordinates, mode="free")
+        return None, PointProposalAttempt(
+            coordinates=resolved.coordinates,
+            source="operator",
         )
     if point_count == 0:
         if coordinates is not None:
@@ -158,11 +156,18 @@ def _selected_point(
     if coordinates is not None:
         if point != "first":
             raise ValueError("select a preview point by index or coordinates, not both")
-        return _point_index_for_coordinates(
-            program,
+        specs, _, _ = point_coordinate_contract(
+            catalog,
+            sampled_point_limit=max(point_count, 1),
+        )
+        resolved = resolve_point_selection(
+            specs,
             coordinates,
-            snap=coordinate_mode == "snap",
-        ), None
+            mode=coordinate_mode,
+            sampled_points=tuple(point.coordinates for point in catalog.points),
+        )
+        assert resolved.sampled_point_index is not None
+        return resolved.sampled_point_index, None
     if isinstance(point, int):
         if not 0 <= point < point_count:
             raise IndexError(point)
@@ -174,146 +179,6 @@ def _selected_point(
     if point == "last":
         return point_count - 1, None
     raise ValueError(f"unsupported preview point selector {point!r}")
-
-
-def _point_index_for_coordinates(
-    program: RunProgram,
-    coordinates: Mapping[str, object],
-    *,
-    snap: bool,
-) -> int:
-    contract = program.points.contract
-    axes = contract.domain_axes
-    axis_ids = tuple(axis.id for axis in axes)
-    if set(coordinates) != set(axis_ids):
-        missing = sorted(set(axis_ids) - set(coordinates))
-        extra = sorted(set(coordinates) - set(axis_ids))
-        details: list[str] = []
-        if missing:
-            details.append("missing " + ", ".join(missing))
-        if extra:
-            details.append("unknown " + ", ".join(extra))
-        raise ValueError(
-            "preview coordinates must identify every axis (" + "; ".join(details) + ")"
-        )
-    if snap and contract.domain_layout == "point_cloud":
-        return _nearest_point_cloud_index(program, coordinates)
-    selected_indices: list[int] = []
-    for axis in axes:
-        requested = coordinates[axis.id]
-        values = tuple(
-            point_axis_value(axis.source, index)
-            for index in range(point_axis_size(axis.source))
-        )
-        selected = (
-            _nearest_value_index(requested, values)
-            if snap
-            else next(
-                (
-                    index
-                    for index, value in enumerate(values)
-                    if scalar_values_equal(value, requested)
-                ),
-                None,
-            )
-        )
-        if selected is None:
-            raise ValueError(
-                f"preview coordinate {axis.id!r} has no value equal to {requested!r}"
-            )
-        selected_indices.append(selected)
-    if contract.domain_layout == "point_cloud":
-        if len(set(selected_indices)) > 1:
-            raise ValueError("preview coordinates do not identify one point-cloud row")
-        return selected_indices[0] if selected_indices else 0
-    ordinal = 0
-    for axis, selected in zip(axes, selected_indices, strict=True):
-        ordinal = ordinal * point_axis_size(axis.source) + selected
-    return ordinal
-
-
-def _nearest_point_cloud_index(
-    program: RunProgram,
-    coordinates: Mapping[str, object],
-) -> int:
-    points = program.points.points
-    if not points:
-        raise ValueError("an empty experiment has no point to snap to")
-    axis_values = {
-        coordinate_id: tuple(point.coordinates[coordinate_id] for point in points)
-        for coordinate_id in program.points.coordinate_ids
-    }
-    distances = tuple(
-        _point_cloud_distance(
-            coordinates,
-            point.coordinates,
-            axis_values,
-        )
-        for point in points
-    )
-    selected = min(range(len(points)), key=distances.__getitem__)
-    if distances[selected] == inf:
-        raise ValueError("no point matches the requested non-numeric coordinates")
-    return selected
-
-
-def _point_cloud_distance(
-    requested: Mapping[str, object],
-    point: Mapping[str, object],
-    axis_values: Mapping[str, tuple[object, ...]],
-) -> float:
-    try:
-        return sum(
-            _normalized_value_distance(
-                requested[coordinate_id],
-                value,
-                axis_values[coordinate_id],
-            )
-            for coordinate_id, value in point.items()
-        )
-    except ValueError:
-        return inf
-
-
-def _nearest_value_index(requested: object, values: tuple[object, ...]) -> int:
-    if not values:
-        raise ValueError("an empty scan axis has no value to snap to")
-    distances = tuple(
-        _normalized_value_distance(requested, value, values) for value in values
-    )
-    return min(range(len(values)), key=distances.__getitem__)
-
-
-def _normalized_value_distance(
-    requested: object,
-    value: object,
-    axis_values: tuple[object, ...],
-) -> float:
-    if scalar_values_equal(requested, value):
-        return 0.0
-    requested_number, value_number = _comparison_numbers(requested, value)
-    numeric_axis = tuple(
-        _comparison_numbers(value, candidate)[1] for candidate in axis_values
-    )
-    span = max(numeric_axis) - min(numeric_axis)
-    scale = span if span > 0 else 1.0
-    return ((requested_number - value_number) / scale) ** 2
-
-
-def _comparison_numbers(left: object, right: object) -> tuple[float, float]:
-    if isinstance(left, Quantity) and isinstance(right, Quantity):
-        return quantity_comparison_values(left, right)
-    if (
-        isinstance(left, int | float)
-        and not isinstance(left, bool)
-        and isinstance(right, int | float)
-        and not isinstance(right, bool)
-    ):
-        return float(left), float(right)
-    raise ValueError(
-        f"cannot snap non-numeric coordinate {left!r} to {right!r}; "
-        "select an exact value"
-    )
 
 
 def _preview_selected_point(

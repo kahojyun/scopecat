@@ -14,6 +14,19 @@ from pydantic import (
     model_validator,
 )
 
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
+
+type PointCoordinateValue = bool | int | float | str | Quantity | EntityRef | None
+type PointCoordinateKind = Literal[
+    "bool",
+    "int",
+    "float",
+    "string",
+    "quantity",
+    "entity",
+]
+
 type ControlRunState = Literal[
     "queued",
     "leased",
@@ -81,6 +94,22 @@ class RunDomainTargetRequirement(_ControlModel):
         return tuple(sorted(value))
 
 
+class PointCoordinateSpec(_ControlModel):
+    """Admissibility and authored sampling facts for one point coordinate."""
+
+    id: str = Field(min_length=1)
+    kind: PointCoordinateKind
+    dimension: str | None = None
+    unit: str | None = None
+    minimum: int | float | None = None
+    maximum: int | float | None = None
+    finite: bool = True
+    choices: tuple[str, ...] | None = None
+    entity_kind: str | None = None
+    sampled_values: tuple[PointCoordinateValue, ...] = ()
+    sampled_values_truncated: bool = False
+
+
 class RunPlanSummary(_ControlModel):
     """Bounded scheduling and presentation facts for an in-process plan."""
 
@@ -89,7 +118,9 @@ class RunPlanSummary(_ControlModel):
     point_count: int | None = Field(default=None, ge=0)
     initial_point_count: int = Field(ge=0)
     point_limit: int = Field(ge=0)
-    coordinate_ids: tuple[str, ...] = ()
+    coordinates: tuple[PointCoordinateSpec, ...] = ()
+    sampled_points: tuple[dict[str, PointCoordinateValue], ...] = ()
+    sampled_points_truncated: bool = False
     record_ids: tuple[str, ...] = ()
     run_resource_requirements: tuple[RunResourceRequirement, ...] = ()
     domain_target_requirement: RunDomainTargetRequirement | None = None
@@ -101,7 +132,6 @@ class RunPlanSummary(_ControlModel):
     )
 
     @field_validator(
-        "coordinate_ids",
         "record_ids",
         "host_instrument_order",
     )
@@ -112,6 +142,20 @@ class RunPlanSummary(_ControlModel):
         if len(value) != len(set(value)):
             raise ValueError("run plan summary ids must be unique")
         return value
+
+    @model_validator(mode="after")
+    def validate_coordinate_contract(self) -> RunPlanSummary:
+        coordinate_ids = self.coordinate_ids
+        if len(coordinate_ids) != len(set(coordinate_ids)):
+            raise ValueError("run point coordinate ids must be unique")
+        expected = set(coordinate_ids)
+        if any(set(point) != expected for point in self.sampled_points):
+            raise ValueError("sampled points must contain every coordinate")
+        return self
+
+    @property
+    def coordinate_ids(self) -> tuple[str, ...]:
+        return tuple(spec.id for spec in self.coordinates)
 
     @field_validator("run_resource_requirements")
     @classmethod

@@ -10,7 +10,7 @@ from collections import deque
 from typing import cast
 
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
-from scopecat.measurements.points import AcceptedRunPoint, PointCandidate
+from scopecat.measurements.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.optimization import (
     OPTIMIZER_DECISION_WINDOW,
     OPTIMIZER_OBSERVATION_WINDOW,
@@ -40,7 +40,7 @@ def main() -> None:
     tracemalloc.start()
     started = time.perf_counter()
     for decision_index in range(decision_count):
-        candidate = PointCandidate(
+        candidate = PointProposalAttempt(
             {"x": float(decision_index)},
             source="optimizer",
             based_on_completed_point_count=ledger.accepted_count,

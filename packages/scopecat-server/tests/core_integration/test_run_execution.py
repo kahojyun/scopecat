@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from scopecat.execution.program import RunPointInspection
-from scopecat.execution.services import QueuedRunPointCandidate
+from scopecat.execution.services import QueuedOperatorPointRequest
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.points import OperatorPointRequest, PointProposalAttempt
 from scopecat.optimization import (
@@ -126,12 +126,12 @@ class _AlwaysStaleOptimizer:
 
 @dataclass
 class _OperatorQueuePort:
-    queued: QueuedRunPointCandidate | None
+    queued: QueuedOperatorPointRequest | None
     decisions: list[PointProposalDecision]
     closed_reason: str | None = None
     empty_polls_before_ready: int = 0
 
-    def next_queued(self) -> QueuedRunPointCandidate | None:
+    def next_queued(self) -> QueuedOperatorPointRequest | None:
         if self.empty_polls_before_ready > 0:
             self.empty_polls_before_ready -= 1
             return None
@@ -274,9 +274,11 @@ def test_adaptive_execution_compiles_queued_operator_point_before_optimizer(
         provider=TestSignalInstrumentProvider(),
     )
     queue = _OperatorQueuePort(
-        queued=QueuedRunPointCandidate(
+        queued=QueuedOperatorPointRequest(
             request=OperatorPointRequest(
                 request_id="operator-queue-1",
+                coordinate_mode="free",
+                requested_coordinates={"drive_frequency": Quantity(5.17, "GHz")},
                 coordinates={"drive_frequency": Quantity(5.17, "GHz")},
             ),
         ),
@@ -319,9 +321,11 @@ def test_operator_request_remains_eligible_after_optimizer_retry_budget(
     )
     optimizer_limit = 4 * 4
     queue = _OperatorQueuePort(
-        queued=QueuedRunPointCandidate(
+        queued=QueuedOperatorPointRequest(
             request=OperatorPointRequest(
                 request_id="operator-queue-1",
+                coordinate_mode="free",
+                requested_coordinates={"drive_frequency": Quantity(5.17, "GHz")},
                 coordinates={"drive_frequency": Quantity(5.17, "GHz")},
             ),
         ),

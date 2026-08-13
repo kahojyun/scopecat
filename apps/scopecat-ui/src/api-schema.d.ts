@@ -703,6 +703,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/point-plan/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve Run Point */
+        post: operations["resolve_run_point_api_v1_runs__run_id__point_plan_resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/records/{selector}/json": {
         parameters: {
             query?: never;
@@ -2911,12 +2928,23 @@ export interface components {
         OperatorPointRequestView: {
             /** Coordinate Fingerprint */
             coordinate_fingerprint: string;
+            /**
+             * Coordinate Mode
+             * @enum {string}
+             */
+            coordinate_mode: "snap" | "free";
             /** Coordinates */
             coordinates: {
                 [key: string]: components["schemas"]["RunPointCoordinateValue-Output"];
             };
+            /** Request Fingerprint */
+            request_fingerprint: string;
             /** Request Id */
             request_id: string;
+            /** Requested Coordinates */
+            requested_coordinates: {
+                [key: string]: components["schemas"]["RunPointCoordinateValue-Output"];
+            };
         };
         "ParameterAtomValue-Input": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | boolean | number | string;
         "ParameterAtomValue-Output": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | boolean | number | string;
@@ -3056,6 +3084,45 @@ export interface components {
         };
         PersistableScalarWire: components["schemas"]["_PersistableScalarModel"];
         PersistableValueType: components["schemas"]["_PersistableValueTypeWire"];
+        /** @enum {string} */
+        PointCoordinateKind: "bool" | "int" | "float" | "string" | "quantity" | "entity";
+        /**
+         * PointCoordinateSpec
+         * @description Admissibility and authored sampling facts for one point coordinate.
+         */
+        "PointCoordinateSpec-Output": {
+            /** Choices */
+            choices?: string[] | null;
+            /** Dimension */
+            dimension?: string | null;
+            /** Entity Kind */
+            entity_kind?: string | null;
+            /**
+             * Finite
+             * @default true
+             */
+            finite: boolean;
+            /** Id */
+            id: string;
+            kind: components["schemas"]["PointCoordinateKind"];
+            /** Maximum */
+            maximum?: number | null;
+            /** Minimum */
+            minimum?: number | null;
+            /**
+             * Sampled Values
+             * @default []
+             */
+            sampled_values: components["schemas"]["PointCoordinateValue-Output"][];
+            /**
+             * Sampled Values Truncated
+             * @default false
+             */
+            sampled_values_truncated: boolean;
+            /** Unit */
+            unit?: string | null;
+        };
+        "PointCoordinateValue-Output": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | null;
         /**
          * Problem
          * @description One expected, structured finding without presentation policy.
@@ -3111,6 +3178,24 @@ export interface components {
              */
             kind: "replace_parameter";
             value: components["schemas"]["StoredParameterValue-Input"];
+        };
+        /** ResolvedRunPointSelectionView */
+        ResolvedRunPointSelectionView: {
+            /**
+             * Coordinate Mode
+             * @enum {string}
+             */
+            coordinate_mode: "snap" | "free";
+            /** Coordinates */
+            coordinates: {
+                [key: string]: components["schemas"]["RunPointCoordinateValue-Output"];
+            };
+            /** Requested Coordinates */
+            requested_coordinates: {
+                [key: string]: components["schemas"]["RunPointCoordinateValue-Output"];
+            };
+            /** Sampled Point Index */
+            sampled_point_index?: number | null;
         };
         /** @constant */
         ResourceKind: "instrument";
@@ -3190,33 +3275,7 @@ export interface components {
             state: "queued";
         };
         /** @enum {string} */
-        ReviewCoordinateKind: "bool" | "int" | "float" | "string" | "quantity" | "entity";
-        /** @enum {string} */
         ReviewCoordinateMode: "exact" | "snap" | "free";
-        /** ReviewCoordinateSpec */
-        "ReviewCoordinateSpec-Output": {
-            /** Choices */
-            choices?: string[] | null;
-            /** Id */
-            id: string;
-            kind: components["schemas"]["ReviewCoordinateKind"];
-            /** Maximum */
-            maximum?: number | null;
-            /** Minimum */
-            minimum?: number | null;
-            /**
-             * Planned Values
-             * @default []
-             */
-            planned_values: components["schemas"]["ReviewCoordinateValue-Output"][];
-            /**
-             * Planned Values Truncated
-             * @default false
-             */
-            planned_values_truncated: boolean;
-            /** Unit */
-            unit?: string | null;
-        };
         "ReviewCoordinateValue-Input": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | null;
         "ReviewCoordinateValue-Output": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | null;
         /** ReviewInspectionView */
@@ -3263,7 +3322,7 @@ export interface components {
             /** Active */
             active: boolean;
             /** Coordinates */
-            coordinates: components["schemas"]["ReviewCoordinateSpec-Output"][];
+            coordinates: components["schemas"]["PointCoordinateSpec-Output"][];
             /**
              * Created At
              * Format: date-time
@@ -3603,10 +3662,10 @@ export interface components {
          */
         RunPlanView: {
             /**
-             * Coordinate Ids
+             * Coordinates
              * @default []
              */
-            coordinate_ids: string[];
+            coordinates: components["schemas"]["PointCoordinateSpec-Output"][];
             /** Experiment Id */
             experiment_id: string;
             /** Experiment Kind */
@@ -3627,11 +3686,28 @@ export interface components {
              * @default []
              */
             run_resource_requirements: components["schemas"]["RunResourceRequirement"][];
+            /**
+             * Sampled Points
+             * @default []
+             */
+            sampled_points: {
+                [key: string]: components["schemas"]["PointCoordinateValue-Output"];
+            }[];
+            /**
+             * Sampled Points Truncated
+             * @default false
+             */
+            sampled_points_truncated: boolean;
         };
         "RunPointCoordinateValue-Input": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | null;
         "RunPointCoordinateValue-Output": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | null;
         /** RunPointEnqueueCommand */
         RunPointEnqueueCommand: {
+            /**
+             * Coordinate Mode
+             * @enum {string}
+             */
+            coordinate_mode: "snap" | "free";
             /** Coordinates */
             coordinates: {
                 [key: string]: components["schemas"]["RunPointCoordinateValue-Input"];
@@ -3721,6 +3797,18 @@ export interface components {
             items: components["schemas"]["RunPointQueueEntryView"][];
             /** Run Id */
             run_id: string;
+        };
+        /** RunPointResolveCommand */
+        RunPointResolveCommand: {
+            /**
+             * Coordinate Mode
+             * @enum {string}
+             */
+            coordinate_mode: "snap" | "free";
+            /** Coordinates */
+            coordinates: {
+                [key: string]: components["schemas"]["RunPointCoordinateValue-Input"];
+            };
         };
         /** RunRecordJsonResult */
         RunRecordJsonResult: {
@@ -5358,6 +5446,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunPointQueueEntryView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_run_point_api_v1_runs__run_id__point_plan_resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunPointResolveCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolvedRunPointSelectionView"];
                 };
             };
             /** @description Validation Error */

@@ -238,6 +238,7 @@ def test_operator_point_queue_is_fifo_bounded_and_resolved_by_decisions(
     )
     enqueue = RunPointEnqueueCommand(
         request_id="queue-1",
+        coordinate_mode="free",
         coordinates={"frequency": Quantity(5.15, "GHz")},
     )
     second_enqueue = enqueue.model_copy(update={"request_id": "queue-2"})
@@ -259,13 +260,26 @@ def test_operator_point_queue_is_fifo_bounded_and_resolved_by_decisions(
             point_limit=3,
             plan_closed=False,
         )
-        first, first_created = ledger.enqueue_in_transaction(connection, enqueue)
-        retry, retry_created = ledger.enqueue_in_transaction(connection, enqueue)
-        second, _ = ledger.enqueue_in_transaction(connection, second_enqueue)
+        first, first_created = ledger.enqueue_in_transaction(
+            connection,
+            enqueue,
+            resolved_coordinates=enqueue.coordinates,
+        )
+        retry, retry_created = ledger.enqueue_in_transaction(
+            connection,
+            enqueue,
+            resolved_coordinates=enqueue.coordinates,
+        )
+        second, _ = ledger.enqueue_in_transaction(
+            connection,
+            second_enqueue,
+            resolved_coordinates=second_enqueue.coordinates,
+        )
         with pytest.raises(ExecutionJournalConflict, match="remaining budget"):
             ledger.enqueue_in_transaction(
                 connection,
                 enqueue.model_copy(update={"request_id": "queue-3"}),
+                resolved_coordinates=enqueue.coordinates,
             )
 
     assert first == retry

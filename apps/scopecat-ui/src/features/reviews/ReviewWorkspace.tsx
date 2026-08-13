@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleOff, LoaderCircle, Radio, Send, Waves } from "lucide-react";
-import type { ReviewCompileCommand, ReviewCoordinateSpec, ReviewSession } from "../../api-contract";
+import type { PointCoordinateSpec, ReviewCompileCommand, ReviewSession } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
 import { classes, primaryButton } from "../../ui/styles";
 import {
@@ -277,7 +277,7 @@ function CoordinateInput({
   value,
   onChange,
 }: {
-  spec: ReviewCoordinateSpec;
+  spec: PointCoordinateSpec;
   value: string;
   onChange: (value: string) => void;
 }) {
@@ -305,7 +305,7 @@ function CoordinateInput({
       </span>
       <input
         className="rounded-md border border-line bg-panel px-2.5 py-2 text-[0.68rem] font-medium text-text-soft"
-        list={spec.planned_values.length > 0 ? datalistId : undefined}
+        list={spec.sampled_values.length > 0 ? datalistId : undefined}
         max={spec.maximum ?? undefined}
         min={spec.minimum ?? undefined}
         onChange={(event) => onChange(event.target.value)}
@@ -313,9 +313,9 @@ function CoordinateInput({
         type={["int", "float", "quantity"].includes(spec.kind) ? "number" : "text"}
         value={value}
       />
-      {spec.planned_values.length > 0 && (
+      {spec.sampled_values.length > 0 && (
         <datalist id={datalistId}>
-          {spec.planned_values.map((planned, index) => (
+          {spec.sampled_values.map((planned, index) => (
             <option
               aria-label={`${spec.id} planned value ${index + 1}`}
               key={index}
@@ -358,18 +358,18 @@ function InspectionResult({ session }: { session: ReviewSession }) {
 }
 
 function coordinateDraft(
-  specs: ReviewCoordinateSpec[],
+  specs: PointCoordinateSpec[],
   current?: Record<string, unknown>,
 ): CoordinateDraft {
   return Object.fromEntries(
     specs.map((spec) => [
       spec.id,
-      coordinateInputValue(current?.[spec.id] ?? spec.planned_values[0] ?? ""),
+      coordinateInputValue(current?.[spec.id] ?? spec.sampled_values[0] ?? ""),
     ]),
   );
 }
 
-function parseCoordinate(spec: ReviewCoordinateSpec, encoded: string): CoordinateInput {
+function parseCoordinate(spec: PointCoordinateSpec, encoded: string): CoordinateInput {
   if (spec.kind === "bool") return encoded === "true";
   if (spec.kind === "int") return Number.parseInt(encoded, 10);
   if (spec.kind === "float") return Number(encoded);

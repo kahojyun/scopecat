@@ -183,7 +183,7 @@ class GatedOptimizer:
         if context.completed_point_count == 2:
             OPTIMIZER_READY.write_text("ready", encoding="utf-8")
             wait_for_release(RELEASE_OPTIMIZER)
-            return sc.PointCandidate(
+            return sc.PointProposalAttempt(
                 {"x": 0.5},
                 source="optimizer",
                 based_on_completed_point_count=context.completed_point_count,

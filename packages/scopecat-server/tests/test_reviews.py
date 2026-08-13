@@ -40,7 +40,7 @@ def test_review_session_round_trips_compile_work_without_run_admission(
                         id="beta",
                         kind="quantity",
                         unit="ns",
-                        planned_values=(Quantity(0.0, "ns"),),
+                        sampled_values=(Quantity(0.0, "ns"),),
                     ),
                 ),
             )

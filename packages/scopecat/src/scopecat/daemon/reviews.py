@@ -7,35 +7,21 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from scopecat.control.models import (
+    PointCoordinateKind,
+    PointCoordinateSpec,
+    PointCoordinateValue,
+)
 from scopecat.inspection import CompiledArtifactInspection
-from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.quantity import Quantity
 
-type ReviewCoordinateValue = bool | int | float | str | Quantity | EntityRef | None
-type ReviewCoordinateKind = Literal[
-    "bool",
-    "int",
-    "float",
-    "string",
-    "quantity",
-    "entity",
-]
+type ReviewCoordinateValue = PointCoordinateValue
+type ReviewCoordinateKind = PointCoordinateKind
 type ReviewCoordinateMode = Literal["exact", "snap", "free"]
+ReviewCoordinateSpec = PointCoordinateSpec
 
 
 class _ReviewModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-class ReviewCoordinateSpec(_ReviewModel):
-    id: str = Field(min_length=1)
-    kind: ReviewCoordinateKind
-    unit: str | None = None
-    minimum: int | float | None = None
-    maximum: int | float | None = None
-    choices: tuple[str, ...] | None = None
-    planned_values: tuple[ReviewCoordinateValue, ...] = ()
-    planned_values_truncated: bool = False
 
 
 class ReviewPointView(_ReviewModel):
@@ -68,7 +54,7 @@ class ReviewSessionCreateCommand(_ReviewModel):
     title: str = Field(min_length=1)
     experiment_id: str = Field(min_length=1)
     experiment_kind: str = Field(min_length=1)
-    coordinates: tuple[ReviewCoordinateSpec, ...]
+    coordinates: tuple[PointCoordinateSpec, ...]
     planned_points: tuple[ReviewPointView, ...] = ()
     planned_points_truncated: bool = False
     initial_result: ReviewCompilationResult | None = None
@@ -115,7 +101,7 @@ class ReviewSessionView(_ReviewModel):
     active: bool
     created_at: datetime
     updated_at: datetime
-    coordinates: tuple[ReviewCoordinateSpec, ...]
+    coordinates: tuple[PointCoordinateSpec, ...]
     planned_points: tuple[ReviewPointView, ...] = ()
     planned_points_truncated: bool = False
     pending_request_count: int = Field(default=0, ge=0)

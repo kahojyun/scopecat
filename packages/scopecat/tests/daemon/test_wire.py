@@ -24,6 +24,7 @@ from scopecat.config.registry.records import (
     DirectConfigRegistrySource,
 )
 from scopecat.control.models import (
+    PointCoordinateSpec,
     ResourceKey,
     RunDomainTargetRequirement,
     RunPlanSummary,
@@ -413,7 +414,14 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
             point_count=2,
             initial_point_count=2,
             point_limit=2,
-            coordinate_ids=("bias",),
+            coordinates=(
+                PointCoordinateSpec(
+                    id="bias",
+                    kind="float",
+                    sampled_values=(0.0, 1.0),
+                ),
+            ),
+            sampled_points=({"bias": 0.0}, {"bias": 1.0}),
             record_ids=("signal",),
             host_instrument_order=("scope-1",),
             host_provider_id="tests.provider",

@@ -64,11 +64,18 @@ class OperatorPointRequest:
     """One durable operator request, independent of proposal freshness."""
 
     request_id: str
+    coordinate_mode: Literal["snap", "free"]
+    requested_coordinates: Mapping[str, CellValue]
     coordinates: Mapping[str, CellValue]
 
     def __post_init__(self) -> None:
         if not self.request_id:
             raise ValueError("operator point request id must be non-empty")
+        object.__setattr__(
+            self,
+            "requested_coordinates",
+            MappingProxyType(dict(self.requested_coordinates)),
+        )
         object.__setattr__(
             self,
             "coordinates",
@@ -79,6 +86,20 @@ class OperatorPointRequest:
     def coordinate_fingerprint(self) -> str:
         return "sha256:" + stable_content_hash(
             content_fingerprint(dict(self.coordinates))
+        )
+
+    @property
+    def request_fingerprint(self) -> str:
+        return "sha256:" + stable_content_hash(
+            content_fingerprint(
+                {
+                    "schema": "scopecat.operator_point_request.v1",
+                    "request_id": self.request_id,
+                    "coordinate_mode": self.coordinate_mode,
+                    "requested_coordinates": dict(self.requested_coordinates),
+                    "resolved_coordinates": dict(self.coordinates),
+                }
+            )
         )
 
 

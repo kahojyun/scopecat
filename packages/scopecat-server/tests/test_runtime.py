@@ -24,6 +24,7 @@ from scopecat.control.models import (
     DurableEvent,
     DurableEventInput,
     EventPage,
+    PointCoordinateSpec,
     ResourceClaim,
     ResourceKey,
     RunDomainTargetRequirement,
@@ -35,6 +36,7 @@ from scopecat.daemon.points import (
     RunPointEnqueueCommand,
     RunPointPlanCloseCommand,
     RunPointProposalAttemptView,
+    RunPointResolveCommand,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -1719,7 +1721,9 @@ def test_admission_canonicalizes_domain_only_instrument_claims(
         "point_count",
         "initial_point_count",
         "point_limit",
-        "coordinate_ids",
+        "coordinates",
+        "sampled_points",
+        "sampled_points_truncated",
         "record_ids",
         "run_resource_requirements",
     }
@@ -2208,7 +2212,15 @@ def test_open_point_plan_can_succeed_below_its_limit_and_exposes_coverage(
                 point_count=None,
                 initial_point_count=1,
                 point_limit=3,
-                coordinate_ids=("frequency",),
+                coordinates=(
+                    PointCoordinateSpec(
+                        id="frequency",
+                        kind="quantity",
+                        unit="GHz",
+                        sampled_values=(Quantity(5.0, "GHz"),),
+                    ),
+                ),
+                sampled_points=({"frequency": Quantity(5.0, "GHz")},),
                 run_resource_requirements=(
                     RunResourceRequirement(id="source-0", kind="instrument"),
                 ),
@@ -2269,6 +2281,88 @@ def test_open_point_plan_can_succeed_below_its_limit_and_exposes_coverage(
     assert view.control.admission.plan.point_limit == 3
 
 
+def test_run_point_resolution_preserves_raw_input_and_makes_snap_explicit(
+    tmp_path: Path,
+) -> None:
+    submission = _submission("adaptive-resolution").model_copy(
+        update={
+            "plan": RunPlanSummary(
+                experiment_id="scratch",
+                experiment_kind="scratch",
+                point_count=None,
+                initial_point_count=2,
+                point_limit=4,
+                coordinates=(
+                    PointCoordinateSpec(
+                        id="frequency",
+                        kind="quantity",
+                        unit="GHz",
+                        minimum=4.0,
+                        maximum=6.0,
+                        sampled_values=(
+                            Quantity(5.0, "GHz"),
+                            Quantity(5.2, "GHz"),
+                        ),
+                    ),
+                ),
+                sampled_points=(
+                    {"frequency": Quantity(5.0, "GHz")},
+                    {"frequency": Quantity(5.2, "GHz")},
+                ),
+                run_resource_requirements=(
+                    RunResourceRequirement(id="source-0", kind="instrument"),
+                ),
+            )
+        }
+    )
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(submission)
+        runtime.application.executor.start_executor(
+            admission.run_id,
+            ExecutorStartRequest(executor_id="adaptive-resolution-test"),
+        )
+        snap = runtime.application.point_plans.resolve(
+            admission.run_id,
+            RunPointResolveCommand(
+                coordinate_mode="snap",
+                coordinates={"frequency": Quantity(5.16, "GHz")},
+            ),
+        )
+        free = runtime.application.point_plans.resolve(
+            admission.run_id,
+            RunPointResolveCommand(
+                coordinate_mode="free",
+                coordinates={"frequency": Quantity(4.5, "GHz")},
+            ),
+        )
+        queued = runtime.application.point_plans.enqueue(
+            admission.run_id,
+            RunPointEnqueueCommand(
+                request_id="operator-snap",
+                coordinate_mode="snap",
+                coordinates={"frequency": Quantity(5.16, "GHz")},
+            ),
+        )
+
+        with pytest.raises(BackendConflict, match="at least"):
+            runtime.application.point_plans.resolve(
+                admission.run_id,
+                RunPointResolveCommand(
+                    coordinate_mode="free",
+                    coordinates={"frequency": Quantity(3.5, "GHz")},
+                ),
+            )
+
+    assert snap.requested_coordinates == {"frequency": Quantity(5.16, "GHz")}
+    assert snap.coordinates == {"frequency": Quantity(5.2, "GHz")}
+    assert snap.sampled_point_index == 1
+    assert free.coordinates == {"frequency": Quantity(4.5, "GHz")}
+    assert free.sampled_point_index is None
+    assert queued.request.coordinate_mode == "snap"
+    assert queued.request.requested_coordinates == snap.requested_coordinates
+    assert queued.request.coordinates == snap.coordinates
+
+
 def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
     submission = _submission("adaptive-ledger").model_copy(
         update={
@@ -2278,7 +2372,15 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
                 point_count=None,
                 initial_point_count=1,
                 point_limit=3,
-                coordinate_ids=("frequency",),
+                coordinates=(
+                    PointCoordinateSpec(
+                        id="frequency",
+                        kind="quantity",
+                        unit="GHz",
+                        sampled_values=(Quantity(5.0, "GHz"),),
+                    ),
+                ),
+                sampled_points=({"frequency": Quantity(5.0, "GHz")},),
                 run_resource_requirements=(
                     RunResourceRequirement(id="source-0", kind="instrument"),
                 ),
@@ -2308,6 +2410,7 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
             admission.run_id,
             RunPointEnqueueCommand(
                 request_id="queue-1",
+                coordinate_mode="free",
                 coordinates={"frequency": Quantity(5.2, "GHz")},
             ),
         )
@@ -2397,7 +2500,15 @@ def test_failed_adaptive_run_abandons_pending_operator_points(tmp_path: Path) ->
                 point_count=None,
                 initial_point_count=1,
                 point_limit=3,
-                coordinate_ids=("frequency",),
+                coordinates=(
+                    PointCoordinateSpec(
+                        id="frequency",
+                        kind="quantity",
+                        unit="GHz",
+                        sampled_values=(Quantity(5.0, "GHz"),),
+                    ),
+                ),
+                sampled_points=({"frequency": Quantity(5.0, "GHz")},),
                 run_resource_requirements=(
                     RunResourceRequirement(id="source-0", kind="instrument"),
                 ),
@@ -2414,6 +2525,7 @@ def test_failed_adaptive_run_abandons_pending_operator_points(tmp_path: Path) ->
             admission.run_id,
             RunPointEnqueueCommand(
                 request_id="pending-at-failure",
+                coordinate_mode="free",
                 coordinates={"frequency": Quantity(5.2, "GHz")},
             ),
         )
@@ -3320,7 +3432,15 @@ def test_restart_quarantines_executor_until_operator_reconciles(
                     point_count=None,
                     initial_point_count=1,
                     point_limit=3,
-                    coordinate_ids=("frequency",),
+                    coordinates=(
+                        PointCoordinateSpec(
+                            id="frequency",
+                            kind="quantity",
+                            unit="GHz",
+                            sampled_values=(Quantity(5.0, "GHz"),),
+                        ),
+                    ),
+                    sampled_points=({"frequency": Quantity(5.0, "GHz")},),
                     run_resource_requirements=(
                         RunResourceRequirement(id="source-0", kind="instrument"),
                     ),
@@ -3346,6 +3466,7 @@ def test_restart_quarantines_executor_until_operator_reconciles(
             admission.run_id,
             RunPointEnqueueCommand(
                 request_id="queue-before-restart",
+                coordinate_mode="free",
                 coordinates={"frequency": Quantity(5.2, "GHz")},
             ),
         )

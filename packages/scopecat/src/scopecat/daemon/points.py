@@ -7,8 +7,7 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.quantity import Quantity
+from scopecat.control.models import PointCoordinateValue
 from scopecat.kernel.value_data import CellValue
 from scopecat.measurements.points import (
     OperatorPointRequest,
@@ -16,7 +15,7 @@ from scopecat.measurements.points import (
     PointProposalSource,
 )
 
-type RunPointCoordinateValue = bool | int | float | str | Quantity | EntityRef | None
+type RunPointCoordinateValue = PointCoordinateValue
 
 
 class _PointModel(BaseModel):
@@ -47,17 +46,27 @@ class OperatorPointRequestView(_PointModel):
     """Durable operator intent before it becomes a freshness-bearing proposal."""
 
     request_id: str = Field(min_length=1)
+    coordinate_mode: Literal["snap", "free"]
+    requested_coordinates: dict[str, RunPointCoordinateValue]
     coordinates: dict[str, RunPointCoordinateValue]
     coordinate_fingerprint: str = Field(min_length=1)
+    request_fingerprint: str = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_fingerprint(self) -> OperatorPointRequestView:
         request = OperatorPointRequest(
             request_id=self.request_id,
+            coordinate_mode=self.coordinate_mode,
+            requested_coordinates=cast(
+                "dict[str, CellValue]",
+                self.requested_coordinates,
+            ),
             coordinates=cast("dict[str, CellValue]", self.coordinates),
         )
         if request.coordinate_fingerprint != self.coordinate_fingerprint:
             raise ValueError("operator point request fingerprint does not match")
+        if request.request_fingerprint != self.request_fingerprint:
+            raise ValueError("operator point request identity does not match")
         return self
 
 
@@ -146,18 +155,39 @@ class RunPointDecisionCommand(_PointModel):
 
 class RunPointEnqueueCommand(_PointModel):
     request_id: str = Field(min_length=1)
+    coordinate_mode: Literal["snap", "free"]
     coordinates: dict[str, RunPointCoordinateValue]
 
-    def point_request(self) -> OperatorPointRequestView:
+    def point_request(
+        self,
+        resolved_coordinates: dict[str, RunPointCoordinateValue],
+    ) -> OperatorPointRequestView:
         request = OperatorPointRequest(
             request_id=self.request_id,
-            coordinates=cast("dict[str, CellValue]", self.coordinates),
+            coordinate_mode=self.coordinate_mode,
+            requested_coordinates=cast("dict[str, CellValue]", self.coordinates),
+            coordinates=cast("dict[str, CellValue]", resolved_coordinates),
         )
         return OperatorPointRequestView(
             request_id=self.request_id,
-            coordinates=self.coordinates,
+            coordinate_mode=self.coordinate_mode,
+            requested_coordinates=self.coordinates,
+            coordinates=resolved_coordinates,
             coordinate_fingerprint=request.coordinate_fingerprint,
+            request_fingerprint=request.request_fingerprint,
         )
+
+
+class RunPointResolveCommand(_PointModel):
+    coordinate_mode: Literal["snap", "free"]
+    coordinates: dict[str, RunPointCoordinateValue]
+
+
+class ResolvedRunPointSelectionView(_PointModel):
+    coordinate_mode: Literal["snap", "free"]
+    requested_coordinates: dict[str, RunPointCoordinateValue]
+    coordinates: dict[str, RunPointCoordinateValue]
+    sampled_point_index: int | None = Field(default=None, ge=0)
 
 
 class RunPointQueueEntryView(_PointModel):
@@ -216,6 +246,7 @@ class RunPointPlanCloseCommand(_PointModel):
 __all__ = [
     "AcceptedRunPointView",
     "OperatorPointRequestView",
+    "ResolvedRunPointSelectionView",
     "RunPointCoordinateValue",
     "RunPointDecisionCommand",
     "RunPointDecisionView",
@@ -225,4 +256,5 @@ __all__ = [
     "RunPointProposalAttemptView",
     "RunPointQueueEntryView",
     "RunPointQueueView",
+    "RunPointResolveCommand",
 ]

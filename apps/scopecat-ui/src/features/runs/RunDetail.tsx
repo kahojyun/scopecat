@@ -183,7 +183,6 @@ export function RunDetail({
           pending={inspectionsPending}
           completedPointCount={Math.max(run.progressCompleted ?? 0, measurements?.recordCount ?? 0)}
           run={run}
-          measurements={measurements}
         />
         <RunProposals key={run.runId} runId={run.runId} />
         <AnalysisCard

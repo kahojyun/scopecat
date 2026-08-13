@@ -301,7 +301,7 @@ class Optimizer:
     def propose(self, context):
         if context.completed_point_count >= 20:
             return sc.OptimizationComplete("enough evidence")
-        return sc.PointCandidate(
+        return sc.PointProposalAttempt(
             {"frequency": choose_frequency(context.observations)},
             source="optimizer",
             based_on_completed_point_count=context.completed_point_count,

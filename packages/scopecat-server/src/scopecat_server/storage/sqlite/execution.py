@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
 from scopecat.daemon.points import (
     AcceptedRunPointView,
+    RunPointCoordinateValue,
     RunPointDecisionCommand,
     RunPointDecisionView,
     RunPointEnqueueCommand,
@@ -224,8 +225,10 @@ class SQLiteRunPointLedger:
         self,
         connection: sqlite3.Connection,
         command: RunPointEnqueueCommand,
+        *,
+        resolved_coordinates: dict[str, RunPointCoordinateValue],
     ) -> tuple[RunPointQueueEntryView, bool]:
-        request = command.point_request()
+        request = command.point_request(resolved_coordinates)
         existing = _one(
             connection.execute(
                 """

@@ -207,7 +207,9 @@ def _run_control_view(
                 point_count=plan.point_count,
                 initial_point_count=plan.initial_point_count,
                 point_limit=plan.point_limit,
-                coordinate_ids=plan.coordinate_ids,
+                coordinates=plan.coordinates,
+                sampled_points=plan.sampled_points,
+                sampled_points_truncated=plan.sampled_points_truncated,
                 record_ids=plan.record_ids,
                 run_resource_requirements=tuple(
                     RunResourceRequirement(kind=resource.kind, id=resource.id)
