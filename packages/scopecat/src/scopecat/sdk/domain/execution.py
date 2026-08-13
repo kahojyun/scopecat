@@ -14,10 +14,10 @@ from __future__ import annotations
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
 
+from scopecat.inspection import CompiledArtifactInspection
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.state import StateValue
 from scopecat.measurements.values import MeasurementValueCandidate
-from scopecat.sdk.domain.inspection import CompiledArtifactInspection
 from scopecat.sdk.domain.invocation import ClosedDomainInvocation
 from scopecat.sdk.domain.runtime import (
     DomainExecutionResult,

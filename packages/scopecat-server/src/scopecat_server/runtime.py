@@ -29,6 +29,7 @@ from scopecat_server.services.application import DaemonApplication
 from scopecat_server.services.config import ConfigService
 from scopecat_server.services.executor import ExecutorService
 from scopecat_server.services.leases import OwnershipLeaseSupervisor
+from scopecat_server.services.reviews import ReviewService
 from scopecat_server.services.runs import RunService
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
@@ -169,6 +170,7 @@ class LocalDaemonRuntime:
                 instruments=instruments,
                 payloads=payloads,
                 lease_supervisor=lease_supervisor,
+                reviews=ReviewService(),
             )
             try:
                 bootstrap_source = (

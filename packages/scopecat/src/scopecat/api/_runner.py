@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import httpx2
 
+from scopecat.api.review import ExperimentReviewHandle, create_experiment_review
 from scopecat.authoring import MetadataValue
 from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.control.models import (
@@ -147,6 +148,36 @@ class _DaemonRunner:
             point=point,
             coordinates=coordinates,
             coordinate_mode=coordinate_mode,
+        )
+
+    def review(
+        self,
+        experiment: ExperimentInvocation,
+        *,
+        config: ConfigProfileSnapshot | None = None,
+        name: str | None = None,
+        tags: tuple[str, ...] = (),
+        description: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+        operator: str | None = None,
+    ) -> ExperimentReviewHandle:
+        planned = self._plan(
+            experiment,
+            config=config,
+            config_source=None,
+            name=name,
+            tags=tags,
+            description=description,
+            metadata=metadata,
+            operator=operator,
+        )
+        return create_experiment_review(
+            client=self.client,
+            program=planned.program,
+            invocation=experiment,
+            session_id=uuid4().hex,
+            worker_id=uuid4().hex,
+            title=name or planned.program.experiment_id,
         )
 
     def _plan(

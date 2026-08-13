@@ -17,6 +17,17 @@ from scopecat.control.models import (
     ControlRunState,
     EventPage,
 )
+from scopecat.daemon.reviews import (
+    ReviewCompileCommand,
+    ReviewCompileReceipt,
+    ReviewCompletionCommand,
+    ReviewHeartbeatReceipt,
+    ReviewSessionCloseReceipt,
+    ReviewSessionCreateCommand,
+    ReviewSessionListView,
+    ReviewSessionView,
+    ReviewWorkItem,
+)
 from scopecat.daemon.views import (
     ActiveConfigView,
     ConfigActivationHistoryView,
@@ -162,8 +173,9 @@ class DaemonClient:
         timeout: float | httpx2.Timeout | None = _DEFAULT_TIMEOUT,
         transport: httpx2.BaseTransport | None = None,
     ) -> None:
+        self.base_url = base_url.rstrip("/")
         self._http = httpx2.Client(
-            base_url=base_url.rstrip("/"),
+            base_url=self.base_url,
             timeout=timeout,
             transport=transport,
         )
@@ -184,6 +196,85 @@ class DaemonClient:
 
     def health(self) -> DaemonHealth:
         return self._get_model(f"{_API_PREFIX}/health", DaemonHealth)
+
+    def create_review(
+        self,
+        command: ReviewSessionCreateCommand,
+    ) -> ReviewSessionView:
+        return self._post_model(
+            f"{_API_PREFIX}/reviews",
+            command,
+            ReviewSessionView,
+        )
+
+    def list_reviews(self) -> ReviewSessionListView:
+        return self._get_model(f"{_API_PREFIX}/reviews", ReviewSessionListView)
+
+    def get_review(self, session_id: str) -> ReviewSessionView:
+        return self._get_model(
+            f"{_API_PREFIX}/reviews/{quote(session_id, safe='')}",
+            ReviewSessionView,
+        )
+
+    def enqueue_review_compile(
+        self,
+        session_id: str,
+        command: ReviewCompileCommand,
+    ) -> ReviewCompileReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/reviews/{quote(session_id, safe='')}/compile",
+            command,
+            ReviewCompileReceipt,
+        )
+
+    def claim_review_work(
+        self,
+        session_id: str,
+        worker_id: str,
+    ) -> ReviewWorkItem | None:
+        response = self._request(
+            "POST",
+            f"{_API_PREFIX}/reviews/{quote(session_id, safe='')}/worker/claim",
+            params={"worker_id": worker_id},
+        )
+        if response.content == b"null":
+            return None
+        return ReviewWorkItem.model_validate_json(response.content)
+
+    def complete_review_work(
+        self,
+        session_id: str,
+        command: ReviewCompletionCommand,
+    ) -> ReviewSessionView:
+        return self._post_model(
+            f"{_API_PREFIX}/reviews/{quote(session_id, safe='')}/worker/complete",
+            command,
+            ReviewSessionView,
+        )
+
+    def heartbeat_review_worker(
+        self,
+        session_id: str,
+        worker_id: str,
+    ) -> ReviewHeartbeatReceipt:
+        response = self._request(
+            "POST",
+            f"{_API_PREFIX}/reviews/{quote(session_id, safe='')}/worker/heartbeat",
+            params={"worker_id": worker_id},
+        )
+        return ReviewHeartbeatReceipt.model_validate_json(response.content)
+
+    def close_review_worker(
+        self,
+        session_id: str,
+        worker_id: str,
+    ) -> ReviewSessionCloseReceipt:
+        response = self._request(
+            "POST",
+            f"{_API_PREFIX}/reviews/{quote(session_id, safe='')}/worker/close",
+            params={"worker_id": worker_id},
+        )
+        return ReviewSessionCloseReceipt.model_validate_json(response.content)
 
     def config_registry(self) -> ConfigRegistryView:
         return self._get_model(

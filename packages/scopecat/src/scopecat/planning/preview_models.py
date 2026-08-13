@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from scopecat.inspection import CompiledArtifactInspection
 from scopecat.program.measurement_types import MeasurementVariableRole
 from scopecat.records.measurement import MeasurementDatasetSchema
-from scopecat.sdk.domain.inspection import CompiledArtifactInspection
 
 
 @dataclass(frozen=True)

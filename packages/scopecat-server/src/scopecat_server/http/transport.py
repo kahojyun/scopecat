@@ -21,6 +21,17 @@ from scopecat.daemon.endpoint import (
     DAEMON_SHUTDOWN_PATH,
     DAEMON_SHUTDOWN_TOKEN_HEADER,
 )
+from scopecat.daemon.reviews import (
+    ReviewCompileCommand,
+    ReviewCompileReceipt,
+    ReviewCompletionCommand,
+    ReviewHeartbeatReceipt,
+    ReviewSessionCloseReceipt,
+    ReviewSessionCreateCommand,
+    ReviewSessionListView,
+    ReviewSessionView,
+    ReviewWorkItem,
+)
 from scopecat.daemon.views import (
     ActiveConfigView,
     ConfigActivationHistoryView,
@@ -397,6 +408,53 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         session_id: str,
     ) -> InstrumentSessionEndReceipt:
         return application.instruments.resolve_attention(session_id)
+
+    @app.post(f"{_API_PREFIX}/reviews", status_code=201)
+    def create_review(command: ReviewSessionCreateCommand) -> ReviewSessionView:
+        return application.reviews.create(command)
+
+    @app.get(f"{_API_PREFIX}/reviews")
+    def list_reviews() -> ReviewSessionListView:
+        return application.reviews.list()
+
+    @app.get(f"{_API_PREFIX}/reviews/{{session_id}}")
+    def get_review(session_id: str) -> ReviewSessionView:
+        return application.reviews.get(session_id)
+
+    @app.post(f"{_API_PREFIX}/reviews/{{session_id}}/compile", status_code=202)
+    def compile_review_point(
+        session_id: str,
+        command: ReviewCompileCommand,
+    ) -> ReviewCompileReceipt:
+        return application.reviews.enqueue(session_id, command)
+
+    @app.post(f"{_API_PREFIX}/reviews/{{session_id}}/worker/claim")
+    def claim_review_work(
+        session_id: str,
+        worker_id: Annotated[str, Query(min_length=1)],
+    ) -> ReviewWorkItem | None:
+        return application.reviews.claim(session_id, worker_id)
+
+    @app.post(f"{_API_PREFIX}/reviews/{{session_id}}/worker/complete")
+    def complete_review_work(
+        session_id: str,
+        command: ReviewCompletionCommand,
+    ) -> ReviewSessionView:
+        return application.reviews.complete(session_id, command)
+
+    @app.post(f"{_API_PREFIX}/reviews/{{session_id}}/worker/heartbeat")
+    def heartbeat_review_worker(
+        session_id: str,
+        worker_id: Annotated[str, Query(min_length=1)],
+    ) -> ReviewHeartbeatReceipt:
+        return application.reviews.heartbeat(session_id, worker_id)
+
+    @app.post(f"{_API_PREFIX}/reviews/{{session_id}}/worker/close")
+    def close_review_worker(
+        session_id: str,
+        worker_id: Annotated[str, Query(min_length=1)],
+    ) -> ReviewSessionCloseReceipt:
+        return application.reviews.close(session_id, worker_id)
 
     @app.get(f"{_API_PREFIX}/runs")
     def list_runs(

@@ -6,6 +6,7 @@ from collections.abc import Callable, Hashable, Sequence
 from types import MappingProxyType
 from typing import cast
 
+from scopecat.inspection import CompiledArtifactInspection
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.kernel.state import PayloadRef, StateValue
@@ -24,7 +25,6 @@ from scopecat.sdk.domain.execution import (
     ErasedDomainSetup,
     PreparedDomainExecution,
 )
-from scopecat.sdk.domain.inspection import CompiledArtifactInspection
 from scopecat.sdk.domain.invocation import (
     DomainOutputValue,
     close_domain_invocation,

@@ -12,6 +12,7 @@ from scopecat.api._control import LabControlOperations
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.instruments import LabInstrumentOperations
+from scopecat.api.review import ExperimentReviewHandle
 from scopecat.api.run import RunHandle, run_handle_id
 from scopecat.authoring.experiments import Experiment, ExperimentInvocation
 from scopecat.config.candidates import CandidateConfig
@@ -76,6 +77,25 @@ class PreparedLabExperiment:
             self.invocation,
             config=self.config,
             config_source=self.config_source,
+            name=name,
+            tags=tags,
+            description=description,
+            metadata=metadata,
+            operator=operator,
+        )
+
+    def review(
+        self,
+        *,
+        name: str | None = None,
+        tags: tuple[str, ...] = (),
+        description: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+        operator: str | None = None,
+    ) -> ExperimentReviewHandle:
+        return self.lab.review_invocation(
+            self.invocation,
+            config=self.config,
             name=name,
             tags=tags,
             description=description,
@@ -226,6 +246,27 @@ class LabClient:
             operator=operator,
         )
 
+    def review(
+        self,
+        experiment: ExperimentSpec,
+        *,
+        config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
+        name: str | None = None,
+        tags: tuple[str, ...] = (),
+        description: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+        operator: str | None = None,
+    ) -> ExperimentReviewHandle:
+        """Open a live GUI backed by this process's pure compiler."""
+
+        return self.prepare(experiment, config=config).review(
+            name=name,
+            tags=tags,
+            description=description,
+            metadata=metadata,
+            operator=operator,
+        )
+
     def preview_invocation(
         self,
         invocation: ExperimentInvocation,
@@ -279,12 +320,34 @@ class LabClient:
         )
         return RunHandle(session=self, id=manifest.run_id)
 
+    def review_invocation(
+        self,
+        invocation: ExperimentInvocation,
+        *,
+        config: ConfigProfileSnapshot,
+        name: str | None = None,
+        tags: tuple[str, ...] = (),
+        description: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+        operator: str | None = None,
+    ) -> ExperimentReviewHandle:
+        return self._runner.review(
+            invocation,
+            config=config,
+            name=name,
+            tags=tags,
+            description=description,
+            metadata=metadata,
+            operator=operator,
+        )
+
 
 def _experiment_invocation(experiment: ExperimentSpec) -> ExperimentInvocation:
     return experiment.bind() if isinstance(experiment, Experiment) else experiment
 
 
 __all__ = [
+    "ExperimentReviewHandle",
     "LabClient",
     "PreparedLabExperiment",
 ]

@@ -8,7 +8,7 @@ from typing import cast
 
 import numpy as np
 from numpy.typing import NDArray
-from scopecat.sdk.domain import (
+from scopecat.inspection import (
     CompiledArtifactInspection,
     CompiledInspectionBounds,
     CompiledInspectionFact,

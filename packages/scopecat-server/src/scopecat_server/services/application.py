@@ -20,6 +20,7 @@ from .admission import AdmissionService
 from .config import ConfigService
 from .executor import ExecutorService
 from .leases import OwnershipLeaseSupervisor
+from .reviews import ReviewService
 from .runs import RunService
 
 if TYPE_CHECKING:
@@ -42,6 +43,7 @@ class DaemonApplication:
         instruments: InstrumentService,
         payloads: CommandPayloadService,
         lease_supervisor: OwnershipLeaseSupervisor,
+        reviews: ReviewService,
     ) -> None:
         self.project_root = Path(project_root).resolve()
         self.project_id = project_id
@@ -52,6 +54,7 @@ class DaemonApplication:
         self.executor = executor
         self.instruments = instruments
         self.payloads = payloads
+        self.reviews = reviews
         self._lease_supervisor = lease_supervisor
 
     def start(self) -> None:
