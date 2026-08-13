@@ -100,25 +100,28 @@ class DomainProposalDecision:
     proposal_index: int
     proposal: DomainProposalAttempt
     outcome: DomainProposalOutcome
-    accepted_points: tuple[AcceptedRunPoint, ...] = ()
+    accepted_point_start: int | None = None
+    accepted_point_count: int = 0
     reason: str | None = None
 
     def __post_init__(self) -> None:
         if self.proposal_index < 0:
             raise ValueError("proposal index must be non-negative")
         if self.outcome == "accepted":
-            if not self.accepted_points or self.reason is not None:
-                raise ValueError(
-                    "accepted domain proposal requires only accepted points"
-                )
-            if any(
-                point.domain_proposal_fingerprint != self.proposal.proposal_fingerprint
-                for point in self.accepted_points
+            if (
+                self.accepted_point_start is None
+                or self.accepted_point_start < 0
+                or self.accepted_point_count < 1
+                or self.reason is not None
             ):
                 raise ValueError(
-                    "accepted points must retain their domain proposal identity"
+                    "accepted domain proposal requires only its accepted point range"
                 )
-        elif self.accepted_points or not self.reason:
+        elif (
+            self.accepted_point_start is not None
+            or self.accepted_point_count != 0
+            or not self.reason
+        ):
             raise ValueError("rejected domain proposal requires only a reason")
 
 
@@ -159,7 +162,7 @@ class DomainProposalLedger:
     @property
     def accepted_point_count(self) -> int:
         return self.accepted_point_count_before + sum(
-            len(entry.accepted_points)
+            entry.accepted_point_count
             for entry in self.entries
             if entry.outcome == "accepted"
         )
@@ -185,6 +188,17 @@ class DomainProposalLedger:
         proposal: DomainProposalAttempt,
         points: tuple[AcceptedRunPoint, ...],
     ) -> DomainProposalLedger:
+        if not points:
+            raise ValueError("accepted domain proposal requires points")
+        if tuple(point.ordinal for point in points) != tuple(
+            range(points[0].ordinal, points[0].ordinal + len(points))
+        ):
+            raise ValueError("accepted domain points must form one contiguous range")
+        if any(
+            point.domain_proposal_fingerprint != proposal.proposal_fingerprint
+            for point in points
+        ):
+            raise ValueError("accepted points must retain domain proposal identity")
         return DomainProposalLedger(
             initial_point_count=self.initial_point_count,
             entries=(
@@ -193,7 +207,8 @@ class DomainProposalLedger:
                     proposal_index=self.decision_count,
                     proposal=proposal,
                     outcome="accepted",
-                    accepted_points=points,
+                    accepted_point_start=points[0].ordinal,
+                    accepted_point_count=len(points),
                 ),
             ),
             entry_offset=self.entry_offset,
@@ -237,7 +252,7 @@ class DomainProposalLedger:
             entry_offset=self.entry_offset + len(dropped),
             accepted_point_count_before=self.accepted_point_count_before
             + sum(
-                len(entry.accepted_points)
+                entry.accepted_point_count
                 for entry in dropped
                 if entry.outcome == "accepted"
             ),

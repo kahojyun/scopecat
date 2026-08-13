@@ -106,8 +106,8 @@ def test_run_inspection_feed_exposes_optimizer_decisions(tmp_path: Path) -> None
             outcome="rejected",
             reason="proposal used stale observations",
         )
-        runtime.application.reviews.append_run_inspection("run-1", event)
-        runtime.application.reviews.append_run_inspection("run-1", event)
+        runtime.application.run_inspections.append("run-1", event)
+        runtime.application.run_inspections.append("run-1", event)
 
         feed = client.get_run_inspections("run-1")
 

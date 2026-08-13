@@ -664,20 +664,23 @@ def _execution_coverage(
             bound = coordinator.bind(proposal)
             accepted = program.coverage.accept_all(bound.candidates)
         except (CheckFailed, ValueError) as error:
-            coordinator.reject(proposal, reason=str(error))
+            decision = coordinator.reject(proposal, reason=str(error))
             if state.proposal_writer is not None:
                 state.proposal_writer.append(
-                    coordinator.ledger.entries[-1],
+                    decision,
+                    (),
                     (),
                     operator_request_id=(
                         None if queued is None else queued.request.request_id
                     ),
                 )
             continue
-        coordinator.accept(bound, tuple(item.point for item in accepted))
+        accepted_points = tuple(item.point for item in accepted)
+        decision = coordinator.accept(bound, accepted_points)
         if state.proposal_writer is not None:
             state.proposal_writer.append(
-                coordinator.ledger.entries[-1],
+                decision,
+                accepted_points,
                 tuple(item.inspection for item in accepted),
                 operator_request_id=(
                     None if queued is None else queued.request.request_id

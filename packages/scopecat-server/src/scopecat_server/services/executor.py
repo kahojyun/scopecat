@@ -71,7 +71,7 @@ from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 from ..errors import BackendConflict, BackendNotFound
 from .active_measurements import ActiveMeasurementConflict, ActiveMeasurementStore
 from .point_plans import RunPointPlanService
-from .reviews import ReviewService
+from .reviews import RunInspectionFeedService
 
 if TYPE_CHECKING:
     from ..instruments.service import InstrumentService
@@ -91,7 +91,7 @@ class ExecutorService:
         runs: SQLiteRunRepository,
         instruments: InstrumentService,
         active_measurements: ActiveMeasurementStore,
-        reviews: ReviewService,
+        run_inspections: RunInspectionFeedService,
         point_plans: RunPointPlanService,
         lease_ttl: timedelta | None = None,
     ) -> None:
@@ -99,7 +99,7 @@ class ExecutorService:
         self._runs = runs
         self._instruments = instruments
         self._active_measurements = active_measurements
-        self._reviews = reviews
+        self._run_inspections = run_inspections
         self._point_plans = point_plans
         self._lease_ttl = lease_ttl or timedelta(seconds=30)
         self._heartbeat_interval_seconds = self._lease_ttl.total_seconds() / 3
@@ -206,7 +206,7 @@ class ExecutorService:
         command: RunInspectionAppendCommand,
     ) -> RunInspectionView:
         with self.fenced_write(run_id, token=command.lease_id):
-            return self._reviews.append_run_inspection(run_id, command.event)
+            return self._run_inspections.append(run_id, command.event)
 
     def cancel_run(self, run_id: str) -> RunCancellationReceipt:
         """Cancel queued work now or request a leased executor checkpoint stop."""

@@ -133,16 +133,28 @@ class RunDomainInspectionEvent(_ReviewModel):
     region_ids: tuple[str, ...]
     source: Literal["author", "optimizer", "operator"]
     outcome: Literal["accepted", "rejected"]
-    accepted_points: tuple[ReviewPointView, ...] = ()
+    accepted_point_start: int | None = Field(default=None, ge=0)
+    accepted_point_count: int = Field(default=0, ge=0)
     reason: str | None = None
     inspections: tuple[ReviewInspectionView, ...] = ()
 
     @model_validator(mode="after")
     def validate_outcome(self) -> RunDomainInspectionEvent:
         if self.outcome == "accepted":
-            if not self.accepted_points or self.reason is not None:
-                raise ValueError("accepted domain proposal requires accepted points")
-        elif self.accepted_points or not self.reason:
+            expected_count = self.fragment.point_count * len(self.region_ids)
+            if (
+                self.accepted_point_start is None
+                or self.accepted_point_count != expected_count
+                or self.reason is not None
+            ):
+                raise ValueError(
+                    "accepted domain proposal requires its accepted point range"
+                )
+        elif (
+            self.accepted_point_start is not None
+            or self.accepted_point_count != 0
+            or not self.reason
+        ):
             raise ValueError("rejected domain proposal requires a reason")
         if self.outcome == "rejected" and self.inspections:
             raise ValueError("rejected run proposal cannot have compiled inspections")

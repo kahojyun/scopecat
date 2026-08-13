@@ -3669,10 +3669,12 @@ export interface components {
          */
         "RunDomainInspectionEvent-Output": {
             /**
-             * Accepted Points
-             * @default []
+             * Accepted Point Count
+             * @default 0
              */
-            accepted_points: components["schemas"]["ReviewPointView-Output"][];
+            accepted_point_count: number;
+            /** Accepted Point Start */
+            accepted_point_start?: number | null;
             fragment: components["schemas"]["RunDomainFragmentView-Output"];
             /**
              * Inspections

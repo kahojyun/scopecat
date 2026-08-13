@@ -19,9 +19,7 @@ from scopecat.daemon.points import (
     RunPointPlanCloseCommand,
 )
 from scopecat.daemon.reviews import (
-    ReviewCoordinateValue,
     ReviewInspectionView,
-    ReviewPointView,
     RunDomainInspectionEvent,
     RunInspectionAppendCommand,
 )
@@ -335,11 +333,12 @@ class _DaemonRunDomainProposals:
     def append(
         self,
         decision: DomainProposalDecision,
+        accepted_points: tuple[AcceptedRunPoint, ...],
         inspections: tuple[RunPointInspection, ...],
         *,
         operator_request_id: str | None = None,
     ) -> None:
-        accepted_points = tuple(
+        accepted_point_views = tuple(
             AcceptedRunPointView(
                 point_index=point.ordinal,
                 coordinates=cast(
@@ -353,7 +352,7 @@ class _DaemonRunDomainProposals:
                     "str", point.domain_proposal_fingerprint
                 ),
             )
-            for point in decision.accepted_points
+            for point in accepted_points
         )
         durable = self._authority.client.append_run_domain_decision(
             self._authority.run_id,
@@ -366,7 +365,7 @@ class _DaemonRunDomainProposals:
                 operator_request_id=operator_request_id,
                 proposal=RunDomainProposalAttemptView.from_proposal(decision.proposal),
                 outcome=decision.outcome,
-                accepted_points=accepted_points,
+                accepted_points=accepted_point_views,
                 reason=decision.reason,
             ),
         )
@@ -374,8 +373,10 @@ class _DaemonRunDomainProposals:
             raise ValueError("daemon assigned a different proposal index")
         if durable.outcome != decision.outcome:
             raise ValueError("daemon recorded a different proposal outcome")
-        if durable.accepted_points != accepted_points:
-            raise ValueError("daemon recorded different accepted domain points")
+        if durable.accepted_point_start != decision.accepted_point_start:
+            raise ValueError("daemon recorded a different accepted point start")
+        if durable.accepted_point_count != decision.accepted_point_count:
+            raise ValueError("daemon recorded a different accepted point count")
         with suppress(Exception):
             self._authority.client.append_run_inspection(
                 self._authority.run_id,
@@ -388,9 +389,8 @@ class _DaemonRunDomainProposals:
                         region_ids=durable.proposal.region_ids,
                         source=durable.proposal.source,
                         outcome=durable.outcome,
-                        accepted_points=tuple(
-                            _review_point(point) for point in decision.accepted_points
-                        ),
+                        accepted_point_start=durable.accepted_point_start,
+                        accepted_point_count=durable.accepted_point_count,
                         reason=durable.reason,
                         inspections=_review_inspections(inspections),
                     ),
@@ -596,18 +596,6 @@ class _DaemonRunInstrumentHost:
         if receipt is None:
             raise RuntimeError("run instruments have not been provisioned")
         return receipt
-
-
-def _review_point(point: AcceptedRunPoint) -> ReviewPointView:
-    return ReviewPointView(
-        point_index=point.ordinal,
-        coordinates=cast(
-            "dict[str, ReviewCoordinateValue]",
-            dict(point.coordinates),
-        ),
-        proposal_fingerprint=point.proposal_fingerprint,
-        source=point.source,
-    )
 
 
 def _domain_decision_operation_id(

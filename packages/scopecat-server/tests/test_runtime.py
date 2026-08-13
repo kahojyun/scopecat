@@ -2525,7 +2525,8 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
         )
 
         assert initialized.accepted_point_count == 1
-        assert decision.accepted_points[0].point_index == 1
+        assert decision.accepted_point_start == 1
+        assert decision.accepted_point_count == 1
         assert closed.accepted_point_count == 2
         assert closed.plan_closed
 

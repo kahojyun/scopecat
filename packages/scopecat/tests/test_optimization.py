@@ -106,6 +106,36 @@ def test_domain_ledger_retains_bounded_decisions_with_exact_totals() -> None:
     assert ledger.optimizer_attempt_count == 40
 
 
+def test_domain_ledger_compacts_large_accepted_domain_to_point_range() -> None:
+    point_count = 4096
+    proposal = DomainProposalAttempt(
+        ResolvedDomainFragment.points(
+            tuple({"x": float(index)} for index in range(point_count))
+        ),
+        region_ids=("region-0",),
+    )
+    points = tuple(
+        _point(
+            index,
+            PointProposalAttempt(
+                {"x": float(index)},
+                source="optimizer",
+                region_id="region-0",
+                domain_proposal_fingerprint=proposal.proposal_fingerprint,
+            ),
+        )
+        for index in range(point_count)
+    )
+
+    [decision] = (
+        DomainProposalLedger(initial_point_count=0).accept(proposal, points).entries
+    )
+
+    assert decision.accepted_point_start == 0
+    assert decision.accepted_point_count == point_count
+    assert not hasattr(decision, "accepted_points")
+
+
 def test_optimizer_observation_projection_retains_only_metadata_free_scalars() -> None:
     point = _point(0, PointProposalAttempt({"x": 0.0}))
     record = MeasurementRecord(

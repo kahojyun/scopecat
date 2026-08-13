@@ -11,6 +11,7 @@ from scopecat.adaptive_domains import (
 )
 from scopecat.execution.program import RunPointInspection
 from scopecat.execution.services import QueuedOperatorDomainRequest
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.quantity import Quantity
 from scopecat.optimization import (
     DomainOptimizerContext,
@@ -158,11 +159,12 @@ class _OperatorQueuePort:
     def append(
         self,
         decision: DomainProposalDecision,
+        accepted_points: tuple[AcceptedRunPoint, ...],
         inspections: tuple[RunPointInspection, ...],
         *,
         operator_request_id: str | None = None,
     ) -> None:
-        del inspections
+        del accepted_points, inspections
         if decision.proposal.source == "operator":
             assert operator_request_id == "operator-queue-1"
         else:
@@ -328,7 +330,8 @@ def test_adaptive_execution_compiles_queued_operator_point_before_optimizer(
     assert manifest.status == "completed"
     assert len(queue.decisions) == 1
     assert queue.decisions[0].proposal.source == "operator"
-    assert queue.decisions[0].accepted_points[0].ordinal == 3
+    assert queue.decisions[0].accepted_point_start == 3
+    assert queue.decisions[0].accepted_point_count == 1
     assert queue.closed_reason == "operator point completed"
     assert len(dataset.records) == 4
     assert dataset.records[-1].coordinates["drive_frequency"] == (

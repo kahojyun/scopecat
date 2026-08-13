@@ -21,6 +21,7 @@ from scopecat.optimization import (
     AdaptiveDomainPlan,
     CompletedPointObservation,
     DomainOptimizerContext,
+    DomainProposalDecision,
     DomainProposalLedger,
     OptimizationComplete,
 )
@@ -265,7 +266,7 @@ class AdaptiveDomainCoordinator:
         self,
         bound: BoundDomainProposal,
         points: tuple[AcceptedRunPoint, ...],
-    ) -> None:
+    ) -> DomainProposalDecision:
         if len(points) != len(bound.candidates):
             raise ValueError("accepted domain points do not match the bound fragment")
         by_region: dict[str, list[AcceptedRunPoint]] = {
@@ -289,8 +290,14 @@ class AdaptiveDomainCoordinator:
             points,
         ).recent()
         self.accepted_point_count += len(points)
+        return self._global_ledger.entries[-1]
 
-    def reject(self, proposal: DomainProposalAttempt, *, reason: str) -> None:
+    def reject(
+        self,
+        proposal: DomainProposalAttempt,
+        *,
+        reason: str,
+    ) -> DomainProposalDecision:
         selected = proposal.region_ids or tuple(self._regions)
         for region_id in selected:
             region = self._regions.get(region_id)
@@ -300,6 +307,7 @@ class AdaptiveDomainCoordinator:
             proposal,
             reason=reason,
         ).recent()
+        return self._global_ledger.entries[-1]
 
     def add_observation(self, observation: CompletedPointObservation) -> None:
         region = self._region_for_point(observation.point)

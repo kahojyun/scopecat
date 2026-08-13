@@ -53,7 +53,6 @@ class ReviewService:
     def __init__(self) -> None:
         self._lock = Lock()
         self._sessions: dict[str, _ReviewSession] = {}
-        self._run_inspections: dict[str, _RunInspectionFeed] = {}
 
     def create(self, command: ReviewSessionCreateCommand) -> ReviewSessionView:
         now = datetime.now(UTC)
@@ -152,13 +151,39 @@ class ReviewService:
                 closed_at=closed_at,
             )
 
-    def append_run_inspection(
+    def _require(self, session_id: str) -> _ReviewSession:
+        session = self._sessions.get(session_id)
+        if session is None:
+            raise BackendNotFound(f"unknown review session {session_id!r}")
+        return session
+
+    def _require_active(self, session_id: str) -> _ReviewSession:
+        session = self._require(session_id)
+        if not session.active:
+            raise BackendConflict("review session is closed")
+        return session
+
+    def _require_worker(self, session_id: str, worker_id: str) -> _ReviewSession:
+        session = self._require(session_id)
+        if session.command.worker_id != worker_id:
+            raise BackendConflict("review worker does not own this session")
+        return session
+
+
+class RunInspectionFeedService:
+    """Retain the bounded, process-local compiled inspection feed for each run."""
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._feeds: dict[str, _RunInspectionFeed] = {}
+
+    def append(
         self,
         run_id: str,
         event: RunDomainInspectionEvent,
     ) -> RunInspectionView:
         with self._lock:
-            feed = self._run_inspections.setdefault(run_id, _RunInspectionFeed())
+            feed = self._feeds.setdefault(run_id, _RunInspectionFeed())
             if event.proposal_index < feed.total_proposal_count:
                 retained = next(
                     (
@@ -177,28 +202,10 @@ class ReviewService:
             feed.total_proposal_count += 1
             return _run_inspection_view(run_id, feed)
 
-    def run_inspections(self, run_id: str) -> RunInspectionView:
+    def read(self, run_id: str) -> RunInspectionView:
         with self._lock:
-            feed = self._run_inspections.get(run_id, _RunInspectionFeed())
+            feed = self._feeds.get(run_id, _RunInspectionFeed())
             return _run_inspection_view(run_id, feed)
-
-    def _require(self, session_id: str) -> _ReviewSession:
-        session = self._sessions.get(session_id)
-        if session is None:
-            raise BackendNotFound(f"unknown review session {session_id!r}")
-        return session
-
-    def _require_active(self, session_id: str) -> _ReviewSession:
-        session = self._require(session_id)
-        if not session.active:
-            raise BackendConflict("review session is closed")
-        return session
-
-    def _require_worker(self, session_id: str, worker_id: str) -> _ReviewSession:
-        session = self._require(session_id)
-        if session.command.worker_id != worker_id:
-            raise BackendConflict("review worker does not own this session")
-        return session
 
 
 def _view(session: _ReviewSession) -> ReviewSessionView:
@@ -232,4 +239,4 @@ def _run_inspection_view(
     )
 
 
-__all__ = ["ReviewService"]
+__all__ = ["ReviewService", "RunInspectionFeedService"]

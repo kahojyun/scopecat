@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
 from scopecat.adaptive_domains import ResolvedDomainFragment
 from scopecat.daemon.points import (
+    AcceptedRunPointView,
     RunDomainDecisionCommand,
     RunDomainDecisionView,
     RunDomainEnqueueCommand,
@@ -379,7 +380,14 @@ class SQLiteRunPointLedger:
             if (
                 decision.proposal != command.proposal
                 or decision.outcome != command.outcome
-                or decision.accepted_points != command.accepted_points
+                or decision.accepted_point_start
+                != _accepted_point_start(command.accepted_points)
+                or decision.accepted_point_count != len(command.accepted_points)
+                or self._decision_points_in_transaction(
+                    connection,
+                    command.operation_id,
+                )
+                != command.accepted_points
                 or decision.reason != command.reason
                 or decision.operator_request_id != command.operator_request_id
             ):
@@ -426,7 +434,8 @@ class SQLiteRunPointLedger:
             occurred_at=datetime.now(UTC),
             proposal=command.proposal,
             outcome=command.outcome,
-            accepted_points=accepted_points,
+            accepted_point_start=_accepted_point_start(accepted_points),
+            accepted_point_count=len(accepted_points),
             reason=command.reason,
         )
         connection.execute(
@@ -477,6 +486,27 @@ class SQLiteRunPointLedger:
             )
         return decision
 
+    def _decision_points_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        operation_id: str,
+    ) -> tuple[AcceptedRunPointView, ...]:
+        rows = _all(
+            connection.execute(
+                """
+                SELECT point_json
+                FROM execution_run_points
+                WHERE run_id = ? AND decision_operation_id = ?
+                ORDER BY point_index
+                """,
+                (self._run_id, operation_id),
+            )
+        )
+        return tuple(
+            AcceptedRunPointView.model_validate_json(_text(row, "point_json"))
+            for row in rows
+        )
+
     def _queued_entry_for_decision_in_transaction(
         self,
         connection: sqlite3.Connection,
@@ -513,15 +543,14 @@ class SQLiteRunPointLedger:
         entry: RunDomainQueueEntryView,
         decision: RunDomainDecisionView,
     ) -> None:
-        accepted = decision.accepted_points
         resolved = RunDomainQueueEntryView(
             queue_index=entry.queue_index,
             occurred_at=entry.occurred_at,
             request=entry.request,
             status=decision.outcome,
             decision_operation_id=decision.operation_id,
-            accepted_point_start=(None if not accepted else accepted[0].point_index),
-            accepted_point_count=len(accepted),
+            accepted_point_start=decision.accepted_point_start,
+            accepted_point_count=decision.accepted_point_count,
             reason=decision.reason,
         )
         connection.execute(
@@ -1559,3 +1588,7 @@ def _text(row: sqlite3.Row, column: str) -> str:
 
 def _integer(row: sqlite3.Row, column: str) -> int:
     return cast("int", row[column])
+
+
+def _accepted_point_start(points: tuple[AcceptedRunPointView, ...]) -> int | None:
+    return None if not points else points[0].point_index

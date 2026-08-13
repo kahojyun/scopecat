@@ -169,7 +169,8 @@ def test_adaptive_point_ledger_persists_idempotent_decisions_and_closure(
 
     assert initialized.accepted_point_count == 2
     assert accepted == retry
-    assert tuple(point.point_index for point in accepted.accepted_points) == (2, 3)
+    assert accepted.accepted_point_start == 2
+    assert accepted.accepted_point_count == 2
     assert rejected.outcome == "rejected"
     assert closed == close_retry
     assert closed.accepted_point_count == 4
@@ -342,7 +343,8 @@ def test_operator_point_queue_is_fifo_bounded_and_resolved_by_decisions(
         )
 
     queue = ledger.queue()
-    assert decision.accepted_points[0].point_index == 1
+    assert decision.accepted_point_start == 1
+    assert decision.accepted_point_count == 1
     assert decision.operator_request_id == first.request.request_id
     assert closed.plan_closed
     assert queue.items[0].status == "accepted"

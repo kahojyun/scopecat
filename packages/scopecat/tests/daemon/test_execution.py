@@ -198,7 +198,8 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                     occurred_at=_NOW,
                     proposal=command.proposal,
                     outcome="accepted",
-                    accepted_points=command.accepted_points,
+                    accepted_point_start=command.accepted_points[0].point_index,
+                    accepted_point_count=len(command.accepted_points),
                 )
             )
         if path.endswith("/point-plan/close"):
@@ -361,8 +362,10 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
             proposal_index=0,
             proposal=proposal,
             outcome="accepted",
-            accepted_points=(accepted_point,),
+            accepted_point_start=accepted_point.ordinal,
+            accepted_point_count=1,
         ),
+        (accepted_point,),
         (),
     )
     domain_proposals.close(completed_point_count=2, reason="test complete")
@@ -440,8 +443,8 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     ]
     assert hardware_sequences == [0]
     assert coverage_ranges == [(0, 1), (1, 2)]
-    assert len(inspection_commands[0].event.accepted_points) == 1
-    assert inspection_commands[0].event.accepted_points[0].point_index == 1
+    assert inspection_commands[0].event.accepted_point_start == 1
+    assert inspection_commands[0].event.accepted_point_count == 1
 
 
 def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> None:

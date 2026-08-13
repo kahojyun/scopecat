@@ -180,10 +180,8 @@ function EventStatus({
     );
   }
   const completed =
-    event.accepted_points.length > 0 &&
-    event.accepted_points.every(
-      (point) => point.point_index != null && point.point_index < completedPointCount,
-    );
+    event.accepted_point_start != null &&
+    event.accepted_point_start + event.accepted_point_count <= completedPointCount;
   return completed ? (
     <span className="inline-flex items-center gap-1 text-accent">
       <CheckCircle2 size={11} /> Complete
@@ -196,13 +194,12 @@ function EventStatus({
 }
 
 function acceptedPointLabel(event: InspectionEvent): string {
-  const indices = event.accepted_points
-    .map((point) => point.point_index)
-    .filter((index): index is number => index != null);
-  if (indices.length === 0) return "Accepted scan";
-  const first = indices[0]!;
-  if (indices.length === 1) return `Run point #${first + 1}`;
-  return `${indices.length} run points #${first + 1}–${indices.at(-1)! + 1}`;
+  if (event.accepted_point_start == null || event.accepted_point_count === 0) {
+    return "Accepted scan";
+  }
+  const first = event.accepted_point_start;
+  if (event.accepted_point_count === 1) return `Run point #${first + 1}`;
+  return `${event.accepted_point_count} run points #${first + 1}–${first + event.accepted_point_count}`;
 }
 
 function formatDomainEvent(event: InspectionEvent): string {

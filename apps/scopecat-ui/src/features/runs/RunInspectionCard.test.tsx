@@ -200,14 +200,8 @@ function event(proposalIndex: number, pointIndex: number, frequency: number) {
     region_ids: ["region-0"],
     source: "optimizer" as const,
     outcome: "accepted" as const,
-    accepted_points: [
-      {
-        point_index: pointIndex,
-        coordinates: { drive_frequency: { value: frequency, unit: "GHz" } },
-        proposal_fingerprint: `sha256:proposal-${proposalIndex}`,
-        source: "optimizer" as const,
-      },
-    ],
+    accepted_point_start: pointIndex,
+    accepted_point_count: 1,
     inspections: [
       {
         operation_id: `capture:batch-${pointIndex}`,

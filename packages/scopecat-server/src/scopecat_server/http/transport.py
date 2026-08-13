@@ -783,7 +783,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/inspections")
     def get_run_inspections(run_id: str) -> RunInspectionView:
-        return application.reviews.run_inspections(run_id)
+        return application.run_inspections.read(run_id)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/inspections")
     def append_run_inspection(

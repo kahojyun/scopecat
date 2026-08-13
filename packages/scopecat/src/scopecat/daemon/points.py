@@ -234,16 +234,27 @@ class RunDomainDecisionView(_DomainModel):
     occurred_at: datetime
     proposal: RunDomainProposalAttemptView
     outcome: Literal["accepted", "rejected"]
-    accepted_points: tuple[AcceptedRunPointView, ...] = ()
+    accepted_point_start: int | None = Field(default=None, ge=0)
+    accepted_point_count: int = Field(default=0, ge=0)
     reason: str | None = None
 
     @model_validator(mode="after")
     def validate_outcome(self) -> RunDomainDecisionView:
         if self.outcome == "accepted":
-            if not self.accepted_points or self.reason is not None:
-                raise ValueError("accepted domain decision requires accepted points")
-            _validate_accepted_domain_points(self.proposal, self.accepted_points)
-        elif self.accepted_points or not self.reason:
+            expected_count = self.proposal.fragment.point_count * len(
+                self.proposal.region_ids
+            )
+            if (
+                self.accepted_point_start is None
+                or self.accepted_point_count != expected_count
+                or self.reason is not None
+            ):
+                raise ValueError("accepted domain decision requires its point range")
+        elif (
+            self.accepted_point_start is not None
+            or self.accepted_point_count != 0
+            or not self.reason
+        ):
             raise ValueError("rejected domain decision requires only a reason")
         return self
 
