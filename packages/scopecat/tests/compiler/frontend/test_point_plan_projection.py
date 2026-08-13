@@ -9,6 +9,16 @@ from scopecat.records.run_request import GridDomainRecord, PointCloudDomainRecor
 _INT = sc.ScalarType(sc.IntType())
 
 
+class _Optimizer:
+    id = "test.optimizer"
+
+    def propose(
+        self,
+        _context: sc.PointOptimizerContext,
+    ) -> sc.PointCandidate | sc.OptimizationComplete:
+        return sc.OptimizationComplete()
+
+
 def _axis_values(program: LogicalProgram, axis_id: str) -> tuple[object, ...]:
     axis = next(axis for axis in program.point_domain if axis.id == axis_id)
     source = axis.source
@@ -43,6 +53,24 @@ def test_compile_projects_the_base_grid_and_composes_the_expanded_plan() -> None
     assert program.point_repeat == 2
     assert program.point_repeat_mode == "sweep"
     assert program.point_traversal == "snake"
+
+
+def test_compile_records_adaptive_policy_without_serializing_optimizer() -> None:
+    x = sc.coordinate("x", _INT)
+
+    @sc.experiment(id="test.adaptive-grid", kind="point_plan")
+    def adaptive_grid(experiment: sc.ExperimentContext) -> None:
+        experiment.grid(sc.axis(x, (0, 1)))
+
+    optimizer = _Optimizer()
+    compiled = compile_invocation(adaptive_grid().adaptive(optimizer, max_points=8))
+
+    assert compiled.adaptive_point_plan is not None
+    assert compiled.adaptive_point_plan.optimizer is optimizer
+    assert compiled.request.adaptive_point_plan is not None
+    assert compiled.request.adaptive_point_plan.optimizer_id == "test.optimizer"
+    assert compiled.request.adaptive_point_plan.max_points == 8
+    assert "optimizer" not in compiled.request.model_dump(mode="json")
 
 
 def test_compile_expands_point_repeat_within_each_point_cloud_row() -> None:

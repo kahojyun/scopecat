@@ -28,6 +28,7 @@ from scopecat.records.parameter import (
     TableParameterValue,
 )
 from scopecat.records.run_request import (
+    AdaptivePointPlanRecord,
     AxisAroundSourceRecord,
     AxisRangeSourceRecord,
     AxisRecord,
@@ -128,6 +129,23 @@ def test_run_request_records_canonical_grid_axes_only() -> None:
                 },
             }
         )
+
+
+def test_run_request_round_trips_bounded_adaptive_policy() -> None:
+    request = RunRequest(
+        adaptive_point_plan=AdaptivePointPlanRecord(
+            optimizer_id="bayesian-frequency",
+            max_points=24,
+        )
+    )
+
+    restored = assert_model_round_trip(request)
+
+    assert restored.adaptive_point_plan == request.adaptive_point_plan
+    assert restored.model_dump(mode="json")["adaptive_point_plan"] == {
+        "optimizer_id": "bayesian-frequency",
+        "max_points": 24,
+    }
     with pytest.raises(ValidationError):
         RunRequest.model_validate(
             {

@@ -114,6 +114,16 @@ if TYPE_CHECKING:
         entity_ref,
     )
     from scopecat.kernel.quantity import Quantity
+    from scopecat.measurements.points import PointCandidate
+    from scopecat.optimization import (
+        AdaptivePointPlan,
+        CompletedPointObservation,
+        OptimizationComplete,
+        PointOptimizer,
+        PointOptimizerContext,
+        PointProposalDecision,
+        PointProposalLedger,
+    )
     from scopecat.planning.system import ExperimentSystem
     from scopecat.project import open_project
     from scopecat.sdk.payloads import (
@@ -238,6 +248,23 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "TemporaryInstrumentRef",
     ),
     "Quantity": ("scopecat.kernel.quantity", "Quantity"),
+    "PointCandidate": ("scopecat.measurements.points", "PointCandidate"),
+    "AdaptivePointPlan": ("scopecat.optimization", "AdaptivePointPlan"),
+    "CompletedPointObservation": (
+        "scopecat.optimization",
+        "CompletedPointObservation",
+    ),
+    "OptimizationComplete": ("scopecat.optimization", "OptimizationComplete"),
+    "PointOptimizer": ("scopecat.optimization", "PointOptimizer"),
+    "PointOptimizerContext": (
+        "scopecat.optimization",
+        "PointOptimizerContext",
+    ),
+    "PointProposalDecision": (
+        "scopecat.optimization",
+        "PointProposalDecision",
+    ),
+    "PointProposalLedger": ("scopecat.optimization", "PointProposalLedger"),
     "open_project": ("scopecat.project", "open_project"),
     "analysis_step": ("scopecat.api.analysis", "analysis_step"),
     "instrument": ("scopecat.api.instruments", "instrument"),

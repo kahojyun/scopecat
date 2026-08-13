@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     )
     from scopecat.measurements.points import PointCandidate, RunPointCatalog
     from scopecat.measurements.projection import MeasurementProjection
+    from scopecat.optimization import AdaptivePointPlan
     from scopecat.records.config import ConfigContentHash
     from scopecat.sdk.domain.execution import PreparedDomainExecution
     from scopecat.sdk.instruments.contracts import InstrumentDescription
@@ -127,6 +128,10 @@ class RunProgram:
     measurements: MeasurementProjection = field(repr=False)
     resource_requirements: tuple[ResourceRequirement, ...]
     domain_target_requirement: DomainTargetRequirement | None
+    adaptive_point_plan: AdaptivePointPlan | None = field(
+        default=None,
+        repr=False,
+    )
     success_state: tuple[ApplyStateOperation, ...] = field(
         default=(),
         repr=False,

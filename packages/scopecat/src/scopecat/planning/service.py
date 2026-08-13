@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from scopecat.compiler.bind import bind_program
 from scopecat.compiler.frontend.resolution import (
@@ -40,9 +40,12 @@ def _plan_compiled_run(
 ) -> PlannedRun:
     environment = build_config_environment(config)
     bound = bind_program(experiment.program, environment)
-    program = compile_run_program(
-        system,
-        bound=bound,
+    program = replace(
+        compile_run_program(
+            system,
+            bound=bound,
+        ),
+        adaptive_point_plan=experiment.adaptive_point_plan,
     )
     return PlannedRun(
         config=config,

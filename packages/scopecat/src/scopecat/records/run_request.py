@@ -261,6 +261,13 @@ class PointPlanRecord(_RunRequestModel):
         return self
 
 
+class AdaptivePointPlanRecord(_RunRequestModel):
+    """Durable bounded policy for points proposed after the initial domain."""
+
+    optimizer_id: str = Field(min_length=1)
+    max_points: StrictInt = Field(ge=1)
+
+
 def _point_domain_ids(domain: PointDomainRecord) -> set[str]:
     if isinstance(domain, GridDomainRecord):
         return {axis.axis_id for axis in domain.axes}
@@ -277,10 +284,12 @@ class RunRequest(_RunRequestModel):
     inputs: dict[str, RunRequestValue] = Field(default_factory=dict)
     operator: str | None = None
     point_plan: PointPlanRecord = Field(default_factory=PointPlanRecord)
+    adaptive_point_plan: AdaptivePointPlanRecord | None = None
     metadata: dict[str, RunRequestJsonValue] = Field(default_factory=dict)
 
 
 __all__ = [
+    "AdaptivePointPlanRecord",
     "AxisAroundSourceRecord",
     "AxisRangeSourceRecord",
     "AxisRecord",
