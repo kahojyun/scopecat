@@ -9,6 +9,7 @@ import type {
   RunManifest,
   RunResourceView,
   RunSummaryPage,
+  RunInspectionFeed,
 } from "../../api-contract";
 import { ApiError, apiClient, apiData } from "../../api-client";
 import { decodeMeasurementArrowRecord } from "./measurement-arrow";
@@ -74,6 +75,18 @@ export async function getRun(runId: string, signal?: AbortSignal): Promise<Proje
     }),
   );
   return normalizeRun(response.control, response.manifest, response.resources ?? []);
+}
+
+export async function getRunInspections(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<RunInspectionFeed> {
+  return apiData(
+    apiClient.GET("/api/v1/runs/{run_id}/inspections", {
+      params: { path: { run_id: runId } },
+      signal,
+    }),
+  );
 }
 
 export async function getMeasurementPreview(

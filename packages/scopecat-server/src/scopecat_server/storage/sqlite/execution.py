@@ -722,6 +722,17 @@ class SQLiteMeasurementDatasetRepository:
                 f"failed to read measurement dataset page: {error}"
             ) from error
 
+    def measurement_record_count(self) -> int:
+        """Read the current durable point-row count without opening append blobs."""
+
+        try:
+            with closing(self._runs.sqlite.connect()) as connection:
+                return _measurement_record_count(connection, self._run_id)
+        except Exception as error:
+            raise ExecutionJournalError(
+                f"failed to read measurement dataset size: {error}"
+            ) from error
+
     def measurement_records_at(
         self,
         point_indices: tuple[int, ...],

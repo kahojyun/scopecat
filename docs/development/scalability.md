@@ -420,6 +420,10 @@ retained rows. Local effects, static value evaluation, runtime point projection,
 and live prepared target artifacts are bounded by the current physical batch.
 During active execution the completed point index set and durable scalar results
 still grow with completed point count; neither contains waveform payloads. The
+daemon's live compiled-inspection feed retains only the latest 64 proposal
+events, and every inspection already enforces point, waveform, and sample
+budgets. It is an operator view, not durable run content.
+The
 daemon retains the latest received measurement for the live Arrow view plus the
 bounded not-yet-durable prefix. That state exists only while its executor lease is
 active and is released on seal, terminal commit, lease loss, or daemon shutdown.

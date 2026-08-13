@@ -13,6 +13,10 @@ import scopecat.daemon.execution as daemon_execution
 from scopecat.control.models import RunPlanSummary
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.execution import daemon_execution_session
+from scopecat.daemon.reviews import (
+    RunInspectionAppendCommand,
+    RunInspectionView,
+)
 from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
     ExecutionTransitionClaim,
@@ -33,10 +37,13 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import StateValue
+from scopecat.measurements.points import AcceptedRunPoint, PointCandidate
 from scopecat.measurements.recording_arrow import decode_measurement_append
+from scopecat.optimization import PointProposalDecision
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import (
     ExecutionTransition,
@@ -112,6 +119,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     hardware_sequences: list[int] = []
     coverage_ranges: list[tuple[int, int]] = []
     measurement_ingest_ranges: list[tuple[int, int]] = []
+    inspection_commands: list[RunInspectionAppendCommand] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
@@ -150,6 +158,11 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                     completed_point_count=command.start_index + command.point_count,
                 )
             )
+        if path.endswith("/inspections"):
+            command = RunInspectionAppendCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            inspection_commands.append(command)
+            return _model(RunInspectionView(run_id="run-1", items=(command.event,)))
         if path.endswith("/hardware/finish"):
             command = RunHardwareFinishCommand.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
@@ -234,7 +247,9 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     measurements = session.measurements
     instruments = session.instruments
     coverage = session.coverage
+    point_proposals = session.point_proposals
     assert coverage is not None
+    assert point_proposals is not None
     assert instruments.observed_state == (
         InstrumentStateSnapshot(instrument_id="source-0"),
     )
@@ -264,6 +279,24 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     coverage.advance(start_index=0, point_count=1)
     coverage.advance(start_index=1, point_count=2)
     coverage.flush()
+    candidate = PointCandidate(
+        {"frequency": Quantity(5.2, "GHz")},
+        source="optimizer",
+        based_on_completed_point_count=1,
+    )
+    accepted_point = AcceptedRunPoint.accept(
+        candidate,
+        logical_id=LogicalPointId(PointDomainId("scratch", "points"), 1),
+    )
+    point_proposals.append(
+        PointProposalDecision(
+            proposal_index=0,
+            candidate=candidate,
+            outcome="accepted",
+            accepted_point=accepted_point,
+        ),
+        None,
+    )
     assert (
         instruments.finish(operation_id="hardware.finish", failed=False).operation_id
         == "hardware.finish"
@@ -338,6 +371,8 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     ]
     assert hardware_sequences == [0]
     assert coverage_ranges == [(0, 1), (1, 2)]
+    assert inspection_commands[0].event.accepted_point is not None
+    assert inspection_commands[0].event.accepted_point.point_index == 1
 
 
 def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> None:

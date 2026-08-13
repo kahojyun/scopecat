@@ -39,6 +39,7 @@ from scopecat.execution.program import (
 )
 from scopecat.execution.services import (
     ExecutionSession,
+    RunPointProposalWriter,
 )
 from scopecat.kernel.errors import (
     CheckFailed,
@@ -117,7 +118,10 @@ def _execute_run(
 ) -> RunManifest:
     host = program.host
     projection = program.measurements
-    point_state = _ExecutionPointState.create(program)
+    point_state = _ExecutionPointState.create(
+        program,
+        proposal_writer=session.point_proposals,
+    )
     run_id = session.run_id
     journal = session.journal
     measurements = session.measurements
@@ -570,9 +574,15 @@ class _ExecutionPointState:
     observations: list[CompletedPointObservation]
     ledger: PointProposalLedger | None
     inspections: list[RunPointInspection]
+    proposal_writer: RunPointProposalWriter | None
 
     @classmethod
-    def create(cls, program: RunProgram) -> _ExecutionPointState:
+    def create(
+        cls,
+        program: RunProgram,
+        *,
+        proposal_writer: RunPointProposalWriter | None,
+    ) -> _ExecutionPointState:
         adaptive = program.adaptive_point_plan
         points = list(program.points.points)
         return cls(
@@ -584,6 +594,7 @@ class _ExecutionPointState:
                 else adaptive.ledger(initial_point_count=len(points))
             ),
             inspections=[],
+            proposal_writer=proposal_writer,
         )
 
 
@@ -614,17 +625,23 @@ def _execution_coverage(
         if rejection is not None:
             ledger = ledger.reject(proposal, reason=rejection)
             state.ledger = ledger
+            if state.proposal_writer is not None:
+                state.proposal_writer.append(ledger.entries[-1], None)
             continue
         try:
             accepted = program.coverage.accept(proposal)
         except CheckFailed as error:
             ledger = ledger.reject(proposal, reason=str(error))
             state.ledger = ledger
+            if state.proposal_writer is not None:
+                state.proposal_writer.append(ledger.entries[-1], None)
             continue
         state.points.append(accepted.point)
         state.inspections.append(accepted.inspection)
         ledger = ledger.accept(proposal, accepted.point)
         state.ledger = ledger
+        if state.proposal_writer is not None:
+            state.proposal_writer.append(ledger.entries[-1], accepted.inspection)
         yield from accepted.operations
 
 

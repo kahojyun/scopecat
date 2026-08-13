@@ -206,6 +206,8 @@ async function startAbandonedRun(
           experiment_id: experimentId,
           experiment_kind: "scratch",
           point_count: 1,
+          initial_point_count: 1,
+          point_limit: 1,
           run_resource_requirements: [
             {
               id: resourceId,

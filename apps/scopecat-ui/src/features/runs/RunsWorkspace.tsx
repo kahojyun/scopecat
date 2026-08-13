@@ -17,6 +17,7 @@ import {
   getOlderRuns,
   getRun,
   getRunAnalyses,
+  getRunInspections,
   getRunEvents,
   getRuns,
   resolveAttention,
@@ -117,6 +118,12 @@ export function RunsWorkspace({
     runsQuery.data?.items.find((run) => run.runId === selectedRunId)?.status;
   const selectedRunIsActive =
     selectedRunStatus === undefined || ["accepted", "running"].includes(selectedRunStatus);
+  const runInspectionsQuery = useQuery({
+    queryKey: ["run-inspections", selectedRunId],
+    queryFn: ({ signal }) => getRunInspections(selectedRunId!, signal),
+    enabled: selectedRunId !== undefined,
+    refetchInterval: selectedRunIsActive ? 250 : false,
+  });
   const liveMeasurementQueryKey = ["measurements", "live", selectedRunId] as const;
   const liveMeasurementsQuery = useQuery({
     queryKey: liveMeasurementQueryKey,
@@ -430,6 +437,9 @@ export function RunsWorkspace({
               events={selectedEvents}
               eventsError={selectedEventsQuery.error}
               eventsPending={selectedEventsQuery.isPending}
+              inspections={runInspectionsQuery.data}
+              inspectionsError={runInspectionsQuery.error}
+              inspectionsPending={runInspectionsQuery.isPending}
               measurements={measurements}
               measurementsError={measurementsQuery.error}
               measurementsPending={measurementsQuery.isPending}

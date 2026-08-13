@@ -1,5 +1,5 @@
 import { AlertTriangle, Unlock } from "lucide-react";
-import type { MeasurementTracePreview } from "../../api-contract";
+import type { MeasurementTracePreview, RunInspectionFeed } from "../../api-contract";
 import { errorMessage, formatDateTime, shorten } from "../../lib/presentation";
 import { classes } from "../../ui/styles";
 import type {
@@ -10,6 +10,7 @@ import type {
   RunAnalysis,
 } from "../../types";
 import { RunProposals } from "../proposals/RunProposals";
+import { RunInspectionCard } from "./RunInspectionCard";
 import type { MeasurementTraceQueryPlan } from "./measurement-visualization";
 import {
   AnalysisCard,
@@ -24,6 +25,9 @@ export function RunDetail({
   events,
   eventsError,
   eventsPending,
+  inspections,
+  inspectionsError,
+  inspectionsPending,
   measurements,
   measurementsError,
   measurementsPending,
@@ -49,6 +53,9 @@ export function RunDetail({
   events: ProjectEvent[];
   eventsError: Error | null;
   eventsPending: boolean;
+  inspections?: RunInspectionFeed;
+  inspectionsError: Error | null;
+  inspectionsPending: boolean;
   measurements?: MeasurementPreview;
   measurementsError: Error | null;
   measurementsPending: boolean;
@@ -170,6 +177,12 @@ export function RunDetail({
 
       <div className="mt-[18px] grid grid-cols-[minmax(0,1.55fr)_minmax(250px,0.85fr)] gap-3 max-[1100px]:grid-cols-[minmax(0,1.25fr)_minmax(230px,0.9fr)] max-[680px]:grid-cols-[minmax(0,1fr)]">
         <ProgressCard run={run} events={events} measurements={measurements} />
+        <RunInspectionCard
+          feed={inspections}
+          error={inspectionsError}
+          pending={inspectionsPending}
+          completedPointCount={Math.max(run.progressCompleted ?? 0, measurements?.recordCount ?? 0)}
+        />
         <RunProposals key={run.runId} runId={run.runId} />
         <AnalysisCard
           analyses={analyses}

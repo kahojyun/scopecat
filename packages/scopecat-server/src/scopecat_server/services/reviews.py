@@ -19,9 +19,13 @@ from scopecat.daemon.reviews import (
     ReviewSessionListView,
     ReviewSessionView,
     ReviewWorkItem,
+    RunInspectionView,
+    RunPointInspectionEvent,
 )
 
 from ..errors import BackendConflict, BackendNotFound
+
+_RUN_INSPECTION_EVENT_LIMIT = 64
 
 
 @dataclass(slots=True)
@@ -35,12 +39,21 @@ class _ReviewSession:
     latest_result: ReviewCompilationResult | None = None
 
 
+@dataclass(slots=True)
+class _RunInspectionFeed:
+    items: deque[RunPointInspectionEvent] = field(
+        default_factory=lambda: deque(maxlen=_RUN_INSPECTION_EVENT_LIMIT)
+    )
+    total_proposal_count: int = 0
+
+
 class ReviewService:
     """Coordinate a GUI with a notebook-owned pure compiler."""
 
     def __init__(self) -> None:
         self._lock = Lock()
         self._sessions: dict[str, _ReviewSession] = {}
+        self._run_inspections: dict[str, _RunInspectionFeed] = {}
 
     def create(self, command: ReviewSessionCreateCommand) -> ReviewSessionView:
         now = datetime.now(UTC)
@@ -139,6 +152,36 @@ class ReviewService:
                 closed_at=closed_at,
             )
 
+    def append_run_inspection(
+        self,
+        run_id: str,
+        event: RunPointInspectionEvent,
+    ) -> RunInspectionView:
+        with self._lock:
+            feed = self._run_inspections.setdefault(run_id, _RunInspectionFeed())
+            if event.proposal_index < feed.total_proposal_count:
+                retained = next(
+                    (
+                        item
+                        for item in feed.items
+                        if item.proposal_index == event.proposal_index
+                    ),
+                    None,
+                )
+                if retained != event:
+                    raise BackendConflict("run proposal already has different content")
+                return _run_inspection_view(run_id, feed)
+            if event.proposal_index > feed.total_proposal_count:
+                raise BackendConflict("run proposal indices must be contiguous")
+            feed.items.append(event)
+            feed.total_proposal_count += 1
+            return _run_inspection_view(run_id, feed)
+
+    def run_inspections(self, run_id: str) -> RunInspectionView:
+        with self._lock:
+            feed = self._run_inspections.get(run_id, _RunInspectionFeed())
+            return _run_inspection_view(run_id, feed)
+
     def _require(self, session_id: str) -> _ReviewSession:
         session = self._sessions.get(session_id)
         if session is None:
@@ -174,6 +217,18 @@ def _view(session: _ReviewSession) -> ReviewSessionView:
         planned_points_truncated=command.planned_points_truncated,
         pending_request_count=(len(session.pending) + len(session.claimed_request_ids)),
         latest_result=latest_result,
+    )
+
+
+def _run_inspection_view(
+    run_id: str,
+    feed: _RunInspectionFeed,
+) -> RunInspectionView:
+    return RunInspectionView(
+        run_id=run_id,
+        items=tuple(feed.items),
+        total_proposal_count=feed.total_proposal_count,
+        items_truncated=feed.total_proposal_count > len(feed.items),
     )
 
 

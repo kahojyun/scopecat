@@ -30,8 +30,9 @@ class _Optimizer:
 
     def propose(
         self,
-        _context: PointOptimizerContext,
+        context: PointOptimizerContext,
     ) -> PointCandidate | OptimizationComplete:
+        del context
         return OptimizationComplete()
 
 

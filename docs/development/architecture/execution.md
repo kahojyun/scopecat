@@ -61,11 +61,16 @@ identity. An explicit `id=` distinguishes definitions when needed, while
 
 Every invocation resolves to one `PointPlan`: a grid or ordered point cloud,
 plus repeat and traversal policy. Invocation edits replace or adjust that plan
-without changing the experiment definition. The
+without changing the experiment definition. An optional `AdaptivePointPlan`
+pairs that initial prefix with a process-local optimizer and a hard point limit.
+The
 [experiment dataflow model](../../concepts/experiment-dataflow.md#choose-and-edit-the-point-domain)
 is the canonical task guide; the `PointPlan` docstring defines its exact local
-contract. Point plans are static for an admitted run; measurement-dependent
-selection across runs belongs to a future workflow model.
+contract. The durable admission records only optimizer identity and bounds; the
+closure stays with the local runner. Each accepted candidate extends canonical
+logical identity by one ordinal, while rejected proposals remain in the ordered
+ledger and never reach effects. Measurement-dependent selection across runs
+still belongs to a future workflow model.
 
 ### Local compute boundary
 

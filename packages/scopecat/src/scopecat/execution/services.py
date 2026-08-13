@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
+from scopecat.execution.program import RunPointInspection
+from scopecat.optimization import PointProposalDecision
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments.execution import RunInstrumentHost
@@ -29,6 +31,16 @@ class RunCoverageWriter(Protocol):
     def flush(self) -> None: ...
 
 
+class RunPointProposalWriter(Protocol):
+    """Publish transient optimizer decisions for live operator inspection."""
+
+    def append(
+        self,
+        decision: PointProposalDecision,
+        inspection: RunPointInspection | None,
+    ) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionSession:
     """Bind one run's effect ports so execution cannot mix storage scopes."""
@@ -40,6 +52,7 @@ class ExecutionSession:
     measurements: MeasurementDatasetWriter
     instruments: RunInstrumentHost
     coverage: RunCoverageWriter | None = None
+    point_proposals: RunPointProposalWriter | None = None
     cancellation_requested: Callable[[], bool] = _never_cancel
     effects_ready: Callable[[], bool] = _effects_are_ready
 

@@ -27,6 +27,8 @@ from scopecat.daemon.reviews import (
     ReviewSessionListView,
     ReviewSessionView,
     ReviewWorkItem,
+    RunInspectionAppendCommand,
+    RunInspectionView,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -820,6 +822,23 @@ class DaemonClient:
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/coverage/advance",
             command,
             RunCoverageState,
+        )
+
+    def get_run_inspections(self, run_id: str) -> RunInspectionView:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/inspections",
+            RunInspectionView,
+        )
+
+    def append_run_inspection(
+        self,
+        run_id: str,
+        command: RunInspectionAppendCommand,
+    ) -> RunInspectionView:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/inspections",
+            command,
+            RunInspectionView,
         )
 
     def provision_run_instruments(

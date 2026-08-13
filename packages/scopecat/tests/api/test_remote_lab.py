@@ -931,6 +931,7 @@ def test_preview_invocation_uses_active_config_without_admission() -> None:
         lambda _config, catalog: ExperimentSystem(instrument_catalog=catalog),
     ).preview(load_invocation())
 
+    assert preview.point_count is not None
     assert preview.point_count > 0
     assert [request.url.path for request in requests] == [
         "/api/v1/config-registry/active",

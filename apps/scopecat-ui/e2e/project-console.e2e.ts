@@ -111,8 +111,13 @@ with project.connect() as lab:
 
     ingest_count = [0]
 
-    def gated_ingest(run_id, command):
-        receipt = original_ingest(run_id, command)
+    def gated_ingest(run_id, *, lease_id, batch, dataset_schema):
+        receipt = original_ingest(
+            run_id,
+            lease_id=lease_id,
+            batch=batch,
+            dataset_schema=dataset_schema,
+        )
         ingest_count[0] += 1
         if ingest_count[0] == 1:
             MEASUREMENT_READY.write_text(run_id, encoding="utf-8")

@@ -1,18 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleOff, LoaderCircle, Radio, Send, Waves } from "lucide-react";
 import type { ReviewCompileCommand, ReviewCoordinateSpec, ReviewSession } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
-import { EChart, type EChartsCoreOption } from "../../ui/EChart";
 import { classes, primaryButton } from "../../ui/styles";
+import {
+  CompiledInspectionView,
+  formatInspectionCoordinates as formatCoordinates,
+} from "../inspections/CompiledInspectionView";
 import { compileReviewPoint, getReview, getReviews } from "./review-api";
 
 type PointMode = "planned" | "exact" | "free";
 type CoordinateDraft = Record<string, string>;
 type CoordinateInput = NonNullable<ReviewCompileCommand["coordinates"]>[string];
-type ReviewResult = NonNullable<ReviewSession["latest_result"]>;
-type ReviewCompiledPoint = ReviewResult["inspections"][number]["content"]["points"][number];
-type ReviewFact = { id: string; unit?: string | null; [key: string]: unknown };
 
 export function ReviewWorkspace({ daemonUnavailable }: { daemonUnavailable: boolean }) {
   const [selectedId, setSelectedId] = useState(reviewIdFromLocation);
@@ -351,129 +351,9 @@ function InspectionResult({ session }: { session: ReviewSession }) {
           </code>
         )}
       </div>
-      {result.inspections.length === 0 ? (
-        <WorkspaceMessage title="No target waveform inspection" />
-      ) : (
-        result.inspections.map((inspection) => (
-          <div
-            className="overflow-hidden rounded-md border border-line bg-panel-soft"
-            key={inspection.operation_id}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3.5 py-2.5">
-              <div>
-                <strong className="text-[0.7rem]">{inspection.target_id}</strong>
-                <div className="mt-0.5 font-mono text-[0.56rem] text-text-dim">
-                  {inspection.artifact_id}
-                </div>
-              </div>
-              <span className="text-[0.58rem] text-text-dim">{inspection.content.kind}</span>
-            </div>
-            <div className="grid gap-3 p-3.5">
-              <FactGrid facts={inspection.content.facts} />
-              {inspection.content.points.map((point) => (
-                <PointInspection key={point.realization_fingerprint} point={point} />
-              ))}
-            </div>
-          </div>
-        ))
-      )}
+      <CompiledInspectionView inspections={result.inspections} />
     </div>
   );
-}
-
-function PointInspection({ point }: { point: ReviewCompiledPoint }) {
-  const option = useMemo(() => waveformChartOption(point), [point]);
-  return (
-    <div className="grid gap-3 rounded-md border border-line bg-panel p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <span className="text-[0.61rem] font-bold text-text-soft">Physical realization</span>
-          <code className="mt-1 block max-w-[620px] truncate text-[0.55rem] text-text-dim">
-            {point.realization_fingerprint}
-          </code>
-        </div>
-        <span className="text-[0.6rem] text-text-dim">
-          {point.waveform_count} waveform{point.waveform_count === 1 ? "" : "s"}
-          {point.waveforms_truncated ? "+" : ""}
-        </span>
-      </div>
-      <FactGrid facts={point.facts} />
-      {point.waveforms.length > 0 && (
-        <EChart
-          ariaLabel="Compiled physical waveforms"
-          height={320}
-          option={option}
-          pointCount={Math.max(...point.waveforms.map((waveform) => waveform.samples.length))}
-          seriesCount={point.waveforms.length}
-          seriesLabels={point.waveforms.map((waveform) => waveform.channel_id)}
-        />
-      )}
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-2">
-        {point.waveforms.map((waveform) => (
-          <div
-            className="rounded border border-line bg-panel-soft px-2.5 py-2"
-            key={waveform.channel_id}
-          >
-            <strong className="block truncate text-[0.61rem] text-text-soft">
-              {waveform.channel_id}
-            </strong>
-            <span className="mt-1 block text-[0.56rem] text-text-dim">
-              peak {waveform.peak_abs.toPrecision(4)} · rms {waveform.rms.toPrecision(4)} ·{" "}
-              {waveform.source_sample_count.toLocaleString()} samples
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function FactGrid({ facts }: { facts: ReviewFact[] }) {
-  return (
-    <dl className="m-0 grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-2">
-      {facts.map((fact) => (
-        <div className="rounded border border-line bg-panel-soft px-2.5 py-2" key={fact.id}>
-          <dt className="text-[0.54rem] font-bold tracking-[0.04em] text-text-dim uppercase">
-            {fact.id.replaceAll("_", " ")}
-          </dt>
-          <dd className="mt-1 ml-0 truncate text-[0.62rem] font-semibold text-text-soft">
-            {formatValue(fact.value)} {fact.unit ?? ""}
-          </dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-function waveformChartOption(point: ReviewCompiledPoint): EChartsCoreOption {
-  return {
-    animation: false,
-    backgroundColor: "transparent",
-    grid: { left: 54, right: 18, top: 34, bottom: 42 },
-    legend: { type: "scroll", top: 0, textStyle: { color: "#9eabb8", fontSize: 10 } },
-    tooltip: { trigger: "axis" },
-    xAxis: {
-      name: "sample",
-      nameLocation: "middle",
-      nameGap: 28,
-      type: "value",
-      axisLabel: { color: "#7f8b97", fontSize: 10 },
-      splitLine: { lineStyle: { color: "rgba(255,255,255,0.05)" } },
-    },
-    yAxis: {
-      name: "amplitude",
-      type: "value",
-      axisLabel: { color: "#7f8b97", fontSize: 10 },
-      splitLine: { lineStyle: { color: "rgba(255,255,255,0.05)" } },
-    },
-    series: point.waveforms.map((waveform) => ({
-      data: waveform.sample_indices.map((index, offset) => [index, waveform.samples[offset]]),
-      emphasis: { focus: "series" },
-      name: waveform.channel_id,
-      showSymbol: false,
-      type: "line",
-    })),
-  };
 }
 
 function coordinateDraft(
@@ -505,23 +385,6 @@ function coordinateInputValue(value: unknown): string {
     return String(value.id);
   }
   return String(value);
-}
-
-function formatCoordinates(coordinates: Record<string, unknown>): string {
-  return Object.entries(coordinates)
-    .map(([id, value]) => `${id}=${formatValue(value)}`)
-    .join(" · ");
-}
-
-function formatValue(value: unknown): string {
-  if (typeof value === "object" && value !== null && "value" in value && "unit" in value) {
-    return `${String(value.value)} ${String(value.unit)}`;
-  }
-  if (typeof value === "object" && value !== null && "id" in value) return String(value.id);
-  if (typeof value === "string") return value;
-  if (value == null || typeof value === "number" || typeof value === "boolean")
-    return String(value);
-  return JSON.stringify(value);
 }
 
 function SessionState({ active }: { active: boolean }) {

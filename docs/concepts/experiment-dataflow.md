@@ -291,11 +291,34 @@ forward traversal. `.with_axis(...)` replaces an axis in place or appends one,
 and `.without_axis(...)` applies only to a grid. `reset_points()` discards all
 invocation point-plan edits.
 
-Point plans are materialized before execution. When new points depend on
-measurements, analyze the completed run and submit another ordinary run.
-Durable multi-run state belongs to a future workflow model; adapting points
-inside an executing run requires a separate adaptive-plan abstraction rather
-than hidden mutation of this static plan.
+Ordinary point plans are materialized before execution. A measurement-dependent
+run opts into the separate adaptive-plan abstraction explicitly:
+
+```python
+class Optimizer:
+    id = "example.optimizer"
+
+    def propose(self, context):
+        if context.completed_point_count >= 20:
+            return sc.OptimizationComplete("enough evidence")
+        return sc.PointCandidate(
+            {"frequency": choose_frequency(context.observations)},
+            source="optimizer",
+            based_on_completed_point_count=context.completed_point_count,
+        )
+
+
+adaptive = spectroscopy().adaptive(Optimizer(), max_points=32)
+```
+
+The authored points form the initial prefix. After that prefix completes, the
+runner gives the optimizer immutable completed-point observations and its full
+accepted/rejected proposal ledger. A valid candidate is compiled as the next
+canonical logical ordinal and executed in the same hardware session. A stale
+or invalid candidate is rejected without effects so the optimizer can propose
+again. The point limit and a finite proposal retry budget keep the run bounded.
+Durable multi-run adaptation remains a workflow concern rather than hidden
+mutation of an ordinary static plan.
 
 ## Compute scalar and array data uniformly
 
@@ -464,8 +487,9 @@ for edge in preview.binding_edges:
     print(edge.source, edge.relation, edge.target)
 ```
 
-Domain targets may also expose a bounded, non-durable inspection for one exact
-logical point. Select by position or by the complete authored coordinate row:
+Domain targets may also expose a bounded, non-durable inspection for one point.
+Select by position, by the complete authored coordinate row, or explicitly
+compile a valid off-grid candidate without snapping:
 
 ```python
 preview = lab.preview(experiment, point="middle")
@@ -480,14 +504,25 @@ same_point = lab.preview(
     experiment,
     coordinates=selected.coordinates,
 )
+
+off_grid = lab.preview(
+    experiment,
+    coordinates={"drive_frequency": sc.Quantity(5.137, "GHz")},
+    coordinate_mode="free",
+)
 ```
 
 This compiles only the selected logical point and never admits a run, reserves
 resources, invokes an instrument operation, or publishes the waveform projection. The
 reference list-mode target returns requested/realized timing, channel
 identities, peak and RMS values, content hashes, and a bounded min/max waveform
-preview. The full waveform remains transient compiler data; a normal run keeps
-only compact execution provenance.
+preview. Strict coordinate matching and off-grid compilation are separate
+operator choices; neither silently snaps a physical value to an authored axis
+index. The same inspection shape is used by the live Run view for optimizer
+points before their effects execute, where accepted/rejected decisions,
+completion status, and bounded waveform comparisons appear beside measurements.
+The full waveform remains transient compiler data; a normal run keeps only
+compact execution provenance.
 
 Placement is either `host` (all inputs exist before acquisition) or
 `observation` (at least one input is a measured product). `demanded_by` names

@@ -13,6 +13,7 @@ from scopecat.daemon.reviews import (
     ReviewCoordinateSpec,
     ReviewPointView,
     ReviewSessionCreateCommand,
+    RunPointInspectionEvent,
 )
 from scopecat.kernel.quantity import Quantity
 
@@ -84,6 +85,34 @@ def test_review_session_round_trips_compile_work_without_run_admission(
             ).items
             == ()
         )
+
+
+def test_run_inspection_feed_exposes_optimizer_decisions(tmp_path: Path) -> None:
+    with (
+        LocalDaemonRuntime(tmp_path) as runtime,
+        TestClient(runtime.app()) as transport,
+        _daemon_client(transport) as client,
+    ):
+        event = RunPointInspectionEvent(
+            proposal_index=0,
+            occurred_at=datetime.now(UTC),
+            candidate=ReviewPointView(
+                coordinates={"beta": Quantity(0.137, "ns")},
+                proposal_fingerprint="sha256:proposal",
+                source="optimizer",
+            ),
+            outcome="rejected",
+            reason="proposal used stale observations",
+        )
+        runtime.application.reviews.append_run_inspection("run-1", event)
+        runtime.application.reviews.append_run_inspection("run-1", event)
+
+        feed = client.get_run_inspections("run-1")
+
+        assert feed.run_id == "run-1"
+        assert len(feed.items) == 1
+        assert feed.items[0].outcome == "rejected"
+        assert feed.items[0].reason == "proposal used stale observations"
 
 
 def _daemon_client(transport: TestClient) -> DaemonClient:

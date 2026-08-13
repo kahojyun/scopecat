@@ -137,6 +137,43 @@ class ReviewSessionCloseReceipt(_ReviewModel):
     closed_at: datetime
 
 
+class RunPointInspectionEvent(_ReviewModel):
+    """One transient optimizer decision and its compiled target inspection."""
+
+    proposal_index: int = Field(ge=0)
+    occurred_at: datetime
+    candidate: ReviewPointView
+    outcome: Literal["accepted", "rejected"]
+    accepted_point: ReviewPointView | None = None
+    reason: str | None = None
+    inspections: tuple[ReviewInspectionView, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> RunPointInspectionEvent:
+        if self.candidate.point_index is not None:
+            raise ValueError("proposal candidates cannot have a run point index")
+        if self.outcome == "accepted":
+            if self.accepted_point is None or self.reason is not None:
+                raise ValueError("accepted run proposal requires an accepted point")
+        elif self.accepted_point is not None or not self.reason:
+            raise ValueError("rejected run proposal requires a reason")
+        if self.outcome == "rejected" and self.inspections:
+            raise ValueError("rejected run proposal cannot have compiled inspections")
+        return self
+
+
+class RunInspectionAppendCommand(_ReviewModel):
+    lease_id: str = Field(min_length=1)
+    event: RunPointInspectionEvent
+
+
+class RunInspectionView(_ReviewModel):
+    run_id: str = Field(min_length=1)
+    items: tuple[RunPointInspectionEvent, ...] = ()
+    total_proposal_count: int = Field(default=0, ge=0)
+    items_truncated: bool = False
+
+
 __all__ = [
     "ReviewCompilationResult",
     "ReviewCompileCommand",
@@ -154,4 +191,7 @@ __all__ = [
     "ReviewSessionListView",
     "ReviewSessionView",
     "ReviewWorkItem",
+    "RunInspectionAppendCommand",
+    "RunInspectionView",
+    "RunPointInspectionEvent",
 ]

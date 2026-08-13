@@ -17,6 +17,7 @@ from scopecat.control.models import (
 from scopecat.control.models import (
     ExecutorLease as ControlExecutorLease,
 )
+from scopecat.daemon.reviews import RunInspectionAppendCommand, RunInspectionView
 from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
     ExecutionTransitionClaim,
@@ -63,6 +64,7 @@ from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
 from .active_measurements import ActiveMeasurementConflict, ActiveMeasurementStore
+from .reviews import ReviewService
 
 if TYPE_CHECKING:
     from ..instruments.service import InstrumentService
@@ -82,12 +84,14 @@ class ExecutorService:
         runs: SQLiteRunRepository,
         instruments: InstrumentService,
         active_measurements: ActiveMeasurementStore,
+        reviews: ReviewService,
         lease_ttl: timedelta | None = None,
     ) -> None:
         self._control = control
         self._runs = runs
         self._instruments = instruments
         self._active_measurements = active_measurements
+        self._reviews = reviews
         self._lease_ttl = lease_ttl or timedelta(seconds=30)
         self._heartbeat_interval_seconds = self._lease_ttl.total_seconds() / 3
         self._measurement_repositories: dict[
@@ -159,6 +163,14 @@ class ExecutorService:
             run_id=run_id,
             completed_point_count=completed,
         )
+
+    def append_run_inspection(
+        self,
+        run_id: str,
+        command: RunInspectionAppendCommand,
+    ) -> RunInspectionView:
+        with self.fenced_write(run_id, token=command.lease_id):
+            return self._reviews.append_run_inspection(run_id, command.event)
 
     def cancel_run(self, run_id: str) -> RunCancellationReceipt:
         """Cancel queued work now or request a leased executor checkpoint stop."""

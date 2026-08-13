@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 from threading import Lock
 from time import monotonic
-from typing import Protocol
+from typing import Protocol, cast
 
 from pydantic import BaseModel, JsonValue, TypeAdapter
 
 from scopecat.daemon.client import DaemonClient
+from scopecat.daemon.reviews import (
+    ReviewCoordinateValue,
+    ReviewInspectionView,
+    ReviewPointView,
+    RunInspectionAppendCommand,
+    RunPointInspectionEvent,
+)
 from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
     ExecutionTransitionClaim,
@@ -29,8 +37,11 @@ from scopecat.daemon.wire import (
     TerminalModelWrite,
     TerminalRunCommitCommand,
 )
+from scopecat.execution.program import RunPointInspection
 from scopecat.execution.services import ExecutionSession
 from scopecat.kernel.problems import Problem
+from scopecat.measurements.points import AcceptedRunPoint, PointCandidate
+from scopecat.optimization import PointProposalDecision
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
@@ -101,6 +112,7 @@ def daemon_execution_session(
     )
     instruments = _DaemonRunInstrumentHost(authority)
     coverage = _DaemonRunCoverage(authority)
+    point_proposals = _DaemonRunPointProposals(authority)
 
     def begin() -> None:
         authority.start()
@@ -115,6 +127,7 @@ def daemon_execution_session(
         measurements=_DaemonMeasurementRepository(authority),
         instruments=instruments,
         coverage=coverage,
+        point_proposals=point_proposals,
         cancellation_requested=authority.cancellation_requested,
         effects_ready=lambda: instruments.provisioned,
     )
@@ -288,6 +301,38 @@ class _DaemonRunCoverage:
         self._pending_start = None
         self._pending_count = 0
         self._last_send_at = monotonic() if now is None else now
+
+
+class _DaemonRunPointProposals:
+    """Publish bounded compiled-point facts while the executor owns the run."""
+
+    def __init__(self, authority: _LeaseAuthority) -> None:
+        self._authority = authority
+
+    def append(
+        self,
+        decision: PointProposalDecision,
+        inspection: RunPointInspection | None,
+    ) -> None:
+        self._authority.client.append_run_inspection(
+            self._authority.run_id,
+            RunInspectionAppendCommand(
+                lease_id=self._authority.fence(),
+                event=RunPointInspectionEvent(
+                    proposal_index=decision.proposal_index,
+                    occurred_at=datetime.now(UTC),
+                    candidate=_review_point(decision.candidate),
+                    outcome=decision.outcome,
+                    accepted_point=(
+                        None
+                        if decision.accepted_point is None
+                        else _review_point(decision.accepted_point)
+                    ),
+                    reason=decision.reason,
+                    inspections=_review_inspections(inspection),
+                ),
+            ),
+        )
 
 
 class _DaemonMeasurementRepository:
@@ -474,6 +519,42 @@ class _DaemonRunInstrumentHost:
         if receipt is None:
             raise RuntimeError("run instruments have not been provisioned")
         return receipt
+
+
+def _review_point(point: PointCandidate | AcceptedRunPoint) -> ReviewPointView:
+    return ReviewPointView(
+        point_index=(point.ordinal if isinstance(point, AcceptedRunPoint) else None),
+        coordinates=cast(
+            "dict[str, ReviewCoordinateValue]",
+            dict(point.coordinates),
+        ),
+        proposal_fingerprint=point.proposal_fingerprint,
+        source=point.source,
+    )
+
+
+def _review_inspections(
+    inspection: RunPointInspection | None,
+) -> tuple[ReviewInspectionView, ...]:
+    if inspection is None:
+        return ()
+    projected: list[ReviewInspectionView] = []
+    for job in inspection.jobs:
+        content = job.execution.inspection
+        if content is None:
+            continue
+        intent = job.execution.invocation.intent
+        projected.append(
+            ReviewInspectionView(
+                operation_id=job.id,
+                point_index=inspection.point_index,
+                target_id=intent.target_id,
+                artifact_id=intent.artifact_id,
+                artifact_fingerprint=intent.artifact_fingerprint,
+                content=content,
+            )
+        )
+    return tuple(projected)
 
 
 def _json_document(model: BaseModel) -> dict[str, JsonValue]:

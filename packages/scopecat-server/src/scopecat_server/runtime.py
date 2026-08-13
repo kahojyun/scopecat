@@ -117,6 +117,7 @@ class LocalDaemonRuntime:
                 config_registry=config_registry.read_unit_of_work,
             )
             active_measurements = ActiveMeasurementStore()
+            reviews = ReviewService()
             instrument_actors = InstrumentActorRegistry()
             config_service = ConfigService(
                 control=control,
@@ -151,6 +152,7 @@ class LocalDaemonRuntime:
                 runs=runs,
                 instruments=instruments,
                 active_measurements=active_measurements,
+                reviews=reviews,
                 lease_ttl=lease_ttl,
             )
             project_id = _project_id(self.project_root)
@@ -170,7 +172,7 @@ class LocalDaemonRuntime:
                 instruments=instruments,
                 payloads=payloads,
                 lease_supervisor=lease_supervisor,
-                reviews=ReviewService(),
+                reviews=reviews,
             )
             try:
                 bootstrap_source = (

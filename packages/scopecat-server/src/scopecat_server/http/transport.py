@@ -31,6 +31,8 @@ from scopecat.daemon.reviews import (
     ReviewSessionListView,
     ReviewSessionView,
     ReviewWorkItem,
+    RunInspectionAppendCommand,
+    RunInspectionView,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -727,6 +729,17 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         command: RunCoverageAdvanceCommand,
     ) -> RunCoverageState:
         return application.executor.advance_run_coverage(run_id, command)
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/inspections")
+    def get_run_inspections(run_id: str) -> RunInspectionView:
+        return application.reviews.run_inspections(run_id)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/inspections")
+    def append_run_inspection(
+        run_id: str,
+        command: RunInspectionAppendCommand,
+    ) -> RunInspectionView:
+        return application.executor.append_run_inspection(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/instruments/provision")
     def provision_run_instruments(
