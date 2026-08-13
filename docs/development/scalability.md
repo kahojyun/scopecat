@@ -281,6 +281,9 @@ The retention invariants are:
   values, even though the descriptive ad hoc baseline retains integer arrays;
 - IQ and bit arrays remain shot dimensions within each point rather than new
   logical scan points;
+- the reference list-mode runtime retains raw integrated-IQ as one
+  address-major `complex128` matrix plus a boolean availability mask; it does
+  not allocate one Python frame object per acquisition shot;
 - measurement files grow with bounded chunks, not one file per point;
 - the direct-runner discard lower bound creates no durable metadata or
   measurement dataset.

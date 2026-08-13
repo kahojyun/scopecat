@@ -48,6 +48,7 @@ from scopecat_quantum.pulses import (
 from scopecat_quantum.pulses import Parallel as PulseParallel
 from scopecat_quantum.pulses import Sequence as PulseSequence
 from scopecat_quantum.targets import (
+    TargetAcquisitionAddress,
     TargetCompilationError,
     TargetCompileEntry,
     TargetCompileRequest,
@@ -344,12 +345,20 @@ def test_list_mode_worker_protocol_is_stable_per_execution_identity() -> None:
         execution_id="test.calibrated-acquisition",
         instruments=instruments,
     )
-    assert [
-        (frame.shot_index, frame.entry_id, frame.slot_id)
-        for frame in instrument_run.frames
-    ] == [(shot, TargetCompileEntryId("entry-0"), slot.id) for shot in range(2)]
-    [first_value, second_value] = [frame.value for frame in instrument_run.frames]
-    assert first_value is not None
+    assert instrument_run.results.addresses == (
+        TargetAcquisitionAddress(
+            entry_id=TargetCompileEntryId("entry-0"),
+            slot_id=slot.id,
+        ),
+    )
+    assert instrument_run.results.values.shape == (1, 2)
+    assert instrument_run.results.values.nbytes == 2 * np.dtype(np.complex128).itemsize
+    assert instrument_run.results.available.nbytes == 2 * np.dtype(np.bool_).itemsize
+    assert not instrument_run.results.values.flags.writeable
+    assert not instrument_run.results.available.flags.writeable
+    assert np.all(instrument_run.results.available)
+    first_value = cast("np.complex128", instrument_run.results.values[0, 0])
+    second_value = cast("np.complex128", instrument_run.results.values[0, 1])
     assert second_value == pytest.approx(first_value)
 
     assert instruments.batches[0].operation_id.endswith(":load")
