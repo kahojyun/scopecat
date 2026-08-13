@@ -316,15 +316,8 @@ class _DaemonRunDomainProposals:
         self._authority = authority
 
     def next_queued(self) -> QueuedOperatorDomainRequest | None:
-        pending = next(
-            (
-                entry
-                for entry in self._authority.client.get_next_queued_run_domain(
-                    self._authority.run_id
-                ).items
-                if entry.status == "pending"
-            ),
-            None,
+        pending = self._authority.client.get_next_queued_run_domain(
+            self._authority.run_id
         )
         if pending is None:
             return None

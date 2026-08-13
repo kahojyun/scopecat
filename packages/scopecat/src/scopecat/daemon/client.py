@@ -867,11 +867,17 @@ class DaemonClient:
             RunDomainQueueView,
         )
 
-    def get_next_queued_run_domain(self, run_id: str) -> RunDomainQueueView:
-        return self._get_model(
+    def get_next_queued_run_domain(
+        self,
+        run_id: str,
+    ) -> RunDomainQueueEntryView | None:
+        response = self._request(
+            "GET",
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/queue/next",
-            RunDomainQueueView,
         )
+        if response.content == b"null":
+            return None
+        return RunDomainQueueEntryView.model_validate_json(response.content)
 
     def enqueue_run_domain(
         self,

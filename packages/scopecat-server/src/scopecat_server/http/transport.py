@@ -764,7 +764,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         return application.point_plans.queue(run_id)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/queue/next")
-    def get_next_queued_run_domain(run_id: str) -> RunDomainQueueView:
+    def get_next_queued_run_domain(run_id: str) -> RunDomainQueueEntryView | None:
         return application.point_plans.next_queued(run_id)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/queue")

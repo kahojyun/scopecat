@@ -83,13 +83,9 @@ class RunPointPlanService:
         self._require_run(run_id)
         return self._ledger(run_id).queue()
 
-    def next_queued(self, run_id: str) -> RunDomainQueueView:
+    def next_queued(self, run_id: str) -> RunDomainQueueEntryView | None:
         self._require_run(run_id)
-        entry = self._ledger(run_id).next_pending()
-        return RunDomainQueueView(
-            run_id=run_id,
-            items=() if entry is None else (entry,),
-        )
+        return self._ledger(run_id).next_pending()
 
     def enqueue(
         self,

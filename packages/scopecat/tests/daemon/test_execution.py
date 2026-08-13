@@ -21,7 +21,6 @@ from scopecat.daemon.execution import daemon_execution_session
 from scopecat.daemon.points import (
     RunDomainDecisionCommand,
     RunDomainDecisionView,
-    RunDomainQueueView,
     RunPointPlanCloseCommand,
     RunPointPlanView,
 )
@@ -187,7 +186,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                 )
             )
         if path.endswith("/point-plan/queue/next") and request.method == "GET":
-            return _model(RunDomainQueueView(run_id="run-1"))
+            return httpx2.Response(200, content=b"null")
         if path.endswith("/point-plan/decisions"):
             command = RunDomainDecisionCommand.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
