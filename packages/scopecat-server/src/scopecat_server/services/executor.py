@@ -18,12 +18,10 @@ from scopecat.control.models import (
     ExecutorLease as ControlExecutorLease,
 )
 from scopecat.daemon.points import (
-    POINT_PLAN_INITIALIZE_OPERATION_ID,
     RunPointDecisionCommand,
     RunPointDecisionView,
     RunPointEnqueueCommand,
     RunPointPlanCloseCommand,
-    RunPointPlanInitializeCommand,
     RunPointPlanView,
     RunPointQueueEntryView,
     RunPointQueueView,
@@ -177,38 +175,10 @@ class ExecutorService:
         )
 
     def run_point_plan(self, run_id: str) -> RunPointPlanView:
-        run = self._control_run(run_id)
+        self._control_run(run_id)
         durable = SQLiteRunPointLedger(self._runs, run_id=run_id).read()
-        if durable is not None:
-            return durable
-        plan = run.admission.plan
-        closed = plan.point_count is not None
-        return RunPointPlanView(
-            run_id=run_id,
-            initial_point_count=plan.initial_point_count,
-            accepted_point_count=plan.initial_point_count,
-            point_limit=plan.point_limit,
-            decision_count=0,
-            plan_closed=closed,
-            stop_reason="static point plan" if closed else None,
-        )
-
-    def initialize_run_point_plan(
-        self,
-        run_id: str,
-        command: RunPointPlanInitializeCommand,
-    ) -> RunPointPlanView:
-        ledger = SQLiteRunPointLedger(self._runs, run_id=run_id)
-        with self.fenced_write(run_id, token=command.lease_id) as connection:
-            run = self._control.get_run_in_transaction(connection, run_id)
-            plan = run.admission.plan
-            return ledger.initialize_in_transaction(
-                connection,
-                operation_id=command.operation_id,
-                initial_point_count=plan.initial_point_count,
-                point_limit=plan.point_limit,
-                plan_closed=plan.point_count is not None,
-            )
+        assert durable is not None, "admitted run is missing its point plan"
+        return durable
 
     def append_run_point_decision(
         self,
@@ -272,15 +242,6 @@ class ExecutorService:
                     self._runs,
                     run_id=run_id,
                 )
-                if ledger.read_in_transaction(connection) is None:
-                    plan = run.admission.plan
-                    ledger.initialize_in_transaction(
-                        connection,
-                        operation_id=POINT_PLAN_INITIALIZE_OPERATION_ID,
-                        initial_point_count=plan.initial_point_count,
-                        point_limit=plan.point_limit,
-                        plan_closed=plan.point_count is not None,
-                    )
                 entry, created = ledger.enqueue_in_transaction(connection, command)
                 if created:
                     self._control.append_event_in_transaction(
@@ -349,6 +310,14 @@ class ExecutorService:
                         status="cancel_requested",
                         cancellation_requested_at=current.cancellation_requested_at,
                     )
+                SQLiteRunPointLedger(
+                    self._runs,
+                    run_id=run_id,
+                ).abandon_in_transaction(
+                    connection,
+                    operation_id="point-plan.terminal.cancelled",
+                    reason="run cancelled",
+                )
                 manifest = self._runs.commit_prepared_terminal_in_transaction(
                     connection,
                     prepared,

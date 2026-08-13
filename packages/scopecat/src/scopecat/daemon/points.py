@@ -14,8 +14,6 @@ from scopecat.measurements.points import PointCandidate, PointCandidateSource
 
 type RunPointCoordinateValue = bool | int | float | str | Quantity | EntityRef | None
 
-POINT_PLAN_INITIALIZE_OPERATION_ID = "point-plan.initialize.v1"
-
 
 class _PointModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -101,11 +99,6 @@ class RunPointPlanView(_PointModel):
         if self.plan_closed != (self.stop_reason is not None):
             raise ValueError("closed point plan requires exactly one stop reason")
         return self
-
-
-class RunPointPlanInitializeCommand(_PointModel):
-    lease_id: str = Field(min_length=1)
-    operation_id: str = Field(min_length=1)
 
 
 class RunPointDecisionCommand(_PointModel):
@@ -199,7 +192,6 @@ class RunPointPlanCloseCommand(_PointModel):
 
 
 __all__ = [
-    "POINT_PLAN_INITIALIZE_OPERATION_ID",
     "AcceptedRunPointView",
     "RunPointCandidateView",
     "RunPointCoordinateValue",
@@ -207,7 +199,6 @@ __all__ = [
     "RunPointDecisionView",
     "RunPointEnqueueCommand",
     "RunPointPlanCloseCommand",
-    "RunPointPlanInitializeCommand",
     "RunPointPlanView",
     "RunPointQueueEntryView",
     "RunPointQueueView",

@@ -41,8 +41,6 @@ class QueuedRunPointCandidate:
 class RunPointProposalWriter(Protocol):
     """Commit point-plan facts and publish bounded live inspections."""
 
-    def initialize(self) -> None: ...
-
     def next_queued(self) -> QueuedRunPointCandidate | None: ...
 
     def append(

@@ -31,12 +31,10 @@ from scopecat.control.models import (
     RunResourceRequirement,
 )
 from scopecat.daemon.points import (
-    POINT_PLAN_INITIALIZE_OPERATION_ID,
     RunPointCandidateView,
     RunPointDecisionCommand,
     RunPointEnqueueCommand,
     RunPointPlanCloseCommand,
-    RunPointPlanInitializeCommand,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -2214,16 +2212,10 @@ def test_open_point_plan_can_succeed_below_its_limit_and_exposes_coverage(
     )
     with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
         admission = runtime.application.submit_run(submission)
+        initialized = runtime.application.executor.run_point_plan(admission.run_id)
         lease = runtime.application.executor.start_executor(
             admission.run_id,
             ExecutorStartRequest(executor_id="notebook-adaptive"),
-        )
-        initialized = runtime.application.executor.initialize_run_point_plan(
-            admission.run_id,
-            RunPointPlanInitializeCommand(
-                lease_id=lease.lease_id,
-                operation_id="initialize-adaptive-coverage",
-            ),
         )
         runtime.application.executor.advance_run_coverage(
             admission.run_id,
@@ -2290,6 +2282,7 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
     )
     with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
         admission = runtime.application.submit_run(submission)
+        initialized = runtime.application.executor.run_point_plan(admission.run_id)
         lease = runtime.application.executor.start_executor(
             admission.run_id,
             ExecutorStartRequest(executor_id="adaptive-ledger-test"),
@@ -2311,13 +2304,6 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
             RunPointEnqueueCommand(
                 operation_id="queue-1",
                 coordinates={"frequency": Quantity(5.2, "GHz")},
-            ),
-        )
-        initialized = runtime.application.executor.initialize_run_point_plan(
-            admission.run_id,
-            RunPointPlanInitializeCommand(
-                lease_id=lease.lease_id,
-                operation_id=POINT_PLAN_INITIALIZE_OPERATION_ID,
             ),
         )
         candidate = PointCandidate(
@@ -3351,13 +3337,6 @@ def test_restart_quarantines_executor_until_operator_reconciles(
                 lease_id=lease.lease_id,
                 start_index=0,
                 point_count=1,
-            ),
-        )
-        runtime.application.executor.initialize_run_point_plan(
-            admission.run_id,
-            RunPointPlanInitializeCommand(
-                lease_id=lease.lease_id,
-                operation_id=POINT_PLAN_INITIALIZE_OPERATION_ID,
             ),
         )
         runtime.application.executor.enqueue_run_point(

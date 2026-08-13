@@ -12,12 +12,10 @@ from pydantic import BaseModel, JsonValue, TypeAdapter
 
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.points import (
-    POINT_PLAN_INITIALIZE_OPERATION_ID,
     RunPointCandidateView,
     RunPointCoordinateValue,
     RunPointDecisionCommand,
     RunPointPlanCloseCommand,
-    RunPointPlanInitializeCommand,
 )
 from scopecat.daemon.reviews import (
     ReviewCoordinateValue,
@@ -318,15 +316,6 @@ class _DaemonRunPointProposals:
 
     def __init__(self, authority: _LeaseAuthority) -> None:
         self._authority = authority
-
-    def initialize(self) -> None:
-        self._authority.client.initialize_run_point_plan(
-            self._authority.run_id,
-            RunPointPlanInitializeCommand(
-                lease_id=self._authority.fence(),
-                operation_id=POINT_PLAN_INITIALIZE_OPERATION_ID,
-            ),
-        )
 
     def next_queued(self) -> QueuedRunPointCandidate | None:
         pending = next(

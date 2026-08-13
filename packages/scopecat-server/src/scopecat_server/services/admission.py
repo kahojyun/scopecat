@@ -62,6 +62,8 @@ from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
 
+_POINT_PLAN_ADMISSION_OPERATION_ID = "point-plan.admission.v1"
+
 
 class AdmissionService:
     """Own idempotent admission and admitted snapshots."""
@@ -139,6 +141,17 @@ class AdmissionService:
                     connection,
                     admission,
                     expected_config_generation=active.activation.generation,
+                )
+                plan = run.admission.plan
+                SQLiteRunPointLedger(
+                    self._runs,
+                    run_id=run.run_id,
+                ).initialize_in_transaction(
+                    connection,
+                    operation_id=_POINT_PLAN_ADMISSION_OPERATION_ID,
+                    initial_point_count=plan.initial_point_count,
+                    point_limit=plan.point_limit,
+                    plan_closed=plan.point_count is not None,
                 )
                 if run.run_id == admission.run_id:
                     self._runs.commit_run_skeleton_in_transaction(

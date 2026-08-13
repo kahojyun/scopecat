@@ -128,10 +128,6 @@ def _execute_run(
     dataset_header, header_failure, cancelled_without_effects = (
         _prepare_execution_start(program, session)
     )
-    _initialize_point_plan(
-        point_state,
-        enabled=header_failure is None and not cancelled_without_effects,
-    )
     recorded_measurement_count = 0
     completed_coverage_count = 0
     record_content_hashes: list[str] = []
@@ -362,11 +358,6 @@ def _execute_run(
     if committed_outcome.result != "succeeded":
         _raise_terminal_run_error(run_id, committed_outcome)
     return manifest
-
-
-def _initialize_point_plan(state: _ExecutionPointState, *, enabled: bool) -> None:
-    if enabled and state.proposal_writer is not None:
-        state.proposal_writer.initialize()
 
 
 def _advance_unrecorded_coverage(

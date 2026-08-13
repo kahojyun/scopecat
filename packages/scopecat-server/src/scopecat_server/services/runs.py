@@ -225,22 +225,10 @@ def _run_control_view(
 
 
 def _run_point_plan_view(
-    control: ControlRun,
     durable: RunPointPlanView | None,
 ) -> RunPointPlanView:
-    if durable is not None:
-        return durable
-    plan = control.admission.plan
-    closed = plan.point_count is not None
-    return RunPointPlanView(
-        run_id=control.run_id,
-        initial_point_count=plan.initial_point_count,
-        accepted_point_count=plan.initial_point_count,
-        point_limit=plan.point_limit,
-        decision_count=0,
-        plan_closed=closed,
-        stop_reason="static point plan" if closed else None,
-    )
+    assert durable is not None, "admitted run is missing its point plan"
+    return durable
 
 
 class RunService:
@@ -283,7 +271,6 @@ class RunService:
                                 run_id=control.run_id,
                             ).read_in_transaction(connection),
                             point_plan=_run_point_plan_view(
-                                control,
                                 SQLiteRunPointLedger(
                                     self._runs,
                                     run_id=control.run_id,
@@ -327,7 +314,6 @@ class RunService:
                     run_id=run_id,
                 ).read_in_transaction(connection)
                 point_plan = _run_point_plan_view(
-                    control,
                     SQLiteRunPointLedger(
                         self._runs,
                         run_id=run_id,

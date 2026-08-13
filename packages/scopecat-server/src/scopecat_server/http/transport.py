@@ -26,7 +26,6 @@ from scopecat.daemon.points import (
     RunPointDecisionView,
     RunPointEnqueueCommand,
     RunPointPlanCloseCommand,
-    RunPointPlanInitializeCommand,
     RunPointPlanView,
     RunPointQueueEntryView,
     RunPointQueueView,
@@ -743,13 +742,6 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan")
     def get_run_point_plan(run_id: str) -> RunPointPlanView:
         return application.executor.run_point_plan(run_id)
-
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/initialize")
-    def initialize_run_point_plan(
-        run_id: str,
-        command: RunPointPlanInitializeCommand,
-    ) -> RunPointPlanView:
-        return application.executor.initialize_run_point_plan(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/decisions")
     def append_run_point_decision(

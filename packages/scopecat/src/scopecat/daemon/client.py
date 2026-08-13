@@ -22,7 +22,6 @@ from scopecat.daemon.points import (
     RunPointDecisionView,
     RunPointEnqueueCommand,
     RunPointPlanCloseCommand,
-    RunPointPlanInitializeCommand,
     RunPointPlanView,
     RunPointQueueEntryView,
     RunPointQueueView,
@@ -837,17 +836,6 @@ class DaemonClient:
     def get_run_point_plan(self, run_id: str) -> RunPointPlanView:
         return self._get_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan",
-            RunPointPlanView,
-        )
-
-    def initialize_run_point_plan(
-        self,
-        run_id: str,
-        command: RunPointPlanInitializeCommand,
-    ) -> RunPointPlanView:
-        return self._post_idempotent_model(
-            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/initialize",
-            command,
             RunPointPlanView,
         )
 
