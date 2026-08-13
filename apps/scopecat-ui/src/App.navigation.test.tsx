@@ -368,6 +368,8 @@ describe("config provenance navigation", () => {
         acceptedPointCount: 3,
         pointLimit: 4,
         decisionCount: 2,
+        optimizerAttemptCount: 1,
+        operatorRequestCount: 1,
         closed: false,
       },
       plan: {
@@ -387,7 +389,9 @@ describe("config provenance navigation", () => {
     });
     expect(progress).toBeVisible();
     expect(progress.closest("article")).toHaveTextContent("2 / 3 points accepted · 4 max");
-    expect(progress.closest("article")).toHaveTextContent("2 decisions · plan open");
+    expect(progress.closest("article")).toHaveTextContent(
+      "Optimizer attempts 1 · operator requests 1 · plan open",
+    );
     expect(screen.getByText("Initial / accepted / max points")).toBeVisible();
     expect(screen.getByText("1 / 3 / 4")).toBeVisible();
   });
@@ -609,6 +613,8 @@ function projectRun(runId: string): ProjectRun {
       acceptedPointCount: 0,
       pointLimit: 0,
       decisionCount: 0,
+      optimizerAttemptCount: 0,
+      operatorRequestCount: 0,
       closed: true,
       stopReason: "static point plan",
     },

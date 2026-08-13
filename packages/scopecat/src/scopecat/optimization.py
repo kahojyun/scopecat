@@ -68,6 +68,9 @@ class PointProposalLedger:
     entry_offset: int = 0
     accepted_count_before: int = 0
     rejected_count_before: int = 0
+    author_attempt_count_before: int = 0
+    optimizer_attempt_count_before: int = 0
+    operator_attempt_count_before: int = 0
     accepted_count_in_window: int = 0
     rejected_count_in_window: int = 0
 
@@ -79,6 +82,9 @@ class PointProposalLedger:
                 self.entry_offset,
                 self.accepted_count_before,
                 self.rejected_count_before,
+                self.author_attempt_count_before,
+                self.optimizer_attempt_count_before,
+                self.operator_attempt_count_before,
                 self.accepted_count_in_window,
                 self.rejected_count_in_window,
             )
@@ -87,6 +93,13 @@ class PointProposalLedger:
             raise ValueError("proposal ledger counters must be non-negative")
         if self.accepted_count_before + self.rejected_count_before != self.entry_offset:
             raise ValueError("proposal ledger prefix counters must match its offset")
+        if (
+            self.author_attempt_count_before
+            + self.optimizer_attempt_count_before
+            + self.operator_attempt_count_before
+            != self.entry_offset
+        ):
+            raise ValueError("proposal ledger source counters must match its offset")
         if self.accepted_count_in_window + self.rejected_count_in_window != len(
             self.entries
         ):
@@ -109,6 +122,18 @@ class PointProposalLedger:
     @property
     def decision_count(self) -> int:
         return self.entry_offset + len(self.entries)
+
+    @property
+    def optimizer_attempt_count(self) -> int:
+        return self.optimizer_attempt_count_before + sum(
+            entry.candidate.source == "optimizer" for entry in self.entries
+        )
+
+    @property
+    def operator_attempt_count(self) -> int:
+        return self.operator_attempt_count_before + sum(
+            entry.candidate.source == "operator" for entry in self.entries
+        )
 
     @property
     def next_logical_ordinal(self) -> int:
@@ -137,6 +162,9 @@ class PointProposalLedger:
             entry_offset=self.entry_offset,
             accepted_count_before=self.accepted_count_before,
             rejected_count_before=self.rejected_count_before,
+            author_attempt_count_before=self.author_attempt_count_before,
+            optimizer_attempt_count_before=self.optimizer_attempt_count_before,
+            operator_attempt_count_before=self.operator_attempt_count_before,
             accepted_count_in_window=self.accepted_count_in_window + 1,
             rejected_count_in_window=self.rejected_count_in_window,
         )
@@ -163,6 +191,9 @@ class PointProposalLedger:
             entry_offset=self.entry_offset,
             accepted_count_before=self.accepted_count_before,
             rejected_count_before=self.rejected_count_before,
+            author_attempt_count_before=self.author_attempt_count_before,
+            optimizer_attempt_count_before=self.optimizer_attempt_count_before,
+            operator_attempt_count_before=self.operator_attempt_count_before,
             accepted_count_in_window=self.accepted_count_in_window,
             rejected_count_in_window=self.rejected_count_in_window + 1,
         )
@@ -177,12 +208,26 @@ class PointProposalLedger:
             return self
         dropped_accepted = sum(entry.outcome == "accepted" for entry in dropped)
         dropped_rejected = len(dropped) - dropped_accepted
+        dropped_authored = sum(entry.candidate.source == "author" for entry in dropped)
+        dropped_optimizer = sum(
+            entry.candidate.source == "optimizer" for entry in dropped
+        )
+        dropped_operator = len(dropped) - dropped_authored - dropped_optimizer
         return PointProposalLedger(
             initial_point_count=self.initial_point_count,
             entries=self.entries[-limit:],
             entry_offset=self.entry_offset + len(dropped),
             accepted_count_before=self.accepted_count_before + dropped_accepted,
             rejected_count_before=self.rejected_count_before + dropped_rejected,
+            author_attempt_count_before=(
+                self.author_attempt_count_before + dropped_authored
+            ),
+            optimizer_attempt_count_before=(
+                self.optimizer_attempt_count_before + dropped_optimizer
+            ),
+            operator_attempt_count_before=(
+                self.operator_attempt_count_before + dropped_operator
+            ),
             accepted_count_in_window=(self.accepted_count_in_window - dropped_accepted),
             rejected_count_in_window=(self.rejected_count_in_window - dropped_rejected),
         )

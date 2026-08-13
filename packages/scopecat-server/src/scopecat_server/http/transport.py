@@ -741,7 +741,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan")
     def get_run_point_plan(run_id: str) -> RunPointPlanView:
-        return application.executor.run_point_plan(run_id)
+        return application.point_plans.read(run_id)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/decisions")
     def append_run_point_decision(
@@ -759,18 +759,18 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/queue")
     def get_run_point_queue(run_id: str) -> RunPointQueueView:
-        return application.executor.run_point_queue(run_id)
+        return application.point_plans.queue(run_id)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/queue/next")
     def get_next_queued_run_point(run_id: str) -> RunPointQueueView:
-        return application.executor.next_queued_run_point(run_id)
+        return application.point_plans.next_queued(run_id)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/queue")
     def enqueue_run_point(
         run_id: str,
         command: RunPointEnqueueCommand,
     ) -> RunPointQueueEntryView:
-        return application.executor.enqueue_run_point(run_id, command)
+        return application.point_plans.enqueue(run_id, command)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/inspections")
     def get_run_inspections(run_id: str) -> RunInspectionView:

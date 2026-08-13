@@ -3677,6 +3677,10 @@ export interface components {
             decision_count: number;
             /** Initial Point Count */
             initial_point_count: number;
+            /** Operator Request Count */
+            operator_request_count: number;
+            /** Optimizer Attempt Count */
+            optimizer_attempt_count: number;
             /** Plan Closed */
             plan_closed: boolean;
             /** Point Limit */

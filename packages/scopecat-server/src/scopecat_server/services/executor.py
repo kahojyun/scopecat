@@ -20,11 +20,8 @@ from scopecat.control.models import (
 from scopecat.daemon.points import (
     RunPointDecisionCommand,
     RunPointDecisionView,
-    RunPointEnqueueCommand,
     RunPointPlanCloseCommand,
     RunPointPlanView,
-    RunPointQueueEntryView,
-    RunPointQueueView,
 )
 from scopecat.daemon.reviews import RunInspectionAppendCommand, RunInspectionView
 from scopecat.daemon.wire import (
@@ -68,12 +65,12 @@ from scopecat_server.storage.sqlite.execution import (
     SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
     SQLiteRunCoverage,
-    SQLiteRunPointLedger,
 )
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
 from .active_measurements import ActiveMeasurementConflict, ActiveMeasurementStore
+from .point_plans import RunPointPlanService
 from .reviews import ReviewService
 
 if TYPE_CHECKING:
@@ -95,6 +92,7 @@ class ExecutorService:
         instruments: InstrumentService,
         active_measurements: ActiveMeasurementStore,
         reviews: ReviewService,
+        point_plans: RunPointPlanService,
         lease_ttl: timedelta | None = None,
     ) -> None:
         self._control = control
@@ -102,6 +100,7 @@ class ExecutorService:
         self._instruments = instruments
         self._active_measurements = active_measurements
         self._reviews = reviews
+        self._point_plans = point_plans
         self._lease_ttl = lease_ttl or timedelta(seconds=30)
         self._heartbeat_interval_seconds = self._lease_ttl.total_seconds() / 3
         self._measurement_repositories: dict[
@@ -174,23 +173,17 @@ class ExecutorService:
             completed_point_count=completed,
         )
 
-    def run_point_plan(self, run_id: str) -> RunPointPlanView:
-        self._control_run(run_id)
-        durable = SQLiteRunPointLedger(self._runs, run_id=run_id).read()
-        assert durable is not None, "admitted run is missing its point plan"
-        return durable
-
     def append_run_point_decision(
         self,
         run_id: str,
         command: RunPointDecisionCommand,
     ) -> RunPointDecisionView:
-        ledger = SQLiteRunPointLedger(self._runs, run_id=run_id)
         coverage = SQLiteRunCoverage(self._runs, run_id=run_id)
         with self.fenced_write(run_id, token=command.lease_id) as connection:
             completed = coverage.read_in_transaction(connection)
-            return ledger.append_decision_in_transaction(
+            return self._point_plans.append_decision_in_transaction(
                 connection,
+                run_id,
                 command,
                 completed_point_count=completed,
             )
@@ -200,66 +193,15 @@ class ExecutorService:
         run_id: str,
         command: RunPointPlanCloseCommand,
     ) -> RunPointPlanView:
-        ledger = SQLiteRunPointLedger(self._runs, run_id=run_id)
         coverage = SQLiteRunCoverage(self._runs, run_id=run_id)
         with self.fenced_write(run_id, token=command.lease_id) as connection:
             completed = coverage.read_in_transaction(connection)
-            return ledger.close_in_transaction(
+            return self._point_plans.close_in_transaction(
                 connection,
+                run_id,
                 command,
                 completed_point_count=completed,
             )
-
-    def run_point_queue(self, run_id: str) -> RunPointQueueView:
-        self._control_run(run_id)
-        return SQLiteRunPointLedger(self._runs, run_id=run_id).queue()
-
-    def next_queued_run_point(self, run_id: str) -> RunPointQueueView:
-        self._control_run(run_id)
-        entry = SQLiteRunPointLedger(self._runs, run_id=run_id).next_pending()
-        return RunPointQueueView(
-            run_id=run_id,
-            items=() if entry is None else (entry,),
-        )
-
-    def enqueue_run_point(
-        self,
-        run_id: str,
-        command: RunPointEnqueueCommand,
-    ) -> RunPointQueueEntryView:
-        try:
-            with self._control.write_transaction() as connection:
-                run = self._control.get_run_in_transaction(connection, run_id)
-                if run.state != "leased":
-                    raise ControlPlaneConflict(
-                        "operator points can be queued only while a run is active"
-                    )
-                if set(command.coordinates) != set(run.admission.plan.coordinate_ids):
-                    raise ControlPlaneConflict(
-                        "queued point coordinates do not match the admitted axes"
-                    )
-                ledger = SQLiteRunPointLedger(
-                    self._runs,
-                    run_id=run_id,
-                )
-                entry, created = ledger.enqueue_in_transaction(connection, command)
-                if created:
-                    self._control.append_event_in_transaction(
-                        connection,
-                        DurableEventInput(
-                            run_id=run_id,
-                            kind="point_candidate_queued",
-                            payload={
-                                "queue_index": entry.queue_index,
-                                "request_id": entry.request.request_id,
-                            },
-                        ),
-                    )
-                return entry
-        except ControlPlaneNotFound as error:
-            raise BackendNotFound(str(error)) from error
-        except (ControlPlaneConflict, ExecutionJournalConflict) as error:
-            raise BackendConflict(str(error)) from error
 
     def append_run_inspection(
         self,
@@ -310,11 +252,9 @@ class ExecutorService:
                         status="cancel_requested",
                         cancellation_requested_at=current.cancellation_requested_at,
                     )
-                SQLiteRunPointLedger(
-                    self._runs,
-                    run_id=run_id,
-                ).abandon_in_transaction(
+                self._point_plans.abandon_in_transaction(
                     connection,
+                    run_id,
                     operation_id="point-plan.terminal.cancelled",
                     reason="run cancelled",
                 )
@@ -776,11 +716,9 @@ class ExecutorService:
                     control,
                 )
             else:
-                SQLiteRunPointLedger(
-                    self._runs,
-                    run_id=run_id,
-                ).abandon_in_transaction(
+                self._point_plans.abandon_in_transaction(
                     connection,
+                    run_id,
                     operation_id=f"point-plan.terminal.{commit.outcome.result}",
                     reason=f"run {commit.outcome.result}",
                 )
@@ -817,11 +755,8 @@ class ExecutorService:
                     "successful run coverage does not match its admitted point extent"
                 )
             return
-        point_plan = SQLiteRunPointLedger(
-            self._runs,
-            run_id=run_id,
-        ).read_in_transaction(connection)
-        if point_plan is None or not point_plan.plan_closed:
+        point_plan = self._point_plans.read_in_transaction(connection, run_id)
+        if not point_plan.plan_closed:
             raise BackendConflict(
                 "successful adaptive run requires a closed durable point plan"
             )

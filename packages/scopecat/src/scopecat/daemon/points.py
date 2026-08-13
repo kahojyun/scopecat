@@ -109,6 +109,8 @@ class RunPointPlanView(_PointModel):
     accepted_point_count: int = Field(ge=0)
     point_limit: int = Field(ge=0)
     decision_count: int = Field(ge=0)
+    optimizer_attempt_count: int = Field(ge=0)
+    operator_request_count: int = Field(ge=0)
     plan_closed: bool
     stop_reason: str | None = None
 
@@ -120,6 +122,8 @@ class RunPointPlanView(_PointModel):
             raise ValueError("point-plan counts must form one bounded prefix")
         if self.plan_closed != (self.stop_reason is not None):
             raise ValueError("closed point plan requires exactly one stop reason")
+        if self.optimizer_attempt_count > self.decision_count:
+            raise ValueError("optimizer attempts cannot exceed all point decisions")
         return self
 
 

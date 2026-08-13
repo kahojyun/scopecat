@@ -110,6 +110,8 @@ function projectRun(active: boolean): ProjectRun {
       acceptedPointCount: 1,
       pointLimit: 4,
       decisionCount: 0,
+      optimizerAttemptCount: 0,
+      operatorRequestCount: 0,
       closed: !active,
       stopReason: active ? undefined : "optimizer converged",
     },

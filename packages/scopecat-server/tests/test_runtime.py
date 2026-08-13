@@ -141,6 +141,7 @@ from scopecat_server import BackendConflict, LocalDaemonRuntime
 from scopecat_server.instruments.actors import InstrumentActorRetirement
 from scopecat_server.services.admission import AdmissionService
 from scopecat_server.services.leases import OwnershipLeaseSupervisor
+from scopecat_server.services.point_plans import RunPointPlanService
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.control_plane import (
@@ -1342,14 +1343,16 @@ def test_admission_is_durably_idempotent(tmp_path: Path) -> None:
             sqlite = SQLiteDatabase(database)
             runs = SQLiteRunRepository(sqlite, state / "objects")
             registry = SQLiteConfigRegistryStore(sqlite, runs=runs)
+            control = SQLiteControlPlane(sqlite)
             admission_services.append(
                 AdmissionService(
-                    control=SQLiteControlPlane(sqlite),
+                    control=control,
                     runs=runs,
                     services=ProjectStateServices(
                         runs=runs,
                         config_registry=registry.read_unit_of_work,
                     ),
+                    point_plans=RunPointPlanService(control=control, runs=runs),
                 )
             )
         services = tuple(admission_services)
@@ -1622,13 +1625,15 @@ def test_authority_failure_replays_a_concurrently_admitted_submission(
         sqlite = SQLiteDatabase(database)
         runs = SQLiteRunRepository(sqlite, state / "objects")
         registry = SQLiteConfigRegistryStore(sqlite, runs=runs)
+        control = SQLiteControlPlane(sqlite)
         racing = AdmissionService(
-            control=SQLiteControlPlane(sqlite),
+            control=control,
             runs=runs,
             services=ProjectStateServices(
                 runs=runs,
                 config_registry=registry.read_unit_of_work,
             ),
+            point_plans=RunPointPlanService(control=control, runs=runs),
         )
         resolve_active = racing._resolve_active_config
         admitted: RunAdmission | None = None
@@ -2212,7 +2217,7 @@ def test_open_point_plan_can_succeed_below_its_limit_and_exposes_coverage(
     )
     with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
         admission = runtime.application.submit_run(submission)
-        initialized = runtime.application.executor.run_point_plan(admission.run_id)
+        initialized = runtime.application.point_plans.read(admission.run_id)
         lease = runtime.application.executor.start_executor(
             admission.run_id,
             ExecutorStartRequest(executor_id="notebook-adaptive"),
@@ -2282,7 +2287,7 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
     )
     with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
         admission = runtime.application.submit_run(submission)
-        initialized = runtime.application.executor.run_point_plan(admission.run_id)
+        initialized = runtime.application.point_plans.read(admission.run_id)
         lease = runtime.application.executor.start_executor(
             admission.run_id,
             ExecutorStartRequest(executor_id="adaptive-ledger-test"),
@@ -2299,7 +2304,7 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
             {"frequency": Quantity(5.2, "GHz")},
             source="operator",
         )
-        queued = runtime.application.executor.enqueue_run_point(
+        queued = runtime.application.point_plans.enqueue(
             admission.run_id,
             RunPointEnqueueCommand(
                 request_id="queue-1",
@@ -2351,10 +2356,8 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
         assert closed.plan_closed
 
     with LocalDaemonRuntime(tmp_path) as restarted:
-        restored = restarted.application.executor.run_point_plan(admission.run_id)
-        restored_queue = restarted.application.executor.run_point_queue(
-            admission.run_id
-        )
+        restored = restarted.application.point_plans.read(admission.run_id)
+        restored_queue = restarted.application.point_plans.queue(admission.run_id)
 
     assert restored == closed
     assert restored_queue.items[0].status == "accepted"
@@ -2407,7 +2410,7 @@ def test_failed_adaptive_run_abandons_pending_operator_points(tmp_path: Path) ->
             admission.run_id,
             ExecutorStartRequest(executor_id="failed-adaptive-test"),
         )
-        runtime.application.executor.enqueue_run_point(
+        runtime.application.point_plans.enqueue(
             admission.run_id,
             RunPointEnqueueCommand(
                 request_id="pending-at-failure",
@@ -2432,8 +2435,8 @@ def test_failed_adaptive_run_abandons_pending_operator_points(tmp_path: Path) ->
                 ),
             ),
         )
-        point_plan = runtime.application.executor.run_point_plan(admission.run_id)
-        queue = runtime.application.executor.run_point_queue(admission.run_id)
+        point_plan = runtime.application.point_plans.read(admission.run_id)
+        queue = runtime.application.point_plans.queue(admission.run_id)
 
     assert manifest.outcome is not None
     assert manifest.outcome.result == "failed"
@@ -3339,7 +3342,7 @@ def test_restart_quarantines_executor_until_operator_reconciles(
                 point_count=1,
             ),
         )
-        runtime.application.executor.enqueue_run_point(
+        runtime.application.point_plans.enqueue(
             admission.run_id,
             RunPointEnqueueCommand(
                 request_id="queue-before-restart",
@@ -3355,8 +3358,8 @@ def test_restart_quarantines_executor_until_operator_reconciles(
         assert _resource_claims(tmp_path)[0].status == "quarantined"
         coverage = reopened.application.executor.run_coverage(run_id)
         assert coverage.completed_point_count == 1
-        interrupted_plan = reopened.application.executor.run_point_plan(run_id)
-        interrupted_queue = reopened.application.executor.run_point_queue(run_id)
+        interrupted_plan = reopened.application.point_plans.read(run_id)
+        interrupted_queue = reopened.application.point_plans.queue(run_id)
         assert not interrupted_plan.plan_closed
         assert interrupted_queue.items[0].status == "pending"
         with pytest.raises(BackendConflict, match="attention_required"):
@@ -3374,8 +3377,8 @@ def test_restart_quarantines_executor_until_operator_reconciles(
         assert manifest.outcome is not None
         assert manifest.outcome.certainty == "indeterminate"
         assert manifest.outcome.problems[0].code == "daemon.executor_loss_reconciled"
-        abandoned_plan = reopened.application.executor.run_point_plan(run_id)
-        abandoned_queue = reopened.application.executor.run_point_queue(run_id)
+        abandoned_plan = reopened.application.point_plans.read(run_id)
+        abandoned_queue = reopened.application.point_plans.queue(run_id)
         assert abandoned_plan.plan_closed
         assert abandoned_plan.stop_reason == "executor loss reconciled"
         assert abandoned_queue.items[0].status == "cancelled"

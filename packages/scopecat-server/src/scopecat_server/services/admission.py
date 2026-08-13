@@ -57,12 +57,10 @@ from scopecat_server.storage.sqlite.control_plane import (
     ControlPlaneNotFound,
     SQLiteControlPlane,
 )
-from scopecat_server.storage.sqlite.execution import SQLiteRunPointLedger
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
-
-_POINT_PLAN_ADMISSION_OPERATION_ID = "point-plan.admission.v1"
+from .point_plans import RunPointPlanService
 
 
 class AdmissionService:
@@ -74,10 +72,12 @@ class AdmissionService:
         control: SQLiteControlPlane,
         runs: SQLiteRunRepository,
         services: ProjectStateServices,
+        point_plans: RunPointPlanService,
     ) -> None:
         self._control = control
         self._runs = runs
         self._services = services
+        self._point_plans = point_plans
 
     def submit_run(self, submission: RunSubmission) -> RunAdmission:
         retry = self._replay_admission(submission)
@@ -142,17 +142,7 @@ class AdmissionService:
                     admission,
                     expected_config_generation=active.activation.generation,
                 )
-                plan = run.admission.plan
-                SQLiteRunPointLedger(
-                    self._runs,
-                    run_id=run.run_id,
-                ).initialize_in_transaction(
-                    connection,
-                    operation_id=_POINT_PLAN_ADMISSION_OPERATION_ID,
-                    initial_point_count=plan.initial_point_count,
-                    point_limit=plan.point_limit,
-                    plan_closed=plan.point_count is not None,
-                )
+                self._point_plans.initialize_admitted_in_transaction(connection, run)
                 if run.run_id == admission.run_id:
                     self._runs.commit_run_skeleton_in_transaction(
                         connection,
@@ -328,11 +318,9 @@ class AdmissionService:
                     connection,
                     run_id,
                 )
-                SQLiteRunPointLedger(
-                    self._runs,
-                    run_id=run_id,
-                ).abandon_in_transaction(
+                self._point_plans.abandon_in_transaction(
                     connection,
+                    run_id,
                     operation_id="point-plan.reconcile.executor-loss",
                     reason="executor loss reconciled",
                 )

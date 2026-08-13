@@ -20,6 +20,7 @@ from .admission import AdmissionService
 from .config import ConfigService
 from .executor import ExecutorService
 from .leases import OwnershipLeaseSupervisor
+from .point_plans import RunPointPlanService
 from .reviews import ReviewService
 from .runs import RunService
 
@@ -44,6 +45,7 @@ class DaemonApplication:
         payloads: CommandPayloadService,
         lease_supervisor: OwnershipLeaseSupervisor,
         reviews: ReviewService,
+        point_plans: RunPointPlanService,
     ) -> None:
         self.project_root = Path(project_root).resolve()
         self.project_id = project_id
@@ -55,6 +57,7 @@ class DaemonApplication:
         self.instruments = instruments
         self.payloads = payloads
         self.reviews = reviews
+        self.point_plans = point_plans
         self._lease_supervisor = lease_supervisor
 
     def start(self) -> None:

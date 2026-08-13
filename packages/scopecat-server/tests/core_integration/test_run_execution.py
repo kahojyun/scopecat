@@ -113,13 +113,28 @@ class _StopOptimizer:
         return OptimizationComplete("operator point completed")
 
 
+class _AlwaysStaleOptimizer:
+    id = "tests.always-stale-optimizer"
+
+    def propose(self, context: PointOptimizerContext) -> PointProposalAttempt:
+        return PointProposalAttempt(
+            {"drive_frequency": Quantity(5.16, "GHz")},
+            source="optimizer",
+            based_on_completed_point_count=context.completed_point_count - 1,
+        )
+
+
 @dataclass
 class _OperatorQueuePort:
     queued: QueuedRunPointCandidate | None
     decisions: list[PointProposalDecision]
     closed_reason: str | None = None
+    empty_polls_before_ready: int = 0
 
     def next_queued(self) -> QueuedRunPointCandidate | None:
+        if self.empty_polls_before_ready > 0:
+            self.empty_polls_before_ready -= 1
+            return None
         queued = self.queued
         self.queued = None
         return queued
@@ -132,7 +147,10 @@ class _OperatorQueuePort:
         operator_request_id: str | None = None,
     ) -> None:
         del inspection
-        assert operator_request_id == "operator-queue-1"
+        if decision.candidate.source == "operator":
+            assert operator_request_id == "operator-queue-1"
+        else:
+            assert operator_request_id is None
         self.decisions.append(decision)
 
     def close(self, *, completed_point_count: int, reason: str) -> None:
@@ -289,3 +307,43 @@ def test_adaptive_execution_compiles_queued_operator_point_before_optimizer(
     assert dataset.records[-1].coordinates["drive_frequency"] == (
         MeasurementScalar.create(dtype="float64", value=5.17, unit="GHz")
     )
+
+
+def test_operator_request_remains_eligible_after_optimizer_retry_budget(
+    tmp_path: Path,
+) -> None:
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
+    optimizer_limit = 4 * 4
+    queue = _OperatorQueuePort(
+        queued=QueuedRunPointCandidate(
+            request=OperatorPointRequest(
+                request_id="operator-queue-1",
+                coordinates={"drive_frequency": Quantity(5.17, "GHz")},
+            ),
+        ),
+        decisions=[],
+        empty_polls_before_ready=optimizer_limit,
+    )
+
+    execute_invocation_run(
+        config=config,
+        experiment=load_invocation().adaptive(
+            _AlwaysStaleOptimizer(),
+            max_points=4,
+        ),
+        system=composition.system,
+        instrument_backend=composition.backend,
+        project_root=tmp_path,
+        point_proposals=queue,
+    )
+
+    assert len(queue.decisions) == optimizer_limit + 1
+    assert all(
+        decision.candidate.source == "optimizer" for decision in queue.decisions[:-1]
+    )
+    assert queue.decisions[-1].candidate.source == "operator"
+    assert queue.decisions[-1].outcome == "accepted"

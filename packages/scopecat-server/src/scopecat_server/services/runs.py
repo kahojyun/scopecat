@@ -107,12 +107,12 @@ from scopecat_server.storage.sqlite.execution import (
     SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
     SQLiteRunCoverage,
-    SQLiteRunPointLedger,
 )
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
 from .active_measurements import ActiveMeasurementStore
+from .point_plans import RunPointPlanService
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -224,13 +224,6 @@ def _run_control_view(
     )
 
 
-def _run_point_plan_view(
-    durable: RunPointPlanView | None,
-) -> RunPointPlanView:
-    assert durable is not None, "admitted run is missing its point plan"
-    return durable
-
-
 class RunService:
     """Own run records, analysis content, and read-side queries."""
 
@@ -241,11 +234,13 @@ class RunService:
         runs: SQLiteRunRepository,
         services: ProjectStateServices,
         active_measurements: ActiveMeasurementStore,
+        point_plans: RunPointPlanService,
     ) -> None:
         self._control = control
         self._runs = runs
         self._services = services
         self._active_measurements = active_measurements
+        self._point_plans = point_plans
 
     def list_runs(
         self,
@@ -270,11 +265,9 @@ class RunService:
                                 self._runs,
                                 run_id=control.run_id,
                             ).read_in_transaction(connection),
-                            point_plan=_run_point_plan_view(
-                                SQLiteRunPointLedger(
-                                    self._runs,
-                                    run_id=control.run_id,
-                                ).read_in_transaction(connection),
+                            point_plan=self._point_plans.read_in_transaction(
+                                connection,
+                                control.run_id,
                             ),
                         ),
                         manifest=self._runs.read_manifest_in_transaction(
@@ -313,11 +306,9 @@ class RunService:
                     self._runs,
                     run_id=run_id,
                 ).read_in_transaction(connection)
-                point_plan = _run_point_plan_view(
-                    SQLiteRunPointLedger(
-                        self._runs,
-                        run_id=run_id,
-                    ).read_in_transaction(connection),
+                point_plan = self._point_plans.read_in_transaction(
+                    connection,
+                    run_id,
                 )
         except ControlPlaneNotFound as error:
             raise BackendNotFound(str(error)) from error

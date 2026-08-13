@@ -135,6 +135,8 @@ def test_remote_run_uses_full_dataset_batches_and_projected_arrow_pages() -> Non
                 accepted_point_count=3,
                 point_limit=3,
                 decision_count=0,
+                optimizer_attempt_count=0,
+                operator_request_count=0,
                 plan_closed=True,
                 stop_reason="static point plan",
             ),

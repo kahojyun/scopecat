@@ -440,6 +440,8 @@ function normalizeRun(
       acceptedPointCount: control.point_plan.accepted_point_count,
       pointLimit: control.point_plan.point_limit,
       decisionCount: control.point_plan.decision_count,
+      optimizerAttemptCount: control.point_plan.optimizer_attempt_count,
+      operatorRequestCount: control.point_plan.operator_request_count,
       closed: control.point_plan.plan_closed,
       stopReason: control.point_plan.stop_reason ?? undefined,
     },

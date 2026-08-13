@@ -620,6 +620,8 @@ function staticPointPlan(runId: string) {
     accepted_point_count: 1,
     point_limit: 1,
     decision_count: 0,
+    optimizer_attempt_count: 0,
+    operator_request_count: 0,
     plan_closed: true,
     stop_reason: "static point plan",
   };

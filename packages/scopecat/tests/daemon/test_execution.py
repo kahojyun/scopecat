@@ -197,6 +197,8 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                     accepted_point_count=2,
                     point_limit=3,
                     decision_count=1,
+                    optimizer_attempt_count=1,
+                    operator_request_count=0,
                     plan_closed=True,
                     stop_reason=command.reason,
                 )

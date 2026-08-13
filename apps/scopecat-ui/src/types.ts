@@ -50,6 +50,8 @@ export interface RunPointPlanProgress {
   acceptedPointCount: number;
   pointLimit: number;
   decisionCount: number;
+  optimizerAttemptCount: number;
+  operatorRequestCount: number;
   closed: boolean;
   stopReason?: string;
 }

@@ -83,7 +83,7 @@ export function ProgressCard({
               {adaptive
                 ? run.pointPlan.closed
                   ? run.pointPlan.stopReason
-                  : `${run.pointPlan.decisionCount} decisions · plan open`
+                  : `Optimizer attempts ${run.pointPlan.optimizerAttemptCount} · operator requests ${run.pointPlan.operatorRequestCount} · plan open`
                 : `${events.length} durable events`}
             </span>
           </div>

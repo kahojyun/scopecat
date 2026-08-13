@@ -633,13 +633,13 @@ def _execution_coverage(
     if ledger is None:
         raise AssertionError("adaptive execution requires a proposal ledger")
     while len(state.points) < adaptive.max_points:
-        if ledger.decision_count >= adaptive.proposal_limit:
-            raise RuntimeError("optimizer exceeded the adaptive proposal limit")
         queued = (
             None
             if state.proposal_writer is None
             else state.proposal_writer.next_queued()
         )
+        if queued is None and ledger.optimizer_attempt_count >= adaptive.proposal_limit:
+            raise RuntimeError("optimizer exceeded the adaptive proposal limit")
         proposal = (
             PointProposalAttempt(
                 coordinates=queued.request.coordinates,

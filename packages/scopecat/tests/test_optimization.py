@@ -68,6 +68,8 @@ def test_optimizer_context_and_ledger_preserve_proposal_identity() -> None:
 
     assert ledger.accepted_count == 1
     assert ledger.rejected_count == 1
+    assert ledger.optimizer_attempt_count == 2
+    assert ledger.operator_attempt_count == 0
     assert ledger.next_logical_ordinal == 2
     assert ledger.entries[0].candidate.proposal_fingerprint == (
         accepted.proposal_fingerprint
@@ -102,6 +104,7 @@ def test_optimizer_context_retains_bounded_suffixes_with_exact_totals() -> None:
     assert ledger.entry_offset == 32
     assert len(ledger.entries) == 8
     assert ledger.accepted_count == ledger.rejected_count == 20
+    assert ledger.optimizer_attempt_count == 40
     assert ledger.next_logical_ordinal == 20
     assert context.observation_start_index == 16
     assert tuple(item.point.ordinal for item in context.observations) == tuple(
@@ -115,6 +118,29 @@ def test_ledger_rejects_non_contiguous_accepted_point() -> None:
 
     with pytest.raises(ValueError, match="logical prefix"):
         ledger.accept(candidate, _point(3, candidate))
+
+
+def test_operator_attempts_do_not_consume_the_optimizer_retry_budget() -> None:
+    ledger = PointProposalLedger(initial_point_count=1)
+    operator = PointProposalAttempt(
+        {"x": 1.5},
+        source="operator",
+        based_on_completed_point_count=1,
+    )
+    optimizer = PointProposalAttempt(
+        {"x": 2.0},
+        source="optimizer",
+        based_on_completed_point_count=1,
+    )
+
+    ledger = ledger.reject(operator, reason="operator typo").reject(
+        optimizer,
+        reason="optimizer retry",
+    )
+
+    assert ledger.decision_count == 2
+    assert ledger.operator_attempt_count == 1
+    assert ledger.optimizer_attempt_count == 1
 
 
 def test_adaptive_plan_bounds_initial_domain() -> None:

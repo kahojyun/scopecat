@@ -136,7 +136,21 @@ class SQLiteRunPointLedger:
                            SELECT COUNT(*)
                            FROM execution_point_decisions AS decisions
                            WHERE decisions.run_id = execution_point_plans.run_id
-                       ) AS decision_count
+                       ) AS decision_count,
+                       (
+                           SELECT COUNT(*)
+                           FROM execution_point_decisions AS decisions
+                           WHERE decisions.run_id = execution_point_plans.run_id
+                             AND json_extract(
+                                 decisions.decision_json,
+                                 '$.proposal.source'
+                             ) = 'optimizer'
+                       ) AS optimizer_attempt_count,
+                       (
+                           SELECT COUNT(*)
+                           FROM execution_point_queue AS requests
+                           WHERE requests.run_id = execution_point_plans.run_id
+                       ) AS operator_request_count
                 FROM execution_point_plans
                 WHERE run_id = ?
                 """,
@@ -151,6 +165,8 @@ class SQLiteRunPointLedger:
             accepted_point_count=_integer(row, "accepted_point_count"),
             point_limit=_integer(row, "point_limit"),
             decision_count=_integer(row, "decision_count"),
+            optimizer_attempt_count=_integer(row, "optimizer_attempt_count"),
+            operator_request_count=_integer(row, "operator_request_count"),
             plan_closed=bool(_integer(row, "plan_closed")),
             stop_reason=(
                 None if row["stop_reason"] is None else _text(row, "stop_reason")
