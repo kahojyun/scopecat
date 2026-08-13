@@ -146,7 +146,7 @@ class ExecutorService:
         with self.fenced_write(run_id, token=command.lease_id) as connection:
             run = self._control.get_run_in_transaction(connection, run_id)
             end_index = command.start_index + command.point_count
-            if end_index > run.admission.plan.point_count:
+            if end_index > run.admission.plan.point_limit:
                 raise ExecutionJournalConflict(
                     "coverage range exceeds the admitted point count"
                 )
@@ -327,9 +327,12 @@ class ExecutorService:
             token=command.lease_id,
         ) as connection:
             run = self._control.get_run_in_transaction(connection, run_id)
-            if command.header.expected_record_count != run.admission.plan.point_count:
+            if (
+                command.header.expected_record_count != run.admission.plan.point_count
+                or command.header.record_count_limit != run.admission.plan.point_limit
+            ):
                 raise ExecutionJournalConflict(
-                    "measurement point count differs from the admitted run plan"
+                    "measurement point extent differs from the admitted run plan"
                 )
             receipt, created = repository.header_prepared_in_transaction(
                 connection,
@@ -470,6 +473,23 @@ class ExecutorService:
             self._measurement_repositories.pop(run_id, None)
             self._active_measurements.clear(run_id)
             return manifest
+        if commit.outcome.result == "succeeded":
+            completed_point_count = SQLiteRunCoverage(
+                self._runs,
+                run_id=run_id,
+            ).read()
+            plan = control_run.admission.plan
+            if (
+                completed_point_count < plan.initial_point_count
+                or completed_point_count > plan.point_limit
+                or (
+                    plan.point_count is not None
+                    and completed_point_count != plan.point_count
+                )
+            ):
+                raise BackendConflict(
+                    "successful run coverage does not match its admitted point extent"
+                )
         self._instruments.finalize_run(
             run_id,
             token=command.lease_id,

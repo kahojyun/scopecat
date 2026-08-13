@@ -94,7 +94,9 @@ class ExperimentPreview:
     experiment_kind: str
     schema: MeasurementDatasetSchema | None
     coordinate_ids: tuple[str, ...]
-    total_point_count: int
+    total_point_count: int | None
+    initial_point_count: int
+    point_limit: int
     points: tuple[ExperimentPreviewPoint, ...]
     points_truncated: bool
     records: tuple[ExperimentPreviewRecord, ...]
@@ -105,7 +107,7 @@ class ExperimentPreview:
     binding_edges: tuple[ExperimentPreviewBindingEdge, ...] = ()
 
     @property
-    def point_count(self) -> int:
+    def point_count(self) -> int | None:
         return self.total_point_count
 
     @property

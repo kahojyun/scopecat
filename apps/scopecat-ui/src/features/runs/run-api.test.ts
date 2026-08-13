@@ -60,6 +60,7 @@ describe("run daemon reads", () => {
           jsonResponse({
             control: {
               state: "closed",
+              completed_point_count: 1,
               admission: {
                 run_id: "run/1",
                 display_name: "Ramsey calibration",
@@ -69,6 +70,8 @@ describe("run daemon reads", () => {
                   experiment_id: "ramsey",
                   experiment_kind: "scratch",
                   point_count: 1,
+                  initial_point_count: 1,
+                  point_limit: 1,
                 },
               },
             },
@@ -141,6 +144,7 @@ describe("run daemon reads", () => {
           jsonResponse({
             control: {
               state: "attention_required",
+              completed_point_count: 0,
               attention_reason: "executor_lease_expired",
               admission: {
                 run_id: "run/attention",
@@ -148,6 +152,8 @@ describe("run daemon reads", () => {
                   experiment_id: "ramsey",
                   experiment_kind: "scratch",
                   point_count: 1,
+                  initial_point_count: 1,
+                  point_limit: 1,
                 },
               },
             },
@@ -391,12 +397,15 @@ describe("run daemon reads", () => {
               control: {
                 sequence: path.includes("before=") ? 1 : 2,
                 state: "queued",
+                completed_point_count: 0,
                 admission: {
                   run_id: path.includes("before=") ? "run-old" : "run-new",
                   plan: {
                     experiment_id: "ramsey",
                     experiment_kind: "scratch",
                     point_count: 1,
+                    initial_point_count: 1,
+                    point_limit: 1,
                   },
                 },
               },
@@ -557,7 +566,7 @@ describe("run daemon reads", () => {
 
 function measurementSchema() {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v9" as const,
+    format_version: "scopecat.measurement_dataset_schema.v10" as const,
     dataset_id: "raw-measurements",
     record_schema: "scopecat.measurement_record.v4" as const,
     point_domain: { kind: "product_grid" as const, axes: [] },
@@ -581,12 +590,15 @@ function runSummary(runId: string, state: "queued" | "leased") {
     control: {
       sequence: state === "leased" ? 2 : 1,
       state,
+      completed_point_count: 0,
       admission: {
         run_id: runId,
         plan: {
           experiment_id: "ramsey",
           experiment_kind: "scratch",
           point_count: 1,
+          initial_point_count: 1,
+          point_limit: 1,
         },
       },
     },

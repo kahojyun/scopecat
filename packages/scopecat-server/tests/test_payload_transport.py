@@ -920,6 +920,8 @@ def _start_run(daemon: DaemonClient) -> tuple[str, str]:
                 experiment_id="payload-transport",
                 experiment_kind="payload-transport",
                 point_count=1,
+                initial_point_count=1,
+                point_limit=1,
                 host_instrument_order=instrument_ids,
                 host_provider_id=_PayloadProvider.provider_id,
                 host_contract_fingerprint=fingerprint,

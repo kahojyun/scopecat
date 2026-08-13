@@ -316,7 +316,9 @@ def _run_plan_summary(planned: PlannedRun) -> RunPlanSummary:
     return RunPlanSummary(
         experiment_id=program.experiment_id,
         experiment_kind=program.points.experiment_kind,
-        point_count=len(program.points.points),
+        point_count=program.points.contract.point_count,
+        initial_point_count=len(program.points.points),
+        point_limit=program.points.contract.point_limit,
         coordinate_ids=program.measurements.coordinate_ids,
         record_ids=tuple(record.id for record in program.measurements.records),
         host_instrument_order=program.resource_order,

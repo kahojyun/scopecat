@@ -86,7 +86,9 @@ class RunPlanSummary(_ControlModel):
 
     experiment_id: str = Field(min_length=1)
     experiment_kind: str = Field(min_length=1)
-    point_count: int = Field(ge=0)
+    point_count: int | None = Field(default=None, ge=0)
+    initial_point_count: int = Field(ge=0)
+    point_limit: int = Field(ge=0)
     coordinate_ids: tuple[str, ...] = ()
     record_ids: tuple[str, ...] = ()
     run_resource_requirements: tuple[RunResourceRequirement, ...] = ()
@@ -124,6 +126,15 @@ class RunPlanSummary(_ControlModel):
 
     @model_validator(mode="after")
     def validate_resource_alignment(self) -> RunPlanSummary:
+        if self.initial_point_count > self.point_limit:
+            raise ValueError("initial point count cannot exceed the point limit")
+        if self.point_count is not None and self.point_count != self.point_limit:
+            raise ValueError("a closed point count must equal the point limit")
+        if (
+            self.point_count is not None
+            and self.initial_point_count != self.point_count
+        ):
+            raise ValueError("a closed point plan is entirely initial")
         domain = self.domain_target_requirement
         if domain is not None:
             instrument_ids = {

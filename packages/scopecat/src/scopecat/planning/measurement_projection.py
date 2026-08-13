@@ -30,6 +30,8 @@ from scopecat.program.expressions import (
 
 def project_measurement_catalog(
     bound_points: MaterializedBoundPoints,
+    *,
+    point_limit: int | None = None,
 ) -> MeasurementValueCatalog:
     """Close typed point-domain and product contracts at the run boundary."""
 
@@ -40,7 +42,10 @@ def project_measurement_catalog(
         RunPointContract(
             experiment_id=bound.program.experiment_id,
             experiment_kind=bound.program.kind,
-            point_count=len(point_domain.points),
+            point_count=(len(point_domain.points) if point_limit is None else None),
+            point_limit=(
+                len(point_domain.points) if point_limit is None else point_limit
+            ),
             coordinate_columns=coordinate_columns,
             domain_layout=point_domain.layout,
             domain_axes=point_domain.axes,
@@ -53,6 +58,8 @@ def project_measurement_catalog(
 def project_run_point_catalog(
     bound_points: MaterializedBoundPoints,
     point_ordinals: Sequence[int] | None = None,
+    *,
+    point_limit: int | None = None,
 ) -> RunPointCatalog:
     """Project runtime points and their typed coordinate contract."""
 
@@ -64,7 +71,10 @@ def project_run_point_catalog(
         contract=RunPointContract(
             experiment_id=bound.program.experiment_id,
             experiment_kind=bound.program.kind,
-            point_count=len(point_domain.points),
+            point_count=(len(point_domain.points) if point_limit is None else None),
+            point_limit=(
+                len(point_domain.points) if point_limit is None else point_limit
+            ),
             coordinate_columns=coordinate_columns,
             domain_layout=point_domain.layout,
             domain_axes=point_domain.axes,

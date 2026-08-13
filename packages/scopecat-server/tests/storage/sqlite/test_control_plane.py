@@ -74,6 +74,8 @@ def _admission(
             experiment_id=f"scratch:{run_id}",
             experiment_kind="scratch",
             point_count=3,
+            initial_point_count=3,
+            point_limit=3,
             run_resource_requirements=tuple(
                 RunResourceRequirement(kind=resource.kind, id=resource.id)
                 for resource in resources
@@ -204,6 +206,8 @@ def test_run_admission_state_and_pagination(tmp_path: Path) -> None:
                 experiment_id="scratch:run-0",
                 experiment_kind="scratch",
                 point_count=3,
+                initial_point_count=3,
+                point_limit=3,
             ),
             "admitted_at": NOW + timedelta(minutes=1),
         }

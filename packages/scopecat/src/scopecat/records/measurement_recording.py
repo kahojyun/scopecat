@@ -59,7 +59,8 @@ class MeasurementDatasetHeader(_FrozenRecordingModel):
     run_id: str
     recording_contract_fingerprint: str
     dataset_schema: MeasurementDatasetSchema
-    expected_record_count: int = Field(ge=0)
+    expected_record_count: int | None = Field(default=None, ge=0)
+    record_count_limit: int = Field(ge=0)
 
     @field_validator("run_id", "recording_contract_fingerprint")
     @classmethod
@@ -80,6 +81,11 @@ class MeasurementDatasetHeader(_FrozenRecordingModel):
                 "measurement dataset header expected count must match its point "
                 "dimension"
             )
+        if (
+            self.expected_record_count is not None
+            and self.expected_record_count > self.record_count_limit
+        ):
+            raise ValueError("measurement expected count cannot exceed its limit")
         return self
 
     @property

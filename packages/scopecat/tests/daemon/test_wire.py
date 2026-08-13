@@ -411,6 +411,8 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=2,
+            initial_point_count=2,
+            point_limit=2,
             coordinate_ids=("bias",),
             record_ids=("signal",),
             host_instrument_order=("scope-1",),
@@ -434,6 +436,8 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
+            initial_point_count=1,
+            point_limit=1,
             run_resource_requirements=(
                 RunResourceRequirement(id="scope-1"),
                 RunResourceRequirement(id="scope-1"),
@@ -443,6 +447,8 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
         experiment_id="scratch",
         experiment_kind="scratch",
         point_count=1,
+        initial_point_count=1,
+        point_limit=1,
         run_resource_requirements=(RunResourceRequirement(id="scope-1"),),
     )
     with pytest.raises(ValidationError, match="host instrument order"):
@@ -450,6 +456,8 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
+            initial_point_count=1,
+            point_limit=1,
             host_instrument_order=("scope-2",),
             run_resource_requirements=(RunResourceRequirement(id="scope-1"),),
         )
@@ -460,6 +468,8 @@ def test_domain_target_summary_uses_only_its_instrument_footprint() -> None:
         experiment_id="domain",
         experiment_kind="domain",
         point_count=1,
+        initial_point_count=1,
+        point_limit=1,
         domain_target_requirement=RunDomainTargetRequirement(
             id="tests.domain.target",
             kind="tests.domain",
@@ -477,6 +487,8 @@ def test_domain_target_summary_requires_its_complete_instrument_footprint() -> N
             experiment_id="domain",
             experiment_kind="domain",
             point_count=1,
+            initial_point_count=1,
+            point_limit=1,
             domain_target_requirement=RunDomainTargetRequirement(
                 id="tests.domain.target",
                 kind="tests.domain",

@@ -84,6 +84,8 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
+            initial_point_count=1,
+            point_limit=1,
         ),
     )
     admission = RunAdmission(
@@ -347,6 +349,8 @@ def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> N
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
+            initial_point_count=1,
+            point_limit=1,
         ),
     )
     admission = RunAdmission(
@@ -391,6 +395,8 @@ def test_initial_lease_cancellation_skips_remote_provisioning() -> None:
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=0,
+            initial_point_count=0,
+            point_limit=0,
         ),
     )
     admission = RunAdmission(
@@ -516,6 +522,7 @@ def _measurement_header() -> MeasurementDatasetHeader:
             ],
         ),
         expected_record_count=1,
+        record_count_limit=1,
     )
 
 

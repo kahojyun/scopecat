@@ -498,6 +498,8 @@ def _submission(submission_id: str) -> dict[str, object]:
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
+            initial_point_count=1,
+            point_limit=1,
         ),
     ).model_dump(mode="json")
 

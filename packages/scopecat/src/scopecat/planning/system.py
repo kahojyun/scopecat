@@ -44,6 +44,7 @@ from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_identity import scalar_values_equal
 from scopecat.measurements.points import PointCandidate
 from scopecat.measurements.projection import select_measurement_projection
+from scopecat.optimization import AdaptivePointPlan
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
@@ -116,10 +117,13 @@ class ExperimentSystem:
     def compile(
         self,
         bound: BoundPlan,
+        *,
+        adaptive_point_plan: AdaptivePointPlan | None = None,
     ) -> RunProgram:
         return _compile_system_program(
             system=self,
             bound=bound,
+            adaptive_point_plan=adaptive_point_plan,
         )
 
 
@@ -150,6 +154,7 @@ def _compile_system_program(
     *,
     system: ExperimentSystem,
     bound: BoundPlan,
+    adaptive_point_plan: AdaptivePointPlan | None,
 ) -> RunProgram:
     config = bound.environment.config
     catalog = system.instrument_catalog
@@ -228,6 +233,11 @@ def _compile_system_program(
         raise ProviderContractError(catalog.problems)
     bound_points = prepare_bound_points(bound)
     point_domain = bound_points.point_domain
+    point_limit = (
+        None if adaptive_point_plan is None else adaptive_point_plan.max_points
+    )
+    if adaptive_point_plan is not None:
+        adaptive_point_plan.ledger(initial_point_count=len(point_domain.points))
     logical = bound.program.program
     execution_ordinals = point_execution_ordinals(
         point_domain,
@@ -235,8 +245,14 @@ def _compile_system_program(
         repeat_mode=logical.point_repeat_mode,
         traversal=logical.point_traversal,
     )
-    measurement_catalog = project_measurement_catalog(bound_points)
-    point_catalog = project_run_point_catalog(bound_points)
+    measurement_catalog = project_measurement_catalog(
+        bound_points,
+        point_limit=point_limit,
+    )
+    point_catalog = project_run_point_catalog(
+        bound_points,
+        point_limit=point_limit,
+    )
     measurements = select_measurement_projection(
         measurement_catalog,
         bound.bindings.record_uses,
@@ -365,6 +381,7 @@ def _compile_system_program(
         ),
         resource_requirements=resource_requirements,
         domain_target_requirement=domain_target_requirement,
+        adaptive_point_plan=adaptive_point_plan,
     )
 
 

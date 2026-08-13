@@ -43,6 +43,7 @@ def test_catalog_fingerprint_ignores_unserializable_opaque_axis_values() -> None
                 experiment_id="opaque-axis",
                 experiment_kind="test",
                 point_count=1,
+                point_limit=1,
                 coordinate_columns=(),
                 domain_axes=(
                     point_axis_values(

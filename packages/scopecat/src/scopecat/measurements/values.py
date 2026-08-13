@@ -80,6 +80,7 @@ class MeasurementValueCatalog:
                         "experiment_id": self.point_contract.experiment_id,
                         "experiment_kind": self.point_contract.experiment_kind,
                         "point_count": self.point_contract.point_count,
+                        "point_limit": self.point_contract.point_limit,
                         "coordinate_columns": self.point_contract.coordinate_columns,
                         "domain_layout": self.point_contract.domain_layout,
                         "domain_axes": [

@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS execution_measurement_headers (
     operation_id TEXT NOT NULL UNIQUE,
     content_hash TEXT NOT NULL,
     contract_fingerprint TEXT NOT NULL,
-    expected_record_count INTEGER NOT NULL CHECK (expected_record_count >= 0),
+    expected_record_count INTEGER CHECK (expected_record_count >= 0),
+    record_count_limit INTEGER NOT NULL CHECK (record_count_limit >= 0),
     ref TEXT NOT NULL
 );
 

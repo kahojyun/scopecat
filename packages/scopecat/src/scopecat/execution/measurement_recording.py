@@ -50,6 +50,7 @@ def initialize_measurement_dataset(
         stage="initialize_measurement",
         evidence={
             "expected_record_count": header.expected_record_count,
+            "record_count_limit": header.record_count_limit,
             "header_content_hash": header.content_hash,
         },
         invoke=lambda: writer.initialize(header),

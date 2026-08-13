@@ -48,6 +48,7 @@ def build_run_program_preview(
     selected = program.measurements
     catalog = program.points
     point_count = catalog.contract.point_count
+    initial_point_count = len(catalog.points)
     selected_point_index, free_candidate = _selected_point(
         program,
         point=point,
@@ -70,7 +71,7 @@ def build_run_program_preview(
         point_inspection.candidate if point_inspection is not None else free_candidate
     )
     domain_inspections = _preview_domain_inspections(point_inspection)
-    preview_ordinals = _preview_point_ordinals(point_count)
+    preview_ordinals = _preview_point_ordinals(initial_point_count)
     bindings, binding_edges = (
         ((), ()) if invocation is None else _preview_binding_graph(invocation)
     )
@@ -80,6 +81,8 @@ def build_run_program_preview(
         schema=selected.schema,
         coordinate_ids=tuple(selected.coordinate_ids),
         total_point_count=point_count,
+        initial_point_count=initial_point_count,
+        point_limit=catalog.contract.point_limit,
         points=tuple(
             ExperimentPreviewPoint(
                 point_index=resolved.ordinal,
@@ -87,7 +90,7 @@ def build_run_program_preview(
             )
             for resolved in (catalog.points[ordinal] for ordinal in preview_ordinals)
         ),
-        points_truncated=point_count > len(preview_ordinals),
+        points_truncated=initial_point_count > len(preview_ordinals),
         records=tuple(
             ExperimentPreviewRecord(
                 id=record.id,
@@ -130,7 +133,7 @@ def _selected_point(
     coordinate_mode: PreviewCoordinateMode,
 ) -> tuple[int | None, PointCandidate | None]:
     catalog = program.points
-    point_count = catalog.contract.point_count
+    point_count = len(catalog.points)
     if coordinate_mode == "free":
         if coordinates is None:
             raise ValueError("free preview requires coordinates")

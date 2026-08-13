@@ -105,6 +105,7 @@ from scopecat_server.storage.sqlite.control_plane import (
 from scopecat_server.storage.sqlite.execution import (
     SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
+    SQLiteRunCoverage,
 )
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
@@ -183,7 +184,11 @@ def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
     )
 
 
-def _run_control_view(control: ControlRun) -> RunControlView:
+def _run_control_view(
+    control: ControlRun,
+    *,
+    completed_point_count: int,
+) -> RunControlView:
     plan = control.admission.plan
     return RunControlView(
         sequence=control.sequence,
@@ -197,6 +202,8 @@ def _run_control_view(control: ControlRun) -> RunControlView:
                 experiment_id=plan.experiment_id,
                 experiment_kind=plan.experiment_kind,
                 point_count=plan.point_count,
+                initial_point_count=plan.initial_point_count,
+                point_limit=plan.point_limit,
                 coordinate_ids=plan.coordinate_ids,
                 record_ids=plan.record_ids,
                 run_resource_requirements=tuple(
@@ -209,6 +216,7 @@ def _run_control_view(control: ControlRun) -> RunControlView:
         updated_at=control.updated_at,
         attention_reason=control.attention_reason,
         cancellation_requested_at=control.cancellation_requested_at,
+        completed_point_count=completed_point_count,
     )
 
 
@@ -245,7 +253,13 @@ class RunService:
             return RunSummaryPage(
                 items=tuple(
                     RunSummary(
-                        control=_run_control_view(control),
+                        control=_run_control_view(
+                            control,
+                            completed_point_count=SQLiteRunCoverage(
+                                self._runs,
+                                run_id=control.run_id,
+                            ).read_in_transaction(connection),
+                        ),
                         manifest=self._runs.read_manifest_in_transaction(
                             connection,
                             control.run_id,
@@ -278,6 +292,10 @@ class RunService:
                         run_id=run_id,
                     ).list_in_transaction(connection)
                 )
+                completed_point_count = SQLiteRunCoverage(
+                    self._runs,
+                    run_id=run_id,
+                ).read_in_transaction(connection)
         except ControlPlaneNotFound as error:
             raise BackendNotFound(str(error)) from error
         resources = tuple(
@@ -311,7 +329,10 @@ class RunService:
             )
         )
         return RunDetail(
-            control=_run_control_view(control),
+            control=_run_control_view(
+                control,
+                completed_point_count=completed_point_count,
+            ),
             manifest=manifest,
             resources=resources,
             domain_executions=domain_executions,

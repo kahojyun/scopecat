@@ -68,6 +68,7 @@ def _header(projected: ProjectedMeasurementDataset) -> MeasurementDatasetHeader:
         recording_contract_fingerprint=projected.recording_contract_fingerprint,
         dataset_schema=schema,
         expected_record_count=projected.projection.catalog.point_contract.point_count,
+        record_count_limit=projected.projection.catalog.point_contract.point_limit,
     )
 
 

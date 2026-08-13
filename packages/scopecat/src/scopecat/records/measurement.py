@@ -53,7 +53,7 @@ from scopecat.records.measurement_array_schema import MeasurementArrayPayload
 from scopecat.records.metadata import MeasurementMetadata
 
 MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v4"
-MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v9"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v10"
 
 MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
 _MEASUREMENT_ARRAY_CREATE_CONTEXT = object()
@@ -335,7 +335,7 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    format_version: Literal["scopecat.measurement_dataset_schema.v9"] = (
+    format_version: Literal["scopecat.measurement_dataset_schema.v10"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str = Field(min_length=1)
@@ -390,9 +390,11 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
                 "measurement dataset schema must define exactly one point "
                 "dimension with id point"
             )
-        if point_dimensions[0].size is None:
-            raise ValueError("measurement point dimension must have a fixed size")
         if isinstance(self.point_domain, MeasurementProductGridPointDomain):
+            if point_dimensions[0].size is None:
+                raise ValueError(
+                    "measurement product-grid point dimension must have a fixed size"
+                )
             grid_size = math.prod(axis.size for axis in self.point_domain.axes)
             if grid_size != point_dimensions[0].size:
                 raise ValueError(

@@ -18,6 +18,7 @@ from scopecat.daemon.wire import (
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     ExecutorStartRequest,
+    RunCoverageAdvanceCommand,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -1891,6 +1892,8 @@ def test_analysis_candidate_run_keeps_connection_until_shutdown(
                     experiment_id="candidate-source",
                     experiment_kind="scratch",
                     point_count=1,
+                    initial_point_count=1,
+                    point_limit=1,
                 ),
             )
         )
@@ -1970,6 +1973,14 @@ def test_terminal_commit_uses_the_same_abort_finalizer_as_explicit_finish(
     with _runtime(tmp_path, provider) as runtime:
         run_id, lease_id = _start_run(runtime, load_config())
         runtime.application.instruments.provision_run(run_id, _provision(lease_id))
+        runtime.application.executor.advance_run_coverage(
+            run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=lease_id,
+                start_index=0,
+                point_count=1,
+            ),
+        )
 
         manifest = runtime.application.executor.commit_terminal(
             run_id,
@@ -2231,6 +2242,8 @@ def _start_run(
                 experiment_id="scratch",
                 experiment_kind="scratch",
                 point_count=1,
+                initial_point_count=1,
+                point_limit=1,
                 host_instrument_order=host_instrument_order,
                 host_provider_id=(
                     _Provider.provider_id if host_instrument_order else None

@@ -395,8 +395,11 @@ function normalizeRun(
     attentionReason: control.attention_reason ?? undefined,
     result: outcome?.result,
     certainty: outcome?.certainty,
+    progressCompleted: control.completed_point_count,
     plan: {
-      pointCount: plan.point_count,
+      pointCount: plan.point_count ?? undefined,
+      initialPointCount: plan.initial_point_count,
+      pointLimit: plan.point_limit,
       coordinateIds: plan.coordinate_ids ?? [],
       recordIds: plan.record_ids ?? [],
     },

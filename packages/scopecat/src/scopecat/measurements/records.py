@@ -398,7 +398,7 @@ def validate_record_plan(
 def expected_dataset_schema(
     *,
     experiment_id: str,
-    point_count: int,
+    point_count: int | None,
     records: Sequence[DatasetRecordPlan],
     dataset_id: str = "raw-measurements",
     point_coordinate_columns: Sequence[TableColumn] = (),

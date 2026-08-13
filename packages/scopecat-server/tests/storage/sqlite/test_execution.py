@@ -110,6 +110,7 @@ def _header(
             primary_observables=("signal",),
         ),
         expected_record_count=point_count,
+        record_count_limit=point_count,
     )
 
 

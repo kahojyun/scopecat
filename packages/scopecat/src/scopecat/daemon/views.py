@@ -154,7 +154,9 @@ class RunPlanView(_ViewModel):
 
     experiment_id: str = Field(min_length=1)
     experiment_kind: str = Field(min_length=1)
-    point_count: int = Field(ge=0)
+    point_count: int | None = Field(default=None, ge=0)
+    initial_point_count: int = Field(ge=0)
+    point_limit: int = Field(ge=0)
     coordinate_ids: tuple[str, ...] = ()
     record_ids: tuple[str, ...] = ()
     run_resource_requirements: tuple[RunResourceRequirement, ...] = ()
@@ -178,6 +180,7 @@ class RunControlView(_ViewModel):
     updated_at: datetime
     attention_reason: str | None = None
     cancellation_requested_at: datetime | None = None
+    completed_point_count: int = Field(ge=0)
 
     @property
     def run_id(self) -> str:

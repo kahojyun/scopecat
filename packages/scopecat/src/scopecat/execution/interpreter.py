@@ -382,7 +382,8 @@ def _initialize_dataset_header(
         run_id=session.run_id,
         recording_contract_fingerprint=program.measurements.contract_fingerprint,
         dataset_schema=schema,
-        expected_record_count=len(program.points.points),
+        expected_record_count=program.points.contract.point_count,
+        record_count_limit=program.points.contract.point_limit,
     )
     try:
         initialize_measurement_dataset(

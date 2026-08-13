@@ -586,11 +586,14 @@ def _control_run() -> RunControlView:
                 experiment_id="scratch",
                 experiment_kind="scratch",
                 point_count=1,
+                initial_point_count=1,
+                point_limit=1,
             ),
             admitted_at=_NOW,
         ),
         state="queued",
         updated_at=_NOW,
+        completed_point_count=0,
     )
 
 
@@ -610,6 +613,8 @@ def _submission(submission_id: str = "submission-1") -> RunSubmission:
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
+            initial_point_count=1,
+            point_limit=1,
         ),
     )
 

@@ -224,6 +224,8 @@ def _submission(
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=point_count,
+            initial_point_count=point_count,
+            point_limit=point_count,
             run_resource_requirements=(
                 RunResourceRequirement(id="source-0", kind="instrument"),
             ),
@@ -315,6 +317,8 @@ def _domain_only_submission(
             experiment_id="domain-only",
             experiment_kind="domain-only",
             point_count=1,
+            initial_point_count=1,
+            point_limit=1,
             domain_target_requirement=RunDomainTargetRequirement(
                 id=target.id,
                 kind=target.kind,
@@ -512,6 +516,7 @@ def test_lease_supervisor_releases_unflushed_live_measurements(
                 ],
             ),
             expected_record_count=1,
+            record_count_limit=1,
         )
         record = MeasurementRecord(
             run_id=admission.run_id,
@@ -1700,6 +1705,8 @@ def test_admission_canonicalizes_domain_only_instrument_claims(
         "experiment_id",
         "experiment_kind",
         "point_count",
+        "initial_point_count",
+        "point_limit",
         "coordinate_ids",
         "record_ids",
         "run_resource_requirements",
@@ -2178,6 +2185,82 @@ def test_run_coverage_is_contiguous_durable_and_retryable(tmp_path: Path) -> Non
         assert historical_retry == completed
 
 
+def test_open_point_plan_can_succeed_below_its_limit_and_exposes_coverage(
+    tmp_path: Path,
+) -> None:
+    submission = _submission("adaptive-coverage").model_copy(
+        update={
+            "plan": RunPlanSummary(
+                experiment_id="scratch",
+                experiment_kind="scratch",
+                point_count=None,
+                initial_point_count=1,
+                point_limit=3,
+                run_resource_requirements=(
+                    RunResourceRequirement(id="source-0", kind="instrument"),
+                ),
+            )
+        }
+    )
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(submission)
+        lease = runtime.application.executor.start_executor(
+            admission.run_id,
+            ExecutorStartRequest(executor_id="notebook-adaptive"),
+        )
+        runtime.application.executor.advance_run_coverage(
+            admission.run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=lease.lease_id,
+                start_index=0,
+                point_count=1,
+            ),
+        )
+        manifest = runtime.application.executor.commit_terminal(
+            admission.run_id,
+            TerminalRunCommitCommand(
+                lease_id=lease.lease_id,
+                outcome=RunOutcome(
+                    run_id=admission.run_id,
+                    result="succeeded",
+                    certainty="known",
+                ),
+            ),
+        )
+        view = runtime.application.runs.get_run(admission.run_id)
+
+    assert manifest.outcome is not None
+    assert manifest.outcome.result == "succeeded"
+    assert view.control.completed_point_count == 1
+    assert view.control.admission.plan.point_count is None
+    assert view.control.admission.plan.initial_point_count == 1
+    assert view.control.admission.plan.point_limit == 3
+
+
+def test_closed_point_plan_cannot_succeed_before_full_coverage(tmp_path: Path) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(
+            _submission("incomplete-success", point_count=2)
+        )
+        lease = runtime.application.executor.start_executor(
+            admission.run_id,
+            ExecutorStartRequest(executor_id="notebook-incomplete"),
+        )
+
+        with pytest.raises(BackendConflict, match="coverage"):
+            runtime.application.executor.commit_terminal(
+                admission.run_id,
+                TerminalRunCommitCommand(
+                    lease_id=lease.lease_id,
+                    outcome=RunOutcome(
+                        run_id=admission.run_id,
+                        result="succeeded",
+                        certainty="known",
+                    ),
+                ),
+            )
+
+
 def test_queued_run_cancellation_is_immediate_durable_and_idempotent(
     tmp_path: Path,
 ) -> None:
@@ -2342,6 +2425,14 @@ def test_leased_run_cancellation_reaches_heartbeat_and_preserves_terminal_histor
             run_id=succeeded.run_id,
             result="succeeded",
             certainty="known",
+        )
+        runtime.application.executor.advance_run_coverage(
+            succeeded.run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=succeeded_lease.lease_id,
+                start_index=0,
+                point_count=1,
+            ),
         )
         runtime.application.executor.commit_terminal(
             succeeded.run_id,
@@ -2575,6 +2666,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
                 primary_observables=["signal", "trace"],
             ),
             expected_record_count=4,
+            record_count_limit=4,
         )
         measurement_batch = MeasurementDatasetBatch(
             run_id=run_id,
@@ -2944,6 +3036,7 @@ def test_effect_and_terminal_publication_roll_back_with_control(
                 ],
             ),
             expected_record_count=1,
+            record_count_limit=1,
         )
         batch = MeasurementDatasetBatch(
             run_id=admission.run_id,
@@ -2997,6 +3090,10 @@ def test_effect_and_terminal_publication_roll_back_with_control(
             ),
         )
         assert rolled_back.num_rows == 0
+        runtime.application.executor.flush_measurements(
+            admission.run_id,
+            MeasurementFlushCommand(lease_id=lease.lease_id),
+        )
 
         outcome = RunOutcome(
             run_id=admission.run_id,

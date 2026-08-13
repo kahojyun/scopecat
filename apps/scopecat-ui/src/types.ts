@@ -39,6 +39,8 @@ export interface ContentEntry {
 
 export interface RunPlanSummary {
   pointCount?: number;
+  initialPointCount: number;
+  pointLimit: number;
   coordinateIds: string[];
   recordIds: string[];
 }

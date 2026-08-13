@@ -6,6 +6,7 @@ from scopecat.compiler.bind import BoundPlan
 from scopecat.execution.program import RunProgram
 from scopecat.kernel.errors import CheckFailed, ProblemFailure
 from scopecat.kernel.problems import ProblemPhase, model_location, problem
+from scopecat.optimization import AdaptivePointPlan
 from scopecat.planning.system import ExperimentSystem
 
 
@@ -13,6 +14,7 @@ def compile_run_program(
     system: ExperimentSystem | None,
     *,
     bound: BoundPlan,
+    adaptive_point_plan: AdaptivePointPlan | None = None,
 ) -> RunProgram:
     """Compile with the selected experiment system."""
 
@@ -29,7 +31,7 @@ def compile_run_program(
         )
 
     try:
-        return system.compile(bound)
+        return system.compile(bound, adaptive_point_plan=adaptive_point_plan)
     except ProblemFailure as error:
         raise CheckFailed(
             tuple(

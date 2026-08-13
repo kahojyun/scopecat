@@ -73,6 +73,11 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, Table, TableColumn
 from scopecat.measurements.results import MeasurementValue
+from scopecat.optimization import (
+    AdaptivePointPlan,
+    OptimizationComplete,
+    PointOptimizerContext,
+)
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.local_effects import LocalTargetPlan, MaterializedLocalEffects
 from scopecat.planning.local_materialization import materialize_local_execution
@@ -123,6 +128,16 @@ from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
 )
+
+
+class _CompleteOptimizer:
+    id = "tests.complete"
+
+    def propose(
+        self,
+        _context: PointOptimizerContext,
+    ) -> sc.PointCandidate | OptimizationComplete:
+        return OptimizationComplete()
 
 
 class _EffectProbeRuntime:
@@ -1776,3 +1791,33 @@ def test_zero_point_domain_can_inspect_a_free_seed_candidate() -> None:
     assert preview.selected_point.point_index is None
     assert preview.selected_point.coordinates == {"frequency": Quantity(5.0, "GHz")}
     assert compiler.compile_calls == 1
+
+
+def test_adaptive_plan_uses_an_open_point_extent_with_a_hard_limit() -> None:
+    bound = _bound_program(point_count=2)
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=_DomainCompiler("tests.adaptive"),
+    ).compile(
+        bound,
+        adaptive_point_plan=AdaptivePointPlan(
+            _CompleteOptimizer(),
+            max_points=5,
+        ),
+    )
+
+    assert plan.points.contract.point_count is None
+    assert plan.points.contract.point_limit == 5
+    assert len(plan.points.points) == 2
+    schema = plan.measurements.schema
+    assert schema is not None
+    assert schema.point_domain.kind == "point_cloud"
+    point_dimension = next(
+        dimension for dimension in schema.dimensions if dimension.id == "point"
+    )
+    assert point_dimension.size is None
+    preview = build_run_program_preview(plan)
+    assert preview.total_point_count is None
+    assert preview.initial_point_count == 2
+    assert preview.point_limit == 5
+    assert preview.records[0].shape[0] is None

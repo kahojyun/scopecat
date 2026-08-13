@@ -143,7 +143,11 @@ class MeasurementProjection:
             point_count=self.catalog.point_contract.point_count,
             records=self.records,
             point_coordinate_columns=self.catalog.point_contract.coordinate_columns,
-            point_domain_layout=self.catalog.point_contract.domain_layout,
+            point_domain_layout=(
+                "point_cloud"
+                if self.catalog.point_contract.open_length
+                else self.catalog.point_contract.domain_layout
+            ),
             result_fields=self._result_fields,
             point_domain_axes=self.catalog.point_contract.domain_axes,
         )

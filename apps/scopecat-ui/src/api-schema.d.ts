@@ -2431,10 +2431,10 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension-Output"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v9
+             * @default scopecat.measurement_dataset_schema.v10
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v9";
+            format_version: "scopecat.measurement_dataset_schema.v10";
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
             point_domain: components["schemas"]["MeasurementPointDomain-Output"];
             /** Primary Coordinates */
@@ -3389,6 +3389,8 @@ export interface components {
             attention_reason?: string | null;
             /** Cancellation Requested At */
             cancellation_requested_at?: string | null;
+            /** Completed Point Count */
+            completed_point_count: number;
             /** Sequence */
             sequence: number;
             state: components["schemas"]["ControlRunState"];
@@ -3539,8 +3541,12 @@ export interface components {
             experiment_id: string;
             /** Experiment Kind */
             experiment_kind: string;
+            /** Initial Point Count */
+            initial_point_count: number;
             /** Point Count */
-            point_count: number;
+            point_count?: number | null;
+            /** Point Limit */
+            point_limit: number;
             /**
              * Record Ids
              * @default []

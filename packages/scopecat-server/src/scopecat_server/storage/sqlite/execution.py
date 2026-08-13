@@ -330,9 +330,10 @@ class SQLiteMeasurementDatasetRepository:
                 """
                 INSERT INTO execution_measurement_headers(
                     run_id, operation_id, content_hash,
-                    contract_fingerprint, expected_record_count, ref
+                    contract_fingerprint, expected_record_count,
+                    record_count_limit, ref
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     self._run_id,
@@ -340,6 +341,7 @@ class SQLiteMeasurementDatasetRepository:
                     durable.content_hash,
                     durable.recording_contract_fingerprint,
                     durable.expected_record_count,
+                    durable.record_count_limit,
                     prepared.ref,
                 ),
             )
@@ -442,7 +444,7 @@ class SQLiteMeasurementDatasetRepository:
                     "measurement dataset append is not the next contiguous range"
                 )
             if record_count + len(durable.records) > _integer(
-                header, "expected_record_count"
+                header, "record_count_limit"
             ):
                 raise ExecutionJournalConflict(
                     "measurement dataset append exceeds its declared point count"
@@ -541,7 +543,7 @@ class SQLiteMeasurementDatasetRepository:
                     raise ExecutionJournalConflict(
                         "measurement dataset seal references a different header"
                     )
-                if durable.point_count > _integer(header, "expected_record_count"):
+                if durable.point_count > _integer(header, "record_count_limit"):
                     raise ExecutionJournalConflict(
                         "measurement dataset seal exceeds its declared point count"
                     )
