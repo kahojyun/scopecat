@@ -266,30 +266,20 @@ def _infer_values_type(
     if not values:
         raise TypeError("empty scan values require value_type or an overlay")
     if unit is not None:
-        numeric = tuple(
-            _numeric_scan_coordinate(value, path="scan.values") for value in values
-        )
-        return Scalar(
-            QuantityType(
-                unit=unit,
-                minimum=float(min(numeric)),
-                maximum=float(max(numeric)),
-            )
-        )
+        for value in values:
+            _numeric_scan_coordinate(value, path="scan.values")
+        return Scalar(QuantityType(unit=unit))
     if all(isinstance(value, bool) for value in values):
         return Scalar(Bool())
     if all(isinstance(value, int) and not isinstance(value, bool) for value in values):
-        integers = cast("tuple[int, ...]", values)
-        return Scalar(Int(minimum=min(integers), maximum=max(integers)))
+        return Scalar(Int())
     if all(
         isinstance(value, int | float) and not isinstance(value, bool)
         for value in values
     ):
-        numbers = tuple(float(cast("int | float", value)) for value in values)
-        return Scalar(Float(minimum=min(numbers), maximum=max(numbers)))
+        return Scalar(Float())
     if all(isinstance(value, str) for value in values):
-        strings = cast("tuple[str, ...]", values)
-        return Scalar(String(choices=tuple(dict.fromkeys(strings))))
+        return Scalar(String())
     if all(isinstance(value, Quantity) for value in values):
         return _quantity_values_type(cast("tuple[Quantity, ...]", values))
     if all(isinstance(value, EntityRef) for value in values):
@@ -305,16 +295,11 @@ def _infer_values_type(
 def _quantity_values_type(values: tuple[Quantity, ...]) -> Scalar:
     unit = values[0].unit
     try:
-        magnitudes = tuple(float(value.to(unit).value) for value in values)
+        for value in values:
+            value.to(unit)
     except ValueError as error:
         raise TypeError("quantity scan values require compatible units") from error
-    return Scalar(
-        QuantityType(
-            unit=unit,
-            minimum=min(magnitudes),
-            maximum=max(magnitudes),
-        )
-    )
+    return Scalar(QuantityType(unit=unit))
 
 
 def _infer_range_type(
@@ -334,19 +319,12 @@ def _infer_range_type(
         and isinstance(stop, int)
         and not isinstance(stop, bool)
     ):
-        return Scalar(Int(minimum=min(start, stop), maximum=max(start, stop)))
+        return Scalar(Int())
     if all(
         isinstance(value, int | float) and not isinstance(value, bool)
         for value in (start, stop)
     ):
-        start_number = float(cast("int | float", start))
-        stop_number = float(cast("int | float", stop))
-        return Scalar(
-            Float(
-                minimum=min(start_number, stop_number),
-                maximum=max(start_number, stop_number),
-            )
-        )
+        return Scalar(Float())
     raise TypeError("scan range endpoints require one inferable numeric type")
 
 

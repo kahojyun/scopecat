@@ -11,11 +11,11 @@ from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.program.scans import GridSpec
 
 
-def test_experiment_scan_infers_bounded_values_and_quantity_ranges() -> None:
+def test_experiment_scan_infers_coordinate_shape_without_sampling_bounds() -> None:
     @sc.module
     def bounded_consumer(
         module: sc.ModuleContext,
-        count: Annotated[sc.Input[int], sc.IntType(minimum=1)],
+        count: Annotated[sc.Input[int], sc.IntType()],
         bias: Annotated[sc.Input[sc.Quantity], sc.QuantityType(unit="V")],
     ) -> None:
         del module, count, bias
@@ -38,11 +38,24 @@ def test_experiment_scan_infers_bounded_values_and_quantity_ranges() -> None:
     plan = invocation.definition.default_point_plan
     assert isinstance(plan.domain, GridSpec)
     count_axis, bias_axis = plan.domain.axes
-    assert count_axis.value_type == sc.ScalarType(sc.IntType(minimum=1, maximum=3))
-    assert bias_axis.value_type == sc.ScalarType(
-        sc.QuantityType(unit="V", minimum=-0.25, maximum=0.25)
-    )
+    assert count_axis.value_type == sc.ScalarType(sc.IntType())
+    assert bias_axis.value_type == sc.ScalarType(sc.QuantityType(unit="V"))
     compile_invocation(invocation)
+
+
+def test_experiment_scan_preserves_explicit_coordinate_admissibility() -> None:
+    @sc.experiment
+    def constrained(experiment: sc.ExperimentContext) -> None:
+        experiment.scan(
+            "bias",
+            (-0.25, 0.0, 0.25),
+            value_type=sc.QuantityType(unit="V", minimum=-1.0, maximum=1.0),
+        )
+
+    [axis] = constrained().definition.default_point_plan.domain.axes
+    assert axis.value_type == sc.ScalarType(
+        sc.QuantityType(unit="V", minimum=-1.0, maximum=1.0)
+    )
 
 
 def test_experiment_scan_materializes_values_once_and_accepts_atom_types() -> None:
