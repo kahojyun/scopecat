@@ -209,6 +209,7 @@ class SQLiteRunPointLedger:
         connection: sqlite3.Connection,
         command: RunPointEnqueueCommand,
     ) -> tuple[RunPointQueueEntryView, bool]:
+        candidate = command.point_candidate()
         existing = _one(
             connection.execute(
                 """
@@ -223,7 +224,7 @@ class SQLiteRunPointLedger:
             entry = RunPointQueueEntryView.model_validate_json(
                 _text(existing, "entry_json")
             )
-            if entry.candidate != command.candidate:
+            if entry.candidate != candidate:
                 raise ExecutionJournalConflict(
                     "point queue operation conflicts with durable state"
                 )
@@ -259,7 +260,7 @@ class SQLiteRunPointLedger:
             queue_index=queue_index,
             operation_id=command.operation_id,
             occurred_at=datetime.now(UTC),
-            candidate=command.candidate,
+            candidate=candidate,
             status="pending",
         )
         connection.execute(

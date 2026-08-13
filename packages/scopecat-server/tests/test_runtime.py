@@ -2310,11 +2310,7 @@ def test_adaptive_point_ledger_survives_runtime_restart(tmp_path: Path) -> None:
             admission.run_id,
             RunPointEnqueueCommand(
                 operation_id="queue-1",
-                candidate=RunPointCandidateView(
-                    coordinates={"frequency": Quantity(5.2, "GHz")},
-                    proposal_fingerprint=queued_candidate.proposal_fingerprint,
-                    source="operator",
-                ),
+                coordinates={"frequency": Quantity(5.2, "GHz")},
             ),
         )
         initialized = runtime.application.executor.initialize_run_point_plan(

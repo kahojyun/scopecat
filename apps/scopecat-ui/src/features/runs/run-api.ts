@@ -10,6 +10,8 @@ import type {
   RunResourceView,
   RunSummaryPage,
   RunInspectionFeed,
+  RunPointEnqueueCommand,
+  RunPointQueue,
 } from "../../api-contract";
 import { ApiError, apiClient, apiData } from "../../api-client";
 import { decodeMeasurementArrowRecord } from "./measurement-arrow";
@@ -85,6 +87,30 @@ export async function getRunInspections(
     apiClient.GET("/api/v1/runs/{run_id}/inspections", {
       params: { path: { run_id: runId } },
       signal,
+    }),
+  );
+}
+
+export async function getRunPointQueue(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<RunPointQueue> {
+  return apiData(
+    apiClient.GET("/api/v1/runs/{run_id}/point-plan/queue", {
+      params: { path: { run_id: runId } },
+      signal,
+    }),
+  );
+}
+
+export async function enqueueRunPoint(
+  runId: string,
+  command: RunPointEnqueueCommand,
+): Promise<RunPointQueue["items"][number]> {
+  return apiData(
+    apiClient.POST("/api/v1/runs/{run_id}/point-plan/queue", {
+      params: { path: { run_id: runId } },
+      body: command,
     }),
   );
 }

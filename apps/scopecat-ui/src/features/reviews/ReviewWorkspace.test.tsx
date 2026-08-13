@@ -46,7 +46,7 @@ describe("ReviewWorkspace", () => {
     renderWorkspace();
     await screen.findByText("Compile point");
 
-    fireEvent.click(screen.getByRole("button", { name: "Off-grid" }));
+    fireEvent.click(screen.getByRole("button", { name: "free" }));
     fireEvent.change(screen.getByRole("spinbutton", { name: /beta/i }), {
       target: { value: "0.137" },
     });
@@ -77,6 +77,21 @@ describe("ReviewWorkspace", () => {
       expect(compileReviewPoint).toHaveBeenCalledWith(
         "review-1",
         expect.objectContaining({ coordinate_mode: "exact" }),
+      ),
+    );
+  });
+
+  it("offers snapping as an explicit alternative to exact and free coordinates", async () => {
+    renderWorkspace();
+    await screen.findByText("Compile point");
+
+    fireEvent.click(screen.getByRole("button", { name: "snap" }));
+    fireEvent.click(screen.getByRole("button", { name: "Compile waveform" }));
+
+    await waitFor(() =>
+      expect(compileReviewPoint).toHaveBeenCalledWith(
+        "review-1",
+        expect.objectContaining({ coordinate_mode: "snap" }),
       ),
     );
   });

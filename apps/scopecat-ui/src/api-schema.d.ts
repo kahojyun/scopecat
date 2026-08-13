@@ -685,6 +685,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/point-plan/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run Point Queue */
+        get: operations["get_run_point_queue_api_v1_runs__run_id__point_plan_queue_get"];
+        put?: never;
+        /** Enqueue Run Point */
+        post: operations["enqueue_run_point_api_v1_runs__run_id__point_plan_queue_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/records/{selector}/json": {
         parameters: {
             query?: never;
@@ -3024,6 +3042,8 @@ export interface components {
         };
         PersistableScalarWire: components["schemas"]["_PersistableScalarModel"];
         PersistableValueType: components["schemas"]["_PersistableValueTypeWire"];
+        /** @enum {string} */
+        PointCandidateSource: "author" | "optimizer" | "operator";
         /**
          * Problem
          * @description One expected, structured finding without presentation policy.
@@ -3160,7 +3180,7 @@ export interface components {
         /** @enum {string} */
         ReviewCoordinateKind: "bool" | "int" | "float" | "string" | "quantity" | "entity";
         /** @enum {string} */
-        ReviewCoordinateMode: "exact" | "free";
+        ReviewCoordinateMode: "exact" | "snap" | "free";
         /** ReviewCoordinateSpec */
         "ReviewCoordinateSpec-Output": {
             /** Choices */
@@ -3597,6 +3617,34 @@ export interface components {
             run_resource_requirements: components["schemas"]["RunResourceRequirement"][];
         };
         /**
+         * RunPointCandidateView
+         * @description Canonical candidate content crossing the daemon boundary.
+         */
+        "RunPointCandidateView-Output": {
+            /** Based On Completed Point Count */
+            based_on_completed_point_count?: number | null;
+            /** Coordinates */
+            coordinates: {
+                [key: string]: components["schemas"]["RunPointCoordinateValue-Output"];
+            };
+            /** Proposal Fingerprint */
+            proposal_fingerprint: string;
+            source: components["schemas"]["PointCandidateSource"];
+        };
+        "RunPointCoordinateValue-Input": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | null;
+        "RunPointCoordinateValue-Output": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | null;
+        /** RunPointEnqueueCommand */
+        RunPointEnqueueCommand: {
+            /** Based On Completed Point Count */
+            based_on_completed_point_count?: number | null;
+            /** Coordinates */
+            coordinates: {
+                [key: string]: components["schemas"]["RunPointCoordinateValue-Input"];
+            };
+            /** Operation Id */
+            operation_id: string;
+        };
+        /**
          * RunPointInspectionEvent
          * @description One transient optimizer decision and its compiled target inspection.
          */
@@ -3642,6 +3690,40 @@ export interface components {
             run_id: string;
             /** Stop Reason */
             stop_reason?: string | null;
+        };
+        /** RunPointQueueEntryView */
+        RunPointQueueEntryView: {
+            /** Accepted Point Index */
+            accepted_point_index?: number | null;
+            candidate: components["schemas"]["RunPointCandidateView-Output"];
+            /** Decision Operation Id */
+            decision_operation_id?: string | null;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Operation Id */
+            operation_id: string;
+            /** Queue Index */
+            queue_index: number;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "accepted" | "rejected" | "cancelled";
+        };
+        /** RunPointQueueView */
+        RunPointQueueView: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["RunPointQueueEntryView"][];
+            /** Run Id */
+            run_id: string;
         };
         /** RunRecordJsonResult */
         RunRecordJsonResult: {
@@ -5213,6 +5295,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ParameterProposalListView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_point_queue_api_v1_runs__run_id__point_plan_queue_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunPointQueueView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enqueue_run_point_api_v1_runs__run_id__point_plan_queue_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunPointEnqueueCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunPointQueueEntryView"];
                 };
             };
             /** @description Validation Error */

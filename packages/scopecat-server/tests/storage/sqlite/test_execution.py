@@ -238,11 +238,7 @@ def test_operator_point_queue_is_fifo_bounded_and_resolved_by_decisions(
     )
     enqueue = RunPointEnqueueCommand(
         operation_id="queue-1",
-        candidate=RunPointCandidateView(
-            coordinates={"frequency": Quantity(5.15, "GHz")},
-            proposal_fingerprint=queued_candidate.proposal_fingerprint,
-            source="operator",
-        ),
+        coordinates={"frequency": Quantity(5.15, "GHz")},
     )
     second_enqueue = enqueue.model_copy(update={"operation_id": "queue-2"})
     with _sqlite_transaction(runs) as connection:

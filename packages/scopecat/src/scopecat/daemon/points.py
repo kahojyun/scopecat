@@ -127,13 +127,21 @@ class RunPointDecisionCommand(_PointModel):
 
 class RunPointEnqueueCommand(_PointModel):
     operation_id: str = Field(min_length=1)
-    candidate: RunPointCandidateView
+    coordinates: dict[str, RunPointCoordinateValue]
+    based_on_completed_point_count: int | None = Field(default=None, ge=0)
 
-    @model_validator(mode="after")
-    def validate_source(self) -> RunPointEnqueueCommand:
-        if self.candidate.source != "operator":
-            raise ValueError("queued point candidate must have operator source")
-        return self
+    def point_candidate(self) -> RunPointCandidateView:
+        candidate = PointCandidate(
+            coordinates=cast("dict[str, CellValue]", self.coordinates),
+            source="operator",
+            based_on_completed_point_count=self.based_on_completed_point_count,
+        )
+        return RunPointCandidateView(
+            coordinates=self.coordinates,
+            proposal_fingerprint=candidate.proposal_fingerprint,
+            source="operator",
+            based_on_completed_point_count=self.based_on_completed_point_count,
+        )
 
 
 class RunPointQueueEntryView(_PointModel):

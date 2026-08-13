@@ -3,10 +3,12 @@ import { CheckCircle2, CircleDot, Cpu, XCircle } from "lucide-react";
 import type { RunInspectionFeed } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
 import { classes, countBadge, detailCard } from "../../ui/styles";
+import type { MeasurementPreview, ProjectRun } from "../../types";
 import {
   CompiledInspectionView,
   formatInspectionCoordinates,
 } from "../inspections/CompiledInspectionView";
+import { RunPointQueueControl } from "./RunPointQueueControl";
 
 type InspectionEvent = RunInspectionFeed["items"][number];
 
@@ -15,11 +17,15 @@ export function RunInspectionCard({
   error,
   pending,
   completedPointCount,
+  run,
+  measurements,
 }: {
   feed?: RunInspectionFeed;
   error: Error | null;
   pending: boolean;
   completedPointCount: number;
+  run: ProjectRun;
+  measurements?: MeasurementPreview;
 }) {
   const items = useMemo(() => feed?.items ?? [], [feed?.items]);
   const [selectedProposal, setSelectedProposal] = useState<number>();
@@ -56,6 +62,7 @@ export function RunInspectionCard({
         </div>
         <span className={countBadge}>{feed?.total_proposal_count ?? items.length}</span>
       </div>
+      <RunPointQueueControl run={run} measurements={measurements} inspections={items} />
       {error ? (
         <EmptyInspection title="Inspection feed unavailable" detail={errorMessage(error)} warning />
       ) : pending && !feed ? (
@@ -63,7 +70,7 @@ export function RunInspectionCard({
       ) : items.length === 0 ? (
         <EmptyInspection
           title="No adaptive point compiled"
-          detail="Accepted optimizer candidates and their physical waveforms appear here before execution."
+          detail="Accepted optimizer and operator candidates share this compiled waveform view."
         />
       ) : (
         <div className="grid grid-cols-[230px_minmax(0,1fr)] gap-3 max-[760px]:grid-cols-1">

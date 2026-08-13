@@ -74,6 +74,8 @@ _OPERATIONS = {
     ("/api/v1/runs/{run_id}/measurements/query", "post"),
     ("/api/v1/runs/{run_id}/measurements/traces/query", "post"),
     ("/api/v1/runs/{run_id}/parameter-proposals", "get"),
+    ("/api/v1/runs/{run_id}/point-plan/queue", "get"),
+    ("/api/v1/runs/{run_id}/point-plan/queue", "post"),
     ("/api/v1/runs/{run_id}/records/{selector}/json", "get"),
 }
 

@@ -10,7 +10,7 @@ import {
 } from "../inspections/CompiledInspectionView";
 import { compileReviewPoint, getReview, getReviews } from "./review-api";
 
-type PointMode = "planned" | "exact" | "free";
+type PointMode = "exact" | "snap" | "free";
 type CoordinateDraft = Record<string, string>;
 type CoordinateInput = NonNullable<ReviewCompileCommand["coordinates"]>[string];
 
@@ -157,23 +157,17 @@ function PointCompiler({
 }) {
   const selectedPoint = session.latest_result?.point;
   const [mode, setMode] = useState<PointMode>(
-    selectedPoint?.point_index == null ? "free" : "planned",
+    selectedPoint?.point_index == null ? "free" : "exact",
   );
-  const [pointIndex, setPointIndex] = useState(selectedPoint?.point_index ?? 0);
   const [coordinates, setCoordinates] = useState<CoordinateDraft>(() =>
     coordinateDraft(session.coordinates, selectedPoint?.coordinates),
   );
 
   useEffect(() => {
     setCoordinates(coordinateDraft(session.coordinates, selectedPoint?.coordinates));
-    setPointIndex(selectedPoint?.point_index ?? 0);
   }, [session.coordinates, selectedPoint?.coordinates, selectedPoint?.point_index]);
 
   const submit = () => {
-    if (mode === "planned") {
-      onCompile({ point_index: pointIndex, coordinate_mode: "exact" });
-      return;
-    }
     onCompile({
       coordinates: Object.fromEntries(
         session.coordinates.map((spec) => [
@@ -191,12 +185,12 @@ function PointCompiler({
         <div>
           <strong className="text-[0.72rem]">Compile point</strong>
           <p className="mt-1 mb-0 text-[0.62rem] leading-5 text-text-dim">
-            Planned selection, strict coordinate matching, and off-grid compilation use the same
-            pure compiler.
+            Exact matching, optional snapping, and free coordinates use the same pure compiler and
+            waveform viewer.
           </p>
         </div>
         <div className="flex gap-1 rounded-md border border-line bg-panel p-1" role="group">
-          {(["planned", "exact", "free"] as const).map((item) => (
+          {(["exact", "snap", "free"] as const).map((item) => (
             <button
               className={classes(
                 "cursor-pointer rounded px-2.5 py-1.5 text-[0.62rem] font-bold capitalize text-text-dim",
@@ -206,39 +200,46 @@ function PointCompiler({
               onClick={() => setMode(item)}
               type="button"
             >
-              {item === "free" ? "Off-grid" : item}
+              {item}
             </button>
           ))}
         </div>
       </div>
 
-      {mode === "planned" ? (
-        <label className="grid max-w-[420px] gap-1.5 text-[0.61rem] font-bold text-text-dim">
-          Planned point
+      {session.planned_points.length > 0 && (
+        <label className="mb-2.5 grid max-w-[420px] gap-1.5 text-[0.61rem] font-bold text-text-dim">
+          Fill from a planned point
           <select
             className="rounded-md border border-line bg-panel px-2.5 py-2 text-[0.68rem] font-medium text-text-soft"
-            onChange={(event) => setPointIndex(Number(event.target.value))}
-            value={pointIndex}
+            onChange={(event) => {
+              const point = session.planned_points[Number(event.target.value)];
+              if (point) {
+                setCoordinates(coordinateDraft(session.coordinates, point.coordinates));
+              }
+            }}
+            defaultValue=""
           >
-            {session.planned_points.map((point) => (
-              <option key={point.point_index ?? "candidate"} value={point.point_index ?? 0}>
+            <option value="" disabled>
+              Select…
+            </option>
+            {session.planned_points.map((point, index) => (
+              <option key={point.point_index ?? "candidate"} value={index}>
                 #{(point.point_index ?? 0) + 1} · {formatCoordinates(point.coordinates)}
               </option>
             ))}
           </select>
         </label>
-      ) : (
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-2.5">
-          {session.coordinates.map((spec) => (
-            <CoordinateInput
-              key={spec.id}
-              spec={spec}
-              value={coordinates[spec.id] ?? ""}
-              onChange={(value) => setCoordinates((current) => ({ ...current, [spec.id]: value }))}
-            />
-          ))}
-        </div>
       )}
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-2.5">
+        {session.coordinates.map((spec) => (
+          <CoordinateInput
+            key={spec.id}
+            spec={spec}
+            value={coordinates[spec.id] ?? ""}
+            onChange={(value) => setCoordinates((current) => ({ ...current, [spec.id]: value }))}
+          />
+        ))}
+      </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
@@ -254,13 +255,13 @@ function PointCompiler({
           )}
           Compile waveform
         </button>
-        {mode !== "planned" && (
-          <span className="text-[0.61rem] text-text-dim">
-            {mode === "exact"
-              ? "Reject values outside the authored scan."
+        <span className="text-[0.61rem] text-text-dim">
+          {mode === "exact"
+            ? "Reject values outside the authored scan."
+            : mode === "snap"
+              ? "Resolve each value to the nearest authored scan point."
               : "Allow valid coordinates outside the authored scan."}
-          </span>
-        )}
+        </span>
         {compileError && (
           <span className="w-full text-[0.62rem] text-red" role="alert">
             {errorMessage(compileError)}

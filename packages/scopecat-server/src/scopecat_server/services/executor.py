@@ -264,9 +264,7 @@ class ExecutorService:
                     raise ControlPlaneConflict(
                         "operator points can be queued only while a run is active"
                     )
-                if set(command.candidate.coordinates) != set(
-                    run.admission.plan.coordinate_ids
-                ):
+                if set(command.coordinates) != set(run.admission.plan.coordinate_ids):
                     raise ControlPlaneConflict(
                         "queued point coordinates do not match the admitted axes"
                     )

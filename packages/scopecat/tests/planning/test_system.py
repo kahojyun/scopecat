@@ -1023,6 +1023,31 @@ def test_free_preview_compiles_a_canonical_unplanned_point() -> None:
     ).domain_id.domain_id.startswith("root.inspection-")
 
 
+def test_snap_preview_selects_nearest_planned_point_without_free_compilation() -> None:
+    bound = _bound_program(point_count=3)
+    compiler = _DomainCompiler("tests.snap-preview")
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(bound)
+    compile_calls = compiler.compile_calls
+
+    preview = build_run_program_preview(
+        plan,
+        coordinates={"frequency": Quantity(5.04, "GHz")},
+        coordinate_mode="snap",
+    )
+
+    assert preview.selected_point is not None
+    assert preview.selected_point.point_index == 1
+    assert preview.selected_point.is_planned
+    assert preview.selected_point.coordinates == {"frequency": Quantity(5.1, "GHz")}
+    assert compiler.compile_calls == compile_calls + 1
+    assert compiler.prepared_inputs == []
+    [request] = compiler.compile_requests
+    assert request.point_ordinals == (1,)
+
+
 def test_domain_target_initial_batch_must_fit_the_complete_point_space() -> None:
     bound = _bound_program(point_count=2)
     compiler = _DomainCompiler(

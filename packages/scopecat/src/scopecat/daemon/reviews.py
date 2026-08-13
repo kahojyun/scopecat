@@ -20,7 +20,7 @@ type ReviewCoordinateKind = Literal[
     "quantity",
     "entity",
 ]
-type ReviewCoordinateMode = Literal["exact", "free"]
+type ReviewCoordinateMode = Literal["exact", "snap", "free"]
 
 
 class _ReviewModel(BaseModel):
