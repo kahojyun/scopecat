@@ -10,7 +10,6 @@ import type {
   AnalysisRecordInput,
   AnalysisTableView,
   MeasurementDatasetSchema,
-  MeasurementLivePreview as MeasurementLivePreviewResponse,
   MeasurementRecord,
 } from "./api-contract";
 
@@ -97,7 +96,7 @@ export interface MeasurementPreview {
 
 export interface MeasurementLivePreview {
   active: boolean;
-  latest?: MeasurementLivePreviewResponse["latest"];
+  latest?: MeasurementRecord;
   receivedRecordCount: number;
   durableRecordCount: number;
 }

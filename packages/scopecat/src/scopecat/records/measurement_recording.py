@@ -8,6 +8,7 @@ from typing import Literal, Self, override
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from scopecat.kernel.content_identity import (
+    content_fingerprint,
     model_wire_content_hash,
     stable_content_hash,
 )
@@ -151,7 +152,21 @@ class MeasurementDatasetAppend(MeasurementDatasetBatch):
 
     @property
     def content_hash(self) -> str:
-        return model_wire_content_hash(self)
+        return stable_content_hash(
+            {
+                "schema": "scopecat.measurement_dataset_append_content.v4",
+                "run_id": self.run_id,
+                "header_content_hash": self.header_content_hash,
+                "start_index": self.start_index,
+                "record_content_hashes": self.record_content_hashes,
+            }
+        )
+
+    @property
+    def record_content_hashes(self) -> tuple[str, ...]:
+        """Return chunk-neutral identities without serializing array values."""
+
+        return tuple(measurement_record_content_hash(record) for record in self.records)
 
 
 class MeasurementDatasetReceipt(_FrozenRecordingModel):
@@ -213,15 +228,26 @@ class MeasurementDatasetSeal(_FrozenRecordingModel):
 def measurement_dataset_content_hash(
     *,
     header_content_hash: str,
-    append_content_hashes: tuple[str, ...],
+    record_content_hashes: tuple[str, ...],
 ) -> str:
-    """Hash a header and its ordered append identities, independent of IPC bytes."""
+    """Hash a header and ordered records, independent of IPC chunk boundaries."""
 
     return stable_content_hash(
         {
-            "schema": "scopecat.measurement_dataset_content.v2",
+            "schema": "scopecat.measurement_dataset_content.v3",
             "header_content_hash": header_content_hash,
-            "append_content_hashes": append_content_hashes,
+            "record_content_hashes": record_content_hashes,
+        }
+    )
+
+
+def measurement_record_content_hash(record: MeasurementRecord) -> str:
+    """Identify one normalized record using buffer fingerprints for arrays."""
+
+    return stable_content_hash(
+        {
+            "schema": "scopecat.measurement_record_content.v1",
+            "record": content_fingerprint(record),
         }
     )
 
@@ -234,4 +260,5 @@ __all__ = [
     "MeasurementDatasetReceipt",
     "MeasurementDatasetSeal",
     "measurement_dataset_content_hash",
+    "measurement_record_content_hash",
 ]

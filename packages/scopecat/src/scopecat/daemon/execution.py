@@ -18,7 +18,6 @@ from scopecat.daemon.wire import (
     ExecutorStartRequest,
     MeasurementFlushCommand,
     MeasurementHeaderCommand,
-    MeasurementIngestCommand,
     MeasurementSealCommand,
     RunAdmission,
     RunCoverageAdvanceCommand,
@@ -35,7 +34,11 @@ from scopecat.kernel.problems import Problem
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.records.measurement import MeasurementArray, MeasurementRecord
+from scopecat.records.measurement import (
+    MeasurementArray,
+    MeasurementDatasetSchema,
+    MeasurementRecord,
+)
 from scopecat.records.measurement_recording import (
     MeasurementDatasetBatch,
     MeasurementDatasetHeader,
@@ -294,6 +297,7 @@ class _DaemonMeasurementRepository:
         self._pending_value_bytes = 0
         self._last_send_at: float | None = None
         self._header_content_hash: str | None = None
+        self._dataset_schema: MeasurementDatasetSchema | None = None
 
     def initialize(
         self,
@@ -308,6 +312,7 @@ class _DaemonMeasurementRepository:
             ),
         )
         self._header_content_hash = header.content_hash
+        self._dataset_schema = header.dataset_schema
         return receipt
 
     def ingest(
@@ -339,6 +344,9 @@ class _DaemonMeasurementRepository:
         header_content_hash = self._header_content_hash
         if header_content_hash is None:
             raise RuntimeError("measurement transport requires an initialized header")
+        dataset_schema = self._dataset_schema
+        if dataset_schema is None:
+            raise RuntimeError("measurement transport requires an initialized schema")
         batch = MeasurementDatasetBatch(
             run_id=self._authority.run_id,
             header_content_hash=header_content_hash,
@@ -348,10 +356,9 @@ class _DaemonMeasurementRepository:
         lease_id = self._authority.fence()
         receipt = self._authority.client.ingest_measurements(
             self._authority.run_id,
-            MeasurementIngestCommand(
-                lease_id=lease_id,
-                batch=batch,
-            ),
+            lease_id=lease_id,
+            batch=batch,
+            dataset_schema=dataset_schema,
         )
         self._pending.clear()
         self._pending_value_bytes = 0

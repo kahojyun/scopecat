@@ -82,12 +82,11 @@ export type AnalysisParameterProposalReference =
   components["schemas"]["AnalysisParameterProposalReference"];
 export type AnalysisTableView = components["schemas"]["AnalysisTableView"];
 export type MeasurementDatasetSchema = components["schemas"]["MeasurementDatasetSchema-Output"];
-export type MeasurementLivePreview = components["schemas"]["MeasurementLivePreview"];
-export type MeasurementRecord = components["schemas"]["MeasurementRecord-Output"];
+export type MeasurementRecord = components["schemas"]["MeasurementRecord"];
 export type MeasurementSlice = components["schemas"]["MeasurementSlice"];
 export type MeasurementTracePreview = components["schemas"]["MeasurementTracePreview"];
 export type MeasurementTracePreviewQuery = components["schemas"]["MeasurementTracePreviewQuery"];
-export type MeasurementValue = components["schemas"]["MeasurementValue-Output"];
+export type MeasurementValue = components["schemas"]["MeasurementValue"];
 /** Complex scalar representation on the JSON wire. */
 export type ComplexComponents = Extract<
   Extract<MeasurementValue, { kind: "scalar" }>["value"],

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Int64, LargeBinary, Schema, Table, Utf8, tableToIPC, vectorFromArray } from "apache-arrow";
 import {
   getMeasurementLivePreview,
   getMeasurementPreview,
@@ -452,16 +453,13 @@ describe("run daemon reads", () => {
   });
 
   it("reads the latest daemon-received measurement without forcing a flush", async () => {
-    const latest = measurementRecord("run/1", 3);
+    const latest = {
+      ...measurementRecord("run/1", 3),
+      acquisition_evidence: {},
+      metadata: {},
+    };
     const fetchMock = vi.fn((_input: RequestInfo | URL) =>
-      Promise.resolve(
-        jsonResponse({
-          active: true,
-          latest,
-          received_record_count: 4,
-          durable_record_count: 0,
-        }),
-      ),
+      Promise.resolve(liveArrowResponse("run/1", 3, 4, 0)),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -627,5 +625,33 @@ function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+function liveArrowResponse(
+  runId: string,
+  pointIndex: number,
+  receivedRecordCount: number,
+  durableRecordCount: number,
+): Response {
+  const metadata = new TextEncoder().encode("{}");
+  const base = new Table({
+    "__scopecat.logical_point_id": vectorFromArray([`point-${pointIndex}`], new Utf8()),
+    "__scopecat.point_index": vectorFromArray([BigInt(pointIndex)], new Int64()),
+    "__scopecat.record_metadata": vectorFromArray([metadata], new LargeBinary()),
+  });
+  const table = new Table(
+    new Schema(base.schema.fields, new Map([["scopecat.run_id", runId]])),
+    base.batches,
+  );
+  const content = tableToIPC(table, "file");
+  return new Response(content.slice().buffer as ArrayBuffer, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/vnd.apache.arrow.file",
+      "X-Scopecat-Measurement-Active": "true",
+      "X-Scopecat-Received-Record-Count": String(receivedRecordCount),
+      "X-Scopecat-Durable-Record-Count": String(durableRecordCount),
+    },
   });
 }

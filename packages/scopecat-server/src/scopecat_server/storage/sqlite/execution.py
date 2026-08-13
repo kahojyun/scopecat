@@ -452,10 +452,11 @@ class SQLiteMeasurementDatasetRepository:
                 """
                 INSERT INTO execution_measurement_appends(
                     run_id, start_index, operation_id,
-                    content_hash, header_content_hash, record_count,
+                    content_hash, header_content_hash,
+                    record_content_hashes_json, record_count,
                     ref
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     self._run_id,
@@ -463,6 +464,7 @@ class SQLiteMeasurementDatasetRepository:
                     durable.operation_id,
                     durable.content_hash,
                     durable.header_content_hash,
+                    json.dumps(durable.record_content_hashes),
                     len(durable.records),
                     ref,
                 ),
@@ -552,8 +554,13 @@ class SQLiteMeasurementDatasetRepository:
                     )
                 actual_hash = measurement_dataset_content_hash(
                     header_content_hash=durable.header_content_hash,
-                    append_content_hashes=tuple(
-                        _text(row, "content_hash") for row in appends
+                    record_content_hashes=tuple(
+                        record_hash
+                        for row in appends
+                        for record_hash in cast(
+                            "list[str]",
+                            json.loads(_text(row, "record_content_hashes_json")),
+                        )
                     ),
                 )
                 if actual_hash != durable.dataset_content_hash:
@@ -646,7 +653,7 @@ class SQLiteMeasurementDatasetRepository:
         though one intersecting blob remains the physical I/O unit.
         """
 
-        from scopecat_server.storage.sqlite.measurement_arrow import (
+        from scopecat.measurements.recording_arrow import (
             decode_measurement_record_slice,
         )
 
@@ -721,7 +728,7 @@ class SQLiteMeasurementDatasetRepository:
     ) -> tuple[MeasurementRecord, ...]:
         """Read selected point indices from intersecting Arrow record batches."""
 
-        from scopecat_server.storage.sqlite.measurement_arrow import (
+        from scopecat.measurements.recording_arrow import (
             decode_measurement_record_indices,
         )
 
@@ -779,7 +786,7 @@ class SQLiteMeasurementDatasetRepository:
         dataset_schema: MeasurementDatasetSchema,
     ) -> tuple[MeasurementDatasetSchema, str]:
         if dataset_schema != self._dataset_schema:
-            from scopecat_server.storage.sqlite.measurement_arrow import (
+            from scopecat.measurements.recording_arrow import (
                 measurement_dataset_schema_hash,
             )
 
@@ -912,7 +919,7 @@ def _store_measurement_append(
     dataset_schema: MeasurementDatasetSchema,
     dataset_schema_hash: str,
 ) -> StoredObject:
-    from scopecat_server.storage.sqlite.measurement_arrow import (
+    from scopecat.measurements.recording_arrow import (
         MeasurementArrowCodecError,
         encode_measurement_append,
     )

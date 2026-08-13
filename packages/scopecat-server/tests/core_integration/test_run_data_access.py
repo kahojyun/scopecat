@@ -4,6 +4,10 @@ from pathlib import Path
 
 import pytest
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
+from scopecat.measurements.recording_arrow import (
+    decode_measurement_append,
+    encode_measurement_append,
+)
 from scopecat.runs.access import (
     dataset_storage_ref,
     list_payload_entries,
@@ -24,11 +28,6 @@ from scopecat_testkit.server.workflow_fixtures import attach_binary_artifact
 from scopecat_testkit.workflow_fixtures import (
     load_config,
     load_invocation,
-)
-
-from scopecat_server.storage.sqlite.measurement_arrow import (
-    decode_measurement_append,
-    encode_measurement_append,
 )
 
 

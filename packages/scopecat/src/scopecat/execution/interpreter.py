@@ -59,6 +59,7 @@ from scopecat.measurements.values import (
 from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
+    measurement_record_content_hash,
 )
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import (
@@ -110,7 +111,7 @@ def _execute_run(
     )
     recorded_measurement_count = 0
     completed_coverage_count = 0
-    append_content_hashes: list[str] = []
+    record_content_hashes: list[str] = []
     measurement_buffer = CanonicalMeasurementBuffer()
 
     def commit_coverage(
@@ -160,14 +161,14 @@ def _execute_run(
             return
         if dataset_header is None:
             raise ValueError("projected measurements require a dataset header")
-        receipts = ingest_measurement_dataset(
+        ingest_measurement_dataset(
             ProjectedMeasurementDataset(projection, run_id, ready_records),
             measurements,
             header=dataset_header,
         )
         recorded_measurement_count += len(ready_records)
-        append_content_hashes.extend(
-            receipt.dataset_content_hash for receipt in receipts
+        record_content_hashes.extend(
+            measurement_record_content_hash(record) for record in ready_records
         )
 
     effect_result = _execute_or_cancel_effects(
@@ -207,12 +208,9 @@ def _execute_run(
     seal_receipt = None
     coverage_failure = effect_result.coverage_failure
     try:
-        append_content_hashes.extend(
-            receipt.dataset_content_hash
-            for receipt in _flush_execution_progress(
-                session,
-                has_dataset=dataset_header is not None,
-            )
+        _flush_execution_progress(
+            session,
+            has_dataset=dataset_header is not None,
         )
         if coverage_failure is not None:
             raise coverage_failure
@@ -225,7 +223,7 @@ def _execute_run(
                 run_id=run_id,
                 header=dataset_header,
                 point_count=recorded_measurement_count,
-                append_content_hashes=tuple(append_content_hashes),
+                record_content_hashes=tuple(record_content_hashes),
                 writer=measurements,
                 journal=journal,
             )

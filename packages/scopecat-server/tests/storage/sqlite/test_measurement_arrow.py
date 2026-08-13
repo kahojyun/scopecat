@@ -3,25 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from time import perf_counter
 
 import numpy as np
 import pyarrow as pa
 import pytest
-from scopecat.records.measurement import (
-    InstrumentAcquisitionEvidence,
-    MeasurementArray,
-    MeasurementDatasetSchema,
-    MeasurementDimension,
-    MeasurementPointCloudPointDomain,
-    MeasurementPointDomainColumn,
-    MeasurementRecord,
-    MeasurementScalar,
-    MeasurementUnavailable,
-    MeasurementVariable,
-)
-from scopecat.records.measurement_recording import MeasurementDatasetAppend
-
-from scopecat_server.storage.sqlite.measurement_arrow import (
+from scopecat.measurements.recording_arrow import (
     MEASUREMENT_APPEND_ARROW_FORMAT,
     MeasurementArrowCodecError,
     decode_measurement_append,
@@ -29,6 +16,20 @@ from scopecat_server.storage.sqlite.measurement_arrow import (
     decode_measurement_record_slice,
     encode_measurement_append,
 )
+from scopecat.records.measurement import (
+    InstrumentAcquisitionEvidence,
+    MeasurementArray,
+    MeasurementDatasetSchema,
+    MeasurementDimension,
+    MeasurementPointCloudPointDomain,
+    MeasurementPointDomainColumn,
+    MeasurementProductGridPointDomain,
+    MeasurementRecord,
+    MeasurementScalar,
+    MeasurementUnavailable,
+    MeasurementVariable,
+)
+from scopecat.records.measurement_recording import MeasurementDatasetAppend
 
 
 def _append() -> MeasurementDatasetAppend:
@@ -247,6 +248,65 @@ def test_measurement_append_round_trips_as_typed_arrow_ipc() -> None:
     ragged_trace = restored.records[0].observables["ragged_trace"]
     assert isinstance(ragged_trace, MeasurementArray)
     assert ragged_trace.shape == (3,)
+
+
+def test_megawaveform_binary_round_trip_meets_live_transport_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sample_count = 1 << 20
+    values = np.linspace(-1.0, 1.0, sample_count, dtype=np.float64)
+    schema = MeasurementDatasetSchema(
+        dataset_id="raw-measurements",
+        point_domain=MeasurementProductGridPointDomain(axes=()),
+        dimensions=(
+            MeasurementDimension(id="point", kind="point", size=1),
+            MeasurementDimension(id="sample", kind="record_axis", size=sample_count),
+        ),
+        variables=(
+            MeasurementVariable(
+                id="trace",
+                role="observable",
+                dtype="float64",
+                unit="V",
+                dims=("point", "sample"),
+            ),
+        ),
+    )
+    append = MeasurementDatasetAppend(
+        run_id="run-live-waveform",
+        header_content_hash="header-hash",
+        start_index=0,
+        records=(
+            MeasurementRecord(
+                run_id="run-live-waveform",
+                logical_point_id="point-0",
+                point_index=0,
+                coordinates={},
+                observables={
+                    "trace": MeasurementArray.create(
+                        dtype="float64",
+                        unit="V",
+                        values=values,
+                    )
+                },
+            ),
+        ),
+    )
+
+    def reject_json_dump(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("measurement transport must not serialize arrays to JSON")
+
+    monkeypatch.setattr(MeasurementDatasetAppend, "model_dump", reject_json_dump)
+    started = perf_counter()
+    content = encode_measurement_append(append, schema)
+    restored = decode_measurement_append(content, schema)
+    elapsed = perf_counter() - started
+    restored_trace = restored.records[0].observables["trace"]
+
+    assert len(content) < values.nbytes + 64 * 1024
+    assert isinstance(restored_trace, MeasurementArray)
+    assert np.array_equal(restored_trace.values, values)
+    assert elapsed < 2.0
 
 
 def test_measurement_arrow_selection_decodes_only_requested_rows() -> None:

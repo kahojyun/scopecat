@@ -115,7 +115,7 @@ def seal_measurement_dataset(
     run_id: str,
     header: MeasurementDatasetHeader,
     point_count: int,
-    append_content_hashes: tuple[str, ...],
+    record_content_hashes: tuple[str, ...],
     writer: MeasurementDatasetLifecycleWriter,
     journal: ExecutionJournal,
 ) -> MeasurementDatasetReceipt:
@@ -127,7 +127,7 @@ def seal_measurement_dataset(
         point_count=point_count,
         dataset_content_hash=measurement_dataset_content_hash(
             header_content_hash=header.content_hash,
-            append_content_hashes=append_content_hashes,
+            record_content_hashes=record_content_hashes,
         ),
     )
     return _record_operation(

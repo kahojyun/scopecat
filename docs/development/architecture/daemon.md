@@ -158,7 +158,9 @@ than trusting their remaining lease time.
 
 The daemon serves the bundled GUI and a versioned typed HTTP API. Run detail,
 resource state, configuration history, and measurements are exposed through
-bounded queries.
+bounded queries. Measurement control commands remain small JSON documents;
+measurement ingest and the live latest-point response use schema-driven Arrow
+IPC so waveform arrays cross neither boundary as JSON lists.
 
 Server-sent events replay the same durable globally ordered event log used by
 the API. On initial connection or reconnection, clients refresh canonical

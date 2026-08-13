@@ -394,8 +394,12 @@ The present architecture provides a direct end-to-end baseline:
   the operations actually emitted, so a run may conservatively reserve an
   unused candidate rather than scanning every point before admission;
 - one SQLite writer owns durable ordering while immutable object storage carries
-  large content, and measurement records are appended in chunks bounded by both
-  record count and value bytes;
+  large content. The executor-to-daemon ingest path, durable chunks, and live
+  GUI latest-point path all use the same schema-driven Arrow IPC columns, so
+  numeric arrays never expand into JSON lists. Measurement chunks remain
+  bounded by both record count and value bytes, while dataset identity hashes
+  the ordered record identities and is therefore independent of those chunk
+  boundaries;
 - ordinary command payload uploads use an in-memory spool scoped by run and
   hardware operation, or by direct session and command. A completed, rejected,
   or replayed operation releases its bytes immediately; owner termination and
@@ -412,7 +416,9 @@ generated. Cartesian products do not multiply any of those factors into
 retained rows. Local effects, static value evaluation, runtime point projection,
 and live prepared target artifacts are bounded by the current physical batch.
 During active execution the completed point index set and durable scalar results
-still grow with completed point count; neither contains waveform payloads.
+still grow with completed point count; neither contains waveform payloads. The
+daemon retains the latest received measurement for the live Arrow view plus the
+bounded not-yet-durable prefix.
 Inline command payloads retain raw bytes in memory and convert to base64 only
 for an actual JSON wire representation; the daemon client uploads those bytes
 to an operation-scoped content-addressed spool before posting a control command

@@ -309,7 +309,7 @@ class SQLiteRunRepository:
         run_id: str,
         ref: str,
     ) -> list[MeasurementRecord]:
-        from scopecat_server.storage.sqlite.measurement_arrow import (
+        from scopecat.measurements.recording_arrow import (
             MeasurementArrowCodecError,
             decode_measurement_append,
             measurement_dataset_schema_hash,

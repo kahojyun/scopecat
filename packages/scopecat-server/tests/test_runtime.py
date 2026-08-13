@@ -69,7 +69,6 @@ from scopecat.daemon.wire import (
     ManualConfigDraftRevisionSource,
     MeasurementFlushCommand,
     MeasurementHeaderCommand,
-    MeasurementIngestCommand,
     RunAdmission,
     RunAttachmentCommand,
     RunCancellationReceipt,
@@ -80,6 +79,10 @@ from scopecat.daemon.wire import (
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.measurements.recording_arrow import (
+    decode_measurement_append,
+    encode_measurement_append,
+)
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import (
     AnalysisDatasetViewSource,
@@ -107,6 +110,7 @@ from scopecat.records.measurement import (
     MeasurementVariable,
 )
 from scopecat.records.measurement_recording import (
+    MeasurementDatasetAppend,
     MeasurementDatasetBatch,
     MeasurementDatasetHeader,
 )
@@ -2499,10 +2503,19 @@ def test_effect_is_fenced_and_terminal_updates_control(
         )
         measurement_response = client.post(
             f"/api/v1/runs/{run_id}/measurements/ingest",
-            json=MeasurementIngestCommand(
-                lease_id=lease.lease_id,
-                batch=measurement_batch,
-            ).model_dump(mode="json"),
+            content=encode_measurement_append(
+                MeasurementDatasetAppend(
+                    run_id=measurement_batch.run_id,
+                    header_content_hash=measurement_batch.header_content_hash,
+                    start_index=measurement_batch.start_index,
+                    records=measurement_batch.records,
+                ),
+                measurement_header.dataset_schema,
+            ),
+            headers={
+                "Content-Type": "application/vnd.apache.arrow.file",
+                "X-Scopecat-Lease-ID": lease.lease_id,
+            },
         )
         pending_preview = client.get(f"/api/v1/runs/{run_id}/measurements/preview")
         live_preview = client.get(f"/api/v1/runs/{run_id}/measurements/live")
@@ -2626,9 +2639,14 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert measurement_response.json()["received_record_count"] == 4
         assert measurement_response.json()["durable_record_count"] == 0
         assert pending_preview.json()["items"] == []
-        assert live_preview.json()["latest"]["point_index"] == 3
-        assert live_preview.json()["received_record_count"] == 4
-        assert live_preview.json()["durable_record_count"] == 0
+        live_append = decode_measurement_append(
+            live_preview.content,
+            measurement_header.dataset_schema,
+        )
+        assert live_append.records[0].point_index == 3
+        assert live_preview.headers["x-scopecat-measurement-active"] == "true"
+        assert live_preview.headers["x-scopecat-received-record-count"] == "4"
+        assert live_preview.headers["x-scopecat-durable-record-count"] == "0"
         assert pending_coverage.json()["completed_point_count"] == 0
         assert flush_response.status_code == 200
         assert flush_response.json()["durable_record_count"] == 4
@@ -2846,9 +2864,15 @@ def test_effect_and_terminal_publication_roll_back_with_control(
         )
         runtime.application.executor.ingest_measurements(
             admission.run_id,
-            MeasurementIngestCommand(
-                lease_id=lease.lease_id,
-                batch=batch,
+            lease_id=lease.lease_id,
+            content=encode_measurement_append(
+                MeasurementDatasetAppend(
+                    run_id=batch.run_id,
+                    header_content_hash=batch.header_content_hash,
+                    start_index=batch.start_index,
+                    records=batch.records,
+                ),
+                header.dataset_schema,
             ),
         )
 

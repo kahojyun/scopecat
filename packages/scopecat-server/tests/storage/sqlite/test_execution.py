@@ -14,6 +14,7 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     problem,
 )
+from scopecat.measurements import recording_arrow
 from scopecat.records.execution_journal import (
     ExecutionTransition,
     execution_transition_content_hash,
@@ -38,7 +39,6 @@ from scopecat_testkit.server.runtime import (
     SQLiteTestExecutionJournal as SQLiteExecutionJournal,
 )
 
-from scopecat_server.storage.sqlite import measurement_arrow
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.execution import (
     ExecutionJournalConflict,
@@ -151,7 +151,7 @@ def _seal(
         point_count=len(append.records),
         dataset_content_hash=measurement_dataset_content_hash(
             header_content_hash=header.content_hash,
-            append_content_hashes=(append.content_hash,),
+            record_content_hashes=append.record_content_hashes,
         ),
     )
 
@@ -193,7 +193,7 @@ def test_measurement_repository_reuses_schema_hash_for_appends(
     runs = _runs(tmp_path)
     repository = SQLiteMeasurementDatasetRepository(runs, run_id="run-cached-schema")
     header = _header("run-cached-schema", point_count=2)
-    original = measurement_arrow.measurement_dataset_schema_hash
+    original = recording_arrow.measurement_dataset_schema_hash
     hash_calls = 0
 
     def counted_hash(dataset_schema: MeasurementDatasetSchema) -> str:
@@ -202,7 +202,7 @@ def test_measurement_repository_reuses_schema_hash_for_appends(
         return original(dataset_schema)
 
     monkeypatch.setattr(
-        measurement_arrow,
+        recording_arrow,
         "measurement_dataset_schema_hash",
         counted_hash,
     )
@@ -658,7 +658,7 @@ def test_measurement_header_makes_an_empty_dataset_readable(tmp_path: Path) -> N
         point_count=0,
         dataset_content_hash=measurement_dataset_content_hash(
             header_content_hash=header.content_hash,
-            append_content_hashes=(),
+            record_content_hashes=(),
         ),
     )
     _commit_seal(runs, repository, seal)

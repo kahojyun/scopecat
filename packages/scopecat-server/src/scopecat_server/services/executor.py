@@ -26,7 +26,6 @@ from scopecat.daemon.wire import (
     MeasurementFlushCommand,
     MeasurementFlushReceipt,
     MeasurementHeaderCommand,
-    MeasurementIngestCommand,
     MeasurementIngestReceipt,
     MeasurementSealCommand,
     RunCancellationReceipt,
@@ -251,18 +250,35 @@ class ExecutorService:
     def ingest_measurements(
         self,
         run_id: str,
-        command: MeasurementIngestCommand,
+        *,
+        lease_id: str,
+        content: bytes,
     ) -> MeasurementIngestReceipt:
-        self.fence_executor(run_id, command.lease_id)
+        from scopecat.measurements.recording_arrow import (
+            MeasurementArrowCodecError,
+            decode_measurement_append,
+        )
+
+        self.fence_executor(run_id, lease_id)
         try:
-            self._active_measurements.ingest(command.batch)
+            dataset_schema = self._measurement_repository(run_id).measurement_schema()
+            if dataset_schema is None:
+                raise ActiveMeasurementConflict(
+                    "measurement ingest requires a registered dataset schema"
+                )
+            append = decode_measurement_append(content, dataset_schema)
+            if append.run_id != run_id:
+                raise ActiveMeasurementConflict(
+                    "measurement ingest run id does not match its route"
+                )
+            self._active_measurements.ingest(append)
             receipts = self._flush_measurements(
                 run_id,
-                token=command.lease_id,
+                token=lease_id,
                 force=False,
             )
             preview = self._active_measurements.preview(run_id)
-        except ActiveMeasurementConflict as error:
+        except (ActiveMeasurementConflict, MeasurementArrowCodecError) as error:
             raise BackendConflict(str(error)) from error
         return MeasurementIngestReceipt(
             run_id=run_id,

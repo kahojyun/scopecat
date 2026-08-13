@@ -1965,7 +1965,7 @@ export interface components {
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Values */
             values?: {
-                [key: string]: components["schemas"]["MeasurementValue-Output"];
+                [key: string]: components["schemas"]["MeasurementValue"];
             };
         };
         /**
@@ -2289,7 +2289,7 @@ export interface components {
          * MeasurementArray
          * @description One typed array backed by an immutable, read-only NumPy buffer.
          */
-        "MeasurementArray-Output": {
+        MeasurementArray: {
             /** @default float64 */
             dtype: components["schemas"]["MeasurementDType"];
             /**
@@ -2302,10 +2302,10 @@ export interface components {
             shape: number[];
             /** Unit */
             unit?: string | null;
-            values: components["schemas"]["MeasurementArrayJson-Output"];
+            values: components["schemas"]["MeasurementArrayJson"];
         };
-        "MeasurementArrayJson-Output": components["schemas"]["MeasurementArrayJsonItem-Output"][];
-        "MeasurementArrayJsonItem-Output": components["schemas"]["MeasurementArrayJsonLeaf"] | components["schemas"]["MeasurementArrayJsonItem-Output"][];
+        MeasurementArrayJson: components["schemas"]["MeasurementArrayJsonItem"][];
+        MeasurementArrayJsonItem: components["schemas"]["MeasurementArrayJsonLeaf"] | components["schemas"]["MeasurementArrayJsonItem"][];
         MeasurementArrayJsonLeaf: boolean | number | string | components["schemas"]["MeasurementComplexJson"];
         MeasurementComplexJson: {
             imag: number;
@@ -2319,7 +2319,7 @@ export interface components {
             dataset_schema: components["schemas"]["MeasurementDatasetSchema-Output"];
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
             /** Records */
-            records: components["schemas"]["MeasurementRecord-Output"][];
+            records: components["schemas"]["MeasurementRecord"][];
         };
         /**
          * MeasurementDatasetSchema
@@ -2369,28 +2369,6 @@ export interface components {
         };
         /** @enum {string} */
         MeasurementDType: "float64" | "int64" | "complex128" | "bool" | "string";
-        /**
-         * MeasurementLivePreview
-         * @description Latest daemon-received measurement, whether or not it is durable yet.
-         */
-        MeasurementLivePreview: {
-            /**
-             * Active
-             * @default false
-             */
-            active: boolean;
-            /**
-             * Durable Record Count
-             * @default 0
-             */
-            durable_record_count: number;
-            latest?: components["schemas"]["MeasurementRecord-Output"] | null;
-            /**
-             * Received Record Count
-             * @default 0
-             */
-            received_record_count: number;
-        };
         "MeasurementMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
         };
@@ -2477,7 +2455,7 @@ export interface components {
              * Items
              * @default []
              */
-            items: components["schemas"]["MeasurementRecord-Output"][];
+            items: components["schemas"]["MeasurementRecord"][];
             /**
              * Truncated
              * @default false
@@ -2501,13 +2479,13 @@ export interface components {
          * MeasurementRecord
          * @description One durable point row with immutable values, evidence, and metadata.
          */
-        "MeasurementRecord-Output": {
+        MeasurementRecord: {
             acquisition_evidence?: components["schemas"]["InstrumentAcquisitionEvidenceMap"];
-            coordinates: components["schemas"]["MeasurementValueMap-Output"];
+            coordinates: components["schemas"]["MeasurementValueMap"];
             /** Logical Point Id */
             logical_point_id?: string | null;
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
-            observables: components["schemas"]["MeasurementValueMap-Output"];
+            observables: components["schemas"]["MeasurementValueMap"];
             /** Point Index */
             point_index: number;
             /** Run Id */
@@ -2566,7 +2544,7 @@ export interface components {
              * Items
              * @default []
              */
-            items: components["schemas"]["MeasurementRecord-Output"][];
+            items: components["schemas"]["MeasurementRecord"][];
             /** Selected Point Count */
             selected_point_count: number;
             /**
@@ -2708,7 +2686,7 @@ export interface components {
          *     ``None`` preserves an unknown extent for a ragged product axis when no
          *     available value exists from which to learn that point-local size.
          */
-        "MeasurementUnavailable-Output": {
+        MeasurementUnavailable: {
             dtype: components["schemas"]["MeasurementDType"];
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -2726,9 +2704,9 @@ export interface components {
             /** Unit */
             unit: string | null;
         };
-        "MeasurementValue-Output": components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray-Output"] | components["schemas"]["MeasurementUnavailable-Output"];
-        "MeasurementValueMap-Output": {
-            [key: string]: components["schemas"]["MeasurementValue-Output"];
+        MeasurementValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementUnavailable"];
+        MeasurementValueMap: {
+            [key: string]: components["schemas"]["MeasurementValue"];
         };
         /**
          * MeasurementVariable
@@ -4672,7 +4650,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MeasurementLivePreview"];
+                    "application/vnd.apache.arrow.file": string;
                 };
             };
             /** @description Validation Error */

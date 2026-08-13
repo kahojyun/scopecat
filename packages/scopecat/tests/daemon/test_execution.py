@@ -21,7 +21,6 @@ from scopecat.daemon.wire import (
     MeasurementFlushCommand,
     MeasurementFlushReceipt,
     MeasurementHeaderCommand,
-    MeasurementIngestCommand,
     MeasurementIngestReceipt,
     MeasurementSealCommand,
     RunAdmission,
@@ -37,6 +36,7 @@ from scopecat.daemon.wire import (
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import StateValue
+from scopecat.measurements.recording_arrow import decode_measurement_append
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import (
     ExecutionTransition,
@@ -49,6 +49,7 @@ from scopecat.records.measurement import (
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
+    MeasurementVariable,
 )
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
@@ -167,10 +168,16 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
             transition_commands.append(command)
             return _model(committed_transition)
         if path.endswith("/measurements/ingest"):
-            command = MeasurementIngestCommand.model_validate_json(request.content)
-            _remember_fence(fences, "run-1", command)
+            assert request.headers["content-type"] == (
+                "application/vnd.apache.arrow.file"
+            )
+            fences.append(("run-1", request.headers["x-scopecat-lease-id"]))
+            decoded = decode_measurement_append(
+                request.content,
+                header.dataset_schema,
+            )
             measurement_ingest_ranges.append(
-                (command.batch.start_index, len(command.batch.records))
+                (decoded.start_index, len(decoded.records))
             )
             return _model(
                 MeasurementIngestReceipt(
@@ -498,6 +505,15 @@ def _measurement_header() -> MeasurementDatasetHeader:
             dataset_id="raw-measurements",
             point_domain=MeasurementProductGridPointDomain(axes=[]),
             dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
+            variables=[
+                MeasurementVariable(
+                    id="signal",
+                    role="observable",
+                    dtype="float64",
+                    unit="ratio",
+                    dims=["point"],
+                )
+            ],
         ),
         expected_record_count=1,
     )
@@ -543,7 +559,7 @@ def _measurement_seal(
         point_count=1,
         dataset_content_hash=measurement_dataset_content_hash(
             header_content_hash=header.content_hash,
-            append_content_hashes=(append.content_hash,),
+            record_content_hashes=append.record_content_hashes,
         ),
     )
 

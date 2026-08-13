@@ -79,6 +79,7 @@ from scopecat.records.measurement import (
     MeasurementProductGridPointDomain,
     MeasurementRecord,
 )
+from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.runs.access import list_records
 from scopecat.runs.attachments import attach_run_artifact
 from scopecat.runs.data import (
@@ -679,6 +680,36 @@ class RunService:
         return self._active_measurements.preview(
             run_id,
             after_record_count=after_record_count,
+        )
+
+    def measurement_live_arrow(
+        self,
+        run_id: str,
+        *,
+        after_record_count: int | None,
+    ) -> tuple[MeasurementLivePreview, bytes]:
+        """Encode only a newly received latest record as Arrow IPC."""
+
+        from scopecat.measurements.recording_arrow import encode_measurement_append
+
+        with self._config_errors():
+            self._runs.read_manifest(run_id)
+        preview, header = self._active_measurements.snapshot(
+            run_id,
+            after_record_count=after_record_count,
+        )
+        latest = preview.latest
+        if latest is None or header is None:
+            return preview, b""
+        append = MeasurementDatasetAppend(
+            run_id=run_id,
+            header_content_hash=header.content_hash,
+            start_index=latest.point_index,
+            records=(latest,),
+        )
+        return preview, encode_measurement_append(
+            append,
+            header.dataset_schema,
         )
 
     def measurement_slice(

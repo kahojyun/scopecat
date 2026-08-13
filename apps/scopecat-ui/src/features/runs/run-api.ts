@@ -11,6 +11,7 @@ import type {
   RunSummaryPage,
 } from "../../api-contract";
 import { ApiError, apiClient, apiData } from "../../api-client";
+import { decodeMeasurementArrowRecord } from "./measurement-arrow";
 import type {
   ContentEntry,
   MeasurementPreview,
@@ -100,21 +101,48 @@ export async function getMeasurementLivePreview(
   signal?: AbortSignal,
   afterRecordCount?: number,
 ): Promise<MeasurementLivePreview> {
-  const response = await apiData(
-    apiClient.GET("/api/v1/runs/{run_id}/measurements/live", {
-      params: {
-        path: { run_id: runId },
-        query: { after_record_count: afterRecordCount },
-      },
-      signal,
-    }),
+  const url = new URL(
+    `/api/v1/runs/${encodeURIComponent(runId)}/measurements/live`,
+    globalThis.location?.origin ?? "http://localhost",
   );
+  if (afterRecordCount !== undefined) {
+    url.searchParams.set("after_record_count", String(afterRecordCount));
+  }
+  let response: Response;
+  try {
+    response = await globalThis.fetch(url, {
+      headers: { Accept: "application/vnd.apache.arrow.file" },
+      signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    throw new ApiError("The local daemon did not respond.");
+  }
+  if (!response.ok) {
+    throw new ApiError(
+      `The daemon returned ${response.status} ${response.statusText}.`,
+      response.status,
+    );
+  }
+  const receivedRecordCount = requiredCountHeader(response, "X-Scopecat-Received-Record-Count");
+  const durableRecordCount = requiredCountHeader(response, "X-Scopecat-Durable-Record-Count");
+  const active = response.headers.get("X-Scopecat-Measurement-Active") === "true";
+  const content = await response.arrayBuffer();
   return {
-    active: response.active,
-    latest: response.latest ?? undefined,
-    receivedRecordCount: response.received_record_count,
-    durableRecordCount: response.durable_record_count,
+    active,
+    latest: content.byteLength === 0 ? undefined : decodeMeasurementArrowRecord(content),
+    receivedRecordCount,
+    durableRecordCount,
   };
+}
+
+function requiredCountHeader(response: Response, name: string): number {
+  const encoded = response.headers.get(name);
+  const value = encoded === null ? Number.NaN : Number(encoded);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new ApiError(`The daemon returned an invalid ${name} header.`);
+  }
+  return value;
 }
 
 export async function getMeasurementSlice(

@@ -50,7 +50,6 @@ from scopecat.records.config import (
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import (
-    MeasurementDatasetBatch,
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
@@ -599,10 +598,6 @@ class MeasurementHeaderCommand(_FencedCommand):
     header: MeasurementDatasetHeader
 
 
-class MeasurementIngestCommand(_FencedCommand):
-    batch: MeasurementDatasetBatch
-
-
 class MeasurementIngestReceipt(_WireModel):
     """Acknowledge records received by the daemon and any completed flushes."""
 
@@ -873,7 +868,6 @@ __all__ = [
     "MeasurementFlushCommand",
     "MeasurementFlushReceipt",
     "MeasurementHeaderCommand",
-    "MeasurementIngestCommand",
     "MeasurementIngestReceipt",
     "MeasurementSealCommand",
     "PayloadObjectReceipt",

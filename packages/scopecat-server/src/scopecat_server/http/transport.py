@@ -31,7 +31,6 @@ from scopecat.daemon.views import (
     InstrumentListView,
     InstrumentView,
     MeasurementArrowQuery,
-    MeasurementLivePreview,
     MeasurementPreview,
     MeasurementSlice,
     MeasurementSliceQuery,
@@ -75,7 +74,6 @@ from scopecat.daemon.wire import (
     MeasurementFlushCommand,
     MeasurementFlushReceipt,
     MeasurementHeaderCommand,
-    MeasurementIngestCommand,
     MeasurementIngestReceipt,
     MeasurementSealCommand,
     PayloadObjectReceipt,
@@ -135,6 +133,10 @@ from ..services.application import DaemonApplication
 
 _API_PREFIX = "/api/v1"
 _ARROW_STREAM_MEDIA_TYPE = "application/vnd.apache.arrow.stream"
+_ARROW_FILE_MEDIA_TYPE = "application/vnd.apache.arrow.file"
+_MEASUREMENT_ACTIVE_HEADER = "X-Scopecat-Measurement-Active"
+_MEASUREMENT_DURABLE_COUNT_HEADER = "X-Scopecat-Durable-Record-Count"
+_MEASUREMENT_RECEIVED_COUNT_HEADER = "X-Scopecat-Received-Record-Count"
 _NEXT_OFFSET_HEADER = "X-Scopecat-Next-Offset"
 _SNAPSHOT_SIZE_HEADER = "X-Scopecat-Snapshot-Size"
 _SSE_PAGE_SIZE = 100
@@ -556,14 +558,35 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> MeasurementPreview:
         return application.runs.measurement_preview(run_id, limit=limit)
 
-    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/measurements/live")
+    @app.get(
+        f"{_API_PREFIX}/runs/{{run_id}}/measurements/live",
+        response_class=Response,
+        responses={
+            200: {
+                "content": {
+                    _ARROW_FILE_MEDIA_TYPE: {
+                        "schema": {"type": "string", "format": "binary"}
+                    }
+                }
+            }
+        },
+    )
     def measurement_live_preview(
         run_id: str,
         after_record_count: Annotated[int | None, Query(ge=0)] = None,
-    ) -> MeasurementLivePreview:
-        return application.runs.measurement_live_preview(
+    ) -> Response:
+        preview, content = application.runs.measurement_live_arrow(
             run_id,
             after_record_count=after_record_count,
+        )
+        return Response(
+            content=content,
+            media_type=_ARROW_FILE_MEDIA_TYPE,
+            headers={
+                _MEASUREMENT_ACTIVE_HEADER: str(preview.active).lower(),
+                _MEASUREMENT_RECEIVED_COUNT_HEADER: str(preview.received_record_count),
+                _MEASUREMENT_DURABLE_COUNT_HEADER: str(preview.durable_record_count),
+            },
         )
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/query")
@@ -693,12 +716,19 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         return application.executor.initialize_measurements(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/ingest")
-    def ingest_measurements(
+    async def ingest_measurements(
         run_id: str,
-        command: MeasurementIngestCommand,
+        request: Request,
+        lease_id: Annotated[
+            str,
+            Header(alias="X-Scopecat-Lease-ID", min_length=1),
+        ],
     ) -> MeasurementIngestReceipt:
-        _require_run_id(run_id, command.batch.run_id)
-        return application.executor.ingest_measurements(run_id, command)
+        return application.executor.ingest_measurements(
+            run_id,
+            lease_id=lease_id,
+            content=await request.body(),
+        )
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/flush")
     def flush_measurements(

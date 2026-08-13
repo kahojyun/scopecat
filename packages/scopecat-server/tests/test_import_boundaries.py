@@ -47,7 +47,6 @@ forbidden = {
     "scopecat.measurements.dataset",
     "scopecat.measurements.results",
     "scopecat.sdk.domain",
-    "scopecat_server.storage.sqlite.measurement_arrow",
     "xarray",
 }
 loaded = forbidden.intersection(sys.modules)

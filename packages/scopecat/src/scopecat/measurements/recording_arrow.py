@@ -1,6 +1,6 @@
 # pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false
 # pyright: reportUnknownParameterType=false, reportUnknownVariableType=false
-"""Schema-driven Arrow IPC codec for immutable measurement append chunks."""
+"""Shared schema-driven Arrow IPC codec for measurement recording batches."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from typing import cast
 
 import numpy as np
 import pyarrow as pa
+
 from scopecat.kernel.content_identity import model_wire_content_hash
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.measurements.arrow_values import (
@@ -34,7 +35,7 @@ from scopecat.records.measurement import (
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.metadata import JsonMetadata, validate_json_metadata
 
-MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v3"
+MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v4"
 
 _FORMAT_KEY = b"scopecat.format"
 _RUN_ID_KEY = b"scopecat.run_id"
@@ -44,6 +45,10 @@ _START_INDEX_KEY = b"scopecat.start_index"
 _OPERATION_ID_KEY = b"scopecat.operation_id"
 _CONTENT_HASH_KEY = b"scopecat.content_hash"
 _RECORD_COUNT_KEY = b"scopecat.record_count"
+_VARIABLE_ROLE_KEY = b"scopecat.variable_role"
+_VARIABLE_DTYPE_KEY = b"scopecat.variable_dtype"
+_VARIABLE_KIND_KEY = b"scopecat.variable_kind"
+_VARIABLE_UNIT_KEY = b"scopecat.variable_unit"
 
 _LOGICAL_POINT_ID_COLUMN = "__scopecat.logical_point_id"
 _POINT_INDEX_COLUMN = "__scopecat.point_index"
@@ -257,6 +262,7 @@ def _record_schema(dataset_schema: MeasurementDatasetSchema) -> pa.Schema:
                         ),
                         item_nullable=False,
                     ),
+                    metadata=_variable_field_metadata(variable),
                 ),
                 pa.field(_reason_column(variable.id), pa.string()),
                 pa.field(_shape_column(variable.id), _SHAPE_TYPE),
@@ -269,6 +275,19 @@ def _record_schema(dataset_schema: MeasurementDatasetSchema) -> pa.Schema:
             ]
         )
     return pa.schema(fields)
+
+
+def _variable_field_metadata(
+    variable: MeasurementVariable,
+) -> Mapping[bytes, bytes]:
+    metadata = {
+        _VARIABLE_ROLE_KEY: variable.role.encode(),
+        _VARIABLE_DTYPE_KEY: variable.dtype.encode(),
+        _VARIABLE_KIND_KEY: (b"scalar" if len(variable.dims) == 1 else b"array"),
+    }
+    if variable.unit is not None:
+        metadata[_VARIABLE_UNIT_KEY] = variable.unit.encode()
+    return metadata
 
 
 def _variable_shape(

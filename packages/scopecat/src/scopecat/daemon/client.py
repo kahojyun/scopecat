@@ -67,7 +67,6 @@ from scopecat.daemon.wire import (
     MeasurementFlushCommand,
     MeasurementFlushReceipt,
     MeasurementHeaderCommand,
-    MeasurementIngestCommand,
     MeasurementIngestReceipt,
     MeasurementSealCommand,
     PayloadObjectReceipt,
@@ -84,6 +83,7 @@ from scopecat.daemon.wire import (
     TerminalRunCommitCommand,
 )
 from scopecat.kernel.content_identity import sha256_content_hash
+from scopecat.measurements.recording_arrow import encode_measurement_append
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.artifact import (
     BlobPayloadBody,
@@ -94,7 +94,12 @@ from scopecat.records.artifact import (
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.records.measurement_recording import MeasurementDatasetReceipt
+from scopecat.records.measurement import MeasurementDatasetSchema
+from scopecat.records.measurement_recording import (
+    MeasurementDatasetAppend,
+    MeasurementDatasetBatch,
+    MeasurementDatasetReceipt,
+)
 from scopecat.records.run import RunManifest
 from scopecat.runs.data import (
     RunArtifactJsonResult,
@@ -800,13 +805,27 @@ class DaemonClient:
     def ingest_measurements(
         self,
         run_id: str,
-        command: MeasurementIngestCommand,
+        *,
+        lease_id: str,
+        batch: MeasurementDatasetBatch,
+        dataset_schema: MeasurementDatasetSchema,
     ) -> MeasurementIngestReceipt:
-        return self._post_model(
-            f"{_API_PREFIX}/runs/{run_id}/measurements/ingest",
-            command,
-            MeasurementIngestReceipt,
+        append = MeasurementDatasetAppend(
+            run_id=batch.run_id,
+            header_content_hash=batch.header_content_hash,
+            start_index=batch.start_index,
+            records=batch.records,
         )
+        response = self._request(
+            "POST",
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/measurements/ingest",
+            content=encode_measurement_append(append, dataset_schema),
+            headers={
+                "Content-Type": "application/vnd.apache.arrow.file",
+                "X-Scopecat-Lease-ID": lease_id,
+            },
+        )
+        return MeasurementIngestReceipt.model_validate_json(response.content)
 
     def flush_measurements(
         self,
