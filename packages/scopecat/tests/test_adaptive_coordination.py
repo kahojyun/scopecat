@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import cast
+
 import pytest
 
 from scopecat.adaptive_coordination import (
@@ -15,6 +18,7 @@ from scopecat.adaptive_domains import (
 )
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
+from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Float, Scalar, TableColumn
 from scopecat.measurements.points import RunPointCatalog, RunPointContract
 from scopecat.optimization import (
@@ -38,7 +42,7 @@ class _Optimizer:
 
 def _point(
     ordinal: int,
-    coordinates: dict[str, float],
+    coordinates: Mapping[str, CellValue],
     *,
     candidate: PointProposalAttempt | None = None,
 ) -> AcceptedRunPoint:
@@ -136,7 +140,9 @@ def test_one_fragment_can_extend_one_or_all_outer_regions() -> None:
         DomainProposalAttempt(fragment, region_ids=(first.id, second.id)),
     )
 
-    assert {point.coordinates["temperature"] for point in first_points} == {10.0}
+    assert {
+        cast("float", point.coordinates["temperature"]) for point in first_points
+    } == {10.0}
     assert tuple(point.coordinates["temperature"] for point in all_points) == (
         10.0,
         10.0,

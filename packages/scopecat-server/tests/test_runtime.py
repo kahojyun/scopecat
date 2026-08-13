@@ -40,6 +40,7 @@ from scopecat.daemon.points import (
     RunDomainFragmentInput,
     RunDomainProposalAttemptView,
     RunDomainResolveCommand,
+    RunPointCoordinateValue,
     RunPointPlanCloseCommand,
 )
 from scopecat.daemon.views import (
@@ -2552,7 +2553,7 @@ def test_adaptive_domain_ledger_survives_runtime_restart(tmp_path: Path) -> None
                 accepted_points=(
                     AcceptedRunPointView(
                         point_index=1,
-                        coordinates=row,
+                        coordinates=cast("dict[str, RunPointCoordinateValue]", row),
                         proposal_fingerprint=candidate.proposal_fingerprint,
                         source="operator",
                         region_id="region-0",

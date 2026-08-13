@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier
-from typing import Literal
+from typing import Literal, cast
 
 import pytest
 from scopecat.adaptive_domains import DomainProposalAttempt, ResolvedDomainFragment
@@ -18,6 +18,7 @@ from scopecat.daemon.points import (
     RunDomainEnqueueCommand,
     RunDomainFragmentInput,
     RunDomainProposalAttemptView,
+    RunPointCoordinateValue,
     RunPointPlanCloseCommand,
 )
 from scopecat.kernel.points import PointProposalAttempt
@@ -213,7 +214,7 @@ def _domain_decision_command(
     accepted_points = tuple(
         AcceptedRunPointView(
             point_index=point_start + index,
-            coordinates=row,
+            coordinates=cast("dict[str, RunPointCoordinateValue]", row),
             proposal_fingerprint=PointProposalAttempt(
                 row,
                 source="optimizer",
@@ -322,7 +323,7 @@ def test_operator_domain_queue_is_fifo_bounded_and_resolved_by_decisions(
                 accepted_points=(
                     AcceptedRunPointView(
                         point_index=1,
-                        coordinates=row,
+                        coordinates=cast("dict[str, RunPointCoordinateValue]", row),
                         proposal_fingerprint=normalized.proposal_fingerprint,
                         source="operator",
                         region_id="region-0",
