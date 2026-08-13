@@ -5,15 +5,19 @@ from collections import deque
 import numpy as np
 import pytest
 
+from scopecat.execution.optimizer_observations import (
+    project_completed_point_observation,
+)
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
-from scopecat.measurements.points import AcceptedRunPoint, PointProposalAttempt
+from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.optimization import (
     AdaptivePointPlan,
     CompletedPointObservation,
     OptimizationComplete,
+    OptimizerScalarObservation,
+    OptimizerUnavailableObservation,
     PointOptimizerContext,
     PointProposalLedger,
-    project_completed_point_observation,
 )
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -123,11 +127,9 @@ def test_optimizer_observation_projection_retains_only_metadata_free_scalars() -
     assert set(measurement.observables) == {"score", "missing"}
     score = measurement.observables["score"]
     missing = measurement.observables["missing"]
-    assert isinstance(score, MeasurementScalar)
-    assert isinstance(missing, MeasurementUnavailable)
+    assert isinstance(score, OptimizerScalarObservation)
+    assert isinstance(missing, OptimizerUnavailableObservation)
     assert score.value == 0.25
-    assert score.metadata == {}
-    assert missing.metadata == {}
 
 
 def test_optimizer_context_retains_bounded_suffixes_with_exact_totals() -> None:

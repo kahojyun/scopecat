@@ -16,15 +16,12 @@ if TYPE_CHECKING:
         LocalOperation,
     )
     from scopecat.kernel.graph_identity import ValueId
+    from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
     from scopecat.kernel.resource_identity import (
         DomainTargetRequirement,
         ResourceRequirement,
     )
-    from scopecat.measurements.points import (
-        AcceptedRunPoint,
-        PointProposalAttempt,
-        RunPointCatalog,
-    )
+    from scopecat.measurements.points import RunPointCatalog
     from scopecat.measurements.projection import MeasurementProjection
     from scopecat.optimization import AdaptivePointPlan
     from scopecat.records.config import ConfigContentHash

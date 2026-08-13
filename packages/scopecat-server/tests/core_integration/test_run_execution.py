@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from scopecat.execution.program import RunPointInspection
 from scopecat.execution.services import QueuedOperatorPointRequest
+from scopecat.kernel.points import OperatorPointRequest, PointProposalAttempt
 from scopecat.kernel.quantity import Quantity
-from scopecat.measurements.points import OperatorPointRequest, PointProposalAttempt
 from scopecat.optimization import (
     OptimizationComplete,
     PointOptimizerContext,

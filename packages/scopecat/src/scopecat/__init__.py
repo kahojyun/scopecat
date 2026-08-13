@@ -113,13 +113,15 @@ if TYPE_CHECKING:
         EntityRef,
         entity_ref,
     )
+    from scopecat.kernel.points import PointProposalAttempt
     from scopecat.kernel.quantity import Quantity
-    from scopecat.measurements.points import PointProposalAttempt
     from scopecat.optimization import (
         AdaptivePointPlan,
         CompletedPointObservation,
         OptimizationComplete,
         OptimizerMeasurementObservation,
+        OptimizerScalarObservation,
+        OptimizerUnavailableObservation,
         PointOptimizer,
         PointOptimizerContext,
         PointProposalDecision,
@@ -250,7 +252,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "Quantity": ("scopecat.kernel.quantity", "Quantity"),
     "PointProposalAttempt": (
-        "scopecat.measurements.points",
+        "scopecat.kernel.points",
         "PointProposalAttempt",
     ),
     "AdaptivePointPlan": ("scopecat.optimization", "AdaptivePointPlan"),
@@ -262,6 +264,14 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "OptimizerMeasurementObservation": (
         "scopecat.optimization",
         "OptimizerMeasurementObservation",
+    ),
+    "OptimizerScalarObservation": (
+        "scopecat.optimization",
+        "OptimizerScalarObservation",
+    ),
+    "OptimizerUnavailableObservation": (
+        "scopecat.optimization",
+        "OptimizerUnavailableObservation",
     ),
     "PointOptimizer": ("scopecat.optimization", "PointOptimizer"),
     "PointOptimizerContext": (

@@ -8,7 +8,7 @@ from typing import Literal
 from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.execution.local.program import ComputeOperation, OutputInput
 from scopecat.execution.program import RunPointInspection, RunProgram
-from scopecat.measurements.points import PointProposalAttempt
+from scopecat.kernel.points import PointProposalAttempt
 from scopecat.measurements.records import RecordPlan, ValueRecordPlan
 from scopecat.planning.point_selection import (
     point_coordinate_contract,

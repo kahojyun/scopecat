@@ -2,20 +2,50 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal, Protocol
 
-from scopecat.measurements.points import AcceptedRunPoint, PointProposalAttempt
-from scopecat.records.measurement import (
-    MeasurementRecord,
-    MeasurementScalar,
-    MeasurementUnavailable,
-)
+from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
 
 OPTIMIZER_OBSERVATION_WINDOW = 256
 OPTIMIZER_DECISION_WINDOW = 1024
+
+
+type OptimizerMeasurementDType = Literal[
+    "float64",
+    "int64",
+    "complex128",
+    "bool",
+    "string",
+]
+type OptimizerScalarData = bool | int | float | complex | str
+type OptimizerUnavailableReason = Literal["missing", "invalid", "overload"]
+
+
+@dataclass(frozen=True, slots=True)
+class OptimizerScalarObservation:
+    """One metadata-free scalar observable available to an optimizer."""
+
+    dtype: OptimizerMeasurementDType
+    unit: str | None
+    value: OptimizerScalarData
+
+
+@dataclass(frozen=True, slots=True)
+class OptimizerUnavailableObservation:
+    """One metadata-free unavailable observable available to an optimizer."""
+
+    reason: OptimizerUnavailableReason
+    dtype: OptimizerMeasurementDType
+    unit: str | None
+    shape: tuple[int | None, ...]
+
+
+type OptimizerObservationValue = (
+    OptimizerScalarObservation | OptimizerUnavailableObservation
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,7 +54,7 @@ class OptimizerMeasurementObservation:
 
     run_id: str
     logical_point_id: str | None
-    observables: Mapping[str, MeasurementScalar | MeasurementUnavailable]
+    observables: Mapping[str, OptimizerObservationValue]
     omitted_array_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -41,50 +71,6 @@ class CompletedPointObservation:
 
     point: AcceptedRunPoint
     measurements: tuple[OptimizerMeasurementObservation, ...] = ()
-
-
-def project_completed_point_observation(
-    point: AcceptedRunPoint,
-    records: Sequence[MeasurementRecord],
-) -> CompletedPointObservation:
-    """Drop arrays, evidence, and metadata before retaining optimizer context."""
-
-    return CompletedPointObservation(
-        point=point,
-        measurements=tuple(
-            _project_optimizer_measurement(record) for record in records
-        ),
-    )
-
-
-def _project_optimizer_measurement(
-    record: MeasurementRecord,
-) -> OptimizerMeasurementObservation:
-    observables: dict[str, MeasurementScalar | MeasurementUnavailable] = {}
-    omitted_array_ids: list[str] = []
-    for observable_id, value in record.observables.items():
-        if isinstance(value, MeasurementScalar):
-            observables[observable_id] = MeasurementScalar.create(
-                value=value.value,
-                dtype=value.dtype,
-                unit=value.unit,
-            )
-        elif isinstance(value, MeasurementUnavailable):
-            observables[observable_id] = MeasurementUnavailable.create(
-                reason=value.reason,
-                dtype=value.dtype,
-                unit=value.unit,
-                shape=value.shape,
-                metadata={},
-            )
-        else:
-            omitted_array_ids.append(observable_id)
-    return OptimizerMeasurementObservation(
-        run_id=record.run_id,
-        logical_point_id=record.logical_point_id,
-        observables=observables,
-        omitted_array_ids=tuple(omitted_array_ids),
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -381,10 +367,12 @@ __all__ = [
     "CompletedPointObservation",
     "OptimizationComplete",
     "OptimizerMeasurementObservation",
+    "OptimizerObservationValue",
+    "OptimizerScalarObservation",
+    "OptimizerUnavailableObservation",
     "PointOptimizer",
     "PointOptimizerContext",
     "PointProposalDecision",
     "PointProposalLedger",
     "PointProposalOutcome",
-    "project_completed_point_observation",
 ]

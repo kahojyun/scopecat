@@ -6,8 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from scopecat.execution.program import RunDomainJob
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import Problem
-from scopecat.measurements.points import AcceptedRunPoint
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.optimization import PointProposalLedger

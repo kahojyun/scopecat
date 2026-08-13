@@ -13,6 +13,7 @@ from scopecat_testkit.measurement_assembly import (
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.graph_identity import ValueId
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
@@ -25,7 +26,6 @@ from scopecat.kernel.value_types import (
 from scopecat.kernel.value_types import (
     Quantity as QuantityType,
 )
-from scopecat.measurements.points import AcceptedRunPoint
 from scopecat.measurements.products import ProductAxisDef
 from scopecat.measurements.projection import (
     MeasurementProjection,

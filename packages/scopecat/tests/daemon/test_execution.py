@@ -46,10 +46,10 @@ from scopecat.daemon.wire import (
     TerminalRunCommitCommand,
 )
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
+from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import StateValue
-from scopecat.measurements.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.measurements.recording_arrow import decode_measurement_append
 from scopecat.optimization import PointProposalDecision
 from scopecat.records.config import config_content_hash

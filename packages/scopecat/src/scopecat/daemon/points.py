@@ -8,12 +8,12 @@ from typing import Literal, cast
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.control.models import PointCoordinateValue
-from scopecat.kernel.value_data import CellValue
-from scopecat.measurements.points import (
+from scopecat.kernel.points import (
     OperatorPointRequest,
     PointProposalAttempt,
     PointProposalSource,
 )
+from scopecat.kernel.value_data import CellValue
 
 type RunPointCoordinateValue = PointCoordinateValue
 

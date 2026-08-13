@@ -84,10 +84,10 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.measurements.points import PointProposalAttempt
 from scopecat.measurements.recording_arrow import (
     decode_measurement_append,
     encode_measurement_append,

@@ -46,13 +46,13 @@ from scopecat.daemon.wire import (
 from scopecat.execution.program import RunPointInspection
 from scopecat.execution.services import ExecutionSession, QueuedOperatorPointRequest
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
-from scopecat.kernel.problems import Problem
-from scopecat.kernel.value_data import CellValue
-from scopecat.measurements.points import (
+from scopecat.kernel.points import (
     AcceptedRunPoint,
     OperatorPointRequest,
     PointProposalAttempt,
 )
+from scopecat.kernel.problems import Problem
+from scopecat.kernel.value_data import CellValue
 from scopecat.optimization import PointProposalDecision
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition

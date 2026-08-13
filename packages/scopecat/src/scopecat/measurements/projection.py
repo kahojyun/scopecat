@@ -10,10 +10,10 @@ from scopecat.kernel.content_identity import content_fingerprint, stable_content
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.point_identity import LogicalPointId
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.value_data import CellValue
-from scopecat.measurements.points import AcceptedRunPoint
 from scopecat.measurements.products import ProductDef
 from scopecat.measurements.records import (
     BoundRecordUse,

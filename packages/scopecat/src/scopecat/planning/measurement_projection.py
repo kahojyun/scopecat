@@ -10,13 +10,9 @@ from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import evaluate_scalar
 from scopecat.compiler.value_resolution import BoundValueResolver
 from scopecat.kernel.graph_identity import ValueId
+from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.kernel.value_types import Scalar
-from scopecat.measurements.points import (
-    AcceptedRunPoint,
-    PointProposalAttempt,
-    RunPointCatalog,
-    RunPointContract,
-)
+from scopecat.measurements.points import RunPointCatalog, RunPointContract
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import MeasurementValueCatalog
 from scopecat.planning.point_materialization import MaterializedBoundPoints

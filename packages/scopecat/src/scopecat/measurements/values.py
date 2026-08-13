@@ -9,6 +9,7 @@ from types import MappingProxyType
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.point_identity import LogicalPointId
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
@@ -17,7 +18,7 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity
-from scopecat.measurements.points import AcceptedRunPoint, RunPointContract
+from scopecat.measurements.points import RunPointContract
 from scopecat.measurements.products import ProductDef
 from scopecat.measurements.records import measurement_axis_scalar
 from scopecat.program.point_domain import (

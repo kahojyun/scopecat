@@ -39,7 +39,11 @@ def drag_beta_experiment(experiment: sc.ExperimentContext) -> DragBetaDataset:
         span=DRAG_BETA_SPAN,
         points=DRAG_BETA_POINTS,
     )
-    amplification = experiment.scan("amplification", DEFAULT_AMPLIFICATIONS)
+    amplification = experiment.scan(
+        "amplification",
+        DEFAULT_AMPLIFICATIONS,
+        value_type=sc.IntType(minimum=1),
+    )
     probabilities = experiment.use(
         quantum_capture(
             drag_beta_program(

@@ -8,7 +8,7 @@ from typing import Protocol
 
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.execution.program import RunPointInspection
-from scopecat.measurements.points import OperatorPointRequest
+from scopecat.kernel.points import OperatorPointRequest
 from scopecat.optimization import PointProposalDecision
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import TerminalRunCommit

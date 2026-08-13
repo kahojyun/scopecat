@@ -5,12 +5,12 @@ from typing import cast
 import pytest
 
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
-from scopecat.kernel.quantity import Quantity
-from scopecat.measurements.points import (
+from scopecat.kernel.points import (
     AcceptedRunPoint,
     OperatorPointRequest,
     PointProposalAttempt,
 )
+from scopecat.kernel.quantity import Quantity
 
 
 def _logical_id(ordinal: int) -> LogicalPointId:

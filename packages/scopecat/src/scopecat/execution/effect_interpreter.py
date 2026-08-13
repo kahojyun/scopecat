@@ -23,8 +23,8 @@ from scopecat.execution.program import (
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import ProblemPhase
-from scopecat.measurements.points import AcceptedRunPoint
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.execution import RunInstrumentHost

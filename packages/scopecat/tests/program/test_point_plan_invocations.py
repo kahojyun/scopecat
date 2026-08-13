@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Int, Scalar
-from scopecat.measurements.points import PointProposalAttempt
 from scopecat.optimization import OptimizationComplete, PointOptimizerContext
 from scopecat.program.definitions import (
     ExperimentDef,

@@ -17,13 +17,13 @@ from scopecat.daemon.points import (
     RunPointPlanCloseCommand,
     RunPointProposalAttemptView,
 )
+from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.problems import (
     ProblemPhase,
     problem,
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements import recording_arrow
-from scopecat.measurements.points import PointProposalAttempt
 from scopecat.records.execution_journal import (
     ExecutionTransition,
     execution_transition_content_hash,

@@ -13,15 +13,17 @@ from typing import cast
 import numpy as np
 import psutil
 
+from scopecat.execution.optimizer_observations import (
+    project_completed_point_observation,
+)
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
-from scopecat.measurements.points import AcceptedRunPoint, PointProposalAttempt
+from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.optimization import (
     OPTIMIZER_DECISION_WINDOW,
     OPTIMIZER_OBSERVATION_WINDOW,
     CompletedPointObservation,
     PointOptimizerContext,
     PointProposalLedger,
-    project_completed_point_observation,
 )
 from scopecat.records.measurement import (
     MeasurementArray,

@@ -31,6 +31,7 @@ from scopecat.execution.program import (
     RunProgram,
 )
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
+from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
@@ -43,7 +44,6 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_identity import scalar_values_equal
-from scopecat.measurements.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.measurements.projection import select_measurement_projection
 from scopecat.optimization import AdaptivePointPlan
 from scopecat.planning.catalog import InstrumentContractCatalog

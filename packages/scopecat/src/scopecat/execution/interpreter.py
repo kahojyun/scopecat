@@ -28,6 +28,9 @@ from scopecat.execution.measurement_recording import (
     initialize_measurement_dataset,
     seal_measurement_dataset,
 )
+from scopecat.execution.optimizer_observations import (
+    project_completed_point_observation,
+)
 from scopecat.execution.persistence import (
     validate_run_measurements,
 )
@@ -50,12 +53,12 @@ from scopecat.kernel.errors import (
     RunFailed,
     RunIndeterminate,
 )
+from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
 )
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.measurements.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.measurements.projection import (
     ProjectedMeasurementDataset,
     project_measurement_records,
@@ -71,7 +74,6 @@ from scopecat.optimization import (
     OptimizationComplete,
     PointOptimizerContext,
     PointProposalLedger,
-    project_completed_point_observation,
 )
 from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,

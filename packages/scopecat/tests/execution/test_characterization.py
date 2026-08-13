@@ -21,6 +21,7 @@ from scopecat.execution.local.program import (
 )
 from scopecat.execution.program import RunCoverageCheckpoint
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import (
     ProblemPhase,
     model_location,
@@ -37,7 +38,6 @@ from scopecat.kernel.state import StateValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.measurements.points import AcceptedRunPoint
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.program.value_graph import (

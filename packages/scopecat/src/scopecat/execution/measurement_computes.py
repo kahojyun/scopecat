@@ -8,9 +8,9 @@ from typing import cast
 from scopecat.compiler.bound_facts import BoundMeasurementCompute
 from scopecat.kernel.errors import ComputeExecutionError
 from scopecat.kernel.json_types import JsonValue
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
 from scopecat.measurements.contracts import measurement_value_contract_issues
-from scopecat.measurements.points import AcceptedRunPoint
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import (
     MeasurementValueCandidate,

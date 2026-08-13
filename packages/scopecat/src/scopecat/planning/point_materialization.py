@@ -31,6 +31,7 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
+from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
@@ -39,7 +40,6 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.value_data import Row
 from scopecat.kernel.value_types import Scalar, Table, ValueType
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
-from scopecat.measurements.points import PointProposalAttempt
 from scopecat.program.expressions import ArrayExpr, LiteralArrayExpr, ScalarExpr
 from scopecat.program.logical import LogicalDomainExecution
 
