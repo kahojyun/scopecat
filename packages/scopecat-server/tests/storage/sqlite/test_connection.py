@@ -21,6 +21,7 @@ def test_connect_applies_shared_sqlite_policy(tmp_path: Path) -> None:
     ) as connection:
         assert connection.row_factory is sqlite3.Row
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert connection.execute("PRAGMA synchronous").fetchone()[0] == 1
         assert connection.execute("PRAGMA busy_timeout").fetchone()[0] == 125
 
 

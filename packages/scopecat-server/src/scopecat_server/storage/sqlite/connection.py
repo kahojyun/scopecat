@@ -83,6 +83,7 @@ def connect(
     )
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA synchronous = NORMAL")
     busy_timeout_ms = round(busy_timeout_seconds * 1000)
     connection.execute(f"PRAGMA busy_timeout = {busy_timeout_ms}")
     return connection
