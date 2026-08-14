@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
-from typing import cast
+from dataclasses import dataclass, field, replace
+from typing import Literal, cast
 
 from pydantic import JsonValue as WireJsonValue
 
@@ -271,6 +271,34 @@ class EntityRecordPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class EntityAcquisitionCohortMemberPlan:
+    """One recorded field participating in an entity acquisition cohort."""
+
+    record_id: str
+    product_use_ids: tuple[ProductUseId, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class EntityAcquisitionCohortPlan:
+    """One execution cohort shared by entity-indexed recorded fields."""
+
+    id: str
+    policy: Literal["best_effort", "all_or_nothing"]
+    dimension_id: str
+    entities: tuple[EntityRef, ...]
+    members: tuple[EntityAcquisitionCohortMemberPlan, ...]
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("entity acquisition cohort id must be non-empty")
+        if not self.entities or not self.members:
+            raise ValueError("entity acquisition cohorts require entities and members")
+        entity_count = len(self.entities)
+        if any(len(member.product_use_ids) != entity_count for member in self.members):
+            raise ValueError("entity acquisition cohort members must align to its axis")
+
+
+@dataclass(frozen=True, slots=True)
 class ValueRecordPlan:
     """Dataset projection for one symbolic program value."""
 
@@ -312,6 +340,47 @@ class ValueRecordCandidate:
 type DatasetRecordPlan = RecordPlan | EntityRecordPlan | ValueRecordPlan
 type ProductRecordUse = RecordUse | EntityRecordUse
 type BoundRecordUse = ProductRecordUse | ValueRecordUse
+
+
+def plan_entity_acquisition_cohorts(
+    records: Sequence[DatasetRecordPlan],
+) -> tuple[EntityAcquisitionCohortPlan, ...]:
+    """Factor non-independent entity acquisition semantics into execution plans."""
+
+    planned: dict[str, EntityAcquisitionCohortPlan] = {}
+    for record in records:
+        if not isinstance(record, EntityRecordPlan):
+            continue
+        acquisition = record.acquisition
+        if acquisition.policy == "independent":
+            continue
+        cohort_id = cast("str", acquisition.cohort_id)
+        entity_axis = record.axes[0]
+        entities = tuple(member.entity for member in record.members)
+        member = EntityAcquisitionCohortMemberPlan(
+            record_id=record.id,
+            product_use_ids=tuple(item.product_use_id for item in record.members),
+        )
+        existing = planned.get(cohort_id)
+        if existing is None:
+            planned[cohort_id] = EntityAcquisitionCohortPlan(
+                id=cohort_id,
+                policy=acquisition.policy,
+                dimension_id=entity_axis.id,
+                entities=entities,
+                members=(member,),
+            )
+            continue
+        if (
+            existing.policy != acquisition.policy
+            or existing.dimension_id != entity_axis.id
+            or existing.entities != entities
+        ):
+            raise ValueError(
+                f"entity acquisition cohort {cohort_id!r} has conflicting plans"
+            )
+        planned[cohort_id] = replace(existing, members=(*existing.members, member))
+    return tuple(planned.values())
 
 
 def plan_records(

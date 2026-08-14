@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import cast
+from typing import Literal, cast
 
 import numpy as np
 
@@ -20,6 +20,7 @@ from scopecat.measurements.products import ProductDef
 from scopecat.measurements.records import (
     BoundRecordUse,
     DatasetRecordPlan,
+    EntityAcquisitionCohortPlan,
     EntityRecordPlan,
     EntityRecordUse,
     ProductRecordUse,
@@ -30,6 +31,7 @@ from scopecat.measurements.records import (
     ValueRecordUse,
     expected_dataset_schema,
     measurement_scalar,
+    plan_entity_acquisition_cohorts,
     plan_records,
     plan_value_records,
     validate_record_plan,
@@ -73,6 +75,7 @@ class MeasurementProjection:
 
     catalog: MeasurementValueCatalog = field(repr=False)
     _records: tuple[DatasetRecordPlan, ...] = field(repr=False)
+    _acquisition_cohorts: tuple[EntityAcquisitionCohortPlan, ...] = field(repr=False)
     _static_value_source: StaticValueCandidateSource = field(
         repr=False,
         compare=False,
@@ -95,6 +98,11 @@ class MeasurementProjection:
         object.__setattr__(self, "_records", records)
         object.__setattr__(
             self,
+            "_acquisition_cohorts",
+            plan_entity_acquisition_cohorts(records),
+        )
+        object.__setattr__(
+            self,
             "_static_value_source",
             static_value_source,
         )
@@ -112,6 +120,10 @@ class MeasurementProjection:
     @property
     def records(self) -> tuple[DatasetRecordPlan, ...]:
         return self._records
+
+    @property
+    def acquisition_cohorts(self) -> tuple[EntityAcquisitionCohortPlan, ...]:
+        return self._acquisition_cohorts
 
     @property
     def runtime_value_ids(self) -> tuple[ValueId, ...]:
@@ -278,6 +290,11 @@ def project_measurement_records(
         raise ValueError(msg)
     record_plans = projection.records
     points = tuple(points)
+    _validate_entity_acquisition_cohorts(
+        projection.acquisition_cohorts,
+        values,
+        points=points,
+    )
     value_candidates_by_key = {
         (candidate.logical_point_id, candidate.value_id): candidate.value
         for candidate in value_candidates
@@ -410,7 +427,6 @@ def _projected_entity_value(
         product_values.value_for_output(point.logical_id, member.product_use_id).value
         for member in record.members
     )
-    _validate_entity_acquisition(record, values)
     local_shape = _entity_value_local_shape(values)
     fully_available = tuple(
         _fully_available_entity_chunk(value, dtype=record.dtype) for value in values
@@ -527,21 +543,49 @@ def _merge_unavailable_groups(
     return tuple(merged.values())
 
 
-def _validate_entity_acquisition(
-    record: EntityRecordPlan,
-    values: Sequence[MeasurementValue],
+def _validate_entity_acquisition_cohorts(
+    cohorts: Sequence[EntityAcquisitionCohortPlan],
+    values: ClosedMeasurementProductValues,
+    *,
+    points: Sequence[AcceptedRunPoint],
 ) -> None:
-    if record.acquisition.policy != "all_or_nothing":
-        return
-    if all(
-        not isinstance(value, MeasurementUnavailable)
-        and not (isinstance(value, MeasurementArray) and value.availability is not None)
-        for value in values
-    ) or all(isinstance(value, MeasurementUnavailable) for value in values):
-        return
-    raise ValueError(
-        f"entity record {record.id!r} violates all_or_nothing acquisition semantics"
-    )
+    for point in points:
+        for cohort in cohorts:
+            selected = tuple(
+                values.value_for_output(point.logical_id, product_use_id)
+                for member in cohort.members
+                for product_use_id in member.product_use_ids
+            )
+            evidence = tuple(
+                item.evidence for item in selected if item.evidence is not None
+            )
+            if cohort.policy == "all_or_nothing":
+                outcomes = tuple(
+                    _entity_acquisition_outcome(item.value) for item in selected
+                )
+                if not (
+                    all(outcome == "available" for outcome in outcomes)
+                    or all(outcome == "unavailable" for outcome in outcomes)
+                ):
+                    raise ValueError(
+                        f"entity acquisition cohort {cohort.id!r} violates "
+                        "all_or_nothing acquisition semantics"
+                    )
+            if evidence and len({item.command_id for item in evidence}) != 1:
+                raise ValueError(
+                    f"entity acquisition cohort {cohort.id!r} spans multiple "
+                    "hardware commands"
+                )
+
+
+def _entity_acquisition_outcome(
+    value: MeasurementValue,
+) -> Literal["available", "unavailable", "partial"]:
+    if isinstance(value, MeasurementUnavailable):
+        return "unavailable"
+    if isinstance(value, MeasurementArray) and value.availability is not None:
+        return "partial"
+    return "available"
 
 
 def _entity_value_local_shape(values: Sequence[MeasurementValue]) -> tuple[int, ...]:

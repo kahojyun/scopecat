@@ -279,11 +279,38 @@ def test_projection_stacks_entity_products_and_preserves_partial_failure() -> No
             ),
         ),
     )
+    [strict_cohort] = strict_projection.acquisition_cohorts
+    assert strict_cohort.id == "strict-readout"
+    assert strict_cohort.dimension_id == "qubit"
+    assert strict_cohort.entities == (q0, q1)
+    assert strict_cohort.members[0].product_use_ids == tuple(
+        use.id for use in scenario.uses
+    )
     with pytest.raises(ValueError, match="violates all_or_nothing"):
         project_measurement_records(
             strict_projection,
             assembled,
             run_id="strict-entity-projection-run",
+            points=scenario.points,
+        )
+
+    best_effort_projection = select_measurement_projection(
+        scenario.catalog,
+        (
+            replace(
+                records[0],
+                acquisition=EntityAcquisitionSemantics(
+                    policy="best_effort",
+                    cohort_id="readout-command",
+                ),
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="spans multiple hardware commands"):
+        project_measurement_records(
+            best_effort_projection,
+            assembled,
+            run_id="split-command-entity-projection-run",
             points=scenario.points,
         )
 
@@ -324,6 +351,46 @@ def test_projection_stacks_entity_products_and_preserves_partial_failure() -> No
             dimension_id="qubit",
             values=(q0_evidence, q1_evidence),
         )
+    )
+
+
+def test_entity_acquisition_cohort_factors_multiple_recorded_fields() -> None:
+    scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=4)
+    entities = (
+        EntityRef(id="q0", kind="qubit"),
+        EntityRef(id="q1", kind="qubit"),
+    )
+    axis = EntityAxisDef(id="qubit", values=entities, entity_kind="qubit")
+    acquisition = EntityAcquisitionSemantics(
+        policy="best_effort",
+        cohort_id="readout",
+    )
+    projection = select_measurement_projection(
+        scenario.catalog,
+        tuple(
+            EntityRecordUse(
+                id=record_id,
+                axis=axis,
+                members=tuple(
+                    EntityRecordUseMember(entity=entity, product_use_id=use.id)
+                    for entity, use in zip(
+                        entities,
+                        scenario.uses[offset : offset + 2],
+                        strict=True,
+                    )
+                ),
+                acquisition=acquisition,
+            )
+            for record_id, offset in (("i", 0), ("q", 2))
+        ),
+    )
+
+    [cohort] = projection.acquisition_cohorts
+    assert cohort.id == "readout"
+    assert tuple(member.record_id for member in cohort.members) == ("i", "q")
+    assert tuple(member.product_use_ids for member in cohort.members) == (
+        tuple(use.id for use in scenario.uses[:2]),
+        tuple(use.id for use in scenario.uses[2:]),
     )
 
 
