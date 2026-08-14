@@ -33,7 +33,7 @@ beforeEach(() => {
 describe("RunDomainDecisionCard", () => {
   it("shows durable accepted decisions and their execution progress", () => {
     const run = projectRun(false);
-    run.pointPlan!.decisionCount = 2;
+    run.pointPlan.decisionCount = 2;
     renderCard(
       <RunDomainDecisionCard
         page={decisionPage()}
