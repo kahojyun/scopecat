@@ -39,6 +39,8 @@ def test_array_type_normalizes_dtype_rank_and_shape() -> None:
     assert value.shape == (3,)
     assert not value.flags.writeable
     assert value.tolist() == [1.0, 2.0, 3.0]
+    with pytest.raises(ValueError, match="WRITEABLE"):
+        value.flags.writeable = True
     with pytest.raises(ValueValidationError, match="must have size 3"):
         coerce_literal(trace, [1.0, 2.0])
     with pytest.raises(ValueValidationError, match="expected a 1D array"):

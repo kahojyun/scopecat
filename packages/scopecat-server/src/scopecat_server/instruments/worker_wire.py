@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import json
-import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from hashlib import sha256
-from itertools import pairwise
 from typing import Annotated, Literal, Protocol, cast
 
-import numpy as np
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -22,6 +19,12 @@ from pydantic import (
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.problems import Problem
+from scopecat.measurements.array_wire import (
+    EncodedMeasurementArray,
+    MeasurementArrayWireError,
+    decode_measurement_array,
+    encode_measurement_array,
+)
 from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.instrument import CommandChannelBinding, InstrumentReadback
 from scopecat.records.measurement import (
@@ -84,7 +87,7 @@ class InvokeFrames:
 @dataclass(frozen=True, slots=True)
 class CollectFrames:
     header: bytes
-    attachments: tuple[bytes, ...]
+    attachments: tuple[EncodedMeasurementArray, ...]
 
 
 class _WireModel(BaseModel):
@@ -387,9 +390,12 @@ def split_collect_receipt(
 
     arrays: list[_CollectArrayDescriptor] = []
     manifests: list[_CollectAttachmentManifest] = []
-    attachments: list[bytes] = []
+    attachments: list[EncodedMeasurementArray] = []
     for index, (request_id, value) in enumerate(selected_arrays):
-        content = _encode_measurement_array(value)
+        try:
+            content = encode_measurement_array(value)
+        except MeasurementArrayWireError as error:
+            raise WorkerWireError(str(error)) from error
         arrays.append(
             _CollectArrayDescriptor(
                 request_id=request_id,
@@ -453,7 +459,7 @@ def split_collect_receipt(
 
 def join_collect_receipt(
     header: bytes,
-    attachments: Sequence[bytes],
+    attachments: Sequence[EncodedMeasurementArray],
     *,
     limits: WireLimits = DEFAULT_WIRE_LIMITS,
 ) -> CollectReceipt:
@@ -487,10 +493,16 @@ def join_collect_receipt(
                 "worker collect attachment hash mismatch for request "
                 f"{array_descriptor.request_id!r}"
             )
-        array_values[array_descriptor.request_id] = _decode_measurement_array(
-            array_descriptor,
-            content,
-        )
+        try:
+            array_values[array_descriptor.request_id] = decode_measurement_array(
+                content,
+                dtype=array_descriptor.dtype,
+                unit=array_descriptor.unit,
+                shape=array_descriptor.shape,
+                metadata=array_descriptor.metadata,
+            )
+        except MeasurementArrayWireError as error:
+            raise WorkerWireError(str(error)) from error
 
     receipt = descriptor.receipt
     readback: InstrumentReadback | None = None
@@ -527,130 +539,6 @@ def collect_attachment_sizes(
 
     descriptor = _parse_collect_header(header, limits=limits)
     return tuple(item.size_bytes for item in descriptor.attachments)
-
-
-def _encode_measurement_array(value: MeasurementArray) -> bytes:
-    expected_count = math.prod(value.shape)
-    if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
-        value.values, np.ndarray
-    ):
-        raise WorkerWireError("worker collect array values are not a NumPy array")
-    if value.values.size != expected_count or value.values.shape != value.shape:
-        raise WorkerWireError("worker collect array shape does not match its values")
-    if value.dtype == "float64":
-        if (
-            value.values.dtype != np.dtype(np.float64)
-            or not np.isfinite(value.values).all()
-        ):
-            raise WorkerWireError("worker collect float64 array is invalid")
-        return value.values.astype("<f8", copy=False).tobytes(order="C")
-    if value.dtype == "int64":
-        if value.values.dtype != np.dtype(np.int64):
-            raise WorkerWireError("worker collect int64 array is invalid")
-        return value.values.astype("<i8", copy=False).tobytes(order="C")
-    if value.dtype == "complex128":
-        if (
-            value.values.dtype != np.dtype(np.complex128)
-            or not np.isfinite(value.values).all()
-        ):
-            raise WorkerWireError("worker collect complex128 array is invalid")
-        return value.values.astype("<c16", copy=False).tobytes(order="C")
-    if value.dtype == "bool":
-        if value.values.dtype != np.dtype(np.bool_):
-            raise WorkerWireError("worker collect bool array is invalid")
-        return value.values.astype("u1", copy=False).tobytes(order="C")
-    if value.values.dtype.kind != "U":
-        raise WorkerWireError("worker collect string array is invalid")
-    return _encode_strings(value.values)
-
-
-def _decode_measurement_array(
-    descriptor: _CollectArrayDescriptor,
-    content: bytes,
-) -> MeasurementArray:
-    count = math.prod(descriptor.shape)
-    if descriptor.dtype == "float64":
-        leaves = _decode_numeric_array(content, count=count, dtype="<f8")
-    elif descriptor.dtype == "int64":
-        leaves = _decode_numeric_array(content, count=count, dtype="<i8")
-    elif descriptor.dtype == "complex128":
-        leaves = _decode_numeric_array(content, count=count, dtype="<c16")
-    elif descriptor.dtype == "bool":
-        raw_bools = _decode_numeric_array(content, count=count, dtype="u1")
-        if np.any(raw_bools > 1):
-            raise WorkerWireError("worker collect bool attachment is invalid")
-        leaves = raw_bools.astype(np.bool_)
-    else:
-        leaves = np.asarray(_decode_strings(content, count=count), dtype=np.str_)
-
-    try:
-        return MeasurementArray.create(
-            dtype=descriptor.dtype,
-            unit=descriptor.unit,
-            values=leaves.reshape(descriptor.shape),
-            metadata=descriptor.metadata,
-        )
-    except ValidationError as error:
-        raise WorkerWireError("invalid worker collect array attachment") from error
-
-
-def _decode_numeric_array(
-    content: bytes,
-    *,
-    count: int,
-    dtype: Literal["<c16", "<f8", "<i8", "<u8", "u1"],
-) -> np.ndarray:
-    selected_dtype = np.dtype(dtype)
-    if len(content) != count * selected_dtype.itemsize:
-        raise WorkerWireError("worker collect attachment has invalid size")
-    return np.frombuffer(content, dtype=selected_dtype, count=count)
-
-
-def _encode_strings(values: np.ndarray) -> bytes:
-    offsets = [0]
-    chunks: list[bytes] = []
-    size = 0
-    items = cast("list[str]", values.reshape(-1).tolist())
-    for item in items:
-        try:
-            encoded = item.encode("utf-8")
-        except UnicodeEncodeError as error:
-            raise WorkerWireError(
-                "worker collect string array is not valid UTF-8"
-            ) from error
-        chunks.append(encoded)
-        size += len(encoded)
-        offsets.append(size)
-    return np.asarray(offsets, dtype="<u8").tobytes() + b"".join(chunks)
-
-
-def _decode_strings(content: bytes, *, count: int) -> tuple[object, ...]:
-    offset_bytes = (count + 1) * 8
-    if len(content) < offset_bytes:
-        raise WorkerWireError("worker collect string attachment has invalid size")
-    offsets = cast(
-        "list[int]",
-        _decode_numeric_array(
-            content[:offset_bytes],
-            count=count + 1,
-            dtype="<u8",
-        ).tolist(),
-    )
-    encoded = content[offset_bytes:]
-    if (
-        offsets[0] != 0
-        or offsets[-1] != len(encoded)
-        or any(left > right for left, right in pairwise(offsets))
-    ):
-        raise WorkerWireError("worker collect string offsets are invalid")
-    try:
-        return tuple(
-            encoded[start:stop].decode("utf-8") for start, stop in pairwise(offsets)
-        )
-    except UnicodeDecodeError as error:
-        raise WorkerWireError(
-            "worker collect string attachment is not UTF-8"
-        ) from error
 
 
 def _parse_invoke_header(
@@ -717,7 +605,7 @@ def _validate_declared_attachment_limits(
 def _validate_actual_attachment_limits(
     *,
     label: str,
-    attachments: Sequence[bytes],
+    attachments: Sequence[EncodedMeasurementArray],
     limits: WireLimits,
 ) -> None:
     if len(attachments) > limits.max_attachments:

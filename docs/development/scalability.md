@@ -110,6 +110,10 @@ channels and a 72-sample point waveform. Point count is the only scale variable
 in the zero-delay run. The Scopecat workload declares its coordinate as a
 compact start/stop range; the direct runner derives its point-local waveform
 parameters from the loop index without retaining a coordinate list.
+The default acquisition policy is `prefer_device`, so a digitizer advertising
+compatible onboard integrated-IQ support returns the same scalar result shape
+as the direct baseline. The direct baseline does not model raw-trace transport
+or target-side DSP and cannot be selected with `--acquisition-dsp target`.
 `--point-delay-ms` adds the same logical-point dwell to both virtual hardware
 paths for a representative total-time run. Shot-heavy acquisition and long
 waveforms use separate matched profiles so their working sets do not obscure
@@ -178,11 +182,11 @@ and timing behavior.
 ### Latest Multichannel Waveform Profile
 
 The waveform profile varies the per-point physical waveform working set while
-retaining the same scalar integrated-IQ result. One to four driven qubits map to
-four to ten physical output channels: two drive channels per qubit plus one
-shared readout I/Q pair. Both runners render and upload the same number of
-float64 samples. With `--live-waveform`, each path retains only the latest
-completed point for a plotting-tool stand-in.
+retaining the same device-integrated scalar IQ result. One to four driven
+qubits map to four to ten physical output channels: two drive channels per
+qubit plus one shared readout I/Q pair. Both runners render and upload the same
+number of float64 waveform samples. With `--live-waveform`, each path retains
+only the latest completed point for a plotting-tool stand-in.
 
 Run a short staircase with:
 
@@ -201,7 +205,24 @@ In addition to timing and RSS, compare `waveform_bytes_uploaded`,
 retention must equal exactly one point's channel-by-sample payload. Maximum
 batch upload reveals whether target entry batching multiplies that working set.
 Increase waveform length independently of point count; do not combine this
-profile with shot-heavy or raw-acquisition payloads.
+profile with shot-heavy payloads.
+
+Target-side DSP is a separate Scopecat stress test because it transfers a raw
+trace for every logical point. It deliberately excludes the ad hoc runner,
+whose scalar device facade does not perform equivalent work:
+
+```console
+uv run python scripts/benchmark_scan_execution.py \
+  --profile waveform \
+  --acquisition-dsp target \
+  --runners scopecat-core,scopecat \
+  --points 10,100 \
+  --waveform-samples 100000 \
+  --qubits 4
+```
+
+Do not use this stress result as the default product comparison on digitizers
+that support compatible onboard IQ integration.
 
 ### Multiqubit Result Retention Profile
 
@@ -385,13 +406,20 @@ The present architecture provides a direct end-to-end baseline:
   local-only coverage starts with 32 points and then uses batches of at most 256
   points;
 - domain compilation uses a backend-declared point capacity but prepares only
-  the current batch during execution; preview compiles the initial one-point
-  probe as a fast semantic preflight, and each prepared domain job reports the
+  the current batch during execution. Normal execution does not build target
+  inspection data; preview and review compile only the selected point and ask
+  for target-owned inspection explicitly. Each prepared domain job reports the
   maximum point count for the following batch;
 - the reference list-mode target combines its device entry capacity with an
   adaptive 8 MiB aggregate waveform target. Its AWG and virtual-capture codecs
   carry contiguous float64 samples in binary rather than expanding arrays into
-  JSON numbers;
+  JSON numbers. Phase-only sweeps share one sampled template plus per-entry
+  phase rows and synthesize contiguous DAC buffers only at the driver-upload
+  boundary; structurally different entries retain ordinary materialized
+  buffers. Direct and run-scoped hardware receipts likewise carry typed headers
+  plus binary measurement-array attachments, and target result blocks remain
+  array-native through correlation. Immutable byte-backed arrays are adopted
+  across typed model and wire-decode boundaries rather than recopied;
 - admission uses the domain compiler's static instrument footprint and all
   structurally compatible local route candidates. Point-local routing narrows
   the operations actually emitted, so a run may conservatively reserve an
@@ -419,12 +447,14 @@ generated. Cartesian products do not multiply any of those factors into
 retained rows. Local effects, static value evaluation, runtime point projection,
 and live prepared target artifacts are bounded by the current physical batch.
 During active execution the completed point index set and durable scalar results
-still grow with completed point count; neither contains waveform payloads. The
-daemon's live compiled-inspection feed retains only the latest 64 proposal
-events. Active feeds are never pruned, while only the 32 most recently used
-inactive run feeds and 32 most recently updated inactive review sessions remain
-available. Every inspection already enforces point, waveform, and sample budgets.
-It is an operator view, not durable run content.
+still grow with completed point count; neither contains waveform payloads.
+Optimizer and operator fragments append one contiguous point range, then reuse
+the static run's lazy batch compiler without generating per-point inspections.
+The daemon's live proposal feed retains only the latest 64 events. Active feeds
+are never pruned, while only the 32 most recently used inactive run feeds and 32
+most recently updated inactive review sessions remain available. Explicit
+selected-point inspections enforce point, waveform, and sample budgets and are
+operator views, not durable run content.
 Adaptive optimizer calls likewise receive exact counters but only the latest
 1,024 domain decisions and 256 completed-point observations for their scope.
 Durable domain decisions remain queryable through the daemon ledger.
@@ -453,13 +483,14 @@ active and is released on seal, terminal commit, lease loss, or daemon shutdown.
 Inline command payloads retain raw bytes in memory and convert to base64 only
 for an actual JSON wire representation; the daemon client uploads those bytes
 to an operation-scoped content-addressed spool before posting a control command
-containing only the blob descriptor. Hardware operation identities and durable
-evidence cover the descriptor rather than serializing the payload body.
+containing only the blob descriptor. Hardware operation identities cover the
+descriptor rather than serializing the payload body.
 
 The spool is deliberately transient: if the daemon restarts after an upload but
 before the command is accepted, the client must submit the command again and
-re-upload its payload. A lost response after execution remains replayable from
-the operation ledger without materializing the released bytes. Permanent
+re-upload its payload. A lost response while the daemon remains alive can be
+replayed from its process-local operation ledger without materializing the
+released bytes. Permanent
 publication remains a separate future capability for payloads that must be
 inspectable after execution.
 

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Barrier
 from typing import Literal, cast
@@ -22,17 +21,8 @@ from scopecat.daemon.points import (
     RunPointPlanCloseCommand,
 )
 from scopecat.kernel.points import PointProposalAttempt
-from scopecat.kernel.problems import (
-    ProblemPhase,
-    problem,
-)
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements import recording_arrow
-from scopecat.records.execution_journal import (
-    ExecutionTransition,
-    execution_transition_content_hash,
-    execution_transition_identity,
-)
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
@@ -48,13 +38,10 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
 )
-from scopecat_testkit.server.runtime import (
-    SQLiteTestExecutionJournal as SQLiteExecutionJournal,
-)
 
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.execution import (
-    ExecutionJournalConflict,
+    ExecutionStateConflict,
     SQLiteMeasurementDatasetRepository,
     SQLiteRunPointLedger,
 )
@@ -143,7 +130,7 @@ def test_adaptive_domain_ledger_persists_idempotent_decisions_and_closure(
                 reason="stale optimizer state",
             ),
         )
-        with pytest.raises(ExecutionJournalConflict, match="point prefix"):
+        with pytest.raises(ExecutionStateConflict, match="point prefix"):
             ledger.append_decision_in_transaction(
                 connection,
                 _domain_decision_command(
@@ -287,7 +274,7 @@ def test_operator_domain_queue_is_fifo_bounded_and_resolved_by_decisions(
             resolved_fragment=fragment,
             region_count=1,
         )
-        with pytest.raises(ExecutionJournalConflict, match="remaining budget"):
+        with pytest.raises(ExecutionStateConflict, match="remaining budget"):
             ledger.enqueue_in_transaction(
                 connection,
                 enqueue.model_copy(update={"request_id": "queue-3"}),
@@ -487,150 +474,12 @@ def test_measurement_repository_reuses_schema_hash_for_appends(
     assert hash_calls == 1
 
 
-def _transitions(run_id: str) -> tuple[ExecutionTransition, ...]:
-    return (
-        ExecutionTransition(
-            run_id=run_id,
-            operation_id="operation-0",
-            stage="domain_execute",
-            effect="read",
-            state="started",
-        ),
-        ExecutionTransition(
-            run_id=run_id,
-            operation_id="operation-0",
-            stage="domain_execute",
-            effect="read",
-            state="completed",
-        ),
-    )
-
-
-def test_execution_transitions_are_canonical_durable_events(tmp_path: Path) -> None:
-    database = tmp_path / "control.sqlite3"
-    sqlite = SQLiteDatabase(database)
-    SQLiteProjectStore(sqlite, tmp_path / "objects").bootstrap()
-    runs = SQLiteRunRepository(sqlite, tmp_path / "objects")
-    journal = SQLiteExecutionJournal(runs, run_id="run-shared")
-
-    committed = journal.append(
-        ExecutionTransition(
-            run_id="run-shared",
-            operation_id="operation-0",
-            stage="domain_execute",
-            effect="read",
-            state="completed",
-        )
-    )
-
-    assert committed.sequence == 0
-    with sqlite3.connect(database) as connection:
-        event = connection.execute(
-            """
-            SELECT kind, run_sequence, payload_json
-            FROM durable_events
-            WHERE run_id = ?
-            """,
-            ("run-shared",),
-        ).fetchone()
-    assert event is not None
-    assert event[0] == "execution_transition_committed"
-    assert event[1] == 0
-    assert json.loads(event[2])["operation_id"] == committed.operation_id
-
-
-def test_transition_retry_replays_the_original_commit(tmp_path: Path) -> None:
-    journal = SQLiteExecutionJournal(_runs(tmp_path), run_id="run-transition")
-    transition = _transitions("run-transition")[0]
-
-    first = journal.append(transition)
-    retry = journal.append(
-        transition.model_copy(
-            update={
-                "sequence": 100,
-                "timestamp": transition.timestamp + timedelta(seconds=1),
-            }
-        )
-    )
-
-    assert retry == first
-    assert first.sequence == 0
-    changed = journal.append(transition.model_copy(update={"state": "completed"}))
-    assert changed.sequence == 1
-    assert journal.entries() == (first, changed)
-
-
-def test_transition_claim_rejects_operation_reentry(tmp_path: Path) -> None:
-    journal = SQLiteExecutionJournal(_runs(tmp_path), run_id="run-claim")
-    started = _transitions("run-claim")[0]
-
-    claimed = journal.claim(started)
-
-    assert claimed.sequence == 0
-    with pytest.raises(ExecutionJournalConflict, match="already claimed"):
-        journal.claim(started)
-    assert journal.entries() == (claimed,)
-
-
-def test_transition_transport_identity_excludes_only_daemon_fields() -> None:
-    selected = problem(
-        "read_failed",
-        "instrument read failed",
-        phase=ProblemPhase.EXECUTION,
-    )
-    transition = ExecutionTransition(
-        sequence=7,
-        run_id="run-identity",
-        operation_id="operation-1",
-        stage="domain_execute",
-        effect="read",
-        state="failed",
-        timestamp=datetime(2026, 7, 23, 9, tzinfo=UTC),
-        point_index=3,
-        instrument_id="scope-1",
-        problems=(selected,),
-        evidence={"reading": float("inf")},
-    )
-
-    identity = execution_transition_identity(transition)
-
-    assert set(identity) == {
-        "run_id",
-        "operation_id",
-        "stage",
-        "effect",
-        "state",
-        "point_index",
-        "instrument_id",
-        "problems",
-        "evidence",
-    }
-    original_hash = execution_transition_content_hash(transition)
-    reassigned = transition.model_copy(
-        update={
-            "sequence": 8,
-            "timestamp": transition.timestamp + timedelta(seconds=1),
-        }
-    )
-    assert execution_transition_content_hash(reassigned) == original_hash
-    changed = transition.model_copy(update={"evidence": {"reading": float("-inf")}})
-    assert execution_transition_content_hash(changed) != original_hash
-    nan_transition = transition.model_copy(
-        update={"evidence": {"reading": float("nan")}}
-    )
-    assert execution_transition_content_hash(
-        nan_transition
-    ) == execution_transition_content_hash(nan_transition.model_copy(deep=True))
-
-
 def test_in_transaction_primitives_report_created_and_replay_durable_values(
     tmp_path: Path,
 ) -> None:
     runs = _runs(tmp_path)
     run_id = "run-in-transaction"
-    journal = SQLiteExecutionJournal(runs, run_id=run_id)
     measurements = SQLiteMeasurementDatasetRepository(runs, run_id=run_id)
-    transitions = _transitions(run_id)
     header = _header(run_id)
     append = _append(header)
     seal = _seal(header, append)
@@ -651,14 +500,6 @@ def test_in_transaction_primitives_report_created_and_replay_durable_values(
                 connection,
                 prepared_header,
             )
-        )
-        transition, transition_created = journal.append_in_transaction(
-            connection,
-            transitions[0],
-        )
-        transition_replay, transition_replay_created = journal.append_in_transaction(
-            connection,
-            transitions[0],
         )
         append_receipt, append_created = measurements.append_prepared_in_transaction(
             connection,
@@ -687,10 +528,6 @@ def test_in_transaction_primitives_report_created_and_replay_durable_values(
         assert header_created
         assert not header_replay_created
         assert header_replay == header_receipt
-        assert transition_created
-        assert transition.sequence == 0
-        assert not transition_replay_created
-        assert transition_replay == transition
         assert append_created
         assert not append_replay_created
         assert append_replay == append_receipt
@@ -699,52 +536,6 @@ def test_in_transaction_primitives_report_created_and_replay_durable_values(
         assert seal_replay == seal_receipt
         assert not sealed_append_created
         assert sealed_append_replay == append_receipt
-
-
-def test_in_transaction_primitive_does_not_commit_its_connection(
-    tmp_path: Path,
-) -> None:
-    runs = _runs(tmp_path)
-    journal = SQLiteExecutionJournal(runs, run_id="run-rollback")
-    connection = sqlite3.connect(runs.database, isolation_level=None)
-    connection.row_factory = sqlite3.Row
-    connection.execute("BEGIN IMMEDIATE")
-
-    _transition, created = journal.append_in_transaction(
-        connection,
-        _transitions("run-rollback")[0],
-    )
-
-    assert created
-    assert connection.in_transaction
-    connection.rollback()
-    connection.close()
-    assert journal.entries() == ()
-
-
-def test_concurrent_transition_replay_has_one_creator(tmp_path: Path) -> None:
-    runs = _runs(tmp_path)
-    journals = (
-        SQLiteExecutionJournal(runs, run_id="run-batch-concurrent"),
-        SQLiteExecutionJournal(runs, run_id="run-batch-concurrent"),
-    )
-    transition = _transitions("run-batch-concurrent")[0]
-    barrier = Barrier(2)
-
-    def commit(journal: SQLiteExecutionJournal) -> tuple[str, bool]:
-        barrier.wait()
-        with _sqlite_transaction(runs) as connection:
-            result, created = journal.append_in_transaction(
-                connection,
-                transition,
-            )
-            return result.model_dump_json(), created
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        committed = tuple(pool.map(commit, journals))
-
-    assert committed[0][0] == committed[1][0]
-    assert sorted(created for _value, created in committed) == [False, True]
 
 
 def test_two_measurement_connections_replay_and_conflict_by_canonical_slot(
@@ -776,7 +567,7 @@ def test_two_measurement_connections_replay_and_conflict_by_canonical_slot(
     assert len({receipt for receipt, _created in receipts}) == 1
     assert sorted(created for _receipt, created in receipts) == [False, True]
     assert len(first.measurements()) == 1
-    with pytest.raises(ExecutionJournalConflict):
+    with pytest.raises(ExecutionStateConflict):
         _commit_append(
             runs,
             second,
@@ -956,7 +747,7 @@ def test_measurement_header_rejects_a_changed_live_schema(tmp_path: Path) -> Non
         update={"metadata": {"revision": 2}}
     )
 
-    with pytest.raises(ExecutionJournalConflict, match="different content"):
+    with pytest.raises(ExecutionStateConflict, match="different content"):
         _commit_header(
             runs,
             repository,
@@ -1044,7 +835,7 @@ def test_measurement_replay_rejects_mismatched_durable_operation_identity(
             (seal.run_id,),
         )
 
-    with pytest.raises(ExecutionJournalConflict, match="different content"):
+    with pytest.raises(ExecutionStateConflict, match="different content"):
         _commit_append(runs, append_repository, append)
-    with pytest.raises(ExecutionJournalConflict, match="different content"):
+    with pytest.raises(ExecutionStateConflict, match="different content"):
         _commit_seal(runs, seal_repository, seal)

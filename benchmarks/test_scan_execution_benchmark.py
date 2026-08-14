@@ -57,7 +57,12 @@ def test_scan_execution_benchmark_runs_all_boundaries_with_waveforms(
     expected_total_bytes = 3 * 6 * 128 * 8
     expected_retained_bytes = 6 * 128 * 8
     assert all(
-        result["schema"] == "scopecat.scan_execution_benchmark.v5" for result in results
+        result["schema"] == "scopecat.scan_execution_benchmark.v6" for result in results
+    )
+    assert all(
+        cast("dict[str, object]", result["scenario"])["acquisition_dsp_policy"]
+        == "prefer_device"
+        for result in results
     )
     assert all(
         result["waveform_bytes_uploaded"] == expected_total_bytes for result in results
@@ -88,6 +93,8 @@ def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
             "257",
             "--profile",
             "waveform",
+            "--acquisition-dsp",
+            "target",
             "--waveform-samples",
             "128",
             "--qubits",
@@ -137,11 +144,44 @@ def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
         "dict[str, object]",
         json.loads(result_line.removeprefix("SCAN_BENCHMARK_RESULT=")),
     )
+    scenario = cast("dict[str, object]", result["scenario"])
+    assert scenario["acquisition_dsp_policy"] == "target"
     assert result["payload_spool_bytes_at_finish"] == 0
     peak_spool_bytes = cast("int", result["peak_payload_spool_bytes"])
     max_batch_bytes = cast("int", result["max_waveform_batch_bytes"])
     assert peak_spool_bytes > 0
     assert peak_spool_bytes <= 2 * max_batch_bytes
+
+
+def test_target_dsp_rejects_the_unmatched_adhoc_runner(tmp_path: Path) -> None:
+    script = Path(__file__).parents[1] / "scripts" / "benchmark_scan_execution.py"
+
+    completed = subprocess.run(  # noqa: S603
+        (
+            sys.executable,
+            str(script),
+            "--points",
+            "1",
+            "--profile",
+            "waveform",
+            "--acquisition-dsp",
+            "target",
+            "--runners",
+            "adhoc,scopecat",
+            "--repetitions",
+            "1",
+            "--warmups",
+            "0",
+            "--output",
+            str(tmp_path / "results.jsonl"),
+        ),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "ad hoc runner does not model raw-trace" in completed.stderr
 
 
 def test_result_retention_profile_separates_selected_data_from_control(

@@ -9,7 +9,6 @@ from scopecat.adaptive_domains import (
     OperatorDomainRequest,
     ResolvedDomainFragment,
 )
-from scopecat.execution.program import RunPointInspection
 from scopecat.execution.services import QueuedOperatorDomainRequest
 from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.quantity import Quantity
@@ -147,6 +146,7 @@ class _OperatorQueuePort:
     decisions: list[DomainProposalDecision]
     closed_reason: str | None = None
     empty_polls_before_ready: int = 0
+    expected_completed_point_count: int = 4
 
     def next_queued(self) -> QueuedOperatorDomainRequest | None:
         if self.empty_polls_before_ready > 0:
@@ -161,11 +161,10 @@ class _OperatorQueuePort:
         proposal: DomainProposalAttempt,
         decision: DomainProposalDecision,
         accepted_points: tuple[AcceptedRunPoint, ...],
-        inspections: tuple[RunPointInspection, ...],
         *,
         operator_request_id: str | None = None,
     ) -> None:
-        del proposal, accepted_points, inspections
+        del proposal, accepted_points
         if decision.proposal.source == "operator":
             assert operator_request_id == "operator-queue-1"
         else:
@@ -173,7 +172,7 @@ class _OperatorQueuePort:
         self.decisions.append(decision)
 
     def close(self, *, completed_point_count: int, reason: str) -> None:
-        assert completed_point_count == 4
+        assert completed_point_count == self.expected_completed_point_count
         self.closed_reason = reason
 
 
@@ -288,7 +287,7 @@ def test_adaptive_execution_observes_and_runs_optimizer_domains_in_one_session(
     )
 
 
-def test_adaptive_execution_compiles_queued_operator_domain_before_optimizer(
+def test_adaptive_execution_streams_a_queued_operator_range_before_optimizer(
     tmp_path: Path,
 ) -> None:
     config = load_config()
@@ -305,19 +304,26 @@ def test_adaptive_execution_compiles_queued_operator_domain_before_optimizer(
                 region_ids=(),
                 region_count=1,
                 requested_fragment=ResolvedDomainFragment.points(
-                    ({"drive_frequency": Quantity(5.17, "GHz")},)
+                    (
+                        {"drive_frequency": Quantity(5.17, "GHz")},
+                        {"drive_frequency": Quantity(5.19, "GHz")},
+                    )
                 ),
                 fragment=ResolvedDomainFragment.points(
-                    ({"drive_frequency": Quantity(5.17, "GHz")},)
+                    (
+                        {"drive_frequency": Quantity(5.17, "GHz")},
+                        {"drive_frequency": Quantity(5.19, "GHz")},
+                    )
                 ),
             ),
         ),
         decisions=[],
+        expected_completed_point_count=5,
     )
 
     manifest = execute_invocation_run(
         config=config,
-        experiment=load_invocation().adaptive(_StopOptimizer(), max_points=5),
+        experiment=load_invocation().adaptive(_StopOptimizer(), max_points=6),
         system=composition.system,
         instrument_backend=composition.backend,
         project_root=tmp_path,
@@ -332,12 +338,15 @@ def test_adaptive_execution_compiles_queued_operator_domain_before_optimizer(
     assert len(queue.decisions) == 1
     assert queue.decisions[0].proposal.source == "operator"
     assert queue.decisions[0].accepted_point_start == 3
-    assert queue.decisions[0].accepted_point_count == 1
+    assert queue.decisions[0].accepted_point_count == 2
     assert queue.closed_reason == "operator domain completed"
-    assert len(dataset.records) == 4
-    assert dataset.records[-1].coordinates["drive_frequency"] == (
-        MeasurementScalar.create(dtype="float64", value=5.17, unit="GHz")
-    )
+    assert len(dataset.records) == 5
+    assert [
+        record.coordinates["drive_frequency"] for record in dataset.records[-2:]
+    ] == [
+        MeasurementScalar.create(dtype="float64", value=5.17, unit="GHz"),
+        MeasurementScalar.create(dtype="float64", value=5.19, unit="GHz"),
+    ]
 
 
 def test_operator_request_remains_eligible_after_optimizer_retry_budget(

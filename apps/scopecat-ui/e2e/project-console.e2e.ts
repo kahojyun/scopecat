@@ -529,7 +529,7 @@ test("queues a free off-grid scan domain into a running adaptive compiler", asyn
 
     const detail = page.getByRole("region", { name: "Selected run details" });
     await expect(detail.getByTestId("run-status")).toHaveText("Running");
-    const inspection = detail.getByTestId("run-inspection-card");
+    const inspection = detail.getByTestId("run-domain-decision-card");
     await inspection.getByRole("button", { name: "Free scan" }).click();
     await inspection.getByLabel("x values").fill("0.375");
     await expect(inspection.getByText(/x \[0\.375\]/)).toBeVisible();

@@ -1,8 +1,8 @@
 """Runtime boundary for one prepared domain-program execution.
 
 Domain compilers consume the target-neutral bound program and close target,
-result, and value decisions before a run is durably accepted. Scopecat retains
-ownership of runtime execution, correlation, journalling, recording, and
+result, and value decisions before a bounded batch enters domain effects.
+Scopecat retains ownership of runtime execution, correlation, recording, and
 terminal run evidence.
 
 The runtime boundary is synchronous: one execute returns the complete result

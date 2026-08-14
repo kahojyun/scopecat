@@ -2,8 +2,10 @@
 
 This laboratory-owned compiler translates canonical scheduled pulse programs
 into physical list entries and acquisition windows. It validates sample-grid
-alignment, signal bindings, overlap, amplitude, list, and shot limits before
-producing an artifact; no instrument effect occurs here.
+alignment, signal bindings, overlap, list, and shot limits before producing an
+artifact. Retained physical buffers are amplitude-checked here; compact
+parameterized buffers are checked when they materialize at the AWG boundary.
+No instrument effect occurs here.
 
 Physical list and segment positions are artifact layout, never logical result
 identity. Entry-qualified event and acquisition addresses survive compilation
@@ -12,7 +14,8 @@ so runtime evidence can be correlated to the exact prepared quantum work.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, replace
 
 from scopecat_quantum._ids import (
     TargetArtifactId,
@@ -39,12 +42,12 @@ from scopecat_quantum.waveforms import (
     SAMPLED_WAVEFORM_SEMANTICS_ID,
     Float64ReferenceRenderer,
     IqMatrix,
-    RenderedWaveforms,
     SampledOutputBinding,
     SampledWaveformPlan,
     SampleGrid,
     TimingQuantizationPolicy,
     WaveformPlanningError,
+    factor_phase_parameterized_waveforms,
     plan_sampled_waveforms,
 )
 
@@ -55,9 +58,12 @@ from reference_lab.targets.list_mode.model import (
     AcquisitionIntent,
     AwgChannelId,
     AwgChannelWaveform,
+    AwgPhaseTemplate,
+    AwgPhaseTemplateUse,
     DemodulatorSlotId,
     DeviceAcquisitionLowering,
     DigitizerAcquisitionWindow,
+    IqMixerCalibration,
     ListModeArtifact,
     ListModeEntry,
     ListModeHostStateRequirements,
@@ -66,6 +72,7 @@ from reference_lab.targets.list_mode.model import (
     OutputSignal,
     TargetAcquisitionLowering,
     acquisition_slot_identity_payload,
+    awg_phase_template_identity_payload,
     awg_waveform_identity_payload,
     canonical_fingerprint,
     host_state_requirements_payload,
@@ -81,7 +88,6 @@ class _EntryPlan:
     source: TargetCompileEntry
     waveform_plan: SampledWaveformPlan
     lane_channels: tuple[AwgChannelId, ...]
-    rendered: RenderedWaveforms
     active_lanes: tuple[int, ...]
     acquisitions: tuple[DigitizerAcquisitionWindow, ...]
 
@@ -137,11 +143,33 @@ class ListModeTargetCompiler:
         if issues:
             raise TargetCompilationError(tuple(issues))
 
-        entries = tuple(self._render_entry(plan) for plan in plans)
-        preparation = _project_preparation(self.target, entries)
+        compact = _compile_phase_template_sweep(plans)
+        if compact is None:
+            phase_templates: tuple[AwgPhaseTemplate, ...] = ()
+            entries = tuple(self._render_entry(plan, issues=issues) for plan in plans)
+        else:
+            phase_templates, entries = compact
+        if issues:
+            raise TargetCompilationError(tuple(issues))
+        waveform_bytes = _materialized_waveform_bytes(entries, phase_templates)
+        if waveform_bytes > self.target.max_program_waveform_bytes:
+            _issue(
+                issues,
+                dimension=TargetCompilationIssueDimension.CAPABILITY,
+                code="list_mode_program_waveform_memory_exceeded",
+                message=(
+                    f"request requires {waveform_bytes} waveform bytes; target "
+                    "program-memory limit is "
+                    f"{self.target.max_program_waveform_bytes}"
+                ),
+            )
+        if issues:
+            raise TargetCompilationError(tuple(issues))
+        preparation = _project_preparation(self.target, entries, phase_templates)
         host_state_requirements = _project_host_state_requirements(
             self.target,
             entries,
+            phase_templates,
         )
         artifact_fingerprint = canonical_fingerprint(
             _artifact_payload(
@@ -151,6 +179,7 @@ class ListModeTargetCompiler:
                 preparation=preparation,
                 host_state_requirements=host_state_requirements,
                 entries=entries,
+                phase_templates=phase_templates,
             )
         )
         digest = artifact_fingerprint.removeprefix("sha256:")
@@ -165,10 +194,12 @@ class ListModeTargetCompiler:
             repetitions=request.repetitions,
             sample_rate_hz=self.target.sample_rate_hz,
             waveform_semantics_id=SAMPLED_WAVEFORM_SEMANTICS_ID,
+            max_abs_amplitude=self.target.max_abs_amplitude,
             timing_quantization=self.target.timing_quantization,
             preparation=preparation,
             host_state_requirements=host_state_requirements,
             entries=entries,
+            phase_templates=phase_templates,
         )
 
     def _plan_entry(
@@ -306,7 +337,6 @@ class ListModeTargetCompiler:
                 case Delay() | ShiftPhase():
                     pass
 
-        rendered = Float64ReferenceRenderer().render(waveform_plan)
         active_lanes = tuple(
             sorted(
                 {
@@ -319,32 +349,36 @@ class ListModeTargetCompiler:
                 }
             )
         )
-        for lane in active_lanes:
-            peak_magnitude = rendered.lane_peaks[lane]
-            if peak_magnitude > self.target.max_abs_amplitude:
-                _entry_issue(
-                    issues,
-                    entry.id,
-                    code="list_mode_amplitude_limit_exceeded",
-                    message=(
-                        f"final waveform on channel "
-                        f"{lane_channels[lane].value!r} has magnitude "
-                        f"{peak_magnitude!r}; target limit is "
-                        f"{self.target.max_abs_amplitude!r}"
-                    ),
-                )
         return _EntryPlan(
             list_index=list_index,
             source=entry,
             waveform_plan=waveform_plan,
             lane_channels=lane_channels,
-            rendered=rendered,
             active_lanes=active_lanes,
             acquisitions=tuple(acquisitions),
         )
 
-    @staticmethod
-    def _render_entry(plan: _EntryPlan) -> ListModeEntry:
+    def _render_entry(
+        self,
+        plan: _EntryPlan,
+        *,
+        issues: list[TargetCompilationIssue],
+    ) -> ListModeEntry:
+        rendered = Float64ReferenceRenderer().render(plan.waveform_plan)
+        for lane in plan.active_lanes:
+            peak_magnitude = rendered.lane_peaks[lane]
+            if peak_magnitude > self.target.max_abs_amplitude:
+                _entry_issue(
+                    issues,
+                    plan.source.id,
+                    code="list_mode_amplitude_limit_exceeded",
+                    message=(
+                        f"final waveform on channel "
+                        f"{plan.lane_channels[lane].value!r} has magnitude "
+                        f"{peak_magnitude!r}; target limit is "
+                        f"{self.target.max_abs_amplitude!r}"
+                    ),
+                )
         return ListModeEntry(
             list_index=plan.list_index,
             entry_id=plan.source.id,
@@ -353,13 +387,108 @@ class ListModeTargetCompiler:
             waveforms=tuple(
                 AwgChannelWaveform(
                     channel_id=plan.lane_channels[lane],
-                    samples=plan.rendered.buffers[lane],
+                    samples=rendered.buffers[lane],
                 )
                 for lane in plan.active_lanes
             ),
             acquisitions=plan.acquisitions,
             event_timings=plan.waveform_plan.event_timings,
         )
+
+
+def _compile_phase_template_sweep(
+    plans: tuple[_EntryPlan, ...],
+) -> tuple[tuple[AwgPhaseTemplate, ...], tuple[ListModeEntry, ...]] | None:
+    parameterized = factor_phase_parameterized_waveforms(
+        tuple(plan.waveform_plan for plan in plans)
+    )
+    if parameterized is None:
+        return None
+    reference = plans[0]
+    renderer = Float64ReferenceRenderer()
+    templates: list[AwgPhaseTemplate] = []
+    for index, event in enumerate(parameterized.template.render_events):
+        isolated = renderer.render(
+            replace(parameterized.template, render_events=(event,))
+        )
+        selected = slice(event.timing.start_sample, event.timing.end_sample)
+        physical_i = isolated.buffers[event.binding.i_lane][selected]
+        physical_q = isolated.buffers[event.binding.q_lane][selected]
+        mixer = event.binding.mixer
+        determinant = mixer.ii * mixer.qq - mixer.iq * mixer.qi
+        if math.isclose(determinant, 0.0, abs_tol=1e-15):
+            return None
+        templates.append(
+            AwgPhaseTemplate(
+                id=f"event-{index}",
+                i_channel_id=reference.lane_channels[event.binding.i_lane],
+                q_channel_id=reference.lane_channels[event.binding.q_lane],
+                start_sample=event.timing.start_sample,
+                sample_count=event.timing.sample_count,
+                logical_i=(mixer.qq * physical_i - mixer.iq * physical_q) / determinant,
+                logical_q=(-mixer.qi * physical_i + mixer.ii * physical_q)
+                / determinant,
+                mixer=IqMixerCalibration(
+                    ii=mixer.ii,
+                    iq=mixer.iq,
+                    qi=mixer.qi,
+                    qq=mixer.qq,
+                    i_offset_v=0.0,
+                    q_offset_v=0.0,
+                ),
+            )
+        )
+    entries = tuple(
+        ListModeEntry(
+            list_index=plan.list_index,
+            entry_id=plan.source.id,
+            program_id=plan.source.program.id,
+            sample_count=plan.sample_count,
+            waveforms=(),
+            acquisitions=plan.acquisitions,
+            event_timings=plan.waveform_plan.event_timings,
+            phase_template_uses=tuple(
+                AwgPhaseTemplateUse(
+                    template_id=template.id,
+                    phase_radians=phase,
+                )
+                for template, phase in zip(
+                    templates,
+                    phase_row,
+                    strict=True,
+                )
+            ),
+        )
+        for plan, phase_row in zip(
+            plans,
+            parameterized.phase_rows,
+            strict=True,
+        )
+    )
+    return tuple(templates), entries
+
+
+def _materialized_waveform_bytes(
+    entries: tuple[ListModeEntry, ...],
+    phase_templates: tuple[AwgPhaseTemplate, ...],
+) -> int:
+    if not phase_templates:
+        return sum(
+            waveform.samples.nbytes for entry in entries for waveform in entry.waveforms
+        )
+    template_by_id = {template.id: template for template in phase_templates}
+    return sum(
+        entry.sample_count
+        * 8
+        * len(
+            {
+                channel_id
+                for use in entry.phase_template_uses
+                for channel_id in template_by_id[use.template_id].channel_ids
+            }
+        )
+        for entry in entries
+    )
 
 
 def _sampled_output_projection(
@@ -492,11 +621,16 @@ def _issue(
 def _project_preparation(
     target: ListModeTarget,
     entries: tuple[ListModeEntry, ...],
+    phase_templates: tuple[AwgPhaseTemplate, ...],
 ) -> ListModePreparation:
     """Select only shared device state needed by the rendered entries."""
 
     channel_ids = {
         waveform.channel_id for entry in entries for waveform in entry.waveforms
+    } | {
+        channel_id
+        for template in phase_templates
+        for channel_id in template.channel_ids
     }
     awg_instrument_ids = {channel_id.instrument_id for channel_id in channel_ids}
     return ListModePreparation(
@@ -517,11 +651,16 @@ def _project_preparation(
 def _project_host_state_requirements(
     target: ListModeTarget,
     entries: tuple[ListModeEntry, ...],
+    phase_templates: tuple[AwgPhaseTemplate, ...],
 ) -> ListModeHostStateRequirements:
     """Expand active channels through the configured physical coupling groups."""
 
     active_channel_ids = {
         waveform.channel_id for entry in entries for waveform in entry.waveforms
+    } | {
+        channel_id
+        for template in phase_templates
+        for channel_id in template.channel_ids
     }
     selected_groups = tuple(
         group
@@ -547,9 +686,10 @@ def _artifact_payload(
     preparation: ListModePreparation,
     host_state_requirements: ListModeHostStateRequirements,
     entries: tuple[ListModeEntry, ...],
+    phase_templates: tuple[AwgPhaseTemplate, ...],
 ) -> dict[str, object]:
     return {
-        "schema": "reference_lab.list_mode_artifact.v7",
+        "schema": "reference_lab.list_mode_artifact.v8",
         "target": {
             "id": target.id.value,
             "capability_fingerprint": target.capability_fingerprint,
@@ -565,6 +705,10 @@ def _artifact_payload(
         "host_state_requirements": host_state_requirements_payload(
             host_state_requirements
         ),
+        "phase_templates": [
+            awg_phase_template_identity_payload(template)
+            for template in phase_templates
+        ],
         "entries": [
             {
                 "list_index": entry.list_index,
@@ -592,6 +736,13 @@ def _artifact_payload(
                 "waveforms": [
                     awg_waveform_identity_payload(waveform)
                     for waveform in entry.waveforms
+                ],
+                "phase_template_uses": [
+                    {
+                        "template_id": use.template_id,
+                        "phase_radians": float(use.phase_radians).hex(),
+                    }
+                    for use in entry.phase_template_uses
                 ],
                 "acquisitions": [
                     {

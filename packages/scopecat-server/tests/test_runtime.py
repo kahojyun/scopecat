@@ -72,8 +72,6 @@ from scopecat.daemon.wire import (
     ConfigPublishReceipt,
     ConfigUndoCommand,
     DirectConfigRevisionSource,
-    ExecutionTransitionAppend,
-    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -110,7 +108,6 @@ from scopecat.records.config import (
     TcpipSocketInstrumentConnection,
     config_content_hash,
 )
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDatasetSchema,
@@ -135,12 +132,6 @@ from scopecat.records.parameter_change import (
 from scopecat.records.run import ConfigRegistryRunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.refs import dataset_content_ref, record_content_ref
-from scopecat.sdk.domain.invocation import close_domain_invocation
-from scopecat.sdk.domain.result_mapping import DomainResultMapping
-from scopecat.sdk.domain.runtime import (
-    DomainExecutionReceipt,
-    plan_domain_execution,
-)
 from scopecat_testkit.server.runtime import list_test_runs
 
 import scopecat_server.services.leases as lease_supervisor_services
@@ -2563,6 +2554,22 @@ def test_adaptive_domain_ledger_survives_runtime_restart(tmp_path: Path) -> None
                 outcome="accepted",
             ),
         )
+        rejected = runtime.application.executor.append_run_domain_decision(
+            admission.run_id,
+            RunDomainDecisionCommand(
+                lease_id=lease.lease_id,
+                operation_id="decision-2",
+                proposal=RunDomainProposalAttemptView.from_proposal(
+                    DomainProposalAttempt(
+                        fragment,
+                        region_ids=("region-0",),
+                        source="optimizer",
+                    )
+                ),
+                outcome="rejected",
+                reason="proposal used stale observations",
+            ),
+        )
         runtime.application.executor.advance_run_coverage(
             admission.run_id,
             RunCoverageAdvanceCommand(
@@ -2590,10 +2597,23 @@ def test_adaptive_domain_ledger_survives_runtime_restart(tmp_path: Path) -> None
     with LocalDaemonRuntime(tmp_path) as restarted:
         restored = restarted.application.point_plans.read(admission.run_id)
         restored_queue = restarted.application.point_plans.queue(admission.run_id)
+        latest_decisions = restarted.application.point_plans.decisions(
+            admission.run_id,
+            limit=1,
+        )
+        older_decisions = restarted.application.point_plans.decisions(
+            admission.run_id,
+            limit=1,
+            before=latest_decisions.next_cursor,
+        )
 
     assert restored == closed
     assert restored_queue.items[0].status == "accepted"
     assert restored_queue.items[0].accepted_point_start == 1
+    assert latest_decisions.items == (rejected,)
+    assert latest_decisions.next_cursor == 1
+    assert older_decisions.items == (decision,)
+    assert older_decisions.next_cursor is None
 
 
 def test_closed_point_plan_cannot_succeed_before_full_coverage(tmp_path: Path) -> None:
@@ -2888,104 +2908,6 @@ def test_leased_run_cancellation_reaches_heartbeat_and_preserves_terminal_histor
         assert not_accepted.outcome == succeeded_outcome
 
 
-def test_run_detail_projects_compact_domain_execution_evidence(tmp_path: Path) -> None:
-    class _ResultContract:
-        contract_fingerprint = "result-contract"
-
-    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
-        admission = runtime.application.submit_run(_submission("domain-summary"))
-        lease = runtime.application.executor.start_executor(
-            admission.run_id,
-            ExecutorStartRequest(executor_id="notebook-1"),
-        )
-        mapping = cast(
-            "DomainResultMapping[str]",
-            cast("object", _ResultContract()),
-        )
-        invocation = close_domain_invocation(
-            mapping,
-            invocation_id="invocation-0",
-            target_id="target-0",
-            compiler_id="compiler-0",
-            capability_fingerprint="capability-fingerprint",
-            artifact_id="artifact-0",
-            artifact_fingerprint="artifact-fingerprint",
-            execution_summary={"local_oscillators": {"drive": {"frequency_hz": 5e9}}},
-            target_intent={"dialect": "test"},
-            payload={"program": "opaque"},
-        )
-        execution_id = plan_domain_execution(
-            invocation,
-            run_id=admission.run_id,
-            logical_compute_node_id="domain.batch.0",
-        )
-        receipt = DomainExecutionReceipt(
-            execution_key=execution_id.execution_key,
-            status="completed",
-            result_fingerprint="result-fingerprint",
-            result_count=2,
-        )
-        transitions = (
-            ExecutionTransition(
-                run_id=admission.run_id,
-                operation_id=execution_id.operation_id,
-                stage="domain_execute",
-                effect="acquisition",
-                state="started",
-                evidence={
-                    "invocation_intent": invocation.intent.model_dump(mode="json"),
-                    "logical_compute_node_id": execution_id.logical_compute_node_id,
-                    "execution_key": execution_id.execution_key,
-                },
-            ),
-            ExecutionTransition(
-                run_id=admission.run_id,
-                operation_id=execution_id.operation_id,
-                stage="domain_execute",
-                effect="acquisition",
-                state="completed",
-                evidence={
-                    "execution_key": execution_id.execution_key,
-                    "intent_fingerprint": execution_id.intent_fingerprint,
-                    "receipt": receipt.model_dump(mode="json"),
-                },
-            ),
-        )
-        runtime.application.executor.claim_transition(
-            admission.run_id,
-            ExecutionTransitionClaim(
-                lease_id=lease.lease_id,
-                transition=transitions[0],
-            ),
-        )
-        with pytest.raises(BackendConflict, match="conflicts with durable run state"):
-            runtime.application.executor.claim_transition(
-                admission.run_id,
-                ExecutionTransitionClaim(
-                    lease_id=lease.lease_id,
-                    transition=transitions[0],
-                ),
-            )
-        runtime.application.executor.append_transition(
-            admission.run_id,
-            ExecutionTransitionAppend(
-                lease_id=lease.lease_id,
-                transition=transitions[1],
-            ),
-        )
-
-        [execution] = runtime.application.runs.get_run(
-            admission.run_id
-        ).domain_executions
-
-        assert execution.state == "completed"
-        assert execution.receipt_status == "completed"
-        assert execution.result_count == 2
-        assert execution.execution_summary == {
-            "local_oscillators": {"drive": {"frequency_hz": 5e9}}
-        }
-
-
 def test_effect_is_fenced_and_terminal_updates_control(
     tmp_path: Path,
 ) -> None:
@@ -3214,53 +3136,6 @@ def test_effect_is_fenced_and_terminal_updates_control(
             f"/api/v1/runs/{run_id}/measurements/traces/query",
             json={"recording_group_id": "missing"},
         )
-        transition = ExecutionTransition(
-            run_id=run_id,
-            operation_id="fetch-1",
-            stage="domain_execute",
-            effect="read",
-            state="completed",
-            timestamp=datetime(2026, 7, 23, 9, 0, 1, tzinfo=UTC),
-            point_index=0,
-            instrument_id="scope-1",
-            evidence={"measurement_count": 1},
-        )
-        command = ExecutionTransitionAppend(
-            lease_id=lease.lease_id,
-            transition=transition,
-        )
-
-        committed = client.post(
-            f"/api/v1/runs/{run_id}/transitions",
-            json=command.model_dump(mode="json"),
-        )
-        retry = client.post(
-            f"/api/v1/runs/{run_id}/transitions",
-            json=command.model_copy(
-                update={
-                    "transition": transition.model_copy(
-                        update={
-                            "timestamp": transition.timestamp + timedelta(seconds=1)
-                        }
-                    )
-                }
-            ).model_dump(mode="json"),
-        )
-        changed = client.post(
-            f"/api/v1/runs/{run_id}/transitions",
-            json=command.model_copy(
-                update={"transition": transition.model_copy(update={"state": "failed"})}
-            ).model_dump(mode="json"),
-        )
-        stale = client.post(
-            f"/api/v1/runs/{run_id}/transitions",
-            json=command.model_copy(
-                update={
-                    "lease_id": "stale-lease",
-                }
-            ).model_dump(mode="json"),
-        )
-
         assert header_response.status_code == 200
         assert measurement_response.status_code == 200
         assert measurement_response.json()["received_record_count"] == 4
@@ -3348,33 +3223,6 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert exhausted_trace_preview.json()["returned_series_count"] == 1
         assert not exhausted_trace_preview.json()["truncated_series"]
         assert exhausted_trace_preview.json()["series"][0]["point_index"] == 1
-        assert committed.status_code == 200
-        assert committed.json()["sequence"] == 0
-        committed_transition = ExecutionTransition.model_validate(committed.json())
-        assert retry.json() == committed.json()
-        assert changed.status_code == 200
-        assert changed.json()["sequence"] == 1
-        assert stale.status_code == 409
-        transition_events = [
-            event
-            for event in _events(runtime, run_id=run_id).items
-            if event.kind == "execution_transition_committed"
-        ]
-        transition_event = transition_events[0]
-        assert len(transition_events) == 2
-        assert transition_event.occurred_at == committed_transition.timestamp
-        assert transition_event.payload == {
-            "sequence": 0,
-            "operation_id": "fetch-1",
-            "stage": "domain_execute",
-            "effect": "read",
-            "state": "completed",
-            "point_index": 0,
-            "instrument_id": "scope-1",
-            "problems": [],
-            "evidence": {"measurement_count": 1},
-        }
-
         outcome = RunOutcome(
             run_id=run_id,
             result="succeeded",

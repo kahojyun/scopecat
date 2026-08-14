@@ -21,7 +21,7 @@ from .config import ConfigService
 from .executor import ExecutorService
 from .leases import OwnershipLeaseSupervisor
 from .point_plans import RunPointPlanService
-from .reviews import ReviewService, RunInspectionFeedService
+from .reviews import ReviewService
 from .runs import RunService
 
 if TYPE_CHECKING:
@@ -45,7 +45,6 @@ class DaemonApplication:
         payloads: CommandPayloadService,
         lease_supervisor: OwnershipLeaseSupervisor,
         reviews: ReviewService,
-        run_inspections: RunInspectionFeedService,
         point_plans: RunPointPlanService,
     ) -> None:
         self.project_root = Path(project_root).resolve()
@@ -58,7 +57,6 @@ class DaemonApplication:
         self.instruments = instruments
         self.payloads = payloads
         self.reviews = reviews
-        self.run_inspections = run_inspections
         self.point_plans = point_plans
         self._lease_supervisor = lease_supervisor
 
@@ -76,7 +74,10 @@ class DaemonApplication:
                 try:
                     self._lease_supervisor.close()
                 finally:
-                    self.executor.close()
+                    try:
+                        self.executor.close()
+                    finally:
+                        self._project_store.close()
 
     def health(self) -> DaemonHealth:
         try:

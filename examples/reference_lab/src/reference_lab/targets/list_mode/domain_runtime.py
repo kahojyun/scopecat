@@ -85,13 +85,20 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
     return cast(
         "dict[str, JsonValue]",
         {
-            "schema": "reference_lab.list_mode_execution_summary.v5",
+            "schema": "reference_lab.list_mode_execution_summary.v6",
             "waveform_outputs": {
                 program.instrument_id: sorted(
                     {
                         waveform.channel_id.value
-                        for entry in program.entries
+                        for entry in artifact.entries
                         for waveform in entry.waveforms
+                        if waveform.channel_id.instrument_id == program.instrument_id
+                    }
+                    | {
+                        channel_id.value
+                        for template in artifact.phase_templates
+                        for channel_id in template.channel_ids
+                        if channel_id.instrument_id == program.instrument_id
                     }
                 )
                 for program in artifact.awg_programs

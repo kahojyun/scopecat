@@ -106,6 +106,20 @@ def test_domain_ledger_retains_bounded_decisions_with_exact_totals() -> None:
     assert ledger.optimizer_attempt_count == 40
 
 
+def test_domain_proposal_fingerprint_is_cached() -> None:
+    proposal = DomainProposalAttempt(
+        ResolvedDomainFragment.points(({"x": 1.0}, {"x": 2.0})),
+        region_ids=("region-0",),
+    )
+
+    assert "proposal_fingerprint" not in vars(proposal)
+    first = proposal.proposal_fingerprint
+    second = proposal.proposal_fingerprint
+
+    assert first == second
+    assert vars(proposal)["proposal_fingerprint"] == first
+
+
 def test_domain_ledger_does_not_retain_large_accepted_domain_payload() -> None:
     point_count = 4096
     proposal = DomainProposalAttempt(

@@ -30,7 +30,7 @@ from scopecat_server.services.config import ConfigService
 from scopecat_server.services.executor import ExecutorService
 from scopecat_server.services.leases import OwnershipLeaseSupervisor
 from scopecat_server.services.point_plans import RunPointPlanService
-from scopecat_server.services.reviews import ReviewService, RunInspectionFeedService
+from scopecat_server.services.reviews import ReviewService
 from scopecat_server.services.runs import RunService
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
@@ -119,7 +119,6 @@ class LocalDaemonRuntime:
             )
             active_measurements = ActiveMeasurementStore()
             reviews = ReviewService()
-            run_inspections = RunInspectionFeedService()
             instrument_actors = InstrumentActorRegistry()
             config_service = ConfigService(
                 control=control,
@@ -157,7 +156,6 @@ class LocalDaemonRuntime:
                 runs=runs,
                 instruments=instruments,
                 active_measurements=active_measurements,
-                run_inspections=run_inspections,
                 point_plans=point_plans,
                 lease_ttl=lease_ttl,
             )
@@ -179,7 +177,6 @@ class LocalDaemonRuntime:
                 payloads=payloads,
                 lease_supervisor=lease_supervisor,
                 reviews=reviews,
-                run_inspections=run_inspections,
                 point_plans=point_plans,
             )
             try:

@@ -1,4 +1,4 @@
-"""Durable records persisted by Scopecat repositories and journals.
+"""Durable records persisted by Scopecat repositories.
 
 A structured run keeps operator intent, its accepted configuration snapshot,
 and execution evidence as independently readable records. Planning projections

@@ -935,28 +935,6 @@ class InstrumentRuntime:
                     strict=True,
                 )
             )
-            batch_evidence = canonical_request.batch.model_dump(
-                mode="json",
-                exclude={
-                    "actions": {
-                        "__all__": {
-                            "payloads": {"__all__": {"body"}},
-                        }
-                    }
-                },
-            )
-            self._record_run_operation_event(
-                run_id,
-                token=canonical_request.lease_id,
-                instrument_id=None,
-                operation_id=canonical_request.batch.operation_id,
-                event_kind="run_hardware_batch_started",
-                status=None,
-                details={
-                    "sequence": canonical_request.sequence,
-                    "batch": batch_evidence,
-                },
-            )
             values: list[RunHardwareValue] = []
             problems: list[Problem] = []
             completed_effect_ids: list[str] = []
@@ -1039,14 +1017,15 @@ class InstrumentRuntime:
                 problems=tuple(problems),
                 indeterminate=indeterminate_reason is not None,
             )
-            self._record_hardware_batch_finished(
-                run_id,
-                runtime,
-                canonical_request,
-                receipt,
-                completed_effect_ids=completed_effect_ids,
-                effect_receipts=effect_receipts,
-            )
+            if receipt.problems or receipt.indeterminate:
+                self._record_hardware_batch_problem(
+                    run_id,
+                    runtime,
+                    canonical_request,
+                    receipt,
+                    completed_effect_ids=completed_effect_ids,
+                    effect_receipts=effect_receipts,
+                )
             if indeterminate_reason is not None:
                 self._lose_run_runtime(
                     run_id,
@@ -1064,7 +1043,7 @@ class InstrumentRuntime:
             self._payloads.release(payload_scope)
             return receipt
 
-    def _record_hardware_batch_finished(
+    def _record_hardware_batch_problem(
         self,
         run_id: str,
         runtime: OwnershipRuntime,
@@ -1087,8 +1066,12 @@ class InstrumentRuntime:
                 token=request.lease_id,
                 instrument_id=None,
                 operation_id=request.batch.operation_id,
-                event_kind="run_hardware_batch_finished",
-                status="failed" if receipt.problems else "completed",
+                event_kind=(
+                    "run_hardware_batch_unknown"
+                    if receipt.indeterminate
+                    else "run_hardware_batch_failed"
+                ),
+                status="unknown" if receipt.indeterminate else "failed",
                 details=receipt_evidence,
             )
         except BackendConflict:

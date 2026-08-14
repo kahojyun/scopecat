@@ -28,10 +28,10 @@ state in the manifest.
 Admission closes the complete instrument claim set before hardware access. It
 also binds the expected provider and instrument-description fingerprints. The
 executor then atomically acquires a renewable lease with a unique fencing
-identity. Every journal, measurement, and terminal command presents that
-identity, so an expired executor cannot continue writing.
+identity. Every measurement, coverage, point-plan, and terminal command presents
+that identity, so an expired executor cannot continue writing.
 
-Lease validation, effect evidence, and its event commit share one SQLite
+Lease validation and each coarse checkpoint or terminal commit share one SQLite
 transaction. Heartbeats renew the lease and return durable cancellation state.
 Routine renewals stay out of the project timeline; lease grant or loss,
 cancellation, quarantine, and attention resolution remain visible state
@@ -63,8 +63,8 @@ instrument the daemon-owned execution path:
 
 1. acquires a fresh owner epoch and observes initial hardware state;
 2. applies configured run-start policy to establish the baseline;
-3. validates and lowers complete commands before recording the batch as started;
-4. invokes the driver and records concise intent and receipt evidence;
+3. validates and lowers complete commands before invoking the batch;
+4. invokes the driver and validates its typed receipt;
 5. applies success or failure policy, gathers terminal readback, and retires the
    connection when required.
 
@@ -74,7 +74,7 @@ hash-checked binary attachments; bounded JSON messages carry their typed
 descriptors and ordinary receipt fields.
 
 Whole-batch operation identities provide process-local duplicate detection and
-durable correlation. They never turn an unknown hardware outcome into a safe
+receipt correlation. They never turn an unknown hardware outcome into a safe
 retry. Unknown effects stop dependent execution, initiate the available abort
 path, and quarantine resources whose final state cannot be established.
 
@@ -100,8 +100,8 @@ the daemon for the instrument contract catalog bound to that snapshot.
 An invocation that contains local closures or interactive objects may retain its
 transient `RunProgram` and pure computation in the notebook process. The daemon
 still admits the plan, fences the client executor, owns instrument sessions, and
-writes every effect, measurement, and outcome. The notebook therefore remains a
-compute client rather than a second durable writer.
+writes measurement checkpoints and the terminal outcome. The notebook therefore
+remains a compute client rather than a second durable writer.
 
 The same client exposes replayable events, cancellation, and attention
 resolution through `lab.control`. Analysis records, parameter proposals,
@@ -165,7 +165,9 @@ The daemon serves the bundled GUI and a versioned typed HTTP API. Run detail,
 resource state, configuration history, and measurements are exposed through
 bounded queries. Measurement control commands remain small JSON documents;
 measurement ingest and the live latest-point response use schema-driven Arrow
-IPC so waveform arrays cross neither boundary as JSON lists.
+IPC, while direct and run-scoped hardware receipts use typed JSON headers with
+binary measurement-array attachments. Numeric acquisition results therefore do
+not expand into JSON lists between the instrument worker, daemon, and executor.
 
 Server-sent events replay the same durable globally ordered event log used by
 the API. On initial connection or reconnection, clients refresh canonical

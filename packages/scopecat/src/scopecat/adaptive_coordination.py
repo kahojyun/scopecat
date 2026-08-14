@@ -248,6 +248,7 @@ class AdaptiveDomainCoordinator:
             region_ids=region_ids,
             based_on_region_revisions=expected_revisions,
         )
+        proposal_fingerprint = bound_proposal.proposal_fingerprint
         count_per_region = proposal.fragment.point_count
         total_count = count_per_region * len(region_ids)
         if self.accepted_point_count + total_count > self.plan.total_point_limit:
@@ -263,7 +264,7 @@ class AdaptiveDomainCoordinator:
                 coordinates={**self._regions[region_id].coordinates, **row},
                 source=bound_proposal.source,
                 region_id=region_id,
-                domain_proposal_fingerprint=bound_proposal.proposal_fingerprint,
+                domain_proposal_fingerprint=proposal_fingerprint,
                 based_on_region_revision=expected_revisions[region_id],
             )
             for region_id in region_ids
@@ -307,8 +308,9 @@ class AdaptiveDomainCoordinator:
         by_region: dict[str, list[AcceptedRunPoint]] = {
             region_id: [] for region_id in bound.proposal.region_ids
         }
+        proposal_fingerprint = bound.proposal.proposal_fingerprint
         for point in points:
-            if point.domain_proposal_fingerprint != bound.proposal.proposal_fingerprint:
+            if point.domain_proposal_fingerprint != proposal_fingerprint:
                 raise ValueError("accepted point lost its domain proposal identity")
             region_id = cast("str", point.region_id)
             by_region[region_id].append(point)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from base64 import b64decode, b64encode
 from binascii import Error as BinasciiError
 from pathlib import PurePosixPath
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 from pydantic import (
     BaseModel,
@@ -143,17 +143,59 @@ class CommandPayload(BaseModel):
         return self
 
     def verify_content(self, content: bytes) -> None:
+        verified = cast(
+            "tuple[str, bytes] | None",
+            self.__dict__.get("_verified_content"),
+        )
+        if (
+            verified is not None
+            and verified[0] == self.content_hash
+            and verified[1] is content
+        ):
+            return
         if len(content) != self.size_bytes:
             raise ValueError(
                 "payload byte length does not match its declared size_bytes"
             )
         if sha256_content_hash(content) != self.content_hash:
             raise ValueError("payload bytes do not match their declared content_hash")
+        object.__setattr__(
+            self,
+            "_verified_content",
+            (self.content_hash, content),
+        )
 
     def inline_bytes(self) -> bytes:
         if isinstance(self.body, BlobPayloadBody):
             raise ValueError("blob payload content must be resolved before decoding")
         return self.body.content_bytes()
+
+    @classmethod
+    def from_inline_bytes(
+        cls,
+        *,
+        id: str,
+        schema_id: str,
+        codec_id: str,
+        codec_version: int,
+        media_type: str,
+        content: bytes,
+    ) -> CommandPayload:
+        """Build a trusted inline payload while hashing immutable bytes once."""
+
+        content_hash = sha256_content_hash(content)
+        payload = cls.model_construct(
+            id=id,
+            schema_id=schema_id,
+            codec_id=codec_id,
+            codec_version=codec_version,
+            media_type=media_type,
+            content_hash=content_hash,
+            size_bytes=len(content),
+            body=InlinePayloadBody.from_bytes(content),
+        )
+        object.__setattr__(payload, "_verified_content", (content_hash, content))
+        return payload
 
 
 def command_payload_from_bytes(
@@ -168,11 +210,15 @@ def command_payload_from_bytes(
 ) -> CommandPayload:
     """Build an inline or externally stored envelope from exact encoded bytes."""
 
-    body: CommandPayloadBody = (
-        InlinePayloadBody.from_bytes(content)
-        if blob_ref is None
-        else BlobPayloadBody(ref=blob_ref)
-    )
+    if blob_ref is None:
+        return CommandPayload.from_inline_bytes(
+            id=id,
+            schema_id=schema_id,
+            codec_id=codec_id,
+            codec_version=codec_version,
+            media_type=media_type,
+            content=content,
+        )
     return CommandPayload(
         id=id,
         schema_id=schema_id,
@@ -181,7 +227,7 @@ def command_payload_from_bytes(
         media_type=media_type,
         content_hash=sha256_content_hash(content),
         size_bytes=len(content),
-        body=body,
+        body=BlobPayloadBody(ref=blob_ref),
     )
 
 

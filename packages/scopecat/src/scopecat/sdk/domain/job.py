@@ -21,7 +21,7 @@ class DomainInvocationSpec[PayloadT]:
     The payload is transient and target-owned. ``target_intent`` must be
     stable-content encodable because core fingerprints it when binding the
     invocation to an exact result mapping. Stable identity fields become
-    validated durable intent when the preparation is closed.
+    validated execution intent when the preparation is closed.
     """
 
     invocation_id: str

@@ -3,11 +3,13 @@ from __future__ import annotations
 from typing import cast
 
 import numpy as np
+import pytest
 from scopecat.sdk.payloads import PayloadDescriptor
 
 from reference_lab.payloads import (
     AWG_PROGRAM_SCHEMA_ID,
-    DecodedAwgProgram,
+    DecodedMaterializedAwgProgram,
+    DecodedPhaseSynthesizedAwgProgram,
     reference_lab_payload_codecs,
 )
 from reference_lab.virtual_lab.capture_payload import (
@@ -23,6 +25,8 @@ def test_awg_program_codec_keeps_samples_in_float64_binary() -> None:
     encoded = codecs.encode(
         AWG_PROGRAM_SCHEMA_ID,
         {
+            "kind": "materialized",
+            "max_abs_amplitude": 1.0,
             "entries": [
                 {
                     "waveforms": [
@@ -32,11 +36,11 @@ def test_awg_program_codec_keeps_samples_in_float64_binary() -> None:
                         }
                     ]
                 }
-            ]
+            ],
         },
     )
     decoded = cast(
-        "DecodedAwgProgram",
+        "DecodedMaterializedAwgProgram",
         codecs.decode_content(
             cast("PayloadDescriptor", cast("object", encoded)),
             encoded.content,
@@ -44,10 +48,151 @@ def test_awg_program_codec_keeps_samples_in_float64_binary() -> None:
     )
 
     assert encoded.codec_id == "reference_lab.awg-program-float64"
+    assert encoded.codec_version == 4
     assert len(encoded.content) < samples.nbytes + 256
     assert np.shares_memory(decoded.entries[0].waveforms[0].samples, samples) is False
     assert decoded.entries[0].waveforms[0].samples.flags.writeable is False
     np.testing.assert_array_equal(decoded.entries[0].waveforms[0].samples, samples)
+
+
+def test_phase_synthesized_awg_program_materializes_contiguous_buffers() -> None:
+    logical_i = np.ones(4, dtype=np.float64)
+    logical_q = np.zeros(4, dtype=np.float64)
+    codecs = reference_lab_payload_codecs()
+
+    encoded = codecs.encode(
+        AWG_PROGRAM_SCHEMA_ID,
+        {
+            "kind": "phase_synthesized",
+            "max_abs_amplitude": 1.0,
+            "templates": [
+                {
+                    "id": "drive",
+                    "i_component_path": ["outputs", "ch1"],
+                    "q_component_path": ["outputs", "ch2"],
+                    "start_sample": 0,
+                    "logical_i": logical_i,
+                    "logical_q": logical_q,
+                    "mixer": {"ii": 1.0, "iq": 0.0, "qi": 0.0, "qq": 1.0},
+                }
+            ],
+            "entries": [
+                {
+                    "sample_count": 4,
+                    "template_uses": [{"template_id": "drive", "phase_radians": 0.0}],
+                },
+                {
+                    "sample_count": 4,
+                    "template_uses": [
+                        {"template_id": "drive", "phase_radians": np.pi / 2}
+                    ],
+                },
+            ],
+        },
+    )
+    decoded = cast(
+        "DecodedPhaseSynthesizedAwgProgram",
+        codecs.decode_content(
+            cast("PayloadDescriptor", cast("object", encoded)),
+            encoded.content,
+        ),
+    )
+
+    assert isinstance(decoded, DecodedPhaseSynthesizedAwgProgram)
+    materialized = decoded.materialize()
+    first_i, first_q = materialized.entries[0].waveforms
+    second_i, second_q = materialized.entries[1].waveforms
+    np.testing.assert_allclose(first_i.samples, np.ones(4), atol=1e-15)
+    np.testing.assert_allclose(first_q.samples, np.zeros(4), atol=1e-15)
+    np.testing.assert_allclose(second_i.samples, np.zeros(4), atol=1e-15)
+    np.testing.assert_allclose(second_q.samples, np.ones(4), atol=1e-15)
+    assert all(
+        waveform.samples.flags.c_contiguous and not waveform.samples.flags.writeable
+        for entry in materialized.entries
+        for waveform in entry.waveforms
+    )
+
+
+def test_phase_synthesized_awg_program_checks_materialized_amplitude() -> None:
+    codecs = reference_lab_payload_codecs()
+    encoded = codecs.encode(
+        AWG_PROGRAM_SCHEMA_ID,
+        {
+            "kind": "phase_synthesized",
+            "max_abs_amplitude": 0.5,
+            "templates": [
+                {
+                    "id": "drive",
+                    "i_component_path": ["outputs", "ch1"],
+                    "q_component_path": ["outputs", "ch2"],
+                    "start_sample": 0,
+                    "logical_i": np.ones(4, dtype=np.float64),
+                    "logical_q": np.zeros(4, dtype=np.float64),
+                    "mixer": {"ii": 1.0, "iq": 0.0, "qi": 0.0, "qq": 1.0},
+                }
+            ],
+            "entries": [
+                {
+                    "sample_count": 4,
+                    "template_uses": [{"template_id": "drive", "phase_radians": 0.0}],
+                }
+            ],
+        },
+    )
+    decoded = cast(
+        "DecodedPhaseSynthesizedAwgProgram",
+        codecs.decode_content(
+            cast("PayloadDescriptor", cast("object", encoded)),
+            encoded.content,
+        ),
+    )
+
+    with pytest.raises(ValueError, match=r"device limit is 0\.5"):
+        decoded.materialize()
+
+
+def test_phase_synthesized_awg_program_accumulates_shared_channels() -> None:
+    codecs = reference_lab_payload_codecs()
+    encoded = codecs.encode(
+        AWG_PROGRAM_SCHEMA_ID,
+        {
+            "kind": "phase_synthesized",
+            "max_abs_amplitude": 1.0,
+            "templates": [
+                {
+                    "id": template_id,
+                    "i_component_path": ["outputs", "ch1"],
+                    "q_component_path": ["outputs", "ch2"],
+                    "start_sample": start_sample,
+                    "logical_i": np.full(2, 0.25),
+                    "logical_q": np.zeros(2),
+                    "mixer": {"ii": 1.0, "iq": 0.0, "qi": 0.0, "qq": 1.0},
+                }
+                for template_id, start_sample in (("first", 0), ("second", 1))
+            ],
+            "entries": [
+                {
+                    "sample_count": 3,
+                    "template_uses": [
+                        {"template_id": "first", "phase_radians": 0.0},
+                        {"template_id": "second", "phase_radians": 0.0},
+                    ],
+                }
+            ],
+        },
+    )
+    decoded = cast(
+        "DecodedPhaseSynthesizedAwgProgram",
+        codecs.decode_content(
+            cast("PayloadDescriptor", cast("object", encoded)),
+            encoded.content,
+        ),
+    )
+
+    i_waveform, q_waveform = decoded.materialize().entries[0].waveforms
+
+    np.testing.assert_allclose(i_waveform.samples, [0.25, 0.5, 0.25])
+    np.testing.assert_array_equal(q_waveform.samples, np.zeros(3))
 
 
 def test_virtual_capture_codec_keeps_samples_in_float64_binary() -> None:

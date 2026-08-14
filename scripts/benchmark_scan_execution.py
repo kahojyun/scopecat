@@ -32,6 +32,7 @@ import httpx2
 import numpy as np
 import psutil
 from fastapi.testclient import TestClient
+from pydantic import JsonValue
 
 import scopecat as sc
 from reference_lab.bench_interfaces import (
@@ -47,7 +48,9 @@ from reference_lab.configuration import bootstrap_config
 from reference_lab.parameters import QUBITS
 from reference_lab.payloads import (
     DecodedAwgProgram,
+    DecodedMaterializedAwgProgram,
     DecodedTriggerProgram,
+    materialize_awg_program,
     reference_lab_payload_codecs,
 )
 from reference_lab.provider import ReferenceLabProvider
@@ -103,6 +106,7 @@ type ProfileName = Literal[
     "multiqubit_result_retention",
 ]
 type RetentionMode = Literal["discard", "summary", "bit-shots", "iq-and-bits"]
+type AcquisitionDspPolicy = Literal["prefer_device", "target"]
 _RUNNERS: tuple[RunnerName, ...] = ("adhoc", "scopecat")
 _ALL_RUNNERS: tuple[RunnerName, ...] = ("adhoc", "scopecat-core", "scopecat")
 _PROFILE_ALIASES: dict[str, ProfileName] = {
@@ -125,6 +129,7 @@ class BenchmarkArguments:
     repetitions: int
     warmups: int
     point_delay_ms: float
+    acquisition_dsp_policy: AcquisitionDspPolicy
     live_waveform: bool
     profile: str
     retention: RetentionMode
@@ -145,6 +150,7 @@ class ScanScenario:
 
     point_count: int
     point_delay_s: float = 0.0
+    acquisition_dsp_policy: AcquisitionDspPolicy = "prefer_device"
     live_waveform: bool = False
     profile: ProfileName = "drag_beta_integrated_iq"
     retention: RetentionMode = "summary"
@@ -211,7 +217,7 @@ class HostMetadata:
 class BenchmarkResult:
     """One isolated benchmark worker result."""
 
-    schema: Literal["scopecat.scan_execution_benchmark.v5"]
+    schema: Literal["scopecat.scan_execution_benchmark.v6"]
     revision: str
     runner: RunnerName
     scenario: ScanScenario
@@ -350,16 +356,17 @@ class ScopecatWaveformTracker:
 
     def __init__(self, *, live_waveform: bool) -> None:
         self._view = LatestWaveformView(live_waveform)
-        self._programs: dict[str, DecodedAwgProgram] = {}
+        self._programs: dict[str, DecodedMaterializedAwgProgram] = {}
         self.uploaded_bytes = 0
         self._pending_batch_bytes = 0
         self.max_batch_bytes = 0
 
     def load(self, instrument_id: str, program: DecodedAwgProgram) -> None:
-        self._programs[instrument_id] = program
+        materialized = materialize_awg_program(program)
+        self._programs[instrument_id] = materialized
         uploaded = sum(
             len(waveform.samples) * np.dtype(np.float64).itemsize
-            for entry in program.entries
+            for entry in materialized.entries
             for waveform in entry.waveforms
         )
         self.uploaded_bytes += uploaded
@@ -566,7 +573,7 @@ def run_ad_hoc(
     durable_bytes, durable_files = _tree_size(root)
     measurement_dataset_bytes = _ad_hoc_measurement_bytes(root)
     return BenchmarkResult(
-        schema="scopecat.scan_execution_benchmark.v5",
+        schema="scopecat.scan_execution_benchmark.v6",
         revision=_git_revision(),
         runner="adhoc",
         scenario=scenario,
@@ -604,7 +611,7 @@ def run_scopecat_core(
 
     timeline = ExperimentTimeline()
     waveforms = ScopecatWaveformTracker(live_waveform=scenario.live_waveform)
-    config = bootstrap_config()
+    config = _benchmark_config(scenario)
     reference_provider = ReferenceLabProvider(seed=7)
     provider = TimedInstrumentProvider(
         reference_provider,
@@ -648,7 +655,7 @@ def run_scopecat_core(
     )
     measurement_dataset_bytes = _scopecat_measurement_bytes(root / ".scopecat-test")
     return BenchmarkResult(
-        schema="scopecat.scan_execution_benchmark.v5",
+        schema="scopecat.scan_execution_benchmark.v6",
         revision=_git_revision(),
         runner="scopecat-core",
         scenario=scenario,
@@ -686,7 +693,7 @@ def run_scopecat(
 
     timeline = ExperimentTimeline()
     waveforms = ScopecatWaveformTracker(live_waveform=scenario.live_waveform)
-    config = bootstrap_config()
+    config = _benchmark_config(scenario)
     reference_provider = ReferenceLabProvider(seed=7)
     provider = TimedInstrumentProvider(
         reference_provider,
@@ -745,7 +752,7 @@ def run_scopecat(
     object_store_bytes, object_store_files = _tree_size(root / ".scopecat" / "objects")
     measurement_dataset_bytes = _scopecat_measurement_bytes(root / ".scopecat")
     return BenchmarkResult(
-        schema="scopecat.scan_execution_benchmark.v5",
+        schema="scopecat.scan_execution_benchmark.v6",
         revision=_git_revision(),
         runner="scopecat",
         scenario=scenario,
@@ -790,6 +797,30 @@ def _daemon_client(transport: TestClient) -> DaemonClient:
     return DaemonClient(
         "http://testserver",
         transport=httpx2.MockTransport(send),
+    )
+
+
+def _benchmark_config(scenario: ScanScenario) -> ConfigProfileSnapshot:
+    config = bootstrap_config()
+    target = config.domain_target
+    assert target is not None
+    configuration = target.configuration.copy()
+    capabilities = cast(
+        "dict[str, JsonValue]",
+        configuration["capabilities"],
+    ).copy()
+    capabilities["acquisition_dsp_policy"] = scenario.acquisition_dsp_policy
+    configuration["capabilities"] = capabilities
+    return config.model_copy(
+        update={
+            "system": config.system.model_copy(
+                update={
+                    "domain_target": target.model_copy(
+                        update={"configuration": configuration}
+                    )
+                }
+            )
+        }
     )
 
 
@@ -1342,6 +1373,10 @@ def _render_ad_hoc_point(
 
 def _worker(args: BenchmarkArguments) -> int:
     runner = cast("RunnerName", args.worker)
+    _validate_runner_compatibility(
+        acquisition_dsp_policy=args.acquisition_dsp_policy,
+        runners=(runner,),
+    )
     if args.retention == "discard" and runner != "adhoc":
         raise ValueError(
             "Scopecat cannot yet demand acquisition results without retaining "
@@ -1355,6 +1390,7 @@ def _worker(args: BenchmarkArguments) -> int:
     scenario = ScanScenario(
         point_count=cast("int", args.point_count),
         point_delay_s=args.point_delay_ms / 1000.0,
+        acquisition_dsp_policy=args.acquisition_dsp_policy,
         live_waveform=args.live_waveform,
         profile=profile,
         retention=args.retention,
@@ -1384,6 +1420,10 @@ def _controller(args: BenchmarkArguments) -> int:
     invalid = sorted(set(runners) - set(_ALL_RUNNERS))
     if invalid:
         raise ValueError(f"unknown runners: {', '.join(invalid)}")
+    _validate_runner_compatibility(
+        acquisition_dsp_policy=args.acquisition_dsp_policy,
+        runners=runners,
+    )
     if args.retention == "discard" and any(runner != "adhoc" for runner in runners):
         raise ValueError(
             "Scopecat cannot yet demand acquisition results without retaining "
@@ -1418,6 +1458,7 @@ def _controller(args: BenchmarkArguments) -> int:
             results.append(result)
             print(
                 f"{runner:8} points={point_count:<7} "
+                f"dsp={_scenario_str(result, 'acquisition_dsp_policy'):<13} "
                 f"retention={_scenario_str(result, 'retention'):<11} "
                 f"shots={_scenario_int(result, 'shots'):<7} "
                 f"samples={_scenario_int(result, 'waveform_sample_count'):<7} "
@@ -1453,6 +1494,8 @@ def _run_worker_process(
         str(point_count),
         "--point-delay-ms",
         str(args.point_delay_ms),
+        "--acquisition-dsp",
+        args.acquisition_dsp_policy,
         "--profile",
         args.profile,
         "--retention",
@@ -1507,11 +1550,20 @@ def _summaries(results: Sequence[dict[str, object]]) -> list[dict[str, object]]:
             if result["runner"] == runner
             and _scenario_signature(result) == tuple(signature)
         )
-        profile, retention, point_count, shots, sample_count, channel_count = signature
+        (
+            profile,
+            acquisition_dsp_policy,
+            retention,
+            point_count,
+            shots,
+            sample_count,
+            channel_count,
+        ) = signature
         summaries.append(
             {
                 "runner": runner,
                 "profile": profile,
+                "acquisition_dsp_policy": acquisition_dsp_policy,
                 "retention": retention,
                 "point_count": point_count,
                 "shots": shots,
@@ -1553,10 +1605,11 @@ def _summaries(results: Sequence[dict[str, object]]) -> list[dict[str, object]]:
 
 def _scenario_signature(
     result: dict[str, object],
-) -> tuple[str, str, int, int, int, int]:
+) -> tuple[str, str, str, int, int, int, int]:
     scenario = cast("dict[str, object]", result["scenario"])
     return (
         cast("str", scenario["profile"]),
+        cast("str", scenario["acquisition_dsp_policy"]),
         cast("str", scenario["retention"]),
         cast("int", scenario["point_count"]),
         cast("int", scenario["shots"]),
@@ -1585,6 +1638,19 @@ def _positive_ints(value: str) -> tuple[int, ...]:
     if not selected or any(item <= 0 for item in selected):
         raise ValueError("point counts must be positive")
     return selected
+
+
+def _validate_runner_compatibility(
+    *,
+    acquisition_dsp_policy: AcquisitionDspPolicy,
+    runners: Sequence[RunnerName],
+) -> None:
+    if acquisition_dsp_policy == "target" and "adhoc" in runners:
+        raise ValueError(
+            "the ad hoc runner does not model raw-trace transport or target-side "
+            "DSP; use --runners scopecat-core,scopecat with "
+            "--acquisition-dsp target"
+        )
 
 
 def _completed_point_count(run: RunHandle, scenario: ScanScenario) -> int:
@@ -1710,6 +1776,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--warmups", type=int, default=1)
     parser.add_argument("--point-delay-ms", type=float, default=0.0)
+    parser.add_argument(
+        "--acquisition-dsp",
+        choices=("prefer_device", "target"),
+        default="prefer_device",
+    )
     parser.add_argument("--live-waveform", action="store_true")
     parser.add_argument("--profile", choices=tuple(_PROFILE_ALIASES), default="dense")
     parser.add_argument("--retention", choices=_RETENTION_MODES, default="summary")
@@ -1736,6 +1807,10 @@ def _arguments(argv: Sequence[str] | None) -> BenchmarkArguments:
         repetitions=cast("int", parsed.repetitions),
         warmups=cast("int", parsed.warmups),
         point_delay_ms=cast("float", parsed.point_delay_ms),
+        acquisition_dsp_policy=cast(
+            "AcquisitionDspPolicy",
+            parsed.acquisition_dsp,
+        ),
         live_waveform=cast("bool", parsed.live_waveform),
         profile=cast("str", parsed.profile),
         retention=cast("RetentionMode", parsed.retention),

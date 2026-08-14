@@ -21,9 +21,15 @@ from scopecat.daemon.endpoint import (
     DAEMON_SHUTDOWN_PATH,
     DAEMON_SHUTDOWN_TOKEN_HEADER,
 )
+from scopecat.daemon.hardware_receipt_wire import (
+    HARDWARE_RECEIPT_MEDIA_TYPE,
+    encode_collect_receipt,
+    encode_run_hardware_receipt,
+)
 from scopecat.daemon.points import (
     ResolvedRunDomainView,
     RunDomainDecisionCommand,
+    RunDomainDecisionPage,
     RunDomainDecisionView,
     RunDomainEnqueueCommand,
     RunDomainQueueEntryView,
@@ -42,8 +48,6 @@ from scopecat.daemon.reviews import (
     ReviewSessionListView,
     ReviewSessionView,
     ReviewWorkItem,
-    RunInspectionAppendCommand,
-    RunInspectionView,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -80,8 +84,6 @@ from scopecat.daemon.wire import (
     ConfigPublishCommand,
     ConfigPublishReceipt,
     ConfigUndoCommand,
-    ExecutionTransitionAppend,
-    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -115,7 +117,6 @@ from scopecat.daemon.wire import (
 )
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.artifact import RunContentEntry
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
 from scopecat.records.run import RunManifest
@@ -391,17 +392,33 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
 
     @app.post(
         f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"
-        "{instrument_id}/collect"
+        "{instrument_id}/collect",
+        response_class=Response,
+        response_model=CollectReceipt,
+        responses={
+            200: {
+                "content": {
+                    HARDWARE_RECEIPT_MEDIA_TYPE: {
+                        "schema": {"type": "string", "format": "binary"}
+                    }
+                }
+            }
+        },
     )
     def collect_instrument(
         session_id: str,
         instrument_id: str,
         intent: InteractiveCollectIntent,
-    ) -> CollectReceipt:
-        return application.instruments.collect(
-            session_id,
-            instrument_id,
-            intent,
+    ) -> Response:
+        return Response(
+            content=encode_collect_receipt(
+                application.instruments.collect(
+                    session_id,
+                    instrument_id,
+                    intent,
+                )
+            ),
+            media_type=HARDWARE_RECEIPT_MEDIA_TYPE,
         )
 
     @app.post(f"{_API_PREFIX}/instrument-sessions/{{session_id}}/close")
@@ -752,6 +769,18 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> RunDomainDecisionView:
         return application.executor.append_run_domain_decision(run_id, command)
 
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/decisions")
+    def get_run_domain_decisions(
+        run_id: str,
+        limit: Annotated[int, Query(ge=1, le=100)] = 64,
+        before: Annotated[int | None, Query(ge=0)] = None,
+    ) -> RunDomainDecisionPage:
+        return application.point_plans.decisions(
+            run_id,
+            limit=limit,
+            before=before,
+        )
+
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/close")
     def close_run_point_plan(
         run_id: str,
@@ -781,17 +810,6 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> ResolvedRunDomainView:
         return application.point_plans.resolve(run_id, command)
 
-    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/inspections")
-    def get_run_inspections(run_id: str) -> RunInspectionView:
-        return application.run_inspections.read(run_id)
-
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/inspections")
-    def append_run_inspection(
-        run_id: str,
-        command: RunInspectionAppendCommand,
-    ) -> RunInspectionView:
-        return application.executor.append_run_inspection(run_id, command)
-
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/instruments/provision")
     def provision_run_instruments(
         run_id: str,
@@ -799,12 +817,30 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> RunInstrumentProvisionReceipt:
         return application.instruments.provision_run(run_id, command)
 
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/hardware/execute")
+    @app.post(
+        f"{_API_PREFIX}/runs/{{run_id}}/hardware/execute",
+        response_class=Response,
+        response_model=RunHardwareBatchReceipt,
+        responses={
+            200: {
+                "content": {
+                    HARDWARE_RECEIPT_MEDIA_TYPE: {
+                        "schema": {"type": "string", "format": "binary"}
+                    }
+                }
+            }
+        },
+    )
     def execute_run_hardware(
         run_id: str,
         command: RunHardwareBatchCommand,
-    ) -> RunHardwareBatchReceipt:
-        return application.instruments.execute_run_hardware(run_id, command)
+    ) -> Response:
+        return Response(
+            content=encode_run_hardware_receipt(
+                application.instruments.execute_run_hardware(run_id, command)
+            ),
+            media_type=HARDWARE_RECEIPT_MEDIA_TYPE,
+        )
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/hardware/finish")
     def finish_run_hardware(
@@ -812,22 +848,6 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         command: RunHardwareFinishCommand,
     ) -> RunHardwareFinalizationReceipt:
         return application.instruments.finish_run_hardware(run_id, command)
-
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/transitions")
-    def append_transition(
-        run_id: str,
-        command: ExecutionTransitionAppend,
-    ) -> ExecutionTransition:
-        _require_run_id(run_id, command.transition.run_id)
-        return application.executor.append_transition(run_id, command)
-
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/transitions/claim")
-    def claim_transition(
-        run_id: str,
-        command: ExecutionTransitionClaim,
-    ) -> ExecutionTransition:
-        _require_run_id(run_id, command.transition.run_id)
-        return application.executor.claim_transition(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/header")
     def initialize_measurements(

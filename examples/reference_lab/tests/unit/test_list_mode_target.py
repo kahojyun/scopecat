@@ -53,6 +53,11 @@ from scopecat_quantum.targets import (
     TargetCompileEntry,
     TargetCompileRequest,
 )
+from scopecat_quantum.waveforms import (
+    Float64ReferenceRenderer,
+    RenderedWaveforms,
+    SampledWaveformPlan,
+)
 
 from reference_lab.configuration import bootstrap_config
 from reference_lab.physical_policies import (
@@ -99,13 +104,15 @@ class _RecordingInstrumentExecutor:
                 [dimension] = request.dimensions
                 assert dimension.size is not None
                 for value_id in binding.value_ids:
-                    capture_value = float(len(values) + 1)
+                    capture_value: float | complex = float(len(values) + 1)
+                    if request.dtype == "complex128":
+                        capture_value = complex(capture_value)
                     values.append(
                         RunHardwareValue(
                             point_index=action.point_index,
                             value_id=value_id,
                             value=MeasurementArray.create(
-                                dtype="float64",
+                                dtype=request.dtype,
                                 unit="V",
                                 values=(capture_value,) * dimension.size,
                             ),
@@ -319,8 +326,8 @@ def test_list_mode_compiler_projects_calibrated_physical_programs() -> None:
     assert window.demodulator_slot_id.value == "demod0"
     assert window.intent.demodulation_frequency_hz == -300.0e6
     assert window.intent.output_representation == "integrated_iq"
-    assert window.lowering.execution == "target"
-    assert window.lowering.device_result_representation == "raw_trace"
+    assert window.lowering.execution == "device"
+    assert window.lowering.device_result_representation == "integrated_iq"
     assert len(artifact.awg_programs) == 2
     assert len(artifact.digitizer_programs) == 1
     assert artifact.instrument_ids == (
@@ -442,24 +449,26 @@ def test_list_mode_realtime_action_count_does_not_scale_with_repetitions() -> No
 
 def test_list_mode_acquisition_lowering_selects_target_or_device_dsp() -> None:
     target, scheduled, _slot, artifact = _compiled_calibrated_acquisition()
-    [window] = artifact.entries[0].acquisitions
-    device_target = replace(
+    [device_window] = artifact.entries[0].acquisitions
+    assert device_window.lowering.execution == "device"
+    assert device_window.lowering.device_result_representation == "integrated_iq"
+    assert artifact.digitizer_programs[0].result_representation == "integrated_iq"
+
+    target_dsp = replace(
         target,
-        digitizer_result_representation="integrated_iq",
+        digitizer_result_representation="raw_trace",
     )
-    device_compiler, device_request = _request(
-        device_target,
+    target_compiler, target_request = _request(
+        target_dsp,
         (scheduled,),
         repetitions=2,
     )
-    device_artifact = device_compiler.compile(device_request)
-    [device_window] = device_artifact.entries[0].acquisitions
-    assert device_window.intent == window.intent
-    assert device_window.lowering.execution == "device"
-    assert device_window.lowering.device_result_representation == "integrated_iq"
-    assert device_artifact.digitizer_programs[0].result_representation == (
-        "integrated_iq"
-    )
+    target_artifact = target_compiler.compile(target_request)
+    [target_window] = target_artifact.entries[0].acquisitions
+    assert target_window.intent == device_window.intent
+    assert target_window.lowering.execution == "target"
+    assert target_window.lowering.device_result_representation == "raw_trace"
+    assert target_artifact.digitizer_programs[0].result_representation == "raw_trace"
 
 
 def test_indeterminate_awg_program_load_stops_before_realtime() -> None:
@@ -687,7 +696,7 @@ def test_list_mode_artifact_inspection_is_bounded_and_preserves_peaks() -> None:
     )
     [entry] = inspection.points
     [preview] = entry.waveforms
-    source = artifact.entries[0].waveforms[0].samples
+    source = artifact.entry_waveforms(artifact.entries[0])[0].samples
 
     assert inspection.schema_id == "scopecat.compiled_artifact_inspection.v1"
     assert inspection.kind == "reference_lab.list_mode.v1"
@@ -763,6 +772,119 @@ def test_list_mode_applies_shift_phase_before_playback() -> None:
     )
 
 
+def test_list_mode_factors_phase_sweeps_without_per_point_rendering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = _target()
+    rendered_plans: list[SampledWaveformPlan] = []
+    render = Float64ReferenceRenderer.render
+
+    def record_render(
+        self: Float64ReferenceRenderer,
+        plan: SampledWaveformPlan,
+    ) -> RenderedWaveforms:
+        rendered_plans.append(plan)
+        return render(self, plan)
+
+    monkeypatch.setattr(Float64ReferenceRenderer, "render", record_render)
+
+    def phase_program(program_id: str, phase: float) -> ScheduledPulseProgram:
+        return schedule(
+            PulseProgram(
+                id=PulseProgramId(program_id),
+                body=PulseSequence(
+                    (
+                        ShiftPhase(
+                            PulseEventId("shift"),
+                            DRIVE_Q0,
+                            Quantity(phase, "rad"),
+                        ),
+                        Play(
+                            PulseEventId("play"),
+                            DRIVE_Q0,
+                            Constant(Quantity(2, "ns"), Quantity(0.25, "arb")),
+                        ),
+                    )
+                ),
+            )
+        )
+
+    programs = (
+        phase_program("phase-zero", 0.0),
+        phase_program("phase-quarter", math.pi / 2),
+    )
+    compiler, request = _request(target, programs, repetitions=1)
+
+    artifact = compiler.compile(request)
+
+    assert artifact.phase_templates
+    assert all(not entry.waveforms for entry in artifact.entries)
+    assert len(rendered_plans) == 1
+    for index, program in enumerate(programs):
+        concrete_compiler, concrete_request = _request(
+            target,
+            (program,),
+            repetitions=1,
+        )
+        concrete = concrete_compiler.compile(concrete_request)
+        synthesized = artifact.entry_waveforms(artifact.entries[index])
+        assert [waveform.channel_id for waveform in synthesized] == [
+            waveform.channel_id for waveform in concrete.entries[0].waveforms
+        ]
+        for actual, expected_waveform in zip(
+            synthesized,
+            concrete.entries[0].waveforms,
+            strict=True,
+        ):
+            np.testing.assert_allclose(
+                actual.samples,
+                expected_waveform.samples,
+                atol=1e-15,
+            )
+        assert artifact.materialized_waveform_bytes(artifact.entries[index]) == sum(
+            waveform.samples.nbytes for waveform in concrete.entries[0].waveforms
+        )
+
+
+def test_list_mode_defers_compact_sweep_amplitude_check_until_materialization() -> None:
+    target = replace(_target(), max_abs_amplitude=0.1)
+
+    def phase_program(program_id: str, phase: float) -> ScheduledPulseProgram:
+        return schedule(
+            PulseProgram(
+                id=PulseProgramId(program_id),
+                body=PulseSequence(
+                    (
+                        ShiftPhase(
+                            PulseEventId("shift"),
+                            DRIVE_Q0,
+                            Quantity(phase, "rad"),
+                        ),
+                        Play(
+                            PulseEventId("play"),
+                            DRIVE_Q0,
+                            Constant(Quantity(2, "ns"), Quantity(0.25, "arb")),
+                        ),
+                    )
+                ),
+            )
+        )
+
+    compiler, request = _request(
+        target,
+        (
+            phase_program("phase-zero", 0.0),
+            phase_program("phase-quarter", math.pi / 2),
+        ),
+        repetitions=1,
+    )
+
+    artifact = compiler.compile(request)
+
+    with pytest.raises(ValueError, match=r"target limit is 0\.1"):
+        artifact.entry_waveforms(artifact.entries[0])
+
+
 def test_list_mode_checks_final_peak_after_readout_accumulation() -> None:
     target = _target()
     target = replace(
@@ -800,6 +922,19 @@ def test_list_mode_checks_final_peak_after_readout_accumulation() -> None:
 
     assert {issue.code for issue in caught.value.issues} == {
         "list_mode_amplitude_limit_exceeded"
+    }
+
+
+def test_list_mode_rejects_programs_larger_than_awg_memory() -> None:
+    scheduled, _slot = _calibrated_acquisition()
+    target = replace(_target(), max_program_waveform_bytes=1)
+    compiler, request = _request(target, (scheduled,), repetitions=1)
+
+    with pytest.raises(TargetCompilationError) as caught:
+        compiler.compile(request)
+
+    assert {issue.code for issue in caught.value.issues} == {
+        "list_mode_program_waveform_memory_exceeded"
     }
 
 

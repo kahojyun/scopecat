@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,7 +12,6 @@ from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
 from scopecat.execution.services import ExecutionSession, RunDomainProposalWriter
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetBatch,
@@ -31,10 +29,7 @@ from scopecat_server.services.active_measurements import ActiveMeasurementStore
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
-from scopecat_server.storage.sqlite.execution import (
-    SQLiteExecutionJournal,
-    SQLiteMeasurementDatasetRepository,
-)
+from scopecat_server.storage.sqlite.execution import SQLiteMeasurementDatasetRepository
 from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
 from scopecat_server.storage.sqlite.run_repository import (
     SQLiteRunRepository,
@@ -90,46 +85,6 @@ class SQLiteTestRunRepository(SQLiteRunRepository):
                 run_id,
                 (prepared,),
             )
-
-
-class SQLiteTestExecutionJournal(SQLiteExecutionJournal):
-    """Own test transactions and expose durable entries for assertions."""
-
-    def claim(self, entry: ExecutionTransition) -> ExecutionTransition:
-        with SQLiteControlPlane(self._runs.sqlite).write_transaction() as connection:
-            return self.claim_in_transaction(connection, entry)
-
-    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
-        with SQLiteControlPlane(self._runs.sqlite).write_transaction() as connection:
-            committed, _created = self.append_in_transaction(connection, entry)
-            return committed
-
-    def entries(self) -> tuple[ExecutionTransition, ...]:
-        with sqlite3.connect(self._runs.database) as connection:
-            rows = cast(
-                "list[tuple[str, int, str]]",
-                connection.execute(
-                    """
-                    SELECT payload_json, run_sequence, occurred_at
-                    FROM durable_events
-                    WHERE run_id = ?
-                      AND kind = 'execution_transition_committed'
-                    ORDER BY run_sequence
-                    """,
-                    (self._run_id,),
-                ).fetchall(),
-            )
-        return tuple(
-            ExecutionTransition.model_validate(
-                {
-                    **json.loads(payload_json),
-                    "run_id": self._run_id,
-                    "sequence": sequence,
-                    "timestamp": occurred_at,
-                }
-            )
-            for payload_json, sequence, occurred_at in rows
-        )
 
 
 class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository):
@@ -198,7 +153,6 @@ class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository)
 class SQLiteExecutionSession(ExecutionSession):
     """Concrete SQLite session exposing read models to test assertions."""
 
-    journal: SQLiteTestExecutionJournal
     measurements: SQLiteTestMeasurementDatasetRepository
 
 
@@ -287,7 +241,6 @@ def sqlite_execution_session(
         accepted=selected_runs.read_manifest(run_id),
         begin=lambda: None,
         commit_terminal=selected_runs.commit_terminal,
-        journal=SQLiteTestExecutionJournal(selected_runs, run_id=run_id),
         measurements=SQLiteTestMeasurementDatasetRepository(
             selected_runs,
             run_id=run_id,

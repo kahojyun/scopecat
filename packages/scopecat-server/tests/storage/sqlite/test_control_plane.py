@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier
+from typing import Never
 
 import pytest
 from scopecat.control.models import (
@@ -570,6 +571,24 @@ def test_expired_leased_executor_quarantines_resources(tmp_path: Path) -> None:
     )
     assert waiting.run_id == "waiting"
     assert store.get_run("lost").state == "attention_required"
+
+
+def test_expire_executor_leases_skips_writer_without_candidates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+
+    def unexpected_write_transaction() -> Never:
+        raise AssertionError("empty lease scan opened a write transaction")
+
+    monkeypatch.setattr(
+        store.sqlite,
+        "write_transaction",
+        unexpected_write_transaction,
+    )
+
+    assert store.expire_executor_leases(at=NOW) == ()
 
 
 def test_executor_renewal_preserves_claim_and_close_fences_token(

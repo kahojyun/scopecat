@@ -18,19 +18,14 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.execution import daemon_execution_session
+from scopecat.daemon.hardware_receipt_wire import encode_run_hardware_receipt
 from scopecat.daemon.points import (
     RunDomainDecisionCommand,
     RunDomainDecisionView,
     RunPointPlanCloseCommand,
     RunPointPlanView,
 )
-from scopecat.daemon.reviews import (
-    RunInspectionAppendCommand,
-    RunInspectionView,
-)
 from scopecat.daemon.wire import (
-    ExecutionTransitionAppend,
-    ExecutionTransitionClaim,
     ExecutorLease,
     ExecutorStartRequest,
     MeasurementFlushCommand,
@@ -56,10 +51,6 @@ from scopecat.kernel.state import StateValue
 from scopecat.measurements.recording_arrow import decode_measurement_append
 from scopecat.optimization import DomainProposalDecision, DomainProposalSummary
 from scopecat.records.config import config_content_hash
-from scopecat.records.execution_journal import (
-    ExecutionTransition,
-    execution_transition_content_hash,
-)
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
@@ -134,19 +125,13 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     header = _measurement_header()
     append = _measurement_append(record, header)
     seal = _measurement_seal(append, header)
-    transition = _transition()
-    committed_transition = transition.model_copy(
-        update={"sequence": 0, "timestamp": _NOW + timedelta(seconds=1)}
-    )
     started_manifest = admission.manifest
     fences: list[tuple[str, str]] = []
-    transition_commands: list[ExecutionTransitionAppend | ExecutionTransitionClaim] = []
     terminal_commands: list[TerminalRunCommitCommand] = []
     hardware_operation_ids: list[str] = []
     hardware_sequences: list[int] = []
     coverage_ranges: list[tuple[int, int]] = []
     measurement_ingest_ranges: list[tuple[int, int]] = []
-    inspection_commands: list[RunInspectionAppendCommand] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
@@ -172,8 +157,11 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
             _remember_fence(fences, "run-1", command)
             hardware_operation_ids.append(command.batch.operation_id)
             hardware_sequences.append(command.sequence)
-            return _model(
-                RunHardwareBatchReceipt(operation_id=command.batch.operation_id)
+            return httpx2.Response(
+                200,
+                content=encode_run_hardware_receipt(
+                    RunHardwareBatchReceipt(operation_id=command.batch.operation_id)
+                ),
             )
         if path.endswith("/coverage/advance"):
             command = RunCoverageAdvanceCommand.model_validate_json(request.content)
@@ -217,11 +205,6 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                     stop_reason=command.reason,
                 )
             )
-        if path.endswith("/inspections"):
-            command = RunInspectionAppendCommand.model_validate_json(request.content)
-            _remember_fence(fences, "run-1", command)
-            inspection_commands.append(command)
-            return _model(RunInspectionView(run_id="run-1", items=(command.event,)))
         if path.endswith("/hardware/finish"):
             command = RunHardwareFinishCommand.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
@@ -231,16 +214,6 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                     operation_id=command.operation_id,
                 )
             )
-        if path.endswith("/transitions/claim"):
-            command = ExecutionTransitionClaim.model_validate_json(request.content)
-            _remember_fence(fences, "run-1", command)
-            transition_commands.append(command)
-            return _model(committed_transition)
-        if path.endswith("/transitions"):
-            command = ExecutionTransitionAppend.model_validate_json(request.content)
-            _remember_fence(fences, "run-1", command)
-            transition_commands.append(command)
-            return _model(committed_transition)
         if path.endswith("/measurements/ingest"):
             assert request.headers["content-type"] == (
                 "application/vnd.apache.arrow.file"
@@ -302,7 +275,6 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     accepted = session.accepted
     assert session.begin() is None
 
-    journal = session.journal
     measurements = session.measurements
     instruments = session.instruments
     coverage = session.coverage
@@ -366,7 +338,6 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
             accepted_point_count=1,
         ),
         (accepted_point,),
-        (),
     )
     domain_proposals.close(completed_point_count=2, reason="test complete")
     assert (
@@ -374,21 +345,6 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
         == "hardware.finish"
     )
 
-    assert journal.claim(transition) == committed_transition
-    assert journal.append(transition) == committed_transition
-    assert (
-        journal.append(
-            transition.model_copy(
-                update={"timestamp": transition.timestamp + timedelta(seconds=1)}
-            )
-        )
-        == committed_transition
-    )
-    assert len(transition_commands) == 3
-    assert {
-        execution_transition_content_hash(command.transition)
-        for command in transition_commands
-    } == {execution_transition_content_hash(transition)}
     assert measurements.initialize(header) == _header_receipt(header)
     assert measurements.ingest(append) == ()
     second = append.model_copy(
@@ -443,8 +399,6 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     ]
     assert hardware_sequences == [0]
     assert coverage_ranges == [(0, 1), (1, 2)]
-    assert inspection_commands[0].event.accepted_point_start == 1
-    assert inspection_commands[0].event.accepted_point_count == 1
 
 
 def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> None:
@@ -581,16 +535,6 @@ def _lease() -> ExecutorLease:
         issued_at=_NOW,
         expires_at=_NOW + timedelta(seconds=30),
         heartbeat_interval_seconds=10,
-    )
-
-
-def _transition() -> ExecutionTransition:
-    return ExecutionTransition(
-        run_id="run-1",
-        operation_id="operation-1",
-        stage="domain_execute",
-        effect="read",
-        state="completed",
     )
 
 

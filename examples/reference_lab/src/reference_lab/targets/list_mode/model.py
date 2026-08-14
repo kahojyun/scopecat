@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass, field
-from typing import Literal, override
+from typing import Literal, cast, override
 
 import numpy as np
 from numpy.typing import NDArray
@@ -281,6 +282,7 @@ class ListModeTarget:
     sample_rate_hz: int
     max_list_entries: int
     max_samples_per_entry: int
+    max_program_waveform_bytes: int
     max_repetitions: int
     max_abs_amplitude: float
     acquisition_dsp_policy: Literal["target", "device", "prefer_device"]
@@ -355,12 +357,13 @@ class ListModeTarget:
 
     def _capability_payload(self) -> dict[str, object]:
         return {
-            "schema": "reference_lab.list_mode_target.capabilities.v6",
+            "schema": "reference_lab.list_mode_target.capabilities.v7",
             "target_id": self.id.value,
             "sample_rate_hz": self.sample_rate_hz,
             "timing_quantization": self.timing_quantization,
             "max_list_entries": self.max_list_entries,
             "max_samples_per_entry": self.max_samples_per_entry,
+            "max_program_waveform_bytes": self.max_program_waveform_bytes,
             "max_repetitions": self.max_repetitions,
             "max_abs_amplitude": float(self.max_abs_amplitude).hex(),
             "digitizer_result_representation": (self.digitizer_result_representation),
@@ -442,6 +445,70 @@ class AwgChannelWaveform:
         )
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class AwgPhaseTemplate:
+    """Quadrature basis synthesized into ordinary DAC buffers by a worker."""
+
+    id: str
+    i_channel_id: AwgChannelId
+    q_channel_id: AwgChannelId
+    start_sample: int
+    sample_count: int
+    logical_i: NDArray[np.float64] = field(repr=False)
+    logical_q: NDArray[np.float64] = field(repr=False)
+    mixer: IqMixerCalibration
+    content_sha256: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        logical_i = np.ascontiguousarray(self.logical_i, dtype="<f8")
+        logical_q = np.ascontiguousarray(self.logical_q, dtype="<f8")
+        logical_i.flags.writeable = False
+        logical_q.flags.writeable = False
+        digest = hashlib.sha256()
+        digest.update(logical_i)
+        digest.update(logical_q)
+        object.__setattr__(self, "logical_i", logical_i)
+        object.__setattr__(self, "logical_q", logical_q)
+        object.__setattr__(self, "content_sha256", digest.hexdigest())
+
+    @property
+    def channel_ids(self) -> tuple[AwgChannelId, AwgChannelId]:
+        return (self.i_channel_id, self.q_channel_id)
+
+
+@dataclass(frozen=True, slots=True)
+class AwgPhaseTemplateUse:
+    """One list-entry phase applied to a worker-local waveform template."""
+
+    template_id: str
+    phase_radians: float
+
+
+def awg_phase_template_identity_payload(
+    template: AwgPhaseTemplate,
+) -> dict[str, object]:
+    """Return stable identity for one phase-synthesis template."""
+
+    return {
+        "id": template.id,
+        "i_channel_id": template.i_channel_id.value,
+        "q_channel_id": template.q_channel_id.value,
+        "instrument_id": template.i_channel_id.instrument_id,
+        "i_component_path": list(template.i_channel_id.component_path),
+        "q_component_path": list(template.q_channel_id.component_path),
+        "start_sample": template.start_sample,
+        "sample_count": template.sample_count,
+        "sample_encoding": "float64-le-quadrature-basis",
+        "content_sha256": template.content_sha256,
+        "mixer": {
+            "ii": float(template.mixer.ii).hex(),
+            "iq": float(template.mixer.iq).hex(),
+            "qi": float(template.mixer.qi).hex(),
+            "qq": float(template.mixer.qq).hex(),
+        },
+    }
+
+
 def awg_waveform_identity_payload(
     waveform: AwgChannelWaveform,
 ) -> dict[str, object]:
@@ -518,10 +585,11 @@ class ListModeEntry:
     waveforms: tuple[AwgChannelWaveform, ...]
     acquisitions: tuple[DigitizerAcquisitionWindow, ...]
     event_timings: tuple[RealizedEventTiming, ...]
+    phase_template_uses: tuple[AwgPhaseTemplateUse, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class AwgProgramEntry:
+class MaterializedAwgProgramEntry:
     """One list row projected to a single physical AWG."""
 
     entry_id: TargetCompileEntryId
@@ -530,11 +598,34 @@ class AwgProgramEntry:
 
 
 @dataclass(frozen=True, slots=True)
-class AwgProgram:
-    """All list rows loaded into one physical AWG."""
+class MaterializedAwgProgram:
+    """List rows already rendered into physical DAC buffers."""
 
     instrument_id: str
-    entries: tuple[AwgProgramEntry, ...]
+    max_abs_amplitude: float
+    entries: tuple[MaterializedAwgProgramEntry, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PhaseSynthesizedAwgProgramEntry:
+    """One list row represented by phase parameters over shared bases."""
+
+    entry_id: TargetCompileEntryId
+    sample_count: int
+    template_uses: tuple[AwgPhaseTemplateUse, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PhaseSynthesizedAwgProgram:
+    """Shared quadrature bases plus phase rows for an ordinary AWG program."""
+
+    instrument_id: str
+    max_abs_amplitude: float
+    templates: tuple[AwgPhaseTemplate, ...]
+    entries: tuple[PhaseSynthesizedAwgProgramEntry, ...]
+
+
+type AwgProgram = MaterializedAwgProgram | PhaseSynthesizedAwgProgram
 
 
 @dataclass(frozen=True, slots=True)
@@ -579,10 +670,12 @@ class ListModeArtifact:
     repetitions: int
     sample_rate_hz: int
     waveform_semantics_id: str
+    max_abs_amplitude: float
     timing_quantization: TimingQuantizationMode
     preparation: ListModePreparation
     host_state_requirements: ListModeHostStateRequirements
     entries: tuple[ListModeEntry, ...]
+    phase_templates: tuple[AwgPhaseTemplate, ...] = ()
 
     @property
     def instrument_ids(self) -> tuple[str, ...]:
@@ -608,11 +701,7 @@ class ListModeArtifact:
             awg_instrument_ids=tuple(
                 program.instrument_id
                 for program in self.awg_programs
-                if next(
-                    selected
-                    for selected in program.entries
-                    if selected.entry_id == entry.entry_id
-                ).waveforms
+                if self._entry_uses_awg(entry, program.instrument_id)
             ),
             digitizer_instrument_ids=tuple(
                 program.instrument_id
@@ -635,12 +724,42 @@ class ListModeArtifact:
                 for entry in self.entries
                 for waveform in entry.waveforms
             }
+            | {template.i_channel_id.instrument_id for template in self.phase_templates}
         )
+        if self.phase_templates:
+            return tuple(
+                PhaseSynthesizedAwgProgram(
+                    instrument_id=instrument_id,
+                    max_abs_amplitude=self.max_abs_amplitude,
+                    templates=tuple(
+                        template
+                        for template in self.phase_templates
+                        if template.i_channel_id.instrument_id == instrument_id
+                    ),
+                    entries=tuple(
+                        PhaseSynthesizedAwgProgramEntry(
+                            entry_id=entry.entry_id,
+                            sample_count=entry.sample_count,
+                            template_uses=tuple(
+                                use
+                                for use in entry.phase_template_uses
+                                if self._template(
+                                    use.template_id
+                                ).i_channel_id.instrument_id
+                                == instrument_id
+                            ),
+                        )
+                        for entry in self.entries
+                    ),
+                )
+                for instrument_id in instrument_ids
+            )
         return tuple(
-            AwgProgram(
+            MaterializedAwgProgram(
                 instrument_id=instrument_id,
+                max_abs_amplitude=self.max_abs_amplitude,
                 entries=tuple(
-                    AwgProgramEntry(
+                    MaterializedAwgProgramEntry(
                         entry_id=entry.entry_id,
                         sample_count=entry.sample_count,
                         waveforms=tuple(
@@ -653,6 +772,87 @@ class ListModeArtifact:
                 ),
             )
             for instrument_id in instrument_ids
+        )
+
+    def entry_waveforms(
+        self,
+        entry: ListModeEntry,
+    ) -> tuple[AwgChannelWaveform, ...]:
+        """Materialize one entry at the target/ordinary-AWG boundary."""
+
+        if not entry.phase_template_uses:
+            return entry.waveforms
+        buffers: dict[AwgChannelId, NDArray[np.float64]] = {}
+        for use in entry.phase_template_uses:
+            template = self._template(use.template_id)
+            cosine = math.cos(use.phase_radians)
+            sine = math.sin(use.phase_radians)
+            logical_i = template.logical_i
+            logical_q = template.logical_q
+            selected = slice(
+                template.start_sample,
+                template.start_sample + template.sample_count,
+            )
+            for channel_id, mixer_i, mixer_q in (
+                (
+                    template.i_channel_id,
+                    template.mixer.ii,
+                    template.mixer.iq,
+                ),
+                (
+                    template.q_channel_id,
+                    template.mixer.qi,
+                    template.mixer.qq,
+                ),
+            ):
+                buffer = buffers.setdefault(
+                    channel_id,
+                    np.zeros(entry.sample_count, dtype=np.float64),
+                )
+                buffer[selected] += cosine * (
+                    mixer_i * logical_i + mixer_q * logical_q
+                ) + sine * (-mixer_i * logical_q + mixer_q * logical_i)
+        waveforms = tuple(
+            AwgChannelWaveform(channel_id=channel_id, samples=samples)
+            for channel_id, samples in sorted(buffers.items())
+        )
+        for waveform in waveforms:
+            peak = (
+                float(cast("np.float64", np.max(np.abs(waveform.samples))))
+                if waveform.samples.size
+                else 0.0
+            )
+            if peak > self.max_abs_amplitude:
+                raise ValueError(
+                    f"waveform on channel {waveform.channel_id.value!r} has magnitude "
+                    f"{peak!r}; target limit is {self.max_abs_amplitude!r}"
+                )
+        return waveforms
+
+    def materialized_waveform_bytes(self, entry: ListModeEntry) -> int:
+        """Return physical DAC memory required for one list entry."""
+
+        if not entry.phase_template_uses:
+            return sum(waveform.samples.nbytes for waveform in entry.waveforms)
+        channel_ids = {
+            channel_id
+            for use in entry.phase_template_uses
+            for channel_id in self._template(use.template_id).channel_ids
+        }
+        return len(channel_ids) * entry.sample_count * np.dtype("<f8").itemsize
+
+    def _entry_uses_awg(self, entry: ListModeEntry, instrument_id: str) -> bool:
+        return any(
+            waveform.channel_id.instrument_id == instrument_id
+            for waveform in entry.waveforms
+        ) or any(
+            self._template(use.template_id).i_channel_id.instrument_id == instrument_id
+            for use in entry.phase_template_uses
+        )
+
+    def _template(self, template_id: str) -> AwgPhaseTemplate:
+        return next(
+            template for template in self.phase_templates if template.id == template_id
         )
 
     @property
@@ -704,8 +904,9 @@ __all__ = [
     "AcquisitionLowering",
     "AwgChannelId",
     "AwgChannelWaveform",
+    "AwgPhaseTemplate",
+    "AwgPhaseTemplateUse",
     "AwgProgram",
-    "AwgProgramEntry",
     "ClockPreparation",
     "DemodulatorSlotId",
     "DeviceAcquisitionLowering",
@@ -721,13 +922,18 @@ __all__ = [
     "ListModeHostStateRequirements",
     "ListModePreparation",
     "ListModeTarget",
+    "MaterializedAwgProgram",
+    "MaterializedAwgProgramEntry",
     "OutputChannelPreparation",
     "OutputOffsetCouplingGroup",
     "OutputOffsetRequirement",
     "OutputSignal",
+    "PhaseSynthesizedAwgProgram",
+    "PhaseSynthesizedAwgProgramEntry",
     "TargetAcquisitionLowering",
     "TimingDomainPreparation",
     "TriggerParticipants",
+    "awg_phase_template_identity_payload",
     "awg_waveform_identity_payload",
     "host_state_policy_payload",
     "host_state_requirements_payload",

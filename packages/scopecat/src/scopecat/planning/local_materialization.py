@@ -44,7 +44,14 @@ from scopecat.planning.routing import (
     ResourcePortManifest,
     RoutingView,
 )
-from scopecat.program.expressions import ComputeResultScalarExpr
+from scopecat.program.expression_analysis import (
+    expression_input_refs,
+    expression_module_exports,
+    expression_parameter_refs,
+    expression_point_refs,
+    expression_requires_execution,
+)
+from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
 from scopecat.program.logical import (
     AcquireEffect,
     LogicalDomainExecution,
@@ -346,6 +353,45 @@ def materialize_local_success_state(
         desired,
         instrument_order=target.instrument_order,
     )
+
+
+def local_execution_is_point_invariant(target: LocalTargetPlan) -> bool:
+    """Return whether the initial state probe can represent every point."""
+
+    bound = target.bound
+    logical = bound.program.program
+    if bound.bindings.live_compute_ids:
+        return False
+    overlay_tables = {overlay.table_id for overlay in bound.bindings.parameter_overlays}
+
+    def expression_is_invariant(value: ScalarExpr) -> bool:
+        return not (
+            expression_point_refs(value)
+            or expression_input_refs(value)
+            or expression_module_exports(value)
+            or expression_requires_execution(value)
+            or overlay_tables.intersection(expression_parameter_refs(value))
+        )
+
+    for requirement in bound.bindings.resource_requirements:
+        if requirement.port_id not in target.resource_ports:
+            continue
+        if any(not expression_is_invariant(use) for use in requirement.entity_uses):
+            return False
+    for effect in logical.effects:
+        if isinstance(effect, LogicalDomainExecution):
+            continue
+        if isinstance(effect, AcquireEffect | LogicalInvocation):
+            return False
+        assignments = (
+            effect.assignments if isinstance(effect, LogicalEnsureState) else (effect,)
+        )
+        if any(
+            not expression_is_invariant(bound_scalar_value(bound, assignment.value_id))
+            for assignment in assignments
+        ):
+            return False
+    return True
 
 
 def prepare_local_target(

@@ -9,6 +9,7 @@ from scopecat.control.models import ControlRun, DurableEventInput
 from scopecat.daemon.points import (
     ResolvedRunDomainView,
     RunDomainDecisionCommand,
+    RunDomainDecisionPage,
     RunDomainDecisionView,
     RunDomainEnqueueCommand,
     RunDomainFragmentView,
@@ -28,7 +29,7 @@ from scopecat_server.storage.sqlite.control_plane import (
     SQLiteControlPlane,
 )
 from scopecat_server.storage.sqlite.execution import (
-    ExecutionJournalConflict,
+    ExecutionStateConflict,
     SQLiteRunPointLedger,
 )
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
@@ -83,6 +84,16 @@ class RunPointPlanService:
         self._require_run(run_id)
         return self._ledger(run_id).queue()
 
+    def decisions(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunDomainDecisionPage:
+        self._require_run(run_id)
+        return self._ledger(run_id).decisions(limit=limit, before=before)
+
     def next_queued(self, run_id: str) -> RunDomainQueueEntryView | None:
         self._require_run(run_id)
         return self._ledger(run_id).next_pending()
@@ -121,7 +132,7 @@ class RunPointPlanService:
                 return entry
         except ControlPlaneNotFound as error:
             raise BackendNotFound(str(error)) from error
-        except (ControlPlaneConflict, ExecutionJournalConflict) as error:
+        except (ControlPlaneConflict, ExecutionStateConflict) as error:
             raise BackendConflict(str(error)) from error
 
     def resolve(

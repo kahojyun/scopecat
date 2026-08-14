@@ -6,14 +6,9 @@ from typing import Literal, cast
 
 import pytest
 from pydantic import ValidationError
-from scopecat_testkit.execution_fakes import FakeExecutionJournal
 
-from scopecat.kernel.errors import (
-    DomainExecutionFailed,
-    DomainRuntimePersistenceError,
-)
+from scopecat.kernel.errors import DomainExecutionFailed
 from scopecat.kernel.problems import Problem, ProblemPhase, problem
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.sdk.domain.invocation import (
     ClosedDomainInvocation,
     close_domain_invocation,
@@ -183,114 +178,47 @@ class _Runtime:
 def _execute(
     runtime: _Runtime,
     invocation: _Invocation,
-    journal: FakeExecutionJournal,
 ) -> DomainExecutionResult[str]:
     return execute_domain_invocation(
         runtime,
         invocation,
         _execution_id(invocation),
         instruments=_NoopInstrumentExecutor(),
-        journal=journal,
     )
 
 
-def test_synchronous_execution_commits_one_exact_journal_boundary() -> None:
+def test_synchronous_execution_returns_correlated_result() -> None:
     invocation = _closed_invocation()
     runtime = _Runtime()
-    journal = FakeExecutionJournal()
 
-    result = _execute(runtime, invocation, journal)
+    result = _execute(runtime, invocation)
 
     assert result.result == "payload"
     assert runtime.execution_keys == [_execution_id(invocation).execution_key]
-    assert [(entry.stage, entry.state) for entry in journal.entries] == [
-        ("domain_execute", "started"),
-        ("domain_execute", "completed"),
-    ]
-    evidence = journal.entries[0].evidence["invocation_intent"]
-    assert isinstance(evidence, dict)
-    assert evidence["execution_summary"] == {"instruments": ["instrument-a"]}
-    assert "invocation_intent" not in journal.entries[1].evidence
-    assert journal.entries[1].evidence["intent_fingerprint"] == (
-        invocation.intent.intent_fingerprint
-    )
-    assert journal.entries[1].evidence["receipt"] == result.receipt.model_dump(
-        mode="json"
-    )
 
 
 @pytest.mark.parametrize(
-    ("status", "certainty", "state"),
+    ("status", "certainty"),
     [
-        ("not_executed", "known", "failed"),
-        ("unknown", "indeterminate", "unknown"),
+        ("not_executed", "known"),
+        ("unknown", "indeterminate"),
     ],
 )
 def test_negative_outcomes_preserve_certainty(
     status: Literal["not_executed", "unknown"],
     certainty: str,
-    state: str,
 ) -> None:
     invocation = _closed_invocation()
     runtime = _Runtime(status=status)
-    journal = FakeExecutionJournal()
-
     with pytest.raises(DomainExecutionFailed) as caught:
-        _execute(runtime, invocation, journal)
+        _execute(runtime, invocation)
 
     assert caught.value.certainty == certainty
-    assert journal.entries[-1].state == state
 
 
 def test_runtime_exception_and_forged_receipt_are_indeterminate() -> None:
     invocation = _closed_invocation()
     for runtime in (_Runtime(error=RuntimeError("lost")), _Runtime(forge_key=True)):
-        journal = FakeExecutionJournal()
         with pytest.raises(DomainExecutionFailed) as caught:
-            _execute(runtime, invocation, journal)
+            _execute(runtime, invocation)
         assert caught.value.certainty == "indeterminate"
-        assert journal.entries[-1].state == "unknown"
-
-
-@dataclass
-class _NoSequenceJournal:
-    def claim(self, entry: ExecutionTransition) -> ExecutionTransition:
-        return entry.model_copy(deep=True)
-
-    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
-        return entry.model_copy(deep=True)
-
-
-def test_execution_intent_must_be_durable_before_provider_call() -> None:
-    invocation = _closed_invocation()
-    runtime = _Runtime()
-
-    with pytest.raises(DomainRuntimePersistenceError) as caught:
-        execute_domain_invocation(
-            runtime,
-            invocation,
-            _execution_id(invocation),
-            instruments=_NoopInstrumentExecutor(),
-            journal=_NoSequenceJournal(),
-        )
-
-    assert caught.value.certainty == "known"
-    assert runtime.execute_calls == 0
-
-
-def test_unknown_execution_key_cannot_reenter_the_runtime() -> None:
-    invocation = _closed_invocation()
-    runtime = _Runtime(error=RuntimeError("receipt lost"))
-    journal = FakeExecutionJournal()
-
-    with pytest.raises(DomainExecutionFailed) as first:
-        _execute(runtime, invocation, journal)
-    assert first.value.certainty == "indeterminate"
-    assert runtime.execute_calls == 1
-
-    runtime.error = None
-    with pytest.raises(DomainRuntimePersistenceError) as repeated:
-        _execute(runtime, invocation, journal)
-
-    assert repeated.value.certainty == "known"
-    assert runtime.execute_calls == 1

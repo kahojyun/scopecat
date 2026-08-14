@@ -206,35 +206,3 @@ class DomainExecutionFailed(DomainRuntimeFailure):
             execution_key=execution_key,
             certainty=certainty,
         )
-
-
-class DomainRuntimePersistenceError(StorageError):
-    """Domain effect intent or receipt evidence could not enter the ledger."""
-
-    def __init__(
-        self,
-        problems: Sequence[Problem],
-        *,
-        run_id: str,
-        operation_id: str,
-        invocation_id: str,
-        execution_key: str,
-        phase: str,
-        certainty: RunCertainty,
-    ) -> None:
-        if (
-            not run_id
-            or not operation_id
-            or not invocation_id
-            or not execution_key
-            or not phase
-        ):
-            msg = "domain persistence context fields must be non-empty"
-            raise ValueError(msg)
-        self.run_id = run_id
-        self.operation_id = operation_id
-        self.invocation_id = invocation_id
-        self.execution_key = execution_key
-        self.phase = phase
-        self.certainty = certainty
-        super().__init__(problems)

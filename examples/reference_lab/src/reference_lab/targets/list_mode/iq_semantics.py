@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import cmath
 import math
 from collections.abc import Sequence
+from functools import lru_cache
+from typing import cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -28,22 +29,47 @@ def integrate_rectangular_iq(
     """
 
     normalization = 1.0 if demodulation_frequency_hz == 0.0 else 2.0
-    return (
-        normalization
-        * sum(
-            trace[start_sample + index]
-            * cmath.exp(
-                -1j
-                * 2.0
-                * math.pi
-                * demodulation_frequency_hz
-                * (start_sample + index + 0.5)
-                / sample_rate_hz
-            )
-            for index in range(sample_count)
-        )
-        / sample_count
+    samples = np.asarray(
+        trace[start_sample : start_sample + sample_count],
+        dtype=np.float64,
     )
+    weights = _demodulation_weights(
+        start_sample,
+        sample_count,
+        demodulation_frequency_hz,
+        sample_rate_hz,
+    )
+    result = cast(
+        "np.complex128",
+        normalization * np.dot(samples, weights) / sample_count,
+    )
+    return complex(result)
+
+
+@lru_cache(maxsize=64)
+def _demodulation_weights(
+    start_sample: int,
+    sample_count: int,
+    demodulation_frequency_hz: float,
+    sample_rate_hz: float,
+) -> NDArray[np.complex128]:
+    sample_indices = np.arange(
+        start_sample,
+        start_sample + sample_count,
+        dtype=np.float64,
+    )
+    weights = np.ascontiguousarray(
+        np.exp(
+            -1j
+            * math.tau
+            * demodulation_frequency_hz
+            * (sample_indices + 0.5)
+            / sample_rate_hz
+        ),
+        dtype=np.complex128,
+    )
+    weights.flags.writeable = False
+    return weights
 
 
 __all__ = ["INTEGRATED_IQ_SEMANTICS_ID", "integrate_rectangular_iq"]

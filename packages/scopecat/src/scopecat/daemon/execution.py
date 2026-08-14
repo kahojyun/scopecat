@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from contextlib import suppress
 from threading import Lock
 from time import monotonic
 from typing import Protocol, cast
@@ -19,14 +18,7 @@ from scopecat.daemon.points import (
     RunPointCoordinateValue,
     RunPointPlanCloseCommand,
 )
-from scopecat.daemon.reviews import (
-    ReviewInspectionView,
-    RunDomainInspectionEvent,
-    RunInspectionAppendCommand,
-)
 from scopecat.daemon.wire import (
-    ExecutionTransitionAppend,
-    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -43,14 +35,12 @@ from scopecat.daemon.wire import (
     TerminalModelWrite,
     TerminalRunCommitCommand,
 )
-from scopecat.execution.program import RunPointInspection
 from scopecat.execution.services import ExecutionSession, QueuedOperatorDomainRequest
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import Problem
 from scopecat.optimization import DomainProposalDecision
 from scopecat.records.config import config_content_hash
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -130,7 +120,6 @@ def daemon_execution_session(
         accepted=admission.manifest,
         begin=begin,
         commit_terminal=authority.commit_terminal,
-        journal=_DaemonExecutionJournal(authority),
         measurements=_DaemonMeasurementRepository(authority),
         instruments=instruments,
         coverage=coverage,
@@ -234,31 +223,6 @@ class _LeaseAuthority:
         )
 
 
-class _DaemonExecutionJournal:
-    def __init__(self, authority: _LeaseAuthority) -> None:
-        self._authority = authority
-
-    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
-        lease_id = self._authority.fence()
-        return self._authority.client.append_transition(
-            self._authority.run_id,
-            ExecutionTransitionAppend(
-                lease_id=lease_id,
-                transition=entry,
-            ),
-        )
-
-    def claim(self, entry: ExecutionTransition) -> ExecutionTransition:
-        lease_id = self._authority.fence()
-        return self._authority.client.claim_transition(
-            self._authority.run_id,
-            ExecutionTransitionClaim(
-                lease_id=lease_id,
-                transition=entry,
-            ),
-        )
-
-
 class _DaemonRunCoverage:
     """Coalesce no-dataset point progress before durable daemon writes."""
 
@@ -311,7 +275,7 @@ class _DaemonRunCoverage:
 
 
 class _DaemonRunDomainProposals:
-    """Persist domain decisions and publish bounded transient inspections."""
+    """Persist durable domain decisions through the fenced executor API."""
 
     def __init__(self, authority: _LeaseAuthority) -> None:
         self._authority = authority
@@ -329,7 +293,6 @@ class _DaemonRunDomainProposals:
         proposal: DomainProposalAttempt,
         decision: DomainProposalDecision,
         accepted_points: tuple[AcceptedRunPoint, ...],
-        inspections: tuple[RunPointInspection, ...],
         *,
         operator_request_id: str | None = None,
     ) -> None:
@@ -372,25 +335,6 @@ class _DaemonRunDomainProposals:
             raise ValueError("daemon recorded a different accepted point start")
         if durable.accepted_point_count != decision.accepted_point_count:
             raise ValueError("daemon recorded a different accepted point count")
-        with suppress(Exception):
-            self._authority.client.append_run_inspection(
-                self._authority.run_id,
-                RunInspectionAppendCommand(
-                    lease_id=self._authority.fence(),
-                    event=RunDomainInspectionEvent(
-                        proposal_index=durable.proposal_index,
-                        occurred_at=durable.occurred_at,
-                        fragment=durable.proposal.fragment,
-                        region_ids=durable.proposal.region_ids,
-                        source=durable.proposal.source,
-                        outcome=durable.outcome,
-                        accepted_point_start=durable.accepted_point_start,
-                        accepted_point_count=durable.accepted_point_count,
-                        reason=durable.reason,
-                        inspections=_review_inspections(inspections),
-                    ),
-                ),
-            )
 
     def close(self, *, completed_point_count: int, reason: str) -> None:
         self._authority.client.close_run_point_plan(
@@ -626,29 +570,6 @@ def _point_plan_close_operation_id(
             }
         )
     )
-
-
-def _review_inspections(
-    inspections: tuple[RunPointInspection, ...],
-) -> tuple[ReviewInspectionView, ...]:
-    projected: list[ReviewInspectionView] = []
-    for inspection in inspections:
-        for job in inspection.jobs:
-            content = job.execution.inspection
-            if content is None:
-                continue
-            intent = job.execution.invocation.intent
-            projected.append(
-                ReviewInspectionView(
-                    operation_id=job.id,
-                    point_index=inspection.point_index,
-                    target_id=intent.target_id,
-                    artifact_id=intent.artifact_id,
-                    artifact_fingerprint=intent.artifact_fingerprint,
-                    content=content,
-                )
-            )
-    return tuple(projected)
 
 
 def _json_document(model: BaseModel) -> dict[str, JsonValue]:

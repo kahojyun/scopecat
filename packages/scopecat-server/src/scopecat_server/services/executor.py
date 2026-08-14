@@ -23,10 +23,7 @@ from scopecat.daemon.points import (
     RunPointPlanCloseCommand,
     RunPointPlanView,
 )
-from scopecat.daemon.reviews import RunInspectionAppendCommand, RunInspectionView
 from scopecat.daemon.wire import (
-    ExecutionTransitionAppend,
-    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -42,7 +39,6 @@ from scopecat.daemon.wire import (
 )
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetReceipt,
@@ -61,8 +57,7 @@ from scopecat_server.storage.sqlite.control_plane import (
     SQLiteControlPlane,
 )
 from scopecat_server.storage.sqlite.execution import (
-    ExecutionJournalConflict,
-    SQLiteExecutionJournal,
+    ExecutionStateConflict,
     SQLiteMeasurementDatasetRepository,
     SQLiteRunCoverage,
 )
@@ -71,7 +66,6 @@ from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 from ..errors import BackendConflict, BackendNotFound
 from .active_measurements import ActiveMeasurementConflict, ActiveMeasurementStore
 from .point_plans import RunPointPlanService
-from .reviews import RunInspectionFeedService
 
 if TYPE_CHECKING:
     from ..instruments.service import InstrumentService
@@ -91,7 +85,6 @@ class ExecutorService:
         runs: SQLiteRunRepository,
         instruments: InstrumentService,
         active_measurements: ActiveMeasurementStore,
-        run_inspections: RunInspectionFeedService,
         point_plans: RunPointPlanService,
         lease_ttl: timedelta | None = None,
     ) -> None:
@@ -99,7 +92,6 @@ class ExecutorService:
         self._runs = runs
         self._instruments = instruments
         self._active_measurements = active_measurements
-        self._run_inspections = run_inspections
         self._point_plans = point_plans
         self._lease_ttl = lease_ttl or timedelta(seconds=30)
         self._heartbeat_interval_seconds = self._lease_ttl.total_seconds() / 3
@@ -160,7 +152,7 @@ class ExecutorService:
             run = self._control.get_run_in_transaction(connection, run_id)
             end_index = command.start_index + command.point_count
             if end_index > run.admission.plan.point_limit:
-                raise ExecutionJournalConflict(
+                raise ExecutionStateConflict(
                     "coverage range exceeds the admitted point count"
                 )
             completed, _advanced = coverage.advance_in_transaction(
@@ -199,14 +191,6 @@ class ExecutorService:
                 command,
                 completed_point_count=completed,
             )
-
-    def append_run_inspection(
-        self,
-        run_id: str,
-        command: RunInspectionAppendCommand,
-    ) -> RunInspectionView:
-        with self.fenced_write(run_id, token=command.lease_id):
-            return self._run_inspections.append(run_id, command.event)
 
     def cancel_run(self, run_id: str) -> RunCancellationReceipt:
         """Cancel queued work now or request a leased executor checkpoint stop."""
@@ -268,37 +252,6 @@ class ExecutorService:
         except ControlPlaneNotFound as error:
             raise BackendNotFound(str(error)) from error
         except ControlPlaneConflict as error:
-            raise BackendConflict(str(error)) from error
-
-    def append_transition(
-        self,
-        run_id: str,
-        command: ExecutionTransitionAppend,
-    ) -> ExecutionTransition:
-        journal = SQLiteExecutionJournal(self._runs, run_id=run_id)
-        with self.fenced_write(
-            run_id,
-            token=command.lease_id,
-        ) as connection:
-            transition, _created = journal.append_in_transaction(
-                connection,
-                command.transition,
-            )
-        return transition
-
-    def claim_transition(
-        self,
-        run_id: str,
-        command: ExecutionTransitionClaim,
-    ) -> ExecutionTransition:
-        journal = SQLiteExecutionJournal(self._runs, run_id=run_id)
-        try:
-            with self.fenced_write(
-                run_id,
-                token=command.lease_id,
-            ) as connection:
-                return journal.claim_in_transaction(connection, command.transition)
-        except ExecutionJournalConflict as error:
             raise BackendConflict(str(error)) from error
 
     def ingest_measurements(
@@ -372,7 +325,7 @@ class ExecutorService:
         repository = self._measurement_repository(run_id)
         try:
             prepared = repository.prepare_header(command.header)
-        except ExecutionJournalConflict as error:
+        except ExecutionStateConflict as error:
             raise BackendConflict(
                 "measurement command conflicts with durable state"
             ) from error
@@ -385,7 +338,7 @@ class ExecutorService:
                 command.header.expected_record_count != run.admission.plan.point_count
                 or command.header.record_count_limit != run.admission.plan.point_limit
             ):
-                raise ExecutionJournalConflict(
+                raise ExecutionStateConflict(
                     "measurement point extent differs from the admitted run plan"
                 )
             receipt, created = repository.header_prepared_in_transaction(
@@ -418,7 +371,7 @@ class ExecutorService:
         repository = self._measurement_repository(run_id)
         try:
             prepared = repository.prepare_seal(command.seal)
-        except ExecutionJournalConflict as error:
+        except ExecutionStateConflict as error:
             raise BackendConflict(
                 "measurement command conflicts with durable state"
             ) from error
@@ -462,7 +415,7 @@ class ExecutorService:
             )
             try:
                 prepared = repository.prepare_append(append)
-            except ExecutionJournalConflict as error:
+            except ExecutionStateConflict as error:
                 raise BackendConflict(
                     "measurement command conflicts with durable state"
                 ) from error
@@ -526,7 +479,6 @@ class ExecutorService:
             self._instruments.release_run(run_id)
             self._measurement_repositories.pop(run_id, None)
             self._active_measurements.clear(run_id)
-            self._run_inspections.mark_inactive(run_id)
             return manifest
         if commit.outcome.result == "succeeded":
             with self._runs.sqlite.read_transaction() as connection:
@@ -555,7 +507,6 @@ class ExecutorService:
         self._instruments.release_run(run_id)
         self._measurement_repositories.pop(run_id, None)
         self._active_measurements.clear(run_id)
-        self._run_inspections.mark_inactive(run_id)
         return manifest
 
     def reconcile_volatile_state(self) -> None:
@@ -579,7 +530,6 @@ class ExecutorService:
     def _discard_measurement_state(self, run_id: str) -> None:
         self._measurement_repositories.pop(run_id, None)
         self._active_measurements.clear(run_id)
-        self._run_inspections.mark_inactive(run_id)
 
     def _start_execution(
         self,
@@ -658,7 +608,7 @@ class ExecutorService:
                 yield connection
         except (
             ControlPlaneConflict,
-            ExecutionJournalConflict,
+            ExecutionStateConflict,
         ) as error:
             raise BackendConflict(
                 "executor command conflicts with durable run state"

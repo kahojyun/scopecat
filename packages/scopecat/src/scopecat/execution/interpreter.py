@@ -50,7 +50,6 @@ from scopecat.execution.services import (
 from scopecat.kernel.errors import (
     CheckFailed,
     DomainRuntimeFailure,
-    DomainRuntimePersistenceError,
     MeasurementRecordingError,
     ProblemFailure,
     RunCancelled,
@@ -127,7 +126,6 @@ def _execute_run(
         proposal_writer=session.domain_proposals,
     )
     run_id = session.run_id
-    journal = session.journal
     measurements = session.measurements
     dataset_header, header_failure, cancelled_without_effects = (
         _prepare_execution_start(program, session)
@@ -263,7 +261,6 @@ def _execute_run(
                 point_count=recorded_measurement_count,
                 record_content_hashes=tuple(record_content_hashes),
                 writer=measurements,
-                journal=journal,
             )
     except MeasurementRecordingError as error:
         problems.extend(
@@ -429,7 +426,6 @@ def _initialize_dataset_header(
         initialize_measurement_dataset(
             header,
             session.measurements,
-            session.journal,
         )
     except MeasurementRecordingError as error:
         return header, error
@@ -554,7 +550,6 @@ def _execute_instrument_effects(
         run_id=session.run_id,
         coordinate_ids=program.points.coordinate_ids,
         instruments=instruments,
-        journal=session.journal,
         coverage_observer=coverage_observer,
         recorded_value_ids=program.runtime_value_ids,
         payload_codecs=(
@@ -670,27 +665,23 @@ def _execution_coverage(
                     proposal,
                     decision,
                     (),
-                    (),
                     operator_request_id=(
                         None if queued is None else queued.request.request_id
                     ),
                 )
             continue
-        accepted_points = tuple(item.point for item in accepted)
-        decision = coordinator.accept(bound, accepted_points)
+        decision = coordinator.accept(bound, accepted.points)
         if state.proposal_writer is not None:
             state.proposal_writer.append(
                 bound.proposal,
                 decision,
-                accepted_points,
-                tuple(item.inspection for item in accepted),
+                accepted.points,
                 operator_request_id=(
                     None if queued is None else queued.request.request_id
                 ),
             )
-        state.points.extend(item.point for item in accepted)
-        for item in accepted:
-            yield from item.operations
+        state.points.extend(accepted.points)
+        yield from accepted.operations
         durable_progress()
     if state.proposal_writer is not None:
         state.proposal_writer.close(
@@ -719,7 +710,7 @@ def _domain_failure_problems(
     *,
     run_id: str,
 ) -> tuple[list[Problem], bool, BaseException | None]:
-    if isinstance(error, DomainRuntimeFailure | DomainRuntimePersistenceError):
+    if isinstance(error, DomainRuntimeFailure):
         problems = list(
             contextualize_problems(
                 error.problems,

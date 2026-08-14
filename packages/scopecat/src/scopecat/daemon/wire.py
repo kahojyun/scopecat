@@ -47,7 +47,6 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentBindingSpec,
 )
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
@@ -576,24 +575,6 @@ class RunHardwareFinishCommand(_FencedOperationCommand):
     failed: bool
 
 
-class _ExecutionTransitionCommand(_FencedCommand):
-    transition: ExecutionTransition
-
-    @model_validator(mode="after")
-    def validate_transition(self) -> _ExecutionTransitionCommand:
-        if self.transition.sequence is not None:
-            raise ValueError("submitted transition sequence must be daemon-assigned")
-        return self
-
-
-class ExecutionTransitionClaim(_ExecutionTransitionCommand):
-    """Atomically claim a new effect operation before executing it."""
-
-
-class ExecutionTransitionAppend(_ExecutionTransitionCommand):
-    """Append one transition using its content hash as the retry identity."""
-
-
 class MeasurementHeaderCommand(_FencedCommand):
     header: MeasurementDatasetHeader
 
@@ -849,8 +830,6 @@ __all__ = [
     "ConfigRevisionSource",
     "ConfigUndoCommand",
     "DirectConfigRevisionSource",
-    "ExecutionTransitionAppend",
-    "ExecutionTransitionClaim",
     "ExecutorHeartbeat",
     "ExecutorLease",
     "ExecutorStartRequest",

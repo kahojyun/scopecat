@@ -13,6 +13,7 @@ from scopecat.kernel.entity import (
     EntityRef,
     normalize_entity_metadata,
 )
+from scopecat.kernel.numpy_storage import freeze_ndarray
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import LocationPathItem
 from scopecat.kernel.quantity import Quantity as QuantityValue
@@ -110,7 +111,13 @@ def _coerce_array(
             f"array dtype {source.dtype} cannot be safely converted to "
             f"{expected_dtype}",
         )
-    selected = np.array(source, dtype=expected_dtype, order="C", copy=True)
+    try:
+        selected = np.asarray(source, dtype=expected_dtype)
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueValidationError(
+            path,
+            f"array values do not fit {value_type.dtype}",
+        ) from error
     if selected.ndim != len(value_type.dimensions):
         raise ValueValidationError(
             path,
@@ -123,8 +130,7 @@ def _coerce_array(
                 f"dimension {dimension.id!r} must have size {dimension.size}, "
                 f"got {selected.shape[index]}",
             )
-    selected.flags.writeable = False
-    return selected
+    return freeze_ndarray(selected)
 
 
 def _numpy_dtype(dtype: ValueDType) -> np.dtype[np.generic]:

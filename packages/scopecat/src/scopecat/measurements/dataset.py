@@ -167,7 +167,13 @@ class PointMask(Sequence[bool]):
 
     @property
     def _values(self) -> tuple[bool, ...]:
-        return tuple(cast("list[bool]", self._data.values.tolist()))
+        values = cast(
+            "np.ndarray[tuple[int], np.dtype[np.bool_]]",
+            self._data.values,
+        )
+        return tuple(
+            bool(cast("np.bool_", values[index])) for index in range(len(values))
+        )
 
     def belongs_to(self, dataset: Dataset) -> bool:
         return self._dataset is dataset
@@ -2397,22 +2403,24 @@ def _point_positions(dataset: Dataset, selected: xr.Dataset) -> tuple[int, ...]:
         record.point_index: position for position, record in enumerate(dataset._records)
     }
     point_indices = cast(
-        "list[int]",
-        selected.coords["point"].values.tolist(),
+        "np.ndarray[tuple[int], np.dtype[np.int64]]",
+        selected.coords["point"].values,
     )
-    return tuple(positions[point_index] for point_index in point_indices)
+    return tuple(
+        positions[int(cast("np.int64", point_indices[index]))]
+        for index in range(len(point_indices))
+    )
 
 
 def _selected_dimension_positions(
     selected: xr.Dataset,
     dimension_id: str,
 ) -> tuple[int, ...]:
-    return tuple(
-        cast(
-            "list[int]",
-            selected.coords[dimension_id].values.tolist(),
-        )
+    values = cast(
+        "np.ndarray[tuple[int], np.dtype[np.int64]]",
+        selected.coords[dimension_id].values,
     )
+    return tuple(int(cast("np.int64", values[index])) for index in range(len(values)))
 
 
 def _group_positions(

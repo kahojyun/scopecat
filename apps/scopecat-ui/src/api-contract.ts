@@ -47,8 +47,7 @@ export type InstrumentApplyReceipt =
 export type InstrumentConfiguredDefaultsApplyReceipt =
   PostResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/configured-defaults/apply">;
 export type InstrumentComponent = components["schemas"]["ComponentSpec"];
-export type InstrumentCollectReceipt =
-  PostResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect">;
+export type InstrumentCollectReceipt = components["schemas"]["CollectReceipt"];
 export type InstrumentConnection = components["schemas"]["InstrumentConnection"];
 export type InstrumentDescription = components["schemas"]["InstrumentDescription"];
 export type InstrumentDriverProbeCommand = components["schemas"]["InstrumentDriverProbeCommand"];
@@ -117,7 +116,7 @@ export type PointCoordinateSpec = components["schemas"]["PointCoordinateSpec-Out
 export type ReviewSession = GetResponse<"/api/v1/reviews/{session_id}">;
 export type ReviewSessionList = GetResponse<"/api/v1/reviews">;
 export type ReviewInspection = components["schemas"]["ReviewInspectionView-Output"];
-export type RunInspectionFeed = GetResponse<"/api/v1/runs/{run_id}/inspections">;
+export type RunDomainDecisionPage = GetResponse<"/api/v1/runs/{run_id}/point-plan/decisions">;
 export type AdaptiveRegion = components["schemas"]["AdaptiveRegionSpec-Output"];
 export type RunDomainAxis = components["schemas"]["RunDomainAxisView-Input"];
 export type RunDomainEnqueueCommand = components["schemas"]["RunDomainEnqueueCommand"];

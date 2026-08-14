@@ -23,9 +23,11 @@ from scopecat_quantum.waveforms import (
     Float64ReferenceRenderer,
     IqMatrix,
     SampledOutputBinding,
+    SampledWaveformPlan,
     SampleGrid,
     TimingQuantizationPolicy,
     WaveformPlanningError,
+    factor_phase_parameterized_waveforms,
     plan_sampled_waveforms,
 )
 
@@ -44,6 +46,43 @@ def _binding(signal: DriveSignal | ReadoutSignal) -> SampledOutputBinding:
         q_lane=1,
         intermediate_frequency_hz=0.0,
         mixer=IDENTITY_IQ,
+    )
+
+
+def _phase_plan(phase: float, *, amplitude: float = 0.25) -> SampledWaveformPlan:
+    return plan_sampled_waveforms(
+        schedule(
+            PulseProgram(
+                PulseProgramId(f"phase-{phase}-{amplitude}"),
+                Play(
+                    PulseEventId("play"),
+                    DRIVE_Q0,
+                    Constant(
+                        Quantity(4, "ns"),
+                        Quantity(amplitude, "arb"),
+                        phase=Quantity(phase, "rad"),
+                    ),
+                ),
+            )
+        ),
+        bindings=(_binding(DRIVE_Q0),),
+        grid=SampleGrid(1_000_000_000),
+    )
+
+
+def test_phase_parameterization_factors_only_phase_rows() -> None:
+    plans = (_phase_plan(0.0), _phase_plan(math.pi / 2))
+
+    factored = factor_phase_parameterized_waveforms(plans)
+
+    assert factored is not None
+    assert factored.phase_rows == ((0.0,), (math.pi / 2,))
+    assert factored.template.render_events[0].effective_phase_radians == 0.0
+    assert (
+        factor_phase_parameterized_waveforms(
+            (plans[0], _phase_plan(0.0, amplitude=0.5))
+        )
+        is None
     )
 
 

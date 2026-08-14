@@ -53,6 +53,7 @@ class DomainBatchRequest:
     inputs: DomainBatchInputs
     points: tuple[DomainPointRef, ...]
     measurement_catalog: MeasurementValueCatalog = field(repr=False)
+    inspection_requested: bool = False
 
     @property
     def point_ordinals(self) -> tuple[int, ...]:

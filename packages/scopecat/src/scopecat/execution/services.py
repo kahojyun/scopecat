@@ -8,13 +8,11 @@ from typing import Protocol
 
 from scopecat.adaptive_domains import DomainProposalAttempt, OperatorDomainRequest
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
-from scopecat.execution.program import RunPointInspection
 from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.optimization import DomainProposalDecision
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments.execution import RunInstrumentHost
-from scopecat.sdk.journal import ExecutionJournal
 
 
 def _never_cancel() -> bool:
@@ -39,7 +37,7 @@ class QueuedOperatorDomainRequest:
 
 
 class RunDomainProposalWriter(Protocol):
-    """Commit point-plan facts and publish bounded live inspections."""
+    """Commit point-plan facts and durable proposal decisions."""
 
     def next_queued(self) -> QueuedOperatorDomainRequest | None: ...
 
@@ -48,7 +46,6 @@ class RunDomainProposalWriter(Protocol):
         proposal: DomainProposalAttempt,
         decision: DomainProposalDecision,
         accepted_points: tuple[AcceptedRunPoint, ...],
-        inspections: tuple[RunPointInspection, ...],
         *,
         operator_request_id: str | None = None,
     ) -> None: ...
@@ -63,7 +60,6 @@ class ExecutionSession:
     accepted: RunManifest
     begin: Callable[[], None]
     commit_terminal: Callable[[TerminalRunCommit], RunManifest]
-    journal: ExecutionJournal
     measurements: MeasurementDatasetWriter
     instruments: RunInstrumentHost
     coverage: RunCoverageWriter | None = None

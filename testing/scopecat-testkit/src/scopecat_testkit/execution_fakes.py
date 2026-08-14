@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
@@ -12,38 +9,6 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
 )
-from scopecat.sdk.journal import ExecutionJournalError
-
-
-class FakeExecutionJournal:
-    """Assign journal identities while retaining entries for assertions."""
-
-    def __init__(self) -> None:
-        self._entries: list[ExecutionTransition] = []
-
-    @property
-    def entries(self) -> tuple[ExecutionTransition, ...]:
-        return tuple(self._entries)
-
-    def claim(self, entry: ExecutionTransition) -> ExecutionTransition:
-        if any(
-            existing.operation_id == entry.operation_id for existing in self._entries
-        ):
-            raise ExecutionJournalError(
-                f"execution operation {entry.operation_id!r} is already claimed"
-            )
-        return self.append(entry)
-
-    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
-        committed = entry.model_copy(
-            update={
-                "sequence": len(self._entries),
-                "timestamp": datetime.now(UTC),
-            },
-            deep=True,
-        )
-        self._entries.append(committed)
-        return committed
 
 
 class FakeMeasurementDatasetRepository:
@@ -81,7 +46,7 @@ class FakeMeasurementDatasetRepository:
             self._header is not None
             and self._header.content_hash != durable.content_hash
         ):
-            raise ExecutionJournalError("measurement dataset header changed content")
+            raise RuntimeError("measurement dataset header changed content")
         if self._header is None:
             self._header = durable
             self._receipts[durable.operation_id] = MeasurementDatasetReceipt(
@@ -96,10 +61,10 @@ class FakeMeasurementDatasetRepository:
             self._header is None
             or self._header.content_hash != durable.header_content_hash
         ):
-            raise ExecutionJournalError("measurement dataset append header is missing")
+            raise RuntimeError("measurement dataset append header is missing")
         existing = self._appends.get(durable.operation_id)
         if existing is not None and existing.content_hash != durable.content_hash:
-            raise ExecutionJournalError(
+            raise RuntimeError(
                 f"measurement operation {durable.operation_id} changed content"
             )
         if existing is None:
@@ -116,10 +81,10 @@ class FakeMeasurementDatasetRepository:
             self._header is None
             or self._header.content_hash != durable.header_content_hash
         ):
-            raise ExecutionJournalError("measurement dataset seal header is missing")
+            raise RuntimeError("measurement dataset seal header is missing")
         existing = self._seals.get(durable.operation_id)
         if existing is not None and existing.content_hash != durable.content_hash:
-            raise ExecutionJournalError(
+            raise RuntimeError(
                 f"measurement seal {durable.operation_id} changed content"
             )
         if existing is None:

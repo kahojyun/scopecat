@@ -17,8 +17,13 @@ from scopecat.control.models import (
     ControlRunState,
     EventPage,
 )
+from scopecat.daemon.hardware_receipt_wire import (
+    decode_collect_receipt,
+    decode_run_hardware_receipt,
+)
 from scopecat.daemon.points import (
     RunDomainDecisionCommand,
+    RunDomainDecisionPage,
     RunDomainDecisionView,
     RunDomainEnqueueCommand,
     RunDomainQueueEntryView,
@@ -36,8 +41,6 @@ from scopecat.daemon.reviews import (
     ReviewSessionListView,
     ReviewSessionView,
     ReviewWorkItem,
-    RunInspectionAppendCommand,
-    RunInspectionView,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -71,8 +74,6 @@ from scopecat.daemon.wire import (
     ConfigPublishCommand,
     ConfigPublishReceipt,
     ConfigUndoCommand,
-    ExecutionTransitionAppend,
-    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -114,7 +115,6 @@ from scopecat.records.artifact import (
     RunContentEntry,
 )
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.records.measurement_recording import (
@@ -490,15 +490,15 @@ class DaemonClient:
         instrument_id: str,
         intent: InteractiveCollectIntent,
     ) -> CollectReceipt:
-        return self._post_idempotent_model(
+        response = self._post_idempotent_response(
             self._instrument_session_path(
                 session_id,
                 instrument_id,
                 "collect",
             ),
             intent,
-            CollectReceipt,
         )
+        return decode_collect_receipt(response.content)
 
     def close_instrument_session(
         self,
@@ -850,6 +850,22 @@ class DaemonClient:
             RunDomainDecisionView,
         )
 
+    def get_run_domain_decisions(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunDomainDecisionPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/decisions",
+            RunDomainDecisionPage,
+            params=params,
+        )
+
     def close_run_point_plan(
         self,
         run_id: str,
@@ -890,23 +906,6 @@ class DaemonClient:
             RunDomainQueueEntryView,
         )
 
-    def get_run_inspections(self, run_id: str) -> RunInspectionView:
-        return self._get_model(
-            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/inspections",
-            RunInspectionView,
-        )
-
-    def append_run_inspection(
-        self,
-        run_id: str,
-        command: RunInspectionAppendCommand,
-    ) -> RunInspectionView:
-        return self._post_idempotent_model(
-            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/inspections",
-            command,
-            RunInspectionView,
-        )
-
     def provision_run_instruments(
         self,
         run_id: str,
@@ -928,11 +927,11 @@ class DaemonClient:
             command.lease_id,
             command,
         )
-        return self._post_idempotent_model(
+        response = self._post_idempotent_response(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/hardware/execute",
             command,
-            RunHardwareBatchReceipt,
         )
+        return decode_run_hardware_receipt(response.content)
 
     def finish_run_hardware(
         self,
@@ -943,28 +942,6 @@ class DaemonClient:
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/hardware/finish",
             command,
             RunHardwareFinalizationReceipt,
-        )
-
-    def append_transition(
-        self,
-        run_id: str,
-        command: ExecutionTransitionAppend,
-    ) -> ExecutionTransition:
-        return self._post_model(
-            f"{_API_PREFIX}/runs/{run_id}/transitions",
-            command,
-            ExecutionTransition,
-        )
-
-    def claim_transition(
-        self,
-        run_id: str,
-        command: ExecutionTransitionClaim,
-    ) -> ExecutionTransition:
-        return self._post_model(
-            f"{_API_PREFIX}/runs/{run_id}/transitions/claim",
-            command,
-            ExecutionTransition,
         )
 
     def initialize_measurements(
@@ -1197,12 +1174,19 @@ class DaemonClient:
         body: BaseModel,
         model: type[ModelT],
     ) -> ModelT:
-        response = self._request(
+        response = self._post_response(path, body)
+        return model.model_validate_json(response.content)
+
+    def _post_response(
+        self,
+        path: str,
+        body: BaseModel,
+    ) -> httpx2.Response:
+        return self._request(
             "POST",
             path,
             json=body.model_dump(mode="json"),
         )
-        return model.model_validate_json(response.content)
 
     def _post_idempotent_model[ModelT: BaseModel](
         self,
@@ -1212,10 +1196,20 @@ class DaemonClient:
     ) -> ModelT:
         """Retry one transport failure with the exact operation command."""
 
+        response = self._post_idempotent_response(path, body)
+        return model.model_validate_json(response.content)
+
+    def _post_idempotent_response(
+        self,
+        path: str,
+        body: BaseModel,
+    ) -> httpx2.Response:
+        """Return one idempotent response after retrying a transport failure."""
+
         try:
-            return self._post_model(path, body, model)
+            return self._post_response(path, body)
         except httpx2.TransportError:
-            return self._post_model(path, body, model)
+            return self._post_response(path, body)
 
     def _put_payload_content(
         self,

@@ -23,6 +23,7 @@ import type {
 } from "../../api-contract";
 import { setConfigDefault } from "../config/config-api";
 import { safeConfigEntryId } from "../config/config-utils";
+import { decodeCollectReceipt, HARDWARE_RECEIPT_MEDIA_TYPE } from "./hardware-receipt-wire";
 
 export type { ActiveConfig, InstrumentList } from "../../api-contract";
 
@@ -172,24 +173,42 @@ export async function collectInstrumentAcquisition(
   target: InstrumentAcquisitionTarget,
   commandId = createInstrumentCommandId("collect"),
 ): Promise<InstrumentCollectReceipt> {
-  return apiData(
-    apiClient.POST("/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect", {
-      params: {
-        path: {
-          session_id: session.session_id,
-          instrument_id: instrumentId,
-        },
+  const url = new URL(
+    `/api/v1/instrument-sessions/${encodeURIComponent(session.session_id)}/instruments/${encodeURIComponent(instrumentId)}/collect`,
+    globalThis.location?.origin ?? "http://localhost",
+  );
+  let response: Response;
+  try {
+    response = await globalThis.fetch(url, {
+      method: "POST",
+      headers: {
+        Accept: HARDWARE_RECEIPT_MEDIA_TYPE,
+        "Content-Type": "application/json",
       },
-      body: {
+      body: JSON.stringify({
         command_id: commandId,
         instrument_id: instrumentId,
         interface_id: target.interfaceId,
         component_path: target.componentPath,
         acquisition_id: target.acquisition.id,
         result_ids: [],
-      },
-    }),
-  );
+      }),
+    });
+  } catch {
+    throw new ApiError("The local daemon did not respond.");
+  }
+  if (!response.ok) {
+    const detail = await responseDetail(response);
+    throw new ApiError(
+      detail ?? `The daemon returned ${response.status} ${response.statusText}.`,
+      response.status,
+    );
+  }
+  try {
+    return decodeCollectReceipt(await response.arrayBuffer());
+  } catch {
+    throw new ApiError("The daemon returned an invalid hardware receipt.");
+  }
 }
 
 export async function invokeInstrumentOperation(
@@ -324,4 +343,17 @@ export function retryTransientInstrumentMutation(failureCount: number, error: un
 
 function cloneConfig(source: ActiveConfig["config"]): ConfigProfileSnapshot {
   return JSON.parse(JSON.stringify(source)) as ConfigProfileSnapshot;
+}
+
+async function responseDetail(response: Response): Promise<string | undefined> {
+  try {
+    const value: unknown = await response.json();
+    return isObject(value) && typeof value.detail === "string" ? value.detail : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

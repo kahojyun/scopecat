@@ -20,7 +20,7 @@ from scopecat.execution.local.program import (
     LocalOperation,
 )
 from scopecat.execution.program import (
-    RunAcceptedPointCoverage,
+    RunAcceptedCoverage,
     RunCoverage,
     RunCoverageCheckpoint,
     RunCoverageEffect,
@@ -60,6 +60,7 @@ from scopecat.planning.local_effects import (
     local_operation_resource_requirements,
 )
 from scopecat.planning.local_materialization import (
+    local_execution_is_point_invariant,
     materialize_local_execution,
     materialize_local_success_state,
     prepare_local_target,
@@ -289,11 +290,15 @@ def _compile_system_program(
     initial_local_probe = (
         _InitialLocalProbe(
             ordinal=execution_ordinals[0],
+            point_uid=bound_points.point_domain.points[
+                execution_ordinals[0]
+            ].logical_id.value,
             effects=materialize_local_execution(
                 bound_points,
                 target=local_target,
                 point_ordinals=(execution_ordinals[0],),
             ),
+            point_invariant=local_execution_is_point_invariant(local_target),
         )
         if local_target is not None and execution_ordinals
         else None
@@ -554,7 +559,9 @@ class _MaterializedLocalCoverage:
 @dataclass(frozen=True, slots=True)
 class _InitialLocalProbe:
     ordinal: int
+    point_uid: str
     effects: MaterializedLocalEffects
+    point_invariant: bool
 
 
 class _CoverageValidator:
@@ -897,9 +904,6 @@ def _compile_coverage(
             ),
         )
 
-    def preflight() -> None:
-        inspect(point_ordinals[0])
-
     def inspect(point: int | PointProposalAttempt) -> RunPointInspection:
         if isinstance(point, int):
             if point not in point_ordinals:
@@ -928,10 +932,16 @@ def _compile_coverage(
                 initial_local_probe=(
                     initial_local_probe
                     if initial_local_probe is not None
-                    and point_index is not None
-                    and initial_local_probe.ordinal == point_index
+                    and (
+                        initial_local_probe.point_invariant
+                        or (
+                            point_index is not None
+                            and initial_local_probe.ordinal == point_index
+                        )
+                    )
                     else None
                 ),
+                inspection_requested=True,
             ),
             validator=_CoverageValidator(
                 domain_instrument_ids=(
@@ -950,69 +960,53 @@ def _compile_coverage(
             ),
         )
 
-    def accept(candidate: PointProposalAttempt) -> RunAcceptedPointCoverage:
-        return accept_all((candidate,))[0]
-
     def accept_all(
         candidates: tuple[PointProposalAttempt, ...],
-    ) -> tuple[RunAcceptedPointCoverage, ...]:
+    ) -> RunAcceptedCoverage:
         resolved, extended_bound_points = append_candidate_bound_points(
             accepted_bound_points.current,
             candidates,
         )
         start = len(accepted_bound_points.current.point_domain.points)
-        accepted: list[RunAcceptedPointCoverage] = []
-        for offset, candidate in enumerate(resolved):
-            ordinal = start + offset
-            selected_operations = tuple(
-                _validated_coverage(
-                    _coverage_operations(
-                        compiler=compiler,
-                        bound_points=extended_bound_points,
-                        point_ordinals=(ordinal,),
-                        effects=bound.program.program.effects,
-                        domain_calls=domain_calls,
-                        local_target=local_target,
-                        initial_local_probe=None,
-                        initial_batch_ordinal=ordinal,
-                    ),
-                    validator=_CoverageValidator(
-                        domain_instrument_ids=(
-                            () if compiler is None else compiler.instrument_ids
-                        ),
-                        catalog=catalog,
-                    ),
-                )
-            )
-            point = AcceptedRunPoint.accept(
+        point_ordinals = tuple(range(start, start + len(resolved)))
+        accepted_points = tuple(
+            AcceptedRunPoint.accept(
                 candidate,
-                logical_id=(
-                    extended_bound_points.point_domain.points[ordinal].logical_id
+                logical_id=extended_bound_points.point_domain.points[
+                    ordinal
+                ].logical_id,
+            )
+            for ordinal, candidate in zip(point_ordinals, resolved, strict=True)
+        )
+        operations = _validated_coverage(
+            _coverage_operations(
+                compiler=compiler,
+                bound_points=extended_bound_points,
+                point_ordinals=point_ordinals,
+                effects=bound.program.program.effects,
+                domain_calls=domain_calls,
+                local_target=local_target,
+                initial_local_probe=(
+                    initial_local_probe
+                    if initial_local_probe is not None
+                    and initial_local_probe.point_invariant
+                    else None
                 ),
-            )
-            accepted.append(
-                RunAcceptedPointCoverage(
-                    point=point,
-                    operations=selected_operations,
-                    inspection=RunPointInspection(
-                        point_index=ordinal,
-                        candidate=candidate,
-                        jobs=tuple(
-                            operation
-                            for operation in selected_operations
-                            if isinstance(operation, RunDomainJob)
-                        ),
-                    ),
-                )
-            )
+                initial_batch_ordinal=start,
+            ),
+            validator=_CoverageValidator(
+                domain_instrument_ids=(
+                    () if compiler is None else compiler.instrument_ids
+                ),
+                catalog=catalog,
+            ),
+        )
         accepted_bound_points.current = extended_bound_points
-        return tuple(accepted)
+        return RunAcceptedCoverage(points=accepted_points, operations=operations)
 
     return RunCoverage(
         operations,
-        preflight=preflight if domain_calls and point_ordinals else None,
         inspect=inspect,
-        accept=accept,
         accept_all=accept_all,
     )
 
@@ -1027,6 +1021,7 @@ def _coverage_operations(
     local_target: LocalTargetPlan | None,
     initial_local_probe: _InitialLocalProbe | None,
     initial_batch_ordinal: int = 0,
+    inspection_requested: bool = False,
 ) -> Iterator[RunCoveredOperation | _MaterializedLocalCoverage]:
     next_batch_ordinals = {
         effect.id: initial_batch_ordinal
@@ -1051,7 +1046,12 @@ def _coverage_operations(
             bound_points,
             target=local_target,
             point_ordinals=coverage_batch,
-            initial_probe=initial_local_probe if offset == 0 else None,
+            initial_probe=(
+                initial_local_probe
+                if initial_local_probe is not None
+                and (offset == 0 or initial_local_probe.point_invariant)
+                else None
+            ),
         )
         if local_effects is not None:
             yield _MaterializedLocalCoverage(local_effects)
@@ -1096,6 +1096,7 @@ def _coverage_operations(
                         bound_points,
                         region,
                         batch_ordinal=batch_ordinal,
+                        inspection_requested=inspection_requested,
                     )
                     next_domain_capacities.append(job.execution.next_batch_max_points)
                     yield job
@@ -1130,6 +1131,12 @@ def _materialize_local_coverage(
 ) -> MaterializedLocalEffects | None:
     if target is None:
         return None
+    if initial_probe is not None and initial_probe.point_invariant:
+        return _retarget_invariant_local_probe(
+            initial_probe,
+            bound_points,
+            point_ordinals,
+        )
     if initial_probe is None:
         return materialize_local_execution(
             bound_points,
@@ -1158,6 +1165,48 @@ def _materialize_local_coverage(
                 remaining.effect_operations,
                 strict=True,
             )
+        ),
+    )
+
+
+def _retarget_invariant_local_probe(
+    probe: _InitialLocalProbe,
+    bound_points: MaterializedBoundPoints,
+    point_ordinals: tuple[int, ...],
+) -> MaterializedLocalEffects:
+    if probe.effects.compute_operations:
+        raise AssertionError("point-invariant local coverage cannot contain compute")
+    source_uid = probe.point_uid
+
+    def retarget(
+        covered: RunCoverageEffect,
+        ordinal: int,
+    ) -> RunCoverageEffect:
+        operation = covered.operation
+        if not isinstance(operation, ApplyStateOperation):
+            raise AssertionError(
+                "point-invariant local coverage must contain only state operations"
+            )
+        if not operation.operation_id.startswith(source_uid):
+            raise AssertionError("initial local probe operation id has another point")
+        point_uid = bound_points.point_domain.points[ordinal].logical_id.value
+        return RunCoverageEffect(
+            point_index=ordinal,
+            operation=replace(
+                operation,
+                operation_id=point_uid + operation.operation_id[len(source_uid) :],
+            ),
+        )
+
+    return MaterializedLocalEffects(
+        compute_operations=(),
+        effect_operations=tuple(
+            tuple(
+                retarget(covered, ordinal)
+                for ordinal in point_ordinals
+                for covered in group
+            )
+            for group in probe.effects.effect_operations
         ),
     )
 
@@ -1262,12 +1311,14 @@ def _compile_domain_batch(
     point_ordinals: tuple[int, ...],
     *,
     batch_ordinal: int,
+    inspection_requested: bool,
 ) -> RunDomainJob:
     request = make_domain_batch_request(
         call,
         bound_points,
         point_ordinals,
         batch_ordinal=batch_ordinal,
+        inspection_requested=inspection_requested,
     )
     execution_candidate = cast(
         "object",

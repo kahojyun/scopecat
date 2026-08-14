@@ -221,8 +221,9 @@ class DomainProposalLedger:
             range(points[0].ordinal, points[0].ordinal + len(points))
         ):
             raise ValueError("accepted domain points must form one contiguous range")
+        proposal_fingerprint = proposal.proposal_fingerprint
         if any(
-            point.domain_proposal_fingerprint != proposal.proposal_fingerprint
+            point.domain_proposal_fingerprint != proposal_fingerprint
             for point in points
         ):
             raise ValueError("accepted points must retain domain proposal identity")

@@ -60,7 +60,7 @@ from scopecat.execution.program import (
 )
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.point_identity import LogicalPointId
-from scopecat.kernel.points import PointProposalAttempt
+from scopecat.kernel.points import PointProposalAttempt, PointProposalSource
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.product_identity import product_use
 from scopecat.kernel.quantity import Quantity
@@ -986,6 +986,9 @@ def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
         (0,),
         (1,),
     ]
+    assert not any(
+        request.inspection_requested for request in compiler.compile_requests
+    )
 
 
 def test_free_preview_compiles_a_canonical_unplanned_point() -> None:
@@ -1019,6 +1022,7 @@ def test_free_preview_compiles_a_canonical_unplanned_point() -> None:
     assert compiler.prepared_inputs == [(Quantity(5.05, "GHz"),)]
     [request] = compiler.compile_requests
     assert request.point_ordinals == (0,)
+    assert request.inspection_requested
     assert cast(
         "LogicalPointId", request.points[0].native
     ).domain_id.domain_id.startswith("root.inspection-")
@@ -1047,6 +1051,7 @@ def test_snap_preview_selects_nearest_planned_point_without_free_compilation() -
     assert compiler.prepared_inputs == []
     [request] = compiler.compile_requests
     assert request.point_ordinals == (1,)
+    assert request.inspection_requested
 
 
 def test_domain_target_initial_batch_must_fit_the_complete_point_space() -> None:
@@ -1122,6 +1127,45 @@ def test_local_effect_materialization_reuses_the_bounded_initial_probe(
     assert tuple(
         ordinal for batch in materialized_ordinals for ordinal in batch
     ) == tuple(range(300))
+
+
+def test_point_invariant_state_reuses_only_the_initial_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    materialized_ordinals: list[tuple[int, ...]] = []
+
+    def record_materialization(
+        bound_points: MaterializedBoundPoints,
+        *,
+        target: LocalTargetPlan,
+        point_ordinals: tuple[int, ...],
+    ) -> MaterializedLocalEffects:
+        materialized_ordinals.append(point_ordinals)
+        return materialize_local_execution(
+            bound_points,
+            target=target,
+            point_ordinals=point_ordinals,
+        )
+
+    monkeypatch.setattr(
+        "scopecat.planning.system.materialize_local_execution",
+        record_materialization,
+    )
+    bound = _bound_program(state_mode="constant", point_count=300)
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound, _TrackingProvider()),
+        domain_compiler=_DomainCompiler("tests.invariant-state"),
+    ).compile(bound)
+
+    assert materialized_ordinals == [(0,)]
+    coverage = tuple(plan.coverage)
+
+    assert materialized_ordinals == [(0,)]
+    assert [
+        operation.point_index
+        for operation in coverage
+        if isinstance(operation, RunCoverageEffect)
+    ] == [0]
 
 
 def test_large_plan_preview_samples_edges_without_hiding_total_point_count() -> None:
@@ -1851,9 +1895,12 @@ def test_adaptive_plan_uses_an_open_point_extent_with_a_hard_limit() -> None:
     assert preview.records[0].shape[0] is None
 
 
-def test_adaptive_coverage_accepts_candidates_into_the_canonical_run_domain() -> None:
+@pytest.mark.parametrize("source", ("optimizer", "operator"))
+def test_adaptive_coverage_batches_an_accepted_range_without_inspection(
+    source: PointProposalSource,
+) -> None:
     bound = _bound_program(point_count=2)
-    compiler = _DomainCompiler("tests.adaptive-accept")
+    compiler = _DomainCompiler("tests.adaptive-accept", batch_size=2)
     plan = ExperimentSystem(
         instrument_catalog=_catalog(bound),
         domain_compiler=compiler,
@@ -1866,30 +1913,33 @@ def test_adaptive_coverage_accepts_candidates_into_the_canonical_run_domain() ->
         ),
     )
 
-    accepted = plan.coverage.accept(
-        PointProposalAttempt(
-            {"frequency": Quantity(5.3, "GHz")},
-            source="optimizer",
-        )
-    )
-    next_accepted = plan.coverage.accept(
-        PointProposalAttempt(
-            {"frequency": Quantity(5.5, "GHz")},
-            source="optimizer",
+    accepted = plan.coverage.accept_all(
+        tuple(
+            PointProposalAttempt(
+                {"frequency": Quantity(frequency, "GHz")},
+                source=source,
+            )
+            for frequency in (5.3, 5.5, 5.7)
         )
     )
 
-    assert accepted.point.ordinal == 2
-    assert accepted.point.coordinates == {"frequency": Quantity(5.3, "GHz")}
-    assert accepted.inspection.point_index == 2
-    assert [job.point_ordinals for job in accepted.inspection.jobs] == [(2,)]
-    assert next_accepted.point.ordinal == 3
+    assert [point.ordinal for point in accepted.points] == [2, 3, 4]
+    assert [point.coordinates for point in accepted.points] == [
+        {"frequency": Quantity(5.3, "GHz")},
+        {"frequency": Quantity(5.5, "GHz")},
+        {"frequency": Quantity(5.7, "GHz")},
+    ]
+    assert compiler.compile_requests == []
+    operations = tuple(accepted.operations)
     assert [request.point_ordinals for request in compiler.compile_requests] == [
-        (2,),
-        (3,),
+        (2, 3),
+        (4,),
     ]
     assert [request.batch_ordinal for request in compiler.compile_requests] == [2, 3]
+    assert not any(
+        request.inspection_requested for request in compiler.compile_requests
+    )
     assert all(
         isinstance(operation, RunCoverageCheckpoint | RunDomainJob)
-        for operation in accepted.operations
+        for operation in operations
     )

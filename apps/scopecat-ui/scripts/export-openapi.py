@@ -68,7 +68,6 @@ _OPERATIONS = {
     ("/api/v1/runs/{run_id}/artifacts/{selector}/text", "get"),
     ("/api/v1/runs/{run_id}/attention", "post"),
     ("/api/v1/runs/{run_id}/datasets/{selector}", "get"),
-    ("/api/v1/runs/{run_id}/inspections", "get"),
     ("/api/v1/runs/{run_id}/measurements/live", "get"),
     ("/api/v1/runs/{run_id}/measurements/preview", "get"),
     ("/api/v1/runs/{run_id}/measurements/query", "post"),
@@ -76,9 +75,14 @@ _OPERATIONS = {
     ("/api/v1/runs/{run_id}/parameter-proposals", "get"),
     ("/api/v1/runs/{run_id}/point-plan/queue", "get"),
     ("/api/v1/runs/{run_id}/point-plan/queue", "post"),
+    ("/api/v1/runs/{run_id}/point-plan/decisions", "get"),
     ("/api/v1/runs/{run_id}/point-plan/resolve", "post"),
     ("/api/v1/runs/{run_id}/records/{selector}/json", "get"),
 }
+
+# Binary endpoints do not reference their decoded models in OpenAPI. The UI still
+# needs these types after decoding their response frames locally.
+_COMPONENT_ROOTS = {"CollectReceipt"}
 
 
 def main() -> None:
@@ -98,7 +102,7 @@ def main() -> None:
         "scopecat__kernel__json_types__JsonValue",
     ):
         components[name] = {}
-    reachable = _reachable_components(paths, components)
+    reachable = _reachable_components(paths, components, roots=_COMPONENT_ROOTS)
     schema = {
         "openapi": openapi["openapi"],
         "info": openapi["info"],
@@ -115,10 +119,12 @@ def main() -> None:
 
 
 def _reachable_components(
-    roots: object,
+    value: object,
     components: dict[str, object],
+    *,
+    roots: set[str] | None = None,
 ) -> set[str]:
-    pending = list(_component_refs(roots))
+    pending = [*(roots or ()), *_component_refs(value)]
     found: set[str] = set()
     while pending:
         name = pending.pop()

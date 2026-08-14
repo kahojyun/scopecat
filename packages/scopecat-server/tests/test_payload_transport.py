@@ -195,14 +195,10 @@ def test_binary_command_payload_crosses_real_json_http_boundary(
         assert not _payload_object_path(runtime, payload.content_hash).exists()
         [driver] = provider.drivers
         assert driver.consumed_payloads == [_PAYLOAD_BYTES]
-        [started] = [
-            event
+        assert not any(
+            event.kind.startswith("run_hardware_batch_")
             for event in daemon.replay_events(run_id=run_id).items
-            if event.kind == "run_hardware_batch_started"
-        ]
-        evidence = started.model_dump_json()
-        assert "content_base64" not in evidence
-        assert '"body":' not in evidence
+        )
 
 
 def test_direct_invoke_uses_the_same_payload_object_boundary(
@@ -719,7 +715,7 @@ def test_batch_materializes_all_payloads_before_first_driver_call(
         assert driver.consumed_payloads == []
         assert driver.invoked == []
         assert not any(
-            event.kind == "run_hardware_batch_started"
+            event.kind.startswith("run_hardware_batch_")
             for event in daemon.replay_events(run_id=run_id).items
         )
 
@@ -807,7 +803,7 @@ def test_batch_prevalidates_every_action_before_first_driver_call(
         assert driver.invoked == []
         assert driver.collect_requests == []
         assert not any(
-            event.kind == "run_hardware_batch_started"
+            event.kind.startswith("run_hardware_batch_")
             for event in daemon.replay_events(run_id=run_id).items
         )
 

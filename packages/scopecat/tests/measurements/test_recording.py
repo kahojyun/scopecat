@@ -3,16 +3,12 @@ from __future__ import annotations
 from typing import cast, override
 
 import pytest
-from scopecat_testkit.execution_fakes import (
-    FakeExecutionJournal,
-    FakeMeasurementDatasetRepository,
-)
+from scopecat_testkit.execution_fakes import FakeMeasurementDatasetRepository
 from scopecat_testkit.measurement_assembly import (
     assembled_measurement_values_for_all_uses,
 )
 
 from scopecat.execution.measurement_recording import (
-    append_measurement_dataset,
     initialize_measurement_dataset,
     seal_measurement_dataset,
 )
@@ -27,10 +23,10 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
+    MeasurementDatasetSeal,
     measurement_dataset_content_hash,
     measurement_record_content_hash,
 )
-from scopecat.sdk.journal import ExecutionJournal
 
 
 def _projected(*, run_id: str = "recording-run") -> ProjectedMeasurementDataset:
@@ -44,8 +40,6 @@ def _projected(*, run_id: str = "recording-run") -> ProjectedMeasurementDataset:
 def _seal(
     projected: ProjectedMeasurementDataset,
     writer: FakeMeasurementDatasetRepository,
-    journal: ExecutionJournal,
-    append_receipt: MeasurementDatasetReceipt,
     header: MeasurementDatasetHeader,
 ) -> MeasurementDatasetReceipt:
     return seal_measurement_dataset(
@@ -56,7 +50,6 @@ def _seal(
             measurement_record_content_hash(record) for record in projected.records
         ),
         writer=writer,
-        journal=journal,
     )
 
 
@@ -72,34 +65,27 @@ def _header(projected: ProjectedMeasurementDataset) -> MeasurementDatasetHeader:
     )
 
 
-def test_recording_appends_and_seals_one_canonical_dataset() -> None:
+def test_recording_initializes_and_seals_one_canonical_dataset() -> None:
     projected = _projected()
     writer = FakeMeasurementDatasetRepository()
-    journal = FakeExecutionJournal()
     header = _header(projected)
 
-    initialize_measurement_dataset(header, writer, journal)
-    append_receipt = append_measurement_dataset(
-        projected,
-        writer,
-        journal,
-        header=header,
+    header_receipt = initialize_measurement_dataset(header, writer)
+    append_receipt = writer.append(
+        MeasurementDatasetAppend(
+            run_id=projected.run_id,
+            header_content_hash=header.content_hash,
+            start_index=0,
+            records=projected.records,
+        )
     )
-    assert append_receipt is not None
-    seal_receipt = _seal(projected, writer, journal, append_receipt, header)
+    seal_receipt = _seal(projected, writer, header)
 
     [append] = writer.appends
     assert append.records == projected.records
+    assert header_receipt.dataset_ref == CANONICAL_MEASUREMENT_DATASET_REF
     assert append_receipt.dataset_ref == CANONICAL_MEASUREMENT_DATASET_REF
     assert seal_receipt.dataset_ref == CANONICAL_MEASUREMENT_DATASET_REF
-    assert [(entry.stage, entry.state) for entry in journal.entries] == [
-        ("initialize_measurement", "started"),
-        ("initialize_measurement", "completed"),
-        ("append_measurement", "started"),
-        ("append_measurement", "completed"),
-        ("seal_measurement", "started"),
-        ("seal_measurement", "completed"),
-    ]
 
 
 def test_append_identity_is_stable_and_content_detects_conflict() -> None:
@@ -189,49 +175,41 @@ def test_header_and_append_content_hashes_cannot_change_after_construction() -> 
 
 class _InvalidReceiptWriter(FakeMeasurementDatasetRepository):
     @override
-    def append(self, append: MeasurementDatasetAppend) -> MeasurementDatasetReceipt:
+    def seal(self, seal: MeasurementDatasetSeal) -> MeasurementDatasetReceipt:
         return MeasurementDatasetReceipt(
-            operation_id=append.operation_id,
+            operation_id=seal.operation_id,
             dataset_content_hash="sha256:wrong",
         )
 
 
-def test_invalid_append_receipt_terminalizes_uncertain_operation() -> None:
+def test_invalid_seal_receipt_terminalizes_uncertain_operation() -> None:
     projected = _projected()
     header = _header(projected)
     writer = _InvalidReceiptWriter()
-    initialize_measurement_dataset(header, writer, FakeExecutionJournal())
+    initialize_measurement_dataset(header, writer)
     with pytest.raises(MeasurementRecordingError) as caught:
-        append_measurement_dataset(
-            projected,
-            writer,
-            FakeExecutionJournal(),
-            header=header,
-        )
+        _seal(projected, writer, header)
     assert caught.value.write_may_have_completed
     assert caught.value.receipt is not None
 
 
-def test_append_and_seal_replay_are_idempotent() -> None:
+def test_initialize_and_seal_replay_are_idempotent() -> None:
     projected = _projected()
     writer = FakeMeasurementDatasetRepository()
     header = _header(projected)
-    initialize_measurement_dataset(header, writer, FakeExecutionJournal())
-    receipt = append_measurement_dataset(
-        projected,
-        writer,
-        FakeExecutionJournal(),
-        header=header,
+    initialized = initialize_measurement_dataset(header, writer)
+    repeated = initialize_measurement_dataset(header, writer)
+    writer.append(
+        MeasurementDatasetAppend(
+            run_id=projected.run_id,
+            header_content_hash=header.content_hash,
+            start_index=0,
+            records=projected.records,
+        )
     )
-    assert receipt is not None
-    repeated = append_measurement_dataset(
-        projected,
-        writer,
-        FakeExecutionJournal(),
-        header=header,
-    )
-    assert repeated == receipt
-    _seal(projected, writer, FakeExecutionJournal(), receipt, header)
-    _seal(projected, writer, FakeExecutionJournal(), receipt, header)
+    first_seal = _seal(projected, writer, header)
+    repeated_seal = _seal(projected, writer, header)
+    assert repeated == initialized
+    assert repeated_seal == first_seal
     assert len(writer.appends) == 1
     assert writer.measurements() == projected.records

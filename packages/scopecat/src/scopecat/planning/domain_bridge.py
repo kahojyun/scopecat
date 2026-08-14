@@ -72,6 +72,7 @@ def make_domain_batch_request(
     point_ordinals: tuple[int, ...],
     *,
     batch_ordinal: int,
+    inspection_requested: bool = False,
 ) -> DomainBatchRequest:
     """Resolve every input and project one complete bounded batch."""
 
@@ -108,6 +109,7 @@ def make_domain_batch_request(
         inputs=inputs,
         points=point_refs,
         measurement_catalog=project_measurement_catalog(bound_points),
+        inspection_requested=inspection_requested,
     )
 
 

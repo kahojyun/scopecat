@@ -6,7 +6,6 @@ import json
 import sqlite3
 from bisect import bisect_left
 from collections.abc import Sequence
-from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
@@ -17,16 +16,13 @@ from scopecat.adaptive_domains import ResolvedDomainFragment
 from scopecat.daemon.points import (
     AcceptedRunPointView,
     RunDomainDecisionCommand,
+    RunDomainDecisionPage,
     RunDomainDecisionView,
     RunDomainEnqueueCommand,
     RunDomainQueueEntryView,
     RunDomainQueueView,
     RunPointPlanCloseCommand,
     RunPointPlanView,
-)
-from scopecat.records.execution_journal import (
-    ExecutionTransition,
-    execution_transition_content_hash,
 )
 from scopecat.records.measurement import MeasurementDatasetSchema, MeasurementRecord
 from scopecat.records.measurement_recording import (
@@ -37,13 +33,16 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
 )
-from scopecat.sdk.journal import ExecutionJournalError
 
 from scopecat_server.storage.sqlite.object_store import ObjectStoreError, StoredObject
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 
-class ExecutionJournalConflict(ExecutionJournalError):
+class ExecutionStateError(RuntimeError):
+    """Execution state could not be read or committed safely."""
+
+
+class ExecutionStateConflict(ExecutionStateError):
     """A write disagrees with already committed execution state."""
 
 
@@ -90,17 +89,17 @@ class SQLiteRunCoverage:
         """Advance one contiguous range or accept an already covered retry."""
 
         if start_index < 0 or point_count < 1:
-            raise ExecutionJournalConflict("coverage range must be non-empty")
+            raise ExecutionStateConflict("coverage range must be non-empty")
         completed = self.read_in_transaction(connection)
         end_index = start_index + point_count
         if end_index <= completed:
             return completed, False
         if start_index < completed:
-            raise ExecutionJournalConflict(
+            raise ExecutionStateConflict(
                 "coverage range partially overlaps the completed prefix"
             )
         if start_index > completed:
-            raise ExecutionJournalConflict("coverage range is not the next prefix")
+            raise ExecutionStateConflict("coverage range is not the next prefix")
         connection.execute(
             """
             INSERT INTO execution_coverage(run_id, completed_point_count)
@@ -201,6 +200,39 @@ class SQLiteRunPointLedger:
             ),
         )
 
+    def decisions(
+        self,
+        *,
+        limit: int,
+        before: int | None = None,
+    ) -> RunDomainDecisionPage:
+        with self._runs.sqlite.read_transaction() as connection:
+            rows = _all(
+                connection.execute(
+                    """
+                    SELECT proposal_index, decision_json
+                    FROM execution_domain_decisions
+                    WHERE run_id = ?
+                      AND (? IS NULL OR proposal_index < ?)
+                    ORDER BY proposal_index DESC
+                    LIMIT ?
+                    """,
+                    (self._run_id, before, before, limit + 1),
+                )
+            )
+        selected = rows[:limit]
+        items = tuple(
+            RunDomainDecisionView.model_validate_json(_text(row, "decision_json"))
+            for row in reversed(selected)
+        )
+        return RunDomainDecisionPage(
+            run_id=self._run_id,
+            items=items,
+            next_cursor=(
+                _integer(selected[-1], "proposal_index") if len(rows) > limit else None
+            ),
+        )
+
     def next_pending(self) -> RunDomainQueueEntryView | None:
         with self._runs.sqlite.read_transaction() as connection:
             row = _one(
@@ -248,15 +280,15 @@ class SQLiteRunPointLedger:
                 _text(existing, "entry_json")
             )
             if entry.request != request:
-                raise ExecutionJournalConflict(
+                raise ExecutionStateConflict(
                     "operator domain request conflicts with durable state"
                 )
             return entry, False
         plan = self.read_in_transaction(connection)
         if plan is None:
-            raise ExecutionJournalConflict("point plan is not initialized")
+            raise ExecutionStateConflict("point plan is not initialized")
         if plan.plan_closed:
-            raise ExecutionJournalConflict("point plan is already closed")
+            raise ExecutionStateConflict("point plan is already closed")
         pending_count = sum(
             entry.request.request().total_point_count
             for entry in self.queue_in_transaction(connection).items
@@ -266,7 +298,7 @@ class SQLiteRunPointLedger:
             pending_count + request.request().total_point_count
             > plan.point_limit - plan.accepted_point_count
         ):
-            raise ExecutionJournalConflict("domain queue exceeds the remaining budget")
+            raise ExecutionStateConflict("domain queue exceeds the remaining budget")
         queue_index = _scalar_int(
             connection.execute(
                 """
@@ -326,7 +358,7 @@ class SQLiteRunPointLedger:
                 or _integer(existing, "point_limit") != point_limit
                 or bool(_integer(existing, "plan_closed")) != plan_closed
             ):
-                raise ExecutionJournalConflict(
+                raise ExecutionStateConflict(
                     "point-plan initialization conflicts with durable state"
                 )
             view = self.read_in_transaction(connection)
@@ -391,15 +423,15 @@ class SQLiteRunPointLedger:
                 or decision.reason != command.reason
                 or decision.operator_request_id != command.operator_request_id
             ):
-                raise ExecutionJournalConflict(
+                raise ExecutionStateConflict(
                     "point decision operation conflicts with durable state"
                 )
             return decision
         plan = self.read_in_transaction(connection)
         if plan is None:
-            raise ExecutionJournalConflict("point plan is not initialized")
+            raise ExecutionStateConflict("point plan is not initialized")
         if plan.plan_closed:
-            raise ExecutionJournalConflict("point plan is already closed")
+            raise ExecutionStateConflict("point plan is already closed")
         queued_entry = self._queued_entry_for_decision_in_transaction(
             connection,
             command,
@@ -407,16 +439,14 @@ class SQLiteRunPointLedger:
         accepted_points = command.accepted_points
         if command.outcome == "accepted":
             if plan.accepted_point_count + len(accepted_points) > plan.point_limit:
-                raise ExecutionJournalConflict(
-                    "domain decision exceeds the point budget"
-                )
+                raise ExecutionStateConflict("domain decision exceeds the point budget")
             if tuple(point.point_index for point in accepted_points) != tuple(
                 range(
                     plan.accepted_point_count,
                     plan.accepted_point_count + len(accepted_points),
                 )
             ):
-                raise ExecutionJournalConflict(
+                raise ExecutionStateConflict(
                     "accepted domain points must extend the durable point prefix"
                 )
             if any(
@@ -424,7 +454,7 @@ class SQLiteRunPointLedger:
                 != command.proposal.proposal_fingerprint
                 for point in accepted_points
             ):
-                raise ExecutionJournalConflict(
+                raise ExecutionStateConflict(
                     "accepted points do not match their domain proposal"
                 )
         decision = RunDomainDecisionView(
@@ -525,14 +555,12 @@ class SQLiteRunPointLedger:
             )
         )
         if row is None:
-            raise ExecutionJournalConflict("operator domain request does not exist")
+            raise ExecutionStateConflict("operator domain request does not exist")
         entry = RunDomainQueueEntryView.model_validate_json(_text(row, "entry_json"))
         if entry.status != "pending":
-            raise ExecutionJournalConflict(
-                "operator domain request is already resolved"
-            )
+            raise ExecutionStateConflict("operator domain request is already resolved")
         if entry.request.fragment != command.proposal.fragment:
-            raise ExecutionJournalConflict(
+            raise ExecutionStateConflict(
                 "domain proposal does not match its operator request"
             )
         return entry
@@ -586,13 +614,13 @@ class SQLiteRunPointLedger:
             )
         )
         if row is None:
-            raise ExecutionJournalConflict("point plan is not initialized")
+            raise ExecutionStateConflict("point plan is not initialized")
         if row["stop_operation_id"] is not None:
             if (
                 _text(row, "stop_operation_id") != command.operation_id
                 or _text(row, "stop_reason") != command.reason
             ):
-                raise ExecutionJournalConflict(
+                raise ExecutionStateConflict(
                     "point-plan closure conflicts with durable state"
                 )
             view = self.read_in_transaction(connection)
@@ -604,7 +632,7 @@ class SQLiteRunPointLedger:
             command.based_on_completed_point_count != completed_point_count
             or completed_point_count != plan.accepted_point_count
         ):
-            raise ExecutionJournalConflict(
+            raise ExecutionStateConflict(
                 "point plan can close only at its durable accepted prefix"
             )
         connection.execute(
@@ -684,167 +712,6 @@ class SQLiteRunPointLedger:
             )
 
 
-class SQLiteExecutionJournal:
-    """Append effect transitions to the canonical durable-event stream."""
-
-    _EVENT_KIND = "execution_transition_committed"
-
-    def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
-        self._runs = runs
-        self._run_id = run_id
-
-    def append_in_transaction(
-        self,
-        connection: sqlite3.Connection,
-        entry: ExecutionTransition,
-    ) -> tuple[ExecutionTransition, bool]:
-        """Append through an existing transaction without owning its boundary."""
-
-        if entry.run_id != self._run_id:
-            raise ExecutionJournalConflict(
-                "execution journal entry run_id does not match its journal"
-            )
-        content_hash = execution_transition_content_hash(entry)
-        try:
-            existing = _one(
-                connection.execute(
-                    """
-                    SELECT run_sequence, payload_json, occurred_at
-                    FROM durable_events
-                    WHERE run_id = ? AND kind = ? AND deduplication_key = ?
-                    """,
-                    (self._run_id, self._EVENT_KIND, content_hash),
-                )
-            )
-            if existing is not None:
-                return (
-                    _execution_transition(self._run_id, existing),
-                    False,
-                )
-            row = _one(
-                connection.execute(
-                    """
-                    SELECT COALESCE(MAX(run_sequence), -1) + 1 AS sequence
-                    FROM durable_events
-                    WHERE run_id = ? AND kind = ?
-                    """,
-                    (self._run_id, self._EVENT_KIND),
-                )
-            )
-            assert row is not None
-            committed = self._commit_transition(
-                connection,
-                entry,
-                sequence=_integer(row, "sequence"),
-                content_hash=content_hash,
-            )
-            return committed, True
-        except ExecutionJournalError:
-            raise
-        except Exception as error:
-            raise ExecutionJournalError(
-                f"failed to commit execution journal entry: {error}"
-            ) from error
-
-    def claim_in_transaction(
-        self,
-        connection: sqlite3.Connection,
-        entry: ExecutionTransition,
-    ) -> ExecutionTransition:
-        """Atomically commit the first transition for one operation."""
-
-        if entry.state != "started":
-            raise ExecutionJournalConflict(
-                "only a started transition can claim an execution operation"
-            )
-        existing = _one(
-            connection.execute(
-                """
-                SELECT 1 AS claimed
-                FROM durable_events
-                WHERE run_id = ?
-                  AND kind = ?
-                  AND json_extract(payload_json, '$.operation_id') = ?
-                LIMIT 1
-                """,
-                (self._run_id, self._EVENT_KIND, entry.operation_id),
-            )
-        )
-        if existing is not None:
-            raise ExecutionJournalConflict(
-                f"execution operation {entry.operation_id!r} is already claimed"
-            )
-        committed, created = self.append_in_transaction(connection, entry)
-        assert created
-        return committed
-
-    def list_in_transaction(
-        self,
-        connection: sqlite3.Connection,
-    ) -> tuple[ExecutionTransition, ...]:
-        """Read this run's committed transitions in journal order."""
-
-        rows = _all(
-            connection.execute(
-                """
-                SELECT run_sequence, payload_json, occurred_at
-                FROM durable_events
-                WHERE run_id = ? AND kind = ?
-                ORDER BY run_sequence
-                """,
-                (self._run_id, self._EVENT_KIND),
-            )
-        )
-        return tuple(_execution_transition(self._run_id, row) for row in rows)
-
-    def _commit_transition(
-        self,
-        connection: sqlite3.Connection,
-        entry: ExecutionTransition,
-        *,
-        sequence: int,
-        content_hash: str,
-    ) -> ExecutionTransition:
-        committed = ExecutionTransition.model_validate(
-            {
-                **entry.model_dump(mode="python"),
-                "sequence": sequence,
-                "timestamp": datetime.now(tz=UTC),
-            }
-        )
-        payload = committed.model_dump(
-            mode="json",
-            exclude={"run_id", "timestamp"},
-        )
-        connection.execute(
-            """
-            INSERT INTO durable_events(
-                run_id,
-                kind,
-                payload_json,
-                occurred_at,
-                run_sequence,
-                deduplication_key
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                self._run_id,
-                self._EVENT_KIND,
-                json.dumps(
-                    payload,
-                    allow_nan=True,
-                    separators=(",", ":"),
-                    sort_keys=True,
-                ),
-                committed.timestamp.isoformat(timespec="microseconds"),
-                sequence,
-                content_hash,
-            ),
-        )
-        return committed
-
-
 class SQLiteMeasurementDatasetRepository:
     """Append and seal canonical measurement ranges with database CAS."""
 
@@ -862,7 +729,7 @@ class SQLiteMeasurementDatasetRepository:
 
         durable = header
         if durable.run_id != self._run_id:
-            raise ExecutionJournalConflict(
+            raise ExecutionStateConflict(
                 "measurement run_id does not match its execution repository"
             )
         ref = f"{CANONICAL_MEASUREMENT_DATASET_REF}/header.json"
@@ -896,7 +763,7 @@ class SQLiteMeasurementDatasetRepository:
                     _text(existing, "operation_id") != durable.operation_id
                     or _text(existing, "content_hash") != durable.content_hash
                 ):
-                    raise ExecutionJournalConflict(
+                    raise ExecutionStateConflict(
                         "measurement dataset header already has different content"
                     )
                 self._remember_measurement_schema(durable.dataset_schema)
@@ -904,7 +771,7 @@ class SQLiteMeasurementDatasetRepository:
             if _measurement_rows(connection, self._run_id) or _dataset_sealed(
                 connection, self._run_id
             ):
-                raise ExecutionJournalConflict(
+                raise ExecutionStateConflict(
                     "measurement dataset content exists without its header"
                 )
             _publish_ref(connection, self._run_id, prepared.ref, prepared.stored)
@@ -929,10 +796,10 @@ class SQLiteMeasurementDatasetRepository:
             )
             self._remember_measurement_schema(durable.dataset_schema)
             return _header_receipt(durable), True
-        except ExecutionJournalError:
+        except ExecutionStateError:
             raise
         except Exception as error:
-            raise ExecutionJournalError(
+            raise ExecutionStateError(
                 f"failed to initialize measurement dataset: {error}"
             ) from error
 
@@ -946,7 +813,7 @@ class SQLiteMeasurementDatasetRepository:
 
         durable = append
         if durable.run_id != self._run_id:
-            raise ExecutionJournalConflict(
+            raise ExecutionStateConflict(
                 "measurement run_id does not match its execution repository"
             )
         ref = (
@@ -959,7 +826,7 @@ class SQLiteMeasurementDatasetRepository:
             else self._measurement_schema_assets()
         )
         if schema_assets is None:
-            raise ExecutionJournalConflict(
+            raise ExecutionStateConflict(
                 "measurement dataset append requires a registered schema"
             )
         selected_schema, selected_schema_hash = schema_assets
@@ -999,7 +866,7 @@ class SQLiteMeasurementDatasetRepository:
                     _text(existing, "operation_id") != durable.operation_id
                     or _text(existing, "content_hash") != durable.content_hash
                 ):
-                    raise ExecutionJournalConflict(
+                    raise ExecutionStateConflict(
                         "measurement dataset append already has different content"
                     )
                 return (
@@ -1010,25 +877,25 @@ class SQLiteMeasurementDatasetRepository:
                     False,
                 )
             if _dataset_sealed(connection, self._run_id):
-                raise ExecutionJournalConflict("measurement dataset is already sealed")
+                raise ExecutionStateConflict("measurement dataset is already sealed")
             header = _measurement_header_row(connection, self._run_id)
             if header is None:
-                raise ExecutionJournalConflict(
+                raise ExecutionStateConflict(
                     "measurement dataset append requires a header"
                 )
             if _text(header, "content_hash") != durable.header_content_hash:
-                raise ExecutionJournalConflict(
+                raise ExecutionStateConflict(
                     "measurement dataset append references a different header"
                 )
             record_count = _measurement_record_count(connection, self._run_id)
             if durable.start_index != record_count:
-                raise ExecutionJournalConflict(
+                raise ExecutionStateConflict(
                     "measurement dataset append is not the next contiguous range"
                 )
             if record_count + len(durable.records) > _integer(
                 header, "record_count_limit"
             ):
-                raise ExecutionJournalConflict(
+                raise ExecutionStateConflict(
                     "measurement dataset append exceeds its declared point count"
                 )
             _publish_ref(connection, self._run_id, ref, prepared.stored)
@@ -1054,10 +921,10 @@ class SQLiteMeasurementDatasetRepository:
                 ),
             )
             return _append_receipt(durable), True
-        except ExecutionJournalError:
+        except ExecutionStateError:
             raise
         except Exception as error:
-            raise ExecutionJournalError(
+            raise ExecutionStateError(
                 f"failed to append measurement dataset: {error}"
             ) from error
 
@@ -1069,7 +936,7 @@ class SQLiteMeasurementDatasetRepository:
 
         durable = seal
         if durable.run_id != self._run_id:
-            raise ExecutionJournalConflict(
+            raise ExecutionStateConflict(
                 "measurement run_id does not match its execution repository"
             )
         return durable
@@ -1103,7 +970,7 @@ class SQLiteMeasurementDatasetRepository:
                         _text(existing, "operation_id") != durable.operation_id
                         or _text(existing, "content_hash") != durable.content_hash
                     ):
-                        raise ExecutionJournalConflict(
+                        raise ExecutionStateConflict(
                             "measurement dataset seal already has different content"
                         )
                     return (
@@ -1118,22 +985,22 @@ class SQLiteMeasurementDatasetRepository:
                     )
                 header = _measurement_header_row(connection, self._run_id)
                 if header is None:
-                    raise ExecutionJournalConflict(
+                    raise ExecutionStateConflict(
                         "measurement dataset seal requires a header"
                     )
                 if _text(header, "content_hash") != durable.header_content_hash:
-                    raise ExecutionJournalConflict(
+                    raise ExecutionStateConflict(
                         "measurement dataset seal references a different header"
                     )
                 if durable.point_count > _integer(header, "record_count_limit"):
-                    raise ExecutionJournalConflict(
+                    raise ExecutionStateConflict(
                         "measurement dataset seal exceeds its declared point count"
                     )
                 appends = _measurement_rows(connection, self._run_id)
                 if sum(_integer(row, "record_count") for row in appends) != (
                     durable.point_count
                 ):
-                    raise ExecutionJournalConflict(
+                    raise ExecutionStateConflict(
                         "measurement dataset seal point count is incomplete"
                     )
                 actual_hash = measurement_dataset_content_hash(
@@ -1148,7 +1015,7 @@ class SQLiteMeasurementDatasetRepository:
                     ),
                 )
                 if actual_hash != durable.dataset_content_hash:
-                    raise ExecutionJournalConflict(
+                    raise ExecutionStateConflict(
                         "measurement dataset seal content hash does not match appends"
                     )
                 connection.execute(
@@ -1169,10 +1036,10 @@ class SQLiteMeasurementDatasetRepository:
                 return _seal_receipt(durable), True
 
             return commit_prepared()
-        except ExecutionJournalError:
+        except ExecutionStateError:
             raise
         except Exception as error:
-            raise ExecutionJournalError(
+            raise ExecutionStateError(
                 f"failed to seal measurement dataset: {error}"
             ) from error
 
@@ -1187,7 +1054,7 @@ class SQLiteMeasurementDatasetRepository:
                 )
             )
         except Exception as error:
-            raise ExecutionJournalError(
+            raise ExecutionStateError(
                 f"failed to read measurement dataset: {error}"
             ) from error
 
@@ -1197,7 +1064,7 @@ class SQLiteMeasurementDatasetRepository:
         if self._dataset_schema is not None:
             return self._dataset_schema
         try:
-            with closing(self._runs.sqlite.connect()) as connection:
+            with self._runs.sqlite.read_connection() as connection:
                 header_row = _measurement_header_row(connection, self._run_id)
             if header_row is None:
                 return None
@@ -1209,7 +1076,7 @@ class SQLiteMeasurementDatasetRepository:
             self._remember_measurement_schema(dataset_schema)
             return dataset_schema
         except Exception as error:
-            raise ExecutionJournalError(
+            raise ExecutionStateError(
                 f"failed to read measurement dataset schema: {error}"
             ) from error
 
@@ -1242,7 +1109,7 @@ class SQLiteMeasurementDatasetRepository:
         )
 
         try:
-            with closing(self._runs.sqlite.connect()) as connection:
+            with self._runs.sqlite.read_connection() as connection:
                 total = _measurement_record_count(connection, self._run_id)
                 selected_size = total if snapshot_size is None else snapshot_size
                 if selected_size > total:
@@ -1300,7 +1167,7 @@ class SQLiteMeasurementDatasetRepository:
                 selected_size,
             )
         except Exception as error:
-            raise ExecutionJournalError(
+            raise ExecutionStateError(
                 f"failed to read measurement dataset page: {error}"
             ) from error
 
@@ -1308,10 +1175,10 @@ class SQLiteMeasurementDatasetRepository:
         """Read the current durable point-row count without opening append blobs."""
 
         try:
-            with closing(self._runs.sqlite.connect()) as connection:
+            with self._runs.sqlite.read_connection() as connection:
                 return _measurement_record_count(connection, self._run_id)
         except Exception as error:
-            raise ExecutionJournalError(
+            raise ExecutionStateError(
                 f"failed to read measurement dataset size: {error}"
             ) from error
 
@@ -1329,7 +1196,7 @@ class SQLiteMeasurementDatasetRepository:
 
         selected = tuple(sorted(set(point_indices)))
         try:
-            with closing(self._runs.sqlite.connect()) as connection:
+            with self._runs.sqlite.read_connection() as connection:
                 rows = _measurement_rows(connection, self._run_id)
             schema_assets = self._measurement_schema_assets()
             if schema_assets is None:
@@ -1363,7 +1230,7 @@ class SQLiteMeasurementDatasetRepository:
                 if point_index in records_by_index
             )
         except Exception as error:
-            raise ExecutionJournalError(
+            raise ExecutionStateError(
                 f"failed to read selected measurement records: {error}"
             ) from error
 
@@ -1502,7 +1369,7 @@ def _store_model(runs: SQLiteRunRepository, model: BaseModel) -> StoredObject:
         TypeError,
         ValueError,
     ) as error:
-        raise ExecutionJournalError(
+        raise ExecutionStateError(
             f"execution record is not durably serializable: {error}"
         ) from error
 
@@ -1528,27 +1395,9 @@ def _store_measurement_append(
             )
         )
     except (MeasurementArrowCodecError, ObjectStoreError) as error:
-        raise ExecutionJournalError(
+        raise ExecutionStateError(
             f"measurement append is not durably serializable: {error}"
         ) from error
-
-
-def _execution_transition(
-    run_id: str,
-    row: sqlite3.Row,
-) -> ExecutionTransition:
-    payload = cast(
-        "dict[str, object]",
-        json.loads(_text(row, "payload_json")),
-    )
-    return ExecutionTransition.model_validate(
-        {
-            **payload,
-            "run_id": run_id,
-            "sequence": _integer(row, "run_sequence"),
-            "timestamp": _text(row, "occurred_at"),
-        }
-    )
 
 
 def _publish_ref(

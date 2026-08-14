@@ -94,6 +94,18 @@ def point_realization_fingerprint(
 ) -> str:
     """Identify one realization independently of target batch partitioning."""
 
+    return _point_realization_fingerprint(
+        artifact,
+        entry,
+        artifact.entry_waveforms(entry),
+    )
+
+
+def _point_realization_fingerprint(
+    artifact: ListModeArtifact,
+    entry: ListModeEntry,
+    waveforms: tuple[AwgChannelWaveform, ...],
+) -> str:
     return canonical_fingerprint(
         {
             "schema": "reference_lab.list_mode_point_realization.v1",
@@ -124,7 +136,7 @@ def point_realization_fingerprint(
                 for timing in entry.event_timings
             ],
             "waveforms": [
-                awg_waveform_identity_payload(waveform) for waveform in entry.waveforms
+                awg_waveform_identity_payload(waveform) for waveform in waveforms
             ],
             "acquisitions": [
                 {
@@ -165,9 +177,14 @@ def _inspect_entry(
     *,
     bounds: ArtifactInspectionBounds,
 ) -> CompiledPointInspection:
-    selected_waveforms = entry.waveforms[: bounds.max_channels_per_entry]
+    waveforms = artifact.entry_waveforms(entry)
+    selected_waveforms = waveforms[: bounds.max_channels_per_entry]
     return CompiledPointInspection(
-        realization_fingerprint=point_realization_fingerprint(artifact, entry),
+        realization_fingerprint=_point_realization_fingerprint(
+            artifact,
+            entry,
+            waveforms,
+        ),
         target_entry_id=entry.entry_id.value,
         facts=(
             CompiledInspectionFact("list_index", entry.list_index),
@@ -181,8 +198,8 @@ def _inspect_entry(
                 unit="s",
             ),
         ),
-        waveform_count=len(entry.waveforms),
-        waveforms_truncated=len(selected_waveforms) < len(entry.waveforms),
+        waveform_count=len(waveforms),
+        waveforms_truncated=len(selected_waveforms) < len(waveforms),
         waveforms=tuple(
             _preview_waveform(
                 waveform,

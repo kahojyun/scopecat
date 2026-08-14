@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import override
 
-from scopecat_testkit.execution_fakes import FakeExecutionJournal
 from scopecat_testkit.instrument_drivers import SignalInstrumentDriver
 from scopecat_testkit.instrument_host import TestRunInstrumentHost
 from scopecat_testkit.local_materialization import LocalEffectInspection
@@ -98,7 +97,6 @@ def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
         run_id="incremental-source-run",
         coordinate_ids=(),
         instruments=TestRunInstrumentHost(),
-        journal=FakeExecutionJournal(),
         coverage_observer=lambda selected, _candidates, _values: delivered.append(
             tuple(point.ordinal for point in selected)
         ),
@@ -121,7 +119,6 @@ def test_normal_completion_applies_success_state_after_point_coverage() -> None:
         run_id="success_state-run",
         coordinate_ids=(),
         instruments=TestRunInstrumentHost((driver,)),
-        journal=FakeExecutionJournal(),
     ).run(
         complete_coverage_operations(program),
         points=program.points,
@@ -155,7 +152,6 @@ def test_cancellation_waits_for_hardware_batch_then_skips_success_state() -> Non
         run_id="cancel-batch-run",
         coordinate_ids=(),
         instruments=TestRunInstrumentHost((first, second)),
-        journal=FakeExecutionJournal(),
         cancellation_requested=lambda: bool(first.applied),
     ).run(
         complete_coverage_operations(program),
@@ -221,7 +217,6 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
         run_id="normalized-output-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         instruments=TestRunInstrumentHost(),
-        journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
 
     assert not result.problems and not result.indeterminate
@@ -255,7 +250,6 @@ def test_recorded_compute_output_is_exported_before_point_state_is_closed() -> N
         run_id="recorded-compute-run",
         coordinate_ids=(),
         instruments=TestRunInstrumentHost(),
-        journal=FakeExecutionJournal(),
         recorded_value_ids=(result_id,),
         coverage_observer=lambda _points, _products, values: observed.extend(values),
     ).run(complete_coverage_operations(program), points=program.points)
@@ -313,7 +307,6 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
         run_id="implementation-cache-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         instruments=TestRunInstrumentHost(),
-        journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
 
     assert not result.problems and not result.indeterminate
@@ -352,7 +345,6 @@ def test_compute_failure_wins_over_a_concurrent_cancellation_request() -> None:
         run_id="failing-compute-run",
         coordinate_ids=(),
         instruments=TestRunInstrumentHost(),
-        journal=FakeExecutionJournal(),
         cancellation_requested=lambda: failed,
     ).run(complete_coverage_operations(program), points=program.points)
 
@@ -472,7 +464,6 @@ def test_rejected_on_success_state_aborts_hardware_finish() -> None:
         run_id="rejected-on-success-run",
         coordinate_ids=(),
         instruments=TestRunInstrumentHost((driver,)),
-        journal=FakeExecutionJournal(),
     ).run(
         complete_coverage_operations(program),
         points=program.points,
@@ -531,7 +522,6 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
         run_id="shared-readback-run",
         coordinate_ids=tuple(point.coordinates),
         instruments=TestRunInstrumentHost((driver,)),
-        journal=FakeExecutionJournal(),
         coverage_observer=(
             lambda _block, candidates, _values: observed_candidates.append(candidates)
         ),
@@ -580,7 +570,6 @@ def test_driver_disconnect_failure_is_reported_after_terminal_read() -> None:
         run_id="disconnect-failure-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         instruments=TestRunInstrumentHost((driver,)),
-        journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
 
     assert driver.disconnect_count == 1
@@ -604,7 +593,6 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
         run_id="blocking-state-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         instruments=TestRunInstrumentHost((first, second)),
-        journal=FakeExecutionJournal(),
     )
 
     result = engine.run(complete_coverage_operations(program), points=program.points)
@@ -634,7 +622,6 @@ def test_state_apply_stops_when_readback_does_not_confirm_assignment() -> None:
         run_id="non-converging-state-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         instruments=TestRunInstrumentHost((first, second)),
-        journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
 
     assert result.indeterminate
@@ -659,7 +646,6 @@ def test_failed_coverage_does_not_apply_normal_completion_success_state() -> Non
         run_id="failed-success_state-run",
         coordinate_ids=(),
         instruments=TestRunInstrumentHost((driver,)),
-        journal=FakeExecutionJournal(),
     ).run(
         complete_coverage_operations(program),
         points=program.points,
@@ -712,7 +698,6 @@ def test_unexpected_result_stops_later_collection() -> None:
         run_id="blocking-collect-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         instruments=TestRunInstrumentHost((first, second)),
-        journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
 
     assert result.problems and not result.indeterminate
@@ -761,7 +746,6 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
         run_id="conflicting-applied-state-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         instruments=TestRunInstrumentHost((first, second)),
-        journal=FakeExecutionJournal(),
     )
 
     result = engine.run(complete_coverage_operations(program), points=program.points)
