@@ -57,6 +57,29 @@ xds = data.to_xarray()
 assert xds.coords["logical_device"].values.tolist() == ["q0", "q1"]
 ```
 
+Entity identity is always the complete `(kind, id)` pair. A homogeneous axis
+uses readable ids as its Xarray coordinate labels; a mixed-kind axis uses a
+collision-free canonical identity key and keeps the readable ids separately in
+`scopecat_entity_labels_json`. The ordered axis also has a stable fingerprint.
+Authored entity `RecordRef` handles bind that fingerprint, so a handle cannot be
+silently reused after an entity axis has changed.
+
+Align datasets before comparing entity-indexed variables:
+
+```python
+left, right = left.align_entities(right, "logical_device", join="inner")
+# join="outer" keeps the union in left-first order and masks absent leaves.
+```
+
+The default `join="exact"` requires the same identities in the same order.
+`inner` keeps shared identities in the left dataset's order. `outer` appends
+right-only identities, records `missing` availability for absent fixed-shape
+array leaves, and stores null product-source and acquisition-evidence entries
+for those positions. Use `reindex_entities(dimension, entities)` when one
+explicit target order is already known. Since an absent entity-local ragged
+segment has no shape to infer, outer alignment of such a variable is rejected;
+use an inner join or normalize that local shape first.
+
 For unit-bearing scalar or array variables, `magnitudes("mV")` performs the
 same linear conversion while preserving array shape and partial-value masks;
 `require_magnitudes("mV")` additionally rejects whole unavailable rows.

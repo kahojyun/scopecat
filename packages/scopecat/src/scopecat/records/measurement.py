@@ -31,7 +31,10 @@ from pydantic import (
     model_validator,
 )
 
-from scopecat.kernel.content_identity import model_wire_content_hash
+from scopecat.kernel.content_identity import (
+    model_wire_content_hash,
+    stable_content_hash,
+)
 from scopecat.kernel.entity import EntityRef, entity_axis_fingerprint, entity_identity
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.interface_identity import InterfaceId
@@ -60,7 +63,7 @@ from scopecat.records.measurement_array_schema import (
 from scopecat.records.metadata import MeasurementMetadata
 
 MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v8"
-MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v14"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v15"
 
 MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
 _MEASUREMENT_ARRAY_CREATE_CONTEXT = object()
@@ -176,7 +179,7 @@ class MeasurementEntityProductSource(_FrozenMeasurementModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     dimension_id: _NonEmptyText
-    product_ids: Sequence[_NonEmptyText] = Field(min_length=1)
+    product_ids: Sequence[_NonEmptyText | None] = Field(min_length=1)
     common_metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
     metadata_overrides: Sequence[MeasurementEntityProductMetadataOverride] = Field(
         default_factory=tuple
@@ -201,6 +204,8 @@ class MeasurementEntityProductSource(_FrozenMeasurementModel):
         return self
 
     def metadata_for(self, entity_index: int) -> Mapping[str, object]:
+        if self.product_ids[entity_index] is None:
+            return FrozenMapping()
         override: Mapping[str, object] = next(
             (
                 item.metadata
@@ -469,7 +474,7 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    format_version: Literal["scopecat.measurement_dataset_schema.v14"] = (
+    format_version: Literal["scopecat.measurement_dataset_schema.v15"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str = Field(min_length=1)
@@ -591,6 +596,49 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
                 )
 
         return self
+
+
+def measurement_result_contract_version(
+    contract_id: str,
+    fields: Sequence[MeasurementResultField],
+    *,
+    variables: Sequence[MeasurementVariable],
+    dimensions: Sequence[MeasurementDimension],
+) -> str:
+    """Identify a result contract including its local dimension definitions."""
+
+    variable_by_id = {variable.id: variable for variable in variables}
+    dimension_by_id = {dimension.id: dimension for dimension in dimensions}
+    identity = {
+        "id": contract_id,
+        "fields": [
+            {
+                "path": list(field.path),
+                "variable": variable_by_id[field.variable_id].model_dump(mode="json"),
+                "dimensions": [
+                    _measurement_result_dimension_identity(
+                        dimension_by_id[dimension_id]
+                    )
+                    for dimension_id in variable_by_id[field.variable_id].dims[1:]
+                ],
+            }
+            for field in fields
+        ],
+    }
+    return f"sha256:{stable_content_hash(identity)}"
+
+
+def _measurement_result_dimension_identity(
+    dimension: MeasurementDimension,
+) -> Mapping[str, object]:
+    return {
+        "id": dimension.id,
+        "kind": dimension.kind,
+        "size": dimension.size,
+        "entity_axis_fingerprint": (
+            None if dimension.index is None else dimension.index.fingerprint
+        ),
+    }
 
 
 def _validate_measurement_variable_groups(

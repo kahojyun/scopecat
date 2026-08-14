@@ -8,7 +8,6 @@ from typing import Literal, cast
 
 from pydantic import JsonValue as WireJsonValue
 
-from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping, thaw_json_value
 from scopecat.kernel.graph_identity import ValueId
@@ -66,6 +65,7 @@ from scopecat.records.measurement import (
     MeasurementScalar,
     MeasurementVariable,
     MeasurementVariableGroup,
+    measurement_result_contract_version,
 )
 
 
@@ -746,6 +746,7 @@ def expected_dataset_schema(
         experiment_id,
         result_fields,
         variables=variables,
+        dimensions=dimensions,
     )
     return MeasurementDatasetSchema(
         dataset_id=dataset_id,
@@ -827,6 +828,7 @@ def _measurement_result_contract(
     result_fields: Sequence[ExperimentResultField],
     *,
     variables: Sequence[MeasurementVariable],
+    dimensions: Sequence[MeasurementDimension],
 ) -> MeasurementResultContract | None:
     if not result_fields:
         return None
@@ -834,20 +836,14 @@ def _measurement_result_contract(
         MeasurementResultField(path=field.path, variable_id=field.variable_id)
         for field in result_fields
     )
-    variable_by_id = {variable.id: variable for variable in variables}
-    identity = {
-        "id": experiment_id,
-        "fields": [
-            {
-                "path": list(field.path),
-                "variable": variable_by_id[field.variable_id].model_dump(mode="json"),
-            }
-            for field in selected
-        ],
-    }
     return MeasurementResultContract(
         id=experiment_id,
-        version=f"sha256:{stable_content_hash(identity)}",
+        version=measurement_result_contract_version(
+            experiment_id,
+            selected,
+            variables=variables,
+            dimensions=dimensions,
+        ),
         fields=selected,
     )
 

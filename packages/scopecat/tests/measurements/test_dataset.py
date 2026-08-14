@@ -8,6 +8,7 @@ import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import assert_type, cast
 
@@ -26,7 +27,11 @@ from scopecat.measurements.results import (
     ProjectionSchema,
     Variable,
 )
-from scopecat.program.measurement_types import MeasurementArrayData, MeasurementDType
+from scopecat.program.measurement_types import (
+    EntityAcquisitionSemantics,
+    MeasurementArrayData,
+    MeasurementDType,
+)
 from scopecat.program.products import ModuleProductDecl, ProductRef, ProductValueSpec
 from scopecat.program.record_refs import RecordRef
 from scopecat.program.value_refs import ValueRef
@@ -35,12 +40,17 @@ from scopecat.program.value_types import Scalar
 from scopecat.program.values import CoordinateRef, compute, coordinate
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
+    EntityAcquisitionEvidence,
+    InstrumentAcquisitionEvidence,
+    MeasurementAcquisitionEvidenceCatalog,
     MeasurementArray,
     MeasurementArrayAvailability,
     MeasurementDataset,
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementEntityAcquisition,
     MeasurementEntityIndex,
+    MeasurementEntityProductSource,
     MeasurementPointCloudPointDomain,
     MeasurementPointDomainAxis,
     MeasurementPointDomainColumn,
@@ -723,6 +733,20 @@ def test_entity_dimensions_support_labeled_selection_and_partial_availability() 
     assert observations["readout"].to_pylist() == [1.0, None, 3.0, 4.0, 5.0, 6.0]
     assert observations["readout__unavailable_reason"].to_pylist()[1] == "missing"
 
+    expanded = dataset.reindex_entities(
+        "qubit",
+        (q2, q1, EntityRef(id="q3", kind="qubit")),
+    )
+    expanded_value = expanded.records[0].observables["readout"]
+    assert isinstance(expanded_value, MeasurementArray)
+    assert expanded_value.values.tolist() == [3.0, 0.0, 0.0]
+    assert expanded_value.availability is not None
+    assert expanded_value.availability.valid.tolist() == [True, False, False]
+    assert [group.metadata for group in expanded_value.availability.unavailable] == [
+        {"source": "q1"},
+        {"entity_alignment": "absent", "dimension_id": "qubit"},
+    ]
+
 
 def test_mixed_entity_kinds_use_collision_free_coordinate_identities() -> None:
     kindless = EntityRef(id="qubit:q0")
@@ -778,7 +802,187 @@ def test_mixed_entity_kinds_use_collision_free_coordinate_identities() -> None:
     labels = dataset.to_xarray().coords["entity"].values.tolist()
     assert labels == [entity_identity_key(kindless), entity_identity_key(qubit)]
     assert len(set(labels)) == 2
-    assert dataset.sel(entity="q0")["signal"].values[0].tolist() == [2.0]
+    selected_signal = dataset.sel(entity="q0")["signal"].values[0]
+    assert isinstance(selected_signal, np.ndarray)
+    assert selected_signal.tolist() == [2.0]
+
+
+def test_entity_alignment_reindexes_values_provenance_and_evidence() -> None:
+    q0 = EntityRef(id="q0", kind="qubit")
+    q1 = EntityRef(id="q1", kind="qubit")
+    q2 = EntityRef(id="q2", kind="qubit")
+    left = _entity_source_dataset("left", (q0, q1), (1.0, 2.0))
+    right = _entity_source_dataset("right", (q1, q2), (10.0, 20.0))
+    left_index = left.schema.dimensions[1].index
+    assert left_index is not None
+    stale_ref: RecordRef[MeasurementArrayData] = RecordRef(
+        id="signal",
+        dtype="float64",
+        unit=None,
+        dims=("point", "qubit"),
+        source_product_ids=("left/q0", "left/q1"),
+        entity_axis_id="qubit",
+        entity_axis_fingerprint=left_index.fingerprint,
+        entity_acquisition=EntityAcquisitionSemantics(),
+    )
+
+    with pytest.raises(ValueError, match="ordered identities differ"):
+        left.align_entities(right, "qubit")
+
+    inner_left, inner_right = left.align_entities(right, "qubit", join="inner")
+    assert inner_left.to_xarray().coords["qubit"].values.tolist() == ["q1"]
+    inner_left_signal = inner_left["signal"].values[0]
+    inner_right_signal = inner_right["signal"].values[0]
+    assert isinstance(inner_left_signal, np.ndarray)
+    assert isinstance(inner_right_signal, np.ndarray)
+    assert inner_left_signal.tolist() == [2.0]
+    assert inner_right_signal.tolist() == [10.0]
+
+    outer_left, outer_right = left.align_entities(right, "qubit", join="outer")
+    assert outer_left.to_xarray().coords["qubit"].values.tolist() == [
+        "q0",
+        "q1",
+        "q2",
+    ]
+    assert outer_right.to_xarray().coords["qubit"].values.tolist() == [
+        "q0",
+        "q1",
+        "q2",
+    ]
+    outer_left_signal = outer_left["signal"].values[0]
+    outer_right_signal = outer_right["signal"].values[0]
+    assert isinstance(outer_left_signal, np.ma.MaskedArray)
+    assert isinstance(outer_right_signal, np.ma.MaskedArray)
+    assert outer_left_signal.tolist(fill_value=None) == [1.0, 2.0, None]
+    assert outer_right_signal.tolist(fill_value=None) == [
+        None,
+        10.0,
+        20.0,
+    ]
+    left_reasons = outer_left.to_xarray()["signal__unavailable_reason"].values
+    assert left_reasons[0, 2] == "missing"
+    left_source = outer_left["signal"].definition.source_entity_products
+    right_source = outer_right["signal"].definition.source_entity_products
+    assert left_source is not None and right_source is not None
+    assert left_source.product_ids == ("left/q0", "left/q1", None)
+    assert right_source.product_ids == (None, "right/q1", "right/q2")
+    left_outer_index = outer_left.schema.dimensions[1].index
+    right_outer_index = outer_right.schema.dimensions[1].index
+    assert left_outer_index is not None and right_outer_index is not None
+    assert left_outer_index.fingerprint == right_outer_index.fingerprint
+    assert outer_left.schema.result is not None and left.schema.result is not None
+    assert outer_left.schema.result.version != left.schema.result.version
+    left_evidence = outer_left.records[0].acquisition_evidence.for_variable("signal")
+    right_evidence = outer_right.records[0].acquisition_evidence.for_variable("signal")
+    assert isinstance(left_evidence, EntityAcquisitionEvidence)
+    assert isinstance(right_evidence, EntityAcquisitionEvidence)
+    left_evidence_ids = tuple(
+        None if item is None else item.result_id for item in left_evidence.values
+    )
+    assert left_evidence_ids == ("q0", "q1", None)
+    assert [
+        None if item is None else item.result_id for item in right_evidence.values
+    ] == [None, "q1", "q2"]
+    assert left.schema.dimensions[1].size == 2
+    with pytest.raises(TypeError, match="does not match the dataset schema"):
+        outer_left[stale_ref]
+
+    expanded_view = left.sel(qubit=q1).reindex_entities("qubit", (q1, q2))
+    view_source = expanded_view["signal"].definition.source_entity_products
+    view_evidence = expanded_view.records[0].acquisition_evidence.for_variable("signal")
+    assert view_source is not None
+    assert view_source.product_ids == ("left/q1", None)
+    assert isinstance(view_evidence, EntityAcquisitionEvidence)
+    assert [
+        None if item is None else item.result_id for item in view_evidence.values
+    ] == ["q1", None]
+
+
+def _entity_source_dataset(
+    dataset_id: str,
+    entities: tuple[EntityRef, ...],
+    values: tuple[float, ...],
+) -> Dataset:
+    acquisition = MeasurementEntityAcquisition()
+    schema = MeasurementDatasetSchema(
+        dataset_id=dataset_id,
+        point_domain=MeasurementPointCloudPointDomain(columns=()),
+        dimensions=(
+            MeasurementDimension(id="point", kind="point", size=1),
+            MeasurementDimension(
+                id="qubit",
+                kind="entity",
+                size=len(entities),
+                index=MeasurementEntityIndex(values=entities, entity_kind="qubit"),
+            ),
+        ),
+        variables=(
+            MeasurementVariable(
+                id="signal",
+                role="observable",
+                dtype="float64",
+                dims=("point", "qubit"),
+                source_entity_products=MeasurementEntityProductSource(
+                    dimension_id="qubit",
+                    product_ids=tuple(
+                        f"{dataset_id}/{entity.id}" for entity in entities
+                    ),
+                ),
+                entity_acquisition=acquisition,
+            ),
+        ),
+        primary_observables=("signal",),
+        result=MeasurementResultContract(
+            id=f"{dataset_id}.result",
+            version=f"sha256:{'0' * 64}",
+            fields=(MeasurementResultField(path=("signal",), variable_id="signal"),),
+        ),
+    )
+    started_at = datetime(2026, 8, 15, 10, 0, tzinfo=UTC)
+    evidence = EntityAcquisitionEvidence(
+        dimension_id="qubit",
+        acquisition=acquisition,
+        values=tuple(
+            InstrumentAcquisitionEvidence(
+                command_id=f"{dataset_id}-{entity.id}",
+                instrument_id="readout",
+                interface_id="test.signal/v1",
+                acquisition_id="sample",
+                result_id=entity.id,
+                started_at=started_at,
+                completed_at=started_at,
+            )
+            for entity in entities
+        ),
+    )
+    raw = MeasurementDataset(
+        dataset_schema=schema,
+        records=(
+            MeasurementRecord(
+                run_id=f"run-{dataset_id}",
+                point_index=0,
+                coordinates={},
+                observables={
+                    "signal": MeasurementArray.create(
+                        values=np.asarray(values, dtype=np.float64)
+                    )
+                },
+                acquisition_evidence=MeasurementAcquisitionEvidenceCatalog.create(
+                    {"signal": evidence}
+                ),
+            ),
+        ),
+    )
+    return Dataset(
+        raw,
+        RunContentEntry(
+            role="dataset",
+            id=dataset_id,
+            kind="measurement_dataset",
+            content_hash=f"unused-{dataset_id}",
+            schema=schema.model_dump(mode="json"),
+        ),
+    )
 
 
 def test_measurement_projection_controls_names_units_and_native_adapters() -> None:

@@ -44,12 +44,18 @@ from scopecat.program.value_types import Array, Payload, Scalar
 from scopecat.program.value_types import Quantity as QuantityType
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
+    EntityAcquisitionEvidence,
+    MeasurementAcquisitionEvidence,
+    MeasurementAcquisitionEvidenceCatalog,
     MeasurementArray,
     MeasurementArrayAvailability,
     MeasurementArrayUnavailableGroup,
     MeasurementDataset,
     MeasurementDatasetSchema,
+    MeasurementDimension,
     MeasurementEntityIndex,
+    MeasurementEntityProductMetadataOverride,
+    MeasurementEntityProductSource,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementResultContract,
@@ -59,6 +65,7 @@ from scopecat.records.measurement import (
     MeasurementValue,
     MeasurementVariable,
     measurement_point_axis_values,
+    measurement_result_contract_version,
 )
 
 if TYPE_CHECKING:
@@ -78,6 +85,7 @@ type MeasurementAvailability = (
 )
 type GroupKey = NativeScalar | None
 type DimensionIndexer = int | slice | Sequence[int] | Sequence[bool]
+type EntityAlignmentJoin = Literal["exact", "inner", "outer"]
 type PointIndexer = DimensionIndexer
 type PointCondition = PointMask | xr.DataArray | Sequence[bool]
 type SelectionMethod = Literal["exact", "nearest"]
@@ -1415,6 +1423,157 @@ class Dataset:
             for dimension_id, query in entity_selected.items()
         }
         return result.isel(local_positions)
+
+    def reindex_entities(
+        self,
+        dimension_id: str,
+        entities: Sequence[EntityRef],
+        /,
+    ) -> Self:
+        """Return a materialized dataset on one explicit ordered entity index.
+
+        Existing entities are reordered by complete ``(kind, id)`` identity.
+        Entities absent from this dataset receive unavailable array leaves and
+        null product/evidence provenance.
+        """
+
+        target_entities = tuple(entities)
+        if not target_entities:
+            raise ValueError("entity reindexing requires at least one target entity")
+        dimension = _require_entity_dimension(self, dimension_id)
+        source_index = cast("MeasurementEntityIndex", dimension.index)
+        source_schema_positions = self._view_dimension_positions[dimension_id]
+        source_entities = tuple(
+            source_index.values[position] for position in source_schema_positions
+        )
+        source_by_identity = {
+            entity_identity(entity): position
+            for position, entity in enumerate(source_entities)
+        }
+        target_index = MeasurementEntityIndex(
+            values=target_entities,
+            entity_kind=_homogeneous_entity_kind(target_entities),
+        )
+        target_to_source = tuple(
+            source_by_identity.get(entity_identity(entity))
+            for entity in target_entities
+        )
+        target_to_schema = tuple(
+            None
+            if source_position is None
+            else source_schema_positions[source_position]
+            for source_position in target_to_source
+        )
+
+        dimensions = tuple(
+            item.model_copy(
+                update={"size": len(target_entities), "index": target_index}
+            )
+            if item.id == dimension_id
+            else item
+            for item in self.schema.dimensions
+        )
+        variables = tuple(
+            _reindex_entity_variable_source(
+                variable,
+                dimension_id=dimension_id,
+                target_to_schema=target_to_schema,
+            )
+            for variable in self.schema.variables
+        )
+        result = self.schema.result
+        if result is not None:
+            result = result.model_copy(
+                update={
+                    "version": measurement_result_contract_version(
+                        result.id,
+                        result.fields,
+                        variables=variables,
+                        dimensions=dimensions,
+                    )
+                }
+            )
+        schema = self.schema.model_copy(
+            update={
+                "dimensions": dimensions,
+                "variables": variables,
+                "result": result,
+            }
+        )
+        variable_by_id = {variable.id: variable for variable in variables}
+        records = tuple(
+            _reindex_record_entities(
+                record,
+                variables=variable_by_id,
+                dimension_id=dimension_id,
+                source_count=len(source_entities),
+                target_to_source=target_to_source,
+                target_to_schema=target_to_schema,
+            )
+            for record in self.records
+        )
+        raw = MeasurementDataset(
+            dataset_schema=schema,
+            records=records,
+            metadata=self.metadata,
+        )
+        entry = self._entry.model_copy(
+            update={"data_schema": schema.model_dump(mode="json")}
+        )
+        return type(self)(raw, entry)
+
+    def align_entities(
+        self,
+        other: Dataset,
+        dimension_id: str,
+        /,
+        *,
+        join: EntityAlignmentJoin = "exact",
+    ) -> tuple[Self, Dataset]:
+        """Align two datasets on complete entity identity.
+
+        ``inner`` preserves this dataset's order. ``outer`` appends identities
+        seen only in ``other`` and marks absent leaves unavailable on each side.
+        """
+
+        if join not in {"exact", "inner", "outer"}:
+            raise ValueError("entity alignment join must be exact, inner, or outer")
+        left = _visible_entity_values(self, dimension_id)
+        right = _visible_entity_values(other, dimension_id)
+        left_identities = tuple(entity_identity(entity) for entity in left)
+        right_identities = tuple(entity_identity(entity) for entity in right)
+        if join == "exact":
+            if left_identities != right_identities:
+                raise ValueError(
+                    f"entity dimension {dimension_id!r} ordered identities differ; "
+                    "use join='inner' or join='outer'"
+                )
+            return self, other
+        right_identity_set = set(right_identities)
+        if join == "inner":
+            target = tuple(
+                entity
+                for entity in left
+                if entity_identity(entity) in right_identity_set
+            )
+            if not target:
+                raise ValueError(
+                    f"entity dimension {dimension_id!r} has no shared identities"
+                )
+        else:
+            left_identity_set = set(left_identities)
+            target = (
+                *left,
+                *(
+                    entity
+                    for entity in right
+                    if entity_identity(entity) not in left_identity_set
+                ),
+            )
+        return (
+            self.reindex_entities(dimension_id, target),
+            other.reindex_entities(dimension_id, target),
+        )
 
     def where(
         self,
@@ -2850,6 +3009,263 @@ def _array_values_equal(left: np.ndarray, right: np.ndarray) -> bool:
         return bool(np.array_equal(left, right, equal_nan=True))
     except TypeError:
         return bool(np.array_equal(left, right))
+
+
+def _require_entity_dimension(
+    dataset: Dataset,
+    dimension_id: str,
+) -> MeasurementDimension:
+    try:
+        dimension = next(
+            item for item in dataset.schema.dimensions if item.id == dimension_id
+        )
+    except StopIteration as error:
+        raise KeyError(
+            f"measurement dataset has no dimension {dimension_id!r}"
+        ) from error
+    if dimension.index is None:
+        raise ValueError(
+            f"measurement dimension {dimension_id!r} is not entity-indexed"
+        )
+    return dimension
+
+
+def _visible_entity_values(
+    dataset: Dataset,
+    dimension_id: str,
+) -> tuple[EntityRef, ...]:
+    dimension = _require_entity_dimension(dataset, dimension_id)
+    index = cast("MeasurementEntityIndex", dimension.index)
+    return tuple(
+        index.values[position]
+        for position in dataset._view_dimension_positions[dimension_id]
+    )
+
+
+def _homogeneous_entity_kind(entities: Sequence[EntityRef]) -> str | None:
+    kinds = {entity.kind for entity in entities}
+    if len(kinds) != 1:
+        return None
+    [kind] = kinds
+    return kind
+
+
+def _reindex_entity_variable_source(
+    variable: MeasurementVariable,
+    *,
+    dimension_id: str,
+    target_to_schema: Sequence[int | None],
+) -> MeasurementVariable:
+    source = variable.source_entity_products
+    if source is None or source.dimension_id != dimension_id:
+        return variable
+    override_by_index = {
+        override.entity_index: override for override in source.metadata_overrides
+    }
+    overrides = tuple(
+        MeasurementEntityProductMetadataOverride(
+            entity_index=target_index,
+            metadata=override_by_index[schema_index].metadata,
+        )
+        for target_index, schema_index in enumerate(target_to_schema)
+        if schema_index is not None and schema_index in override_by_index
+    )
+    return variable.model_copy(
+        update={
+            "source_entity_products": MeasurementEntityProductSource(
+                dimension_id=dimension_id,
+                product_ids=tuple(
+                    None if schema_index is None else source.product_ids[schema_index]
+                    for schema_index in target_to_schema
+                ),
+                common_metadata=source.common_metadata,
+                metadata_overrides=overrides,
+            )
+        }
+    )
+
+
+def _reindex_record_entities(
+    record: MeasurementRecord,
+    *,
+    variables: Mapping[str, MeasurementVariable],
+    dimension_id: str,
+    source_count: int,
+    target_to_source: Sequence[int | None],
+    target_to_schema: Sequence[int | None],
+) -> MeasurementRecord:
+    coordinates = dict(record.coordinates)
+    observables = dict(record.observables)
+    for variable in variables.values():
+        if dimension_id not in variable.dims[1:]:
+            continue
+        values = coordinates if variable.role == "coordinate" else observables
+        values[variable.id] = _reindex_measurement_value_entities(
+            values[variable.id],
+            entity_axis=variable.dims[1:].index(dimension_id),
+            dimension_id=dimension_id,
+            source_count=source_count,
+            target_to_source=target_to_source,
+        )
+    evidence_by_variable: dict[str, MeasurementAcquisitionEvidence] = {}
+    for variable_id in record.acquisition_evidence.variable_refs:
+        evidence = record.acquisition_evidence.for_variable(variable_id)
+        if (
+            isinstance(evidence, EntityAcquisitionEvidence)
+            and evidence.dimension_id == dimension_id
+        ):
+            evidence = evidence.model_copy(
+                update={
+                    "values": tuple(
+                        None if schema_index is None else evidence.values[schema_index]
+                        for schema_index in target_to_schema
+                    )
+                }
+            )
+        if evidence is not None:
+            evidence_by_variable[variable_id] = evidence
+    return record.model_copy(
+        update={
+            "coordinates": coordinates,
+            "observables": observables,
+            "acquisition_evidence": MeasurementAcquisitionEvidenceCatalog.create(
+                evidence_by_variable
+            ),
+        }
+    )
+
+
+def _reindex_measurement_value_entities(
+    value: MeasurementValue,
+    *,
+    entity_axis: int,
+    dimension_id: str,
+    source_count: int,
+    target_to_source: Sequence[int | None],
+) -> MeasurementValue:
+    if isinstance(value, MeasurementScalar):
+        raise ValueError(
+            f"scalar measurement value cannot use entity dimension {dimension_id!r}"
+        )
+    if len(value.shape) <= entity_axis:
+        raise ValueError(
+            f"measurement value has no axis for entity dimension {dimension_id!r}"
+        )
+    if value.shape[entity_axis] != source_count:
+        raise ValueError(
+            f"measurement value entity extent for {dimension_id!r} does not match "
+            "the visible dataset index"
+        )
+    selected_indices = tuple(
+        source_index for source_index in target_to_source if source_index is not None
+    )
+    if len(selected_indices) == len(target_to_source):
+        return _slice_measurement_value(
+            value,
+            local_dimensions=tuple(
+                dimension_id if axis == entity_axis else f"__axis_{axis}"
+                for axis in range(len(value.shape))
+            ),
+            indices_by_dimension={dimension_id: selected_indices},
+        )
+    target_shape = tuple(
+        len(target_to_source) if axis == entity_axis else extent
+        for axis, extent in enumerate(value.shape)
+    )
+    if isinstance(value, MeasurementUnavailable):
+        return value.model_copy(update={"shape": target_shape})
+    if value.entity_shapes is not None:
+        raise ValueError(
+            f"outer entity alignment cannot synthesize an absent segment for "
+            f"entity-local ragged variable on {dimension_id!r}; use join='inner'"
+        )
+    dense_shape = cast("tuple[int, ...]", target_shape)
+    target_values = np.zeros(dense_shape, dtype=value.values.dtype)
+    target_valid = np.zeros(dense_shape, dtype=np.bool_)
+    target_groups = np.full(dense_shape, -2, dtype=np.int64)
+    source_valid = (
+        np.ones(value.values.shape, dtype=np.bool_)
+        if value.availability is None
+        else value.availability.valid
+    )
+    source_groups = (
+        np.full(value.values.shape, -1, dtype=np.int64)
+        if value.availability is None
+        else _array_unavailable_group_indices(value.availability)
+    )
+    target_positions = tuple(
+        target_position
+        for target_position, source_position in enumerate(target_to_source)
+        if source_position is not None
+    )
+    target_values_by_entity = np.moveaxis(target_values, entity_axis, 0)
+    target_valid_by_entity = np.moveaxis(target_valid, entity_axis, 0)
+    target_groups_by_entity = np.moveaxis(target_groups, entity_axis, 0)
+    target_values_by_entity[list(target_positions)] = np.take(
+        np.moveaxis(value.values, entity_axis, 0),
+        selected_indices,
+        axis=0,
+    )
+    target_valid_by_entity[list(target_positions)] = np.take(
+        np.moveaxis(source_valid, entity_axis, 0),
+        selected_indices,
+        axis=0,
+    )
+    target_groups_by_entity[list(target_positions)] = np.take(
+        np.moveaxis(source_groups, entity_axis, 0),
+        selected_indices,
+        axis=0,
+    )
+    flattened_groups = cast("NDArray[np.int64]", target_groups.reshape(-1))
+    unavailable: list[MeasurementArrayUnavailableGroup] = []
+    if value.availability is not None:
+        for group_index, group in enumerate(value.availability.unavailable):
+            matching = np.flatnonzero(
+                cast(
+                    "NDArray[np.bool_]",
+                    np.equal(flattened_groups, np.int64(group_index)),
+                )
+            )
+            if matching.size:
+                unavailable.append(
+                    MeasurementArrayUnavailableGroup(
+                        reason=group.reason,
+                        flat_indices=tuple(int(index) for index in matching),
+                        metadata=group.metadata,
+                    )
+                )
+    absent = np.flatnonzero(
+        cast(
+            "NDArray[np.bool_]",
+            np.equal(flattened_groups, np.int64(-2)),
+        )
+    )
+    if absent.size:
+        unavailable.append(
+            MeasurementArrayUnavailableGroup(
+                reason="missing",
+                flat_indices=tuple(int(index) for index in absent),
+                metadata={
+                    "entity_alignment": "absent",
+                    "dimension_id": dimension_id,
+                },
+            )
+        )
+    availability = (
+        None
+        if bool(np.all(target_valid))
+        else MeasurementArrayAvailability(
+            valid=target_valid,
+            unavailable=tuple(unavailable),
+        )
+    )
+    return MeasurementArray.create(
+        dtype=value.dtype,
+        unit=value.unit,
+        values=target_values,
+        availability=availability,
+        metadata=value.metadata,
+    )
 
 
 def _slice_record_local_values(

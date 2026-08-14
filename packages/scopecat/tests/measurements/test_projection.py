@@ -519,6 +519,11 @@ def test_entity_projection_falls_back_to_contiguous_ragged_segments() -> None:
     assert isinstance(q1_value, MeasurementArray)
     assert q1_value.entity_shapes == ((3,),)
     assert q1_dataset["trace"].observations.values.tolist() == [0.0, 1.0, 2.0]
+    with pytest.raises(ValueError, match="cannot synthesize an absent segment"):
+        dataset.reindex_entities(
+            "qubit",
+            (*entities, EntityRef(id="q2", kind="qubit")),
+        )
 
     failed_candidates = (
         candidates[0],
