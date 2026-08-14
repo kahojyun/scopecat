@@ -125,9 +125,9 @@ def _lower_product_axis(
     input_row: InputRow,
 ) -> ProductAxisDef:
     if axis.size is None:
-        size, metadata = None, {}
+        size, metadata, entities = None, {}, None
     else:
-        size, metadata = _static_axis_size(
+        size, metadata, entities = _static_axis_size(
             static_evaluator,
             topology,
             axis.size,
@@ -148,6 +148,7 @@ def _lower_product_axis(
         size=size,
         kind=axis.kind,
         unit=axis.unit,
+        entities=entities,
         metadata=metadata,
     )
 
@@ -241,7 +242,7 @@ def _static_axis_size(
     type_bindings: ExpressionTypeBindings,
     entity_axis: bool = False,
     input_row: InputRow,
-) -> tuple[int, dict[str, JsonValue]]:
+) -> tuple[int, dict[str, JsonValue], tuple[EntityRef, ...] | None]:
     selected_value: object = value
     selected_type: ValueType | None = None
     if isinstance(value, ValueRef):
@@ -256,13 +257,13 @@ def _static_axis_size(
         selected_value, str | bytes
     ):
         if not entity_axis:
-            return len(selected_value), {}
+            return len(selected_value), {}, None
         entities = _axis_entities(
             topology,
             cast("Sequence[object]", selected_value),
             location=location,
         )
-        return len(entities), _entity_axis_metadata(entities)
+        return len(entities), {}, entities
     if entity_axis:
         if not isinstance(selected_value, ScalarExpr):
             raise_frontend_problem(
@@ -289,7 +290,7 @@ def _static_axis_size(
                 path=location.path,
             )
         entities = _axis_entities(topology, [evaluated_entity], location=location)
-        return len(entities), _entity_axis_metadata(entities)
+        return len(entities), {}, entities
     if not isinstance(selected_value, ScalarExpr) and selected_value is not None:
         _validate_axis_size_literal(cast("AxisSizeInput", selected_value))
     positive_value = cast("ScalarExpr | Quantity | float | None", selected_value)
@@ -307,6 +308,7 @@ def _static_axis_size(
             ),
         ),
         {},
+        None,
     )
 
 
@@ -356,16 +358,6 @@ def _axis_entities(
             path=location.path,
         )
     return resolved
-
-
-def _entity_axis_metadata(value: Sequence[EntityRef]) -> dict[str, JsonValue]:
-    entity_kind = value[0].kind if value else None
-    if entity_kind is None or any(entity.kind != entity_kind for entity in value):
-        entity_kind = None
-    return {
-        "entities": [entity.model_dump(mode="json") for entity in value],
-        **({"entity_kind": entity_kind} if entity_kind else {}),
-    }
 
 
 def _durable_metadata(

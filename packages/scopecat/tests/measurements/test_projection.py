@@ -171,6 +171,40 @@ def test_projection_records_symbolic_array_values_with_local_dimensions() -> Non
     assert variable.dims == ("point", "sample")
 
 
+def test_projection_promotes_product_entity_values_to_a_labeled_dimension() -> None:
+    scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=1)
+    entities = (
+        EntityRef(id="q0", kind="logical_qubit"),
+        EntityRef(id="q1", kind="logical_qubit"),
+    )
+    [product] = scenario.catalog.product_defs
+    product = replace(
+        product,
+        axes=(
+            ProductAxisDef(
+                id="qubit",
+                dimension_id="qubit",
+                dimension_label="qubit",
+                kind="entity",
+                size=2,
+                entities=entities,
+            ),
+        ),
+    )
+    catalog = replace(scenario.catalog, product_defs=(product,))
+
+    projection = select_measurement_projection(catalog, scenario.records)
+
+    schema = projection.schema
+    assert schema is not None
+    qubit = next(
+        dimension for dimension in schema.dimensions if dimension.id == "qubit"
+    )
+    assert qubit.index is not None
+    assert qubit.index.entity_kind == "logical_qubit"
+    assert qubit.index.values == entities
+
+
 def test_projection_schema_persists_ordered_product_grid_axes() -> None:
     scenario = measurement_assembly_scenario(
         point_values=(0.0, 1.0, 2.0),

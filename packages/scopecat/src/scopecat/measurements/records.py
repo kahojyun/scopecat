@@ -48,6 +48,7 @@ from scopecat.program.recording import ExperimentResultField
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementEntityIndex,
     MeasurementPointCloudPointDomain,
     MeasurementPointDomainAxis,
     MeasurementPointDomainColumn,
@@ -126,6 +127,7 @@ class RecordAxisPlan:
     kind: str
     size: int | None
     unit: str | None = None
+    index: MeasurementEntityIndex | None = None
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
@@ -282,12 +284,27 @@ def plan_value_records(
 
 
 def _plan_axis(axis: ProductAxisDef) -> RecordAxisPlan:
+    entity_kind = None
+    if axis.entities:
+        selected_kind = axis.entities[0].kind
+        if selected_kind is not None and all(
+            entity.kind == selected_kind for entity in axis.entities
+        ):
+            entity_kind = selected_kind
     return RecordAxisPlan(
         id=axis.dimension_id,
         label=axis.dimension_label,
         kind=axis.kind,
         size=axis.size,
         unit=axis.unit,
+        index=(
+            None
+            if axis.entities is None
+            else MeasurementEntityIndex(
+                values=axis.entities,
+                entity_kind=entity_kind,
+            )
+        ),
         metadata=axis.metadata,
     )
 
@@ -588,6 +605,7 @@ def _record_axes(records: Sequence[DatasetRecordPlan]) -> list[MeasurementDimens
                     kind=axis.kind,
                     label=axis.label,
                     size=axis.size,
+                    index=axis.index,
                     metadata=_wire_metadata(axis.metadata),
                 )
             )
@@ -632,6 +650,7 @@ def _axes_are_compatible(left: RecordAxisPlan, right: RecordAxisPlan) -> bool:
         and left.kind == right.kind
         and left.size == right.size
         and left.unit == right.unit
+        and left.index == right.index
         and left.metadata == right.metadata
     )
 

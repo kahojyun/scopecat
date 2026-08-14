@@ -31,6 +31,7 @@ from pydantic import (
     model_validator,
 )
 
+from scopecat.kernel.entity import EntityRef, entity_identity
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.numpy_storage import freeze_ndarray
@@ -50,11 +51,14 @@ from scopecat.records._schema_utils import (
     missing_references,
     validate_supported_unit,
 )
-from scopecat.records.measurement_array_schema import MeasurementArrayPayload
+from scopecat.records.measurement_array_schema import (
+    MeasurementArrayPayload,
+    MeasurementBooleanArrayPayload,
+)
 from scopecat.records.metadata import MeasurementMetadata
 
-MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v4"
-MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v10"
+MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v5"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v11"
 
 MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
 _MEASUREMENT_ARRAY_CREATE_CONTEXT = object()
@@ -96,6 +100,35 @@ class _FrozenMeasurementModel(BaseModel):
         return self
 
 
+class MeasurementEntityIndex(_FrozenMeasurementModel):
+    """Ordered durable entity labels for one fixed measurement dimension."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["entity"] = "entity"
+    values: Sequence[EntityRef] = Field(min_length=1)
+    entity_kind: _NonEmptyText | None = None
+
+    @field_validator("values")
+    @classmethod
+    def freeze_values(cls, value: Sequence[EntityRef]) -> Sequence[EntityRef]:
+        selected = tuple(value)
+        identities = tuple(entity_identity(entity) for entity in selected)
+        if len(identities) != len(set(identities)):
+            raise ValueError("measurement entity index values must be unique")
+        return selected
+
+    @model_validator(mode="after")
+    def validate_entity_kind(self) -> MeasurementEntityIndex:
+        if self.entity_kind is not None and any(
+            entity.kind != self.entity_kind for entity in self.values
+        ):
+            raise ValueError(
+                "measurement entity index values must match its declared entity kind"
+            )
+        return self
+
+
 class MeasurementDimension(_FrozenMeasurementModel):
     """One logical extent; ``None`` denotes a point-local ragged extent."""
 
@@ -105,7 +138,20 @@ class MeasurementDimension(_FrozenMeasurementModel):
     kind: str = Field(min_length=1)
     label: str | None = None
     size: Annotated[int, Field(ge=0)] | None
+    index: MeasurementEntityIndex | None = None
     metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
+
+    @model_validator(mode="after")
+    def validate_index(self) -> MeasurementDimension:
+        if self.index is None:
+            return self
+        if self.kind != "entity":
+            raise ValueError("measurement entity indexes require an entity dimension")
+        if self.size != len(self.index.values):
+            raise ValueError(
+                "measurement entity index cardinality must match its dimension size"
+            )
+        return self
 
 
 class MeasurementVariable(_FrozenMeasurementModel):
@@ -336,11 +382,11 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    format_version: Literal["scopecat.measurement_dataset_schema.v10"] = (
+    format_version: Literal["scopecat.measurement_dataset_schema.v11"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str = Field(min_length=1)
-    record_schema: Literal["scopecat.measurement_record.v4"] = (
+    record_schema: Literal["scopecat.measurement_record.v5"] = (
         MEASUREMENT_RECORD_SCHEMA_VERSION
     )
     point_domain: MeasurementPointDomain
@@ -595,6 +641,105 @@ def _measurement_scalar_from_generated(
     return template.model_copy(update={"value": native})
 
 
+class MeasurementArrayUnavailableGroup(_FrozenMeasurementModel):
+    """One reason shared by a sparse set of unavailable array leaves."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    reason: MeasurementUnavailableReason
+    flat_indices: Sequence[Annotated[int, Field(ge=0)]] = Field(min_length=1)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
+
+    @field_validator("flat_indices")
+    @classmethod
+    def freeze_flat_indices(cls, value: Sequence[int]) -> Sequence[int]:
+        selected = tuple(value)
+        if len(selected) != len(set(selected)):
+            raise ValueError("unavailable array indices must be unique")
+        return selected
+
+
+class MeasurementArrayAvailability(_FrozenMeasurementModel):
+    """Partial array validity with sparse, reason-qualified unavailable leaves."""
+
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="forbid",
+        frozen=True,
+    )
+
+    valid: MeasurementBooleanArrayPayload
+    unavailable: Sequence[MeasurementArrayUnavailableGroup] = Field(min_length=1)
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        valid: object,
+        reason: MeasurementUnavailableReason = "missing",
+        metadata: Mapping[str, object] | None = None,
+    ) -> Self:
+        """Create one partial validity mask with one shared failure reason."""
+
+        selected = _measurement_validity_array(valid)
+        if bool(np.all(selected)):
+            raise ValueError("fully available arrays must omit availability")
+        if not bool(np.any(selected)):
+            raise ValueError("fully unavailable arrays must use MeasurementUnavailable")
+        invalid = tuple(int(index) for index in np.flatnonzero(~selected.reshape(-1)))
+        return cls(
+            valid=selected,
+            unavailable=(
+                MeasurementArrayUnavailableGroup(
+                    reason=reason,
+                    flat_indices=invalid,
+                    metadata={} if metadata is None else metadata,
+                ),
+            ),
+        )
+
+    @field_validator("valid", mode="before")
+    @classmethod
+    def normalize_valid(cls, value: object) -> NDArray[np.bool_]:
+        return _measurement_validity_array(value)
+
+    @field_serializer("valid")
+    def serialize_valid(self, value: NDArray[np.bool_]) -> object:
+        return cast("object", value.tolist())
+
+    @field_validator("unavailable")
+    @classmethod
+    def freeze_unavailable[T: MeasurementArrayUnavailableGroup](
+        cls, value: Sequence[T]
+    ) -> Sequence[T]:
+        return tuple(value)
+
+    @model_validator(mode="after")
+    def validate_partial(self) -> MeasurementArrayAvailability:
+        flattened = self.valid.reshape(-1)
+        if bool(np.all(flattened)):
+            raise ValueError("fully available arrays must omit availability")
+        if not bool(np.any(flattened)):
+            raise ValueError("fully unavailable arrays must use MeasurementUnavailable")
+        actual = tuple(
+            sorted(index for group in self.unavailable for index in group.flat_indices)
+        )
+        expected = tuple(int(index) for index in np.flatnonzero(~flattened))
+        if len(actual) != len(set(actual)) or actual != expected:
+            raise ValueError(
+                "array unavailable groups must exactly partition invalid leaves"
+            )
+        return self
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, MeasurementArrayAvailability):
+            return NotImplemented
+        return np.array_equal(self.valid, other.valid) and (
+            self.unavailable == other.unavailable
+        )
+
+
 class MeasurementArray(_FrozenMeasurementModel):
     """One typed array backed by an immutable, read-only NumPy buffer."""
 
@@ -609,6 +754,7 @@ class MeasurementArray(_FrozenMeasurementModel):
     unit: str | None = None
     shape: tuple[Annotated[int, Field(ge=0)], ...] = Field(min_length=1)
     values: MeasurementArrayPayload
+    availability: MeasurementArrayAvailability | None = None
     metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @classmethod
@@ -618,6 +764,7 @@ class MeasurementArray(_FrozenMeasurementModel):
         values: object,
         dtype: MeasurementDType = "float64",
         unit: str | None = None,
+        availability: MeasurementArrayAvailability | None = None,
         metadata: Mapping[str, object] | None = None,
     ) -> Self:
         """Construct an immutable array and infer its wire shape from ``values``."""
@@ -627,6 +774,7 @@ class MeasurementArray(_FrozenMeasurementModel):
             "dtype": dtype,
             "unit": unit,
             "values": values,
+            "availability": availability,
             "metadata": {} if metadata is None else metadata,
         }
         return cls.model_validate(
@@ -708,6 +856,13 @@ class MeasurementArray(_FrozenMeasurementModel):
         if actual_shape != self.shape:
             msg = f"measurement array shape {actual_shape} does not match {self.shape}"
             raise ValueError(msg)
+        if (
+            self.availability is not None
+            and self.availability.valid.shape != self.shape
+        ):
+            raise ValueError(
+                "measurement array availability shape does not match its values"
+            )
         if self.dtype in {"bool", "string"} and self.unit is not None:
             raise ValueError(f"{self.dtype} measurement arrays cannot have a unit")
         return self
@@ -722,6 +877,7 @@ class MeasurementArray(_FrozenMeasurementModel):
             and self.unit == other.unit
             and self.shape == other.shape
             and self.metadata == other.metadata
+            and self.availability == other.availability
             and np.array_equal(self.values, other.values)
         )
 
@@ -932,6 +1088,11 @@ def _measurement_ndarray(
         "MeasurementArrayData",
         freeze_ndarray(selected),
     )
+
+
+def _measurement_validity_array(value: object) -> NDArray[np.bool_]:
+    selected = _measurement_ndarray(value, dtype="bool")
+    return cast("NDArray[np.bool_]", selected)
 
 
 def _measurement_scalar_data(

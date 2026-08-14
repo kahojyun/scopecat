@@ -162,6 +162,11 @@ def _encode_array_row(
     ):
         return pa.array([_empty_array_tree(shape)], type=value_type)
     selected = value.values.reshape(-1)
+    invalid = (
+        None
+        if value.availability is None
+        else pa.array(~value.availability.valid.reshape(-1))
+    )
     if dtype == "complex128":
         complex_values = cast(
             "np.ndarray[tuple[int], np.dtype[np.complex128]]",
@@ -173,9 +178,14 @@ def _encode_array_row(
                 pa.array(complex_values.imag),
             ],
             fields=list(MEASUREMENT_COMPLEX_ARROW_TYPE),
+            mask=invalid,
         )
     else:
-        encoded = pa.array(selected, type=measurement_arrow_scalar_type(dtype))
+        encoded = pa.array(
+            selected,
+            mask=invalid,
+            type=measurement_arrow_scalar_type(dtype),
+        )
     for index in reversed(range(len(shape))):
         expected_extent = expected_shape[index]
         actual_extent = shape[index]

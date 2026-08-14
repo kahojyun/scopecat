@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import ProductId
@@ -25,6 +26,7 @@ class ProductAxisDef:
     size: int | None
     dimension_label: str | None = None
     unit: str | None = None
+    entities: tuple[EntityRef, ...] | None = None
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
@@ -45,6 +47,14 @@ class ProductAxisDef:
         if self.dimension_label is not None and not self.dimension_label:
             msg = "product axis dimension label must be non-empty when provided"
             raise ValueError(msg)
+        if self.entities is not None:
+            if self.kind != "entity":
+                raise ValueError("product entity values require an entity axis")
+            if self.size != len(self.entities):
+                raise ValueError(
+                    "product entity values must match their fixed axis size"
+                )
+            object.__setattr__(self, "entities", tuple(self.entities))
         object.__setattr__(
             self,
             "metadata",

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from scopecat.compiler.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.point_domain import PointDomain
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
@@ -160,6 +161,7 @@ def product_axis(
     size: int | None,
     kind: str | None = None,
     unit: str | None = None,
+    entities: tuple[EntityRef, ...] | None = None,
     metadata: Mapping[str, JsonValue] | None = None,
 ) -> ProductAxisDef:
     return ProductAxisDef(
@@ -169,6 +171,7 @@ def product_axis(
         kind=kind or id,
         size=size,
         unit=unit,
+        entities=entities,
         metadata=metadata or {},
     )
 

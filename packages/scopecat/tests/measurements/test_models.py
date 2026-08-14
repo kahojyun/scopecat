@@ -10,11 +10,15 @@ from pydantic import ValidationError
 from scopecat_testkit.measurement_models import signal_point_schema, signal_record
 from scopecat_testkit.records import assert_model_round_trip
 
+from scopecat.kernel.entity import EntityRef
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementArray,
+    MeasurementArrayAvailability,
+    MeasurementArrayUnavailableGroup,
     MeasurementDataset,
     MeasurementDimension,
+    MeasurementEntityIndex,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementUnavailable,
@@ -111,6 +115,65 @@ def test_measurement_array_reuses_an_immutable_bytes_backed_array() -> None:
 
     assert value.values is source
     assert not value.values.flags.writeable
+
+
+def test_measurement_array_retains_sparse_partial_availability() -> None:
+    availability = MeasurementArrayAvailability(
+        valid=np.asarray([[True, False], [False, True]], dtype=np.bool_),
+        unavailable=(
+            MeasurementArrayUnavailableGroup(
+                reason="missing",
+                flat_indices=(1,),
+                metadata={"channel": "q1"},
+            ),
+            MeasurementArrayUnavailableGroup(
+                reason="invalid",
+                flat_indices=(2,),
+                metadata={"channel": "q0"},
+            ),
+        ),
+    )
+    value = MeasurementArray.create(
+        dtype="complex128",
+        unit="ratio",
+        values=[[1 + 2j, 0j], [0j, 3 + 4j]],
+        availability=availability,
+    )
+
+    restored = assert_model_round_trip(value)
+
+    assert restored == value
+    assert restored.availability is not None
+    assert restored.availability.valid.tolist() == [[True, False], [False, True]]
+    assert not restored.availability.valid.flags.writeable
+    assert [group.reason for group in restored.availability.unavailable] == [
+        "missing",
+        "invalid",
+    ]
+
+
+def test_measurement_array_availability_requires_an_exact_partial_partition() -> None:
+    with pytest.raises(ValueError, match="fully available"):
+        MeasurementArrayAvailability.create(valid=[True, True])
+    with pytest.raises(ValueError, match="fully unavailable"):
+        MeasurementArrayAvailability.create(valid=[False, False])
+    with pytest.raises(ValidationError, match="exactly partition"):
+        MeasurementArrayAvailability(
+            valid=np.asarray([True, False, False], dtype=np.bool_),
+            unavailable=(
+                MeasurementArrayUnavailableGroup(
+                    reason="missing",
+                    flat_indices=(1,),
+                ),
+            ),
+        )
+    with pytest.raises(ValidationError, match="availability shape"):
+        MeasurementArray.create(
+            values=[1.0, 0.0],
+            availability=MeasurementArrayAvailability.create(
+                valid=[[True, False]],
+            ),
+        )
 
 
 def test_measurement_snapshots_are_recursively_immutable() -> None:
@@ -448,6 +511,31 @@ def test_measurement_dimensions_require_concrete_size() -> None:
         MeasurementDimension.model_validate(
             {"id": "point", "kind": "point", "size": 1, "unit": "count"}
         )
+
+
+def test_measurement_entity_index_is_labeled_and_cardinality_checked() -> None:
+    q0 = EntityRef(id="q0", kind="logical_qubit")
+    q1 = EntityRef(id="q1", kind="logical_qubit")
+    dimension = MeasurementDimension(
+        id="qubit",
+        kind="entity",
+        size=2,
+        index=MeasurementEntityIndex(
+            entity_kind="logical_qubit",
+            values=(q0, q1),
+        ),
+    )
+
+    assert assert_model_round_trip(dimension) == dimension
+    assert dimension.index is not None
+    assert dimension.index.values == (q0, q1)
+
+    with pytest.raises(ValidationError, match="cardinality"):
+        dimension.model_copy(update={"size": 1})
+    with pytest.raises(ValidationError, match="must be unique"):
+        MeasurementEntityIndex(values=(q0, q0))
+    with pytest.raises(ValidationError, match="declared entity kind"):
+        MeasurementEntityIndex(entity_kind="coupler", values=(q0,))
 
 
 def test_measurement_dataset_and_schema_round_trip() -> None:

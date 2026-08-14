@@ -23,6 +23,8 @@ from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementArray,
+    MeasurementArrayAvailability,
+    MeasurementArrayUnavailableGroup,
     MeasurementDatasetSchema,
     MeasurementRecord,
     MeasurementScalar,
@@ -35,7 +37,7 @@ from scopecat.records.measurement import (
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.metadata import JsonMetadata, validate_json_metadata
 
-MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v4"
+MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v5"
 
 _FORMAT_KEY = b"scopecat.format"
 _RUN_ID_KEY = b"scopecat.run_id"
@@ -260,12 +262,17 @@ def _record_schema(dataset_schema: MeasurementDatasetSchema) -> pa.Schema:
                             variable,
                             dimension_sizes=dimension_sizes,
                         ),
-                        item_nullable=False,
+                        item_nullable=True,
                     ),
                     metadata=_variable_field_metadata(variable),
                 ),
                 pa.field(_reason_column(variable.id), pa.string()),
                 pa.field(_shape_column(variable.id), _SHAPE_TYPE),
+                pa.field(
+                    _availability_column(variable.id),
+                    pa.large_binary(),
+                    nullable=False,
+                ),
                 pa.field(
                     _metadata_column(variable.id),
                     pa.large_binary(),
@@ -342,7 +349,7 @@ def _encode_columns(
                         variable,
                         dimension_sizes=dimension_sizes,
                     ),
-                    item_nullable=False,
+                    item_nullable=True,
                 ),
                 pa.array(
                     [
@@ -363,6 +370,10 @@ def _encode_columns(
                         for value in values
                     ],
                     type=_SHAPE_TYPE,
+                ),
+                pa.array(
+                    [_encode_availability(value) for value in values],
+                    type=pa.large_binary(),
                 ),
                 pa.array(
                     [_encode_json(value.metadata) for value in values],
@@ -460,6 +471,19 @@ def _encoded_shape(
     ):
         return list(value.shape)
     return None
+
+
+def _encode_availability(value: MeasurementValue) -> bytes:
+    if not isinstance(value, MeasurementArray) or value.availability is None:
+        return _encode_json({})
+    return _encode_json(
+        {
+            "unavailable": [
+                group.model_dump(mode="json")
+                for group in value.availability.unavailable
+            ]
+        }
+    )
 
 
 def _encode_evidence(
@@ -581,6 +605,7 @@ def _decode_records(
                 batch.column(_value_column(variable.id)),
                 batch.column(_reason_column(variable.id)),
                 batch.column(_shape_column(variable.id)),
+                batch.column(_availability_column(variable.id)),
                 batch.column(_metadata_column(variable.id)),
                 batch.column(_evidence_column(variable.id)),
             )
@@ -596,6 +621,7 @@ def _decode_records(
                     value_column,
                     reason_column,
                     shape_column,
+                    availability_column,
                     metadata_column,
                     evidence_column,
                 ) = variable_columns[variable.id]
@@ -603,6 +629,7 @@ def _decode_records(
                     value_column[row_index],
                     reason=reason_column[row_index].as_py(),
                     encoded_shape=shape_column[row_index].as_py(),
+                    encoded_availability=availability_column[row_index].as_py(),
                     encoded_metadata=metadata_column[row_index].as_py(),
                     variable=variable,
                     dataset_schema=dataset_schema,
@@ -655,13 +682,19 @@ def _decode_value(
     *,
     reason: object,
     encoded_shape: object,
+    encoded_availability: object,
     encoded_metadata: object,
     variable: MeasurementVariable,
     dataset_schema: MeasurementDatasetSchema,
 ) -> MeasurementValue:
     metadata = _decode_json(encoded_metadata)
+    availability_groups = _decode_availability(encoded_availability)
     if reason is not None:
-        if encoded_value.is_valid or not isinstance(encoded_shape, list):
+        if (
+            encoded_value.is_valid
+            or not isinstance(encoded_shape, list)
+            or availability_groups
+        ):
             raise MeasurementArrowCodecError(
                 "measurement Arrow unavailable sidecars are inconsistent"
             )
@@ -677,7 +710,7 @@ def _decode_value(
             "measurement Arrow available value payload is missing"
         )
     if len(variable.dims) == 1:
-        if encoded_shape is not None:
+        if encoded_shape is not None or availability_groups:
             raise MeasurementArrowCodecError(
                 "measurement Arrow scalar has an unexpected shape sidecar"
             )
@@ -695,12 +728,40 @@ def _decode_value(
         variable=variable,
         dataset_schema=dataset_schema,
     )
-    array = _decode_array_values(encoded_value, dtype=variable.dtype).reshape(shape)
+    array, valid = _decode_array_values(encoded_value, dtype=variable.dtype)
+    array = array.reshape(shape)
+    valid = valid.reshape(shape)
+    if availability_groups:
+        availability = MeasurementArrayAvailability(
+            valid=valid,
+            unavailable=availability_groups,
+        )
+    else:
+        if not bool(np.all(valid)):
+            raise MeasurementArrowCodecError(
+                "measurement Arrow partial value diagnostics are missing"
+            )
+        availability = None
     return MeasurementArray.create(
         values=array,
         dtype=variable.dtype,
         unit=variable.unit,
+        availability=availability,
         metadata=metadata,
+    )
+
+
+def _decode_availability(
+    value: object,
+) -> tuple[MeasurementArrayUnavailableGroup, ...]:
+    decoded = _decode_json(value)
+    raw_groups = decoded.get("unavailable", ())
+    if not isinstance(raw_groups, list | tuple):
+        raise MeasurementArrowCodecError(
+            "measurement Arrow array availability is invalid"
+        )
+    return tuple(
+        MeasurementArrayUnavailableGroup.model_validate(group) for group in raw_groups
     )
 
 
@@ -745,7 +806,10 @@ def _decode_array_values(
     value: pa.Scalar,
     *,
     dtype: MeasurementDType,
-) -> np.ndarray[tuple[int], np.dtype[np.generic]]:
+) -> tuple[
+    np.ndarray[tuple[int], np.dtype[np.generic]],
+    np.ndarray[tuple[int], np.dtype[np.bool_]],
+]:
     selected = cast("pa.ListScalar | pa.FixedSizeListScalar", value).values
     while (
         pa.types.is_list(selected.type)
@@ -760,10 +824,23 @@ def _decode_array_values(
         complex_values = cast("pa.StructArray", selected)
         real = complex_values.field("real").to_numpy(zero_copy_only=False)
         imag = complex_values.field("imag").to_numpy(zero_copy_only=False)
-        return np.asarray(real + 1j * imag, dtype=np.complex128)
-    return np.asarray(
-        selected.to_numpy(zero_copy_only=False),
-        dtype=_numpy_dtype(dtype),
+        values = np.asarray(real + 1j * imag, dtype=np.complex128)
+    else:
+        fill_value: str | int = "" if dtype == "string" else 0
+        values = np.asarray(
+            selected.fill_null(fill_value).to_numpy(zero_copy_only=False),
+            dtype=_numpy_dtype(dtype),
+        )
+    valid = np.asarray(
+        selected.is_valid().to_numpy(zero_copy_only=False),
+        dtype=np.bool_,
+    )
+    if not bool(np.all(valid)):
+        values = values.copy()
+        values[~valid] = 0 if dtype != "string" else ""
+    return (
+        values,
+        valid,
     )
 
 
@@ -802,6 +879,10 @@ def _reason_column(variable_id: str) -> str:
 
 def _shape_column(variable_id: str) -> str:
     return f"value_shape:{variable_id}"
+
+
+def _availability_column(variable_id: str) -> str:
+    return f"availability:{variable_id}"
 
 
 def _metadata_column(variable_id: str) -> str:
