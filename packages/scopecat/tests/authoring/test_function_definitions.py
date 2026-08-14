@@ -16,7 +16,11 @@ from scopecat.api.analysis import AnalysisDefinition, AnalysisInvocation
 from scopecat.authoring._module_results import ProductBundle
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.kernel.errors import CheckFailed
-from scopecat.program.products import ProductAxis, RecordSelection
+from scopecat.program.products import (
+    EntityRecordSelection,
+    ProductAxis,
+    RecordSelection,
+)
 from scopecat.sdk.instruments import InterfaceRef
 
 _COUNT_TYPE = sc.IntType(minimum=0)
@@ -361,18 +365,12 @@ def test_homogeneous_per_entity_return_uses_one_entity_indexed_record() -> None:
     invocation = definition()
     selections = invocation.definition.record_selections
 
-    assert len(selections) == 2
-    assert all(isinstance(selection, RecordSelection) for selection in selections)
-    product_selections = tuple(cast("RecordSelection", item) for item in selections)
-    assert [selection.record_id for selection in product_selections] == [
-        "result",
-        "result",
-    ]
-    assert [selection.entity for selection in product_selections] == [q0, q1]
-    assert [selection.entity_axis_id for selection in product_selections] == [
-        "qubit",
-        "qubit",
-    ]
+    [selection] = selections
+    assert isinstance(selection, EntityRecordSelection)
+    assert selection.record_id == "result"
+    assert selection.axis.id == "qubit"
+    assert selection.axis.values == (q0, q1)
+    assert [member.entity for member in selection.members] == [q0, q1]
     [result_field] = invocation.definition.result_fields
     assert result_field.path == ("result",)
     assert result_field.variable_id == "result"

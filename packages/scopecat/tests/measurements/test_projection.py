@@ -33,7 +33,8 @@ from scopecat.measurements.projection import (
     select_measurement_projection,
 )
 from scopecat.measurements.records import (
-    RecordUse,
+    EntityRecordUse,
+    EntityRecordUseMember,
     ValueRecordCandidate,
     ValueRecordUse,
     expected_dataset_schema,
@@ -59,6 +60,7 @@ from scopecat.program.point_domain import (
     point_axis_range,
     point_axis_values,
 )
+from scopecat.program.products import EntityAxisDef
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementUnavailable,
@@ -213,17 +215,23 @@ def test_projection_stacks_entity_products_and_preserves_partial_failure() -> No
     q0 = EntityRef(id="q0", kind="qubit")
     q1 = EntityRef(id="q1", kind="qubit")
     records = (
-        RecordUse(
+        EntityRecordUse(
             id="readout",
-            product_use_id=scenario.uses[0].id,
-            entity=q0,
-            entity_axis_id="qubit",
-        ),
-        RecordUse(
-            id="readout",
-            product_use_id=scenario.uses[1].id,
-            entity=q1,
-            entity_axis_id="qubit",
+            axis=EntityAxisDef(
+                id="qubit",
+                values=(q0, q1),
+                entity_kind="qubit",
+            ),
+            members=(
+                EntityRecordUseMember(
+                    entity=q0,
+                    product_use_id=scenario.uses[0].id,
+                ),
+                EntityRecordUseMember(
+                    entity=q1,
+                    product_use_id=scenario.uses[1].id,
+                ),
+            ),
         ),
     )
     projection = select_measurement_projection(scenario.catalog, records)
@@ -304,14 +312,22 @@ def test_entity_projection_keeps_schema_width_constant_for_128_sources() -> None
         point_values=(0.0,),
         use_count=entity_count,
     )
-    records = tuple(
-        RecordUse(
+    entities = tuple(
+        EntityRef(id=f"q{index}", kind="qubit") for index in range(entity_count)
+    )
+    records = (
+        EntityRecordUse(
             id="readout",
-            product_use_id=use.id,
-            entity=EntityRef(id=f"q{index}", kind="qubit"),
-            entity_axis_id="qubit",
-        )
-        for index, use in enumerate(scenario.uses)
+            axis=EntityAxisDef(
+                id="qubit",
+                values=entities,
+                entity_kind="qubit",
+            ),
+            members=tuple(
+                EntityRecordUseMember(entity=entity, product_use_id=use.id)
+                for entity, use in zip(entities, scenario.uses, strict=True)
+            ),
+        ),
     )
 
     projection = select_measurement_projection(scenario.catalog, records)

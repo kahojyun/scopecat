@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Generic, Protocol, TypeVar, cast, override
+from typing import Generic, Literal, Protocol, TypeVar, cast, override
 
-from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.entity import EntityRef, entity_identity
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.product_identity import (
     ProductId,
@@ -302,8 +302,6 @@ class RecordSelection:
     record_id: str | None = None
     role: MeasurementVariableRole = "observable"
     recording_group_id: str | None = None
-    entity: EntityRef | None = None
-    entity_axis_id: str | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
     def __post_init__(self) -> None:
@@ -313,17 +311,91 @@ class RecordSelection:
         if self.recording_group_id is not None and not self.recording_group_id:
             msg = "recording group id must be non-empty when provided"
             raise ValueError(msg)
-        if (self.entity is None) != (self.entity_axis_id is None):
-            raise ValueError(
-                "entity record selections require both entity and entity_axis_id"
-            )
-        if self.entity_axis_id is not None and not self.entity_axis_id:
-            raise ValueError("entity record axis id must be non-empty")
         object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
 
     @property
     def product_id(self) -> ProductId:
         return self.product_use.product_id
+
+    @property
+    def product_ids(self) -> tuple[ProductId, ...]:
+        return (self.product_id,)
+
+
+@dataclass(frozen=True, slots=True)
+class EntityAxisDef:
+    """One fixed, ordered entity axis shared by grouped record selections."""
+
+    id: str
+    values: tuple[EntityRef, ...]
+    entity_kind: str | None = None
+    membership: Literal["fixed"] = "fixed"
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("entity axis id must be non-empty")
+        if not self.values:
+            raise ValueError("entity axes require at least one member")
+        values = tuple(self.values)
+        identities = tuple(entity_identity(value) for value in values)
+        if len(identities) != len(set(identities)):
+            raise ValueError("entity axes require unique members")
+        if self.entity_kind is not None and any(
+            value.kind not in {None, self.entity_kind} for value in values
+        ):
+            raise ValueError("entity axis members must match its declared kind")
+        object.__setattr__(self, "values", values)
+
+
+@dataclass(frozen=True, slots=True)
+class EntityRecordMemberSelection:
+    """One entity/product member of a grouped durable record selection."""
+
+    entity: EntityRef
+    product_use: ProductUse
+    product_origin: tuple[object, ...] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+
+    @property
+    def product_id(self) -> ProductId:
+        return self.product_use.product_id
+
+
+@dataclass(frozen=True, slots=True)
+class EntityRecordSelection:
+    """Select homogeneous per-entity product uses as one durable variable."""
+
+    record_id: str
+    axis: EntityAxisDef
+    members: tuple[EntityRecordMemberSelection, ...]
+    role: MeasurementVariableRole = "observable"
+    recording_group_id: str | None = None
+    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
+
+    def __post_init__(self) -> None:
+        if not self.record_id:
+            raise ValueError("entity record id must be non-empty")
+        if self.recording_group_id is not None and not self.recording_group_id:
+            raise ValueError("recording group id must be non-empty when provided")
+        members = tuple(self.members)
+        if not members:
+            raise ValueError("entity record selections require at least one member")
+        if tuple(entity_identity(member.entity) for member in members) != tuple(
+            entity_identity(value) for value in self.axis.values
+        ):
+            raise ValueError("entity record members must align exactly to their axis")
+        object.__setattr__(self, "members", members)
+        object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
+
+    @property
+    def product_ids(self) -> tuple[ProductId, ...]:
+        return tuple(member.product_id for member in self.members)
+
+
+type ProductRecordSelection = RecordSelection | EntityRecordSelection
 
 
 def product_axis(
@@ -506,8 +578,6 @@ def record_alias(
         record_id=record_id,
         role=selection.role if role is None else role,
         recording_group_id=None,
-        entity=selection.entity,
-        entity_axis_id=selection.entity_axis_id,
         metadata=freeze_json_mapping(metadata or {}),
     )
 

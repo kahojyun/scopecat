@@ -27,7 +27,12 @@ from scopecat.program.measurement_contracts import (
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.parameters import ParameterContract
 from scopecat.program.point_domain import PointAxes
-from scopecat.program.products import ModuleProductDecl, RecordSelection
+from scopecat.program.products import (
+    EntityRecordSelection,
+    ModuleProductDecl,
+    ProductRecordSelection,
+    RecordSelection,
+)
 from scopecat.program.recording import (
     ExperimentResultField,
     LogicalRecordSelection,
@@ -268,11 +273,11 @@ class LogicalProgram:
         )
 
     @property
-    def product_record_selections(self) -> tuple[RecordSelection, ...]:
+    def product_record_selections(self) -> tuple[ProductRecordSelection, ...]:
         return tuple(
             selection
             for selection in self.record_selections
-            if isinstance(selection, RecordSelection)
+            if isinstance(selection, RecordSelection | EntityRecordSelection)
         )
 
     @property

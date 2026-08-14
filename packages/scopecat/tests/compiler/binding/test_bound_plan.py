@@ -354,7 +354,9 @@ def test_unselected_product_definition_survives_binding_without_collection() -> 
         selected_id,
     )
     assert tuple(
-        record.product_use_id for record in bound.bindings.product_record_uses
+        product_use_id
+        for record in bound.bindings.product_record_uses
+        for product_use_id in record.product_use_ids
     ) == (bound.bindings.product_uses[0].id,)
     assert {
         product_use_id

@@ -5,7 +5,7 @@ from typing import assert_type
 import pytest
 
 import scopecat as sc
-from scopecat.program.products import RecordSelection
+from scopecat.program.products import EntityRecordSelection, RecordSelection
 from scopecat.program.value_refs import internal_value_ref_point_id
 
 _DEVICE_TYPE = sc.ScalarType(sc.EntityType(entity_kind="logical_device"))
@@ -203,13 +203,12 @@ def test_experiment_can_explicitly_stack_entity_products() -> None:
         input_defaults={},
         required_inputs=(),
     )
-    selections = tuple(
-        selection
-        for selection in definition.record_selections
-        if isinstance(selection, RecordSelection)
-    )
-    assert [selection.record_id for selection in selections] == ["signal", "signal"]
-    assert [selection.entity for selection in selections] == [q1, q0]
+    [selection] = definition.record_selections
+    assert isinstance(selection, EntityRecordSelection)
+    assert selection.record_id == "signal"
+    assert selection.axis.id == "qubit"
+    assert selection.axis.values == (q1, q0)
+    assert [member.entity for member in selection.members] == [q1, q0]
 
 
 def test_record_namespace_is_non_empty_and_exclusive_with_record_id() -> None:

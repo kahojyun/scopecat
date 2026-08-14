@@ -32,7 +32,13 @@ from scopecat.measurements.products import (
     ProductAxisDef,
     ProductDef,
 )
-from scopecat.measurements.records import BoundRecordUse, RecordUse, ValueRecordUse
+from scopecat.measurements.records import (
+    BoundRecordUse,
+    EntityRecordUse,
+    ProductRecordUse,
+    RecordUse,
+    ValueRecordUse,
+)
 from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import (
     MeasurementComputeId,
@@ -141,9 +147,11 @@ class BoundProgramFacts:
         )
 
     @property
-    def product_record_uses(self) -> tuple[RecordUse, ...]:
+    def product_record_uses(self) -> tuple[ProductRecordUse, ...]:
         return tuple(
-            record for record in self.record_uses if isinstance(record, RecordUse)
+            record
+            for record in self.record_uses
+            if isinstance(record, RecordUse | EntityRecordUse)
         )
 
     @property

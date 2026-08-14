@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import assert_type
+from typing import assert_type, cast
 
 import pytest
 from scopecat.authoring import (
@@ -24,7 +24,7 @@ from scopecat.program.bindings import EnsureStateIntent, InvocationIntent
 from scopecat.program.expressions import LiteralScalarExpr
 from scopecat.program.measurement_types import MeasurementArrayData
 from scopecat.program.module import ModuleAcquireEffect
-from scopecat.program.products import RecordSelection
+from scopecat.program.products import EntityRecordSelection, RecordSelection
 from scopecat.program.recording import ProgramRecordSelection
 
 from scopecat_instruments import (
@@ -503,14 +503,17 @@ def test_returned_group_bundle_records_one_variable_per_field() -> None:
         return analyzers.sweep()
 
     invocation = definition()
-    selections = _product_records(invocation.definition.record_selections)
-    assert [selection.record_id for selection in selections] == [
+    selections = invocation.definition.record_selections
+    assert all(isinstance(selection, EntityRecordSelection) for selection in selections)
+    grouped = tuple(
+        cast("EntityRecordSelection", selection) for selection in selections
+    )
+    assert [selection.record_id for selection in grouped] == [
         "frequency",
-        "frequency",
-        "s_parameter",
         "s_parameter",
     ]
-    assert all(selection.entity_axis_id == "logical_device" for selection in selections)
+    assert all(selection.axis.id == "logical_device" for selection in grouped)
+    assert all(selection.axis.values == (q0, q1) for selection in grouped)
     assert isinstance(invocation.output, RecordedProducts)
     frequency = invocation.output.frequency
     signal = invocation.output.s_parameter

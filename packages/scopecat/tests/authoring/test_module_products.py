@@ -631,8 +631,9 @@ def test_explicit_instances_select_same_named_products_independently(
     uses_by_id = {use.id: use for use in resolved.bindings.product_uses}
     products_by_id = {product.id: product for product in resolved.bindings.product_defs}
     selected_products = [
-        products_by_id[uses_by_id[record.product_use_id].product_id]
+        products_by_id[uses_by_id[product_use_id].product_id]
         for record in resolved.bindings.product_record_uses
+        for product_use_id in record.product_use_ids
     ]
     acquisitions_by_product = {
         result.product_id: (acquisition, result)
@@ -712,8 +713,9 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     )
 
     record = resolved.bindings.product_record_uses[0]
+    [product_use_id] = record.product_use_ids
     use = next(
-        use for use in resolved.bindings.product_uses if use.id == record.product_use_id
+        use for use in resolved.bindings.product_uses if use.id == product_use_id
     )
     assert record.id == "nested_signal"
     expected_product_id = ProductId(

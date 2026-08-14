@@ -88,7 +88,9 @@ def test_record_demand_retains_source_use_and_prunes_dead_compute(
     assert middle.outputs[0].product_use_ids == (final.inputs[0].product_use_id,)
     assert final.inputs[0].product_id.qualified_name == "lowering/second"
     assert final.outputs[0].product_use_ids == tuple(
-        record.product_use_id for record in program.product_record_uses
+        product_use_id
+        for record in program.product_record_uses
+        for product_use_id in record.product_use_ids
     )
     assert {use.product_id.qualified_name for use in program.product_uses} == {
         "lowering/raw",

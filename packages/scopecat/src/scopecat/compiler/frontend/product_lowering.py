@@ -25,7 +25,12 @@ from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Scalar, ValueType
 from scopecat.measurements.products import ProductAxisDef, ProductDef
-from scopecat.measurements.records import RecordUse
+from scopecat.measurements.records import (
+    EntityRecordUse,
+    EntityRecordUseMember,
+    ProductRecordUse,
+    RecordUse,
+)
 from scopecat.program.expressions import (
     ComputeResultScalarExpr,
     ScalarExpr,
@@ -33,9 +38,10 @@ from scopecat.program.expressions import (
 )
 from scopecat.program.products import (
     AxisSizeInput,
+    EntityRecordSelection,
     ModuleProductDecl,
     ProductAxis,
-    RecordSelection,
+    ProductRecordSelection,
     product_axis_dimension_id,
 )
 from scopecat.program.value_refs import (
@@ -55,13 +61,13 @@ class LoweredProductModel:
 
     product_defs: tuple[ProductDef, ...] = ()
     product_uses: tuple[ProductUse, ...] = ()
-    record_uses: tuple[RecordUse, ...] = ()
+    record_uses: tuple[ProductRecordUse, ...] = ()
 
 
 def lower_products(
     static_evaluator: StaticRelationEvaluator,
     topology: Topology,
-    selections: Sequence[RecordSelection],
+    selections: Sequence[ProductRecordSelection],
     product_declarations_by_id: Mapping[ProductId, ModuleProductDecl],
     inputs: Mapping[str, object],
     *,
@@ -81,8 +87,37 @@ def lower_products(
     )
     uses: list[ProductUse] = []
     uses_by_id: dict[ProductUseId, ProductUse] = {}
-    records: list[RecordUse] = []
+    records: list[ProductRecordUse] = []
     for selection in selections:
+        if isinstance(selection, EntityRecordSelection):
+            members: list[EntityRecordUseMember] = []
+            for member in selection.members:
+                _require_selected_product(
+                    member.product_id,
+                    product_declarations_by_id=product_declarations_by_id,
+                )
+                _append_product_use(
+                    member.product_use,
+                    uses=uses,
+                    uses_by_id=uses_by_id,
+                )
+                members.append(
+                    EntityRecordUseMember(
+                        entity=member.entity,
+                        product_use_id=member.product_use.id,
+                    )
+                )
+            records.append(
+                EntityRecordUse(
+                    id=selection.record_id,
+                    axis=selection.axis,
+                    members=tuple(members),
+                    role=selection.role,
+                    recording_group_id=selection.recording_group_id,
+                    metadata=_durable_metadata(selection.metadata),
+                )
+            )
+            continue
         product = product_declarations_by_id.get(selection.product_id)
         if product is None:
             raise AssertionError(
@@ -90,22 +125,13 @@ def lower_products(
                 f"{selection.product_id.qualified_name}"
             )
         use = selection.product_use
-        existing_use = uses_by_id.get(use.id)
-        if existing_use is None:
-            uses_by_id[use.id] = use
-            uses.append(use)
-        elif existing_use != use:
-            raise AssertionError(
-                f"verified product selections disagree for product use {use.id.value!r}"
-            )
+        _append_product_use(use, uses=uses, uses_by_id=uses_by_id)
         records.append(
             RecordUse(
                 id=selection.record_id or product.qualified_id,
                 product_use_id=use.id,
                 role=selection.role,
                 recording_group_id=selection.recording_group_id,
-                entity=selection.entity,
-                entity_axis_id=selection.entity_axis_id,
                 metadata=_durable_metadata(selection.metadata),
             )
         )
@@ -114,6 +140,36 @@ def lower_products(
         product_uses=tuple(uses),
         record_uses=tuple(records),
     )
+
+
+def _require_selected_product(
+    product_id: ProductId,
+    *,
+    product_declarations_by_id: Mapping[ProductId, ModuleProductDecl],
+) -> ModuleProductDecl:
+    product = product_declarations_by_id.get(product_id)
+    if product is None:
+        raise AssertionError(
+            "verified product selection is absent from the product map: "
+            f"{product_id.qualified_name}"
+        )
+    return product
+
+
+def _append_product_use(
+    use: ProductUse,
+    *,
+    uses: list[ProductUse],
+    uses_by_id: dict[ProductUseId, ProductUse],
+) -> None:
+    existing_use = uses_by_id.get(use.id)
+    if existing_use is None:
+        uses_by_id[use.id] = use
+        uses.append(use)
+    elif existing_use != use:
+        raise AssertionError(
+            f"verified product selections disagree for product use {use.id.value!r}"
+        )
 
 
 def _lower_product_axis(

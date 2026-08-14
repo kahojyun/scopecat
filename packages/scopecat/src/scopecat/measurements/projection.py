@@ -21,6 +21,8 @@ from scopecat.measurements.records import (
     BoundRecordUse,
     DatasetRecordPlan,
     EntityRecordPlan,
+    EntityRecordUse,
+    ProductRecordUse,
     RecordPlan,
     RecordUse,
     ValueRecordCandidate,
@@ -201,7 +203,9 @@ def select_measurement_projection(
 
     selected_records = tuple(record_uses)
     product_records = tuple(
-        record for record in selected_records if isinstance(record, RecordUse)
+        record
+        for record in selected_records
+        if isinstance(record, RecordUse | EntityRecordUse)
     )
     value_records = tuple(
         record for record in selected_records if isinstance(record, ValueRecordUse)
@@ -233,18 +237,12 @@ def select_measurement_projection(
         )
     )
     value_record_iterator = iter(plan_value_records(value_records))
-    planned: list[DatasetRecordPlan] = []
-    emitted_entity_records: set[str] = set()
-    for record in selected_records:
-        if isinstance(record, ValueRecordUse):
-            planned.append(next(value_record_iterator))
-            continue
-        if record.entity is not None:
-            if record.id in emitted_entity_records:
-                continue
-            emitted_entity_records.add(record.id)
-        planned.append(next(product_record_iterator))
-    record_plans = tuple(planned)
+    record_plans: tuple[DatasetRecordPlan, ...] = tuple(
+        next(value_record_iterator)
+        if isinstance(record, ValueRecordUse)
+        else next(product_record_iterator)
+        for record in selected_records
+    )
     record_problems = validate_record_plan(
         record_plans,
         coordinate_ids=coordinate_ids,
@@ -571,14 +569,19 @@ def _projected_acquisition_evidence(
 
 
 def _record_product_exists(
-    record: RecordUse,
+    record: ProductRecordUse,
     use_by_id: Mapping[ProductUseId, ProductUse],
     product_by_id: Mapping[ProductId, ProductDef],
 ) -> bool:
-    use = use_by_id.get(record.product_use_id)
-    if use is None:
-        return False
-    return use.product_id in product_by_id
+    use_ids = (
+        (record.product_use_id,)
+        if isinstance(record, RecordUse)
+        else tuple(member.product_use_id for member in record.members)
+    )
+    return all(
+        (use := use_by_id.get(use_id)) is not None and use.product_id in product_by_id
+        for use_id in use_ids
+    )
 
 
 def _point_coordinates(

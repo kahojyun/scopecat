@@ -82,6 +82,9 @@ from scopecat.program.measurement_types import (
 )
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.products import (
+    EntityAxisDef,
+    EntityRecordMemberSelection,
+    EntityRecordSelection,
     ProductAxis,
     ProductRecording,
     ProductRef,
@@ -250,6 +253,7 @@ class ExperimentContext:
     """Explicit recorder injected into one complete experiment definition."""
 
     __slots__ = (
+        "_entity_axes",
         "_point_domain_mode",
         "_point_plan",
         "_program",
@@ -262,6 +266,7 @@ class ExperimentContext:
         self._program = ModuleContext()
         self._point_plan = PointPlan()
         self._point_domain_mode = "none"
+        self._entity_axes: dict[str, EntityAxisDef] = {}
         self._record_selections: list[ProgramRecordSelection] = []
         self._result_fields: list[ExperimentResultField] = []
         self._success_state_bindings: list[BindingIntent] = []
@@ -933,7 +938,7 @@ class ExperimentContext:
         /,
         *,
         record_id: str,
-        axis: str | None = None,
+        axis: str | EntityAxisDef | None = None,
         role: MeasurementVariableRole | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> RecordRef[MeasurementArrayData]:
@@ -941,13 +946,13 @@ class ExperimentContext:
 
         if not record_id:
             raise ValueError("entity record id must be non-empty")
-        if axis is not None and not axis:
+        if isinstance(axis, str) and not axis:
             raise ValueError("entity record axis must be non-empty")
         return _record_entity_products_output(
             self,
             value,
             record_id=record_id,
-            axis_id=axis,
+            axis=axis,
             role=role,
             metadata=metadata,
         )
@@ -1468,6 +1473,7 @@ def _record_experiment_output(
         explicit_sources = frozenset(
             _record_selection_source_key(selection)
             for selection in context._record_selections
+            if not isinstance(selection, EntityRecordSelection)
         )
     if value is None:
         return None
@@ -1564,7 +1570,7 @@ def _record_experiment_output(
                 context,
                 cast("PerEntity[ProductRef]", value),
                 record_id=record_id,
-                axis_id=None,
+                axis=None,
                 role=selected_policy.role,
                 metadata=selected_policy.metadata,
             )
@@ -1663,14 +1669,24 @@ def _record_entity_products_output(
     products: PerEntity[ProductRef],
     *,
     record_id: str,
-    axis_id: str | None,
+    axis: str | EntityAxisDef | None,
     role: MeasurementVariableRole | None,
     metadata: Mapping[str, MetadataValue] | None,
 ) -> RecordRef[MeasurementArrayData]:
     entities = tuple(products)
     if not entities:
         raise ValueError("entity records require at least one product")
-    selected_axis_id = axis_id or _entity_record_axis_id(entities)
+    selected_axis_id = (
+        axis.id
+        if isinstance(axis, EntityAxisDef)
+        else axis or _entity_record_axis_id(entities)
+    )
+    selected_axis = _register_entity_axis(
+        context,
+        selected_axis_id,
+        entities,
+        provided=axis if isinstance(axis, EntityAxisDef) else None,
+    )
     selected_role = role
     if selected_role is None:
         roles = {products[entity]._recording_role for entity in entities}
@@ -1699,14 +1715,22 @@ def _record_entity_products_output(
     recording_group_id = (
         next(iter(recording_group_ids)) if len(recording_group_ids) == 1 else None
     )
-    context._record_selections.extend(
-        replace(
-            selection,
+    context._record_selections.append(
+        EntityRecordSelection(
+            record_id=record_id,
+            axis=selected_axis,
+            members=tuple(
+                EntityRecordMemberSelection(
+                    entity=entity,
+                    product_use=selection.product_use,
+                    product_origin=selection.product_origin,
+                )
+                for entity, selection in zip(entities, selections, strict=True)
+            ),
+            role=cast("MeasurementVariableRole", selected_role),
             recording_group_id=recording_group_id,
-            entity=entity,
-            entity_axis_id=selected_axis_id,
+            metadata=freeze_json_mapping(metadata or {}),
         )
-        for entity, selection in zip(entities, selections, strict=True)
     )
     first = products[entities[0]]
     local_dimensions = tuple(
@@ -1745,6 +1769,34 @@ def _entity_record_axis_id(entities: Sequence[EntityRef]) -> str:
     )
 
 
+def _register_entity_axis(
+    context: ExperimentContext,
+    axis_id: str,
+    entities: Sequence[EntityRef],
+    *,
+    provided: EntityAxisDef | None,
+) -> EntityAxisDef:
+    kinds = {entity.kind for entity in entities}
+    entity_kind = (
+        cast("str", next(iter(kinds)))
+        if len(kinds) == 1 and None not in kinds
+        else None
+    )
+    selected = provided or EntityAxisDef(
+        id=axis_id,
+        values=tuple(entities),
+        entity_kind=entity_kind,
+    )
+    if selected.values != tuple(entities):
+        raise ValueError("provided entity axis does not match the selected products")
+    existing = context._entity_axes.setdefault(axis_id, selected)
+    if existing != selected:
+        raise ValueError(
+            f"entity axis {axis_id!r} is already registered with different members"
+        )
+    return existing
+
+
 def _existing_record_id(
     context: ExperimentContext,
     value: ProductRef | ValueRef,
@@ -1757,6 +1809,7 @@ def _existing_record_id(
     matches = tuple(
         selection
         for selection in context._record_selections
+        if not isinstance(selection, EntityRecordSelection)
         if _record_selection_source_key(selection) == source_key
     )
     if len(matches) != 1:
@@ -1773,6 +1826,8 @@ def _existing_record_id(
             .prefixed(*selection.namespace)
             .qualified_name
         )
+    if isinstance(selection, EntityRecordSelection):
+        raise AssertionError("entity records cannot match one scalar product source")
     return selection.record_id or selection.product_id.qualified_name
 
 
@@ -1857,6 +1912,8 @@ def _record_selection_source_key(
 ) -> tuple[object, ...]:
     if isinstance(selection, ValueRecordSelection):
         return _value_record_source_key(selection.value)
+    if isinstance(selection, EntityRecordSelection):
+        return "entity-record", selection.record_id
     return (
         "product",
         selection.product_id,

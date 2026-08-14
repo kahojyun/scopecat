@@ -70,6 +70,7 @@ from scopecat.kernel.resource_identity import (
     resource_role,
 )
 from scopecat.program.products import (
+    EntityAxisDef,
     ProductRef,
     ProductValueSpec,
 )
@@ -138,6 +139,7 @@ __all__ = [
     "CoordinateRef",
     "DataRef",
     "EachEntity",
+    "EntityAxisDef",
     "EntityInput",
     "EntitySelection",
     "EntityType",
