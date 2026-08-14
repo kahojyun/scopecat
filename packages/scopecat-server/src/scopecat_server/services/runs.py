@@ -40,7 +40,6 @@ from scopecat.daemon.views import (
     RunControlView,
     RunDatasetBytesView,
     RunDetail,
-    RunDomainExecutionView,
     RunPlanView,
     RunRequestView,
     RunResourceView,
@@ -73,7 +72,6 @@ from scopecat.measurements.datasets import (
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import (
     MeasurementDataset,
     MeasurementDatasetSchema,
@@ -104,7 +102,6 @@ from scopecat_server.storage.sqlite.control_plane import (
     SQLiteControlPlane,
 )
 from scopecat_server.storage.sqlite.execution import (
-    SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
     SQLiteRunCoverage,
 )
@@ -304,12 +301,6 @@ class RunService:
                     connection,
                     run_id,
                 )
-                domain_executions = _domain_execution_views(
-                    SQLiteExecutionJournal(
-                        self._runs,
-                        run_id=run_id,
-                    ).list_in_transaction(connection)
-                )
                 completed_point_count = SQLiteRunCoverage(
                     self._runs,
                     run_id=run_id,
@@ -358,7 +349,6 @@ class RunService:
             ),
             manifest=manifest,
             resources=resources,
-            domain_executions=domain_executions,
         )
 
     def get_run_config(self, run_id: str) -> RunConfigView:
@@ -907,87 +897,6 @@ class RunService:
             run_id=run_id,
             latest=latest,
         )
-
-
-def _domain_execution_views(
-    transitions: Sequence[ExecutionTransition],
-) -> tuple[RunDomainExecutionView, ...]:
-    from scopecat.sdk.domain.invocation import DomainInvocationIntent
-    from scopecat.sdk.domain.runtime import DomainExecutionId, DomainExecutionReceipt
-
-    projected: list[RunDomainExecutionView] = []
-    positions: dict[str, int] = {}
-    for transition in transitions:
-        if transition.stage != "domain_execute":
-            continue
-        if transition.state == "started":
-            raw_intent = transition.evidence.get("invocation_intent")
-            if not isinstance(raw_intent, dict):
-                continue
-            intent = DomainInvocationIntent.model_validate(raw_intent)
-            logical_compute_node_id = transition.evidence.get("logical_compute_node_id")
-            if not isinstance(logical_compute_node_id, str):
-                raise ValueError("domain execution intent lacks its logical node id")
-            execution_id = DomainExecutionId(
-                run_id=transition.run_id,
-                logical_compute_node_id=logical_compute_node_id,
-                invocation_id=intent.invocation_id,
-                intent_fingerprint=intent.intent_fingerprint,
-            )
-            if (
-                transition.operation_id != execution_id.operation_id
-                or transition.evidence.get("execution_key")
-                != execution_id.execution_key
-            ):
-                raise ValueError("domain execution journal identity is inconsistent")
-            positions[transition.operation_id] = len(projected)
-            projected.append(
-                RunDomainExecutionView(
-                    operation_id=transition.operation_id,
-                    execution_key=execution_id.execution_key,
-                    intent_fingerprint=intent.intent_fingerprint,
-                    logical_compute_node_id=logical_compute_node_id,
-                    invocation_id=intent.invocation_id,
-                    target_id=intent.target_id,
-                    compiler_id=intent.compiler_id,
-                    artifact_id=intent.artifact_id,
-                    artifact_fingerprint=intent.artifact_fingerprint,
-                    state="started",
-                    execution_summary=intent.execution_summary,
-                    started_at=transition.timestamp,
-                    updated_at=transition.timestamp,
-                )
-            )
-            continue
-
-        position = positions.get(transition.operation_id)
-        if position is None:
-            continue
-        current = projected[position]
-        if (
-            transition.evidence.get("execution_key") != current.execution_key
-            or transition.evidence.get("intent_fingerprint")
-            != current.intent_fingerprint
-        ):
-            raise ValueError("domain execution terminal evidence is inconsistent")
-        raw_receipt = transition.evidence.get("receipt")
-        receipt = (
-            DomainExecutionReceipt.model_validate(raw_receipt)
-            if isinstance(raw_receipt, dict)
-            else None
-        )
-        if receipt is not None and receipt.execution_key != current.execution_key:
-            raise ValueError("domain execution receipt identity is inconsistent")
-        projected[position] = current.model_copy(
-            update={
-                "state": transition.state,
-                "receipt_status": None if receipt is None else receipt.status,
-                "result_count": None if receipt is None else receipt.result_count,
-                "updated_at": transition.timestamp,
-                "problems": transition.problems,
-            }
-        )
-    return tuple(projected)
 
 
 def _trace_preview_point_indices(

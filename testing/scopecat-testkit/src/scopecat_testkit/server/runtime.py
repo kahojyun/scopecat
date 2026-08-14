@@ -10,7 +10,6 @@ from scopecat_testkit.planning import (
     resolve_test_config,
 )
 from scopecat_testkit.server.composition import (
-    SQLiteTestExecutionJournal,
     SQLiteTestRunRepository,
     admit_test_run,
     list_test_runs,
@@ -24,7 +23,6 @@ from scopecat_testkit.server.service_run_operations import ServiceRunOperations
 __all__ = [
     "FakeExecutionJournal",
     "FakeMeasurementDatasetRepository",
-    "SQLiteTestExecutionJournal",
     "SQLiteTestRunRepository",
     "ServiceRunOperations",
     "admit_test_run",

@@ -25,8 +25,6 @@ from scopecat.daemon.points import (
 )
 from scopecat.daemon.reviews import RunInspectionAppendCommand, RunInspectionView
 from scopecat.daemon.wire import (
-    ExecutionTransitionAppend,
-    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -42,7 +40,6 @@ from scopecat.daemon.wire import (
 )
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetReceipt,
@@ -62,7 +59,6 @@ from scopecat_server.storage.sqlite.control_plane import (
 )
 from scopecat_server.storage.sqlite.execution import (
     ExecutionJournalConflict,
-    SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
     SQLiteRunCoverage,
 )
@@ -268,37 +264,6 @@ class ExecutorService:
         except ControlPlaneNotFound as error:
             raise BackendNotFound(str(error)) from error
         except ControlPlaneConflict as error:
-            raise BackendConflict(str(error)) from error
-
-    def append_transition(
-        self,
-        run_id: str,
-        command: ExecutionTransitionAppend,
-    ) -> ExecutionTransition:
-        journal = SQLiteExecutionJournal(self._runs, run_id=run_id)
-        with self.fenced_write(
-            run_id,
-            token=command.lease_id,
-        ) as connection:
-            transition, _created = journal.append_in_transaction(
-                connection,
-                command.transition,
-            )
-        return transition
-
-    def claim_transition(
-        self,
-        run_id: str,
-        command: ExecutionTransitionClaim,
-    ) -> ExecutionTransition:
-        journal = SQLiteExecutionJournal(self._runs, run_id=run_id)
-        try:
-            with self.fenced_write(
-                run_id,
-                token=command.lease_id,
-            ) as connection:
-                return journal.claim_in_transaction(connection, command.transition)
-        except ExecutionJournalConflict as error:
             raise BackendConflict(str(error)) from error
 
     def ingest_measurements(

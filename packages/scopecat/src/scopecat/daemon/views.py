@@ -23,7 +23,6 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.health import DaemonHealth
 from scopecat.daemon.points import RunPointPlanView
-from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import Problem
 from scopecat.measurements.datasets import (
     MAX_MEASUREMENT_PAGE_SIZE,
@@ -230,32 +229,10 @@ class RunSummaryPage(_ViewModel):
     next_cursor: int | None = Field(default=None, ge=1)
 
 
-class RunDomainExecutionView(_ViewModel):
-    """Compact target-authored provenance for one domain execution."""
-
-    operation_id: str = Field(min_length=1)
-    execution_key: str = Field(min_length=1)
-    intent_fingerprint: str = Field(min_length=1)
-    logical_compute_node_id: str = Field(min_length=1)
-    invocation_id: str = Field(min_length=1)
-    target_id: str = Field(min_length=1)
-    compiler_id: str = Field(min_length=1)
-    artifact_id: str = Field(min_length=1)
-    artifact_fingerprint: str = Field(min_length=1)
-    state: Literal["started", "completed", "failed", "unknown"]
-    execution_summary: dict[str, JsonValue]
-    receipt_status: Literal["completed", "not_executed", "unknown"] | None = None
-    result_count: int | None = Field(default=None, ge=0)
-    started_at: datetime
-    updated_at: datetime
-    problems: tuple[Problem, ...] = ()
-
-
 class RunDetail(RunSummary):
     """Run summary with scheduler resource state."""
 
     resources: tuple[RunResourceView, ...] = ()
-    domain_executions: tuple[RunDomainExecutionView, ...] = ()
 
 
 class RunConfigView(_ViewModel):
@@ -588,7 +565,6 @@ __all__ = [
     "RunControlView",
     "RunDatasetBytesView",
     "RunDetail",
-    "RunDomainExecutionView",
     "RunPlanView",
     "RunRequestView",
     "RunResourceView",

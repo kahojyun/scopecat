@@ -53,6 +53,14 @@ class ProcessExecutionJournal:
             committed = self._append_locked(entry)
             return committed.model_copy(deep=True)
 
+    def entries(self) -> tuple[ExecutionTransition, ...]:
+        """Snapshot entries in executor-local sequence order."""
+
+        with self._lock:
+            return tuple(
+                entry.model_copy(deep=True) for entry in self._entries_by_hash.values()
+            )
+
     def _append_locked(self, entry: ExecutionTransition) -> ExecutionTransition:
         content_hash = execution_transition_content_hash(entry)
         existing = self._entries_by_hash.get(content_hash)

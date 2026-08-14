@@ -71,8 +71,6 @@ from scopecat.daemon.wire import (
     ConfigPublishCommand,
     ConfigPublishReceipt,
     ConfigUndoCommand,
-    ExecutionTransitionAppend,
-    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -114,7 +112,6 @@ from scopecat.records.artifact import (
     RunContentEntry,
 )
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.records.measurement_recording import (
@@ -943,28 +940,6 @@ class DaemonClient:
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/hardware/finish",
             command,
             RunHardwareFinalizationReceipt,
-        )
-
-    def append_transition(
-        self,
-        run_id: str,
-        command: ExecutionTransitionAppend,
-    ) -> ExecutionTransition:
-        return self._post_model(
-            f"{_API_PREFIX}/runs/{run_id}/transitions",
-            command,
-            ExecutionTransition,
-        )
-
-    def claim_transition(
-        self,
-        run_id: str,
-        command: ExecutionTransitionClaim,
-    ) -> ExecutionTransition:
-        return self._post_model(
-            f"{_API_PREFIX}/runs/{run_id}/transitions/claim",
-            command,
-            ExecutionTransition,
         )
 
     def initialize_measurements(

@@ -80,8 +80,6 @@ from scopecat.daemon.wire import (
     ConfigPublishCommand,
     ConfigPublishReceipt,
     ConfigUndoCommand,
-    ExecutionTransitionAppend,
-    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -115,7 +113,6 @@ from scopecat.daemon.wire import (
 )
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.artifact import RunContentEntry
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
 from scopecat.records.run import RunManifest
@@ -812,22 +809,6 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         command: RunHardwareFinishCommand,
     ) -> RunHardwareFinalizationReceipt:
         return application.instruments.finish_run_hardware(run_id, command)
-
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/transitions")
-    def append_transition(
-        run_id: str,
-        command: ExecutionTransitionAppend,
-    ) -> ExecutionTransition:
-        _require_run_id(run_id, command.transition.run_id)
-        return application.executor.append_transition(run_id, command)
-
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/transitions/claim")
-    def claim_transition(
-        run_id: str,
-        command: ExecutionTransitionClaim,
-    ) -> ExecutionTransition:
-        _require_run_id(run_id, command.transition.run_id)
-        return application.executor.claim_transition(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/header")
     def initialize_measurements(

@@ -43,8 +43,6 @@ from scopecat.daemon.wire import (
     ConfigPublishReceipt,
     ConfigUndoCommand,
     DirectConfigRevisionSource,
-    ExecutionTransitionAppend,
-    ExecutionTransitionClaim,
     ExecutorLease,
     InstrumentConfiguredDefaultsApplyCommand,
     InstrumentInventoryMigrationCommand,
@@ -76,7 +74,6 @@ from scopecat.records.analysis import (
     AnalysisTableViewSpec,
 )
 from scopecat.records.config import config_content_hash
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
@@ -92,21 +89,6 @@ def _request() -> RunRequest:
     return RunRequest(
         experiment_id="scratch",
         inputs={"bias": 0.25},
-    )
-
-
-def _transition(
-    *,
-    run_id: str = "run-1",
-    sequence: int | None = None,
-) -> ExecutionTransition:
-    return ExecutionTransition(
-        sequence=sequence,
-        run_id=run_id,
-        operation_id="op-1",
-        stage="domain_execute",
-        effect="read",
-        state="completed",
     )
 
 
@@ -527,23 +509,6 @@ def test_executor_lease_is_expiring_and_fenced() -> None:
         ExecutorLease(
             **lease.model_dump(exclude={"issued_at"}),
             issued_at=now.replace(tzinfo=None),
-        )
-
-
-@pytest.mark.parametrize(
-    "command_type",
-    [ExecutionTransitionAppend, ExecutionTransitionClaim],
-)
-def test_transition_commands_keep_sequence_daemon_owned(
-    command_type: type[ExecutionTransitionAppend | ExecutionTransitionClaim],
-) -> None:
-    command = command_type(lease_id="lease-1", transition=_transition())
-
-    assert command_type.model_validate_json(command.model_dump_json()) == command
-    with pytest.raises(ValidationError, match="daemon-assigned"):
-        command_type(
-            lease_id="lease-1",
-            transition=_transition(sequence=1),
         )
 
 

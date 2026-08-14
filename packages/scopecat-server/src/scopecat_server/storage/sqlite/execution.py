@@ -24,10 +24,6 @@ from scopecat.daemon.points import (
     RunPointPlanCloseCommand,
     RunPointPlanView,
 )
-from scopecat.records.execution_journal import (
-    ExecutionTransition,
-    execution_transition_content_hash,
-)
 from scopecat.records.measurement import MeasurementDatasetSchema, MeasurementRecord
 from scopecat.records.measurement_recording import (
     CANONICAL_MEASUREMENT_DATASET_REF,
@@ -682,167 +678,6 @@ class SQLiteRunPointLedger:
                     cancelled.request.request_id,
                 ),
             )
-
-
-class SQLiteExecutionJournal:
-    """Append effect transitions to the canonical durable-event stream."""
-
-    _EVENT_KIND = "execution_transition_committed"
-
-    def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
-        self._runs = runs
-        self._run_id = run_id
-
-    def append_in_transaction(
-        self,
-        connection: sqlite3.Connection,
-        entry: ExecutionTransition,
-    ) -> tuple[ExecutionTransition, bool]:
-        """Append through an existing transaction without owning its boundary."""
-
-        if entry.run_id != self._run_id:
-            raise ExecutionJournalConflict(
-                "execution journal entry run_id does not match its journal"
-            )
-        content_hash = execution_transition_content_hash(entry)
-        try:
-            existing = _one(
-                connection.execute(
-                    """
-                    SELECT run_sequence, payload_json, occurred_at
-                    FROM durable_events
-                    WHERE run_id = ? AND kind = ? AND deduplication_key = ?
-                    """,
-                    (self._run_id, self._EVENT_KIND, content_hash),
-                )
-            )
-            if existing is not None:
-                return (
-                    _execution_transition(self._run_id, existing),
-                    False,
-                )
-            row = _one(
-                connection.execute(
-                    """
-                    SELECT COALESCE(MAX(run_sequence), -1) + 1 AS sequence
-                    FROM durable_events
-                    WHERE run_id = ? AND kind = ?
-                    """,
-                    (self._run_id, self._EVENT_KIND),
-                )
-            )
-            assert row is not None
-            committed = self._commit_transition(
-                connection,
-                entry,
-                sequence=_integer(row, "sequence"),
-                content_hash=content_hash,
-            )
-            return committed, True
-        except ExecutionJournalError:
-            raise
-        except Exception as error:
-            raise ExecutionJournalError(
-                f"failed to commit execution journal entry: {error}"
-            ) from error
-
-    def claim_in_transaction(
-        self,
-        connection: sqlite3.Connection,
-        entry: ExecutionTransition,
-    ) -> ExecutionTransition:
-        """Atomically commit the first transition for one operation."""
-
-        if entry.state != "started":
-            raise ExecutionJournalConflict(
-                "only a started transition can claim an execution operation"
-            )
-        existing = _one(
-            connection.execute(
-                """
-                SELECT 1 AS claimed
-                FROM durable_events
-                WHERE run_id = ?
-                  AND kind = ?
-                  AND json_extract(payload_json, '$.operation_id') = ?
-                LIMIT 1
-                """,
-                (self._run_id, self._EVENT_KIND, entry.operation_id),
-            )
-        )
-        if existing is not None:
-            raise ExecutionJournalConflict(
-                f"execution operation {entry.operation_id!r} is already claimed"
-            )
-        committed, created = self.append_in_transaction(connection, entry)
-        assert created
-        return committed
-
-    def list_in_transaction(
-        self,
-        connection: sqlite3.Connection,
-    ) -> tuple[ExecutionTransition, ...]:
-        """Read this run's committed transitions in journal order."""
-
-        rows = _all(
-            connection.execute(
-                """
-                SELECT run_sequence, payload_json, occurred_at
-                FROM durable_events
-                WHERE run_id = ? AND kind = ?
-                ORDER BY run_sequence
-                """,
-                (self._run_id, self._EVENT_KIND),
-            )
-        )
-        return tuple(_execution_transition(self._run_id, row) for row in rows)
-
-    def _commit_transition(
-        self,
-        connection: sqlite3.Connection,
-        entry: ExecutionTransition,
-        *,
-        sequence: int,
-        content_hash: str,
-    ) -> ExecutionTransition:
-        committed = ExecutionTransition.model_validate(
-            {
-                **entry.model_dump(mode="python"),
-                "sequence": sequence,
-                "timestamp": datetime.now(tz=UTC),
-            }
-        )
-        payload = committed.model_dump(
-            mode="json",
-            exclude={"run_id", "timestamp"},
-        )
-        connection.execute(
-            """
-            INSERT INTO durable_events(
-                run_id,
-                kind,
-                payload_json,
-                occurred_at,
-                run_sequence,
-                deduplication_key
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                self._run_id,
-                self._EVENT_KIND,
-                json.dumps(
-                    payload,
-                    allow_nan=True,
-                    separators=(",", ":"),
-                    sort_keys=True,
-                ),
-                committed.timestamp.isoformat(timespec="microseconds"),
-                sequence,
-                content_hash,
-            ),
-        )
-        return committed
 
 
 class SQLiteMeasurementDatasetRepository:
@@ -1531,24 +1366,6 @@ def _store_measurement_append(
         raise ExecutionJournalError(
             f"measurement append is not durably serializable: {error}"
         ) from error
-
-
-def _execution_transition(
-    run_id: str,
-    row: sqlite3.Row,
-) -> ExecutionTransition:
-    payload = cast(
-        "dict[str, object]",
-        json.loads(_text(row, "payload_json")),
-    )
-    return ExecutionTransition.model_validate(
-        {
-            **payload,
-            "run_id": run_id,
-            "sequence": _integer(row, "run_sequence"),
-            "timestamp": _text(row, "occurred_at"),
-        }
-    )
 
 
 def _publish_ref(
