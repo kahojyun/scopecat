@@ -102,6 +102,7 @@ class ReviewSessionView(_ReviewModel):
     active: bool
     created_at: datetime
     updated_at: datetime
+    heartbeat_interval_seconds: float = Field(gt=0)
     coordinates: tuple[PointCoordinateSpec, ...]
     planned_points: tuple[ReviewPointView, ...] = ()
     planned_points_truncated: bool = False

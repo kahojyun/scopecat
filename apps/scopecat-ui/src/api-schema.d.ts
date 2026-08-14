@@ -3347,6 +3347,8 @@ export interface components {
             experiment_id: string;
             /** Experiment Kind */
             experiment_kind: string;
+            /** Heartbeat Interval Seconds */
+            heartbeat_interval_seconds: number;
             latest_result?: components["schemas"]["ReviewCompilationResult-Output"] | null;
             /**
              * Pending Request Count

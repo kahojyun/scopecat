@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx2
+import pytest
 from fastapi.testclient import TestClient
 from scopecat.adaptive_domains import ResolvedDomainFragment
 from scopecat.daemon.client import DaemonClient
@@ -19,7 +20,56 @@ from scopecat.daemon.reviews import (
 )
 from scopecat.kernel.quantity import Quantity
 
-from scopecat_server import LocalDaemonRuntime
+from scopecat_server import BackendConflict, LocalDaemonRuntime
+from scopecat_server.services.reviews import ReviewService
+
+
+def test_review_worker_lease_expires_without_losing_latest_result() -> None:
+    now = [datetime(2026, 8, 14, tzinfo=UTC)]
+    service = ReviewService(
+        worker_ttl=timedelta(seconds=15),
+        clock=lambda: now[0],
+    )
+    initial_result = ReviewCompilationResult(
+        request_id="initial",
+        completed_at=now[0],
+    )
+    session = service.create(
+        ReviewSessionCreateCommand(
+            session_id="review-lease",
+            worker_id="worker-lease",
+            title="Lease review",
+            experiment_id="lease-review",
+            experiment_kind="experiment",
+            coordinates=(),
+            initial_result=initial_result,
+        )
+    )
+    assert session.heartbeat_interval_seconds == 5
+    now[0] += timedelta(seconds=10)
+    assert service.heartbeat(session.session_id, "worker-lease").active
+    now[0] += timedelta(seconds=10)
+    receipt = service.enqueue(
+        session.session_id,
+        ReviewCompileCommand(coordinates={}, coordinate_mode="free"),
+    )
+    claimed = service.claim(session.session_id, "worker-lease")
+    assert claimed is not None
+    assert claimed.request_id == receipt.request_id
+    assert service.get(session.session_id).pending_request_count == 1
+
+    now[0] += timedelta(seconds=16)
+    expired = service.get(session.session_id)
+
+    assert not expired.active
+    assert expired.pending_request_count == 0
+    assert expired.latest_result == initial_result
+    assert not service.heartbeat(session.session_id, "worker-lease").active
+    with pytest.raises(BackendConflict, match="closed"):
+        service.enqueue(
+            session.session_id,
+            ReviewCompileCommand(coordinates={}, coordinate_mode="free"),
+        )
 
 
 def test_review_session_round_trips_compile_work_without_run_admission(

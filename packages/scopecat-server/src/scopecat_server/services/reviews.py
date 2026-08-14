@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from threading import Lock
 from uuid import uuid4
 
@@ -26,6 +27,11 @@ from scopecat.daemon.reviews import (
 from ..errors import BackendConflict, BackendNotFound
 
 _RUN_INSPECTION_EVENT_LIMIT = 64
+_DEFAULT_REVIEW_WORKER_TTL = timedelta(seconds=15)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 @dataclass(slots=True)
@@ -33,6 +39,8 @@ class _ReviewSession:
     command: ReviewSessionCreateCommand
     created_at: datetime
     updated_at: datetime
+    worker_renewed_at: datetime
+    heartbeat_interval_seconds: float
     active: bool = True
     pending: deque[ReviewWorkItem] = field(default_factory=deque)
     claimed_request_ids: set[str] = field(default_factory=set)
@@ -50,12 +58,21 @@ class _RunInspectionFeed:
 class ReviewService:
     """Coordinate a GUI with a notebook-owned pure compiler."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        worker_ttl: timedelta = _DEFAULT_REVIEW_WORKER_TTL,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        if worker_ttl <= timedelta(0):
+            raise ValueError("review worker TTL must be positive")
         self._lock = Lock()
         self._sessions: dict[str, _ReviewSession] = {}
+        self._worker_ttl = worker_ttl
+        self._clock = clock or _utc_now
 
     def create(self, command: ReviewSessionCreateCommand) -> ReviewSessionView:
-        now = datetime.now(UTC)
+        now = self._clock()
         with self._lock:
             if command.session_id in self._sessions:
                 raise BackendConflict("review session already exists")
@@ -63,6 +80,8 @@ class ReviewService:
                 command=command,
                 created_at=now,
                 updated_at=now,
+                worker_renewed_at=now,
+                heartbeat_interval_seconds=self._worker_ttl.total_seconds() / 3,
                 latest_result=command.initial_result,
             )
             self._sessions[command.session_id] = session
@@ -70,6 +89,9 @@ class ReviewService:
 
     def list(self) -> ReviewSessionListView:
         with self._lock:
+            now = self._clock()
+            for session in self._sessions.values():
+                self._expire_stale(session, now)
             sessions = sorted(
                 self._sessions.values(),
                 key=lambda session: session.updated_at,
@@ -79,7 +101,9 @@ class ReviewService:
 
     def get(self, session_id: str) -> ReviewSessionView:
         with self._lock:
-            return _view(self._require(session_id))
+            session = self._require(session_id)
+            self._expire_stale(session, self._clock())
+            return _view(session)
 
     def enqueue(
         self,
@@ -87,7 +111,8 @@ class ReviewService:
         command: ReviewCompileCommand,
     ) -> ReviewCompileReceipt:
         with self._lock:
-            session = self._require_active(session_id)
+            now = self._clock()
+            session = self._require_active(session_id, now)
             request_id = uuid4().hex
             session.pending.append(
                 ReviewWorkItem(
@@ -98,7 +123,7 @@ class ReviewService:
                     coordinate_mode=command.coordinate_mode,
                 )
             )
-            session.updated_at = datetime.now(UTC)
+            session.updated_at = now
             return ReviewCompileReceipt(
                 session_id=session_id,
                 request_id=request_id,
@@ -107,11 +132,14 @@ class ReviewService:
     def claim(self, session_id: str, worker_id: str) -> ReviewWorkItem | None:
         with self._lock:
             session = self._require_worker(session_id, worker_id)
+            now = self._clock()
+            self._expire_stale(session, now)
             if not session.active or not session.pending:
                 return None
+            self._renew_worker(session, now)
             item = session.pending.popleft()
             session.claimed_request_ids.add(item.request_id)
-            session.updated_at = datetime.now(UTC)
+            session.updated_at = now
             return item
 
     def complete(
@@ -124,15 +152,23 @@ class ReviewService:
             request_id = command.result.request_id
             if request_id not in session.claimed_request_ids:
                 raise BackendConflict("review request is not claimed by this worker")
+            now = self._clock()
+            if not session.active:
+                raise BackendConflict("review session is closed")
             session.claimed_request_ids.remove(request_id)
             session.latest_result = command.result
-            session.updated_at = datetime.now(UTC)
+            self._renew_worker(session, now)
+            session.updated_at = now
             return _view(session)
 
     def heartbeat(self, session_id: str, worker_id: str) -> ReviewHeartbeatReceipt:
         with self._lock:
             session = self._require_worker(session_id, worker_id)
-            session.updated_at = datetime.now(UTC)
+            now = self._clock()
+            self._expire_stale(session, now)
+            if session.active:
+                self._renew_worker(session, now)
+                session.updated_at = now
             return ReviewHeartbeatReceipt(
                 session_id=session_id,
                 active=session.active,
@@ -142,10 +178,8 @@ class ReviewService:
     def close(self, session_id: str, worker_id: str) -> ReviewSessionCloseReceipt:
         with self._lock:
             session = self._require_worker(session_id, worker_id)
-            closed_at = datetime.now(UTC)
-            session.active = False
-            session.pending.clear()
-            session.updated_at = closed_at
+            closed_at = self._clock()
+            self._deactivate(session, closed_at)
             return ReviewSessionCloseReceipt(
                 session_id=session_id,
                 closed_at=closed_at,
@@ -157,8 +191,9 @@ class ReviewService:
             raise BackendNotFound(f"unknown review session {session_id!r}")
         return session
 
-    def _require_active(self, session_id: str) -> _ReviewSession:
+    def _require_active(self, session_id: str, now: datetime) -> _ReviewSession:
         session = self._require(session_id)
+        self._expire_stale(session, now)
         if not session.active:
             raise BackendConflict("review session is closed")
         return session
@@ -168,6 +203,21 @@ class ReviewService:
         if session.command.worker_id != worker_id:
             raise BackendConflict("review worker does not own this session")
         return session
+
+    def _expire_stale(self, session: _ReviewSession, now: datetime) -> None:
+        if session.active and now - session.worker_renewed_at >= self._worker_ttl:
+            self._deactivate(session, now)
+
+    @staticmethod
+    def _renew_worker(session: _ReviewSession, now: datetime) -> None:
+        session.worker_renewed_at = now
+
+    @staticmethod
+    def _deactivate(session: _ReviewSession, now: datetime) -> None:
+        session.active = False
+        session.pending.clear()
+        session.claimed_request_ids.clear()
+        session.updated_at = now
 
 
 class RunInspectionFeedService:
@@ -219,6 +269,7 @@ def _view(session: _ReviewSession) -> ReviewSessionView:
         active=session.active,
         created_at=session.created_at,
         updated_at=session.updated_at,
+        heartbeat_interval_seconds=session.heartbeat_interval_seconds,
         coordinates=command.coordinates,
         planned_points=command.planned_points,
         planned_points_truncated=command.planned_points_truncated,

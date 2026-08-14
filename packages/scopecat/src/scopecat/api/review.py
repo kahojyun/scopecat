@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import atexit
+from contextlib import suppress
 from datetime import UTC, datetime
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from typing import Self, cast
 
 from scopecat.authoring.experiments import ExperimentInvocation
@@ -24,7 +26,6 @@ from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.preview_models import ExperimentPreview, ExperimentPreviewPoint
 
 _WORKER_POLL_SECONDS = 0.2
-_HEARTBEAT_POLL_COUNT = 25
 
 
 class ExperimentReviewHandle:
@@ -45,12 +46,21 @@ class ExperimentReviewHandle:
         self._session = session
         self._worker_id = worker_id
         self._stop = Event()
-        self._thread = Thread(
+        self._close_lock = Lock()
+        self._closed = False
+        self._worker_thread = Thread(
             target=self._serve,
             name=f"scopecat-review-{session.session_id}",
             daemon=True,
         )
-        self._thread.start()
+        self._heartbeat_thread = Thread(
+            target=self._heartbeat,
+            name=f"scopecat-review-heartbeat-{session.session_id}",
+            daemon=True,
+        )
+        atexit.register(self._close_at_exit)
+        self._worker_thread.start()
+        self._heartbeat_thread.start()
 
     def __enter__(self) -> Self:
         return self
@@ -71,28 +81,40 @@ class ExperimentReviewHandle:
         return self._client.get_review(self.id)
 
     def close(self) -> None:
-        if self._stop.is_set():
-            return
+        with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
         self._stop.set()
-        self._thread.join()
+        self._worker_thread.join()
+        self._heartbeat_thread.join()
+        atexit.unregister(self._close_at_exit)
         self._client.close_review_worker(self.id, self._worker_id)
 
     def _serve(self) -> None:
-        poll_count = 0
-        while not self._stop.wait(_WORKER_POLL_SECONDS):
-            item = self._client.claim_review_work(self.id, self._worker_id)
-            if item is not None:
-                self._complete(item)
-            poll_count += 1
-            if poll_count == _HEARTBEAT_POLL_COUNT:
+        try:
+            while not self._stop.wait(_WORKER_POLL_SECONDS):
+                item = self._client.claim_review_work(self.id, self._worker_id)
+                if item is not None:
+                    self._complete(item)
+        finally:
+            self._stop.set()
+
+    def _heartbeat(self) -> None:
+        try:
+            while not self._stop.wait(self._session.heartbeat_interval_seconds):
                 heartbeat = self._client.heartbeat_review_worker(
                     self.id,
                     self._worker_id,
                 )
                 if not heartbeat.active:
-                    self._stop.set()
                     return
-                poll_count = 0
+        finally:
+            self._stop.set()
+
+    def _close_at_exit(self) -> None:
+        with suppress(Exception):
+            self.close()
 
     def _complete(self, item: ReviewWorkItem) -> None:
         try:

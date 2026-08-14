@@ -99,6 +99,7 @@ function renderWorkspace() {
 function reviewSession(): ReviewSession {
   return {
     active: true,
+    heartbeat_interval_seconds: 5,
     coordinates: [
       {
         id: "beta",
