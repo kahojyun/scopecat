@@ -164,11 +164,12 @@ when an internal product or compute operation is renamed. Repeating one source
 at two return paths creates two aliases over the same product use. Homogeneous
 `PerEntity` product leaves are stacked into one entity-indexed variable at their
 shared return path; product bundles are transposed field-by-field.
-`invocation.output` retains the authored `PerEntity` tree, while
-`invocation.recorded_output` contains the array-valued `RecordRef` tree used by
-the durable result contract. The durable entity index and ordered product
-provenance describe that stored shape. Heterogeneous `PerEntity` trees retain
-explicit entity-kind and entity-id path segments.
+`invocation.output` retains the authored `PerEntity` tree. Use
+`invocation.result_ref(path)` for a durable result handle, or
+`invocation.entity_result_ref(path)` when the path is known to be an
+entity-indexed array. The durable entity index and ordered product provenance
+describe that stored shape. Heterogeneous `PerEntity` trees retain explicit
+entity-kind and entity-id path segments.
 
 The return tree is the ordinary durability and liveness boundary. Put explicit
 names, namespaces, roles, and metadata beside returned fields rather than

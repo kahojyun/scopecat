@@ -40,10 +40,10 @@ ordered `(kind, id)` identities and the product source corresponding to each
 position.
 
 `invocation.output` preserves the experiment function's authored return type,
-including `PerEntity` identity mappings. `invocation.recorded_output` exposes
-the transformed durable tree, where each homogeneous grouped field is an
-array-valued `RecordRef`. This keeps static authoring types honest while the
-recording boundary turns homogeneous product mappings into data axes.
+including `PerEntity` identity mappings. `invocation.result_ref(path)` exposes
+the durable handle for a returned path; use `entity_result_ref(path)` for a
+statically typed array `RecordRef`. This keeps static authoring types honest
+while the recording boundary turns homogeneous product mappings into data axes.
 Heterogeneous mappings continue to expand as structured result paths.
 When a grouped value is not part of the return tree, select the same layout
 explicitly with
@@ -149,9 +149,10 @@ rows = complete.rows(build_fit_row)
 
 `run.result(authored_output)` binds original typed handles when recording keeps
 the same tree shape. If automatic entity stacking transformed the return tree,
-pass `invocation.recorded_output` or use `run.result()` and its persisted result
-paths. The latter does not rebuild the experiment. All variants expose the same
-dataset as `.dataset`; use `run.measurements()` directly when work starts from
+use `invocation.entity_result_ref(path)` for direct dataset access or
+`run.result()` and its persisted result paths. The latter does not rebuild the
+experiment. All variants expose the same dataset as `.dataset`; use
+`run.measurements()` directly when work starts from
 dataset variables instead of the experiment's return tree.
 
 Analysis receives this same facade through `context.measurements()`. Accessing

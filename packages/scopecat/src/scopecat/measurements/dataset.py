@@ -465,16 +465,30 @@ class Variable[T = NativeAvailableValue]:
                 dtype: MeasurementDType = (
                     "complex128" if self.dtype == "complex128" else "float64"
                 )
-                converted = MeasurementArray.create(
-                    values=np.asarray(
+                converted_values = (
+                    np.asarray(
                         value.values,
                         dtype=(np.complex128 if dtype == "complex128" else np.float64),
                     )
-                    * scale,
-                    dtype=dtype,
-                    unit=selected_unit,
-                    availability=value.availability,
-                    metadata=value.metadata,
+                    * scale
+                )
+                converted = (
+                    MeasurementArray.create(
+                        values=converted_values,
+                        dtype=dtype,
+                        unit=selected_unit,
+                        availability=value.availability,
+                        metadata=value.metadata,
+                    )
+                    if value.entity_shapes is None
+                    else MeasurementArray.create_entity_ragged(
+                        values=converted_values,
+                        entity_shapes=value.entity_shapes,
+                        dtype=dtype,
+                        unit=selected_unit,
+                        availability=value.availability,
+                        metadata=value.metadata,
+                    )
                 )
                 selected.append(cast("MeasurementArrayData", _native_value(converted)))
         return tuple(selected)
@@ -495,6 +509,59 @@ class Variable[T = NativeAvailableValue]:
                 f"variable {self.id!r} is unavailable at row positions: {rendered}"
             )
         return cast("tuple[NativeMagnitude, ...]", values)
+
+    def require_array_magnitudes(
+        self: Variable[MeasurementArrayData],
+        unit: str | None = None,
+    ) -> tuple[MeasurementArrayData, ...]:
+        """Return complete array magnitudes with a static ndarray result type."""
+
+        return cast("tuple[MeasurementArrayData, ...]", self.require_magnitudes(unit))
+
+    def require_real_array_magnitudes(
+        self: Variable[MeasurementArrayData],
+        unit: str | None = None,
+    ) -> tuple[NDArray[np.float64], ...]:
+        """Return complete real array magnitudes with a precise NumPy dtype."""
+
+        if self.dtype not in {"float64", "int64"}:
+            raise TypeError(f"variable {self.id!r} must be real numeric")
+        return tuple(
+            np.asarray(value, dtype=np.float64)
+            for value in self.require_array_magnitudes(unit)
+        )
+
+    def require_flat_real_array_magnitudes(
+        self: Variable[MeasurementArrayData],
+        unit: str | None = None,
+    ) -> tuple[tuple[float, ...], ...]:
+        """Return complete real arrays flattened to typed Python values."""
+
+        return tuple(
+            tuple(float(item) for item in values.reshape(-1))
+            for values in self.require_real_array_magnitudes(unit)
+        )
+
+    def require_bool_arrays(
+        self: Variable[MeasurementArrayData],
+    ) -> tuple[NDArray[np.bool_], ...]:
+        """Return complete boolean arrays with a precise NumPy dtype."""
+
+        if self.dtype != "bool":
+            raise TypeError(f"variable {self.id!r} must be boolean")
+        return tuple(
+            np.asarray(value, dtype=np.bool_) for value in self.require_values()
+        )
+
+    def require_flat_bool_array_values(
+        self: Variable[MeasurementArrayData],
+    ) -> tuple[tuple[bool, ...], ...]:
+        """Return complete boolean arrays flattened to typed Python values."""
+
+        return tuple(
+            tuple(bool(item) for item in values.reshape(-1))
+            for values in self.require_bool_arrays()
+        )
 
     def quantities(
         self,

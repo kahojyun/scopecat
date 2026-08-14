@@ -376,7 +376,7 @@ def test_homogeneous_per_entity_return_uses_one_entity_indexed_record() -> None:
     assert result_field.variable_id == "result"
     assert isinstance(invocation.output, sc.PerEntity)
     assert invocation.output[q0].id == "q0/readout"
-    output = cast("sc.RecordRef", invocation.recorded_output)
+    output = invocation.entity_result_ref("result")
     assert output.id == "result"
     assert output.dims == ("point", "qubit")
     assert output.source_product_ids == ("q0/readout", "q1/readout")

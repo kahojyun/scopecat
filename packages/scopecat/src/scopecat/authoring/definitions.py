@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass, replace
 from types import UnionType
 from typing import (
@@ -1315,7 +1315,14 @@ def _experiment_from_function[ResultT, **P](
     selected_metadata = dict(freeze_json_mapping(selected_metadata))
     selected_id = id or source.__name__
     selected_kind = kind or source.__name__
-    cached_build: tuple[ExperimentDef, ResultT, object] | None = None
+    cached_build: (
+        tuple[
+            ExperimentDef,
+            ResultT,
+            Mapping[tuple[str, ...], ProductRef | RecordRef | ValueRef],
+        ]
+        | None
+    ) = None
 
     def build(arguments: Mapping[str, object]) -> ExperimentInvocation[ResultT]:
         nonlocal cached_build
@@ -1341,7 +1348,8 @@ def _experiment_from_function[ResultT, **P](
         if built is None:
             context = ExperimentContext()
             output = cast("ResultT", source(context, **values))
-            recorded_output = _record_experiment_output(context, output)
+            recorded_tree = _record_experiment_output(context, output)
+            recorded_result_refs = dict(_recorded_result_ref_items(recorded_tree))
             definition = context.close_definition_internal(
                 id=selected_id,
                 kind=selected_kind,
@@ -1353,10 +1361,16 @@ def _experiment_from_function[ResultT, **P](
                 input_defaults=input_defaults,
                 required_inputs=tuple(required_inputs),
             )
+            if set(recorded_result_refs) != {
+                field.path for field in definition.result_fields
+            }:
+                raise AssertionError(
+                    "recorded result handles do not match the durable result contract"
+                )
             if not contract.structural_names:
-                cached_build = (definition, output, recorded_output)
+                cached_build = (definition, output, recorded_result_refs)
         else:
-            definition, output, recorded_output = built
+            definition, output, recorded_result_refs = built
         captured_inputs = capture_experiment_inputs(runtime_inputs)
         validate_experiment_inputs(
             definitions=definition.inputs,
@@ -1367,7 +1381,7 @@ def _experiment_from_function[ResultT, **P](
             input_overrides=captured_inputs,
             point_plan_override=None,
             output=output,
-            recorded_output=recorded_output,
+            recorded_result_refs=recorded_result_refs,
         )
 
     authored = Experiment(
@@ -1673,6 +1687,42 @@ def _record_experiment_output(
     raise TypeError(
         "experiment functions must return None or a tuple/dataclass/PerEntity "
         "tree of data references"
+    )
+
+
+def _recorded_result_ref_items(
+    value: object,
+    path: tuple[str, ...] = (),
+) -> Iterator[tuple[tuple[str, ...], ProductRef | RecordRef | ValueRef]]:
+    if isinstance(value, ProductRef | RecordRef | ValueRef):
+        yield path or ("result",), value
+        return
+    if value is None:
+        return
+    if isinstance(value, RecordedProducts):
+        for name, item in value.items():
+            yield from _recorded_result_ref_items(item, (*path, name))
+        return
+    if isinstance(value, PerEntity):
+        for entity, item in value.items():
+            yield from _recorded_result_ref_items(
+                item,
+                (*path, entity.kind or "entity", entity.id),
+            )
+        return
+    if isinstance(value, tuple):
+        for index, item in enumerate(cast("tuple[object, ...]", value)):
+            yield from _recorded_result_ref_items(item, (*path, str(index)))
+        return
+    if is_dataclass(value) and not isinstance(value, type):
+        for member in fields(value):
+            yield from _recorded_result_ref_items(
+                cast("object", getattr(value, member.name)),
+                (*path, member.name),
+            )
+        return
+    raise TypeError(
+        "recorded result handles must form a tuple/dataclass/PerEntity tree"
     )
 
 
