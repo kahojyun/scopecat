@@ -13,6 +13,7 @@ from scopecat_testkit.records import assert_model_round_trip
 from scopecat.kernel.entity import EntityRef
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
+    MeasurementAcquisitionEvidenceCatalog,
     MeasurementArray,
     MeasurementArrayAvailability,
     MeasurementArrayUnavailableGroup,
@@ -72,7 +73,9 @@ def test_measurement_values_round_trip_through_one_record() -> None:
                 values=[0.25, 0.75],
             ),
         },
-        acquisition_evidence={"signal": evidence},
+        acquisition_evidence=MeasurementAcquisitionEvidenceCatalog.create(
+            {"signal": evidence}
+        ),
     )
 
     restored = assert_model_round_trip(measurement)
@@ -86,7 +89,7 @@ def test_measurement_values_round_trip_through_one_record() -> None:
     assert isinstance(restored.observables["samples"], MeasurementArray)
     assert isinstance(restored.observables["iq"], MeasurementArray)
     assert isinstance(restored.observables["probability"], MeasurementArray)
-    assert restored.acquisition_evidence == {"signal": evidence}
+    assert restored.acquisition_evidence.for_variable("signal") == evidence
 
 
 def test_measurement_array_owns_a_contiguous_read_only_numpy_copy() -> None:
@@ -299,7 +302,9 @@ def test_measurement_record_rejects_acquisition_evidence_for_unknown_variable() 
             point_index=0,
             coordinates={},
             observables={},
-            acquisition_evidence={"signal": evidence},
+            acquisition_evidence=MeasurementAcquisitionEvidenceCatalog.create(
+                {"signal": evidence}
+            ),
         )
 
 

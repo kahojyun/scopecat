@@ -36,6 +36,7 @@ from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.program.products import product_axis
 from scopecat.records.config import ConfigProfileSnapshot, instrument_bindings
 from scopecat.records.measurement import (
+    InstrumentAcquisitionEvidence,
     MeasurementArray,
     MeasurementPointCloudPointDomain,
     MeasurementScalar,
@@ -322,9 +323,13 @@ def test_ragged_point_cloud_run_survives_daemon_and_worker_boundaries(
     assert [
         point for batch in batches for point in batch["point_index"].to_pylist()
     ] == [0, 1, 2]
+    trace_evidence = tuple(
+        record.acquisition_evidence.for_variable("trace") for record in dataset.records
+    )
     assert all(
-        record.acquisition_evidence["trace"].instrument_id == "source-0"
-        for record in dataset.records
+        isinstance(evidence, InstrumentAcquisitionEvidence)
+        and evidence.instrument_id == "source-0"
+        for evidence in trace_evidence
     )
 
     if find_spec("pyarrow") is not None:

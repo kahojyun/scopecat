@@ -2041,9 +2041,6 @@ export interface components {
              */
             started_at: string;
         };
-        InstrumentAcquisitionEvidenceMap: {
-            [key: string]: components["schemas"]["MeasurementAcquisitionEvidence"];
-        };
         /**
          * InstrumentBindingSpec
          * @description Provider-visible identity and connection for one configured instrument.
@@ -2470,6 +2467,18 @@ export interface components {
         };
         MeasurementAcquisitionEvidence: components["schemas"]["InstrumentAcquisitionEvidence"] | components["schemas"]["EntityAcquisitionEvidence"];
         /**
+         * MeasurementAcquisitionEvidenceCatalog
+         * @description Deduplicated evidence entries referenced by measurement variable id.
+         */
+        MeasurementAcquisitionEvidenceCatalog: {
+            /** Entries */
+            entries?: components["schemas"]["MeasurementAcquisitionEvidence"][];
+            variable_refs?: components["schemas"]["MeasurementAcquisitionEvidenceRefs"];
+        };
+        MeasurementAcquisitionEvidenceRefs: {
+            [key: string]: number;
+        };
+        /**
          * MeasurementArray
          * @description One typed array backed by an immutable, read-only NumPy buffer.
          */
@@ -2542,10 +2551,10 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension-Output"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v12
+             * @default scopecat.measurement_dataset_schema.v13
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v12";
+            format_version: "scopecat.measurement_dataset_schema.v13";
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
             point_domain: components["schemas"]["MeasurementPointDomain-Output"];
             /** Primary Coordinates */
@@ -2554,11 +2563,13 @@ export interface components {
             primary_observables?: string[];
             /**
              * Record Schema
-             * @default scopecat.measurement_record.v6
+             * @default scopecat.measurement_record.v7
              * @constant
              */
-            record_schema: "scopecat.measurement_record.v6";
+            record_schema: "scopecat.measurement_record.v7";
             result?: components["schemas"]["MeasurementResultContract"] | null;
+            /** Variable Groups */
+            variable_groups?: components["schemas"]["MeasurementVariableGroup-Output"][];
             /** Variables */
             variables?: components["schemas"]["MeasurementVariable-Output"][];
         };
@@ -2605,15 +2616,25 @@ export interface components {
             values: components["schemas"]["EntityRef-Output"][];
         };
         /**
+         * MeasurementEntityProductMetadataOverride
+         * @description Entity-local product metadata beyond one source's common metadata.
+         */
+        "MeasurementEntityProductMetadataOverride-Output": {
+            /** Entity Index */
+            entity_index: number;
+            metadata: components["schemas"]["MeasurementMetadata-Output"];
+        };
+        /**
          * MeasurementEntityProductSource
          * @description Ordered product provenance aligned to one entity dimension.
          */
         "MeasurementEntityProductSource-Output": {
+            common_metadata?: components["schemas"]["MeasurementMetadata-Output"];
             dimension_id: components["schemas"]["_NonEmptyText"];
+            /** Metadata Overrides */
+            metadata_overrides?: components["schemas"]["MeasurementEntityProductMetadataOverride-Output"][];
             /** Product Ids */
             product_ids: components["schemas"]["_NonEmptyText"][];
-            /** Product Metadata */
-            product_metadata: components["schemas"]["MeasurementMetadata-Output"][];
         };
         "MeasurementMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
@@ -2726,7 +2747,7 @@ export interface components {
          * @description One durable point row with immutable values, evidence, and metadata.
          */
         MeasurementRecord: {
-            acquisition_evidence?: components["schemas"]["InstrumentAcquisitionEvidenceMap"];
+            acquisition_evidence?: components["schemas"]["MeasurementAcquisitionEvidenceCatalog"];
             coordinates: components["schemas"]["MeasurementValueMap"];
             /** Logical Point Id */
             logical_point_id?: string | null;
@@ -2975,6 +2996,16 @@ export interface components {
             source_value_id?: components["schemas"]["_NonEmptyText"] | null;
             /** Unit */
             unit?: string | null;
+        };
+        /**
+         * MeasurementVariableGroup
+         * @description One named set of variables recorded as a coherent product group.
+         */
+        "MeasurementVariableGroup-Output": {
+            id: components["schemas"]["_NonEmptyText"];
+            metadata?: components["schemas"]["MeasurementMetadata-Output"];
+            /** Variable Ids */
+            variable_ids: components["schemas"]["_NonEmptyText"][];
         };
         /** @enum {string} */
         MeasurementVariableRole: "coordinate" | "observable";

@@ -38,13 +38,16 @@ if TYPE_CHECKING:
     from scopecat.records.measurement import (
         EntityAcquisitionEvidence,
         InstrumentAcquisitionEvidence,
+        MeasurementAcquisitionEvidenceCatalog,
         MeasurementArray,
         MeasurementArrayAvailability,
         MeasurementArrayUnavailableGroup,
         MeasurementDataset,
         MeasurementDatasetSchema,
         MeasurementDimension,
+        MeasurementEntityAcquisition,
         MeasurementEntityIndex,
+        MeasurementEntityProductMetadataOverride,
         MeasurementEntityProductSource,
         MeasurementPointCloudPointDomain,
         MeasurementPointDomain,
@@ -62,6 +65,7 @@ if TYPE_CHECKING:
         MeasurementUnavailableReason,
         MeasurementValue,
         MeasurementVariable,
+        MeasurementVariableGroup,
     )
 
 _CONTRACT_EXPORTS = ("validate_measurement_records_against_schema",)
@@ -91,6 +95,7 @@ _MEASUREMENT_TYPE_EXPORTS = (
 _RECORD_EXPORTS = (
     "EntityAcquisitionEvidence",
     "InstrumentAcquisitionEvidence",
+    "MeasurementAcquisitionEvidenceCatalog",
     "MeasurementArray",
     "MeasurementArrayAvailability",
     "MeasurementArrayUnavailableGroup",
@@ -99,7 +104,7 @@ _RECORD_EXPORTS = (
     "MeasurementDimension",
     "MeasurementEntityAcquisition",
     "MeasurementEntityIndex",
-    "MeasurementEntityAcquisition",
+    "MeasurementEntityProductMetadataOverride",
     "MeasurementEntityProductSource",
     "MeasurementPointCloudPointDomain",
     "MeasurementPointDomain",
@@ -117,6 +122,7 @@ _RECORD_EXPORTS = (
     "MeasurementUnavailableReason",
     "MeasurementValue",
     "MeasurementVariable",
+    "MeasurementVariableGroup",
 )
 _EXPORTS = {
     **{name: ("scopecat.measurements.contracts", name) for name in _CONTRACT_EXPORTS},
@@ -152,6 +158,7 @@ __all__ = [
     "ExperimentResultPoint",
     "ExperimentResultView",
     "InstrumentAcquisitionEvidence",
+    "MeasurementAcquisitionEvidenceCatalog",
     "MeasurementArray",
     "MeasurementArrayAvailability",
     "MeasurementArrayUnavailableGroup",
@@ -160,7 +167,9 @@ __all__ = [
     "MeasurementDataset",
     "MeasurementDatasetSchema",
     "MeasurementDimension",
+    "MeasurementEntityAcquisition",
     "MeasurementEntityIndex",
+    "MeasurementEntityProductMetadataOverride",
     "MeasurementEntityProductSource",
     "MeasurementPointCloudPointDomain",
     "MeasurementPointDomain",
@@ -178,6 +187,7 @@ __all__ = [
     "MeasurementUnavailableReason",
     "MeasurementValue",
     "MeasurementVariable",
+    "MeasurementVariableGroup",
     "MeasurementVariableRole",
     "NativeAvailableValue",
     "PandasDTypeBackend",

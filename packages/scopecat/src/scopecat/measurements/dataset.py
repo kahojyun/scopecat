@@ -737,6 +737,21 @@ class Dataset:
         return self._variables
 
     @property
+    def variable_groups(
+        self,
+    ) -> Mapping[str, tuple[Variable[NativeAvailableValue], ...]]:
+        """Return named recording groups with members in durable schema order."""
+
+        return MappingProxyType(
+            {
+                group.id: tuple(
+                    self.variables[variable_id] for variable_id in group.variable_ids
+                )
+                for group in self.schema.variable_groups
+            }
+        )
+
+    @property
     def coords(self) -> Mapping[str, Variable[NativeAvailableValue]]:
         return MappingProxyType(
             {

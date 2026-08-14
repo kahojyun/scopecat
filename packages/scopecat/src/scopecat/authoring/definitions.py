@@ -1474,6 +1474,7 @@ def _record_experiment_output(
     path: tuple[str, ...] = (),
     policy: Result | None = None,
     explicit_sources: frozenset[tuple[object, ...]] | None = None,
+    recording_group_id: str | None = None,
 ) -> object:
     """Treat returned data as the experiment's durable output selection."""
 
@@ -1580,6 +1581,7 @@ def _record_experiment_output(
                 record_id=record_id,
                 axis=None,
                 role=selected_policy.role,
+                recording_group_id=recording_group_id,
                 metadata=selected_policy.metadata,
             )
         if items and all(isinstance(item, ProductBundle) for _entity, item in items):
@@ -1612,6 +1614,7 @@ def _record_experiment_output(
                             _result_policy(hints.get(member.name)),
                         ),
                         explicit_sources=explicit_sources,
+                        recording_group_id=_result_record_id(path, selected_policy),
                     )
                     for member in fields(first_bundle)
                 }
@@ -1680,6 +1683,7 @@ def _record_entity_products_output(
     axis: str | EntityAxisDef | None,
     role: MeasurementVariableRole | None,
     acquisition: EntityAcquisitionSemantics | None = None,
+    recording_group_id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None,
 ) -> RecordRef[MeasurementArrayData]:
     entities = tuple(products)
@@ -1721,8 +1725,12 @@ def _record_entity_products_output(
         for entity in entities
     )
     recording_group_ids = {selection.recording_group_id for selection in selections}
-    recording_group_id = (
-        next(iter(recording_group_ids)) if len(recording_group_ids) == 1 else None
+    selected_recording_group_id = (
+        recording_group_id
+        if recording_group_id is not None
+        else next(iter(recording_group_ids))
+        if len(recording_group_ids) == 1
+        else None
     )
     context._record_selections.append(
         EntityRecordSelection(
@@ -1737,7 +1745,7 @@ def _record_entity_products_output(
                 for entity, selection in zip(entities, selections, strict=True)
             ),
             role=cast("MeasurementVariableRole", selected_role),
-            recording_group_id=recording_group_id,
+            recording_group_id=selected_recording_group_id,
             acquisition=acquisition or EntityAcquisitionSemantics(),
             metadata=freeze_json_mapping(metadata or {}),
         )
@@ -1769,7 +1777,7 @@ def _record_entity_products_output(
         source_product_ids=tuple(products[entity].id for entity in entities),
         entity_axis_id=selected_axis_id,
         entity_acquisition=acquisition or EntityAcquisitionSemantics(),
-        recording_group_id=recording_group_id,
+        recording_group_id=selected_recording_group_id,
     )
 
 

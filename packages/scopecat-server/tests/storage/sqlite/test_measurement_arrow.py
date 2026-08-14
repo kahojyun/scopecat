@@ -18,6 +18,7 @@ from scopecat.measurements.recording_arrow import (
 )
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
+    MeasurementAcquisitionEvidenceCatalog,
     MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementDimension,
@@ -107,7 +108,9 @@ def _append() -> MeasurementDatasetAppend:
                 metadata={"status_register": 4},
             ),
         },
-        acquisition_evidence={"trace": evidence},
+        acquisition_evidence=MeasurementAcquisitionEvidenceCatalog.create(
+            {"trace": evidence}
+        ),
         metadata={"note": "Arrow IPC", "nested": {"revision": 1}},
     )
     return MeasurementDatasetAppend(
@@ -339,7 +342,7 @@ def test_measurement_arrow_selection_decodes_only_requested_rows() -> None:
     assert [record.point_index for record in page] == [1, 2]
     assert page[0].coordinates == {}
     assert set(page[0].observables) == {"trace"}
-    assert set(page[0].acquisition_evidence) == {"trace"}
+    assert set(page[0].acquisition_evidence.variable_refs) == {"trace"}
     assert [record.point_index for record in selected] == [2, 0]
 
 

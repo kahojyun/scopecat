@@ -20,9 +20,7 @@ from scopecat.measurements.arrow_values import (
 )
 from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import (
-    EntityAcquisitionEvidence,
-    InstrumentAcquisitionEvidence,
-    MeasurementAcquisitionEvidence,
+    MeasurementAcquisitionEvidenceCatalog,
     MeasurementArray,
     MeasurementArrayAvailability,
     MeasurementArrayUnavailableGroup,
@@ -38,7 +36,7 @@ from scopecat.records.measurement import (
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.metadata import JsonMetadata, validate_json_metadata
 
-MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v6"
+MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v7"
 
 _FORMAT_KEY = b"scopecat.format"
 _RUN_ID_KEY = b"scopecat.run_id"
@@ -56,6 +54,7 @@ _VARIABLE_UNIT_KEY = b"scopecat.variable_unit"
 _LOGICAL_POINT_ID_COLUMN = "__scopecat.logical_point_id"
 _POINT_INDEX_COLUMN = "__scopecat.point_index"
 _RECORD_METADATA_COLUMN = "__scopecat.record_metadata"
+_RECORD_EVIDENCE_COLUMN = "__scopecat.acquisition_evidence"
 
 _SHAPE_TYPE = pa.large_list(pa.field("extent", pa.int64()))
 _EVIDENCE_TYPE = pa.large_binary()
@@ -233,6 +232,7 @@ def _record_schema(dataset_schema: MeasurementDatasetSchema) -> pa.Schema:
         pa.field(_LOGICAL_POINT_ID_COLUMN, pa.string()),
         pa.field(_POINT_INDEX_COLUMN, pa.int64(), nullable=False),
         pa.field(_RECORD_METADATA_COLUMN, pa.large_binary(), nullable=False),
+        pa.field(_RECORD_EVIDENCE_COLUMN, _EVIDENCE_TYPE, nullable=False),
     ]
     dimension_sizes = {
         dimension.id: dimension.size for dimension in dataset_schema.dimensions
@@ -264,7 +264,6 @@ def _record_schema(dataset_schema: MeasurementDatasetSchema) -> pa.Schema:
                     pa.large_binary(),
                     nullable=False,
                 ),
-                pa.field(_evidence_column(variable.id), _EVIDENCE_TYPE),
             ]
         )
     return pa.schema(fields)
@@ -313,6 +312,13 @@ def _encode_columns(
         pa.array(
             [_encode_json(record.metadata) for record in records],
             type=pa.large_binary(),
+        ),
+        pa.array(
+            [
+                _encode_json(record.acquisition_evidence.model_dump(mode="json"))
+                for record in records
+            ],
+            type=_EVIDENCE_TYPE,
         ),
     ]
     dimension_sizes = {
@@ -364,13 +370,6 @@ def _encode_columns(
                 pa.array(
                     [_encode_json(value.metadata) for value in values],
                     type=pa.large_binary(),
-                ),
-                pa.array(
-                    [
-                        _encode_evidence(record.acquisition_evidence.get(variable.id))
-                        for record in records
-                    ],
-                    type=_EVIDENCE_TYPE,
                 ),
             ]
         )
@@ -472,14 +471,6 @@ def _encode_availability(value: MeasurementValue) -> bytes:
     )
 
 
-def _encode_evidence(
-    evidence: MeasurementAcquisitionEvidence | None,
-) -> bytes | None:
-    if evidence is None:
-        return None
-    return _encode_json(evidence.model_dump(mode="json"))
-
-
 def _read_batch(
     content: bytes,
     *,
@@ -577,6 +568,12 @@ def _decode_records(
         logical_point_ids = batch.column(_LOGICAL_POINT_ID_COLUMN)
         point_indices = batch.column(_POINT_INDEX_COLUMN)
         record_metadata = batch.column(_RECORD_METADATA_COLUMN)
+        evidence_catalogs = tuple(
+            MeasurementAcquisitionEvidenceCatalog.model_validate(
+                _decode_json(value.as_py())
+            ).select([variable.id for variable in variables])
+            for value in batch.column(_RECORD_EVIDENCE_COLUMN)
+        )
         variable_columns = {
             variable.id: (
                 batch.column(_value_column(variable.id)),
@@ -584,7 +581,6 @@ def _decode_records(
                 batch.column(_shape_column(variable.id)),
                 batch.column(_availability_column(variable.id)),
                 batch.column(_metadata_column(variable.id)),
-                batch.column(_evidence_column(variable.id)),
             )
             for variable in variables
         }
@@ -592,7 +588,6 @@ def _decode_records(
         for row_index in range(batch.num_rows):
             coordinates: dict[str, MeasurementValue] = {}
             observables: dict[str, MeasurementValue] = {}
-            evidence: dict[str, MeasurementAcquisitionEvidence] = {}
             for variable in variables:
                 (
                     value_column,
@@ -600,7 +595,6 @@ def _decode_records(
                     shape_column,
                     availability_column,
                     metadata_column,
-                    evidence_column,
                 ) = variable_columns[variable.id]
                 value = _decode_value(
                     value_column[row_index],
@@ -613,9 +607,6 @@ def _decode_records(
                 )
                 target = coordinates if variable.role == "coordinate" else observables
                 target[variable.id] = value
-                encoded_evidence = evidence_column[row_index].as_py()
-                if encoded_evidence is not None:
-                    evidence[variable.id] = _decode_evidence(encoded_evidence)
             records.append(
                 MeasurementRecord(
                     run_id=run_id,
@@ -623,7 +614,7 @@ def _decode_records(
                     point_index=point_indices[row_index].as_py(),
                     coordinates=coordinates,
                     observables=observables,
-                    acquisition_evidence=evidence,
+                    acquisition_evidence=evidence_catalogs[row_index],
                     metadata=_decode_json(record_metadata[row_index].as_py()),
                 )
             )
@@ -827,13 +818,6 @@ def _decode_array_values(
     )
 
 
-def _decode_evidence(value: object) -> MeasurementAcquisitionEvidence:
-    encoded = _decode_json(value)
-    if encoded.get("kind") == "entity":
-        return EntityAcquisitionEvidence.model_validate(encoded)
-    return InstrumentAcquisitionEvidence.model_validate(encoded)
-
-
 def _validate_selected_point_indices(
     records: Sequence[MeasurementRecord],
     *,
@@ -863,10 +847,6 @@ def _availability_column(variable_id: str) -> str:
 
 def _metadata_column(variable_id: str) -> str:
     return f"metadata:{variable_id}"
-
-
-def _evidence_column(variable_id: str) -> str:
-    return f"evidence:{variable_id}"
 
 
 def _numpy_dtype(dtype: MeasurementDType) -> np.dtype[np.generic]:

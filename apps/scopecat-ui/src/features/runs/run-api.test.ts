@@ -578,9 +578,9 @@ describe("run daemon reads", () => {
 
 function measurementSchema() {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v12" as const,
+    format_version: "scopecat.measurement_dataset_schema.v13" as const,
     dataset_id: "raw-measurements",
-    record_schema: "scopecat.measurement_record.v6" as const,
+    record_schema: "scopecat.measurement_record.v7" as const,
     point_domain: { kind: "product_grid" as const, axes: [] },
     dimensions: [{ id: "point", kind: "point", size: 1 }],
     variables: [],

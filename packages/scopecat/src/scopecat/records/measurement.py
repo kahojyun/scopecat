@@ -31,6 +31,7 @@ from pydantic import (
     model_validator,
 )
 
+from scopecat.kernel.content_identity import model_wire_content_hash
 from scopecat.kernel.entity import EntityRef, entity_identity
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.interface_identity import InterfaceId
@@ -58,8 +59,8 @@ from scopecat.records.measurement_array_schema import (
 )
 from scopecat.records.metadata import MeasurementMetadata
 
-MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v6"
-MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v12"
+MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v7"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v13"
 
 MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
 _MEASUREMENT_ARRAY_CREATE_CONTEXT = object()
@@ -155,6 +156,15 @@ class MeasurementDimension(_FrozenMeasurementModel):
         return self
 
 
+class MeasurementEntityProductMetadataOverride(_FrozenMeasurementModel):
+    """Entity-local product metadata beyond one source's common metadata."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    entity_index: Annotated[int, Field(ge=0)]
+    metadata: MeasurementMetadata
+
+
 class MeasurementEntityProductSource(_FrozenMeasurementModel):
     """Ordered product provenance aligned to one entity dimension."""
 
@@ -162,12 +172,39 @@ class MeasurementEntityProductSource(_FrozenMeasurementModel):
 
     dimension_id: _NonEmptyText
     product_ids: Sequence[_NonEmptyText] = Field(min_length=1)
-    product_metadata: Sequence[MeasurementMetadata] = Field(min_length=1)
+    common_metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
+    metadata_overrides: Sequence[MeasurementEntityProductMetadataOverride] = Field(
+        default_factory=tuple
+    )
 
-    @field_validator("product_ids", "product_metadata")
+    @field_validator("product_ids", "metadata_overrides")
     @classmethod
     def freeze_product_ids[T](cls, value: Sequence[T]) -> Sequence[T]:
         return tuple(value)
+
+    @model_validator(mode="after")
+    def validate_metadata_overrides(self) -> MeasurementEntityProductSource:
+        indices = [override.entity_index for override in self.metadata_overrides]
+        if len(indices) != len(set(indices)):
+            raise ValueError(
+                "measurement entity product metadata override indices must be unique"
+            )
+        if any(index >= len(self.product_ids) for index in indices):
+            raise ValueError(
+                "measurement entity product metadata override is out of range"
+            )
+        return self
+
+    def metadata_for(self, entity_index: int) -> Mapping[str, object]:
+        override: Mapping[str, object] = next(
+            (
+                item.metadata
+                for item in self.metadata_overrides
+                if item.entity_index == entity_index
+            ),
+            FrozenMapping[str, object](),
+        )
+        return FrozenMapping((*self.common_metadata.items(), *override.items()))
 
 
 class MeasurementEntityAcquisition(_FrozenMeasurementModel):
@@ -227,6 +264,26 @@ class MeasurementVariable(_FrozenMeasurementModel):
         if self.dtype in {"bool", "string"} and self.unit is not None:
             raise ValueError(f"{self.dtype} measurement variables cannot have a unit")
         return self
+
+
+class MeasurementVariableGroup(_FrozenMeasurementModel):
+    """One named set of variables recorded as a coherent product group."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: _NonEmptyText
+    variable_ids: Sequence[_NonEmptyText] = Field(min_length=1)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
+
+    @field_validator("variable_ids")
+    @classmethod
+    def validate_variable_ids(cls, value: Sequence[str]) -> Sequence[str]:
+        selected = tuple(value)
+        ensure_unique_ids(
+            selected,
+            "measurement variable group members must be unique",
+        )
+        return selected
 
 
 class MeasurementResultField(_FrozenMeasurementModel):
@@ -418,16 +475,17 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    format_version: Literal["scopecat.measurement_dataset_schema.v12"] = (
+    format_version: Literal["scopecat.measurement_dataset_schema.v13"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str = Field(min_length=1)
-    record_schema: Literal["scopecat.measurement_record.v6"] = (
+    record_schema: Literal["scopecat.measurement_record.v7"] = (
         MEASUREMENT_RECORD_SCHEMA_VERSION
     )
     point_domain: MeasurementPointDomain
     dimensions: Sequence[MeasurementDimension]
     variables: Sequence[MeasurementVariable] = Field(default_factory=tuple)
+    variable_groups: Sequence[MeasurementVariableGroup] = Field(default_factory=tuple)
     primary_coordinates: Sequence[str] = Field(default_factory=tuple)
     primary_observables: Sequence[str] = Field(default_factory=tuple)
     result: MeasurementResultContract | None = None
@@ -436,6 +494,7 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
     @field_validator(
         "dimensions",
         "variables",
+        "variable_groups",
         "primary_coordinates",
         "primary_observables",
     )
@@ -460,6 +519,7 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
         dimension_id_set = set(dimension_ids)
         dimension_by_id = {dimension.id: dimension for dimension in self.dimensions}
         variable_by_id = {variable.id: variable for variable in self.variables}
+        _validate_measurement_variable_groups(self.variables, self.variable_groups)
         namespace_collisions = dimension_id_set & set(variable_by_id)
         if namespace_collisions:
             raise ValueError(
@@ -539,6 +599,37 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
         return self
 
 
+def _validate_measurement_variable_groups(
+    variables: Sequence[MeasurementVariable],
+    groups: Sequence[MeasurementVariableGroup],
+) -> None:
+    ensure_unique_ids(
+        [group.id for group in groups],
+        "measurement dataset variable group ids must be unique",
+    )
+    variable_ids = {variable.id for variable in variables}
+    grouped_variables: dict[str, str] = {}
+    for group in groups:
+        missing_group_variables = missing_references(group.variable_ids, variable_ids)
+        if missing_group_variables:
+            raise ValueError(
+                f"measurement variable group {group.id} references unknown "
+                f"variables: {', '.join(missing_group_variables)}"
+            )
+        for variable_id in group.variable_ids:
+            previous = grouped_variables.setdefault(variable_id, group.id)
+            if previous != group.id:
+                raise ValueError(
+                    f"measurement variable {variable_id} belongs to multiple groups"
+                )
+    for variable in variables:
+        if variable.recording_group_id != grouped_variables.get(variable.id):
+            raise ValueError(
+                f"measurement variable {variable.id} group reference does not "
+                "match variable_groups"
+            )
+
+
 def _validate_measurement_variable_source(
     variable: MeasurementVariable,
     dimension_by_id: Mapping[str, MeasurementDimension],
@@ -580,11 +671,6 @@ def _validate_measurement_variable_source(
         raise ValueError(
             f"measurement variable {variable.id} entity source cardinality "
             "must match its entity dimension"
-        )
-    if len(entity_source.product_metadata) != entity_count:
-        raise ValueError(
-            f"measurement variable {variable.id} entity product metadata "
-            "cardinality must match its entity dimension"
         )
 
 
@@ -1066,7 +1152,7 @@ type MeasurementAcquisitionEvidence = (
 )
 
 
-def _empty_acquisition_evidence() -> Mapping[str, MeasurementAcquisitionEvidence]:
+def _empty_evidence_refs() -> Mapping[str, int]:
     return FrozenMapping()
 
 
@@ -1092,26 +1178,88 @@ type MeasurementValueMap = Annotated[
 ]
 
 
-def _freeze_acquisition_evidence(
-    value: Mapping[str, MeasurementAcquisitionEvidence],
-) -> Mapping[str, MeasurementAcquisitionEvidence]:
+def _freeze_evidence_refs(value: Mapping[str, int]) -> Mapping[str, int]:
     return FrozenMapping(value.items())
 
 
-def _serialize_acquisition_evidence(
-    value: Mapping[str, MeasurementAcquisitionEvidence],
-) -> dict[str, MeasurementAcquisitionEvidence]:
+def _serialize_evidence_refs(value: Mapping[str, int]) -> dict[str, int]:
     return dict(value)
 
 
-type InstrumentAcquisitionEvidenceMap = Annotated[
-    Mapping[str, MeasurementAcquisitionEvidence],
-    AfterValidator(_freeze_acquisition_evidence),
-    PlainSerializer(
-        _serialize_acquisition_evidence,
-        return_type=dict[str, MeasurementAcquisitionEvidence],
-    ),
+type MeasurementAcquisitionEvidenceRefs = Annotated[
+    Mapping[_NonEmptyText, Annotated[int, Field(ge=0)]],
+    AfterValidator(_freeze_evidence_refs),
+    PlainSerializer(_serialize_evidence_refs, return_type=dict[str, int]),
 ]
+
+
+class MeasurementAcquisitionEvidenceCatalog(_FrozenMeasurementModel):
+    """Deduplicated evidence entries referenced by measurement variable id."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    entries: Sequence[MeasurementAcquisitionEvidence] = Field(default_factory=tuple)
+    variable_refs: MeasurementAcquisitionEvidenceRefs = Field(
+        default_factory=_empty_evidence_refs
+    )
+
+    @classmethod
+    def create(
+        cls,
+        evidence_by_variable: Mapping[str, MeasurementAcquisitionEvidence],
+    ) -> MeasurementAcquisitionEvidenceCatalog:
+        entries: list[MeasurementAcquisitionEvidence] = []
+        index_by_hash: dict[str, int] = {}
+        variable_refs: dict[str, int] = {}
+        for variable_id, evidence in evidence_by_variable.items():
+            digest = model_wire_content_hash(evidence)
+            entry_index = index_by_hash.get(digest)
+            if entry_index is None:
+                entry_index = len(entries)
+                index_by_hash[digest] = entry_index
+                entries.append(evidence)
+            elif entries[entry_index] != evidence:
+                raise AssertionError("acquisition evidence hash collision")
+            variable_refs[variable_id] = entry_index
+        return cls(entries=entries, variable_refs=variable_refs)
+
+    @field_validator("entries")
+    @classmethod
+    def freeze_entries[T](cls, value: Sequence[T]) -> Sequence[T]:
+        return tuple(value)
+
+    @model_validator(mode="after")
+    def validate_refs(self) -> MeasurementAcquisitionEvidenceCatalog:
+        if any(index >= len(self.entries) for index in self.variable_refs.values()):
+            raise ValueError(
+                "measurement acquisition evidence reference is out of range"
+            )
+        referenced = set(self.variable_refs.values())
+        if referenced != set(range(len(self.entries))):
+            raise ValueError(
+                "measurement acquisition evidence entries must be referenced"
+            )
+        digests = [model_wire_content_hash(entry) for entry in self.entries]
+        if len(digests) != len(set(digests)):
+            raise ValueError("measurement acquisition evidence entries must be unique")
+        return self
+
+    def for_variable(self, variable_id: str) -> MeasurementAcquisitionEvidence | None:
+        entry_index = self.variable_refs.get(variable_id)
+        return None if entry_index is None else self.entries[entry_index]
+
+    def select(
+        self,
+        variable_ids: Sequence[str],
+    ) -> MeasurementAcquisitionEvidenceCatalog:
+        selected = set(variable_ids)
+        return type(self).create(
+            {
+                variable_id: self.entries[index]
+                for variable_id, index in self.variable_refs.items()
+                if variable_id in selected
+            }
+        )
 
 
 class MeasurementRecord(_FrozenMeasurementModel):
@@ -1124,14 +1272,14 @@ class MeasurementRecord(_FrozenMeasurementModel):
     point_index: int
     coordinates: MeasurementValueMap
     observables: MeasurementValueMap
-    acquisition_evidence: InstrumentAcquisitionEvidenceMap = Field(
-        default_factory=_empty_acquisition_evidence
+    acquisition_evidence: MeasurementAcquisitionEvidenceCatalog = Field(
+        default_factory=MeasurementAcquisitionEvidenceCatalog
     )
     metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @model_validator(mode="after")
     def validate_acquisition_evidence_variables(self) -> MeasurementRecord:
-        unknown = set(self.acquisition_evidence) - (
+        unknown = set(self.acquisition_evidence.variable_refs) - (
             set(self.coordinates) | set(self.observables)
         )
         if unknown:

@@ -43,6 +43,7 @@ from scopecat.program.recording import ExperimentResultField
 from scopecat.records.measurement import (
     EntityAcquisitionEvidence,
     InstrumentAcquisitionEvidence,
+    MeasurementAcquisitionEvidenceCatalog,
     MeasurementArray,
     MeasurementArrayAvailability,
     MeasurementArrayUnavailableGroup,
@@ -306,10 +307,12 @@ def project_measurement_records(
                     value_candidates=value_candidates_by_key,
                     point=point,
                 ),
-                acquisition_evidence=_projected_acquisition_evidence(
-                    record_plans,
-                    product_values=values,
-                    point=point,
+                acquisition_evidence=MeasurementAcquisitionEvidenceCatalog.create(
+                    _projected_acquisition_evidence(
+                        record_plans,
+                        product_values=values,
+                        point=point,
+                    )
                 ),
             )
             for point in points

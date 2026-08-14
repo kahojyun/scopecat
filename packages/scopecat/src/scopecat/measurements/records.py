@@ -52,6 +52,7 @@ from scopecat.records.measurement import (
     MeasurementDimension,
     MeasurementEntityAcquisition,
     MeasurementEntityIndex,
+    MeasurementEntityProductMetadataOverride,
     MeasurementEntityProductSource,
     MeasurementPointCloudPointDomain,
     MeasurementPointDomainAxis,
@@ -64,6 +65,7 @@ from scopecat.records.measurement import (
     MeasurementResultField,
     MeasurementScalar,
     MeasurementVariable,
+    MeasurementVariableGroup,
 )
 
 
@@ -694,10 +696,26 @@ def expected_dataset_schema(
         ),
         dimensions=dimensions,
         variables=variables,
+        variable_groups=_measurement_variable_groups(variables),
         primary_coordinates=[variable.id for variable in coordinates],
         primary_observables=[variable.id for variable in observables],
         result=result,
         metadata={"experiment_id": experiment_id},
+    )
+
+
+def _measurement_variable_groups(
+    variables: Sequence[MeasurementVariable],
+) -> tuple[MeasurementVariableGroup, ...]:
+    members_by_group: dict[str, list[str]] = {}
+    for variable in variables:
+        if variable.recording_group_id is not None:
+            members_by_group.setdefault(variable.recording_group_id, []).append(
+                variable.id
+            )
+    return tuple(
+        MeasurementVariableGroup(id=group_id, variable_ids=variable_ids)
+        for group_id, variable_ids in members_by_group.items()
     )
 
 
@@ -845,6 +863,14 @@ def _record_variable(record: DatasetRecordPlan) -> MeasurementVariable:
             metadata=_wire_metadata(record.metadata),
         )
     if isinstance(record, EntityRecordPlan):
+        product_metadata = tuple(
+            _wire_metadata(member.product_metadata) for member in record.members
+        )
+        common_metadata = {
+            key: value
+            for key, value in product_metadata[0].items()
+            if all(metadata.get(key) == value for metadata in product_metadata[1:])
+        }
         return MeasurementVariable(
             id=record.id,
             role=record.role,
@@ -856,8 +882,18 @@ def _record_variable(record: DatasetRecordPlan) -> MeasurementVariable:
                 product_ids=tuple(
                     member.product_id.qualified_name for member in record.members
                 ),
-                product_metadata=tuple(
-                    _wire_metadata(member.product_metadata) for member in record.members
+                common_metadata=common_metadata,
+                metadata_overrides=tuple(
+                    MeasurementEntityProductMetadataOverride(
+                        entity_index=entity_index,
+                        metadata={
+                            key: value
+                            for key, value in metadata.items()
+                            if key not in common_metadata
+                        },
+                    )
+                    for entity_index, metadata in enumerate(product_metadata)
+                    if any(key not in common_metadata for key in metadata)
                 ),
             ),
             entity_acquisition=MeasurementEntityAcquisition(

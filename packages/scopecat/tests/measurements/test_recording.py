@@ -27,6 +27,7 @@ from scopecat.measurements.recording_arrow import (
 from scopecat.records.measurement import (
     EntityAcquisitionEvidence,
     InstrumentAcquisitionEvidence,
+    MeasurementAcquisitionEvidenceCatalog,
     MeasurementArray,
     MeasurementArrayAvailability,
     MeasurementDatasetSchema,
@@ -164,12 +165,14 @@ def test_arrow_recording_round_trips_entity_arrays_with_partial_availability() -
                 availability=availability,
             )
         },
-        acquisition_evidence={
-            "iq": EntityAcquisitionEvidence(
-                dimension_id="qubit",
-                values=(evidence, None),
-            )
-        },
+        acquisition_evidence=MeasurementAcquisitionEvidenceCatalog.create(
+            {
+                "iq": EntityAcquisitionEvidence(
+                    dimension_id="qubit",
+                    values=(evidence, None),
+                )
+            }
+        ),
     )
     append = MeasurementDatasetAppend(
         run_id="entity-run",

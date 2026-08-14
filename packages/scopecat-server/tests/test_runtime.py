@@ -119,6 +119,7 @@ from scopecat.records.measurement import (
     MeasurementScalar,
     MeasurementUnavailable,
     MeasurementVariable,
+    MeasurementVariableGroup,
 )
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
@@ -3022,6 +3023,12 @@ def test_effect_is_fenced_and_terminal_updates_control(
                         dims=["point", "sample"],
                         recording_group_id="readout",
                     ),
+                ],
+                variable_groups=[
+                    MeasurementVariableGroup(
+                        id="readout",
+                        variable_ids=("frequency", "trace"),
+                    )
                 ],
                 primary_coordinates=["frequency"],
                 primary_observables=["signal", "trace"],

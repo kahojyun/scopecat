@@ -305,10 +305,8 @@ def test_projection_stacks_entity_products_and_preserves_partial_failure() -> No
     assert readout.entity_acquisition is not None
     assert readout.entity_acquisition.policy == "independent"
     assert readout.source_entity_products.product_ids == ("signal-0", "signal-1")
-    assert readout.source_entity_products.product_metadata == (
-        {"definition": 0},
-        {"definition": 1},
-    )
+    assert readout.source_entity_products.metadata_for(0) == {"definition": 0}
+    assert readout.source_entity_products.metadata_for(1) == {"definition": 1}
     first = projected.records[0].observables["readout"]
     assert isinstance(first, MeasurementArray)
     assert first.values.tolist() == [0.0, 0.0]
@@ -321,7 +319,7 @@ def test_projection_stacks_entity_products_and_preserves_partial_failure() -> No
     assert isinstance(second, MeasurementArray)
     assert second.availability is None
     assert second.values.tolist() == [100.0, 101.0]
-    assert projected.records[0].acquisition_evidence["readout"] == (
+    assert projected.records[0].acquisition_evidence.for_variable("readout") == (
         EntityAcquisitionEvidence(
             dimension_id="qubit",
             values=(q0_evidence, q1_evidence),
@@ -367,6 +365,39 @@ def test_entity_projection_keeps_schema_width_constant_for_128_sources() -> None
     )
     assert qubit.index is not None
     assert len(qubit.index.values) == entity_count
+
+
+def test_entity_projection_normalizes_common_product_metadata() -> None:
+    scenario = measurement_assembly_scenario(use_count=2, shared_product=True)
+    entities = (
+        EntityRef(id="q0", kind="qubit"),
+        EntityRef(id="q1", kind="qubit"),
+    )
+    projection = select_measurement_projection(
+        scenario.catalog,
+        (
+            EntityRecordUse(
+                id="readout",
+                axis=EntityAxisDef(
+                    id="qubit",
+                    values=entities,
+                    entity_kind="qubit",
+                ),
+                members=tuple(
+                    EntityRecordUseMember(entity=entity, product_use_id=use.id)
+                    for entity, use in zip(entities, scenario.uses, strict=True)
+                ),
+            ),
+        ),
+    )
+
+    assert projection.schema is not None
+    readout = next(
+        variable for variable in projection.schema.variables if variable.id == "readout"
+    )
+    assert readout.source_entity_products is not None
+    assert readout.source_entity_products.common_metadata == {"definition": "shared"}
+    assert readout.source_entity_products.metadata_overrides == ()
 
 
 def test_entity_projection_compresses_one_common_failure_without_losing_axis() -> None:
@@ -700,6 +731,13 @@ def test_recording_group_is_part_of_the_projection_contract_and_schema() -> None
     assert grouped.contract_fingerprint != ungrouped.contract_fingerprint
     schema = grouped.schema
     assert schema is not None
+    assert [group.model_dump(mode="python") for group in schema.variable_groups] == [
+        {
+            "id": "readout/sweep",
+            "variable_ids": tuple(record.id for record in grouped_records),
+            "metadata": {},
+        }
+    ]
     assert {variable.recording_group_id for variable in schema.variables} == {
         None,
         "readout/sweep",
@@ -838,10 +876,10 @@ def test_projection_retains_acquisition_evidence_for_each_record_alias() -> None
         points=scenario.points,
     )
 
-    assert projected.records[0].acquisition_evidence == {
-        "primary": evidence,
-        "alias": evidence,
-    }
+    evidence_catalog = projected.records[0].acquisition_evidence
+    assert evidence_catalog.for_variable("primary") == evidence
+    assert evidence_catalog.for_variable("alias") == evidence
+    assert len(evidence_catalog.entries) == 1
 
 
 def test_duplicate_coordinate_rows_keep_distinct_canonical_point_indices() -> None:

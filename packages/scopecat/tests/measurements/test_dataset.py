@@ -48,6 +48,7 @@ from scopecat.records.measurement import (
     MeasurementUnavailable,
     MeasurementValue,
     MeasurementVariable,
+    MeasurementVariableGroup,
 )
 
 
@@ -59,6 +60,10 @@ def test_dataset_exposes_labeled_variables_and_raw_records() -> None:
     assert dataset.dims == {"point": 3, "sample": 2}
     assert tuple(dataset.coords) == ("bias", "frequency")
     assert tuple(dataset.data_vars) == ("temperature", "signal")
+    assert tuple(dataset.variable_groups) == ("readout",)
+    assert tuple(variable.id for variable in dataset.variable_groups["readout"]) == (
+        "signal",
+    )
     assert tuple(dataset) == ("bias", "frequency", "temperature", "signal")
     assert isinstance(dataset["bias"], Variable)
     assert dataset["bias"].values == (0.0, 1.0, 2.0)
@@ -1350,7 +1355,13 @@ def test_ungrouped_ragged_unavailable_preserves_unknown_extent_in_xarray() -> No
                 if variable.id == "signal"
                 else variable
                 for variable in dataset.schema.variables
-            )
+            ),
+            "variable_groups": (
+                MeasurementVariableGroup(
+                    id="readout",
+                    variable_ids=("frequency",),
+                ),
+            ),
         }
     )
     unavailable = MeasurementUnavailable.create(
@@ -1397,7 +1408,8 @@ def test_ungrouped_ragged_variables_keep_independent_xarray_observations() -> No
                 if variable.id in {"frequency", "signal"}
                 else variable
                 for variable in dataset.schema.variables
-            )
+            ),
+            "variable_groups": (),
         }
     )
     raw = _snapshot(dataset).model_copy(update={"dataset_schema": schema})
@@ -1516,6 +1528,12 @@ def _ragged_dataset() -> Dataset:
                 if variable.id == "frequency"
                 else variable
                 for variable in dataset.schema.variables
+            ),
+            "variable_groups": (
+                MeasurementVariableGroup(
+                    id="readout",
+                    variable_ids=("frequency", "signal"),
+                ),
             ),
         }
     )
@@ -1722,6 +1740,9 @@ def _dataset() -> Dataset:
                 recording_group_id="readout",
             ),
         ],
+        variable_groups=[
+            MeasurementVariableGroup(id="readout", variable_ids=("signal",))
+        ],
         primary_coordinates=["bias", "frequency"],
         primary_observables=["temperature", "signal"],
     )
@@ -1807,7 +1828,17 @@ def _dataset_with_record_sources() -> Dataset:
         variable.model_copy(update=source_fields.get(variable.id, {}))
         for variable in dataset.schema.variables
     )
-    schema = dataset.schema.model_copy(update={"variables": variables})
+    schema = dataset.schema.model_copy(
+        update={
+            "variables": variables,
+            "variable_groups": (
+                MeasurementVariableGroup(
+                    id="readout",
+                    variable_ids=("frequency", "signal"),
+                ),
+            ),
+        }
+    )
     raw = _snapshot(dataset).model_copy(update={"dataset_schema": schema})
     return Dataset(raw, dataset.entry)
 
