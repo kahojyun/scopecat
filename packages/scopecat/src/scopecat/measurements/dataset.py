@@ -19,8 +19,9 @@ from typing import TYPE_CHECKING, Literal, Self, cast, overload, override
 import numpy as np
 import pyarrow as pa
 import xarray as xr
+from numpy.typing import NDArray
 
-from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.entity import EntityRef, entity_identity
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.traces import Trace, measurement_traces
@@ -44,8 +45,11 @@ from scopecat.program.value_types import Quantity as QuantityType
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
     MeasurementArray,
+    MeasurementArrayAvailability,
+    MeasurementArrayUnavailableGroup,
     MeasurementDataset,
     MeasurementDatasetSchema,
+    MeasurementEntityIndex,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementResultContract,
@@ -68,12 +72,17 @@ if TYPE_CHECKING:
 type NativeScalar = NativeMeasurementScalar
 type NativeAvailableValue = NativeMeasurementValue
 type NativeValue = NativeAvailableValue | None
+type MeasurementAvailability = (
+    MeasurementUnavailableReason | MeasurementArrayAvailability | None
+)
 type GroupKey = NativeScalar | None
 type DimensionIndexer = int | slice | Sequence[int] | Sequence[bool]
 type PointIndexer = DimensionIndexer
 type PointCondition = PointMask | xr.DataArray | Sequence[bool]
 type SelectionMethod = Literal["exact", "nearest"]
 type XarrayLayout = Literal["points", "grid"]
+type XarrayNonNullFill = bool | int | float | complex | str
+type XarrayFill = XarrayNonNullFill | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,40 +328,35 @@ class Variable[T = NativeAvailableValue]:
     @property
     def availability(
         self,
-    ) -> tuple[MeasurementUnavailableReason | None, ...]:
+    ) -> tuple[MeasurementAvailability, ...]:
         return tuple(
-            value.reason if isinstance(value, MeasurementUnavailable) else None
+            (
+                value.reason
+                if isinstance(value, MeasurementUnavailable)
+                else value.availability
+                if isinstance(value, MeasurementArray)
+                else None
+            )
             for value in self._raw_values
         )
 
     def is_available(self) -> PointMask:
-        source = self._dataset._loaded_xarray
-        reason_name = _unavailable_reason_name(self.id)
-        reason = source.get(reason_name)
-        if reason is None:
-            return PointMask(
-                self._dataset,
-                xr.ones_like(source.coords["point"], dtype=np.bool_),
-            )
-        return PointMask(self._dataset, reason.isnull())
+        return PointMask(
+            self._dataset,
+            tuple(_measurement_value_is_complete(value) for value in self._raw_values),
+        )
 
     def is_unavailable(
         self,
         reason: MeasurementUnavailableReason | None = None,
     ) -> PointMask:
-        source = self._dataset._loaded_xarray
-        reason_name = _unavailable_reason_name(self.id)
-        availability = source.get(reason_name)
-        if availability is None:
-            selected = xr.zeros_like(
-                source.coords["point"],
-                dtype=np.bool_,
-            )
-        elif reason is None:
-            selected = availability.notnull()
-        else:
-            selected = availability == reason
-        return PointMask(self._dataset, selected)
+        return PointMask(
+            self._dataset,
+            tuple(
+                _measurement_value_is_unavailable(value, reason=reason)
+                for value in self._raw_values
+            ),
+        )
 
     @overload
     def __getitem__(self, index: int) -> T | None: ...
@@ -448,6 +452,10 @@ class Dataset:
     )
     _schema_value: MeasurementDatasetSchema = field(repr=False)
     _view_dimensions: Mapping[str, int | None] = field(init=False, repr=False)
+    _view_dimension_positions: Mapping[str, tuple[int, ...]] = field(
+        init=False,
+        repr=False,
+    )
     _variables: Mapping[str, Variable[NativeAvailableValue]] = field(
         init=False,
         repr=False,
@@ -460,6 +468,7 @@ class Dataset:
         entry: RunContentEntry,
         *,
         view_dimensions: Mapping[str, int | None] | None = None,
+        view_dimension_positions: Mapping[str, Sequence[int]] | None = None,
     ) -> None:
         self._initialize(
             raw=raw,
@@ -468,6 +477,7 @@ class Dataset:
             load_raw=None,
             load_projected_batches=None,
             view_dimensions=view_dimensions,
+            view_dimension_positions=view_dimension_positions,
         )
 
     @classmethod
@@ -487,6 +497,7 @@ class Dataset:
             load_raw=load_raw,
             load_projected_batches=load_projected_batches,
             view_dimensions=None,
+            view_dimension_positions=None,
         )
         return dataset
 
@@ -501,6 +512,7 @@ class Dataset:
             Callable[[ProjectionSchema, int], pa.RecordBatchReader] | None
         ),
         view_dimensions: Mapping[str, int | None] | None,
+        view_dimension_positions: Mapping[str, Sequence[int]] | None,
     ) -> None:
         object.__setattr__(self, "_raw", raw)
         object.__setattr__(self, "_entry", entry.model_copy(deep=True))
@@ -522,6 +534,33 @@ class Dataset:
             self,
             "_view_dimensions",
             MappingProxyType(dimensions),
+        )
+        fixed_local_dimensions = {
+            dimension.id: dimension.size
+            for dimension in schema.dimensions
+            if dimension.id != "point" and dimension.size is not None
+        }
+        selected_positions = {
+            dimension_id: tuple(range(cast("int", dimensions[dimension_id])))
+            for dimension_id in fixed_local_dimensions
+        }
+        if view_dimension_positions is not None:
+            unknown = set(view_dimension_positions) - set(fixed_local_dimensions)
+            if unknown:
+                raise ValueError(
+                    "dataset view references unknown fixed dimensions: "
+                    + ", ".join(sorted(unknown))
+                )
+            selected_positions.update(
+                {
+                    dimension_id: tuple(positions)
+                    for dimension_id, positions in view_dimension_positions.items()
+                }
+            )
+        object.__setattr__(
+            self,
+            "_view_dimension_positions",
+            MappingProxyType(selected_positions),
         )
         variables = {
             definition.id: Variable(self, definition) for definition in schema.variables
@@ -551,6 +590,17 @@ class Dataset:
                         for dimension in self._schema_value.dimensions
                     },
                     "point": len(raw.records),
+                }
+            ),
+        )
+        object.__setattr__(
+            self,
+            "_view_dimension_positions",
+            MappingProxyType(
+                {
+                    dimension.id: tuple(range(dimension.size))
+                    for dimension in self._schema_value.dimensions
+                    if dimension.id != "point" and dimension.size is not None
                 }
             ),
         )
@@ -893,11 +943,12 @@ class Dataset:
             else self._select_indices(_point_positions(self, selected_xarray))
         )
         local_indices = {
-            dimension_id: _selected_dimension_positions(
-                selected_xarray,
-                dimension_id,
+            dimension_id: _dimension_indices(
+                indexer,
+                size=cast("int", self.dims[dimension_id]),
+                label=dimension_id,
             )
-            for dimension_id in selected
+            for dimension_id, indexer in selected.items()
             if dimension_id != "point"
         }
         return result._select_fixed_local_dimensions(local_indices)
@@ -994,16 +1045,34 @@ class Dataset:
         tolerance: float | Quantity | None = None,
         **indexer_kwargs: object,
     ) -> Self:
-        """Select point rows through Xarray's coordinate indexes."""
+        """Select point rows or entity dimensions through labeled indexes."""
 
         selected = _merge_indexers(indexers, indexer_kwargs)
         if not selected:
             raise ValueError("sel requires at least one coordinate indexer")
+        dimensions_by_id = {
+            dimension.id: dimension for dimension in self._schema.dimensions
+        }
+        entity_selected = {
+            dimension_id: query
+            for dimension_id, query in selected.items()
+            if (
+                (dimension := dimensions_by_id.get(dimension_id)) is not None
+                and dimension.index is not None
+            )
+        }
+        point_selected = {
+            variable_id: query
+            for variable_id, query in selected.items()
+            if variable_id not in entity_selected
+        }
         selected_method = "exact" if method is None else method
         if selected_method not in {"exact", "nearest"}:
             raise ValueError("sel method must be 'exact' or 'nearest'")
+        if entity_selected and selected_method != "exact":
+            raise ValueError("entity dimension selection only supports exact matching")
         if selected_method == "nearest":
-            if len(selected) != 1 or "point" in selected:
+            if len(point_selected) != 1 or "point" in point_selected:
                 raise ValueError(
                     "nearest selection requires exactly one scalar coordinate"
                 )
@@ -1011,7 +1080,7 @@ class Dataset:
             raise ValueError("sel tolerance is only valid with method='nearest'")
 
         selected_xarray = self._loaded_xarray
-        for variable_id, query in selected.items():
+        for variable_id, query in point_selected.items():
             if variable_id == "point" and isinstance(query, str):
                 coordinate_id = "logical_point_id"
                 normalized = query
@@ -1034,7 +1103,23 @@ class Dataset:
             )
             if "point" not in selected_xarray.dims:
                 selected_xarray = selected_xarray.expand_dims("point")
-        return self._select_indices(_point_positions(self, selected_xarray))
+        result = (
+            self
+            if not point_selected
+            else self._select_indices(_point_positions(self, selected_xarray))
+        )
+        if not entity_selected:
+            return result
+        local_positions = {
+            dimension_id: _entity_selection_positions(
+                cast("MeasurementEntityIndex", dimensions_by_id[dimension_id].index),
+                result._view_dimension_positions[dimension_id],
+                query,
+                dimension_id=dimension_id,
+            )
+            for dimension_id, query in entity_selected.items()
+        }
+        return result.isel(local_positions)
 
     def where(
         self,
@@ -1270,13 +1355,47 @@ class Dataset:
                 and view_size is not None
                 and dimension.id not in self.variables
             ):
-                coords[dimension.id] = (
-                    (dimension.id,),
-                    np.arange(view_size, dtype=np.int64),
-                    {
+                positions = self._view_dimension_positions[dimension.id]
+                if len(positions) != view_size:
+                    raise ValueError(
+                        f"dataset view dimension {dimension.id!r} position count "
+                        "does not match its size"
+                    )
+                if dimension.index is None:
+                    coordinate_values = np.asarray(positions, dtype=np.int64)
+                    coordinate_attrs = {
                         "long_name": f"positional index for {dimension.id}",
                         "scopecat_role": "dimension_index",
-                    },
+                    }
+                else:
+                    coordinate_values = np.asarray(
+                        tuple(
+                            _entity_coordinate_label(
+                                dimension.index,
+                                dimension.index.values[position],
+                            )
+                            for position in positions
+                        ),
+                        dtype=np.object_,
+                    )
+                    coordinate_attrs = {
+                        "long_name": f"entity index for {dimension.id}",
+                        "scopecat_role": "entity_index",
+                        "scopecat_entity_kind": dimension.index.entity_kind or "",
+                        "scopecat_entities_json": _stable_json(
+                            tuple(
+                                cast(
+                                    "Sequence[object]",
+                                    dimension.index.model_dump(mode="json")["values"],
+                                )[position]
+                                for position in positions
+                            )
+                        ),
+                    }
+                coords[dimension.id] = (
+                    (dimension.id,),
+                    coordinate_values,
+                    coordinate_attrs,
                 )
         if "logical_point_id" not in self.variables and any(
             record.logical_point_id is not None for record in self._records
@@ -1445,19 +1564,45 @@ class Dataset:
                     _xarray_values(variable),
                     _variable_attrs(variable),
                 )
-            if any(reason is not None for reason in availability):
+            fixed_availability = (
+                None
+                if _variable_is_ragged(variable)
+                else _xarray_fixed_availability(variable)
+            )
+            if fixed_availability is not None:
+                valid, unavailable_reasons = fixed_availability
+                data_vars[_valid_name(variable.id)] = (
+                    variable.dims,
+                    valid,
+                    {
+                        "long_name": f"valid values for {variable.id}",
+                        "scopecat_role": "value_validity",
+                        "source_variable": variable.id,
+                    },
+                )
                 data_vars[_unavailable_reason_name(variable.id)] = (
-                    ("point",),
-                    np.asarray(
-                        availability,
-                        dtype=np.object_,
-                    ),
+                    variable.dims,
+                    unavailable_reasons,
                     {
                         "long_name": f"unavailable reason for {variable.id}",
                         "scopecat_role": "availability",
                         "source_variable": variable.id,
                     },
                 )
+            elif _variable_is_ragged(variable):
+                point_reasons = tuple(
+                    item if isinstance(item, str) else None for item in availability
+                )
+                if any(reason is not None for reason in point_reasons):
+                    data_vars[_unavailable_reason_name(variable.id)] = (
+                        ("point",),
+                        np.asarray(point_reasons, dtype=np.object_),
+                        {
+                            "long_name": f"unavailable reason for {variable.id}",
+                            "scopecat_role": "availability",
+                            "source_variable": variable.id,
+                        },
+                    )
         return xr.Dataset(
             data_vars=data_vars,
             coords=coords,
@@ -1486,6 +1631,7 @@ class Dataset:
             raw,
             self._entry,
             view_dimensions={**self.dims, "point": len(selected_records)},
+            view_dimension_positions=self._view_dimension_positions,
         )
 
     def _select_fixed_local_dimensions(
@@ -1515,7 +1661,21 @@ class Dataset:
                 for dimension_id, indices in indices_by_dimension.items()
             },
         }
-        return self._copy_with(records=records, view_dimensions=dimensions)
+        positions = {
+            **self._view_dimension_positions,
+            **{
+                dimension_id: tuple(
+                    self._view_dimension_positions[dimension_id][index]
+                    for index in indices
+                )
+                for dimension_id, indices in indices_by_dimension.items()
+            },
+        }
+        return self._copy_with(
+            records=records,
+            view_dimensions=dimensions,
+            view_dimension_positions=positions,
+        )
 
     def _select_ragged_local_dimensions(
         self,
@@ -1567,6 +1727,7 @@ class Dataset:
         return self._copy_with(
             records=records,
             view_dimensions=self.dims,
+            view_dimension_positions=self._view_dimension_positions,
         )
 
     def _copy_with(
@@ -1574,13 +1735,19 @@ class Dataset:
         *,
         records: Sequence[MeasurementRecord],
         view_dimensions: Mapping[str, int | None],
+        view_dimension_positions: Mapping[str, Sequence[int]],
     ) -> Self:
         raw = MeasurementDataset(
             dataset_schema=self._schema,
             records=tuple(records),
             metadata=self._materialize().metadata,
         )
-        return type(self)(raw, self._entry, view_dimensions=view_dimensions)
+        return type(self)(
+            raw,
+            self._entry,
+            view_dimensions=view_dimensions,
+            view_dimension_positions=view_dimension_positions,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -2045,7 +2212,36 @@ def _native_value(value: MeasurementValue) -> NativeValue:
         return None
     if isinstance(value, MeasurementScalar):
         return cast("NativeValue", _native_leaf(value.value))
+    if value.availability is not None:
+        masked = np.ma.MaskedArray(
+            value.values,
+            mask=~value.availability.valid,
+            copy=False,
+        )
+        masked.data.flags.writeable = False
+        masked.mask.flags.writeable = False
+        return cast("NativeValue", masked)
     return value.values
+
+
+def _measurement_value_is_complete(value: MeasurementValue) -> bool:
+    return not isinstance(value, MeasurementUnavailable) and not (
+        isinstance(value, MeasurementArray) and value.availability is not None
+    )
+
+
+def _measurement_value_is_unavailable(
+    value: MeasurementValue,
+    *,
+    reason: MeasurementUnavailableReason | None,
+) -> bool:
+    if isinstance(value, MeasurementUnavailable):
+        return reason is None or value.reason == reason
+    if not isinstance(value, MeasurementArray) or value.availability is None:
+        return False
+    return reason is None or any(
+        group.reason == reason for group in value.availability.unavailable
+    )
 
 
 def _require_record_ref_matches(
@@ -2359,14 +2555,107 @@ def _slice_measurement_value(
             metadata=value.metadata,
         )
     selected_values = value.values
+    selected_valid = None if value.availability is None else value.availability.valid
+    selected_groups = (
+        None
+        if value.availability is None
+        else _array_unavailable_group_indices(value.availability)
+    )
     for axis, indices in sorted(indices_by_axis.items()):
         selected_values = np.take(selected_values, indices, axis=axis)
+        if selected_valid is not None and selected_groups is not None:
+            selected_valid = np.take(selected_valid, indices, axis=axis)
+            selected_groups = np.take(selected_groups, indices, axis=axis)
+    selected_availability = (
+        None
+        if selected_valid is None or selected_groups is None
+        else _sliced_array_availability(
+            selected_valid,
+            selected_groups,
+            cast("MeasurementArrayAvailability", value.availability),
+        )
+    )
+    if (
+        selected_availability is None
+        and selected_valid is not None
+        and selected_groups is not None
+        and not bool(np.all(selected_valid))
+    ):
+        group_indices = tuple(
+            dict.fromkeys(
+                int(group_index)
+                for group_index in selected_groups.reshape(-1)
+                if int(group_index) >= 0
+            )
+        )
+        if len(group_indices) != 1:
+            raise AssertionError("all-invalid array selection lost its diagnostics")
+        group = cast("MeasurementArrayAvailability", value.availability).unavailable[
+            group_indices[0]
+        ]
+        return MeasurementUnavailable.create(
+            reason=group.reason,
+            dtype=value.dtype,
+            unit=value.unit,
+            shape=selected_shape,
+            metadata={**value.metadata, **group.metadata},
+        )
     return MeasurementArray.create(
         dtype=value.dtype,
         unit=value.unit,
         values=selected_values,
+        availability=selected_availability,
         metadata=value.metadata,
     )
+
+
+def _array_unavailable_group_indices(
+    availability: MeasurementArrayAvailability,
+) -> NDArray[np.int64]:
+    selected = np.full(availability.valid.shape, -1, dtype=np.int64)
+    flattened = selected.reshape(-1)
+    for group_index, group in enumerate(availability.unavailable):
+        flattened[list(group.flat_indices)] = group_index
+    return selected
+
+
+def _array_unavailable_reasons(
+    availability: MeasurementArrayAvailability,
+) -> NDArray[np.object_]:
+    selected = np.full(availability.valid.shape, None, dtype=np.object_)
+    flattened = selected.reshape(-1)
+    for group in availability.unavailable:
+        flattened[list(group.flat_indices)] = group.reason
+    return selected
+
+
+def _sliced_array_availability(
+    valid: NDArray[np.bool_],
+    group_indices: NDArray[np.int64],
+    source: MeasurementArrayAvailability,
+) -> MeasurementArrayAvailability | None:
+    if bool(np.all(valid)):
+        return None
+    flattened_groups = group_indices.reshape(-1)
+    unavailable_groups: list[MeasurementArrayUnavailableGroup] = []
+    for group_index, group in enumerate(source.unavailable):
+        matching = cast(
+            "NDArray[np.bool_]",
+            np.equal(flattened_groups, np.int64(group_index)),
+        )
+        if not bool(np.any(matching)):
+            continue
+        unavailable_groups.append(
+            MeasurementArrayUnavailableGroup(
+                reason=group.reason,
+                flat_indices=tuple(int(index) for index in np.flatnonzero(matching)),
+                metadata=group.metadata,
+            )
+        )
+    unavailable = tuple(unavailable_groups)
+    if not bool(np.any(valid)) and len(unavailable) == 1:
+        return None
+    return MeasurementArrayAvailability(valid=valid, unavailable=unavailable)
 
 
 def _merge_indexers[T](
@@ -2410,17 +2699,6 @@ def _point_positions(dataset: Dataset, selected: xr.Dataset) -> tuple[int, ...]:
         positions[int(cast("np.int64", point_indices[index]))]
         for index in range(len(point_indices))
     )
-
-
-def _selected_dimension_positions(
-    selected: xr.Dataset,
-    dimension_id: str,
-) -> tuple[int, ...]:
-    values = cast(
-        "np.ndarray[tuple[int], np.dtype[np.int64]]",
-        selected.coords[dimension_id].values,
-    )
-    return tuple(int(cast("np.int64", values[index])) for index in range(len(values)))
 
 
 def _group_positions(
@@ -2493,6 +2771,60 @@ def _selection_value(value: object, variable: Variable[object]) -> object:
     return value
 
 
+def _entity_coordinate_label(
+    index: MeasurementEntityIndex,
+    entity: EntityRef,
+) -> str:
+    if index.entity_kind is not None or entity.kind is None:
+        return entity.id
+    return f"{entity.kind}:{entity.id}"
+
+
+def _entity_selection_positions(
+    index: MeasurementEntityIndex,
+    current_positions: Sequence[int],
+    query: object,
+    *,
+    dimension_id: str,
+) -> tuple[int, ...]:
+    if isinstance(query, EntityRef | str):
+        requested = (query,)
+    elif isinstance(query, Sequence):
+        requested = tuple(query)
+    else:
+        raise TypeError(
+            f"entity dimension {dimension_id!r} selectors must be an entity, "
+            "string label, or sequence of them"
+        )
+    available = tuple(index.values[position] for position in current_positions)
+    selected: list[int] = []
+    for item in requested:
+        matches = tuple(
+            position
+            for position, entity in enumerate(available)
+            if (
+                entity_identity(entity) == entity_identity(item)
+                if isinstance(item, EntityRef)
+                else isinstance(item, str)
+                and (
+                    _entity_coordinate_label(index, entity) == item
+                    or (
+                        item == entity.id
+                        and sum(candidate.id == item for candidate in available) == 1
+                    )
+                )
+            )
+        )
+        if not matches:
+            raise KeyError(f"entity dimension {dimension_id!r} has no label {item!r}")
+        if len(matches) != 1:
+            raise KeyError(
+                f"entity dimension {dimension_id!r} label {item!r} is ambiguous"
+            )
+        selected.append(matches[0])
+    return tuple(selected)
+
+
 def _selection_tolerance(
     tolerance: float | Quantity | None,
     variable: Variable[object],
@@ -2512,7 +2844,9 @@ def _xarray_values(variable: Variable) -> object:
     fixed_shape = tuple(cast("int", extent) for extent in variable.shape)
     raw_values = variable._raw_values
     has_unavailable = any(
-        isinstance(value, MeasurementUnavailable) for value in raw_values
+        isinstance(value, MeasurementUnavailable)
+        or (isinstance(value, MeasurementArray) and value.availability is not None)
+        for value in raw_values
     )
     dtype = _xarray_dtype(variable.dtype, nullable=has_unavailable)
     if not raw_values:
@@ -2539,8 +2873,50 @@ def _xarray_values(variable: Variable) -> object:
                 )
             )
         else:
-            arrays.append(cast("MeasurementArray", value).values)
+            array = cast("MeasurementArray", value)
+            if array.availability is None:
+                arrays.append(array.values)
+                continue
+            selected = array.values.astype(dtype, copy=True)
+            selected[~array.availability.valid] = np.asarray(
+                _xarray_nullable_fill(variable.dtype),
+                dtype=dtype,
+            )
+            arrays.append(selected)
     return np.stack(arrays, axis=0).astype(dtype, copy=False)
+
+
+def _xarray_fixed_availability(
+    variable: Variable,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    raw_values = variable._raw_values
+    if not any(
+        isinstance(value, MeasurementUnavailable)
+        or (isinstance(value, MeasurementArray) and value.availability is not None)
+        for value in raw_values
+    ):
+        return None
+    fixed_shape = tuple(cast("int", extent) for extent in variable.shape)
+    local_shape = fixed_shape[1:]
+    valid_chunks: list[np.ndarray] = []
+    reason_chunks: list[np.ndarray] = []
+    for value in raw_values:
+        if isinstance(value, MeasurementUnavailable):
+            valid_chunks.append(np.zeros(local_shape or (), dtype=np.bool_))
+            reason_chunks.append(
+                np.full(local_shape or (), value.reason, dtype=np.object_)
+            )
+        elif isinstance(value, MeasurementArray):
+            if value.availability is None:
+                valid_chunks.append(np.ones(local_shape, dtype=np.bool_))
+                reason_chunks.append(np.full(local_shape, None, dtype=np.object_))
+            else:
+                valid_chunks.append(value.availability.valid)
+                reason_chunks.append(_array_unavailable_reasons(value.availability))
+        else:
+            valid_chunks.append(np.asarray(True, dtype=np.bool_))
+            reason_chunks.append(np.asarray(None, dtype=np.object_))
+    return np.stack(valid_chunks, axis=0), np.stack(reason_chunks, axis=0)
 
 
 def _variable_is_ragged(variable: Variable) -> bool:
@@ -2579,9 +2955,20 @@ def _xarray_ragged_values(
                     f"ragged variable {variable.id!r} contributes "
                     f"{flattened.size} values to a {row_size}-observation row"
                 )
-            chunks.append(flattened)
-            valid_chunks.append(np.ones(row_size, dtype=np.bool_))
-            reason_chunks.append(np.full(row_size, None, dtype=np.object_))
+            if raw_value.availability is None:
+                chunks.append(flattened)
+                valid_chunks.append(np.ones(row_size, dtype=np.bool_))
+                reason_chunks.append(np.full(row_size, None, dtype=np.object_))
+            else:
+                flattened_valid = raw_value.availability.valid.reshape(-1)
+                flattened_reasons = _array_unavailable_reasons(
+                    raw_value.availability
+                ).reshape(-1)
+                selected = flattened.copy()
+                selected[~flattened_valid] = _xarray_fill(variable.dtype)
+                chunks.append(selected)
+                valid_chunks.append(flattened_valid)
+                reason_chunks.append(flattened_reasons)
 
     values = _concatenate_or_empty(chunks, dtype=dtype)
     valid = _concatenate_or_empty(valid_chunks, dtype=np.dtype(np.bool_))
@@ -2613,7 +3000,7 @@ def _xarray_dtype(
     }[dtype]
 
 
-def _xarray_fill(dtype: MeasurementDType) -> object:
+def _xarray_fill(dtype: MeasurementDType) -> XarrayNonNullFill:
     if dtype == "float64":
         return math.nan
     if dtype == "complex128":
@@ -2625,7 +3012,7 @@ def _xarray_fill(dtype: MeasurementDType) -> object:
     return ""
 
 
-def _xarray_nullable_fill(dtype: MeasurementDType) -> object:
+def _xarray_nullable_fill(dtype: MeasurementDType) -> XarrayFill:
     if dtype in {"int64", "bool", "string"}:
         return None
     return _xarray_fill(dtype)
@@ -2817,6 +3204,10 @@ def _stable_json(value: object) -> str:
 
 def _unavailable_reason_name(variable_id: str) -> str:
     return f"{variable_id}__unavailable_reason"
+
+
+def _valid_name(variable_id: str) -> str:
+    return f"{variable_id}__valid"
 
 
 __all__ = ["Dataset", "NativeAvailableValue", "PointMask", "Variable"]

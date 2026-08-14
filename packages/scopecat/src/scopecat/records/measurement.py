@@ -719,7 +719,7 @@ class MeasurementArrayAvailability(_FrozenMeasurementModel):
         flattened = self.valid.reshape(-1)
         if bool(np.all(flattened)):
             raise ValueError("fully available arrays must omit availability")
-        if not bool(np.any(flattened)):
+        if not bool(np.any(flattened)) and len(self.unavailable) == 1:
             raise ValueError("fully unavailable arrays must use MeasurementUnavailable")
         actual = tuple(
             sorted(index for group in self.unavailable for index in group.flat_indices)

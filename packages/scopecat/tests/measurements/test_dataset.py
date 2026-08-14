@@ -16,6 +16,7 @@ import pyarrow as pa
 import pytest
 import xarray as xr
 
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.datasets import select_measurement_schema
 from scopecat.measurements.results import Dataset, PointMask, ProjectionSchema, Variable
@@ -29,9 +30,11 @@ from scopecat.program.values import CoordinateRef, compute, coordinate
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
     MeasurementArray,
+    MeasurementArrayAvailability,
     MeasurementDataset,
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementEntityIndex,
     MeasurementPointCloudPointDomain,
     MeasurementPointDomainAxis,
     MeasurementPointDomainColumn,
@@ -557,6 +560,97 @@ def test_dataset_native_xarray_preserves_labels_shapes_and_availability() -> Non
         xarray_dataset["bias"].attrs["scopecat_metadata_json"]
     )
     assert variable_metadata == {"calibration": {"revision": 2, "source": "smu"}}
+
+
+def test_entity_dimensions_support_labeled_selection_and_partial_availability() -> None:
+    q0 = EntityRef(id="q0", kind="qubit")
+    q1 = EntityRef(id="q1", kind="qubit")
+    q2 = EntityRef(id="q2", kind="qubit")
+    availability = MeasurementArrayAvailability.create(
+        valid=np.asarray([True, False, True], dtype=np.bool_),
+        reason="missing",
+        metadata={"source": "q1"},
+    )
+    schema = MeasurementDatasetSchema(
+        dataset_id="entity-readout",
+        point_domain=MeasurementPointCloudPointDomain(columns=()),
+        dimensions=(
+            MeasurementDimension(id="point", kind="point", size=2),
+            MeasurementDimension(
+                id="qubit",
+                kind="entity",
+                size=3,
+                index=MeasurementEntityIndex(
+                    values=(q0, q1, q2),
+                    entity_kind="qubit",
+                ),
+            ),
+        ),
+        variables=(
+            MeasurementVariable(
+                id="readout",
+                role="observable",
+                dtype="float64",
+                dims=("point", "qubit"),
+            ),
+        ),
+        primary_observables=("readout",),
+    )
+    raw = MeasurementDataset(
+        dataset_schema=schema,
+        records=tuple(
+            MeasurementRecord(
+                run_id="run-entity",
+                point_index=point_index,
+                coordinates={},
+                observables={
+                    "readout": MeasurementArray.create(
+                        values=np.asarray(values, dtype=np.float64),
+                        availability=selected_availability,
+                    )
+                },
+            )
+            for point_index, values, selected_availability in (
+                (0, (1.0, 0.0, 3.0), availability),
+                (1, (4.0, 5.0, 6.0), None),
+            )
+        ),
+    )
+    dataset = Dataset(
+        raw,
+        RunContentEntry(
+            role="dataset",
+            id="entity-readout",
+            kind="measurement_dataset",
+            content_hash="unused-entity-readout",
+            schema=schema.model_dump(mode="json"),
+        ),
+    )
+
+    first = dataset["readout"].values[0]
+    assert isinstance(first, np.ma.MaskedArray)
+    assert first.mask.tolist() == [False, True, False]
+    assert dataset["readout"].is_available()._values == (False, True)
+    labeled = dataset.to_xarray()
+    assert labeled.coords["qubit"].values.tolist() == ["q0", "q1", "q2"]
+    assert labeled["readout__valid"].values.tolist() == [
+        [True, False, True],
+        [True, True, True],
+    ]
+    assert labeled["readout__unavailable_reason"].values[0, 1] == "missing"
+    assert math.isnan(float(labeled["readout"].values[0, 1]))
+
+    selected = dataset.sel(qubit=q1)
+    assert selected.dims == {"point": 2, "qubit": 1}
+    assert selected.to_xarray().coords["qubit"].values.tolist() == ["q1"]
+    assert isinstance(
+        selected.records[0].observables["readout"],
+        MeasurementUnavailable,
+    )
+    np.testing.assert_array_equal(
+        selected["readout"].values[1],
+        np.asarray([5.0], dtype=np.float64),
+    )
 
 
 def test_measurement_projection_controls_names_units_and_native_adapters() -> None:
