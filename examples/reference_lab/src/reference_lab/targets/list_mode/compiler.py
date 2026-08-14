@@ -2,8 +2,10 @@
 
 This laboratory-owned compiler translates canonical scheduled pulse programs
 into physical list entries and acquisition windows. It validates sample-grid
-alignment, signal bindings, overlap, amplitude, list, and shot limits before
-producing an artifact; no instrument effect occurs here.
+alignment, signal bindings, overlap, list, and shot limits before producing an
+artifact. Retained physical buffers are amplitude-checked here; compact
+parameterized buffers are checked when they materialize at the AWG boundary.
+No instrument effect occurs here.
 
 Physical list and segment positions are artifact layout, never logical result
 identity. Entry-qualified event and acquisition addresses survive compilation
@@ -40,7 +42,6 @@ from scopecat_quantum.waveforms import (
     SAMPLED_WAVEFORM_SEMANTICS_ID,
     Float64ReferenceRenderer,
     IqMatrix,
-    RenderedWaveforms,
     SampledOutputBinding,
     SampledWaveformPlan,
     SampleGrid,
@@ -87,7 +88,6 @@ class _EntryPlan:
     source: TargetCompileEntry
     waveform_plan: SampledWaveformPlan
     lane_channels: tuple[AwgChannelId, ...]
-    rendered: RenderedWaveforms
     active_lanes: tuple[int, ...]
     acquisitions: tuple[DigitizerAcquisitionWindow, ...]
 
@@ -146,9 +146,11 @@ class ListModeTargetCompiler:
         compact = _compile_phase_template_sweep(plans)
         if compact is None:
             phase_templates: tuple[AwgPhaseTemplate, ...] = ()
-            entries = tuple(self._render_entry(plan) for plan in plans)
+            entries = tuple(self._render_entry(plan, issues=issues) for plan in plans)
         else:
             phase_templates, entries = compact
+        if issues:
+            raise TargetCompilationError(tuple(issues))
         waveform_bytes = _materialized_waveform_bytes(entries, phase_templates)
         if waveform_bytes > self.target.max_program_waveform_bytes:
             _issue(
@@ -192,6 +194,7 @@ class ListModeTargetCompiler:
             repetitions=request.repetitions,
             sample_rate_hz=self.target.sample_rate_hz,
             waveform_semantics_id=SAMPLED_WAVEFORM_SEMANTICS_ID,
+            max_abs_amplitude=self.target.max_abs_amplitude,
             timing_quantization=self.target.timing_quantization,
             preparation=preparation,
             host_state_requirements=host_state_requirements,
@@ -334,7 +337,6 @@ class ListModeTargetCompiler:
                 case Delay() | ShiftPhase():
                     pass
 
-        rendered = Float64ReferenceRenderer().render(waveform_plan)
         active_lanes = tuple(
             sorted(
                 {
@@ -347,32 +349,36 @@ class ListModeTargetCompiler:
                 }
             )
         )
-        for lane in active_lanes:
-            peak_magnitude = rendered.lane_peaks[lane]
-            if peak_magnitude > self.target.max_abs_amplitude:
-                _entry_issue(
-                    issues,
-                    entry.id,
-                    code="list_mode_amplitude_limit_exceeded",
-                    message=(
-                        f"final waveform on channel "
-                        f"{lane_channels[lane].value!r} has magnitude "
-                        f"{peak_magnitude!r}; target limit is "
-                        f"{self.target.max_abs_amplitude!r}"
-                    ),
-                )
         return _EntryPlan(
             list_index=list_index,
             source=entry,
             waveform_plan=waveform_plan,
             lane_channels=lane_channels,
-            rendered=rendered,
             active_lanes=active_lanes,
             acquisitions=tuple(acquisitions),
         )
 
-    @staticmethod
-    def _render_entry(plan: _EntryPlan) -> ListModeEntry:
+    def _render_entry(
+        self,
+        plan: _EntryPlan,
+        *,
+        issues: list[TargetCompilationIssue],
+    ) -> ListModeEntry:
+        rendered = Float64ReferenceRenderer().render(plan.waveform_plan)
+        for lane in plan.active_lanes:
+            peak_magnitude = rendered.lane_peaks[lane]
+            if peak_magnitude > self.target.max_abs_amplitude:
+                _entry_issue(
+                    issues,
+                    plan.source.id,
+                    code="list_mode_amplitude_limit_exceeded",
+                    message=(
+                        f"final waveform on channel "
+                        f"{plan.lane_channels[lane].value!r} has magnitude "
+                        f"{peak_magnitude!r}; target limit is "
+                        f"{self.target.max_abs_amplitude!r}"
+                    ),
+                )
         return ListModeEntry(
             list_index=plan.list_index,
             entry_id=plan.source.id,
@@ -381,7 +387,7 @@ class ListModeTargetCompiler:
             waveforms=tuple(
                 AwgChannelWaveform(
                     channel_id=plan.lane_channels[lane],
-                    samples=plan.rendered.buffers[lane],
+                    samples=rendered.buffers[lane],
                 )
                 for lane in plan.active_lanes
             ),

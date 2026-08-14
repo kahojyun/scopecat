@@ -529,6 +529,7 @@ def _awg_payload_document(
     if isinstance(program, MaterializedAwgProgram):
         return {
             "kind": "materialized",
+            "max_abs_amplitude": program.max_abs_amplitude,
             "entries": [
                 {
                     "waveforms": [
@@ -544,6 +545,7 @@ def _awg_payload_document(
         }
     return {
         "kind": "phase_synthesized",
+        "max_abs_amplitude": program.max_abs_amplitude,
         "templates": [
             {
                 "id": template.id,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import cast
 
 import numpy as np
+import pytest
 from scopecat.sdk.payloads import PayloadDescriptor
 
 from reference_lab.payloads import (
@@ -25,6 +26,7 @@ def test_awg_program_codec_keeps_samples_in_float64_binary() -> None:
         AWG_PROGRAM_SCHEMA_ID,
         {
             "kind": "materialized",
+            "max_abs_amplitude": 1.0,
             "entries": [
                 {
                     "waveforms": [
@@ -46,6 +48,7 @@ def test_awg_program_codec_keeps_samples_in_float64_binary() -> None:
     )
 
     assert encoded.codec_id == "reference_lab.awg-program-float64"
+    assert encoded.codec_version == 4
     assert len(encoded.content) < samples.nbytes + 256
     assert np.shares_memory(decoded.entries[0].waveforms[0].samples, samples) is False
     assert decoded.entries[0].waveforms[0].samples.flags.writeable is False
@@ -61,6 +64,7 @@ def test_phase_synthesized_awg_program_materializes_contiguous_buffers() -> None
         AWG_PROGRAM_SCHEMA_ID,
         {
             "kind": "phase_synthesized",
+            "max_abs_amplitude": 1.0,
             "templates": [
                 {
                     "id": "drive",
@@ -107,6 +111,44 @@ def test_phase_synthesized_awg_program_materializes_contiguous_buffers() -> None
         for entry in materialized.entries
         for waveform in entry.waveforms
     )
+
+
+def test_phase_synthesized_awg_program_checks_materialized_amplitude() -> None:
+    codecs = reference_lab_payload_codecs()
+    encoded = codecs.encode(
+        AWG_PROGRAM_SCHEMA_ID,
+        {
+            "kind": "phase_synthesized",
+            "max_abs_amplitude": 0.5,
+            "templates": [
+                {
+                    "id": "drive",
+                    "i_component_path": ["outputs", "ch1"],
+                    "q_component_path": ["outputs", "ch2"],
+                    "start_sample": 0,
+                    "logical_i": np.ones(4, dtype=np.float64),
+                    "logical_q": np.zeros(4, dtype=np.float64),
+                    "mixer": {"ii": 1.0, "iq": 0.0, "qi": 0.0, "qq": 1.0},
+                }
+            ],
+            "entries": [
+                {
+                    "sample_count": 4,
+                    "template_uses": [{"template_id": "drive", "phase_radians": 0.0}],
+                }
+            ],
+        },
+    )
+    decoded = cast(
+        "DecodedPhaseSynthesizedAwgProgram",
+        codecs.decode_content(
+            cast("PayloadDescriptor", cast("object", encoded)),
+            encoded.content,
+        ),
+    )
+
+    with pytest.raises(ValueError, match=r"device limit is 0\.5"):
+        decoded.materialize()
 
 
 def test_virtual_capture_codec_keeps_samples_in_float64_binary() -> None:

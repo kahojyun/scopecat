@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 
 SAMPLED_WAVEFORM_SCHEMA_ID = "sampled_waveform"
-AWG_PROGRAM_SCHEMA_ID = "reference_lab.awg_program.v3"
+AWG_PROGRAM_SCHEMA_ID = "reference_lab.awg_program.v4"
 DIGITIZER_PROGRAM_SCHEMA_ID = "reference_lab.digitizer_program.v1"
 TRIGGER_PROGRAM_SCHEMA_ID = "reference_lab.trigger_program.v1"
 
@@ -38,6 +38,7 @@ class DecodedAwgEntry:
 class DecodedMaterializedAwgProgram:
     """Ordinary per-entry DAC buffers ready for an AWG driver."""
 
+    max_abs_amplitude: float
     entries: tuple[DecodedAwgEntry, ...]
 
 
@@ -68,17 +69,21 @@ class DecodedPhaseSynthesizedAwgEntry:
 class DecodedPhaseSynthesizedAwgProgram:
     """Compact phase rows that must become ordinary buffers before upload."""
 
+    max_abs_amplitude: float
     templates: tuple[DecodedAwgPhaseTemplate, ...]
     entries: tuple[DecodedPhaseSynthesizedAwgEntry, ...]
 
     def materialize(self) -> DecodedMaterializedAwgProgram:
         templates = {template.id: template for template in self.templates}
-        return DecodedMaterializedAwgProgram(
+        materialized = DecodedMaterializedAwgProgram(
+            max_abs_amplitude=self.max_abs_amplitude,
             entries=tuple(
                 _materialize_phase_entry(entry, templates=templates)
                 for entry in self.entries
-            )
+            ),
         )
+        _validate_awg_amplitudes(materialized)
+        return materialized
 
 
 type DecodedAwgProgram = (
@@ -91,11 +96,10 @@ def materialize_awg_program(
 ) -> DecodedMaterializedAwgProgram:
     """Cross the simple-AWG boundary with contiguous physical buffers."""
 
-    return (
-        program.materialize()
-        if isinstance(program, DecodedPhaseSynthesizedAwgProgram)
-        else program
-    )
+    if isinstance(program, DecodedPhaseSynthesizedAwgProgram):
+        return program.materialize()
+    _validate_awg_amplitudes(program)
+    return program
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,7 +210,7 @@ def reference_lab_payload_codecs() -> PayloadCodecRegistry:
             VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID: virtual_capture_queue_codec(),
             AWG_PROGRAM_SCHEMA_ID: PayloadCodec(
                 id="reference_lab.awg-program-float64",
-                version=3,
+                version=4,
                 media_type="application/vnd.scopecat.awg-program+float64",
                 encoder=_encode_awg_program,
                 decoder=_decode_awg_program,
@@ -252,6 +256,7 @@ def _encode_awg_program(value: object) -> bytes:
             encoded_entries.append({"waveforms": encoded_waveforms})
         header_document: dict[str, object] = {
             "kind": kind,
+            "max_abs_amplitude": document["max_abs_amplitude"],
             "entries": encoded_entries,
         }
     elif kind == "phase_synthesized":
@@ -276,6 +281,7 @@ def _encode_awg_program(value: object) -> bytes:
             )
         header_document = {
             "kind": kind,
+            "max_abs_amplitude": document["max_abs_amplitude"],
             "templates": encoded_templates,
             "entries": document["entries"],
         }
@@ -331,7 +337,10 @@ def _decode_awg_program(content: bytes) -> object:
                 waveforms=tuple(waveforms),
             )
         )
-    return DecodedMaterializedAwgProgram(entries=tuple(entries))
+    return DecodedMaterializedAwgProgram(
+        max_abs_amplitude=cast("float", document["max_abs_amplitude"]),
+        entries=tuple(entries),
+    )
 
 
 def _decode_phase_synthesized_awg_program(
@@ -370,6 +379,7 @@ def _decode_phase_synthesized_awg_program(
             )
         )
     return DecodedPhaseSynthesizedAwgProgram(
+        max_abs_amplitude=cast("float", document["max_abs_amplitude"]),
         templates=tuple(templates),
         entries=tuple(
             DecodedPhaseSynthesizedAwgEntry(
@@ -429,6 +439,22 @@ def _materialize_phase_entry(
             for component_path, samples in sorted(buffers.items())
         )
     )
+
+
+def _validate_awg_amplitudes(program: DecodedMaterializedAwgProgram) -> None:
+    for entry_index, entry in enumerate(program.entries):
+        for waveform in entry.waveforms:
+            peak = (
+                float(cast("np.float64", np.max(np.abs(waveform.samples))))
+                if waveform.samples.size
+                else 0.0
+            )
+            if peak > program.max_abs_amplitude:
+                component = "/".join(waveform.component_path)
+                raise ValueError(
+                    f"AWG entry {entry_index} waveform {component!r} has magnitude "
+                    f"{peak!r}; device limit is {program.max_abs_amplitude!r}"
+                )
 
 
 def _encode_digitizer_program(value: object) -> bytes:

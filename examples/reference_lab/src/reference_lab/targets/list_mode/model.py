@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass, field
-from typing import Literal, override
+from typing import Literal, cast, override
 
 import numpy as np
 from numpy.typing import NDArray
@@ -602,6 +602,7 @@ class MaterializedAwgProgram:
     """List rows already rendered into physical DAC buffers."""
 
     instrument_id: str
+    max_abs_amplitude: float
     entries: tuple[MaterializedAwgProgramEntry, ...]
 
 
@@ -619,6 +620,7 @@ class PhaseSynthesizedAwgProgram:
     """Shared quadrature bases plus phase rows for an ordinary AWG program."""
 
     instrument_id: str
+    max_abs_amplitude: float
     templates: tuple[AwgPhaseTemplate, ...]
     entries: tuple[PhaseSynthesizedAwgProgramEntry, ...]
 
@@ -668,6 +670,7 @@ class ListModeArtifact:
     repetitions: int
     sample_rate_hz: int
     waveform_semantics_id: str
+    max_abs_amplitude: float
     timing_quantization: TimingQuantizationMode
     preparation: ListModePreparation
     host_state_requirements: ListModeHostStateRequirements
@@ -727,6 +730,7 @@ class ListModeArtifact:
             return tuple(
                 PhaseSynthesizedAwgProgram(
                     instrument_id=instrument_id,
+                    max_abs_amplitude=self.max_abs_amplitude,
                     templates=tuple(
                         template
                         for template in self.phase_templates
@@ -753,6 +757,7 @@ class ListModeArtifact:
         return tuple(
             MaterializedAwgProgram(
                 instrument_id=instrument_id,
+                max_abs_amplitude=self.max_abs_amplitude,
                 entries=tuple(
                     MaterializedAwgProgramEntry(
                         entry_id=entry.entry_id,
@@ -807,10 +812,22 @@ class ListModeArtifact:
                 buffer[selected] += cosine * (
                     mixer_i * logical_i + mixer_q * logical_q
                 ) + sine * (-mixer_i * logical_q + mixer_q * logical_i)
-        return tuple(
+        waveforms = tuple(
             AwgChannelWaveform(channel_id=channel_id, samples=samples)
             for channel_id, samples in sorted(buffers.items())
         )
+        for waveform in waveforms:
+            peak = (
+                float(cast("np.float64", np.max(np.abs(waveform.samples))))
+                if waveform.samples.size
+                else 0.0
+            )
+            if peak > self.max_abs_amplitude:
+                raise ValueError(
+                    f"waveform on channel {waveform.channel_id.value!r} has magnitude "
+                    f"{peak!r}; target limit is {self.max_abs_amplitude!r}"
+                )
+        return waveforms
 
     def materialized_waveform_bytes(self, entry: ListModeEntry) -> int:
         """Return physical DAC memory required for one list entry."""

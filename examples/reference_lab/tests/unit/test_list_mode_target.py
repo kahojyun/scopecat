@@ -53,6 +53,11 @@ from scopecat_quantum.targets import (
     TargetCompileEntry,
     TargetCompileRequest,
 )
+from scopecat_quantum.waveforms import (
+    Float64ReferenceRenderer,
+    RenderedWaveforms,
+    SampledWaveformPlan,
+)
 
 from reference_lab.configuration import bootstrap_config
 from reference_lab.physical_policies import (
@@ -763,8 +768,21 @@ def test_list_mode_applies_shift_phase_before_playback() -> None:
     )
 
 
-def test_list_mode_factors_phase_sweeps_without_changing_awg_buffers() -> None:
+def test_list_mode_factors_phase_sweeps_without_per_point_rendering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     target = _target()
+    rendered_plans: list[SampledWaveformPlan] = []
+    render = Float64ReferenceRenderer.render
+
+    def record_render(
+        self: Float64ReferenceRenderer,
+        plan: SampledWaveformPlan,
+    ) -> RenderedWaveforms:
+        rendered_plans.append(plan)
+        return render(self, plan)
+
+    monkeypatch.setattr(Float64ReferenceRenderer, "render", record_render)
 
     def phase_program(program_id: str, phase: float) -> ScheduledPulseProgram:
         return schedule(
@@ -797,6 +815,7 @@ def test_list_mode_factors_phase_sweeps_without_changing_awg_buffers() -> None:
 
     assert artifact.phase_templates
     assert all(not entry.waveforms for entry in artifact.entries)
+    assert len(rendered_plans) == 1
     for index, program in enumerate(programs):
         concrete_compiler, concrete_request = _request(
             target,
@@ -821,6 +840,45 @@ def test_list_mode_factors_phase_sweeps_without_changing_awg_buffers() -> None:
         assert artifact.materialized_waveform_bytes(artifact.entries[index]) == sum(
             waveform.samples.nbytes for waveform in concrete.entries[0].waveforms
         )
+
+
+def test_list_mode_defers_compact_sweep_amplitude_check_until_materialization() -> None:
+    target = replace(_target(), max_abs_amplitude=0.1)
+
+    def phase_program(program_id: str, phase: float) -> ScheduledPulseProgram:
+        return schedule(
+            PulseProgram(
+                id=PulseProgramId(program_id),
+                body=PulseSequence(
+                    (
+                        ShiftPhase(
+                            PulseEventId("shift"),
+                            DRIVE_Q0,
+                            Quantity(phase, "rad"),
+                        ),
+                        Play(
+                            PulseEventId("play"),
+                            DRIVE_Q0,
+                            Constant(Quantity(2, "ns"), Quantity(0.25, "arb")),
+                        ),
+                    )
+                ),
+            )
+        )
+
+    compiler, request = _request(
+        target,
+        (
+            phase_program("phase-zero", 0.0),
+            phase_program("phase-quarter", math.pi / 2),
+        ),
+        repetitions=1,
+    )
+
+    artifact = compiler.compile(request)
+
+    with pytest.raises(ValueError, match=r"target limit is 0\.1"):
+        artifact.entry_waveforms(artifact.entries[0])
 
 
 def test_list_mode_checks_final_peak_after_readout_accumulation() -> None:
