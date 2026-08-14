@@ -104,6 +104,8 @@ class ExperimentDef:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ExperimentInvocation(Generic[_ExperimentResultT_co]):
+    """One invocation with typed authored output and its durable record projection."""
+
     definition: ExperimentDef
     input_overrides: Mapping[str, RuntimeInput] = field(
         default_factory=empty_program_mapping
@@ -114,6 +116,12 @@ class ExperimentInvocation(Generic[_ExperimentResultT_co]):
         repr=False,
     )
     output: _ExperimentResultT_co = field(
+        kw_only=True,
+        repr=False,
+        compare=False,
+    )
+    recorded_output: object | None = field(
+        default=None,
         kw_only=True,
         repr=False,
         compare=False,

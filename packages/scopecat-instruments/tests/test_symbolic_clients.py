@@ -515,9 +515,10 @@ def test_returned_group_bundle_records_one_variable_per_field() -> None:
     assert all(selection.axis.id == "logical_device" for selection in grouped)
     assert all(selection.axis.values == (q0, q1) for selection in grouped)
     assert {selection.recording_group_id for selection in grouped} == {"result"}
-    assert isinstance(invocation.output, RecordedProducts)
-    frequency = invocation.output.frequency
-    signal = invocation.output.s_parameter
+    assert isinstance(invocation.output, PerEntity)
+    assert isinstance(invocation.recorded_output, RecordedProducts)
+    frequency = invocation.recorded_output.frequency
+    signal = invocation.recorded_output.s_parameter
     assert isinstance(frequency, RecordRef)
     assert isinstance(signal, RecordRef)
     assert frequency.dims[0:2] == ("point", "logical_device")

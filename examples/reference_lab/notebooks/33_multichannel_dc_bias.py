@@ -12,6 +12,7 @@ from reference_lab.notebook import show
 from reference_lab.workflows.multichannel_bias import (
     MULTICHANNEL_DC_BIAS,
     OPERATE_PROFILE,
+    MultiChannelBiasDataset,
 )
 
 # %%
@@ -31,9 +32,13 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
         for entity, record in MULTICHANNEL_DC_BIAS.output.physical_bias.items()
     }
     entities = tuple(MULTICHANNEL_DC_BIAS.output.physical_bias)
+    recorded_output = cast(
+        "MultiChannelBiasDataset",
+        cast("object", MULTICHANNEL_DC_BIAS.recorded_output),
+    )
     readback_records = cast(
         "sc.RecordedProducts",
-        cast("object", MULTICHANNEL_DC_BIAS.output.readback),
+        cast("object", recorded_output.readback),
     )
     actual_voltage = cast("sc.RecordRef", readback_records.actual_voltage)
     settled_record = cast("sc.RecordRef", readback_records.settled)

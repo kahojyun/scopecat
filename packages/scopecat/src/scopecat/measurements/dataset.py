@@ -84,6 +84,7 @@ type SelectionMethod = Literal["exact", "nearest"]
 type XarrayLayout = Literal["points", "grid"]
 type XarrayNonNullFill = bool | int | float | complex | str
 type XarrayFill = XarrayNonNullFill | None
+type MeasurementArrayLayout = Literal["dense", "ragged"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +194,129 @@ class PointMask(Sequence[bool]):
             raise ValueError("cannot combine point masks from different dataset views")
 
 
+@dataclass(frozen=True, slots=True)
+class LabeledMeasurementArray:
+    """Native labeled values with explicit dense or observation layout."""
+
+    _data: xr.DataArray = field(repr=False)
+    _valid: xr.DataArray = field(repr=False)
+    _unavailable_reasons: xr.DataArray = field(repr=False)
+    layout: MeasurementArrayLayout
+    declared_dims: tuple[str, ...]
+    dtype: MeasurementDType
+    unit: str | None
+
+    @property
+    def id(self) -> str:
+        return cast("str", self._data.name)
+
+    @property
+    def dims(self) -> tuple[str, ...]:
+        return cast("tuple[str, ...]", tuple(self._data.dims))
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return tuple(self._data.shape)
+
+    @property
+    def coords(self) -> Mapping[str, NDArray[np.generic]]:
+        return MappingProxyType(
+            {
+                cast("str", name): _read_only_array(coordinate.values)
+                for name, coordinate in self._data.coords.items()
+            }
+        )
+
+    @property
+    def values(self) -> NDArray[np.generic]:
+        return _read_only_array(self._data.values)
+
+    @property
+    def valid(self) -> NDArray[np.bool_]:
+        return cast("NDArray[np.bool_]", _read_only_array(self._valid.values))
+
+    @property
+    def unavailable_reasons(self) -> NDArray[np.object_]:
+        selected = np.asarray(
+            self._unavailable_reasons.values,
+            dtype=np.object_,
+        ).copy(order="C")
+        for index in np.ndindex(selected.shape):
+            selected_item = cast("object", selected[index])
+            if isinstance(selected_item, float | np.floating) and math.isnan(
+                float(selected_item)
+            ):
+                selected[index] = None
+        selected.flags.writeable = False
+        return selected
+
+    @property
+    def xarray(self) -> xr.DataArray:
+        return self._data.copy(deep=True)
+
+    def isel(self, **indexers: DimensionIndexer) -> LabeledMeasurementArray:
+        """Select by representation dimension without dropping labels."""
+
+        return self._selected("isel", indexers)
+
+    def sel(self, **indexers: object) -> LabeledMeasurementArray:
+        """Select by coordinate label without dropping labels."""
+
+        return self._selected("sel", indexers)
+
+    def to(self, unit: str) -> LabeledMeasurementArray:
+        """Convert one numeric unit-bearing array while preserving diagnostics."""
+
+        if self.unit is None or self.dtype not in {"int64", "float64", "complex128"}:
+            raise TypeError(
+                f"labeled array {self.id!r} must be numeric and unit-bearing"
+            )
+        scale = Quantity(1.0, self.unit).to(unit).value
+        converted = (
+            self._data.astype(
+                np.complex128 if self.dtype == "complex128" else np.float64
+            )
+            * scale
+        )
+        converted.attrs = {**self._data.attrs, "units": unit}
+        return type(self)(
+            _data=converted,
+            _valid=self._valid,
+            _unavailable_reasons=self._unavailable_reasons,
+            layout=self.layout,
+            declared_dims=self.declared_dims,
+            dtype="complex128" if self.dtype == "complex128" else "float64",
+            unit=unit,
+        )
+
+    def _selected(
+        self,
+        method: Literal["isel", "sel"],
+        indexers: Mapping[str, object],
+    ) -> LabeledMeasurementArray:
+        selected_data = cast(
+            "xr.DataArray",
+            getattr(self._data, method)(indexers, drop=False),
+        )
+        selected_valid = cast(
+            "xr.DataArray",
+            getattr(self._valid, method)(indexers, drop=False),
+        )
+        selected_reasons = cast(
+            "xr.DataArray",
+            getattr(self._unavailable_reasons, method)(indexers, drop=False),
+        )
+        return type(self)(
+            _data=selected_data,
+            _valid=selected_valid,
+            _unavailable_reasons=selected_reasons,
+            layout=self.layout,
+            declared_dims=self.declared_dims,
+            dtype=self.dtype,
+            unit=self.unit,
+        )
+
+
 class Variable[T = NativeAvailableValue]:
     """One labeled coordinate or observable aligned to a :class:`Dataset`."""
 
@@ -249,6 +373,34 @@ class Variable[T = NativeAvailableValue]:
         """Return an independent Xarray copy of this variable."""
 
         return self._dataset._loaded_xarray[self.id].copy(deep=True)
+
+    @property
+    def layout(self) -> MeasurementArrayLayout:
+        return "ragged" if _variable_is_ragged(self) else "dense"
+
+    @property
+    def labeled(self) -> LabeledMeasurementArray:
+        """Return native labels, validity, reasons, and representation layout."""
+
+        return _labeled_measurement_array(self)
+
+    @property
+    def dense(self) -> LabeledMeasurementArray:
+        """Return the dense labeled representation, rejecting ragged variables."""
+
+        if self.layout != "dense":
+            raise ValueError(
+                f"variable {self.id!r} is ragged; use observations instead"
+            )
+        return self.labeled
+
+    @property
+    def observations(self) -> LabeledMeasurementArray:
+        """Return the indexed-observation representation for a ragged variable."""
+
+        if self.layout != "ragged":
+            raise ValueError(f"variable {self.id!r} is dense; use dense instead")
+        return self.labeled
 
     @property
     def raw_values(self) -> tuple[MeasurementValue, ...]:
@@ -3024,8 +3176,57 @@ def _xarray_fixed_availability(
     return np.stack(valid_chunks, axis=0), np.stack(reason_chunks, axis=0)
 
 
-def _variable_is_ragged(variable: Variable) -> bool:
+def _variable_is_ragged(variable: Variable[object]) -> bool:
     return any(extent is None for extent in variable.shape[1:])
+
+
+def _labeled_measurement_array(variable: Variable[object]) -> LabeledMeasurementArray:
+    dataset = variable._dataset._loaded_xarray
+    data = dataset[variable.id].copy(deep=True)
+    layout: MeasurementArrayLayout = variable.layout
+    valid_name = (
+        _ragged_valid_name(variable.id)
+        if layout == "ragged"
+        else _valid_name(variable.id)
+    )
+    reason_name = (
+        _ragged_unavailable_reason_name(variable.id)
+        if layout == "ragged"
+        else _unavailable_reason_name(variable.id)
+    )
+    valid = (
+        dataset[valid_name].copy(deep=True)
+        if valid_name in dataset
+        else xr.DataArray(
+            np.ones(data.shape, dtype=np.bool_),
+            dims=data.dims,
+            coords=data.coords,
+        )
+    )
+    unavailable_reasons = (
+        dataset[reason_name].copy(deep=True)
+        if reason_name in dataset
+        else xr.DataArray(
+            np.full(data.shape, None, dtype=np.object_),
+            dims=data.dims,
+            coords=data.coords,
+        )
+    )
+    return LabeledMeasurementArray(
+        _data=data,
+        _valid=valid,
+        _unavailable_reasons=unavailable_reasons,
+        layout=layout,
+        declared_dims=variable.dims,
+        dtype=variable.dtype,
+        unit=variable.unit,
+    )
+
+
+def _read_only_array(value: object) -> NDArray[np.generic]:
+    selected = np.asarray(value).copy(order="C")
+    selected.flags.writeable = False
+    return selected
 
 
 def _xarray_ragged_values(

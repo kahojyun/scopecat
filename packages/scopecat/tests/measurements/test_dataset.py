@@ -19,7 +19,13 @@ import xarray as xr
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.datasets import select_measurement_schema
-from scopecat.measurements.results import Dataset, PointMask, ProjectionSchema, Variable
+from scopecat.measurements.results import (
+    Dataset,
+    LabeledMeasurementArray,
+    PointMask,
+    ProjectionSchema,
+    Variable,
+)
 from scopecat.program.measurement_types import MeasurementArrayData, MeasurementDType
 from scopecat.program.products import ModuleProductDecl, ProductRef, ProductValueSpec
 from scopecat.program.record_refs import RecordRef
@@ -68,6 +74,20 @@ def test_dataset_exposes_labeled_variables_and_raw_records() -> None:
     assert isinstance(dataset["bias"], Variable)
     assert dataset["bias"].values == (0.0, 1.0, 2.0)
     assert dataset["bias"].shape == (3,)
+
+    bias = dataset["bias"].dense
+    assert isinstance(bias, LabeledMeasurementArray)
+    assert bias.layout == "dense"
+    assert bias.declared_dims == ("point",)
+    assert bias.dims == ("point",)
+    assert bias.valid.tolist() == [True, True, True]
+    assert bias.to("mV").values.tolist() == [0.0, 1000.0, 2000.0]
+    assert bias.isel(point=slice(1, None)).values.tolist() == [1.0, 2.0]
+    temperature = dataset["temperature"].dense
+    assert temperature.valid.tolist() == [True, False, True]
+    assert temperature.unavailable_reasons.tolist() == [None, "invalid", None]
+    with pytest.raises(ValueError, match="is dense"):
+        _ = dataset["bias"].observations
     assert dataset["frequency"].shape == (3, 2)
     frequency = dataset["frequency"][1]
     signal = dataset["signal"][0]
@@ -1198,6 +1218,17 @@ def test_ragged_dataset_exports_indexed_xarray_observations() -> None:
         True,
         True,
     ]
+
+    signal = dataset["signal"].observations
+    assert signal.layout == "ragged"
+    assert signal.declared_dims == ("point", "sample")
+    assert signal.dims == (observation,)
+    assert signal.shape == (6,)
+    assert signal.valid.tolist() == [True] * 6
+    assert "readout__sample__parent_point_index" in signal.coords
+    assert signal.isel(**{observation: slice(2, 4)}).shape == (2,)
+    with pytest.raises(ValueError, match="is ragged"):
+        _ = dataset["signal"].dense
 
     native_point_subset = xarray_dataset.isel(point=[1])
     assert native_point_subset.sizes[observation] == 6

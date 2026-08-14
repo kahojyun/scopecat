@@ -39,11 +39,12 @@ and one `s_parameter` variable. Their shape begins with
 ordered `(kind, id)` identities and the product source corresponding to each
 position.
 
-The experiment invocation exposes each grouped field as an array-valued
-`RecordRef`, so the authored result and stored Dataset have the same shape.
-`PerEntity` remains the identity-join abstraction used while routing control;
-the experiment return boundary is what turns homogeneous product mappings into
-data axes. Heterogeneous mappings continue to expand as structured result paths.
+`invocation.output` preserves the experiment function's authored return type,
+including `PerEntity` identity mappings. `invocation.recorded_output` exposes
+the transformed durable tree, where each homogeneous grouped field is an
+array-valued `RecordRef`. This keeps static authoring types honest while the
+recording boundary turns homogeneous product mappings into data axes.
+Heterogeneous mappings continue to expand as structured result paths.
 When a grouped value is not part of the return tree, select the same layout
 explicitly with
 `experiment.stack_entities(products, record_id="readout", axis="qubit")`.
@@ -146,10 +147,12 @@ complete = result.where_available(result.output.temperature)
 rows = complete.rows(build_fit_row)
 ```
 
-`run.result(authored_output)` binds the original typed handles. `run.result()`
-uses persisted result paths and does not rebuild the experiment. Both expose
-the same dataset as `.dataset`; use `run.measurements()` directly when work
-starts from dataset variables instead of the experiment's return tree.
+`run.result(authored_output)` binds original typed handles when recording keeps
+the same tree shape. If automatic entity stacking transformed the return tree,
+pass `invocation.recorded_output` or use `run.result()` and its persisted result
+paths. The latter does not rebuild the experiment. All variants expose the same
+dataset as `.dataset`; use `run.measurements()` directly when work starts from
+dataset variables instead of the experiment's return tree.
 
 Analysis receives this same facade through `context.measurements()`. Accessing
 it records the exact measurement snapshot dependency. Run artifacts and JSON
@@ -261,7 +264,30 @@ the currently durable point count, so later appends belong to a later reader.
 This is a finite snapshot, not a live subscription. Live cursors, checkpoints,
 retries, and finalization belong to a future workflow streaming contract.
 
-### Use the native Xarray view
+### Use native labeled arrays
+
+Each variable exposes values, labels, validity, failure reasons, and units
+through one Scopecat-owned facade:
+
+```python
+temperature = data["temperature"].dense
+assert temperature.layout == "dense"
+valid_temperature = temperature.values[temperature.valid]
+temperature_mk = temperature.to("mK")
+
+waveform = data["waveform"].observations
+assert waveform.layout == "ragged"
+assert waveform.declared_dims == ("point", "sample")
+parent_points = waveform.coords["readout__sample__parent_point_index"]
+```
+
+`Variable.labeled` works for either layout. `Variable.dense` rejects ragged
+data, while `Variable.observations` rejects dense data, so code cannot silently
+confuse a rectangular tensor with a flattened indexed-observation stream.
+`LabeledMeasurementArray.isel(...)` and `.sel(...)` keep labels and diagnostics
+aligned. Its NumPy values, validity mask, reasons, and coordinates are read-only.
+
+### Use the Xarray view
 
 `Dataset.to_xarray()` preserves Scopecat's labeled point-domain and ragged
 layout without crossing the tabular projection boundary:

@@ -1315,7 +1315,7 @@ def _experiment_from_function[ResultT, **P](
     selected_metadata = dict(freeze_json_mapping(selected_metadata))
     selected_id = id or source.__name__
     selected_kind = kind or source.__name__
-    cached_build: tuple[ExperimentDef, ResultT] | None = None
+    cached_build: tuple[ExperimentDef, ResultT, object] | None = None
 
     def build(arguments: Mapping[str, object]) -> ExperimentInvocation[ResultT]:
         nonlocal cached_build
@@ -1341,7 +1341,7 @@ def _experiment_from_function[ResultT, **P](
         if built is None:
             context = ExperimentContext()
             output = cast("ResultT", source(context, **values))
-            output = cast("ResultT", _record_experiment_output(context, output))
+            recorded_output = _record_experiment_output(context, output)
             definition = context.close_definition_internal(
                 id=selected_id,
                 kind=selected_kind,
@@ -1354,9 +1354,9 @@ def _experiment_from_function[ResultT, **P](
                 required_inputs=tuple(required_inputs),
             )
             if not contract.structural_names:
-                cached_build = (definition, output)
+                cached_build = (definition, output, recorded_output)
         else:
-            definition, output = built
+            definition, output, recorded_output = built
         captured_inputs = capture_experiment_inputs(runtime_inputs)
         validate_experiment_inputs(
             definitions=definition.inputs,
@@ -1367,6 +1367,7 @@ def _experiment_from_function[ResultT, **P](
             input_overrides=captured_inputs,
             point_plan_override=None,
             output=output,
+            recorded_output=recorded_output,
         )
 
     authored = Experiment(
