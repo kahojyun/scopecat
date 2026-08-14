@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
@@ -20,12 +21,33 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 
 type MeasurementVariableRole = Literal["coordinate", "observable"]
 type MeasurementDType = ValueDType
+type EntityAcquisitionPolicy = Literal[
+    "independent",
+    "best_effort",
+    "all_or_nothing",
+]
 type MeasurementArrayElement = (
     np.bool_ | np.int64 | np.float64 | np.complex128 | np.str_
 )
 type MeasurementArrayData = NDArray[MeasurementArrayElement]
 type NativeMeasurementScalar = bool | int | float | complex | str
 type NativeMeasurementValue = NativeMeasurementScalar | MeasurementArrayData
+
+
+@dataclass(frozen=True, slots=True)
+class EntityAcquisitionSemantics:
+    """Execution semantics distinct from one record's entity-array layout."""
+
+    policy: EntityAcquisitionPolicy = "independent"
+    cohort_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.policy == "independent":
+            if self.cohort_id is not None:
+                raise ValueError("independent entity acquisition has no cohort id")
+            return
+        if not self.cohort_id:
+            raise ValueError(f"{self.policy} entity acquisition requires a cohort id")
 
 
 def measurement_value_spec_from_scalar(
@@ -48,6 +70,8 @@ def measurement_value_spec_from_scalar(
 
 
 __all__ = [
+    "EntityAcquisitionPolicy",
+    "EntityAcquisitionSemantics",
     "MeasurementArrayData",
     "MeasurementArrayElement",
     "MeasurementDType",

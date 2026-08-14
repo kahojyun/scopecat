@@ -19,6 +19,7 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Scalar
 from scopecat.program.input_capture import capture_runtime_input, empty_program_mapping
 from scopecat.program.measurement_types import (
+    EntityAcquisitionSemantics,
     MeasurementDType,
     MeasurementVariableRole,
     NativeMeasurementScalar,
@@ -373,6 +374,9 @@ class EntityRecordSelection:
     members: tuple[EntityRecordMemberSelection, ...]
     role: MeasurementVariableRole = "observable"
     recording_group_id: str | None = None
+    acquisition: EntityAcquisitionSemantics = field(
+        default_factory=EntityAcquisitionSemantics
+    )
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
     def __post_init__(self) -> None:

@@ -69,6 +69,10 @@ from scopecat.kernel.resource_identity import (
     ResourceRoleSelector,
     resource_role,
 )
+from scopecat.program.measurement_types import (
+    EntityAcquisitionPolicy,
+    EntityAcquisitionSemantics,
+)
 from scopecat.program.products import (
     EntityAxisDef,
     ProductRef,
@@ -139,6 +143,8 @@ __all__ = [
     "CoordinateRef",
     "DataRef",
     "EachEntity",
+    "EntityAcquisitionPolicy",
+    "EntityAcquisitionSemantics",
     "EntityAxisDef",
     "EntityInput",
     "EntitySelection",

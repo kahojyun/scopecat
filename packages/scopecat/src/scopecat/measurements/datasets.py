@@ -11,7 +11,7 @@ from scopecat.records.measurement import (
 )
 
 MEASUREMENT_DATASET_KIND = "measurement_dataset"
-MEASUREMENT_DATASET_CODEC = "scopecat.measurement-dataset.v10"
+MEASUREMENT_DATASET_CODEC = "scopecat.measurement-dataset.v11"
 RAW_MEASUREMENTS_DATASET_ID = "raw-measurements"
 MAX_MEASUREMENT_PAGE_SIZE = 500
 MAX_MEASUREMENT_SLICE_SIZE = 4096

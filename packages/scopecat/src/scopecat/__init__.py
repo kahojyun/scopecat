@@ -57,6 +57,8 @@ if TYPE_CHECKING:
         CoordinateRef,
         DataRef,
         EachEntity,
+        EntityAcquisitionPolicy,
+        EntityAcquisitionSemantics,
         EntityAxisDef,
         EntityType,
         Experiment,
@@ -164,6 +166,14 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "DerivedDatasetSchema",
     ),
     "EachEntity": ("scopecat.authoring", "EachEntity"),
+    "EntityAcquisitionPolicy": (
+        "scopecat.authoring",
+        "EntityAcquisitionPolicy",
+    ),
+    "EntityAcquisitionSemantics": (
+        "scopecat.authoring",
+        "EntityAcquisitionSemantics",
+    ),
     "EntityAxisDef": ("scopecat.authoring", "EntityAxisDef"),
     "EntityType": ("scopecat.authoring", "EntityType"),
     "Experiment": ("scopecat.authoring", "Experiment"),

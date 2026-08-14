@@ -1911,6 +1911,7 @@ export interface components {
          * @description Acquisition evidence aligned to one entity-indexed variable.
          */
         EntityAcquisitionEvidence: {
+            acquisition?: components["schemas"]["MeasurementEntityAcquisition"];
             dimension_id: components["schemas"]["_NonEmptyText"];
             /**
              * Kind
@@ -1921,6 +1922,8 @@ export interface components {
             /** Values */
             values: (components["schemas"]["InstrumentAcquisitionEvidence"] | null)[];
         };
+        /** @enum {string} */
+        EntityAcquisitionPolicy: "independent" | "best_effort" | "all_or_nothing";
         /**
          * EntityRef
          * @description Reference to a domain entity without making the domain core vocabulary.
@@ -2488,7 +2491,7 @@ export interface components {
         };
         /**
          * MeasurementArrayAvailability
-         * @description Partial array validity with sparse, reason-qualified unavailable leaves.
+         * @description Array validity with sparse, reason-qualified unavailable leaves.
          */
         MeasurementArrayAvailability: {
             /** Unavailable */
@@ -2539,10 +2542,10 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension-Output"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v11
+             * @default scopecat.measurement_dataset_schema.v12
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v11";
+            format_version: "scopecat.measurement_dataset_schema.v12";
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
             point_domain: components["schemas"]["MeasurementPointDomain-Output"];
             /** Primary Coordinates */
@@ -2551,10 +2554,10 @@ export interface components {
             primary_observables?: string[];
             /**
              * Record Schema
-             * @default scopecat.measurement_record.v5
+             * @default scopecat.measurement_record.v6
              * @constant
              */
-            record_schema: "scopecat.measurement_record.v5";
+            record_schema: "scopecat.measurement_record.v6";
             result?: components["schemas"]["MeasurementResultContract"] | null;
             /** Variables */
             variables?: components["schemas"]["MeasurementVariable-Output"][];
@@ -2577,6 +2580,15 @@ export interface components {
         };
         /** @enum {string} */
         MeasurementDType: "float64" | "int64" | "complex128" | "bool" | "string";
+        /**
+         * MeasurementEntityAcquisition
+         * @description Declared execution semantics for one entity-indexed variable.
+         */
+        MeasurementEntityAcquisition: {
+            cohort_id?: components["schemas"]["_NonEmptyText"] | null;
+            /** @default independent */
+            policy: components["schemas"]["EntityAcquisitionPolicy"];
+        };
         /**
          * MeasurementEntityIndex
          * @description Ordered durable entity labels for one fixed measurement dimension.
@@ -2950,6 +2962,7 @@ export interface components {
             /** Dims */
             dims: string[];
             dtype: components["schemas"]["MeasurementDType"];
+            entity_acquisition?: components["schemas"]["MeasurementEntityAcquisition"] | null;
             /** Id */
             id: string;
             /** Label */

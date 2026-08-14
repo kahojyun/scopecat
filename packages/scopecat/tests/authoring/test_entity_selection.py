@@ -192,10 +192,20 @@ def test_experiment_can_explicitly_stack_entity_products() -> None:
         )
     )
 
-    record = context.stack_entities(products, record_id="signal", axis="qubit")
+    record = context.stack_entities(
+        products,
+        record_id="signal",
+        axis="qubit",
+        acquisition_policy="best_effort",
+        cohort_id="readout-batch",
+    )
 
     assert record.dims == ("point", "qubit")
     assert record.source_product_ids == ("q1/signal", "q0/signal")
+    assert record.entity_acquisition == sc.EntityAcquisitionSemantics(
+        policy="best_effort",
+        cohort_id="readout-batch",
+    )
     definition = context.close_definition_internal(
         id="test.entity-stack",
         kind="test",
@@ -208,6 +218,7 @@ def test_experiment_can_explicitly_stack_entity_products() -> None:
     assert selection.record_id == "signal"
     assert selection.axis.id == "qubit"
     assert selection.axis.values == (q1, q0)
+    assert selection.acquisition == record.entity_acquisition
     assert [member.entity for member in selection.members] == [q1, q0]
 
 

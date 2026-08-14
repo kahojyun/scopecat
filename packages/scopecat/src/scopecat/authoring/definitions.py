@@ -74,6 +74,8 @@ from scopecat.program.definitions import (
 from scopecat.program.domain import DomainCall
 from scopecat.program.measurement_contracts import SingleMeasurementComputeKernel
 from scopecat.program.measurement_types import (
+    EntityAcquisitionPolicy,
+    EntityAcquisitionSemantics,
     MeasurementArrayData,
     MeasurementDType,
     MeasurementVariableRole,
@@ -940,6 +942,8 @@ class ExperimentContext:
         record_id: str,
         axis: str | EntityAxisDef | None = None,
         role: MeasurementVariableRole | None = None,
+        acquisition_policy: EntityAcquisitionPolicy = "independent",
+        cohort_id: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> RecordRef[MeasurementArrayData]:
         """Record homogeneous entity products as one indexed array variable."""
@@ -954,6 +958,10 @@ class ExperimentContext:
             record_id=record_id,
             axis=axis,
             role=role,
+            acquisition=EntityAcquisitionSemantics(
+                policy=acquisition_policy,
+                cohort_id=cohort_id,
+            ),
             metadata=metadata,
         )
 
@@ -1671,6 +1679,7 @@ def _record_entity_products_output(
     record_id: str,
     axis: str | EntityAxisDef | None,
     role: MeasurementVariableRole | None,
+    acquisition: EntityAcquisitionSemantics | None = None,
     metadata: Mapping[str, MetadataValue] | None,
 ) -> RecordRef[MeasurementArrayData]:
     entities = tuple(products)
@@ -1729,6 +1738,7 @@ def _record_entity_products_output(
             ),
             role=cast("MeasurementVariableRole", selected_role),
             recording_group_id=recording_group_id,
+            acquisition=acquisition or EntityAcquisitionSemantics(),
             metadata=freeze_json_mapping(metadata or {}),
         )
     )
@@ -1758,6 +1768,7 @@ def _record_entity_products_output(
         role=cast("MeasurementVariableRole", selected_role),
         source_product_ids=tuple(products[entity].id for entity in entities),
         entity_axis_id=selected_axis_id,
+        entity_acquisition=acquisition or EntityAcquisitionSemantics(),
         recording_group_id=recording_group_id,
     )
 

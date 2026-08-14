@@ -2323,6 +2323,14 @@ def _require_record_ref_matches(
                 "product_ids": ref.source_product_ids,
             }
         ),
+        "entity_acquisition": (
+            None
+            if ref.entity_acquisition is None
+            else {
+                "policy": ref.entity_acquisition.policy,
+                "cohort_id": ref.entity_acquisition.cohort_id,
+            }
+        ),
         "source_value_id": ref.source_value_id,
         "recording_group_id": ref.recording_group_id,
     }
@@ -2339,6 +2347,14 @@ def _require_record_ref_matches(
             else {
                 "dimension_id": definition.source_entity_products.dimension_id,
                 "product_ids": tuple(definition.source_entity_products.product_ids),
+            }
+        ),
+        "entity_acquisition": (
+            None
+            if definition.entity_acquisition is None
+            else {
+                "policy": definition.entity_acquisition.policy,
+                "cohort_id": definition.entity_acquisition.cohort_id,
             }
         ),
         "source_value_id": definition.source_value_id,

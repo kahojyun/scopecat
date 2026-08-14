@@ -152,11 +152,14 @@ def test_measurement_array_retains_sparse_partial_availability() -> None:
     ]
 
 
-def test_measurement_array_availability_requires_an_exact_partial_partition() -> None:
+def test_measurement_array_availability_requires_an_exact_incomplete_partition() -> (
+    None
+):
     with pytest.raises(ValueError, match="fully available"):
         MeasurementArrayAvailability.create(valid=[True, True])
-    with pytest.raises(ValueError, match="fully unavailable"):
-        MeasurementArrayAvailability.create(valid=[False, False])
+    fully_unavailable = MeasurementArrayAvailability.create(valid=[False, False])
+    assert fully_unavailable.valid.tolist() == [False, False]
+    assert fully_unavailable.unavailable[0].flat_indices == (0, 1)
     with pytest.raises(ValidationError, match="exactly partition"):
         MeasurementArrayAvailability(
             valid=np.asarray([True, False, False], dtype=np.bool_),

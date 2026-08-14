@@ -37,6 +37,7 @@ from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.numpy_storage import freeze_ndarray
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.measurement_types import (
+    EntityAcquisitionPolicy,
     MeasurementArrayData,
     MeasurementArrayElement,
     MeasurementDType,
@@ -57,8 +58,8 @@ from scopecat.records.measurement_array_schema import (
 )
 from scopecat.records.metadata import MeasurementMetadata
 
-MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v5"
-MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v11"
+MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v6"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v12"
 
 MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
 _MEASUREMENT_ARRAY_CREATE_CONTEXT = object()
@@ -169,6 +170,24 @@ class MeasurementEntityProductSource(_FrozenMeasurementModel):
         return tuple(value)
 
 
+class MeasurementEntityAcquisition(_FrozenMeasurementModel):
+    """Declared execution semantics for one entity-indexed variable."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    policy: EntityAcquisitionPolicy = "independent"
+    cohort_id: _NonEmptyText | None = None
+
+    @model_validator(mode="after")
+    def validate_cohort(self) -> MeasurementEntityAcquisition:
+        if self.policy == "independent":
+            if self.cohort_id is not None:
+                raise ValueError("independent entity acquisition has no cohort id")
+        elif self.cohort_id is None:
+            raise ValueError(f"{self.policy} entity acquisition requires a cohort id")
+        return self
+
+
 class MeasurementVariable(_FrozenMeasurementModel):
     """A point-local variable whose shape is derived from its dimensions."""
 
@@ -182,6 +201,7 @@ class MeasurementVariable(_FrozenMeasurementModel):
     label: str | None = None
     source_product_id: _NonEmptyText | None = None
     source_entity_products: MeasurementEntityProductSource | None = None
+    entity_acquisition: MeasurementEntityAcquisition | None = None
     source_value_id: _NonEmptyText | None = None
     recording_group_id: _NonEmptyText | None = None
     metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
@@ -398,11 +418,11 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    format_version: Literal["scopecat.measurement_dataset_schema.v11"] = (
+    format_version: Literal["scopecat.measurement_dataset_schema.v12"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str = Field(min_length=1)
-    record_schema: Literal["scopecat.measurement_record.v5"] = (
+    record_schema: Literal["scopecat.measurement_record.v6"] = (
         MEASUREMENT_RECORD_SCHEMA_VERSION
     )
     point_domain: MeasurementPointDomain
@@ -534,7 +554,17 @@ def _validate_measurement_variable_source(
         )
     entity_source = variable.source_entity_products
     if entity_source is None:
+        if variable.entity_acquisition is not None:
+            raise ValueError(
+                f"measurement variable {variable.id} entity acquisition requires "
+                "entity product sources"
+            )
         return
+    if variable.entity_acquisition is None:
+        raise ValueError(
+            f"measurement variable {variable.id} entity sources require "
+            "acquisition semantics"
+        )
     dimension = dimension_by_id.get(entity_source.dimension_id)
     if (
         dimension is None
@@ -717,7 +747,7 @@ class MeasurementArrayUnavailableGroup(_FrozenMeasurementModel):
 
 
 class MeasurementArrayAvailability(_FrozenMeasurementModel):
-    """Partial array validity with sparse, reason-qualified unavailable leaves."""
+    """Array validity with sparse, reason-qualified unavailable leaves."""
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
@@ -736,13 +766,11 @@ class MeasurementArrayAvailability(_FrozenMeasurementModel):
         reason: MeasurementUnavailableReason = "missing",
         metadata: Mapping[str, object] | None = None,
     ) -> Self:
-        """Create one partial validity mask with one shared failure reason."""
+        """Create one incomplete validity mask with one shared failure reason."""
 
         selected = _measurement_validity_array(valid)
         if bool(np.all(selected)):
             raise ValueError("fully available arrays must omit availability")
-        if not bool(np.any(selected)):
-            raise ValueError("fully unavailable arrays must use MeasurementUnavailable")
         invalid = tuple(int(index) for index in np.flatnonzero(~selected.reshape(-1)))
         return cls(
             valid=selected,
@@ -772,12 +800,10 @@ class MeasurementArrayAvailability(_FrozenMeasurementModel):
         return tuple(value)
 
     @model_validator(mode="after")
-    def validate_partial(self) -> MeasurementArrayAvailability:
+    def validate_incomplete(self) -> MeasurementArrayAvailability:
         flattened = self.valid.reshape(-1)
         if bool(np.all(flattened)):
             raise ValueError("fully available arrays must omit availability")
-        if not bool(np.any(flattened)) and len(self.unavailable) == 1:
-            raise ValueError("fully unavailable arrays must use MeasurementUnavailable")
         actual = tuple(
             sorted(index for group in self.unavailable for index in group.flat_indices)
         )
@@ -1024,6 +1050,9 @@ class EntityAcquisitionEvidence(_FrozenMeasurementModel):
 
     kind: Literal["entity"] = "entity"
     dimension_id: _NonEmptyText
+    acquisition: MeasurementEntityAcquisition = Field(
+        default_factory=MeasurementEntityAcquisition
+    )
     values: Sequence[InstrumentAcquisitionEvidence | None] = Field(min_length=1)
 
     @field_validator("values")

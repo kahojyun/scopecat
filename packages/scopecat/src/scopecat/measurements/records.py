@@ -33,6 +33,7 @@ from scopecat.kernel.value_types import (
 )
 from scopecat.measurements.products import ProductAxisDef, ProductDef
 from scopecat.program.measurement_types import (
+    EntityAcquisitionSemantics,
     MeasurementDType,
     MeasurementVariableRole,
     measurement_value_spec_from_scalar,
@@ -49,6 +50,7 @@ from scopecat.program.recording import ExperimentResultField
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementEntityAcquisition,
     MeasurementEntityIndex,
     MeasurementEntityProductSource,
     MeasurementPointCloudPointDomain,
@@ -114,6 +116,9 @@ class EntityRecordUse:
     members: tuple[EntityRecordUseMember, ...]
     role: MeasurementVariableRole = "observable"
     recording_group_id: str | None = None
+    acquisition: EntityAcquisitionSemantics = field(
+        default_factory=EntityAcquisitionSemantics
+    )
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
@@ -242,6 +247,9 @@ class EntityRecordPlan:
     dtype: MeasurementDType
     role: MeasurementVariableRole = "observable"
     recording_group_id: str | None = None
+    acquisition: EntityAcquisitionSemantics = field(
+        default_factory=EntityAcquisitionSemantics
+    )
     unit: str | None = None
     axes: tuple[RecordAxisPlan, ...] = ()
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
@@ -405,6 +413,7 @@ def _plan_entity_record(
         dtype=first_product.dtype,
         role=record.role,
         recording_group_id=record.recording_group_id,
+        acquisition=record.acquisition,
         unit=first_product.unit,
         axes=(entity_axis, *local_axes),
         metadata={**_common_product_metadata(resolved), **record.metadata},
@@ -850,6 +859,10 @@ def _record_variable(record: DatasetRecordPlan) -> MeasurementVariable:
                 product_metadata=tuple(
                     _wire_metadata(member.product_metadata) for member in record.members
                 ),
+            ),
+            entity_acquisition=MeasurementEntityAcquisition(
+                policy=record.acquisition.policy,
+                cohort_id=record.acquisition.cohort_id,
             ),
             recording_group_id=record.recording_group_id,
             metadata=_wire_metadata(record.metadata),

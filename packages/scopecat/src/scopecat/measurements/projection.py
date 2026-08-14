@@ -47,6 +47,7 @@ from scopecat.records.measurement import (
     MeasurementArrayAvailability,
     MeasurementArrayUnavailableGroup,
     MeasurementDatasetSchema,
+    MeasurementEntityAcquisition,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementUnavailable,
@@ -406,36 +407,28 @@ def _projected_entity_value(
         product_values.value_for_output(point.logical_id, member.product_use_id).value
         for member in record.members
     )
-    unavailable = tuple(
-        value for value in values if isinstance(value, MeasurementUnavailable)
+    _validate_entity_acquisition(record, values)
+    local_shape = _entity_value_local_shape(values)
+    fully_available = tuple(
+        _fully_available_entity_chunk(value, dtype=record.dtype) for value in values
     )
-    if (
-        len(unavailable) == len(values)
-        and len({value.reason for value in unavailable}) == 1
-    ):
-        first = unavailable[0]
-        return MeasurementUnavailable.create(
-            reason=first.reason,
+    if all(chunk is not None for chunk in fully_available):
+        available_chunks = cast("tuple[np.ndarray, ...]", fully_available)
+        if any(chunk.shape != local_shape for chunk in available_chunks):
+            raise ValueError(
+                f"entity record {record.id!r} has inconsistent point-local shapes"
+            )
+        return MeasurementArray.create(
+            values=np.stack(available_chunks, axis=0),
             dtype=record.dtype,
             unit=record.unit,
-            shape=(len(values), *first.shape),
-            metadata=first.metadata,
         )
 
-    local_shape = _entity_value_local_shape(values)
     local_size = int(np.prod(local_shape, dtype=np.int64))
     chunks: list[np.ndarray] = []
     valid_chunks: list[np.ndarray] = []
     unavailable_groups: list[MeasurementArrayUnavailableGroup] = []
-    for entity_index, (member, value) in enumerate(
-        zip(record.members, values, strict=True)
-    ):
-        entity_metadata = {
-            "entity": {
-                "id": member.entity.id,
-                **({} if member.entity.kind is None else {"kind": member.entity.kind}),
-            }
-        }
+    for entity_index, value in enumerate(values):
         if isinstance(value, MeasurementUnavailable):
             chunks.append(
                 np.zeros(local_shape, dtype=_measurement_numpy_dtype(record.dtype))
@@ -449,7 +442,7 @@ def _projected_entity_value(
                             entity_index * local_size, (entity_index + 1) * local_size
                         )
                     ),
-                    metadata={**value.metadata, **entity_metadata},
+                    metadata=value.metadata,
                 )
             )
             continue
@@ -473,7 +466,7 @@ def _projected_entity_value(
                             entity_index * local_size + index
                             for index in group.flat_indices
                         ),
-                        metadata={**group.metadata, **entity_metadata},
+                        metadata=group.metadata,
                     )
                 )
         else:
@@ -486,7 +479,7 @@ def _projected_entity_value(
         if bool(np.all(valid))
         else MeasurementArrayAvailability(
             valid=valid,
-            unavailable=tuple(unavailable_groups),
+            unavailable=_merge_unavailable_groups(unavailable_groups),
         )
     )
     return MeasurementArray.create(
@@ -494,6 +487,57 @@ def _projected_entity_value(
         dtype=record.dtype,
         unit=record.unit,
         availability=availability,
+    )
+
+
+def _fully_available_entity_chunk(
+    value: MeasurementValue,
+    *,
+    dtype: str,
+) -> np.ndarray | None:
+    if isinstance(value, MeasurementUnavailable) or (
+        isinstance(value, MeasurementArray) and value.availability is not None
+    ):
+        return None
+    if isinstance(value, MeasurementScalar):
+        return np.asarray(value.value, dtype=_measurement_numpy_dtype(dtype))
+    return value.values
+
+
+def _merge_unavailable_groups(
+    groups: Sequence[MeasurementArrayUnavailableGroup],
+) -> tuple[MeasurementArrayUnavailableGroup, ...]:
+    merged: dict[str, MeasurementArrayUnavailableGroup] = {}
+    for group in groups:
+        key = stable_content_hash(
+            content_fingerprint({"reason": group.reason, "metadata": group.metadata})
+        )
+        existing = merged.get(key)
+        if existing is None:
+            merged[key] = group
+            continue
+        if existing.reason != group.reason or existing.metadata != group.metadata:
+            raise AssertionError("availability diagnostic hash collision")
+        merged[key] = existing.model_copy(
+            update={"flat_indices": (*existing.flat_indices, *group.flat_indices)}
+        )
+    return tuple(merged.values())
+
+
+def _validate_entity_acquisition(
+    record: EntityRecordPlan,
+    values: Sequence[MeasurementValue],
+) -> None:
+    if record.acquisition.policy != "all_or_nothing":
+        return
+    if all(
+        not isinstance(value, MeasurementUnavailable)
+        and not (isinstance(value, MeasurementArray) and value.availability is not None)
+        for value in values
+    ) or all(isinstance(value, MeasurementUnavailable) for value in values):
+        return
+    raise ValueError(
+        f"entity record {record.id!r} violates all_or_nothing acquisition semantics"
     )
 
 
@@ -554,6 +598,10 @@ def _projected_acquisition_evidence(
             if any(item is not None for item in evidence):
                 acquisition_evidence[record.id] = EntityAcquisitionEvidence(
                     dimension_id=record.axes[0].id,
+                    acquisition=MeasurementEntityAcquisition(
+                        policy=record.acquisition.policy,
+                        cohort_id=record.acquisition.cohort_id,
+                    ),
                     values=evidence,
                 )
             continue

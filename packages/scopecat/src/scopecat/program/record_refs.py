@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from scopecat.program.measurement_types import (
+    EntityAcquisitionSemantics,
     MeasurementDType,
     MeasurementVariableRole,
     NativeMeasurementValue,
@@ -31,6 +32,7 @@ class RecordRef(Generic[_RecordT_co]):
     source_product_id: str | None = None
     source_product_ids: tuple[str, ...] | None = None
     entity_axis_id: str | None = None
+    entity_acquisition: EntityAcquisitionSemantics | None = None
     source_value_id: str | None = None
     recording_group_id: str | None = None
 
@@ -54,6 +56,11 @@ class RecordRef(Generic[_RecordT_co]):
             )
         if self.source_product_ids is not None and not self.source_product_ids:
             raise ValueError("entity record references require product sources")
+        if (self.source_product_ids is None) != (self.entity_acquisition is None):
+            raise ValueError(
+                "entity record references require product sources and "
+                "acquisition semantics"
+            )
         if self.recording_group_id is not None and not self.recording_group_id:
             raise ValueError("record reference group id must be non-empty")
 

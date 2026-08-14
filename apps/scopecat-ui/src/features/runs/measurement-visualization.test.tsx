@@ -780,9 +780,9 @@ describe("measurement visualization", () => {
 
 function baseSchema(): MeasurementDatasetSchema {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v11",
+    format_version: "scopecat.measurement_dataset_schema.v12",
     dataset_id: "raw-measurements",
-    record_schema: "scopecat.measurement_record.v5",
+    record_schema: "scopecat.measurement_record.v6",
     point_domain: { kind: "point_cloud", columns: [] },
     dimensions: [{ id: "point", kind: "point", size: 3 }],
     variables: [],

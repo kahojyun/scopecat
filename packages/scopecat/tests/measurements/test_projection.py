@@ -55,6 +55,7 @@ from scopecat.measurements.values import (
 from scopecat.planning.measurement_projection import (
     project_run_point_catalog,
 )
+from scopecat.program.measurement_types import EntityAcquisitionSemantics
 from scopecat.program.point_domain import (
     point_axis_linear,
     point_axis_range,
@@ -266,6 +267,26 @@ def test_projection_stacks_entity_products_and_preserves_partial_failure() -> No
         points=scenario.points,
     )
 
+    strict_projection = select_measurement_projection(
+        scenario.catalog,
+        (
+            replace(
+                records[0],
+                acquisition=EntityAcquisitionSemantics(
+                    policy="all_or_nothing",
+                    cohort_id="strict-readout",
+                ),
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="violates all_or_nothing"):
+        project_measurement_records(
+            strict_projection,
+            assembled,
+            run_id="strict-entity-projection-run",
+            points=scenario.points,
+        )
+
     projected = project_measurement_records(
         projection,
         assembled,
@@ -281,6 +302,8 @@ def test_projection_stacks_entity_products_and_preserves_partial_failure() -> No
     )
     assert readout.dims == ("point", "qubit")
     assert readout.source_entity_products is not None
+    assert readout.entity_acquisition is not None
+    assert readout.entity_acquisition.policy == "independent"
     assert readout.source_entity_products.product_ids == ("signal-0", "signal-1")
     assert readout.source_entity_products.product_metadata == (
         {"definition": 0},
@@ -293,7 +316,7 @@ def test_projection_stacks_entity_products_and_preserves_partial_failure() -> No
     assert first.availability.valid.tolist() == [True, False]
     [failure] = first.availability.unavailable
     assert failure.reason == "missing"
-    assert failure.metadata["entity"] == {"id": "q1", "kind": "qubit"}
+    assert failure.metadata == {"source": "q1"}
     second = projected.records[1].observables["readout"]
     assert isinstance(second, MeasurementArray)
     assert second.availability is None
@@ -344,6 +367,63 @@ def test_entity_projection_keeps_schema_width_constant_for_128_sources() -> None
     )
     assert qubit.index is not None
     assert len(qubit.index.values) == entity_count
+
+
+def test_entity_projection_compresses_one_common_failure_without_losing_axis() -> None:
+    scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=2)
+    entities = (
+        EntityRef(id="q0", kind="qubit"),
+        EntityRef(id="q1", kind="qubit"),
+    )
+    records = (
+        EntityRecordUse(
+            id="readout",
+            axis=EntityAxisDef(
+                id="qubit",
+                values=entities,
+                entity_kind="qubit",
+            ),
+            members=tuple(
+                EntityRecordUseMember(entity=entity, product_use_id=use.id)
+                for entity, use in zip(entities, scenario.uses, strict=True)
+            ),
+        ),
+    )
+    projection = select_measurement_projection(scenario.catalog, records)
+    candidates = tuple(
+        replace(
+            candidate,
+            value=MeasurementUnavailable.create(
+                reason="missing",
+                dtype="float64",
+                unit="ratio",
+                shape=(),
+                metadata={"cohort": "readout"},
+            ),
+        )
+        for candidate in measurement_value_candidates(scenario, scenario.uses)
+    )
+    assembled = seal_measurement_values(
+        scenario.catalog,
+        candidates,
+        points=scenario.points,
+    )
+
+    projected = project_measurement_records(
+        projection,
+        assembled,
+        run_id="entity-common-failure",
+        points=scenario.points,
+    )
+
+    value = projected.records[0].observables["readout"]
+    assert isinstance(value, MeasurementArray)
+    assert value.availability is not None
+    assert value.availability.valid.tolist() == [False, False]
+    [failure] = value.availability.unavailable
+    assert failure.reason == "missing"
+    assert failure.flat_indices == (0, 1)
+    assert failure.metadata == {"cohort": "readout"}
 
 
 def test_projection_schema_persists_ordered_product_grid_axes() -> None:

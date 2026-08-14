@@ -114,6 +114,7 @@ def lower_products(
                     members=tuple(members),
                     role=selection.role,
                     recording_group_id=selection.recording_group_id,
+                    acquisition=selection.acquisition,
                     metadata=_durable_metadata(selection.metadata),
                 )
             )
