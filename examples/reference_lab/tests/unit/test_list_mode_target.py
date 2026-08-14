@@ -687,7 +687,7 @@ def test_list_mode_artifact_inspection_is_bounded_and_preserves_peaks() -> None:
     )
     [entry] = inspection.points
     [preview] = entry.waveforms
-    source = artifact.entries[0].waveforms[0].samples
+    source = artifact.entry_waveforms(artifact.entries[0])[0].samples
 
     assert inspection.schema_id == "scopecat.compiled_artifact_inspection.v1"
     assert inspection.kind == "reference_lab.list_mode.v1"
@@ -763,6 +763,66 @@ def test_list_mode_applies_shift_phase_before_playback() -> None:
     )
 
 
+def test_list_mode_factors_phase_sweeps_without_changing_awg_buffers() -> None:
+    target = _target()
+
+    def phase_program(program_id: str, phase: float) -> ScheduledPulseProgram:
+        return schedule(
+            PulseProgram(
+                id=PulseProgramId(program_id),
+                body=PulseSequence(
+                    (
+                        ShiftPhase(
+                            PulseEventId("shift"),
+                            DRIVE_Q0,
+                            Quantity(phase, "rad"),
+                        ),
+                        Play(
+                            PulseEventId("play"),
+                            DRIVE_Q0,
+                            Constant(Quantity(2, "ns"), Quantity(0.25, "arb")),
+                        ),
+                    )
+                ),
+            )
+        )
+
+    programs = (
+        phase_program("phase-zero", 0.0),
+        phase_program("phase-quarter", math.pi / 2),
+    )
+    compiler, request = _request(target, programs, repetitions=1)
+
+    artifact = compiler.compile(request)
+
+    assert artifact.phase_templates
+    assert all(not entry.waveforms for entry in artifact.entries)
+    for index, program in enumerate(programs):
+        concrete_compiler, concrete_request = _request(
+            target,
+            (program,),
+            repetitions=1,
+        )
+        concrete = concrete_compiler.compile(concrete_request)
+        synthesized = artifact.entry_waveforms(artifact.entries[index])
+        assert [waveform.channel_id for waveform in synthesized] == [
+            waveform.channel_id for waveform in concrete.entries[0].waveforms
+        ]
+        for actual, expected_waveform in zip(
+            synthesized,
+            concrete.entries[0].waveforms,
+            strict=True,
+        ):
+            np.testing.assert_allclose(
+                actual.samples,
+                expected_waveform.samples,
+                atol=1e-15,
+            )
+        assert artifact.materialized_waveform_bytes(artifact.entries[index]) == sum(
+            waveform.samples.nbytes for waveform in concrete.entries[0].waveforms
+        )
+
+
 def test_list_mode_checks_final_peak_after_readout_accumulation() -> None:
     target = _target()
     target = replace(
@@ -800,6 +860,19 @@ def test_list_mode_checks_final_peak_after_readout_accumulation() -> None:
 
     assert {issue.code for issue in caught.value.issues} == {
         "list_mode_amplitude_limit_exceeded"
+    }
+
+
+def test_list_mode_rejects_programs_larger_than_awg_memory() -> None:
+    scheduled, _slot = _calibrated_acquisition()
+    target = replace(_target(), max_program_waveform_bytes=1)
+    compiler, request = _request(target, (scheduled,), repetitions=1)
+
+    with pytest.raises(TargetCompilationError) as caught:
+        compiler.compile(request)
+
+    assert {issue.code for issue in caught.value.issues} == {
+        "list_mode_program_waveform_memory_exceeded"
     }
 
 

@@ -47,7 +47,9 @@ from reference_lab.configuration import bootstrap_config
 from reference_lab.parameters import QUBITS
 from reference_lab.payloads import (
     DecodedAwgProgram,
+    DecodedMaterializedAwgProgram,
     DecodedTriggerProgram,
+    materialize_awg_program,
     reference_lab_payload_codecs,
 )
 from reference_lab.provider import ReferenceLabProvider
@@ -350,16 +352,17 @@ class ScopecatWaveformTracker:
 
     def __init__(self, *, live_waveform: bool) -> None:
         self._view = LatestWaveformView(live_waveform)
-        self._programs: dict[str, DecodedAwgProgram] = {}
+        self._programs: dict[str, DecodedMaterializedAwgProgram] = {}
         self.uploaded_bytes = 0
         self._pending_batch_bytes = 0
         self.max_batch_bytes = 0
 
     def load(self, instrument_id: str, program: DecodedAwgProgram) -> None:
-        self._programs[instrument_id] = program
+        materialized = materialize_awg_program(program)
+        self._programs[instrument_id] = materialized
         uploaded = sum(
             len(waveform.samples) * np.dtype(np.float64).itemsize
-            for entry in program.entries
+            for entry in materialized.entries
             for waveform in entry.waveforms
         )
         self.uploaded_bytes += uploaded

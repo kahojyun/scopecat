@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import struct
 from dataclasses import dataclass, field
 from typing import Literal, cast
@@ -12,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 
 SAMPLED_WAVEFORM_SCHEMA_ID = "sampled_waveform"
-AWG_PROGRAM_SCHEMA_ID = "reference_lab.awg_program.v2"
+AWG_PROGRAM_SCHEMA_ID = "reference_lab.awg_program.v3"
 DIGITIZER_PROGRAM_SCHEMA_ID = "reference_lab.digitizer_program.v1"
 TRIGGER_PROGRAM_SCHEMA_ID = "reference_lab.trigger_program.v1"
 
@@ -34,8 +35,67 @@ class DecodedAwgEntry:
 
 
 @dataclass(frozen=True, slots=True)
-class DecodedAwgProgram:
+class DecodedMaterializedAwgProgram:
+    """Ordinary per-entry DAC buffers ready for an AWG driver."""
+
     entries: tuple[DecodedAwgEntry, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DecodedAwgPhaseTemplate:
+    id: str
+    i_component_path: tuple[str, ...]
+    q_component_path: tuple[str, ...]
+    start_sample: int
+    logical_i: np.ndarray = field(repr=False, compare=False)
+    logical_q: np.ndarray = field(repr=False, compare=False)
+    mixer: tuple[float, float, float, float]
+
+
+@dataclass(frozen=True, slots=True)
+class DecodedAwgPhaseTemplateUse:
+    template_id: str
+    phase_radians: float
+
+
+@dataclass(frozen=True, slots=True)
+class DecodedPhaseSynthesizedAwgEntry:
+    sample_count: int
+    template_uses: tuple[DecodedAwgPhaseTemplateUse, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DecodedPhaseSynthesizedAwgProgram:
+    """Compact phase rows that must become ordinary buffers before upload."""
+
+    templates: tuple[DecodedAwgPhaseTemplate, ...]
+    entries: tuple[DecodedPhaseSynthesizedAwgEntry, ...]
+
+    def materialize(self) -> DecodedMaterializedAwgProgram:
+        templates = {template.id: template for template in self.templates}
+        return DecodedMaterializedAwgProgram(
+            entries=tuple(
+                _materialize_phase_entry(entry, templates=templates)
+                for entry in self.entries
+            )
+        )
+
+
+type DecodedAwgProgram = (
+    DecodedMaterializedAwgProgram | DecodedPhaseSynthesizedAwgProgram
+)
+
+
+def materialize_awg_program(
+    program: DecodedAwgProgram,
+) -> DecodedMaterializedAwgProgram:
+    """Cross the simple-AWG boundary with contiguous physical buffers."""
+
+    return (
+        program.materialize()
+        if isinstance(program, DecodedPhaseSynthesizedAwgProgram)
+        else program
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,7 +206,7 @@ def reference_lab_payload_codecs() -> PayloadCodecRegistry:
             VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID: virtual_capture_queue_codec(),
             AWG_PROGRAM_SCHEMA_ID: PayloadCodec(
                 id="reference_lab.awg-program-float64",
-                version=2,
+                version=3,
                 media_type="application/vnd.scopecat.awg-program+float64",
                 encoder=_encode_awg_program,
                 decoder=_decode_awg_program,
@@ -174,25 +234,62 @@ def _decode_sampled_waveform(content: bytes) -> object:
 
 def _encode_awg_program(value: object) -> bytes:
     document = cast("dict[str, object]", value)
-    encoded_entries: list[dict[str, object]] = []
-    sample_bodies: list[bytes] = []
-    for entry in cast("list[dict[str, object]]", document["entries"]):
-        encoded_waveforms: list[dict[str, object]] = []
-        for waveform in cast("list[dict[str, object]]", entry["waveforms"]):
-            samples = np.ascontiguousarray(waveform["samples"], dtype="<f8")
-            encoded_waveforms.append(
+    sample_views: list[memoryview] = []
+    kind = cast("str", document["kind"])
+    if kind == "materialized":
+        encoded_entries: list[dict[str, object]] = []
+        for entry in cast("list[dict[str, object]]", document["entries"]):
+            encoded_waveforms: list[dict[str, object]] = []
+            for waveform in cast("list[dict[str, object]]", entry["waveforms"]):
+                samples = np.ascontiguousarray(waveform["samples"], dtype="<f8")
+                encoded_waveforms.append(
+                    {
+                        "component_path": waveform["component_path"],
+                        "sample_count": int(samples.size),
+                    }
+                )
+                sample_views.append(memoryview(samples).cast("B"))
+            encoded_entries.append({"waveforms": encoded_waveforms})
+        header_document: dict[str, object] = {
+            "kind": kind,
+            "entries": encoded_entries,
+        }
+    elif kind == "phase_synthesized":
+        encoded_templates: list[dict[str, object]] = []
+        for template in cast("list[dict[str, object]]", document["templates"]):
+            logical_i = np.ascontiguousarray(template["logical_i"], dtype="<f8")
+            logical_q = np.ascontiguousarray(template["logical_q"], dtype="<f8")
+            if logical_i.size != logical_q.size:
+                raise ValueError("AWG phase-template bases must have equal lengths")
+            sample_views.extend(
+                (memoryview(logical_i).cast("B"), memoryview(logical_q).cast("B"))
+            )
+            encoded_templates.append(
                 {
-                    "component_path": waveform["component_path"],
-                    "sample_count": int(samples.size),
+                    "id": template["id"],
+                    "i_component_path": template["i_component_path"],
+                    "q_component_path": template["q_component_path"],
+                    "start_sample": template["start_sample"],
+                    "sample_count": int(logical_i.size),
+                    "mixer": template["mixer"],
                 }
             )
-            sample_bodies.append(samples.tobytes())
-        encoded_entries.append({"waveforms": encoded_waveforms})
-    header = json.dumps(
-        {"entries": encoded_entries},
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return b"".join((struct.pack("<Q", len(header)), header, *sample_bodies))
+        header_document = {
+            "kind": kind,
+            "templates": encoded_templates,
+            "entries": document["entries"],
+        }
+    else:
+        raise ValueError(f"unknown AWG program kind: {kind!r}")
+    header = json.dumps(header_document, separators=(",", ":")).encode("utf-8")
+    encoded = bytearray(8 + len(header) + sum(len(view) for view in sample_views))
+    struct.pack_into("<Q", encoded, 0, len(header))
+    encoded[8 : 8 + len(header)] = header
+    offset = 8 + len(header)
+    for view in sample_views:
+        encoded[offset : offset + len(view)] = view
+        offset += len(view)
+    return bytes(encoded)
 
 
 def _decode_awg_program(content: bytes) -> object:
@@ -202,6 +299,15 @@ def _decode_awg_program(content: bytes) -> object:
         "dict[str, object]",
         json.loads(content[8:body_offset]),
     )
+    kind = cast("str", document["kind"])
+    if kind == "phase_synthesized":
+        return _decode_phase_synthesized_awg_program(
+            content,
+            document,
+            body_offset=body_offset,
+        )
+    if kind != "materialized":
+        raise ValueError(f"unknown AWG program kind: {kind!r}")
     entries: list[DecodedAwgEntry] = []
     for entry in cast("list[dict[str, object]]", document["entries"]):
         waveforms: list[DecodedAwgChannelWaveform] = []
@@ -225,7 +331,104 @@ def _decode_awg_program(content: bytes) -> object:
                 waveforms=tuple(waveforms),
             )
         )
-    return DecodedAwgProgram(entries=tuple(entries))
+    return DecodedMaterializedAwgProgram(entries=tuple(entries))
+
+
+def _decode_phase_synthesized_awg_program(
+    content: bytes,
+    document: dict[str, object],
+    *,
+    body_offset: int,
+) -> DecodedPhaseSynthesizedAwgProgram:
+    templates: list[DecodedAwgPhaseTemplate] = []
+    for template in cast("list[dict[str, object]]", document["templates"]):
+        sample_count = cast("int", template["sample_count"])
+        logical_i = np.frombuffer(
+            content,
+            dtype="<f8",
+            count=sample_count,
+            offset=body_offset,
+        )
+        body_offset += logical_i.nbytes
+        logical_q = np.frombuffer(
+            content,
+            dtype="<f8",
+            count=sample_count,
+            offset=body_offset,
+        )
+        body_offset += logical_q.nbytes
+        mixer = cast("dict[str, float]", template["mixer"])
+        templates.append(
+            DecodedAwgPhaseTemplate(
+                id=cast("str", template["id"]),
+                i_component_path=tuple(cast("list[str]", template["i_component_path"])),
+                q_component_path=tuple(cast("list[str]", template["q_component_path"])),
+                start_sample=cast("int", template["start_sample"]),
+                logical_i=logical_i,
+                logical_q=logical_q,
+                mixer=(mixer["ii"], mixer["iq"], mixer["qi"], mixer["qq"]),
+            )
+        )
+    return DecodedPhaseSynthesizedAwgProgram(
+        templates=tuple(templates),
+        entries=tuple(
+            DecodedPhaseSynthesizedAwgEntry(
+                sample_count=cast("int", entry["sample_count"]),
+                template_uses=tuple(
+                    DecodedAwgPhaseTemplateUse(
+                        template_id=cast("str", use["template_id"]),
+                        phase_radians=cast("float", use["phase_radians"]),
+                    )
+                    for use in cast(
+                        "list[dict[str, object]]",
+                        entry["template_uses"],
+                    )
+                ),
+            )
+            for entry in cast("list[dict[str, object]]", document["entries"])
+        ),
+    )
+
+
+def _materialize_phase_entry(
+    entry: DecodedPhaseSynthesizedAwgEntry,
+    *,
+    templates: dict[str, DecodedAwgPhaseTemplate],
+) -> DecodedAwgEntry:
+    buffers: dict[tuple[str, ...], np.ndarray] = {}
+    for use in entry.template_uses:
+        template = templates[use.template_id]
+        logical_i = template.logical_i
+        logical_q = template.logical_q
+        ii, iq, qi, qq = template.mixer
+        selected = slice(
+            template.start_sample,
+            template.start_sample + logical_i.size,
+        )
+        cosine = math.cos(use.phase_radians)
+        sine = math.sin(use.phase_radians)
+        for component_path, mixer_i, mixer_q in (
+            (template.i_component_path, ii, iq),
+            (template.q_component_path, qi, qq),
+        ):
+            buffer = buffers.setdefault(
+                component_path,
+                np.zeros(entry.sample_count, dtype=np.float64),
+            )
+            buffer[selected] += cosine * (
+                mixer_i * logical_i + mixer_q * logical_q
+            ) + sine * (-mixer_i * logical_q + mixer_q * logical_i)
+    for samples in buffers.values():
+        samples.flags.writeable = False
+    return DecodedAwgEntry(
+        waveforms=tuple(
+            DecodedAwgChannelWaveform(
+                component_path=component_path,
+                samples=samples,
+            )
+            for component_path, samples in sorted(buffers.items())
+        )
+    )
 
 
 def _encode_digitizer_program(value: object) -> bytes:
@@ -290,12 +493,18 @@ __all__ = [
     "TRIGGER_PROGRAM_SCHEMA_ID",
     "DecodedAwgChannelWaveform",
     "DecodedAwgEntry",
+    "DecodedAwgPhaseTemplate",
+    "DecodedAwgPhaseTemplateUse",
     "DecodedAwgProgram",
     "DecodedDigitizerDspWindow",
     "DecodedDigitizerProgram",
     "DecodedDigitizerProgramEntry",
+    "DecodedMaterializedAwgProgram",
+    "DecodedPhaseSynthesizedAwgEntry",
+    "DecodedPhaseSynthesizedAwgProgram",
     "DecodedSampledWaveform",
     "DecodedTriggerProgram",
     "DecodedTriggerProgramEntry",
+    "materialize_awg_program",
     "reference_lab_payload_codecs",
 ]

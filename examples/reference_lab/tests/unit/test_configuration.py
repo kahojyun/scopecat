@@ -331,6 +331,7 @@ def test_list_mode_target_owns_only_real_time_members() -> None:
         == 4
     )
     assert target.max_list_entries == 256
+    assert target.max_program_waveform_bytes == 48 * 1024 * 1024
 
 
 def test_acquisition_dsp_policy_selects_only_advertised_lowerings() -> None:

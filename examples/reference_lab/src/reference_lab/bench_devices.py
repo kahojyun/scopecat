@@ -89,8 +89,10 @@ from reference_lab.payloads import (
     DecodedAwgEntry,
     DecodedAwgProgram,
     DecodedDigitizerProgram,
+    DecodedMaterializedAwgProgram,
     DecodedSampledWaveform,
     DecodedTriggerProgram,
+    materialize_awg_program,
 )
 from reference_lab.targets.list_mode.iq_semantics import (
     integrate_rectangular_iq,
@@ -432,7 +434,7 @@ class VirtualAwg:
         self._output_component_ids = tuple(
             f"ch{index}" for index in range(1, output_count + 1)
         )
-        self._loaded_program: DecodedAwgProgram | None = None
+        self._loaded_program: DecodedMaterializedAwgProgram | None = None
         self._state: dict[PropertyRef, DriverScalar] = {
             AWG_SAMPLE_RATE: sc.Quantity(1.0e9, "Hz"),
             AWG_RUN_MODE: "once",
@@ -540,10 +542,11 @@ class VirtualAwg:
         request: DriverOperation,
     ) -> DriverOutcome[DriverState | None]:
         if request.target.operation_id == AWG_LOAD_PROGRAM.operation_id:
-            self._loaded_program = cast(
+            decoded = cast(
                 "DecodedAwgProgram",
                 cast("DriverPayload", request.arguments[AWG_PROGRAM.argument_id]).value,
             )
+            self._loaded_program = materialize_awg_program(decoded)
             for channel_id in self._output_component_ids:
                 self._state[
                     _mount_property(

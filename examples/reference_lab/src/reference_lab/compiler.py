@@ -63,7 +63,6 @@ from reference_lab.targets.list_mode import (
 
 _QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId("reference-lab.list-mode-target.v1")
 _INITIAL_BATCH_SIZE = 1
-_MAX_BATCH_WAVEFORM_BYTES = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,6 +268,7 @@ class QuantumLabCompiler:
             next_batch_max_points=_next_batch_max_points(
                 artifact.target_artifact,
                 max_list_entries=self._target.max_list_entries,
+                max_program_waveform_bytes=(self._target.max_program_waveform_bytes),
             ),
             inspection=inspect_list_mode_artifact(artifact.target_artifact),
             mapping=mapping,
@@ -290,14 +290,14 @@ def _next_batch_max_points(
     artifact: ListModeArtifact,
     *,
     max_list_entries: int,
+    max_program_waveform_bytes: int,
 ) -> int:
     largest_entry_bytes = max(
-        sum(waveform.samples.nbytes for waveform in entry.waveforms)
-        for entry in artifact.entries
+        artifact.materialized_waveform_bytes(entry) for entry in artifact.entries
     )
     return min(
         max_list_entries,
-        max(1, _MAX_BATCH_WAVEFORM_BYTES // max(largest_entry_bytes, 1)),
+        max(1, max_program_waveform_bytes // max(largest_entry_bytes, 1)),
     )
 
 

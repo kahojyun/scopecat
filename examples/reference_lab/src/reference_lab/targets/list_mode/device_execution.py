@@ -85,6 +85,8 @@ from reference_lab.targets.list_mode.model import (
     DigitizerInputId,
     ListModeArtifact,
     ListModeEntry,
+    MaterializedAwgProgram,
+    PhaseSynthesizedAwgProgram,
 )
 
 
@@ -249,13 +251,22 @@ def _preparation_batch(
     }
     for awg_program in artifact.awg_programs:
         clock = clocks[awg_program.instrument_id]
-        channels = sorted(
-            {
-                waveform.channel_id
-                for entry in awg_program.entries
-                for waveform in entry.waveforms
-            }
-        )
+        if isinstance(awg_program, MaterializedAwgProgram):
+            channels = sorted(
+                {
+                    waveform.channel_id
+                    for entry in awg_program.entries
+                    for waveform in entry.waveforms
+                }
+            )
+        else:
+            channels = sorted(
+                {
+                    channel_id
+                    for template in awg_program.templates
+                    for channel_id in template.channel_ids
+                }
+            )
         assignments = [
             _assignment(
                 awg_program.instrument_id,
@@ -374,22 +385,7 @@ def _load_batch(
         payload_id = f"awg-program-{awg_program.instrument_id}"
         encoded = codecs.encode(
             AWG_PROGRAM_SCHEMA_ID,
-            {
-                "entries": [
-                    {
-                        "waveforms": [
-                            {
-                                "component_path": list(
-                                    waveform.channel_id.component_path
-                                ),
-                                "samples": waveform.samples,
-                            }
-                            for waveform in entry.waveforms
-                        ]
-                    }
-                    for entry in awg_program.entries
-                ]
-            },
+            _awg_payload_document(awg_program),
         )
         payload = command_payload_from_bytes(
             id=payload_id,
@@ -525,6 +521,60 @@ def _load_batch(
         operation_id=f"{prefix}:load",
         actions=tuple(actions),
     )
+
+
+def _awg_payload_document(
+    program: MaterializedAwgProgram | PhaseSynthesizedAwgProgram,
+) -> dict[str, object]:
+    if isinstance(program, MaterializedAwgProgram):
+        return {
+            "kind": "materialized",
+            "entries": [
+                {
+                    "waveforms": [
+                        {
+                            "component_path": list(waveform.channel_id.component_path),
+                            "samples": waveform.samples,
+                        }
+                        for waveform in entry.waveforms
+                    ]
+                }
+                for entry in program.entries
+            ],
+        }
+    return {
+        "kind": "phase_synthesized",
+        "templates": [
+            {
+                "id": template.id,
+                "i_component_path": list(template.i_channel_id.component_path),
+                "q_component_path": list(template.q_channel_id.component_path),
+                "start_sample": template.start_sample,
+                "logical_i": template.logical_i,
+                "logical_q": template.logical_q,
+                "mixer": {
+                    "ii": template.mixer.ii,
+                    "iq": template.mixer.iq,
+                    "qi": template.mixer.qi,
+                    "qq": template.mixer.qq,
+                },
+            }
+            for template in program.templates
+        ],
+        "entries": [
+            {
+                "sample_count": entry.sample_count,
+                "template_uses": [
+                    {
+                        "template_id": use.template_id,
+                        "phase_radians": use.phase_radians,
+                    }
+                    for use in entry.template_uses
+                ],
+            }
+            for entry in program.entries
+        ],
+    }
 
 
 def _execution_batch(
