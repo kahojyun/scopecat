@@ -74,6 +74,13 @@ export function RunDomainQueueControl({ run }: { run: ProjectRun }) {
   }, [run.plan.adaptiveScope, run.runId]);
 
   useEffect(() => {
+    if (run.plan.adaptiveRegionsTruncated && scope === "selected") {
+      setScope(run.plan.adaptiveScope === "global" ? "all" : "current");
+      setSelectedRegions([]);
+    }
+  }, [run.plan.adaptiveRegionsTruncated, run.plan.adaptiveScope, scope]);
+
+  useEffect(() => {
     setDraft((current) =>
       Object.fromEntries(
         specs.map((spec) => [spec.id, current[spec.id] ?? initialAxisDraft(spec)]),
@@ -166,7 +173,9 @@ export function RunDomainQueueControl({ run }: { run: ProjectRun }) {
                 <option value="current">Current region</option>
               )}
               <option value="all">All regions</option>
-              <option value="selected">Selected regions</option>
+              {!run.plan.adaptiveRegionsTruncated && (
+                <option value="selected">Selected regions</option>
+              )}
             </select>
           </label>
           <span className="pb-2 text-[0.59rem] text-text-dim">
@@ -176,6 +185,12 @@ export function RunDomainQueueControl({ run }: { run: ProjectRun }) {
                 ? `Targets all ${run.plan.adaptiveRegionCount} admitted regions.`
                 : "Choose explicit outer static regions below."}
           </span>
+          {run.plan.adaptiveRegionsTruncated && (
+            <span className="w-full text-[0.57rem] text-text-dim">
+              The region catalog is sampled, so explicit selection is unavailable. Use the current
+              region or all {run.plan.adaptiveRegionCount} regions.
+            </span>
+          )}
         </div>
 
         {scope === "selected" && (

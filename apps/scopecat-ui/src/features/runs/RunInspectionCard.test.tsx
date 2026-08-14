@@ -120,6 +120,27 @@ describe("RunInspectionCard", () => {
     expect(resolveRunDomain).toHaveBeenCalledTimes(resolutionCount);
     expect(screen.queryByRole("button", { name: "Inspect" })).not.toBeInTheDocument();
   });
+
+  it("does not offer explicit region selection for a sampled region catalog", () => {
+    const run = projectRun(true);
+    run.plan.adaptiveRegionCount = 300;
+    run.plan.adaptiveRegionsTruncated = true;
+
+    renderCard(
+      <RunInspectionCard
+        feed={{ run_id: "run-1", items: [], total_proposal_count: 0, items_truncated: false }}
+        error={null}
+        pending={false}
+        completedPointCount={1}
+        run={run}
+      />,
+    );
+
+    expect(screen.queryByRole("option", { name: "Selected regions" })).not.toBeInTheDocument();
+    expect(screen.getByText(/explicit selection is unavailable/i)).toHaveTextContent(
+      "all 300 regions",
+    );
+  });
 });
 
 function renderCard(card: ReactNode) {
