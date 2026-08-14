@@ -62,12 +62,17 @@ class SQLiteProjectStore:
         """Return the supported project-store version or reject the database."""
 
         try:
-            with closing(self._connect()) as connection:
+            with self.sqlite.read_connection() as connection:
                 return self._require_current_version(connection)
         except SchemaVersionError:
             raise
         except sqlite3.Error as error:
             raise ProjectStoreError("failed to inspect project store") from error
+
+    def close(self) -> None:
+        """Checkpoint and close the shared SQLite database."""
+
+        self.sqlite.close()
 
     def _require_current_version(self, connection: sqlite3.Connection) -> int:
         row = _one(

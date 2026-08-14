@@ -6,7 +6,7 @@ import json
 import re
 import sqlite3
 from collections.abc import Generator, Iterable
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import cast
@@ -100,7 +100,7 @@ class SQLiteRunRepository:
         _validate_identity(run_id, ref)
         prefix = f"{ref}/"
         try:
-            with closing(self._connect()) as connection:
+            with self.sqlite.read_connection() as connection:
                 row = _one(
                     connection.execute(
                         """
@@ -122,7 +122,7 @@ class SQLiteRunRepository:
     def read_manifest(self, run_id: str) -> RunManifest:
         _validate_run_id(run_id)
         try:
-            with closing(self._connect()) as connection:
+            with self.sqlite.read_connection() as connection:
                 return self.read_manifest_in_transaction(connection, run_id)
         except sqlite3.Error as error:
             raise _storage_failure(run_id=run_id, ref=MANIFEST_REF) from error
@@ -324,7 +324,7 @@ class SQLiteRunRepository:
         dataset_schema_hash = measurement_dataset_schema_hash(header.dataset_schema)
         prefix = f"{ref}/chunks/"
         try:
-            with closing(self._connect()) as connection:
+            with self.sqlite.read_connection() as connection:
                 rows = _all(
                     connection.execute(
                         """
@@ -489,7 +489,7 @@ class SQLiteRunRepository:
 
     def _digest(self, run_id: str, ref: str) -> str | None:
         try:
-            with closing(self._connect()) as connection:
+            with self.sqlite.read_connection() as connection:
                 row = _one(
                     connection.execute(
                         """
@@ -515,9 +515,6 @@ class SQLiteRunRepository:
     def _transaction(self) -> Generator[sqlite3.Connection]:
         with self.sqlite.write_transaction() as connection:
             yield connection
-
-    def _connect(self) -> sqlite3.Connection:
-        return self.sqlite.connect()
 
 
 def _encode_model(model: BaseModel) -> bytes:

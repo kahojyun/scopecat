@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from pathlib import Path
 from threading import Event
+from unittest.mock import patch
 
 import pytest
 
@@ -96,4 +97,46 @@ def test_read_snapshot_does_not_reserve_the_writer(tmp_path: Path) -> None:
     with closing(database.connect()) as connection:
         assert (
             connection.execute("SELECT COUNT(*) FROM values_table").fetchone()[0] == 1
+        )
+
+
+def test_database_reuses_writer_and_reader_connections(tmp_path: Path) -> None:
+    with patch(
+        "scopecat_server.storage.sqlite.connection.connect",
+        wraps=connect,
+    ) as open_connection:
+        database = SQLiteDatabase(tmp_path / "project.sqlite3")
+        with database.write_transaction() as connection:
+            connection.execute("CREATE TABLE values_table (value TEXT NOT NULL)")
+        with database.write_transaction() as connection:
+            connection.execute("INSERT INTO values_table VALUES ('stored')")
+        for _ in range(2):
+            with database.read_connection() as connection:
+                assert (
+                    connection.execute("SELECT value FROM values_table").fetchone()[0]
+                    == "stored"
+                )
+        database.close()
+
+    assert open_connection.call_count == 2
+
+
+def test_close_checkpoints_and_removes_wal_files(tmp_path: Path) -> None:
+    path = tmp_path / "project.sqlite3"
+    database = SQLiteDatabase(path)
+    with closing(database.connect()) as connection:
+        connection.execute("PRAGMA journal_mode = WAL")
+    with database.write_transaction() as connection:
+        connection.execute("CREATE TABLE values_table (value TEXT NOT NULL)")
+        connection.execute("INSERT INTO values_table VALUES ('stored')")
+
+    wal = path.with_name(f"{path.name}-wal")
+    assert wal.is_file()
+
+    database.close()
+
+    assert not wal.exists()
+    with closing(connect(path)) as connection:
+        assert connection.execute("SELECT value FROM values_table").fetchone()[0] == (
+            "stored"
         )

@@ -6,7 +6,6 @@ import json
 import sqlite3
 from bisect import bisect_left
 from collections.abc import Sequence
-from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
@@ -1032,7 +1031,7 @@ class SQLiteMeasurementDatasetRepository:
         if self._dataset_schema is not None:
             return self._dataset_schema
         try:
-            with closing(self._runs.sqlite.connect()) as connection:
+            with self._runs.sqlite.read_connection() as connection:
                 header_row = _measurement_header_row(connection, self._run_id)
             if header_row is None:
                 return None
@@ -1077,7 +1076,7 @@ class SQLiteMeasurementDatasetRepository:
         )
 
         try:
-            with closing(self._runs.sqlite.connect()) as connection:
+            with self._runs.sqlite.read_connection() as connection:
                 total = _measurement_record_count(connection, self._run_id)
                 selected_size = total if snapshot_size is None else snapshot_size
                 if selected_size > total:
@@ -1143,7 +1142,7 @@ class SQLiteMeasurementDatasetRepository:
         """Read the current durable point-row count without opening append blobs."""
 
         try:
-            with closing(self._runs.sqlite.connect()) as connection:
+            with self._runs.sqlite.read_connection() as connection:
                 return _measurement_record_count(connection, self._run_id)
         except Exception as error:
             raise ExecutionJournalError(
@@ -1164,7 +1163,7 @@ class SQLiteMeasurementDatasetRepository:
 
         selected = tuple(sorted(set(point_indices)))
         try:
-            with closing(self._runs.sqlite.connect()) as connection:
+            with self._runs.sqlite.read_connection() as connection:
                 rows = _measurement_rows(connection, self._run_id)
             schema_assets = self._measurement_schema_assets()
             if schema_assets is None:

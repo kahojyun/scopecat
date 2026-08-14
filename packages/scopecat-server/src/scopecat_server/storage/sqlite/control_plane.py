@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Collection, Generator
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import uuid4
@@ -143,7 +143,7 @@ class SQLiteControlPlane:
         return _run(row)
 
     def get_run(self, run_id: str) -> ControlRun:
-        with closing(self._connect()) as connection:
+        with self.sqlite.read_connection() as connection:
             return self.get_run_in_transaction(connection, run_id)
 
     def get_run_in_transaction(
@@ -158,7 +158,7 @@ class SQLiteControlPlane:
     def find_run_by_submission_id(self, submission_id: str) -> ControlRun | None:
         """Return an admitted submission when it already exists."""
 
-        with closing(self._connect()) as connection:
+        with self.sqlite.read_connection() as connection:
             row = _one(
                 connection.execute(
                     """
@@ -179,7 +179,7 @@ class SQLiteControlPlane:
     ) -> RunPage:
         """Return newest runs first, continuing toward older admissions."""
 
-        with closing(self._connect()) as connection:
+        with self.sqlite.read_connection() as connection:
             return self.list_runs_in_transaction(
                 connection,
                 limit=limit,
@@ -415,7 +415,7 @@ class SQLiteControlPlane:
         if latest and after is not None:
             raise ValueError("latest event snapshots do not accept an after cursor")
         cursor = after or 0
-        with closing(self._connect()) as connection:
+        with self.sqlite.read_connection() as connection:
             if latest and run_id is None:
                 rows = _all(
                     connection.execute(
@@ -620,7 +620,7 @@ class SQLiteControlPlane:
         """Resolve the exact live fencing token carried by a wire command."""
 
         checked_at = at or datetime.now(tz=UTC)
-        with closing(self._connect()) as connection:
+        with self.sqlite.read_connection() as connection:
             lease = self._live_executor(
                 connection,
                 token,
@@ -970,7 +970,7 @@ class SQLiteControlPlane:
 
         if not operation_id:
             raise ValueError("instrument session operation id must be non-empty")
-        with closing(self._connect()) as connection:
+        with self.sqlite.read_connection() as connection:
             row = _one(
                 connection.execute(
                     """
@@ -987,7 +987,7 @@ class SQLiteControlPlane:
         return _instrument_session(row)
 
     def get_instrument_session(self, session_id: str) -> InstrumentSession:
-        with closing(self._connect()) as connection:
+        with self.sqlite.read_connection() as connection:
             row = _one(
                 connection.execute(
                     "SELECT * FROM instrument_sessions WHERE session_id = ?",
@@ -1005,7 +1005,7 @@ class SQLiteControlPlane:
         *,
         state: str | None = None,
     ) -> tuple[InstrumentSession, ...]:
-        with closing(self._connect()) as connection:
+        with self.sqlite.read_connection() as connection:
             if state is None:
                 rows = _all(
                     connection.execute(
@@ -1066,7 +1066,7 @@ class SQLiteControlPlane:
         """List active direct sessions whose leases have elapsed."""
 
         checked_at = at or datetime.now(tz=UTC)
-        with closing(self._connect()) as connection:
+        with self.sqlite.read_connection() as connection:
             rows = _all(
                 connection.execute(
                     """
@@ -1086,7 +1086,7 @@ class SQLiteControlPlane:
         at: datetime | None = None,
     ) -> InstrumentSession:
         checked_at = at or datetime.now(tz=UTC)
-        with closing(self._connect()) as connection:
+        with self.sqlite.read_connection() as connection:
             return self._live_instrument_session(
                 connection,
                 session_id=session_id,
@@ -1370,7 +1370,7 @@ class SQLiteControlPlane:
         """Expire stale executors and quarantine resources of active runs."""
 
         expired_at = at or datetime.now(tz=UTC)
-        with self.write_transaction() as connection:
+        with self.sqlite.read_connection() as connection:
             rows = _all(
                 connection.execute(
                     """
@@ -1381,6 +1381,9 @@ class SQLiteControlPlane:
                     (_timestamp(expired_at),),
                 )
             )
+        if not rows:
+            return ()
+        with self.write_transaction() as connection:
             return tuple(
                 run_id
                 for row in rows
@@ -1807,9 +1810,6 @@ class SQLiteControlPlane:
 
         with self.sqlite.read_transaction() as connection:
             yield connection
-
-    def _connect(self) -> sqlite3.Connection:
-        return self.sqlite.connect()
 
 
 def _run(row: sqlite3.Row) -> ControlRun:
