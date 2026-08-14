@@ -93,6 +93,7 @@ class _RaggedXarrayLayout:
     row_sizes: tuple[int, ...]
     local_indices: tuple[tuple[int, ...], ...]
     local_extents: tuple[tuple[int | None, ...], ...]
+    explicit_indices: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -2796,6 +2797,14 @@ def _slice_measurement_value(
 ) -> MeasurementValue:
     if isinstance(value, MeasurementScalar):
         raise ValueError("cannot apply a local dimension indexer to a scalar value")
+    if isinstance(value, MeasurementArray) and value.entity_shapes is not None:
+        return _slice_entity_ragged_array(
+            value,
+            indices_by_axis={
+                local_dimensions.index(dimension_id): indices
+                for dimension_id, indices in indices_by_dimension.items()
+            },
+        )
     shape = tuple(value.shape)
     indices_by_axis = {
         local_dimensions.index(dimension_id): indices
@@ -2868,6 +2877,79 @@ def _slice_measurement_value(
     )
 
 
+def _slice_entity_ragged_array(
+    value: MeasurementArray,
+    *,
+    indices_by_axis: Mapping[int, tuple[int, ...]],
+) -> MeasurementArray:
+    entity_shapes = cast("Sequence[tuple[int, ...]]", value.entity_shapes)
+    entity_indices = indices_by_axis.get(0, tuple(range(len(entity_shapes))))
+    if not entity_indices:
+        raise ValueError("entity-ragged selection must retain at least one entity")
+    source_valid = (
+        np.ones(value.values.size, dtype=np.bool_)
+        if value.availability is None
+        else value.availability.valid
+    )
+    source_groups = (
+        np.full(value.values.size, -1, dtype=np.int64)
+        if value.availability is None
+        else _array_unavailable_group_indices(value.availability)
+    )
+    offsets = cast(
+        "NDArray[np.int64]",
+        np.cumsum(
+            np.asarray(
+                (0, *(math.prod(shape) for shape in entity_shapes)),
+                dtype=np.int64,
+            )
+        ),
+    )
+    selected_values: list[np.ndarray] = []
+    selected_valid: list[np.ndarray] = []
+    selected_groups: list[np.ndarray] = []
+    selected_shapes: list[tuple[int, ...]] = []
+    for entity_index in entity_indices:
+        shape = entity_shapes[entity_index]
+        start = int(cast("np.int64", offsets[entity_index]))
+        stop = int(cast("np.int64", offsets[entity_index + 1]))
+        chunk_values = value.values[start:stop].reshape(shape)
+        chunk_valid = source_valid[start:stop].reshape(shape)
+        chunk_groups = source_groups[start:stop].reshape(shape)
+        for declared_axis, indices in sorted(indices_by_axis.items()):
+            if declared_axis == 0:
+                continue
+            local_axis = declared_axis - 1
+            chunk_values = np.take(chunk_values, indices, axis=local_axis)
+            chunk_valid = np.take(chunk_valid, indices, axis=local_axis)
+            chunk_groups = np.take(chunk_groups, indices, axis=local_axis)
+        selected_values.append(chunk_values.reshape(-1))
+        selected_valid.append(chunk_valid.reshape(-1))
+        selected_groups.append(chunk_groups.reshape(-1))
+        selected_shapes.append(tuple(chunk_values.shape))
+    flattened_values = np.concatenate(selected_values)
+    flattened_valid = np.concatenate(selected_valid)
+    flattened_groups = np.concatenate(selected_groups)
+    availability = (
+        None
+        if value.availability is None or bool(np.all(flattened_valid))
+        else _sliced_array_availability(
+            flattened_valid,
+            flattened_groups,
+            value.availability,
+            collapse_all_unavailable=False,
+        )
+    )
+    return MeasurementArray.create_entity_ragged(
+        dtype=value.dtype,
+        unit=value.unit,
+        values=flattened_values,
+        entity_shapes=selected_shapes,
+        availability=availability,
+        metadata=value.metadata,
+    )
+
+
 def _array_unavailable_group_indices(
     availability: MeasurementArrayAvailability,
 ) -> NDArray[np.int64]:
@@ -2892,6 +2974,8 @@ def _sliced_array_availability(
     valid: NDArray[np.bool_],
     group_indices: NDArray[np.int64],
     source: MeasurementArrayAvailability,
+    *,
+    collapse_all_unavailable: bool = True,
 ) -> MeasurementArrayAvailability | None:
     if bool(np.all(valid)):
         return None
@@ -2912,7 +2996,7 @@ def _sliced_array_availability(
             )
         )
     unavailable = tuple(unavailable_groups)
-    if not bool(np.any(valid)) and len(unavailable) == 1:
+    if collapse_all_unavailable and not bool(np.any(valid)) and len(unavailable) == 1:
         return None
     return MeasurementArrayAvailability(valid=valid, unavailable=unavailable)
 
@@ -3341,6 +3425,11 @@ def _ragged_xarray_layout(
     *,
     records: Sequence[MeasurementRecord],
 ) -> _RaggedXarrayLayout:
+    if any(
+        isinstance(value, MeasurementArray) and value.entity_shapes is not None
+        for value in variable._raw_values
+    ):
+        return _entity_ragged_xarray_layout(variable, records=records)
     local_extents: list[list[int | None]] = [[] for _dimension_id in variable.dims[1:]]
     for raw_value in variable._raw_values:
         if isinstance(raw_value, MeasurementScalar):
@@ -3383,7 +3472,87 @@ def _merge_ragged_xarray_layouts(
                 raise ValueError("ragged point-local extents differ")
             merged_axis.append(left_extent if left_extent is not None else right_extent)
         merged_axes.append(tuple(merged_axis))
+    if left.explicit_indices or right.explicit_indices:
+        explicit = left if left.explicit_indices else right
+        other = right if left.explicit_indices else left
+        if (
+            left.explicit_indices
+            and right.explicit_indices
+            and (
+                left.row_sizes != right.row_sizes
+                or left.local_indices != right.local_indices
+            )
+        ):
+            raise ValueError("ragged entity-local indices differ")
+        if any(
+            other_size not in {0, explicit_size}
+            for other_size, explicit_size in zip(
+                other.row_sizes,
+                explicit.row_sizes,
+                strict=True,
+            )
+        ):
+            raise ValueError("ragged point-local extents differ")
+        return _RaggedXarrayLayout(
+            parent_point_indices=explicit.parent_point_indices,
+            row_sizes=explicit.row_sizes,
+            local_indices=explicit.local_indices,
+            local_extents=tuple(merged_axes),
+            explicit_indices=True,
+        )
     return _ragged_layout_from_extents(tuple(merged_axes), records=records)
+
+
+def _entity_ragged_xarray_layout(
+    variable: Variable,
+    *,
+    records: Sequence[MeasurementRecord],
+) -> _RaggedXarrayLayout:
+    local_extents: list[list[int | None]] = [[] for _dimension_id in variable.dims[1:]]
+    parent_points: list[int] = []
+    row_sizes: list[int] = []
+    local_indices: list[list[int]] = [[] for _dimension_id in variable.dims[1:]]
+    for record, raw_value in zip(records, variable._raw_values, strict=True):
+        if isinstance(raw_value, MeasurementScalar):
+            raise ValueError(
+                f"ragged variable {variable.id!r} must contain point-local arrays"
+            )
+        local_shape = tuple(raw_value.shape)
+        if len(local_shape) != len(variable.dims) - 1:
+            raise ValueError(
+                f"ragged variable {variable.id!r} value rank {len(local_shape)} "
+                f"does not match {len(variable.dims) - 1} local dimensions"
+            )
+        for axis, extent in enumerate(local_shape):
+            local_extents[axis].append(extent)
+        if isinstance(raw_value, MeasurementUnavailable):
+            row_sizes.append(0)
+            continue
+        if raw_value.entity_shapes is None:
+            concrete_shape = cast("tuple[int, ...]", local_shape)
+            indices = cartesian_product(*(range(extent) for extent in concrete_shape))
+        else:
+            indices = (
+                (entity_index, *local_index)
+                for entity_index, entity_shape in enumerate(raw_value.entity_shapes)
+                for local_index in cartesian_product(
+                    *(range(extent) for extent in entity_shape)
+                )
+            )
+        count = 0
+        for local_index in indices:
+            count += 1
+            parent_points.append(record.point_index)
+            for axis, index in enumerate(local_index):
+                local_indices[axis].append(index)
+        row_sizes.append(count)
+    return _RaggedXarrayLayout(
+        parent_point_indices=tuple(parent_points),
+        row_sizes=tuple(row_sizes),
+        local_indices=tuple(tuple(indices) for indices in local_indices),
+        local_extents=tuple(tuple(extents) for extents in local_extents),
+        explicit_indices=True,
+    )
 
 
 def _ragged_layout_from_extents(

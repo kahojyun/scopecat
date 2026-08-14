@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, cast
@@ -427,6 +428,8 @@ def _projected_entity_value(
         product_values.value_for_output(point.logical_id, member.product_use_id).value
         for member in record.members
     )
+    if _entity_local_shapes_vary(values):
+        return _projected_entity_ragged_value(record, values)
     local_shape = _entity_value_local_shape(values)
     fully_available = tuple(
         _fully_available_entity_chunk(value, dtype=record.dtype) for value in values
@@ -507,6 +510,103 @@ def _projected_entity_value(
         unit=record.unit,
         availability=availability,
     )
+
+
+def _entity_local_shapes_vary(values: Sequence[MeasurementValue]) -> bool:
+    shapes = tuple(
+        () if isinstance(value, MeasurementScalar) else tuple(value.shape)
+        for value in values
+        if not isinstance(value, MeasurementUnavailable)
+        or all(extent is not None for extent in value.shape)
+    )
+    return len(set(shapes)) > 1
+
+
+def _projected_entity_ragged_value(
+    record: EntityRecordPlan,
+    values: Sequence[MeasurementValue],
+) -> MeasurementArray:
+    local_shapes = tuple(_concrete_entity_local_shape(value) for value in values)
+    expected_axes = record.axes[1:]
+    if not expected_axes or all(axis.size is not None for axis in expected_axes):
+        raise ValueError(
+            f"entity record {record.id!r} has inconsistent fixed local shapes"
+        )
+    for shape in local_shapes:
+        if len(shape) != len(expected_axes) or any(
+            axis.size is not None and axis.size != shape[index]
+            for index, axis in enumerate(expected_axes)
+        ):
+            raise ValueError(
+                f"entity record {record.id!r} has an incompatible ragged shape"
+            )
+
+    chunks: list[np.ndarray] = []
+    valid_chunks: list[np.ndarray] = []
+    unavailable_groups: list[MeasurementArrayUnavailableGroup] = []
+    offset = 0
+    for value, shape in zip(values, local_shapes, strict=True):
+        size = math.prod(shape)
+        if isinstance(value, MeasurementUnavailable):
+            chunks.append(np.zeros(size, dtype=_measurement_numpy_dtype(record.dtype)))
+            valid_chunks.append(np.zeros(size, dtype=np.bool_))
+            if size:
+                unavailable_groups.append(
+                    MeasurementArrayUnavailableGroup(
+                        reason=value.reason,
+                        flat_indices=tuple(range(offset, offset + size)),
+                        metadata=value.metadata,
+                    )
+                )
+        else:
+            chunk = (
+                np.asarray(value.value, dtype=_measurement_numpy_dtype(record.dtype))
+                if isinstance(value, MeasurementScalar)
+                else value.values
+            ).reshape(-1)
+            chunks.append(chunk)
+            if isinstance(value, MeasurementArray) and value.availability is not None:
+                valid_chunks.append(value.availability.valid.reshape(-1))
+                unavailable_groups.extend(
+                    MeasurementArrayUnavailableGroup(
+                        reason=group.reason,
+                        flat_indices=tuple(
+                            offset + index for index in group.flat_indices
+                        ),
+                        metadata=group.metadata,
+                    )
+                    for group in value.availability.unavailable
+                )
+            else:
+                valid_chunks.append(np.ones(size, dtype=np.bool_))
+        offset += size
+
+    flattened = np.concatenate(chunks)
+    valid = np.concatenate(valid_chunks)
+    availability = (
+        None
+        if bool(np.all(valid))
+        else MeasurementArrayAvailability(
+            valid=valid,
+            unavailable=_merge_unavailable_groups(unavailable_groups),
+        )
+    )
+    return MeasurementArray.create_entity_ragged(
+        values=flattened,
+        entity_shapes=local_shapes,
+        dtype=record.dtype,
+        unit=record.unit,
+        availability=availability,
+    )
+
+
+def _concrete_entity_local_shape(value: MeasurementValue) -> tuple[int, ...]:
+    if isinstance(value, MeasurementScalar):
+        return ()
+    shape = tuple(value.shape)
+    if any(extent is None for extent in shape):
+        raise ValueError("entity-ragged unavailable members need concrete shapes")
+    return cast("tuple[int, ...]", shape)
 
 
 def _fully_available_entity_chunk(
@@ -590,7 +690,9 @@ def _entity_acquisition_outcome(
 
 def _entity_value_local_shape(values: Sequence[MeasurementValue]) -> tuple[int, ...]:
     concrete = tuple(
-        () if isinstance(value, MeasurementScalar) else tuple(value.shape)
+        ()
+        if isinstance(value, MeasurementScalar)
+        else cast("tuple[int, ...]", tuple(value.shape))
         for value in values
         if not isinstance(value, MeasurementUnavailable)
     )

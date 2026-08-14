@@ -11,6 +11,7 @@ from typing import cast
 
 import numpy as np
 import pyarrow as pa
+from numpy.typing import NDArray
 
 from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import (
@@ -155,7 +156,13 @@ def _encode_array_row(
 ) -> pa.Array:
     if value.dtype != dtype or not _shape_matches(expected_shape, value.shape):
         raise ValueError("measurement value does not match its Arrow column contract")
-    shape = value.shape
+    if value.entity_shapes is not None:
+        return _encode_entity_ragged_array_row(
+            value,
+            dtype=dtype,
+            value_type=value_type,
+        )
+    shape = cast("tuple[int, ...]", value.shape)
     if any(
         actual == 0 and expected == 0
         for expected, actual in zip(expected_shape, shape, strict=True)
@@ -206,6 +213,57 @@ def _encode_array_row(
     return encoded
 
 
+def _encode_entity_ragged_array_row(
+    value: MeasurementArray,
+    *,
+    dtype: MeasurementDType,
+    value_type: pa.DataType,
+) -> pa.Array:
+    entity_shapes = cast("Sequence[tuple[int, ...]]", value.entity_shapes)
+    valid = (
+        np.ones(value.values.size, dtype=np.bool_)
+        if value.availability is None
+        else value.availability.valid
+    )
+    entities: list[object] = []
+    offset = 0
+    for shape in entity_shapes:
+        size = math.prod(shape)
+        entity_values = value.values[offset : offset + size].reshape(shape)
+        entity_valid = valid[offset : offset + size].reshape(shape)
+        entities.append(_nullable_array_tree(entity_values, entity_valid, dtype=dtype))
+        offset += size
+    encoded = pa.array([entities], type=value_type)
+    if len(encoded) != 1 or not encoded.type.equals(value_type):
+        raise ValueError("entity-ragged array cannot form its Arrow row type")
+    return encoded
+
+
+def _nullable_array_tree(
+    values: NDArray[np.generic],
+    valid: NDArray[np.bool_],
+    *,
+    dtype: MeasurementDType,
+) -> object:
+    if values.ndim:
+        extent = cast("int", values.shape[0])
+        return [
+            _nullable_array_tree(
+                cast("NDArray[np.generic]", values[index]),
+                cast("NDArray[np.bool_]", valid[index]),
+                dtype=dtype,
+            )
+            for index in range(extent)
+        ]
+    if not bool(valid.item()):
+        return None
+    selected = cast("bool | int | float | complex | str", values.item())
+    if dtype == "complex128":
+        complex_value = complex(selected)
+        return {"real": complex_value.real, "imag": complex_value.imag}
+    return selected
+
+
 def _require_scalar(value: MeasurementValue) -> MeasurementScalar:
     if not isinstance(value, MeasurementScalar):
         raise ValueError("measurement Arrow scalar column requires scalar values")
@@ -220,7 +278,7 @@ def _require_array(value: MeasurementValue) -> MeasurementArray:
 
 def _shape_matches(
     expected: tuple[int | None, ...],
-    actual: tuple[int, ...],
+    actual: tuple[int | None, ...],
 ) -> bool:
     return len(expected) == len(actual) and all(
         expected_extent is None or expected_extent == actual_extent

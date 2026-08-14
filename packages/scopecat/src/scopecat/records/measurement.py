@@ -64,6 +64,7 @@ MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v14"
 
 MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
 _MEASUREMENT_ARRAY_CREATE_CONTEXT = object()
+_MEASUREMENT_ENTITY_RAGGED_CREATE_CONTEXT = object()
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
@@ -907,7 +908,8 @@ class MeasurementArray(_FrozenMeasurementModel):
     kind: Literal["array"]
     dtype: MeasurementDType = "float64"
     unit: str | None = None
-    shape: tuple[Annotated[int, Field(ge=0)], ...] = Field(min_length=1)
+    shape: tuple[Annotated[int, Field(ge=0)] | None, ...] = Field(min_length=1)
+    entity_shapes: Sequence[tuple[Annotated[int, Field(ge=0)], ...]] | None = None
     values: MeasurementArrayPayload
     availability: MeasurementArrayAvailability | None = None
     metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
@@ -935,6 +937,34 @@ class MeasurementArray(_FrozenMeasurementModel):
         return cls.model_validate(
             data,
             context=_MEASUREMENT_ARRAY_CREATE_CONTEXT,
+        )
+
+    @classmethod
+    def create_entity_ragged(
+        cls,
+        *,
+        values: object,
+        entity_shapes: Sequence[Sequence[int]],
+        dtype: MeasurementDType = "float64",
+        unit: str | None = None,
+        availability: MeasurementArrayAvailability | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> Self:
+        """Construct one contiguous array segmented by entity-local shapes."""
+
+        selected_shapes = tuple(tuple(shape) for shape in entity_shapes)
+        return cls.model_validate(
+            {
+                "kind": "array",
+                "dtype": dtype,
+                "unit": unit,
+                "shape": _entity_ragged_logical_shape(selected_shapes),
+                "entity_shapes": selected_shapes,
+                "values": values,
+                "availability": availability,
+                "metadata": {} if metadata is None else metadata,
+            },
+            context=_MEASUREMENT_ENTITY_RAGGED_CREATE_CONTEXT,
         )
 
     @model_validator(mode="before")
@@ -966,8 +996,16 @@ class MeasurementArray(_FrozenMeasurementModel):
 
     @field_validator("shape")
     @classmethod
-    def freeze_shape(cls, value: Sequence[int]) -> tuple[int, ...]:
+    def freeze_shape(cls, value: Sequence[int | None]) -> tuple[int | None, ...]:
         return tuple(value)
+
+    @field_validator("entity_shapes")
+    @classmethod
+    def freeze_entity_shapes(
+        cls,
+        value: Sequence[Sequence[int]] | None,
+    ) -> Sequence[tuple[int, ...]] | None:
+        return None if value is None else tuple(tuple(shape) for shape in value)
 
     @field_validator("values", mode="before")
     @classmethod
@@ -987,13 +1025,25 @@ class MeasurementArray(_FrozenMeasurementModel):
         )
         selected = (
             cast("MeasurementArrayData", value)
-            if info.context is _MEASUREMENT_ARRAY_CREATE_CONTEXT
+            if info.context
+            in {
+                _MEASUREMENT_ARRAY_CREATE_CONTEXT,
+                _MEASUREMENT_ENTITY_RAGGED_CREATE_CONTEXT,
+            }
             else _measurement_ndarray(value, dtype=dtype)
         )
+        if info.context is _MEASUREMENT_ENTITY_RAGGED_CREATE_CONTEXT:
+            return selected.reshape(-1)
         expected_shape = cast("object", info.data.get("shape"))
+        expected_extents = (
+            cast("tuple[object, ...]", expected_shape)
+            if isinstance(expected_shape, tuple)
+            else ()
+        )
         if (
             selected.size == 0
             and isinstance(expected_shape, tuple)
+            and all(isinstance(extent, int) for extent in expected_extents)
             and math.prod(cast("tuple[int, ...]", expected_shape)) == 0
         ):
             selected = selected.reshape(cast("tuple[int, ...]", expected_shape))
@@ -1008,12 +1058,23 @@ class MeasurementArray(_FrozenMeasurementModel):
     @model_validator(mode="after")
     def validate_values_shape(self) -> MeasurementArray:
         actual_shape = self.values.shape
-        if actual_shape != self.shape:
+        if self.entity_shapes is None and actual_shape != self.shape:
             msg = f"measurement array shape {actual_shape} does not match {self.shape}"
             raise ValueError(msg)
-        if (
-            self.availability is not None
-            and self.availability.valid.shape != self.shape
+        if self.entity_shapes is not None:
+            selected_shapes = tuple(self.entity_shapes)
+            if self.shape != _entity_ragged_logical_shape(selected_shapes):
+                raise ValueError(
+                    "measurement entity-ragged logical shape does not match its "
+                    "segments"
+                )
+            expected_size = sum(math.prod(shape) for shape in selected_shapes)
+            if self.values.ndim != 1 or self.values.size != expected_size:
+                raise ValueError(
+                    "measurement entity-ragged values do not match its segments"
+                )
+        if self.availability is not None and self.availability.valid.shape != (
+            self.values.shape if self.entity_shapes is not None else self.shape
         ):
             raise ValueError(
                 "measurement array availability shape does not match its values"
@@ -1031,10 +1092,32 @@ class MeasurementArray(_FrozenMeasurementModel):
             and self.dtype == other.dtype
             and self.unit == other.unit
             and self.shape == other.shape
+            and self.entity_shapes == other.entity_shapes
             and self.metadata == other.metadata
             and self.availability == other.availability
             and np.array_equal(self.values, other.values)
         )
+
+
+def _entity_ragged_logical_shape(
+    entity_shapes: Sequence[Sequence[int]],
+) -> tuple[int | None, ...]:
+    selected = tuple(tuple(shape) for shape in entity_shapes)
+    if not selected:
+        raise ValueError("measurement entity-ragged arrays require entities")
+    rank = len(selected[0])
+    if rank == 0 or any(len(shape) != rank for shape in selected):
+        raise ValueError(
+            "measurement entity-ragged arrays require one non-scalar local rank"
+        )
+    return (
+        len(selected),
+        *(
+            extents[0] if len(set(extents)) == 1 else None
+            for axis in range(rank)
+            if (extents := tuple(shape[axis] for shape in selected))
+        ),
+    )
 
 
 class MeasurementUnavailable(_FrozenMeasurementModel):

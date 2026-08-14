@@ -56,7 +56,7 @@ _POINT_INDEX_COLUMN = "__scopecat.point_index"
 _RECORD_METADATA_COLUMN = "__scopecat.record_metadata"
 _RECORD_EVIDENCE_COLUMN = "__scopecat.acquisition_evidence"
 
-_SHAPE_TYPE = pa.large_list(pa.field("extent", pa.int64()))
+_SHAPE_TYPE = pa.large_binary()
 _EVIDENCE_TYPE = pa.large_binary()
 
 
@@ -448,13 +448,15 @@ def _encoded_shape(
     *,
     variable: MeasurementVariable,
     dimension_sizes: Mapping[str, int | None],
-) -> list[int | None] | None:
+) -> bytes | None:
     if isinstance(value, MeasurementUnavailable):
-        return list(value.shape)
+        return _encode_json({"shape": value.shape})
+    if isinstance(value, MeasurementArray) and value.entity_shapes is not None:
+        return _encode_json({"entity_shapes": value.entity_shapes})
     if isinstance(value, MeasurementArray) and any(
         dimension_sizes[dimension_id] is None for dimension_id in variable.dims[1:]
     ):
-        return list(value.shape)
+        return _encode_json({"shape": value.shape})
     return None
 
 
@@ -660,17 +662,25 @@ def _decode_value(
     if reason is not None:
         if (
             encoded_value.is_valid
-            or not isinstance(encoded_shape, list)
+            or not isinstance(encoded_shape, bytes)
             or availability_groups
         ):
             raise MeasurementArrowCodecError(
                 "measurement Arrow unavailable sidecars are inconsistent"
             )
+        decoded_shape = _decode_json(encoded_shape).get("shape")
+        if not isinstance(decoded_shape, list) or any(
+            extent is not None and not isinstance(extent, int)
+            for extent in decoded_shape
+        ):
+            raise MeasurementArrowCodecError(
+                "measurement Arrow unavailable shape sidecar is invalid"
+            )
         return MeasurementUnavailable.create(
             reason=cast("MeasurementUnavailableReason", reason),
             dtype=variable.dtype,
             unit=variable.unit,
-            shape=cast("list[int | None]", encoded_shape),
+            shape=cast("list[int | None]", decoded_shape),
             metadata=metadata,
         )
     if not encoded_value.is_valid:
@@ -697,8 +707,12 @@ def _decode_value(
         dataset_schema=dataset_schema,
     )
     array, valid = _decode_array_values(encoded_value, dtype=variable.dtype)
-    array = array.reshape(shape)
-    valid = valid.reshape(shape)
+    entity_shapes = shape if shape and isinstance(shape[0], tuple) else None
+    concrete_shape = (
+        (array.size,) if entity_shapes is not None else cast("tuple[int, ...]", shape)
+    )
+    array = array.reshape(concrete_shape)
+    valid = valid.reshape(concrete_shape)
     if availability_groups:
         availability = MeasurementArrayAvailability(
             valid=valid,
@@ -710,12 +724,23 @@ def _decode_value(
                 "measurement Arrow partial value diagnostics are missing"
             )
         availability = None
-    return MeasurementArray.create(
-        values=array,
-        dtype=variable.dtype,
-        unit=variable.unit,
-        availability=availability,
-        metadata=metadata,
+    return (
+        MeasurementArray.create(
+            values=array,
+            dtype=variable.dtype,
+            unit=variable.unit,
+            availability=availability,
+            metadata=metadata,
+        )
+        if entity_shapes is None
+        else MeasurementArray.create_entity_ragged(
+            values=array,
+            entity_shapes=cast("tuple[tuple[int, ...], ...]", entity_shapes),
+            dtype=variable.dtype,
+            unit=variable.unit,
+            availability=availability,
+            metadata=metadata,
+        )
     )
 
 
@@ -738,7 +763,7 @@ def _decoded_array_shape(
     *,
     variable: MeasurementVariable,
     dataset_schema: MeasurementDatasetSchema,
-) -> tuple[int, ...]:
+) -> tuple[int, ...] | tuple[tuple[int, ...], ...]:
     dimension_sizes = {
         dimension.id: dimension.size for dimension in dataset_schema.dimensions
     }
@@ -746,13 +771,25 @@ def _decoded_array_shape(
         dimension_sizes[dimension_id] for dimension_id in variable.dims[1:]
     )
     if any(extent is None for extent in expected):
-        if not isinstance(encoded_shape, list) or any(
-            not isinstance(extent, int) for extent in encoded_shape
-        ):
+        if not isinstance(encoded_shape, bytes):
             raise MeasurementArrowCodecError(
                 "measurement Arrow ragged value shape sidecar is missing"
             )
-        return tuple(cast("list[int]", encoded_shape))
+        decoded = _decode_json(encoded_shape)
+        entity_shapes = decoded.get("entity_shapes")
+        if isinstance(entity_shapes, list) and all(
+            isinstance(shape, list) and all(isinstance(extent, int) for extent in shape)
+            for shape in entity_shapes
+        ):
+            return tuple(tuple(cast("list[int]", shape)) for shape in entity_shapes)
+        shape = decoded.get("shape")
+        if not isinstance(shape, list) or any(
+            not isinstance(extent, int) for extent in shape
+        ):
+            raise MeasurementArrowCodecError(
+                "measurement Arrow ragged value shape sidecar is invalid"
+            )
+        return tuple(cast("list[int]", shape))
     if encoded_shape is not None:
         raise MeasurementArrowCodecError(
             "measurement Arrow fixed value has an unexpected shape sidecar"

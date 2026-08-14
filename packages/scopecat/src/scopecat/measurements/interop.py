@@ -644,15 +644,27 @@ def _projected_values(
             )
         else:
             array = value
+            converted = (
+                np.asarray(
+                    array.values,
+                    dtype=(
+                        np.complex128 if field.dtype == "complex128" else np.float64
+                    ),
+                )
+                * scale
+            )
             selected.append(
                 MeasurementArray.create(
-                    values=np.asarray(
-                        array.values,
-                        dtype=(
-                            np.complex128 if field.dtype == "complex128" else np.float64
-                        ),
-                    )
-                    * scale,
+                    values=converted,
+                    dtype=field.dtype,
+                    unit=field.unit,
+                    availability=array.availability,
+                    metadata=array.metadata,
+                )
+                if array.entity_shapes is None
+                else MeasurementArray.create_entity_ragged(
+                    values=converted,
+                    entity_shapes=array.entity_shapes,
                     dtype=field.dtype,
                     unit=field.unit,
                     availability=array.availability,
