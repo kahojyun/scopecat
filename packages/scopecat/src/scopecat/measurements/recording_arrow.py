@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from typing import cast
 
 import numpy as np
@@ -21,7 +20,9 @@ from scopecat.measurements.arrow_values import (
 )
 from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import (
+    EntityAcquisitionEvidence,
     InstrumentAcquisitionEvidence,
+    MeasurementAcquisitionEvidence,
     MeasurementArray,
     MeasurementArrayAvailability,
     MeasurementArrayUnavailableGroup,
@@ -57,22 +58,7 @@ _POINT_INDEX_COLUMN = "__scopecat.point_index"
 _RECORD_METADATA_COLUMN = "__scopecat.record_metadata"
 
 _SHAPE_TYPE = pa.large_list(pa.field("extent", pa.int64()))
-_EVIDENCE_TYPE = pa.struct(
-    [
-        pa.field("command_id", pa.string(), nullable=False),
-        pa.field("instrument_id", pa.string(), nullable=False),
-        pa.field("interface_id", pa.string(), nullable=False),
-        pa.field(
-            "component_path",
-            pa.large_list(pa.field("component", pa.string(), nullable=False)),
-            nullable=False,
-        ),
-        pa.field("acquisition_id", pa.string(), nullable=False),
-        pa.field("result_id", pa.string(), nullable=False),
-        pa.field("started_at", pa.string(), nullable=False),
-        pa.field("completed_at", pa.string(), nullable=False),
-    ]
-)
+_EVIDENCE_TYPE = pa.large_binary()
 
 
 class MeasurementArrowCodecError(ValueError):
@@ -487,20 +473,11 @@ def _encode_availability(value: MeasurementValue) -> bytes:
 
 
 def _encode_evidence(
-    evidence: InstrumentAcquisitionEvidence | None,
-) -> dict[str, object] | None:
+    evidence: MeasurementAcquisitionEvidence | None,
+) -> bytes | None:
     if evidence is None:
         return None
-    return {
-        "command_id": evidence.command_id,
-        "instrument_id": evidence.instrument_id,
-        "interface_id": evidence.interface_id,
-        "component_path": list(evidence.component_path),
-        "acquisition_id": evidence.acquisition_id,
-        "result_id": evidence.result_id,
-        "started_at": evidence.started_at.isoformat(),
-        "completed_at": evidence.completed_at.isoformat(),
-    }
+    return _encode_json(evidence.model_dump(mode="json"))
 
 
 def _read_batch(
@@ -615,7 +592,7 @@ def _decode_records(
         for row_index in range(batch.num_rows):
             coordinates: dict[str, MeasurementValue] = {}
             observables: dict[str, MeasurementValue] = {}
-            evidence: dict[str, InstrumentAcquisitionEvidence] = {}
+            evidence: dict[str, MeasurementAcquisitionEvidence] = {}
             for variable in variables:
                 (
                     value_column,
@@ -826,7 +803,13 @@ def _decode_array_values(
         imag = complex_values.field("imag").to_numpy(zero_copy_only=False)
         values = np.asarray(real + 1j * imag, dtype=np.complex128)
     else:
-        fill_value: str | int = "" if dtype == "string" else 0
+        fill_value: str | bool | int
+        if dtype == "string":
+            fill_value = ""
+        elif dtype == "bool":
+            fill_value = False
+        else:
+            fill_value = 0
         values = np.asarray(
             selected.fill_null(fill_value).to_numpy(zero_copy_only=False),
             dtype=_numpy_dtype(dtype),
@@ -844,18 +827,11 @@ def _decode_array_values(
     )
 
 
-def _decode_evidence(value: object) -> InstrumentAcquisitionEvidence:
-    encoded = cast("Mapping[str, object]", value)
-    return InstrumentAcquisitionEvidence(
-        command_id=cast("str", encoded["command_id"]),
-        instrument_id=cast("str", encoded["instrument_id"]),
-        interface_id=cast("str", encoded["interface_id"]),
-        component_path=tuple(cast("list[str]", encoded["component_path"])),
-        acquisition_id=cast("str", encoded["acquisition_id"]),
-        result_id=cast("str", encoded["result_id"]),
-        started_at=datetime.fromisoformat(cast("str", encoded["started_at"])),
-        completed_at=datetime.fromisoformat(cast("str", encoded["completed_at"])),
-    )
+def _decode_evidence(value: object) -> MeasurementAcquisitionEvidence:
+    encoded = _decode_json(value)
+    if encoded.get("kind") == "entity":
+        return EntityAcquisitionEvidence.model_validate(encoded)
+    return InstrumentAcquisitionEvidence.model_validate(encoded)
 
 
 def _validate_selected_point_indices(

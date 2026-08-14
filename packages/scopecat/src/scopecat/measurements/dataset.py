@@ -2257,6 +2257,14 @@ def _require_record_ref_matches(
         "unit": ref.unit,
         "dims": ref.dims,
         "source_product_id": ref.source_product_id,
+        "source_entity_products": (
+            None
+            if ref.source_product_ids is None
+            else {
+                "dimension_id": ref.entity_axis_id,
+                "product_ids": ref.source_product_ids,
+            }
+        ),
         "source_value_id": ref.source_value_id,
         "recording_group_id": ref.recording_group_id,
     }
@@ -2267,6 +2275,14 @@ def _require_record_ref_matches(
         "unit": definition.unit,
         "dims": tuple(definition.dims),
         "source_product_id": definition.source_product_id,
+        "source_entity_products": (
+            None
+            if definition.source_entity_products is None
+            else {
+                "dimension_id": definition.source_entity_products.dimension_id,
+                "product_ids": tuple(definition.source_entity_products.product_ids),
+            }
+        ),
         "source_value_id": definition.source_value_id,
         "recording_group_id": definition.recording_group_id,
     }

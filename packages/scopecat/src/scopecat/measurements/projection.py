@@ -6,6 +6,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
+import numpy as np
+
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
@@ -18,6 +20,7 @@ from scopecat.measurements.products import ProductDef
 from scopecat.measurements.records import (
     BoundRecordUse,
     DatasetRecordPlan,
+    EntityRecordPlan,
     RecordPlan,
     RecordUse,
     ValueRecordCandidate,
@@ -36,10 +39,15 @@ from scopecat.measurements.values import (
 from scopecat.program.measurement_types import MeasurementVariableRole
 from scopecat.program.recording import ExperimentResultField
 from scopecat.records.measurement import (
+    EntityAcquisitionEvidence,
     InstrumentAcquisitionEvidence,
     MeasurementArray,
+    MeasurementArrayAvailability,
+    MeasurementArrayUnavailableGroup,
     MeasurementDatasetSchema,
     MeasurementRecord,
+    MeasurementScalar,
+    MeasurementUnavailable,
     MeasurementValue,
 )
 
@@ -225,12 +233,18 @@ def select_measurement_projection(
         )
     )
     value_record_iterator = iter(plan_value_records(value_records))
-    record_plans: tuple[DatasetRecordPlan, ...] = tuple(
-        next(product_record_iterator)
-        if isinstance(record, RecordUse)
-        else next(value_record_iterator)
-        for record in selected_records
-    )
+    planned: list[DatasetRecordPlan] = []
+    emitted_entity_records: set[str] = set()
+    for record in selected_records:
+        if isinstance(record, ValueRecordUse):
+            planned.append(next(value_record_iterator))
+            continue
+        if record.entity is not None:
+            if record.id in emitted_entity_records:
+                continue
+            emitted_entity_records.add(record.id)
+        planned.append(next(product_record_iterator))
+    record_plans = tuple(planned)
     record_problems = validate_record_plan(
         record_plans,
         coordinate_ids=coordinate_ids,
@@ -326,7 +340,7 @@ def _projection_contract_fingerprint(
 
 
 def _record_contract(record: DatasetRecordPlan) -> object:
-    if isinstance(record, RecordPlan):
+    if isinstance(record, RecordPlan | EntityRecordPlan):
         return record
     return {
         "kind": "value",
@@ -358,6 +372,13 @@ def _projected_values(
                 record.product_use_id,
             ).value
             continue
+        if isinstance(record, EntityRecordPlan):
+            projected[record.id] = _projected_entity_value(
+                record,
+                product_values=product_values,
+                point=point,
+            )
+            continue
         try:
             value = value_candidates[(point.logical_id, record.value_id)]
         except KeyError as error:
@@ -377,14 +398,167 @@ def _projected_values(
     return projected
 
 
+def _projected_entity_value(
+    record: EntityRecordPlan,
+    *,
+    product_values: ClosedMeasurementProductValues,
+    point: AcceptedRunPoint,
+) -> MeasurementValue:
+    values = tuple(
+        product_values.value_for_output(point.logical_id, member.product_use_id).value
+        for member in record.members
+    )
+    unavailable = tuple(
+        value for value in values if isinstance(value, MeasurementUnavailable)
+    )
+    if (
+        len(unavailable) == len(values)
+        and len({value.reason for value in unavailable}) == 1
+    ):
+        first = unavailable[0]
+        return MeasurementUnavailable.create(
+            reason=first.reason,
+            dtype=record.dtype,
+            unit=record.unit,
+            shape=(len(values), *first.shape),
+            metadata=first.metadata,
+        )
+
+    local_shape = _entity_value_local_shape(values)
+    local_size = int(np.prod(local_shape, dtype=np.int64))
+    chunks: list[np.ndarray] = []
+    valid_chunks: list[np.ndarray] = []
+    unavailable_groups: list[MeasurementArrayUnavailableGroup] = []
+    for entity_index, (member, value) in enumerate(
+        zip(record.members, values, strict=True)
+    ):
+        entity_metadata = {
+            "entity": {
+                "id": member.entity.id,
+                **({} if member.entity.kind is None else {"kind": member.entity.kind}),
+            }
+        }
+        if isinstance(value, MeasurementUnavailable):
+            chunks.append(
+                np.zeros(local_shape, dtype=_measurement_numpy_dtype(record.dtype))
+            )
+            valid_chunks.append(np.zeros(local_shape, dtype=np.bool_))
+            unavailable_groups.append(
+                MeasurementArrayUnavailableGroup(
+                    reason=value.reason,
+                    flat_indices=tuple(
+                        range(
+                            entity_index * local_size, (entity_index + 1) * local_size
+                        )
+                    ),
+                    metadata={**value.metadata, **entity_metadata},
+                )
+            )
+            continue
+        chunk = (
+            np.asarray(value.value, dtype=_measurement_numpy_dtype(record.dtype))
+            if isinstance(value, MeasurementScalar)
+            else value.values
+        )
+        if chunk.shape != local_shape:
+            raise ValueError(
+                f"entity record {record.id!r} has inconsistent point-local shapes"
+            )
+        chunks.append(chunk)
+        if isinstance(value, MeasurementArray) and value.availability is not None:
+            valid_chunks.append(value.availability.valid)
+            for group in value.availability.unavailable:
+                unavailable_groups.append(
+                    MeasurementArrayUnavailableGroup(
+                        reason=group.reason,
+                        flat_indices=tuple(
+                            entity_index * local_size + index
+                            for index in group.flat_indices
+                        ),
+                        metadata={**group.metadata, **entity_metadata},
+                    )
+                )
+        else:
+            valid_chunks.append(np.ones(local_shape, dtype=np.bool_))
+
+    stacked = np.stack(chunks, axis=0)
+    valid = np.stack(valid_chunks, axis=0)
+    availability = (
+        None
+        if bool(np.all(valid))
+        else MeasurementArrayAvailability(
+            valid=valid,
+            unavailable=tuple(unavailable_groups),
+        )
+    )
+    return MeasurementArray.create(
+        values=stacked,
+        dtype=record.dtype,
+        unit=record.unit,
+        availability=availability,
+    )
+
+
+def _entity_value_local_shape(values: Sequence[MeasurementValue]) -> tuple[int, ...]:
+    concrete = tuple(
+        () if isinstance(value, MeasurementScalar) else tuple(value.shape)
+        for value in values
+        if not isinstance(value, MeasurementUnavailable)
+    )
+    if concrete:
+        first = concrete[0]
+        if any(shape != first for shape in concrete):
+            raise ValueError("entity record members have inconsistent shapes")
+        return first
+    unavailable_shapes = tuple(
+        tuple(value.shape)
+        for value in values
+        if isinstance(value, MeasurementUnavailable)
+    )
+    first_unavailable = unavailable_shapes[0]
+    if any(shape != first_unavailable for shape in unavailable_shapes) or any(
+        extent is None for extent in first_unavailable
+    ):
+        raise ValueError("entity record unavailable members need one concrete shape")
+    return cast("tuple[int, ...]", first_unavailable)
+
+
+def _measurement_numpy_dtype(dtype: str) -> np.dtype:
+    return np.dtype(
+        {
+            "bool": np.bool_,
+            "int64": np.int64,
+            "float64": np.float64,
+            "complex128": np.complex128,
+            "string": np.str_,
+        }[dtype]
+    )
+
+
 def _projected_acquisition_evidence(
     records: Sequence[DatasetRecordPlan],
     *,
     product_values: ClosedMeasurementProductValues,
     point: AcceptedRunPoint,
-) -> dict[str, InstrumentAcquisitionEvidence]:
-    acquisition_evidence: dict[str, InstrumentAcquisitionEvidence] = {}
+) -> dict[str, InstrumentAcquisitionEvidence | EntityAcquisitionEvidence]:
+    acquisition_evidence: dict[
+        str, InstrumentAcquisitionEvidence | EntityAcquisitionEvidence
+    ] = {}
     for record in records:
+        if isinstance(record, EntityRecordPlan):
+            evidence = tuple(
+                product_values.value_for_output(
+                    point.logical_id,
+                    member.product_use_id,
+                ).evidence
+                for member in record.members
+            )
+            if any(item is not None for item in evidence):
+                acquisition_evidence[record.id] = EntityAcquisitionEvidence(
+                    dimension_id=record.axes[0].id,
+                    values=evidence,
+                )
+            continue
         if not isinstance(record, RecordPlan):
             continue
         evidence = product_values.value_for_output(

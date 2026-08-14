@@ -160,7 +160,7 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
                         kind="measurement_dataset",
                         target="measurement-dataset",
                         content_hash="sha256:measurements",
-                        codec="scopecat.measurement-dataset.v9",
+                        codec="scopecat.measurement-dataset.v10",
                     ),
                 ),
                 outputs=(
@@ -498,7 +498,7 @@ def test_analysis_record_rejects_empty_required_text_like_the_wire_contract() ->
             target="",
             kind="measurement_dataset",
             content_hash=f"sha256:{'0' * 64}",
-            codec="scopecat.measurement-dataset.v9",
+            codec="scopecat.measurement-dataset.v10",
             role="data",
         )
     with pytest.raises(ValidationError, match="at least 1 character"):
@@ -544,7 +544,7 @@ def test_analysis_record_input_requires_source_only_for_analysis_datasets() -> N
             target="raw-measurements",
             kind="measurement_dataset",
             content_hash=f"sha256:{'0' * 64}",
-            codec="scopecat.measurement-dataset.v9",
+            codec="scopecat.measurement-dataset.v10",
             role="data",
             source=source,
         )

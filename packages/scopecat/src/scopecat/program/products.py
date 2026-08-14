@@ -302,6 +302,8 @@ class RecordSelection:
     record_id: str | None = None
     role: MeasurementVariableRole = "observable"
     recording_group_id: str | None = None
+    entity: EntityRef | None = None
+    entity_axis_id: str | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
     def __post_init__(self) -> None:
@@ -311,6 +313,12 @@ class RecordSelection:
         if self.recording_group_id is not None and not self.recording_group_id:
             msg = "recording group id must be non-empty when provided"
             raise ValueError(msg)
+        if (self.entity is None) != (self.entity_axis_id is None):
+            raise ValueError(
+                "entity record selections require both entity and entity_axis_id"
+            )
+        if self.entity_axis_id is not None and not self.entity_axis_id:
+            raise ValueError("entity record axis id must be non-empty")
         object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
 
     @property
@@ -498,6 +506,8 @@ def record_alias(
         record_id=record_id,
         role=selection.role if role is None else role,
         recording_group_id=None,
+        entity=selection.entity,
+        entity_axis_id=selection.entity_axis_id,
         metadata=freeze_json_mapping(metadata or {}),
     )
 

@@ -1907,6 +1907,21 @@ export interface components {
             run_id?: string | null;
         };
         /**
+         * EntityAcquisitionEvidence
+         * @description Acquisition evidence aligned to one entity-indexed variable.
+         */
+        EntityAcquisitionEvidence: {
+            dimension_id: components["schemas"]["_NonEmptyText"];
+            /**
+             * Kind
+             * @default entity
+             * @constant
+             */
+            kind: "entity";
+            /** Values */
+            values: (components["schemas"]["InstrumentAcquisitionEvidence"] | null)[];
+        };
+        /**
          * EntityRef
          * @description Reference to a domain entity without making the domain core vocabulary.
          */
@@ -2024,7 +2039,7 @@ export interface components {
             started_at: string;
         };
         InstrumentAcquisitionEvidenceMap: {
-            [key: string]: components["schemas"]["InstrumentAcquisitionEvidence"];
+            [key: string]: components["schemas"]["MeasurementAcquisitionEvidence"];
         };
         /**
          * InstrumentBindingSpec
@@ -2450,11 +2465,13 @@ export interface components {
              */
             kind: "manual_parameter_updates";
         };
+        MeasurementAcquisitionEvidence: components["schemas"]["InstrumentAcquisitionEvidence"] | components["schemas"]["EntityAcquisitionEvidence"];
         /**
          * MeasurementArray
          * @description One typed array backed by an immutable, read-only NumPy buffer.
          */
         MeasurementArray: {
+            availability?: components["schemas"]["MeasurementArrayAvailability"] | null;
             /** @default float64 */
             dtype: components["schemas"]["MeasurementDType"];
             /**
@@ -2469,9 +2486,34 @@ export interface components {
             unit?: string | null;
             values: components["schemas"]["MeasurementArrayJson"];
         };
+        /**
+         * MeasurementArrayAvailability
+         * @description Partial array validity with sparse, reason-qualified unavailable leaves.
+         */
+        MeasurementArrayAvailability: {
+            /** Unavailable */
+            unavailable: components["schemas"]["MeasurementArrayUnavailableGroup"][];
+            valid: components["schemas"]["MeasurementBooleanArrayJson"];
+        };
         MeasurementArrayJson: components["schemas"]["MeasurementArrayJsonItem"][];
         MeasurementArrayJsonItem: components["schemas"]["MeasurementArrayJsonLeaf"] | components["schemas"]["MeasurementArrayJsonItem"][];
         MeasurementArrayJsonLeaf: boolean | number | string | components["schemas"]["MeasurementComplexJson"];
+        /**
+         * MeasurementArrayUnavailableGroup
+         * @description One reason shared by a sparse set of unavailable array leaves.
+         */
+        MeasurementArrayUnavailableGroup: {
+            /** Flat Indices */
+            flat_indices: number[];
+            metadata?: components["schemas"]["MeasurementMetadata-Output"];
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "missing" | "invalid" | "overload";
+        };
+        MeasurementBooleanArrayJson: components["schemas"]["MeasurementBooleanArrayJsonItem"][];
+        MeasurementBooleanArrayJsonItem: boolean | components["schemas"]["MeasurementBooleanArrayJsonItem"][];
         MeasurementComplexJson: {
             imag: number;
             real: number;
@@ -2497,10 +2539,10 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension-Output"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v10
+             * @default scopecat.measurement_dataset_schema.v11
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v10";
+            format_version: "scopecat.measurement_dataset_schema.v11";
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
             point_domain: components["schemas"]["MeasurementPointDomain-Output"];
             /** Primary Coordinates */
@@ -2509,10 +2551,10 @@ export interface components {
             primary_observables?: string[];
             /**
              * Record Schema
-             * @default scopecat.measurement_record.v4
+             * @default scopecat.measurement_record.v5
              * @constant
              */
-            record_schema: "scopecat.measurement_record.v4";
+            record_schema: "scopecat.measurement_record.v5";
             result?: components["schemas"]["MeasurementResultContract"] | null;
             /** Variables */
             variables?: components["schemas"]["MeasurementVariable-Output"][];
@@ -2524,6 +2566,7 @@ export interface components {
         "MeasurementDimension-Output": {
             /** Id */
             id: string;
+            index?: components["schemas"]["MeasurementEntityIndex-Output"] | null;
             /** Kind */
             kind: string;
             /** Label */
@@ -2534,6 +2577,32 @@ export interface components {
         };
         /** @enum {string} */
         MeasurementDType: "float64" | "int64" | "complex128" | "bool" | "string";
+        /**
+         * MeasurementEntityIndex
+         * @description Ordered durable entity labels for one fixed measurement dimension.
+         */
+        "MeasurementEntityIndex-Output": {
+            entity_kind?: components["schemas"]["_NonEmptyText"] | null;
+            /**
+             * Kind
+             * @default entity
+             * @constant
+             */
+            kind: "entity";
+            /** Values */
+            values: components["schemas"]["EntityRef-Output"][];
+        };
+        /**
+         * MeasurementEntityProductSource
+         * @description Ordered product provenance aligned to one entity dimension.
+         */
+        "MeasurementEntityProductSource-Output": {
+            dimension_id: components["schemas"]["_NonEmptyText"];
+            /** Product Ids */
+            product_ids: components["schemas"]["_NonEmptyText"][];
+            /** Product Metadata */
+            product_metadata: components["schemas"]["MeasurementMetadata-Output"][];
+        };
         "MeasurementMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
         };
@@ -2888,6 +2957,7 @@ export interface components {
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
             recording_group_id?: components["schemas"]["_NonEmptyText"] | null;
             role: components["schemas"]["MeasurementVariableRole"];
+            source_entity_products?: components["schemas"]["MeasurementEntityProductSource-Output"] | null;
             source_product_id?: components["schemas"]["_NonEmptyText"] | null;
             source_value_id?: components["schemas"]["_NonEmptyText"] | null;
             /** Unit */

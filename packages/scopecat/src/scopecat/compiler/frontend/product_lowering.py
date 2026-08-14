@@ -104,6 +104,8 @@ def lower_products(
                 product_use_id=use.id,
                 role=selection.role,
                 recording_group_id=selection.recording_group_id,
+                entity=selection.entity,
+                entity_axis_id=selection.entity_axis_id,
                 metadata=_durable_metadata(selection.metadata),
             )
         )

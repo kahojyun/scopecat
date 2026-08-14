@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import cast, override
 
 import pytest
@@ -24,6 +25,8 @@ from scopecat.measurements.recording_arrow import (
     encode_measurement_append,
 )
 from scopecat.records.measurement import (
+    EntityAcquisitionEvidence,
+    InstrumentAcquisitionEvidence,
     MeasurementArray,
     MeasurementArrayAvailability,
     MeasurementDatasetSchema,
@@ -140,6 +143,15 @@ def test_arrow_recording_round_trips_entity_arrays_with_partial_availability() -
         reason="missing",
         metadata={"entity": "q1"},
     )
+    evidence = InstrumentAcquisitionEvidence(
+        command_id="readout",
+        instrument_id="digitizer",
+        interface_id="test.readout/v1",
+        acquisition_id="iq",
+        result_id="iq",
+        started_at=datetime(2026, 8, 15, 10, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 8, 15, 10, 0, 1, tzinfo=UTC),
+    )
     record = MeasurementRecord(
         run_id="entity-run",
         point_index=0,
@@ -150,6 +162,12 @@ def test_arrow_recording_round_trips_entity_arrays_with_partial_availability() -
                 unit="ratio",
                 values=[[1 + 2j, 3 + 4j], [0j, 5 + 6j]],
                 availability=availability,
+            )
+        },
+        acquisition_evidence={
+            "iq": EntityAcquisitionEvidence(
+                dimension_id="qubit",
+                values=(evidence, None),
             )
         },
     )

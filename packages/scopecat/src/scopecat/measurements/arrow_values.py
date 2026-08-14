@@ -163,9 +163,7 @@ def _encode_array_row(
         return pa.array([_empty_array_tree(shape)], type=value_type)
     selected = value.values.reshape(-1)
     invalid = (
-        None
-        if value.availability is None
-        else pa.array(~value.availability.valid.reshape(-1))
+        None if value.availability is None else ~value.availability.valid.reshape(-1)
     )
     if dtype == "complex128":
         complex_values = cast(
@@ -178,7 +176,7 @@ def _encode_array_row(
                 pa.array(complex_values.imag),
             ],
             fields=list(MEASUREMENT_COMPLEX_ARROW_TYPE),
-            mask=invalid,
+            mask=None if invalid is None else pa.array(invalid),
         )
     else:
         encoded = pa.array(

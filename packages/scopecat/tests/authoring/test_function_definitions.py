@@ -343,6 +343,45 @@ def test_return_paths_name_product_bundles_and_named_values() -> None:
     ]
 
 
+def test_homogeneous_per_entity_return_uses_one_entity_indexed_record() -> None:
+    q0 = sc.EntityRef(id="q0", kind="qubit")
+    q1 = sc.EntityRef(id="q1", kind="qubit")
+
+    @sc.experiment(id="test.entity-return", kind="return")
+    def definition(
+        experiment: sc.ExperimentContext,
+    ) -> sc.PerEntity[sc.ProductRef]:
+        return sc.PerEntity(
+            (
+                (q0, experiment._product("readout", scope=("q0",))),
+                (q1, experiment._product("readout", scope=("q1",))),
+            )
+        )
+
+    invocation = definition()
+    selections = invocation.definition.record_selections
+
+    assert len(selections) == 2
+    assert all(isinstance(selection, RecordSelection) for selection in selections)
+    product_selections = tuple(cast("RecordSelection", item) for item in selections)
+    assert [selection.record_id for selection in product_selections] == [
+        "result",
+        "result",
+    ]
+    assert [selection.entity for selection in product_selections] == [q0, q1]
+    assert [selection.entity_axis_id for selection in product_selections] == [
+        "qubit",
+        "qubit",
+    ]
+    [result_field] = invocation.definition.result_fields
+    assert result_field.path == ("result",)
+    assert result_field.variable_id == "result"
+    output = cast("sc.RecordRef", cast("object", invocation.output))
+    assert output.id == "result"
+    assert output.dims == ("point", "qubit")
+    assert output.source_product_ids == ("q0/readout", "q1/readout")
+
+
 def test_return_annotations_refine_durable_record_policy() -> None:
     def score_value() -> float:
         return 0.75

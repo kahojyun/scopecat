@@ -652,6 +652,26 @@ def test_entity_dimensions_support_labeled_selection_and_partial_availability() 
         np.asarray([5.0], dtype=np.float64),
     )
 
+    points = dataset.project(
+        {"readout": "readout"},
+        diagnostics="reason",
+    ).to_arrow()
+    assert points["readout"].to_pylist() == [
+        [1.0, None, 3.0],
+        [4.0, 5.0, 6.0],
+    ]
+    assert points["readout__unavailable_reason"].to_pylist() == [
+        "partial",
+        None,
+    ]
+    observations = dataset.project(
+        {"readout": "readout"},
+        diagnostics="reason",
+        layout="observations",
+    ).to_arrow()
+    assert observations["readout"].to_pylist() == [1.0, None, 3.0, 4.0, 5.0, 6.0]
+    assert observations["readout__unavailable_reason"].to_pylist()[1] == "missing"
+
 
 def test_measurement_projection_controls_names_units_and_native_adapters() -> None:
     pd = pytest.importorskip("pandas")

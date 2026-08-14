@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     )
     from scopecat.program.record_refs import RecordRef
     from scopecat.records.measurement import (
+        EntityAcquisitionEvidence,
         InstrumentAcquisitionEvidence,
         MeasurementArray,
         MeasurementArrayAvailability,
@@ -44,6 +45,7 @@ if TYPE_CHECKING:
         MeasurementDatasetSchema,
         MeasurementDimension,
         MeasurementEntityIndex,
+        MeasurementEntityProductSource,
         MeasurementPointCloudPointDomain,
         MeasurementPointDomain,
         MeasurementPointDomainAxis,
@@ -87,6 +89,7 @@ _MEASUREMENT_TYPE_EXPORTS = (
     "MeasurementVariableRole",
 )
 _RECORD_EXPORTS = (
+    "EntityAcquisitionEvidence",
     "InstrumentAcquisitionEvidence",
     "MeasurementArray",
     "MeasurementArrayAvailability",
@@ -95,6 +98,7 @@ _RECORD_EXPORTS = (
     "MeasurementDatasetSchema",
     "MeasurementDimension",
     "MeasurementEntityIndex",
+    "MeasurementEntityProductSource",
     "MeasurementPointCloudPointDomain",
     "MeasurementPointDomain",
     "MeasurementPointDomainAxis",
@@ -142,6 +146,7 @@ def __dir__() -> list[str]:
 
 __all__ = [
     "Dataset",
+    "EntityAcquisitionEvidence",
     "ExperimentResultPoint",
     "ExperimentResultView",
     "InstrumentAcquisitionEvidence",
@@ -154,6 +159,7 @@ __all__ = [
     "MeasurementDatasetSchema",
     "MeasurementDimension",
     "MeasurementEntityIndex",
+    "MeasurementEntityProductSource",
     "MeasurementPointCloudPointDomain",
     "MeasurementPointDomain",
     "MeasurementPointDomainAxis",

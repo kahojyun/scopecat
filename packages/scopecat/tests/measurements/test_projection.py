@@ -33,11 +33,13 @@ from scopecat.measurements.projection import (
     select_measurement_projection,
 )
 from scopecat.measurements.records import (
+    RecordUse,
     ValueRecordCandidate,
     ValueRecordUse,
     expected_dataset_schema,
 )
 from scopecat.measurements.results import (
+    EntityAcquisitionEvidence,
     InstrumentAcquisitionEvidence,
     MeasurementPointDomainAxis,
     MeasurementPointDomainLinearSource,
@@ -59,6 +61,7 @@ from scopecat.program.point_domain import (
 )
 from scopecat.records.measurement import (
     MeasurementArray,
+    MeasurementUnavailable,
     measurement_point_axis_values,
 )
 
@@ -203,6 +206,128 @@ def test_projection_promotes_product_entity_values_to_a_labeled_dimension() -> N
     assert qubit.index is not None
     assert qubit.index.entity_kind == "logical_qubit"
     assert qubit.index.values == entities
+
+
+def test_projection_stacks_entity_products_and_preserves_partial_failure() -> None:
+    scenario = measurement_assembly_scenario(point_values=(0.0, 1.0), use_count=2)
+    q0 = EntityRef(id="q0", kind="qubit")
+    q1 = EntityRef(id="q1", kind="qubit")
+    records = (
+        RecordUse(
+            id="readout",
+            product_use_id=scenario.uses[0].id,
+            entity=q0,
+            entity_axis_id="qubit",
+        ),
+        RecordUse(
+            id="readout",
+            product_use_id=scenario.uses[1].id,
+            entity=q1,
+            entity_axis_id="qubit",
+        ),
+    )
+    projection = select_measurement_projection(scenario.catalog, records)
+    candidates = list(measurement_value_candidates(scenario, scenario.uses))
+    q0_evidence = InstrumentAcquisitionEvidence(
+        command_id="readout-q0",
+        instrument_id="readout",
+        interface_id="test.scalar_signal/v1",
+        acquisition_id="sample",
+        result_id="q0",
+        started_at=datetime(2026, 8, 15, 10, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 8, 15, 10, 0, 1, tzinfo=UTC),
+    )
+    q1_evidence = q0_evidence.model_copy(
+        update={"command_id": "readout-q1", "result_id": "q1"}
+    )
+    candidates[0] = replace(candidates[0], evidence=q0_evidence)
+    candidates[1] = replace(
+        candidates[1],
+        value=MeasurementUnavailable.create(
+            reason="missing",
+            dtype="float64",
+            unit="ratio",
+            shape=(),
+            metadata={"source": "q1"},
+        ),
+        evidence=q1_evidence,
+    )
+    assembled = seal_measurement_values(
+        scenario.catalog,
+        candidates,
+        points=scenario.points,
+    )
+
+    projected = project_measurement_records(
+        projection,
+        assembled,
+        run_id="entity-projection-run",
+        points=scenario.points,
+    )
+
+    assert len(projection.records) == 1
+    schema = projection.schema
+    assert schema is not None
+    readout = next(
+        variable for variable in schema.variables if variable.id == "readout"
+    )
+    assert readout.dims == ("point", "qubit")
+    assert readout.source_entity_products is not None
+    assert readout.source_entity_products.product_ids == ("signal-0", "signal-1")
+    assert readout.source_entity_products.product_metadata == (
+        {"definition": 0},
+        {"definition": 1},
+    )
+    first = projected.records[0].observables["readout"]
+    assert isinstance(first, MeasurementArray)
+    assert first.values.tolist() == [0.0, 0.0]
+    assert first.availability is not None
+    assert first.availability.valid.tolist() == [True, False]
+    [failure] = first.availability.unavailable
+    assert failure.reason == "missing"
+    assert failure.metadata["entity"] == {"id": "q1", "kind": "qubit"}
+    second = projected.records[1].observables["readout"]
+    assert isinstance(second, MeasurementArray)
+    assert second.availability is None
+    assert second.values.tolist() == [100.0, 101.0]
+    assert projected.records[0].acquisition_evidence["readout"] == (
+        EntityAcquisitionEvidence(
+            dimension_id="qubit",
+            values=(q0_evidence, q1_evidence),
+        )
+    )
+
+
+def test_entity_projection_keeps_schema_width_constant_for_128_sources() -> None:
+    entity_count = 128
+    scenario = measurement_assembly_scenario(
+        point_values=(0.0,),
+        use_count=entity_count,
+    )
+    records = tuple(
+        RecordUse(
+            id="readout",
+            product_use_id=use.id,
+            entity=EntityRef(id=f"q{index}", kind="qubit"),
+            entity_axis_id="qubit",
+        )
+        for index, use in enumerate(scenario.uses)
+    )
+
+    projection = select_measurement_projection(scenario.catalog, records)
+
+    assert len(projection.records) == 1
+    schema = projection.schema
+    assert schema is not None
+    assert [variable.id for variable in schema.variables] == ["x", "readout"]
+    readout = schema.variables[1]
+    assert readout.source_entity_products is not None
+    assert len(readout.source_entity_products.product_ids) == entity_count
+    qubit = next(
+        dimension for dimension in schema.dimensions if dimension.id == "qubit"
+    )
+    assert qubit.index is not None
+    assert len(qubit.index.values) == entity_count
 
 
 def test_projection_schema_persists_ordered_product_grid_axes() -> None:

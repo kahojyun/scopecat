@@ -49,6 +49,7 @@ from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementEntityIndex,
+    MeasurementEntityProductSource,
     MeasurementPointCloudPointDomain,
     MeasurementPointDomainAxis,
     MeasurementPointDomainColumn,
@@ -75,6 +76,8 @@ class RecordUse:
     product_use_id: ProductUseId
     role: MeasurementVariableRole = "observable"
     recording_group_id: str | None = None
+    entity: EntityRef | None = None
+    entity_axis_id: str | None = None
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
@@ -84,6 +87,8 @@ class RecordUse:
         if self.recording_group_id is not None and not self.recording_group_id:
             msg = "recording group id must be non-empty when provided"
             raise ValueError(msg)
+        if (self.entity is None) != (self.entity_axis_id is None):
+            raise ValueError("entity record uses require an entity and entity axis")
         object.__setattr__(
             self,
             "metadata",
@@ -169,6 +174,53 @@ class RecordPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class EntityRecordMember:
+    """One ordered entity/source member of an entity-indexed record."""
+
+    entity: EntityRef
+    product_use_id: ProductUseId
+    product_id: ProductId
+    product_metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "product_metadata",
+            freeze_json_mapping(
+                self.product_metadata,
+                path=f"entity record source {self.product_id!s} metadata",
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class EntityRecordPlan:
+    """One durable variable assembled from homogeneous per-entity products."""
+
+    id: str
+    members: tuple[EntityRecordMember, ...]
+    dtype: MeasurementDType
+    role: MeasurementVariableRole = "observable"
+    recording_group_id: str | None = None
+    unit: str | None = None
+    axes: tuple[RecordAxisPlan, ...] = ()
+    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
+
+    def __post_init__(self) -> None:
+        if not self.members:
+            raise ValueError("entity record plans require at least one member")
+        object.__setattr__(self, "members", tuple(self.members))
+        object.__setattr__(self, "axes", tuple(self.axes))
+        object.__setattr__(
+            self,
+            "metadata",
+            freeze_json_mapping(
+                self.metadata, path=f"entity record plan {self.id!r} metadata"
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ValueRecordPlan:
     """Dataset projection for one symbolic program value."""
 
@@ -207,7 +259,7 @@ class ValueRecordCandidate:
     value: object
 
 
-type DatasetRecordPlan = RecordPlan | ValueRecordPlan
+type DatasetRecordPlan = RecordPlan | EntityRecordPlan | ValueRecordPlan
 type BoundRecordUse = RecordUse | ValueRecordUse
 
 
@@ -215,13 +267,35 @@ def plan_records(
     products: Sequence[ProductDef],
     product_uses: Sequence[ProductUse],
     record_uses: Sequence[RecordUse],
-) -> list[RecordPlan]:
+) -> list[RecordPlan | EntityRecordPlan]:
     """Project verified product record uses into dataset variable plans."""
 
     products_by_id = {product.id: product for product in products}
     uses_by_id = {use.id: use for use in product_uses}
-    plans: list[RecordPlan] = []
+    plans: list[RecordPlan | EntityRecordPlan] = []
+    entity_records_by_id = {
+        record.id: tuple(
+            candidate
+            for candidate in record_uses
+            if candidate.id == record.id and candidate.entity is not None
+        )
+        for record in record_uses
+        if record.entity is not None
+    }
+    planned_entity_records: set[str] = set()
     for record in record_uses:
+        if record.entity is not None:
+            if record.id in planned_entity_records:
+                continue
+            planned_entity_records.add(record.id)
+            plans.append(
+                _plan_entity_record(
+                    entity_records_by_id[record.id],
+                    products_by_id=products_by_id,
+                    uses_by_id=uses_by_id,
+                )
+            )
+            continue
         try:
             use = uses_by_id[record.product_use_id]
             product = products_by_id[use.product_id]
@@ -242,6 +316,129 @@ def plan_records(
             )
         )
     return plans
+
+
+def _plan_entity_record(
+    records: Sequence[RecordUse],
+    *,
+    products_by_id: Mapping[ProductId, ProductDef],
+    uses_by_id: Mapping[ProductUseId, ProductUse],
+) -> EntityRecordPlan:
+    resolved = tuple(
+        (
+            record,
+            uses_by_id[record.product_use_id],
+            products_by_id[uses_by_id[record.product_use_id].product_id],
+        )
+        for record in records
+    )
+    first_record, _first_use, first_product = resolved[0]
+    axis_ids = {record.entity_axis_id for record, _use, _product in resolved}
+    if len(axis_ids) != 1:
+        raise ValueError("one entity record must use one shared entity axis id")
+    signatures = tuple(
+        (
+            product.dtype,
+            product.unit,
+            tuple(_grouped_axis_signature(axis) for axis in product.axes),
+        )
+        for _record, _use, product in resolved
+    )
+    if any(signature != signatures[0] for signature in signatures[1:]):
+        raise ValueError(
+            f"entity record {first_record.id!r} products must have identical "
+            "dtype, unit, and local axes"
+        )
+    roles = {record.role for record, _use, _product in resolved}
+    groups = {record.recording_group_id for record, _use, _product in resolved}
+    if len(roles) != 1 or len(groups) != 1:
+        raise ValueError(
+            f"entity record {first_record.id!r} members must share recording policy"
+        )
+    entities = tuple(
+        cast("EntityRef", record.entity) for record, _use, _product in resolved
+    )
+    entity_kind = entities[0].kind
+    if entity_kind is None or any(entity.kind != entity_kind for entity in entities):
+        entity_kind = None
+    entity_axis_id = cast("str", first_record.entity_axis_id)
+    entity_axis = RecordAxisPlan(
+        id=entity_axis_id,
+        label=entity_axis_id,
+        kind="entity",
+        size=len(entities),
+        index=MeasurementEntityIndex(values=entities, entity_kind=entity_kind),
+    )
+    local_axes = tuple(
+        _plan_grouped_axis(
+            first_record.id,
+            tuple(product.axes[axis_index] for _record, _use, product in resolved),
+        )
+        for axis_index in range(len(first_product.axes))
+    )
+    return EntityRecordPlan(
+        id=first_record.id,
+        members=tuple(
+            EntityRecordMember(
+                entity=cast("EntityRef", record.entity),
+                product_use_id=use.id,
+                product_id=product.id,
+                product_metadata=product.metadata,
+            )
+            for record, use, product in resolved
+        ),
+        dtype=first_product.dtype,
+        role=first_record.role,
+        recording_group_id=first_record.recording_group_id,
+        unit=first_product.unit,
+        axes=(entity_axis, *local_axes),
+        metadata={**_common_product_metadata(resolved), **first_record.metadata},
+    )
+
+
+def _grouped_axis_signature(axis: ProductAxisDef) -> object:
+    return (
+        axis.id,
+        axis.dimension_label,
+        axis.kind,
+        axis.size,
+        axis.unit,
+        axis.entities,
+        axis.metadata,
+    )
+
+
+def _plan_grouped_axis(
+    record_id: str,
+    axes: Sequence[ProductAxisDef],
+) -> RecordAxisPlan:
+    first = axes[0]
+    dimension_ids = {axis.dimension_id for axis in axes}
+    planned = _plan_axis(first)
+    return RecordAxisPlan(
+        id=(
+            first.dimension_id if len(dimension_ids) == 1 else f"{record_id}/{first.id}"
+        ),
+        label=planned.label,
+        kind=planned.kind,
+        size=planned.size,
+        unit=planned.unit,
+        index=planned.index,
+        metadata=planned.metadata,
+    )
+
+
+def _common_product_metadata(
+    resolved: Sequence[tuple[RecordUse, ProductUse, ProductDef]],
+) -> Mapping[str, JsonValue]:
+    first = resolved[0][2].metadata
+    return {
+        key: value
+        for key, value in first.items()
+        if all(
+            product.metadata.get(key) == value for _record, _use, product in resolved
+        )
+    }
 
 
 def plan_value_records(
@@ -621,6 +818,25 @@ def _record_variable(record: DatasetRecordPlan) -> MeasurementVariable:
             unit=record.unit,
             dims=["point", *(axis.id for axis in record.axes)],
             source_value_id=record.source_value_id,
+            metadata=_wire_metadata(record.metadata),
+        )
+    if isinstance(record, EntityRecordPlan):
+        return MeasurementVariable(
+            id=record.id,
+            role=record.role,
+            dtype=record.dtype,
+            unit=record.unit,
+            dims=["point", *(axis.id for axis in record.axes)],
+            source_entity_products=MeasurementEntityProductSource(
+                dimension_id=record.axes[0].id,
+                product_ids=tuple(
+                    member.product_id.qualified_name for member in record.members
+                ),
+                product_metadata=tuple(
+                    _wire_metadata(member.product_metadata) for member in record.members
+                ),
+            ),
+            recording_group_id=record.recording_group_id,
             metadata=_wire_metadata(record.metadata),
         )
     return MeasurementVariable(

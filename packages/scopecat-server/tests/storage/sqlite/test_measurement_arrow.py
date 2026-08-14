@@ -229,15 +229,14 @@ def test_measurement_append_round_trips_as_typed_arrow_ipc() -> None:
         pa.field(
             "item",
             pa.list_(
-                pa.field("item", pa.float64(), nullable=False),
+                pa.field("item", pa.float64()),
                 2,
             ),
-            nullable=False,
         ),
         2,
     )
     assert reader.schema.field("value:missing").type == pa.large_list(
-        pa.field("item", pa.float64(), nullable=False)
+        pa.field("item", pa.float64())
     )
     assert reader.schema.field("value:complex_trace").type.value_type == pa.struct(
         [

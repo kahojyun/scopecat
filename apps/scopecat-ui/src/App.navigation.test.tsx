@@ -682,9 +682,9 @@ function measurementRecord(
 
 function traceDatasetSchema(): MeasurementDatasetSchema {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v10",
+    format_version: "scopecat.measurement_dataset_schema.v11",
     dataset_id: "raw-measurements",
-    record_schema: "scopecat.measurement_record.v4",
+    record_schema: "scopecat.measurement_record.v5",
     point_domain: {
       kind: "product_grid",
       axes: [traceAxis("row", [0, 1]), traceAxis("column", [0, 1]), traceAxis("bias", [0, 1])],

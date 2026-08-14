@@ -209,7 +209,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     [summary_input] = run_handle.published_analysis(SUMMARY_STATS_STEP).inputs
     assert summary_input.target == "raw-measurements"
     assert summary_input.content_hash == run_handle.measurements().entry.content_hash
-    assert summary_input.codec == "scopecat.measurement-dataset.v9"
+    assert summary_input.codec == "scopecat.measurement-dataset.v10"
     assert candidate.parameter_proposal.deltas[0].parameter_id == "drive_frequency"
     assert activation.entry.id == "candidate-best-signal"
     assert next_run.status == "completed"
@@ -228,7 +228,7 @@ def test_analysis_trace_records_its_analysis_dependency(tmp_path: Path) -> None:
     [dependency] = analysis.inputs
     assert dependency.target == "raw-measurements"
     assert dependency.content_hash == handle.measurements().entry.content_hash
-    assert dependency.codec == "scopecat.measurement-dataset.v9"
+    assert dependency.codec == "scopecat.measurement-dataset.v10"
     assert dependency.role == "data"
     assert dependency.metadata is None
     [execution] = analysis.executions
@@ -244,7 +244,7 @@ def test_analysis_trace_records_its_analysis_dependency(tmp_path: Path) -> None:
     assert input_binding.name == "dataset"
     assert input_binding.target == "raw-measurements"
     assert input_binding.content_hash == handle.measurements().entry.content_hash
-    assert input_binding.codec == "scopecat.measurement-dataset.v9"
+    assert input_binding.codec == "scopecat.measurement-dataset.v10"
     assert execution_output.content_hash.startswith("sha256:")
     [fact_output] = analysis.outputs
     assert fact_output.kind == "fact"

@@ -154,6 +154,21 @@ class MeasurementDimension(_FrozenMeasurementModel):
         return self
 
 
+class MeasurementEntityProductSource(_FrozenMeasurementModel):
+    """Ordered product provenance aligned to one entity dimension."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    dimension_id: _NonEmptyText
+    product_ids: Sequence[_NonEmptyText] = Field(min_length=1)
+    product_metadata: Sequence[MeasurementMetadata] = Field(min_length=1)
+
+    @field_validator("product_ids", "product_metadata")
+    @classmethod
+    def freeze_product_ids[T](cls, value: Sequence[T]) -> Sequence[T]:
+        return tuple(value)
+
+
 class MeasurementVariable(_FrozenMeasurementModel):
     """A point-local variable whose shape is derived from its dimensions."""
 
@@ -166,6 +181,7 @@ class MeasurementVariable(_FrozenMeasurementModel):
     dims: Sequence[str] = Field(min_length=1)
     label: str | None = None
     source_product_id: _NonEmptyText | None = None
+    source_entity_products: MeasurementEntityProductSource | None = None
     source_value_id: _NonEmptyText | None = None
     recording_group_id: _NonEmptyText | None = None
     metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
@@ -422,6 +438,7 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
         )
 
         dimension_id_set = set(dimension_ids)
+        dimension_by_id = {dimension.id: dimension for dimension in self.dimensions}
         variable_by_id = {variable.id: variable for variable in self.variables}
         namespace_collisions = dimension_id_set & set(variable_by_id)
         if namespace_collisions:
@@ -457,6 +474,7 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
                     f"dimensions: {', '.join(missing_dims)}"
                 )
                 raise ValueError(msg)
+            _validate_measurement_variable_source(variable, dimension_by_id)
         ensure_unique_ids(
             self.primary_coordinates,
             "measurement dataset primary coordinate ids must be unique",
@@ -499,6 +517,45 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
                 )
 
         return self
+
+
+def _validate_measurement_variable_source(
+    variable: MeasurementVariable,
+    dimension_by_id: Mapping[str, MeasurementDimension],
+) -> None:
+    sources = (
+        variable.source_product_id,
+        variable.source_entity_products,
+        variable.source_value_id,
+    )
+    if sum(source is not None for source in sources) > 1:
+        raise ValueError(
+            f"measurement variable {variable.id} declares multiple sources"
+        )
+    entity_source = variable.source_entity_products
+    if entity_source is None:
+        return
+    dimension = dimension_by_id.get(entity_source.dimension_id)
+    if (
+        dimension is None
+        or dimension.index is None
+        or entity_source.dimension_id not in variable.dims
+    ):
+        raise ValueError(
+            f"measurement variable {variable.id} entity source must reference "
+            "one indexed entity dimension"
+        )
+    entity_count = len(dimension.index.values)
+    if len(entity_source.product_ids) != entity_count:
+        raise ValueError(
+            f"measurement variable {variable.id} entity source cardinality "
+            "must match its entity dimension"
+        )
+    if len(entity_source.product_metadata) != entity_count:
+        raise ValueError(
+            f"measurement variable {variable.id} entity product metadata "
+            "cardinality must match its entity dimension"
+        )
 
 
 MeasurementScalarData = Annotated[
@@ -960,7 +1017,27 @@ class InstrumentAcquisitionEvidence(_FrozenMeasurementModel):
         return self
 
 
-def _empty_acquisition_evidence() -> Mapping[str, InstrumentAcquisitionEvidence]:
+class EntityAcquisitionEvidence(_FrozenMeasurementModel):
+    """Acquisition evidence aligned to one entity-indexed variable."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["entity"] = "entity"
+    dimension_id: _NonEmptyText
+    values: Sequence[InstrumentAcquisitionEvidence | None] = Field(min_length=1)
+
+    @field_validator("values")
+    @classmethod
+    def freeze_values[T](cls, value: Sequence[T]) -> Sequence[T]:
+        return tuple(value)
+
+
+type MeasurementAcquisitionEvidence = (
+    InstrumentAcquisitionEvidence | EntityAcquisitionEvidence
+)
+
+
+def _empty_acquisition_evidence() -> Mapping[str, MeasurementAcquisitionEvidence]:
     return FrozenMapping()
 
 
@@ -987,23 +1064,23 @@ type MeasurementValueMap = Annotated[
 
 
 def _freeze_acquisition_evidence(
-    value: Mapping[str, InstrumentAcquisitionEvidence],
-) -> Mapping[str, InstrumentAcquisitionEvidence]:
+    value: Mapping[str, MeasurementAcquisitionEvidence],
+) -> Mapping[str, MeasurementAcquisitionEvidence]:
     return FrozenMapping(value.items())
 
 
 def _serialize_acquisition_evidence(
-    value: Mapping[str, InstrumentAcquisitionEvidence],
-) -> dict[str, InstrumentAcquisitionEvidence]:
+    value: Mapping[str, MeasurementAcquisitionEvidence],
+) -> dict[str, MeasurementAcquisitionEvidence]:
     return dict(value)
 
 
 type InstrumentAcquisitionEvidenceMap = Annotated[
-    Mapping[str, InstrumentAcquisitionEvidence],
+    Mapping[str, MeasurementAcquisitionEvidence],
     AfterValidator(_freeze_acquisition_evidence),
     PlainSerializer(
         _serialize_acquisition_evidence,
-        return_type=dict[str, InstrumentAcquisitionEvidence],
+        return_type=dict[str, MeasurementAcquisitionEvidence],
     ),
 ]
 

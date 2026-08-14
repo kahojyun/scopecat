@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from scopecat.compiler.diagnostics import compiler_problem
+from scopecat.kernel.entity import entity_identity
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
@@ -23,6 +24,7 @@ from scopecat.program.point_domain import (
 from scopecat.program.products import (
     ModuleProductDecl,
     ProductAxis,
+    RecordSelection,
     product_axis_dimension_id,
 )
 from scopecat.program.recording import LogicalValueRecordSelection
@@ -125,7 +127,21 @@ def verify_product_schema(
         )
         for selection in program.record_selections
     ]
-    duplicate_records = _duplicates(record_ids)
+    duplicate_records = tuple(
+        record_id
+        for record_id in _duplicates(record_ids)
+        if not _is_entity_record_group(
+            tuple(
+                selection
+                for selection, selected_id in zip(
+                    program.record_selections,
+                    record_ids,
+                    strict=True,
+                )
+                if selected_id == record_id
+            )
+        )
+    )
     if duplicate_records:
         problems.append(
             _problem(
@@ -155,6 +171,24 @@ def verify_product_schema(
 
     _verify_product_axes(program.product_declarations, problems)
     return product_by_id
+
+
+def _is_entity_record_group(selections: Sequence[object]) -> bool:
+    if not selections or not all(
+        isinstance(selection, RecordSelection) and selection.entity is not None
+        for selection in selections
+    ):
+        return False
+    product_selections = tuple(
+        selection for selection in selections if isinstance(selection, RecordSelection)
+    )
+    axis_ids = {selection.entity_axis_id for selection in product_selections}
+    identities = tuple(
+        entity_identity(selection.entity)
+        for selection in product_selections
+        if selection.entity is not None
+    )
+    return len(axis_ids) == 1 and len(identities) == len(set(identities))
 
 
 def verify_product_axis_dependencies(
