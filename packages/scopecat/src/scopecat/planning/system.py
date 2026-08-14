@@ -38,6 +38,7 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
+from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.resource_identity import (
     DomainTargetRequirement,
     ResourceRequirement,
@@ -45,6 +46,7 @@ from scopecat.kernel.resource_identity import (
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_identity import scalar_values_equal
 from scopecat.measurements.projection import select_measurement_projection
+from scopecat.measurements.records import EntityAcquisitionCohortPlan
 from scopecat.optimization import AdaptiveDomainPlan
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.domain_bridge import (
@@ -278,11 +280,16 @@ def _compile_system_program(
             point_ordinals=tuple(point.ordinal for point in points),
         ),
     )
+    _validate_entity_acquisition_cohort_placement(
+        measurements.acquisition_cohorts,
+        local_product_use_ids=frozenset(local_product_use_ids),
+    )
     local_target = (
         prepare_local_target(
             bound,
             product_use_ids=frozenset(local_product_use_ids),
             instrument_order=tuple(item.instrument_id for item in catalog.instruments),
+            acquisition_cohorts=measurements.acquisition_cohorts,
         )
         if local_execution_required
         else None
@@ -1368,6 +1375,36 @@ def _implementation_problems(
             )
         )
     return tuple(problems)
+
+
+def _validate_entity_acquisition_cohort_placement(
+    cohorts: Sequence[EntityAcquisitionCohortPlan],
+    *,
+    local_product_use_ids: frozenset[ProductUseId],
+) -> None:
+    problems: list[Problem] = []
+    for cohort in cohorts:
+        cohort_use_ids = frozenset(
+            use_id for member in cohort.members for use_id in member.product_use_ids
+        )
+        unsupported = cohort_use_ids - local_product_use_ids
+        if not unsupported:
+            continue
+        problems.append(
+            _planning_problem(
+                "entity_acquisition_cohort_placement_unsupported",
+                f"entity acquisition cohort {cohort.id!r} must be owned by "
+                "local hardware acquisition",
+                details={
+                    "cohort_id": cohort.id,
+                    "unsupported_product_use_ids": sorted(
+                        use_id.value for use_id in unsupported
+                    ),
+                },
+            )
+        )
+    if problems:
+        raise CheckFailed(problems)
 
 
 def _planning_problem(

@@ -10,6 +10,7 @@ from scopecat.execution.program import RunCoverageEffect
 from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.resource_identity import ResourceRequirement
+from scopecat.measurements.projection import select_measurement_projection
 from scopecat.planning.local_effects import local_operation_resource_requirements
 from scopecat.planning.local_materialization import (
     materialize_local_execution as lower_local_execution,
@@ -17,7 +18,10 @@ from scopecat.planning.local_materialization import (
 from scopecat.planning.local_materialization import (
     prepare_local_target,
 )
-from scopecat.planning.measurement_projection import project_run_point_catalog
+from scopecat.planning.measurement_projection import (
+    project_measurement_catalog,
+    project_run_point_catalog,
+)
 from scopecat.planning.point_materialization import prepare_bound_points
 
 
@@ -67,6 +71,10 @@ def materialize_local_execution(
         bound,
         product_use_ids=selected_product_use_ids,
         instrument_order=instrument_order,
+        acquisition_cohorts=select_measurement_projection(
+            project_measurement_catalog(bound_points),
+            bound.bindings.record_uses,
+        ).acquisition_cohorts,
     )
     lowered = lower_local_execution(
         bound_points,

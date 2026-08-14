@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 from scopecat_testkit.bound_program import (
     instrument_acquisition,
@@ -23,6 +25,7 @@ from scopecat.compiler.bound_facts import (
 from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.relations.verification import ExpressionTypeBindings
 from scopecat.execution.local.program import CollectOperation
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.quantity import Quantity
@@ -31,13 +34,17 @@ from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Int, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.measurements.products import ProductAxisDef
+from scopecat.measurements.records import EntityRecordUse, EntityRecordUseMember
 from scopecat.program.expressions import (
     param,
 )
+from scopecat.program.logical import AcquireResult
+from scopecat.program.measurement_types import EntityAcquisitionSemantics
 from scopecat.program.point_domain import (
     point_axis_linear,
     point_axis_values,
 )
+from scopecat.program.products import EntityAxisDef
 
 _SOURCE_REQUIREMENTS = (
     LogicalResourceRequirement(
@@ -86,6 +93,78 @@ def test_materialized_effects_allows_result_id_reuse_across_acquisitions() -> No
         operation.command.requests[0].id
         for operation in operations_of_type(preview, CollectOperation)
     ] == ["i", "i"]
+
+
+def test_entity_acquisition_cohort_requires_one_collect_command() -> None:
+    products = (
+        observable_product("signal_q0", unit="ratio"),
+        observable_product("signal_q1", unit="ratio"),
+    )
+    uses = tuple(record_product(product)[0] for product in products)
+    record = EntityRecordUse(
+        id="signal",
+        axis=EntityAxisDef(
+            id="qubit",
+            values=(
+                EntityRef(id="q0", kind="qubit"),
+                EntityRef(id="q1", kind="qubit"),
+            ),
+        ),
+        members=tuple(
+            EntityRecordUseMember(entity=entity, product_use_id=use.id)
+            for entity, use in zip(
+                (
+                    EntityRef(id="q0", kind="qubit"),
+                    EntityRef(id="q1", kind="qubit"),
+                ),
+                uses,
+                strict=True,
+            )
+        ),
+        acquisition=EntityAcquisitionSemantics(
+            policy="best_effort",
+            cohort_id="readout",
+        ),
+    )
+    acquisitions = instrument_acquisitions(
+        *products,
+        interface="test.scalar_signal/v1",
+    )
+    spec = program_fixture(
+        point_domain=_point_domain("index", Scalar(Int()), (0,)),
+        resource_requirements=_SOURCE_REQUIREMENTS,
+        product_defs=products,
+        instrument_acquisitions=acquisitions,
+        product_uses=uses,
+        record_uses=(record,),
+    )
+
+    with pytest.raises(CheckFailed) as failure:
+        materialized_effects_contract(spec, parameters())
+
+    assert [problem.code for problem in failure.value.problems] == [
+        "entity_acquisition_cohort_not_atomic"
+    ]
+
+    shared = replace(
+        acquisitions[0],
+        results=(
+            *acquisitions[0].results,
+            AcquireResult(product_id=products[1].id, result_id="signal_q1"),
+        ),
+    )
+    shared_spec = replace(
+        spec,
+        logical=replace(
+            spec.logical,
+            program=replace(spec.logical.program, effects=(shared,)),
+        ),
+    )
+
+    preview = materialized_effects_contract(shared_spec, parameters())
+
+    [collect] = operations_of_type(preview, CollectOperation)
+    assert len(collect.result_bindings) == 2
 
 
 def test_materialized_effects_reports_demanded_product_without_a_local_producer() -> (

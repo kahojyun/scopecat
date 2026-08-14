@@ -20,6 +20,7 @@ from scopecat.kernel.product_identity import ProductUse
 from scopecat.kernel.resource_identity import LogicalResourcePortId, ResourceRequirement
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Scalar
+from scopecat.measurements.records import EntityAcquisitionCohortPlan
 from scopecat.planning.routing import ResourcePortManifest
 from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
 from scopecat.program.logical import LogicalStateAssignment
@@ -92,6 +93,7 @@ class LocalTargetPlan:
     product_uses: tuple[ProductUse, ...]
     instrument_order: tuple[str, ...]
     resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest]
+    acquisition_cohorts: tuple[EntityAcquisitionCohortPlan, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
