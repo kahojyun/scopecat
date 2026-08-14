@@ -6,7 +6,7 @@ import type {
   InstrumentOperation,
   InstrumentSession,
 } from "../../api-contract";
-import { requestJson, requestMethod, requestPath } from "../../test/http";
+import { requestHeaders, requestJson, requestMethod, requestPath } from "../../test/http";
 import { setConfigDefault } from "../config/config-api";
 import {
   applyInstrumentConfiguredDefaults,
@@ -335,16 +335,7 @@ describe("interactive collection request shaping", () => {
 
   it("sends only acquisition identity for daemon-side planning", async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
-      Promise.resolve(
-        new Response(
-          JSON.stringify({
-            status: "collected",
-            problems: [],
-            readback: { values: {} },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      ),
+      Promise.resolve(hardwareReceiptResponse()),
     );
     vi.stubGlobal("fetch", fetchMock);
     const target: InstrumentAcquisitionTarget = {
@@ -380,6 +371,9 @@ describe("interactive collection request shaping", () => {
     expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
       "/api/v1/instrument-sessions/session-1/instruments/vna-1/collect",
     );
+    expect(
+      requestHeaders(fetchMock.mock.calls[0]?.[0], fetchMock.mock.calls[0]?.[1]).get("Accept"),
+    ).toBe("application/vnd.scopecat.hardware-receipt.v1");
     await expect(
       requestJson(fetchMock.mock.calls[0]?.[0], fetchMock.mock.calls[0]?.[1]),
     ).resolves.toEqual({
@@ -392,12 +386,14 @@ describe("interactive collection request shaping", () => {
     });
   });
   it("uses caller idempotency ids across repeated mutating requests", async () => {
-    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) =>
       Promise.resolve(
-        new Response("{}", {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+        requestPath(input).endsWith("/collect")
+          ? hardwareReceiptResponse()
+          : new Response("{}", {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -564,4 +560,24 @@ function session(): InstrumentSession {
     renewed_at: "2026-07-27T08:00:00Z",
     expires_at: "2026-07-27T08:01:00Z",
   };
+}
+
+function hardwareReceiptResponse(): Response {
+  const header = new TextEncoder().encode(
+    JSON.stringify({
+      format_id: "scopecat.collect_receipt.v1",
+      status: "collected",
+      problems: [],
+      readback: { values: {}, metadata: {} },
+      metadata: {},
+    }),
+  );
+  const content = new Uint8Array(16 + header.byteLength);
+  content.set(new TextEncoder().encode("SCRCPT01"));
+  new DataView(content.buffer).setBigUint64(8, BigInt(header.byteLength), true);
+  content.set(header, 16);
+  return new Response(content, {
+    status: 200,
+    headers: { "Content-Type": "application/vnd.scopecat.hardware-receipt.v1" },
+  });
 }

@@ -21,6 +21,11 @@ from scopecat.daemon.endpoint import (
     DAEMON_SHUTDOWN_PATH,
     DAEMON_SHUTDOWN_TOKEN_HEADER,
 )
+from scopecat.daemon.hardware_receipt_wire import (
+    HARDWARE_RECEIPT_MEDIA_TYPE,
+    encode_collect_receipt,
+    encode_run_hardware_receipt,
+)
 from scopecat.daemon.points import (
     ResolvedRunDomainView,
     RunDomainDecisionCommand,
@@ -387,17 +392,33 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
 
     @app.post(
         f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"
-        "{instrument_id}/collect"
+        "{instrument_id}/collect",
+        response_class=Response,
+        response_model=CollectReceipt,
+        responses={
+            200: {
+                "content": {
+                    HARDWARE_RECEIPT_MEDIA_TYPE: {
+                        "schema": {"type": "string", "format": "binary"}
+                    }
+                }
+            }
+        },
     )
     def collect_instrument(
         session_id: str,
         instrument_id: str,
         intent: InteractiveCollectIntent,
-    ) -> CollectReceipt:
-        return application.instruments.collect(
-            session_id,
-            instrument_id,
-            intent,
+    ) -> Response:
+        return Response(
+            content=encode_collect_receipt(
+                application.instruments.collect(
+                    session_id,
+                    instrument_id,
+                    intent,
+                )
+            ),
+            media_type=HARDWARE_RECEIPT_MEDIA_TYPE,
         )
 
     @app.post(f"{_API_PREFIX}/instrument-sessions/{{session_id}}/close")
@@ -796,12 +817,30 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> RunInstrumentProvisionReceipt:
         return application.instruments.provision_run(run_id, command)
 
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/hardware/execute")
+    @app.post(
+        f"{_API_PREFIX}/runs/{{run_id}}/hardware/execute",
+        response_class=Response,
+        response_model=RunHardwareBatchReceipt,
+        responses={
+            200: {
+                "content": {
+                    HARDWARE_RECEIPT_MEDIA_TYPE: {
+                        "schema": {"type": "string", "format": "binary"}
+                    }
+                }
+            }
+        },
+    )
     def execute_run_hardware(
         run_id: str,
         command: RunHardwareBatchCommand,
-    ) -> RunHardwareBatchReceipt:
-        return application.instruments.execute_run_hardware(run_id, command)
+    ) -> Response:
+        return Response(
+            content=encode_run_hardware_receipt(
+                application.instruments.execute_run_hardware(run_id, command)
+            ),
+            media_type=HARDWARE_RECEIPT_MEDIA_TYPE,
+        )
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/hardware/finish")
     def finish_run_hardware(

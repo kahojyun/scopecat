@@ -4740,7 +4740,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CollectReceipt"];
+                    "application/vnd.scopecat.hardware-receipt.v1": string;
                 };
             };
             /** @description Validation Error */

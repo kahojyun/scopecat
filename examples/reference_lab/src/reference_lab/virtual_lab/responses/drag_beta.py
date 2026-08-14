@@ -140,7 +140,8 @@ class DragBetaAcquisitionResponse(AcquisitionResponse):
         )
         state_one = self._state_one_shots[address]
         values = np.empty(len(shot_indices), dtype=np.complex128)
-        for position, shot_index in enumerate(cast("list[int]", shot_indices.tolist())):
+        for position in range(len(shot_indices)):
+            shot_index = int(cast("np.int64", shot_indices[position]))
             digest = _shot_digest(
                 self.fingerprint,
                 address,

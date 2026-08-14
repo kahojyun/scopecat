@@ -17,6 +17,10 @@ from scopecat.control.models import (
     ControlRunState,
     EventPage,
 )
+from scopecat.daemon.hardware_receipt_wire import (
+    decode_collect_receipt,
+    decode_run_hardware_receipt,
+)
 from scopecat.daemon.points import (
     RunDomainDecisionCommand,
     RunDomainDecisionPage,
@@ -486,15 +490,15 @@ class DaemonClient:
         instrument_id: str,
         intent: InteractiveCollectIntent,
     ) -> CollectReceipt:
-        return self._post_idempotent_model(
+        response = self._post_idempotent_response(
             self._instrument_session_path(
                 session_id,
                 instrument_id,
                 "collect",
             ),
             intent,
-            CollectReceipt,
         )
+        return decode_collect_receipt(response.content)
 
     def close_instrument_session(
         self,
@@ -923,11 +927,11 @@ class DaemonClient:
             command.lease_id,
             command,
         )
-        return self._post_idempotent_model(
+        response = self._post_idempotent_response(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/hardware/execute",
             command,
-            RunHardwareBatchReceipt,
         )
+        return decode_run_hardware_receipt(response.content)
 
     def finish_run_hardware(
         self,
@@ -1170,12 +1174,19 @@ class DaemonClient:
         body: BaseModel,
         model: type[ModelT],
     ) -> ModelT:
-        response = self._request(
+        response = self._post_response(path, body)
+        return model.model_validate_json(response.content)
+
+    def _post_response(
+        self,
+        path: str,
+        body: BaseModel,
+    ) -> httpx2.Response:
+        return self._request(
             "POST",
             path,
             json=body.model_dump(mode="json"),
         )
-        return model.model_validate_json(response.content)
 
     def _post_idempotent_model[ModelT: BaseModel](
         self,
@@ -1185,10 +1196,20 @@ class DaemonClient:
     ) -> ModelT:
         """Retry one transport failure with the exact operation command."""
 
+        response = self._post_idempotent_response(path, body)
+        return model.model_validate_json(response.content)
+
+    def _post_idempotent_response(
+        self,
+        path: str,
+        body: BaseModel,
+    ) -> httpx2.Response:
+        """Return one idempotent response after retrying a transport failure."""
+
         try:
-            return self._post_model(path, body, model)
+            return self._post_response(path, body)
         except httpx2.TransportError:
-            return self._post_model(path, body, model)
+            return self._post_response(path, body)
 
     def _put_payload_content(
         self,

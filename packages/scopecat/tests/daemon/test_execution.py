@@ -18,6 +18,7 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.execution import daemon_execution_session
+from scopecat.daemon.hardware_receipt_wire import encode_run_hardware_receipt
 from scopecat.daemon.points import (
     RunDomainDecisionCommand,
     RunDomainDecisionView,
@@ -156,8 +157,11 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
             _remember_fence(fences, "run-1", command)
             hardware_operation_ids.append(command.batch.operation_id)
             hardware_sequences.append(command.sequence)
-            return _model(
-                RunHardwareBatchReceipt(operation_id=command.batch.operation_id)
+            return httpx2.Response(
+                200,
+                content=encode_run_hardware_receipt(
+                    RunHardwareBatchReceipt(operation_id=command.batch.operation_id)
+                ),
             )
         if path.endswith("/coverage/advance"):
             command = RunCoverageAdvanceCommand.model_validate_json(request.content)

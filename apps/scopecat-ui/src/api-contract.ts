@@ -47,8 +47,7 @@ export type InstrumentApplyReceipt =
 export type InstrumentConfiguredDefaultsApplyReceipt =
   PostResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/configured-defaults/apply">;
 export type InstrumentComponent = components["schemas"]["ComponentSpec"];
-export type InstrumentCollectReceipt =
-  PostResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect">;
+export type InstrumentCollectReceipt = components["schemas"]["CollectReceipt"];
 export type InstrumentConnection = components["schemas"]["InstrumentConnection"];
 export type InstrumentDescription = components["schemas"]["InstrumentDescription"];
 export type InstrumentDriverProbeCommand = components["schemas"]["InstrumentDriverProbeCommand"];

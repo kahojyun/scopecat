@@ -160,7 +160,8 @@ class InstrumentListModeRuntime:
                     available=available,
                 )
         if any(
-            block_offsets[input_id] != len(block) for input_id, block in blocks.items()
+            block_offsets[input_id] != block.result_count
+            for input_id, block in blocks.items()
         ):
             raise RuntimeError("digitizer result block contains unclaimed values")
         results = DigitizerResultBatch(
@@ -734,7 +735,10 @@ def _execute_batch(
     return receipt
 
 
-type _ResultBlock = tuple[float | complex | None, ...]
+@dataclass(frozen=True, slots=True)
+class _ResultBlock:
+    values: NDArray[np.float64] | NDArray[np.complex128] | None
+    result_count: int
 
 
 def _result_blocks(
@@ -794,28 +798,40 @@ def _write_digitizer_results(
     values: NDArray[np.complex128],
     available: NDArray[np.bool_],
 ) -> None:
-    traces: dict[DigitizerInputId, tuple[float, ...] | None] = {}
+    traces: dict[DigitizerInputId, NDArray[np.float64] | None] = {}
     device_iq: dict[DigitizerAcquisitionWindow, complex | None] = {}
     windows_by_input: dict[DigitizerInputId, list[DigitizerAcquisitionWindow]] = {}
     for window in entry.acquisitions:
         windows_by_input.setdefault(window.input_id, []).append(window)
     for input_id, windows in windows_by_input.items():
         offset = block_offsets[input_id]
+        block = blocks[input_id]
         if windows[0].lowering.device_result_representation == "raw_trace":
-            raw_values = blocks[input_id][offset : offset + entry.sample_count]
             traces[input_id] = (
                 None
-                if any(value is None for value in raw_values)
-                else cast("tuple[float, ...]", raw_values)
+                if block.values is None
+                else cast(
+                    "NDArray[np.float64]",
+                    block.values[offset : offset + entry.sample_count],
+                )
             )
             block_offsets[input_id] += entry.sample_count
             continue
-        lowered_values = cast(
-            "tuple[complex | None, ...]",
-            blocks[input_id][offset : offset + len(windows)],
+        lowered_values = (
+            None
+            if block.values is None
+            else cast(
+                "NDArray[np.complex128]",
+                block.values[offset : offset + len(windows)],
+            )
         )
         block_offsets[input_id] += len(windows)
-        device_iq.update(zip(windows, lowered_values, strict=True))
+        for index, window in enumerate(windows):
+            device_iq[window] = (
+                None
+                if lowered_values is None
+                else complex(cast("np.complex128", lowered_values[index]))
+            )
 
     for window in entry.acquisitions:
         value = (
@@ -884,18 +900,18 @@ def _worker_result_block(
     result_count: int,
 ) -> _ResultBlock:
     if isinstance(value, MeasurementUnavailable):
-        return (None,) * result_count
+        return _ResultBlock(values=None, result_count=result_count)
     if not isinstance(value, MeasurementArray):
         raise RuntimeError("digitizer ADC result is not an array")
     dtype = "float64" if representation == "raw_trace" else "complex128"
     if value.dtype != dtype or value.unit != "V" or value.shape != (result_count,):
         raise RuntimeError("digitizer result does not match requested program block")
     values = cast("NDArray[np.float64] | NDArray[np.complex128]", value.values)
-    return tuple(cast("list[float | complex]", values.tolist()))
+    return _ResultBlock(values=values, result_count=result_count)
 
 
 def _demodulate(
-    trace: tuple[float, ...] | None,
+    trace: NDArray[np.float64] | None,
     *,
     window: DigitizerAcquisitionWindow,
     sample_rate_hz: int,

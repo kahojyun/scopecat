@@ -1064,10 +1064,12 @@ def _validate_array_kind(
     }
     if value.dtype.kind not in allowed_kinds[dtype]:
         raise ValueError(f"measurement array values do not match {dtype}")
-    if dtype == "int64" and value.dtype.kind == "u":
-        items = cast("list[int]", value.reshape(-1).tolist())
-        if max(items) > np.iinfo(np.int64).max:
-            raise ValueError("measurement array values do not fit int64")
+    if (
+        dtype == "int64"
+        and value.dtype.kind == "u"
+        and np.max(cast("NDArray[np.uint64]", value)) > np.iinfo(np.int64).max
+    ):
+        raise ValueError("measurement array values do not fit int64")
 
 
 def _numpy_dtype(dtype: MeasurementDType) -> np.dtype[np.generic]:
