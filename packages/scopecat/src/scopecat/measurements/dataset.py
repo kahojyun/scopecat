@@ -72,6 +72,7 @@ if TYPE_CHECKING:
 type NativeScalar = NativeMeasurementScalar
 type NativeAvailableValue = NativeMeasurementValue
 type NativeValue = NativeAvailableValue | None
+type NativeMagnitude = float | complex | MeasurementArrayData
 type MeasurementAvailability = (
     MeasurementUnavailableReason | MeasurementArrayAvailability | None
 )
@@ -284,6 +285,63 @@ class Variable[T = NativeAvailableValue]:
                 f"variable {self.id!r} is unavailable at row positions: {rendered}"
             )
         return cast("tuple[T, ...]", values)
+
+    def magnitudes(
+        self,
+        unit: str | None = None,
+    ) -> tuple[NativeMagnitude | None, ...]:
+        """Return numeric scalar or array magnitudes in the requested unit."""
+
+        source_unit = self.unit
+        if source_unit is None or self.dtype not in {"float64", "int64", "complex128"}:
+            raise TypeError(f"variable {self.id!r} must be numeric and unit-bearing")
+        selected_unit = source_unit if unit is None else unit
+        scale = Quantity(1.0, source_unit).to(selected_unit).value
+        selected: list[NativeMagnitude | None] = []
+        for value in self._raw_values:
+            if isinstance(value, MeasurementUnavailable):
+                selected.append(None)
+            elif isinstance(value, MeasurementScalar):
+                scalar = cast("int | float | complex", value.value)
+                selected.append(
+                    complex(scalar) * scale
+                    if self.dtype == "complex128"
+                    else float(cast("int | float", scalar)) * scale
+                )
+            else:
+                dtype: MeasurementDType = (
+                    "complex128" if self.dtype == "complex128" else "float64"
+                )
+                converted = MeasurementArray.create(
+                    values=np.asarray(
+                        value.values,
+                        dtype=(np.complex128 if dtype == "complex128" else np.float64),
+                    )
+                    * scale,
+                    dtype=dtype,
+                    unit=selected_unit,
+                    availability=value.availability,
+                    metadata=value.metadata,
+                )
+                selected.append(cast("MeasurementArrayData", _native_value(converted)))
+        return tuple(selected)
+
+    def require_magnitudes(
+        self,
+        unit: str | None = None,
+    ) -> tuple[NativeMagnitude, ...]:
+        """Return complete scalar or array magnitudes in the requested unit."""
+
+        values = self.magnitudes(unit)
+        unavailable = tuple(
+            index for index, value in enumerate(values) if value is None
+        )
+        if unavailable:
+            rendered = ", ".join(str(index) for index in unavailable)
+            raise ValueError(
+                f"variable {self.id!r} is unavailable at row positions: {rendered}"
+            )
+        return cast("tuple[NativeMagnitude, ...]", values)
 
     def quantities(
         self,
@@ -3226,4 +3284,10 @@ def _valid_name(variable_id: str) -> str:
     return f"{variable_id}__valid"
 
 
-__all__ = ["Dataset", "NativeAvailableValue", "PointMask", "Variable"]
+__all__ = [
+    "Dataset",
+    "NativeAvailableValue",
+    "NativeMagnitude",
+    "PointMask",
+    "Variable",
+]

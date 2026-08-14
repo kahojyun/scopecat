@@ -191,7 +191,14 @@ def test_typed_record_lookup_validates_schema_and_narrows_values() -> None:
         Quantity(1000.0, "mV"),
         Quantity(2000.0, "mV"),
     )
+    assert bias.require_magnitudes("mV") == (0.0, 1000.0, 2000.0)
     assert signal[0] is signal.values[0]
+    signal_magnitudes = signal.require_magnitudes()
+    assert isinstance(signal_magnitudes[0], np.ndarray)
+    np.testing.assert_array_equal(
+        signal_magnitudes[0],
+        np.asarray([1.0 + 0.0j, 0.5 - 0.1j], dtype=np.complex128),
+    )
     traces = dataset.traces(signal_ref)
     assert len(traces) == 3
     assert traces[0].coordinate_id == "frequency"
@@ -591,6 +598,7 @@ def test_entity_dimensions_support_labeled_selection_and_partial_availability() 
                 id="readout",
                 role="observable",
                 dtype="float64",
+                unit="V",
                 dims=("point", "qubit"),
             ),
         ),
@@ -606,6 +614,7 @@ def test_entity_dimensions_support_labeled_selection_and_partial_availability() 
                 observables={
                     "readout": MeasurementArray.create(
                         values=np.asarray(values, dtype=np.float64),
+                        unit="V",
                         availability=selected_availability,
                     )
                 },
@@ -630,6 +639,12 @@ def test_entity_dimensions_support_labeled_selection_and_partial_availability() 
     first = dataset["readout"].values[0]
     assert isinstance(first, np.ma.MaskedArray)
     assert first.mask.tolist() == [False, True, False]
+    magnitudes = dataset["readout"].require_magnitudes("mV")
+    assert isinstance(magnitudes[0], np.ma.MaskedArray)
+    assert magnitudes[0].tolist(fill_value=None) == [1000.0, None, 3000.0]
+    assert isinstance(magnitudes[1], np.ndarray)
+    np.testing.assert_array_equal(magnitudes[1], np.asarray([4000.0, 5000.0, 6000.0]))
+    assert not magnitudes[1].flags.writeable
     assert dataset["readout"].is_available()._values == (False, True)
     labeled = dataset.to_xarray()
     assert labeled.coords["qubit"].values.tolist() == ["q0", "q1", "q2"]

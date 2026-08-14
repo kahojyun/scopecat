@@ -56,6 +56,10 @@ xds = data.to_xarray()
 assert xds.coords["logical_device"].values.tolist() == ["q0", "q1"]
 ```
 
+For unit-bearing scalar or array variables, `magnitudes("mV")` performs the
+same linear conversion while preserving array shape and partial-value masks;
+`require_magnitudes("mV")` additionally rejects whole unavailable rows.
+
 When only some entity, shot, or sample leaves fail, the value remains a
 `MeasurementArray` with a read-only boolean availability mask. Native Dataset
 access returns a NumPy masked array, Xarray emits `<variable>__valid` and

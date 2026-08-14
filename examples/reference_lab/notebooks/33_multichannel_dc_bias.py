@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import cast
+
 import scopecat as sc
 
 from reference_lab.configuration import EXAMPLE_ROOT
@@ -27,16 +30,27 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
         entity.id: round(data[record].require_quantities("mV")[0].value, 6)
         for entity, record in MULTICHANNEL_DC_BIAS.output.physical_bias.items()
     }
+    entities = tuple(MULTICHANNEL_DC_BIAS.output.physical_bias)
+    readback_records = cast(
+        "sc.RecordedProducts",
+        cast("object", MULTICHANNEL_DC_BIAS.output.readback),
+    )
+    actual_voltage = cast("sc.RecordRef", readback_records.actual_voltage)
+    settled_record = cast("sc.RecordRef", readback_records.settled)
+    actual_voltage_mv = cast(
+        "Sequence[float]",
+        cast("object", data[actual_voltage].require_magnitudes("mV")[0]),
+    )
+    settled_values = cast(
+        "Sequence[bool]",
+        data[settled_record].require_values()[0],
+    )
     readback_mv = {
-        entity.id: round(
-            data[records.actual_voltage].require_quantities("mV")[0].value,
-            6,
-        )
-        for entity, records in MULTICHANNEL_DC_BIAS.output.readback.items()
+        entity.id: round(value, 6)
+        for entity, value in zip(entities, actual_voltage_mv, strict=True)
     }
     settled = {
-        entity.id: data[records.settled].require_values()[0]
-        for entity, records in MULTICHANNEL_DC_BIAS.output.readback.items()
+        entity.id: value for entity, value in zip(entities, settled_values, strict=True)
     }
     record_count = len(data)
     status = run.manifest.status
