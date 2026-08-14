@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from functools import cached_property
 from itertools import product
 from types import MappingProxyType
 from typing import Literal, cast
@@ -258,7 +259,7 @@ class AdaptiveRegion:
         return self.point_limit - self.point_count
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class DomainProposalAttempt:
     """One compatible domain extension with region-scoped freshness."""
 
@@ -280,7 +281,7 @@ class DomainProposalAttempt:
             MappingProxyType(dict(self.based_on_region_revisions)),
         )
 
-    @property
+    @cached_property
     def proposal_fingerprint(self) -> str:
         return "sha256:" + stable_content_hash(
             content_fingerprint(
