@@ -78,6 +78,7 @@ from scopecat.program.measurement_types import (
     EntityAcquisitionSemantics,
     MeasurementArrayData,
     MeasurementDType,
+    MeasurementSegmentedData,
     MeasurementVariableRole,
     NativeMeasurementValue,
     measurement_value_spec_from_scalar,
@@ -797,28 +798,6 @@ class ExperimentContext:
     ) -> RecordedProducts: ...
 
     @overload
-    def alias[T: NativeMeasurementValue](
-        self,
-        value: PerEntity[ProductRef[T]],
-        /,
-        *,
-        record_id: None = None,
-        namespace: str | None = None,
-        metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> PerEntity[RecordRef[T]]: ...
-
-    @overload
-    def alias(
-        self,
-        value: PerEntity[ProductBundle],
-        /,
-        *,
-        record_id: None = None,
-        namespace: str | None = None,
-        metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> PerEntity[RecordedProducts]: ...
-
-    @overload
     def alias(
         self,
         value: ValueRef[QuantityValue],
@@ -868,7 +847,7 @@ class ExperimentContext:
 
     def alias(
         self,
-        value: ProductRef | ProductBundle | PerEntity[object] | ValueRef,
+        value: ProductRef | ProductBundle | ValueRef,
         /,
         *,
         record_id: str | None = None,
@@ -887,21 +866,10 @@ class ExperimentContext:
         if role is not None and not isinstance(value, ValueRef):
             raise TypeError("record role can only be selected for symbolic values")
         if isinstance(value, PerEntity):
-            if record_id is not None:
-                raise ValueError("record_id cannot name a PerEntity record set")
-
-            def record_entity(item: object) -> object:
-                if not isinstance(item, ProductRef | ProductBundle):
-                    raise TypeError(
-                        "PerEntity records must contain products or product bundles"
-                    )
-                return self.alias(
-                    item,
-                    namespace=namespace,
-                    metadata=metadata,
-                )
-
-            return value.map(record_entity)
+            raise TypeError(
+                "alias() does not expand PerEntity values; use stack_entities() "
+                "for homogeneous products"
+            )
         if isinstance(value, ProductBundle):
             if record_id is not None:
                 raise ValueError("record_id cannot name a product bundle")
@@ -945,7 +913,7 @@ class ExperimentContext:
         acquisition_policy: EntityAcquisitionPolicy = "independent",
         cohort_id: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> RecordRef[MeasurementArrayData]:
+    ) -> RecordRef[MeasurementArrayData | MeasurementSegmentedData]:
         """Record homogeneous entity products as one indexed array variable."""
 
         if not record_id:
@@ -1055,7 +1023,6 @@ class ExperimentContext:
             dtype=dtype,
             unit=unit,
             dims=dims,
-            source_value_id=source_value_id,
         )
 
     def on_success[StateT](
@@ -1736,7 +1703,7 @@ def _record_entity_products_output(
     acquisition: EntityAcquisitionSemantics | None = None,
     recording_group_id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None,
-) -> RecordRef[MeasurementArrayData]:
+) -> RecordRef[MeasurementArrayData | MeasurementSegmentedData]:
     entities = tuple(products)
     if not entities:
         raise ValueError("entity records require at least one product")
@@ -1819,17 +1786,14 @@ def _record_entity_products_output(
             }
         )
     )
-    return RecordRef[MeasurementArrayData](
+    return RecordRef[MeasurementArrayData | MeasurementSegmentedData](
         id=record_id,
         dtype=first.value_spec.dtype,
         unit=first.value_spec.unit,
         dims=("point", selected_axis_id, *local_dimensions),
         role=cast("MeasurementVariableRole", selected_role),
-        source_product_ids=tuple(products[entity].id for entity in entities),
         entity_axis_id=selected_axis_id,
         entity_axis_fingerprint=entity_axis_fingerprint(selected_axis.values),
-        entity_acquisition=acquisition or EntityAcquisitionSemantics(),
-        recording_group_id=selected_recording_group_id,
     )
 
 
@@ -1847,16 +1811,9 @@ def _register_entity_axis(
     *,
     provided: EntityAxisDef | None,
 ) -> EntityAxisDef:
-    kinds = {entity.kind for entity in entities}
-    entity_kind = (
-        cast("str", next(iter(kinds)))
-        if len(kinds) == 1 and None not in kinds
-        else None
-    )
     selected = provided or EntityAxisDef(
         id=axis_id,
         values=tuple(entities),
-        entity_kind=entity_kind,
     )
     if selected.values != tuple(entities):
         raise ValueError("provided entity axis does not match the selected products")

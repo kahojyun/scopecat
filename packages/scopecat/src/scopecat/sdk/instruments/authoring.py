@@ -9,7 +9,7 @@ from pydantic import JsonValue
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.instrument import CommandChannelBinding
-from scopecat.records.measurement import MeasurementValue
+from scopecat.records.measurement import MeasurementAcquisitionValue
 from scopecat.sdk.instruments.members import (
     AcquisitionRef,
     AcquisitionResultRef,
@@ -115,7 +115,7 @@ class DriverAcquisition:
 
 @dataclass(frozen=True, slots=True)
 class DriverReadback:
-    values: Mapping[AcquisitionResultRef, MeasurementValue]
+    values: Mapping[AcquisitionResultRef, MeasurementAcquisitionValue]
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
 

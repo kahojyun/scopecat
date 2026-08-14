@@ -23,6 +23,7 @@ from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementScalar,
+    MeasurementSegmentedArray,
     MeasurementUnavailable,
     MeasurementValue,
 )
@@ -644,27 +645,46 @@ def _projected_values(
             )
         else:
             array = value
-            converted = (
-                np.asarray(
-                    array.values,
-                    dtype=(
-                        np.complex128 if field.dtype == "complex128" else np.float64
-                    ),
+            if isinstance(array, MeasurementSegmentedArray):
+                selected.append(
+                    MeasurementSegmentedArray.create(
+                        segments=tuple(
+                            segment.model_copy(
+                                update={"dtype": field.dtype, "unit": field.unit}
+                            )
+                            if isinstance(segment, MeasurementUnavailable)
+                            else MeasurementArray.create(
+                                values=np.asarray(
+                                    segment.values,
+                                    dtype=(
+                                        np.complex128
+                                        if field.dtype == "complex128"
+                                        else np.float64
+                                    ),
+                                )
+                                * scale,
+                                dtype=field.dtype,
+                                unit=field.unit,
+                                availability=segment.availability,
+                                metadata=segment.metadata,
+                            )
+                            for segment in array.segments
+                        ),
+                        dtype=field.dtype,
+                        unit=field.unit,
+                        metadata=array.metadata,
+                    )
                 )
-                * scale
-            )
+                continue
             selected.append(
                 MeasurementArray.create(
-                    values=converted,
-                    dtype=field.dtype,
-                    unit=field.unit,
-                    availability=array.availability,
-                    metadata=array.metadata,
-                )
-                if array.entity_shapes is None
-                else MeasurementArray.create_entity_ragged(
-                    values=converted,
-                    entity_shapes=array.entity_shapes,
+                    values=np.asarray(
+                        array.values,
+                        dtype=(
+                            np.complex128 if field.dtype == "complex128" else np.float64
+                        ),
+                    )
+                    * scale,
                     dtype=field.dtype,
                     unit=field.unit,
                     availability=array.availability,
@@ -683,15 +703,35 @@ def _unavailable_columns(
         if isinstance(value, MeasurementUnavailable):
             reasons.append(value.reason)
             metadata.append(_stable_json(value.metadata))
-        elif isinstance(value, MeasurementArray) and value.availability is not None:
+        elif isinstance(value, MeasurementArray | MeasurementSegmentedArray) and (
+            value.availability is not None
+            or (
+                isinstance(value, MeasurementSegmentedArray)
+                and value.has_unavailable_segments
+            )
+        ):
             reasons.append("partial")
+            availability = value.availability
             metadata.append(
                 _stable_json(
                     {
                         "unavailable": [
                             group.model_dump(mode="json")
-                            for group in value.availability.unavailable
+                            for group in (
+                                () if availability is None else availability.unavailable
+                            )
+                        ],
+                        "segments": [
+                            {
+                                "index": index,
+                                "reason": segment.reason,
+                                "metadata": segment.metadata,
+                            }
+                            for index, segment in enumerate(value.segments)
+                            if isinstance(segment, MeasurementUnavailable)
                         ]
+                        if isinstance(value, MeasurementSegmentedArray)
+                        else [],
                     }
                 )
             )

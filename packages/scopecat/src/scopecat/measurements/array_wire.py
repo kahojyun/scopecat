@@ -27,11 +27,7 @@ def encode_measurement_array(value: MeasurementArray) -> EncodedMeasurementArray
     already matches the wire dtype. Variable-width strings use a fresh encoding.
     """
 
-    if any(size is None for size in value.shape):
-        raise MeasurementArrayWireError(
-            "entity-local ragged arrays require the dataset Arrow encoding"
-        )
-    shape = cast("tuple[int, ...]", value.shape)
+    shape = value.shape
     expected_count = math.prod(shape)
     if value.values.size != expected_count or value.values.shape != shape:
         raise MeasurementArrayWireError(

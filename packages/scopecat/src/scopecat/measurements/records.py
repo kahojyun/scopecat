@@ -460,7 +460,6 @@ def _plan_entity_record(
         size=len(record.axis.values),
         index=MeasurementEntityIndex(
             values=record.axis.values,
-            entity_kind=record.axis.entity_kind,
         ),
     )
     local_axes = tuple(
@@ -576,13 +575,6 @@ def plan_value_records(
 
 
 def _plan_axis(axis: ProductAxisDef) -> RecordAxisPlan:
-    entity_kind = None
-    if axis.entities:
-        selected_kind = axis.entities[0].kind
-        if selected_kind is not None and all(
-            entity.kind == selected_kind for entity in axis.entities
-        ):
-            entity_kind = selected_kind
     return RecordAxisPlan(
         id=axis.dimension_id,
         label=axis.dimension_label,
@@ -594,7 +586,6 @@ def _plan_axis(axis: ProductAxisDef) -> RecordAxisPlan:
             if axis.entities is None
             else MeasurementEntityIndex(
                 values=axis.entities,
-                entity_kind=entity_kind,
             )
         ),
         metadata=axis.metadata,

@@ -15,7 +15,10 @@ from scopecat.program.bindings import (
     EnsureStateIntent,
 )
 from scopecat.program.input_capture import capture_runtime_inputs, empty_program_mapping
-from scopecat.program.measurement_types import MeasurementArrayData
+from scopecat.program.measurement_types import (
+    MeasurementArrayData,
+    MeasurementSegmentedData,
+)
 from scopecat.program.module import (
     ModuleBody,
     ModuleInterface,
@@ -157,13 +160,13 @@ class ExperimentInvocation(Generic[_ExperimentResultT_co]):
         self,
         path: str | Sequence[str],
         /,
-    ) -> RecordRef[MeasurementArrayData]:
+    ) -> RecordRef[MeasurementArrayData | MeasurementSegmentedData]:
         """Return one entity-axis array result with its static array type."""
 
         ref = self.result_ref(path)
-        if not isinstance(ref, RecordRef) or ref.source_product_ids is None:
+        if not isinstance(ref, RecordRef) or ref.entity_axis_id is None:
             raise TypeError(f"experiment result {path!r} is not an entity-axis record")
-        return cast("RecordRef[MeasurementArrayData]", ref)
+        return cast("RecordRef[MeasurementArrayData | MeasurementSegmentedData]", ref)
 
     @property
     def point_plan(self) -> PointPlan:

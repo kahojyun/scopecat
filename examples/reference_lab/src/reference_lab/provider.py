@@ -7,7 +7,10 @@ from typing import cast
 import scopecat as sc
 from pydantic import JsonValue
 from scopecat.records.instrument import CommandChannelBinding
-from scopecat.records.measurement import MeasurementScalar, MeasurementValue
+from scopecat.records.measurement import (
+    MeasurementAcquisitionValue,
+    MeasurementScalar,
+)
 from scopecat.sdk.instruments import (
     AcquisitionRef,
     AcquisitionResultRef,
@@ -469,7 +472,7 @@ class MultiChannelVirtualDcSource:
         ):
             route_id = self._route_ids[component_id]
             source = self._world.dc_source(f"{self.instrument_id}:{route_id}")
-            values: dict[AcquisitionResultRef, MeasurementValue] = {}
+            values: dict[AcquisitionResultRef, MeasurementAcquisitionValue] = {}
             for result in request.results:
                 if result.result_id == DC_BIAS_ACTUAL_VOLTAGE_RESULT.result_id:
                     values[result] = MeasurementScalar.create(

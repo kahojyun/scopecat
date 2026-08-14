@@ -8,10 +8,10 @@ from typing import Literal, override
 
 from pydantic import JsonValue
 from scopecat.records.measurement import (
+    MeasurementAcquisitionValue,
     MeasurementScalar,
     MeasurementUnavailable,
     MeasurementUnavailableReason,
-    MeasurementValue,
 )
 from scopecat.sdk.instruments import (
     DriverOutcome,
@@ -48,8 +48,8 @@ _OVERLOAD_STATUS_BITS = 0x0F
 class _LakeShore372Sample:
     scan_channel: int
     autoscan_enabled: bool
-    temperature: MeasurementValue
-    resistance: MeasurementValue
+    temperature: MeasurementAcquisitionValue
+    resistance: MeasurementAcquisitionValue
     curve_number: int
 
 
@@ -155,7 +155,7 @@ class LakeShore372(TemperatureReadoutDriverAdapter):
             channel = settled_scan[0]
             curve_number = query_int(self.transport, f"INCRV? {channel}")
             if curve_number == 0:
-                temperature: MeasurementValue = _unavailable_result(
+                temperature: MeasurementAcquisitionValue = _unavailable_result(
                     "temperature",
                     reason="missing",
                     metadata={

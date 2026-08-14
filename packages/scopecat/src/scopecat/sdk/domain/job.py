@@ -11,7 +11,7 @@ from collections.abc import Hashable, Mapping
 from dataclasses import dataclass, field
 
 from scopecat.kernel.json_types import JsonValue
-from scopecat.records.measurement import MeasurementValue
+from scopecat.records.measurement import MeasurementAcquisitionValue
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,4 +40,4 @@ class DomainResultValue[ResultAddressT: Hashable]:
     """One laboratory-decoded value keyed by its physical result address."""
 
     result_address: ResultAddressT
-    value: MeasurementValue
+    value: MeasurementAcquisitionValue

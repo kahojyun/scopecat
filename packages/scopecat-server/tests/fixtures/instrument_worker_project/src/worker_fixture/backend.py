@@ -10,10 +10,10 @@ import numpy as np
 from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.kernel.value_types import Scalar
 from scopecat.records.measurement import (
+    MeasurementAcquisitionValue,
     MeasurementArray,
     MeasurementScalar,
     MeasurementUnavailable,
-    MeasurementValue,
 )
 from scopecat.sdk.instruments import (
     AcquisitionResultRef,
@@ -150,7 +150,7 @@ class _Driver:
     ) -> DriverOutcome[DriverReadback]:
         gain = self._state[("tests.control/v1", "gain")]
         assert isinstance(gain, float)
-        values: dict[AcquisitionResultRef, MeasurementValue] = {
+        values: dict[AcquisitionResultRef, MeasurementAcquisitionValue] = {
             result: _measurement_value(result.result_id, gain=gain)
             for result in request.results
         }
@@ -229,7 +229,11 @@ def create_failing_backend(project_root: Path) -> InstrumentBackend:
     raise RuntimeError("fixture startup failure")
 
 
-def _measurement_value(result_id: str, *, gain: float = 0.0) -> MeasurementValue:
+def _measurement_value(
+    result_id: str,
+    *,
+    gain: float = 0.0,
+) -> MeasurementAcquisitionValue:
     if result_id == "ragged_trace":
         length = int(gain)
         return MeasurementArray.create(

@@ -11,7 +11,7 @@ from typing import cast
 
 from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
-from scopecat.records.measurement import MeasurementValue
+from scopecat.records.measurement import MeasurementAcquisitionValue
 from scopecat.sdk.instruments import (
     AcquisitionResultRef,
     DriverAcquisition,
@@ -92,34 +92,34 @@ def _unsupported_driver_request(
 
 @dataclass(frozen=True, slots=True)
 class TemperatureReadoutSampleDriverReadback:
-    temperature: MeasurementValue
-    resistance: MeasurementValue
+    temperature: MeasurementAcquisitionValue
+    resistance: MeasurementAcquisitionValue
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class DCBiasReadbackDriverReadback:
-    actual_voltage: MeasurementValue
-    settled: MeasurementValue
+    actual_voltage: MeasurementAcquisitionValue
+    settled: MeasurementAcquisitionValue
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class DCMonitorMeasureCurrentDriverReadback:
-    current: MeasurementValue
+    current: MeasurementAcquisitionValue
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class DCMonitorMeasureVoltageDriverReadback:
-    voltage: MeasurementValue
+    voltage: MeasurementAcquisitionValue
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class NetworkSweepSweepDriverReadback:
-    frequency: MeasurementValue
-    s_parameter: MeasurementValue
+    frequency: MeasurementAcquisitionValue
+    s_parameter: MeasurementAcquisitionValue
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
 
@@ -182,7 +182,7 @@ class TemperatureReadoutDriverAdapter(ABC):
             if not isinstance(outcome_sample, DriverSuccess):
                 return outcome_sample
             readback_sample = outcome_sample.value
-            values_sample: dict[AcquisitionResultRef, MeasurementValue] = {}
+            values_sample: dict[AcquisitionResultRef, MeasurementAcquisitionValue] = {}
             if TEMPERATURE_READOUT_TEMPERATURE_RESULT in request.results:
                 values_sample[TEMPERATURE_READOUT_TEMPERATURE_RESULT] = (
                     readback_sample.temperature
@@ -330,7 +330,9 @@ class DCBiasDriverAdapter(ABC):
             if not isinstance(outcome_readback, DriverSuccess):
                 return outcome_readback
             readback_readback = outcome_readback.value
-            values_readback: dict[AcquisitionResultRef, MeasurementValue] = {}
+            values_readback: dict[
+                AcquisitionResultRef, MeasurementAcquisitionValue
+            ] = {}
             if DC_BIAS_ACTUAL_VOLTAGE_RESULT in request.results:
                 values_readback[DC_BIAS_ACTUAL_VOLTAGE_RESULT] = (
                     readback_readback.actual_voltage
@@ -512,7 +514,9 @@ class DCMonitorDriverAdapter(ABC):
             if not isinstance(outcome_measure_current, DriverSuccess):
                 return outcome_measure_current
             readback_measure_current = outcome_measure_current.value
-            values_measure_current: dict[AcquisitionResultRef, MeasurementValue] = {}
+            values_measure_current: dict[
+                AcquisitionResultRef, MeasurementAcquisitionValue
+            ] = {}
             if DC_MONITOR_CURRENT_RESULT in request.results:
                 values_measure_current[DC_MONITOR_CURRENT_RESULT] = (
                     readback_measure_current.current
@@ -536,7 +540,9 @@ class DCMonitorDriverAdapter(ABC):
             if not isinstance(outcome_measure_voltage, DriverSuccess):
                 return outcome_measure_voltage
             readback_measure_voltage = outcome_measure_voltage.value
-            values_measure_voltage: dict[AcquisitionResultRef, MeasurementValue] = {}
+            values_measure_voltage: dict[
+                AcquisitionResultRef, MeasurementAcquisitionValue
+            ] = {}
             if DC_MONITOR_VOLTAGE_RESULT in request.results:
                 values_measure_voltage[DC_MONITOR_VOLTAGE_RESULT] = (
                     readback_measure_voltage.voltage
@@ -682,7 +688,9 @@ class DCSourceMonitorDriverAdapter(ABC):
             if not isinstance(outcome_measure_current, DriverSuccess):
                 return outcome_measure_current
             readback_measure_current = outcome_measure_current.value
-            values_measure_current: dict[AcquisitionResultRef, MeasurementValue] = {}
+            values_measure_current: dict[
+                AcquisitionResultRef, MeasurementAcquisitionValue
+            ] = {}
             if DC_MONITOR_CURRENT_RESULT in request.results:
                 values_measure_current[DC_MONITOR_CURRENT_RESULT] = (
                     readback_measure_current.current
@@ -706,7 +714,9 @@ class DCSourceMonitorDriverAdapter(ABC):
             if not isinstance(outcome_measure_voltage, DriverSuccess):
                 return outcome_measure_voltage
             readback_measure_voltage = outcome_measure_voltage.value
-            values_measure_voltage: dict[AcquisitionResultRef, MeasurementValue] = {}
+            values_measure_voltage: dict[
+                AcquisitionResultRef, MeasurementAcquisitionValue
+            ] = {}
             if DC_MONITOR_VOLTAGE_RESULT in request.results:
                 values_measure_voltage[DC_MONITOR_VOLTAGE_RESULT] = (
                     readback_measure_voltage.voltage
@@ -794,7 +804,7 @@ class NetworkSweepDriverAdapter(ABC):
             if not isinstance(outcome_sweep, DriverSuccess):
                 return outcome_sweep
             readback_sweep = outcome_sweep.value
-            values_sweep: dict[AcquisitionResultRef, MeasurementValue] = {}
+            values_sweep: dict[AcquisitionResultRef, MeasurementAcquisitionValue] = {}
             if NETWORK_SWEEP_FREQUENCY_RESULT in request.results:
                 values_sweep[NETWORK_SWEEP_FREQUENCY_RESULT] = readback_sweep.frequency
             if NETWORK_SWEEP_S_PARAMETER_RESULT in request.results:

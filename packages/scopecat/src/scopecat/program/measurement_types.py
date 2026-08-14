@@ -30,8 +30,11 @@ type MeasurementArrayElement = (
     np.bool_ | np.int64 | np.float64 | np.complex128 | np.str_
 )
 type MeasurementArrayData = NDArray[MeasurementArrayElement]
+type MeasurementSegmentedData = tuple[MeasurementArrayData | None, ...]
 type NativeMeasurementScalar = bool | int | float | complex | str
-type NativeMeasurementValue = NativeMeasurementScalar | MeasurementArrayData
+type NativeMeasurementValue = (
+    NativeMeasurementScalar | MeasurementArrayData | MeasurementSegmentedData
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +78,7 @@ __all__ = [
     "MeasurementArrayData",
     "MeasurementArrayElement",
     "MeasurementDType",
+    "MeasurementSegmentedData",
     "MeasurementVariableRole",
     "NativeMeasurementScalar",
     "NativeMeasurementValue",

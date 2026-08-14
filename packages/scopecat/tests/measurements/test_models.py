@@ -21,10 +21,13 @@ from scopecat.records.measurement import (
     MeasurementDimension,
     MeasurementEntityIndex,
     MeasurementRecord,
+    MeasurementResultField,
     MeasurementScalar,
+    MeasurementSegmentedArray,
     MeasurementUnavailable,
     MeasurementUnavailableReason,
     MeasurementVariable,
+    measurement_result_contract_version,
 )
 
 
@@ -308,7 +311,7 @@ def test_measurement_record_rejects_acquisition_evidence_for_unknown_variable() 
         )
 
 
-def test_acquisition_catalog_factors_events_and_keeps_stable_content_refs() -> None:
+def test_acquisition_catalog_factors_shared_events_and_round_trips() -> None:
     first = InstrumentAcquisitionEvidence(
         command_id="collect-iq",
         instrument_id="readout",
@@ -325,9 +328,9 @@ def test_acquisition_catalog_factors_events_and_keeps_stable_content_refs() -> N
 
     assert len(catalog.events) == 1
     assert len(catalog.entries) == 2
-    assert catalog.variable_refs["q"] == selected.variable_refs["q"]
     assert selected.events == catalog.events
     assert selected.for_variable("q") == second
+    assert_model_round_trip(catalog)
 
 
 def test_measurement_record_discriminator_restores_value_models() -> None:
@@ -377,6 +380,7 @@ def test_measurement_record_wire_requires_value_discriminators() -> None:
 
     assert "kind" in schema["$defs"]["MeasurementScalar"]["required"]
     assert "kind" in schema["$defs"]["MeasurementArray"]["required"]
+    assert "kind" in schema["$defs"]["MeasurementSegmentedArray"]["required"]
     assert set(schema["$defs"]["MeasurementUnavailable"]["required"]) == {
         "kind",
         "reason",
@@ -418,6 +422,78 @@ def test_measurement_record_wire_requires_value_discriminators() -> None:
                 },
             }
         )
+
+
+def test_segmented_measurement_arrays_round_trip_explicit_missing_segments() -> None:
+    value = MeasurementSegmentedArray.create(
+        dtype="float64",
+        unit="ratio",
+        segments=(
+            MeasurementArray.create(
+                dtype="float64",
+                unit="ratio",
+                values=[0.1, 0.2],
+            ),
+            MeasurementUnavailable.create(
+                reason="missing",
+                dtype="float64",
+                unit="ratio",
+                shape=(None,),
+                metadata={"entity": "q1"},
+            ),
+        ),
+    )
+
+    restored = assert_model_round_trip(value)
+
+    assert restored.segment_shapes == ((2,), (None,))
+    assert restored.shape == (2, None)
+    assert restored.values.tolist() == [0.1, 0.2]
+    assert restored.has_unavailable_segments
+
+
+def test_result_contract_version_ignores_acquisition_provenance() -> None:
+    dimensions = (MeasurementDimension(id="point", kind="point", size=1),)
+    field = MeasurementResultField(path=("signal",), variable_id="signal")
+    variable = MeasurementVariable(
+        id="signal",
+        role="observable",
+        dtype="float64",
+        unit="ratio",
+        dims=("point",),
+        source_product_id="readout/first",
+        recording_group_id="first-group",
+        metadata={"driver": "first"},
+    )
+    first = measurement_result_contract_version(
+        "test.result",
+        (field,),
+        variables=(variable,),
+        dimensions=dimensions,
+    )
+    second = measurement_result_contract_version(
+        "test.result",
+        (field,),
+        variables=(
+            variable.model_copy(
+                update={
+                    "source_product_id": "readout/second",
+                    "recording_group_id": "second-group",
+                    "metadata": {"driver": "second"},
+                }
+            ),
+        ),
+        dimensions=dimensions,
+    )
+    changed_type = measurement_result_contract_version(
+        "test.result",
+        (field,),
+        variables=(variable.model_copy(update={"dtype": "complex128"}),),
+        dimensions=dimensions,
+    )
+
+    assert second == first
+    assert changed_type != first
 
 
 @pytest.mark.parametrize(
@@ -551,7 +627,6 @@ def test_measurement_entity_index_is_labeled_and_cardinality_checked() -> None:
         kind="entity",
         size=2,
         index=MeasurementEntityIndex(
-            entity_kind="logical_qubit",
             values=(q0, q1),
         ),
     )
@@ -564,8 +639,13 @@ def test_measurement_entity_index_is_labeled_and_cardinality_checked() -> None:
         dimension.model_copy(update={"size": 1})
     with pytest.raises(ValidationError, match="must be unique"):
         MeasurementEntityIndex(values=(q0, q0))
-    with pytest.raises(ValidationError, match="declared entity kind"):
-        MeasurementEntityIndex(entity_kind="coupler", values=(q0,))
+    assert MeasurementEntityIndex(values=(q0,)).entity_kind == "logical_qubit"
+    assert (
+        MeasurementEntityIndex(
+            values=(q0, EntityRef(id="c0", kind="coupler"))
+        ).entity_kind
+        is None
+    )
 
 
 def test_measurement_dataset_and_schema_round_trip() -> None:

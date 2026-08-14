@@ -31,10 +31,7 @@ from pydantic import (
     model_validator,
 )
 
-from scopecat.kernel.content_identity import (
-    model_wire_content_hash,
-    stable_content_hash,
-)
+from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.entity import EntityRef, entity_axis_fingerprint, entity_identity
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.interface_identity import InterfaceId
@@ -62,12 +59,11 @@ from scopecat.records.measurement_array_schema import (
 )
 from scopecat.records.metadata import MeasurementMetadata
 
-MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v8"
-MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v15"
+MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v9"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v16"
 
 MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
 _MEASUREMENT_ARRAY_CREATE_CONTEXT = object()
-_MEASUREMENT_ENTITY_RAGGED_CREATE_CONTEXT = object()
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
@@ -113,7 +109,6 @@ class MeasurementEntityIndex(_FrozenMeasurementModel):
 
     kind: Literal["entity"] = "entity"
     values: Sequence[EntityRef] = Field(min_length=1)
-    entity_kind: _NonEmptyText | None = None
 
     @field_validator("values")
     @classmethod
@@ -124,19 +119,16 @@ class MeasurementEntityIndex(_FrozenMeasurementModel):
             raise ValueError("measurement entity index values must be unique")
         return selected
 
-    @model_validator(mode="after")
-    def validate_entity_kind(self) -> MeasurementEntityIndex:
-        if self.entity_kind is not None and any(
-            entity.kind != self.entity_kind for entity in self.values
-        ):
-            raise ValueError(
-                "measurement entity index values must match its declared entity kind"
-            )
-        return self
-
     @property
     def fingerprint(self) -> str:
         return entity_axis_fingerprint(self.values)
+
+    @property
+    def entity_kind(self) -> str | None:
+        kinds = {entity.kind for entity in self.values}
+        if len(kinds) != 1:
+            return None
+        return next(iter(kinds))
 
 
 class MeasurementDimension(_FrozenMeasurementModel):
@@ -474,11 +466,11 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    format_version: Literal["scopecat.measurement_dataset_schema.v15"] = (
+    format_version: Literal["scopecat.measurement_dataset_schema.v16"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str = Field(min_length=1)
-    record_schema: Literal["scopecat.measurement_record.v8"] = (
+    record_schema: Literal["scopecat.measurement_record.v9"] = (
         MEASUREMENT_RECORD_SCHEMA_VERSION
     )
     point_domain: MeasurementPointDomain
@@ -614,7 +606,9 @@ def measurement_result_contract_version(
         "fields": [
             {
                 "path": list(field.path),
-                "variable": variable_by_id[field.variable_id].model_dump(mode="json"),
+                "variable": _measurement_result_variable_identity(
+                    variable_by_id[field.variable_id]
+                ),
                 "dimensions": [
                     _measurement_result_dimension_identity(
                         dimension_by_id[dimension_id]
@@ -626,6 +620,18 @@ def measurement_result_contract_version(
         ],
     }
     return f"sha256:{stable_content_hash(identity)}"
+
+
+def _measurement_result_variable_identity(
+    variable: MeasurementVariable,
+) -> Mapping[str, object]:
+    return {
+        "id": variable.id,
+        "role": variable.role,
+        "dtype": variable.dtype,
+        "unit": variable.unit,
+        "dims": list(variable.dims),
+    }
 
 
 def _measurement_result_dimension_identity(
@@ -949,7 +955,7 @@ class MeasurementArrayAvailability(_FrozenMeasurementModel):
 
 
 class MeasurementArray(_FrozenMeasurementModel):
-    """One typed array backed by an immutable, read-only NumPy buffer."""
+    """One rectangular typed array backed by an immutable NumPy buffer."""
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
@@ -960,8 +966,7 @@ class MeasurementArray(_FrozenMeasurementModel):
     kind: Literal["array"]
     dtype: MeasurementDType = "float64"
     unit: str | None = None
-    shape: tuple[Annotated[int, Field(ge=0)] | None, ...] = Field(min_length=1)
-    entity_shapes: Sequence[tuple[Annotated[int, Field(ge=0)], ...]] | None = None
+    shape: tuple[Annotated[int, Field(ge=0)], ...] = Field(min_length=1)
     values: MeasurementArrayPayload
     availability: MeasurementArrayAvailability | None = None
     metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
@@ -989,34 +994,6 @@ class MeasurementArray(_FrozenMeasurementModel):
         return cls.model_validate(
             data,
             context=_MEASUREMENT_ARRAY_CREATE_CONTEXT,
-        )
-
-    @classmethod
-    def create_entity_ragged(
-        cls,
-        *,
-        values: object,
-        entity_shapes: Sequence[Sequence[int]],
-        dtype: MeasurementDType = "float64",
-        unit: str | None = None,
-        availability: MeasurementArrayAvailability | None = None,
-        metadata: Mapping[str, object] | None = None,
-    ) -> Self:
-        """Construct one contiguous array segmented by entity-local shapes."""
-
-        selected_shapes = tuple(tuple(shape) for shape in entity_shapes)
-        return cls.model_validate(
-            {
-                "kind": "array",
-                "dtype": dtype,
-                "unit": unit,
-                "shape": _entity_ragged_logical_shape(selected_shapes),
-                "entity_shapes": selected_shapes,
-                "values": values,
-                "availability": availability,
-                "metadata": {} if metadata is None else metadata,
-            },
-            context=_MEASUREMENT_ENTITY_RAGGED_CREATE_CONTEXT,
         )
 
     @model_validator(mode="before")
@@ -1048,16 +1025,8 @@ class MeasurementArray(_FrozenMeasurementModel):
 
     @field_validator("shape")
     @classmethod
-    def freeze_shape(cls, value: Sequence[int | None]) -> tuple[int | None, ...]:
+    def freeze_shape(cls, value: Sequence[int]) -> tuple[int, ...]:
         return tuple(value)
-
-    @field_validator("entity_shapes")
-    @classmethod
-    def freeze_entity_shapes(
-        cls,
-        value: Sequence[Sequence[int]] | None,
-    ) -> Sequence[tuple[int, ...]] | None:
-        return None if value is None else tuple(tuple(shape) for shape in value)
 
     @field_validator("values", mode="before")
     @classmethod
@@ -1077,15 +1046,9 @@ class MeasurementArray(_FrozenMeasurementModel):
         )
         selected = (
             cast("MeasurementArrayData", value)
-            if info.context
-            in {
-                _MEASUREMENT_ARRAY_CREATE_CONTEXT,
-                _MEASUREMENT_ENTITY_RAGGED_CREATE_CONTEXT,
-            }
+            if info.context is _MEASUREMENT_ARRAY_CREATE_CONTEXT
             else _measurement_ndarray(value, dtype=dtype)
         )
-        if info.context is _MEASUREMENT_ENTITY_RAGGED_CREATE_CONTEXT:
-            return selected.reshape(-1)
         expected_shape = cast("object", info.data.get("shape"))
         expected_extents = (
             cast("tuple[object, ...]", expected_shape)
@@ -1110,23 +1073,12 @@ class MeasurementArray(_FrozenMeasurementModel):
     @model_validator(mode="after")
     def validate_values_shape(self) -> MeasurementArray:
         actual_shape = self.values.shape
-        if self.entity_shapes is None and actual_shape != self.shape:
+        if actual_shape != self.shape:
             msg = f"measurement array shape {actual_shape} does not match {self.shape}"
             raise ValueError(msg)
-        if self.entity_shapes is not None:
-            selected_shapes = tuple(self.entity_shapes)
-            if self.shape != _entity_ragged_logical_shape(selected_shapes):
-                raise ValueError(
-                    "measurement entity-ragged logical shape does not match its "
-                    "segments"
-                )
-            expected_size = sum(math.prod(shape) for shape in selected_shapes)
-            if self.values.ndim != 1 or self.values.size != expected_size:
-                raise ValueError(
-                    "measurement entity-ragged values do not match its segments"
-                )
-        if self.availability is not None and self.availability.valid.shape != (
-            self.values.shape if self.entity_shapes is not None else self.shape
+        if (
+            self.availability is not None
+            and self.availability.valid.shape != self.shape
         ):
             raise ValueError(
                 "measurement array availability shape does not match its values"
@@ -1144,32 +1096,10 @@ class MeasurementArray(_FrozenMeasurementModel):
             and self.dtype == other.dtype
             and self.unit == other.unit
             and self.shape == other.shape
-            and self.entity_shapes == other.entity_shapes
             and self.metadata == other.metadata
             and self.availability == other.availability
             and np.array_equal(self.values, other.values)
         )
-
-
-def _entity_ragged_logical_shape(
-    entity_shapes: Sequence[Sequence[int]],
-) -> tuple[int | None, ...]:
-    selected = tuple(tuple(shape) for shape in entity_shapes)
-    if not selected:
-        raise ValueError("measurement entity-ragged arrays require entities")
-    rank = len(selected[0])
-    if rank == 0 or any(len(shape) != rank for shape in selected):
-        raise ValueError(
-            "measurement entity-ragged arrays require one non-scalar local rank"
-        )
-    return (
-        len(selected),
-        *(
-            extents[0] if len(set(extents)) == 1 else None
-            for axis in range(rank)
-            if (extents := tuple(shape[axis] for shape in selected))
-        ),
-    )
 
 
 class MeasurementUnavailable(_FrozenMeasurementModel):
@@ -1223,8 +1153,167 @@ class MeasurementUnavailable(_FrozenMeasurementModel):
         return self
 
 
-type MeasurementValue = Annotated[
+type MeasurementSegment = Annotated[
+    MeasurementArray | MeasurementUnavailable,
+    Field(discriminator="kind"),
+]
+
+
+class MeasurementSegmentedArray(_FrozenMeasurementModel):
+    """One entity-indexed value with independently shaped local array segments."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["segmented_array"]
+    dtype: MeasurementDType = "float64"
+    unit: str | None = None
+    segments: Sequence[MeasurementSegment] = Field(min_length=1)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        segments: Sequence[MeasurementArray | MeasurementUnavailable],
+        dtype: MeasurementDType = "float64",
+        unit: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> Self:
+        return cls(
+            kind="segmented_array",
+            dtype=dtype,
+            unit=unit,
+            segments=segments,
+            metadata={} if metadata is None else metadata,
+        )
+
+    @field_validator("unit")
+    @classmethod
+    def validate_unit(cls, value: str | None) -> str | None:
+        return validate_supported_unit(value)
+
+    @field_validator("segments")
+    @classmethod
+    def freeze_segments[T: MeasurementSegment](cls, value: Sequence[T]) -> Sequence[T]:
+        return tuple(value)
+
+    @model_validator(mode="after")
+    def validate_segments(self) -> MeasurementSegmentedArray:
+        ranks = {len(segment.shape) for segment in self.segments}
+        if ranks == {0} or len(ranks) != 1:
+            raise ValueError(
+                "measurement segmented arrays require one non-scalar local rank"
+            )
+        if any(
+            (segment.dtype, segment.unit) != (self.dtype, self.unit)
+            for segment in self.segments
+        ):
+            raise ValueError(
+                "measurement segmented array members must match its dtype and unit"
+            )
+        if self.dtype in {"bool", "string"} and self.unit is not None:
+            raise ValueError(
+                f"{self.dtype} measurement segmented arrays cannot have a unit"
+            )
+        return self
+
+    @property
+    def segment_shapes(self) -> tuple[tuple[int | None, ...], ...]:
+        return tuple(tuple(segment.shape) for segment in self.segments)
+
+    @property
+    def shape(self) -> tuple[int | None, ...]:
+        shapes = self.segment_shapes
+        rank = len(shapes[0])
+        extents: list[int | None] = []
+        for axis in range(rank):
+            axis_extents = {shape[axis] for shape in shapes}
+            extent = next(iter(axis_extents)) if len(axis_extents) == 1 else None
+            extents.append(extent)
+        return (len(shapes), *extents)
+
+    @property
+    def values(self) -> MeasurementArrayData:
+        chunks: list[MeasurementArrayData] = []
+        for segment in self.segments:
+            if isinstance(segment, MeasurementArray):
+                chunks.append(segment.values.reshape(-1))
+                continue
+            size = (
+                0
+                if any(extent is None for extent in segment.shape)
+                else math.prod(cast("tuple[int, ...]", segment.shape))
+            )
+            chunks.append(
+                cast(
+                    "MeasurementArrayData",
+                    np.zeros(size, dtype=_numpy_dtype(self.dtype)),
+                )
+            )
+        combined = np.concatenate(chunks)
+        return cast("MeasurementArrayData", freeze_ndarray(combined))
+
+    @property
+    def availability(self) -> MeasurementArrayAvailability | None:
+        valid_chunks: list[NDArray[np.bool_]] = []
+        unavailable: list[MeasurementArrayUnavailableGroup] = []
+        offset = 0
+        for segment in self.segments:
+            if isinstance(segment, MeasurementArray):
+                size = segment.values.size
+                if segment.availability is None:
+                    valid_chunks.append(np.ones(size, dtype=np.bool_))
+                else:
+                    valid_chunks.append(segment.availability.valid.reshape(-1))
+                    unavailable.extend(
+                        MeasurementArrayUnavailableGroup(
+                            reason=group.reason,
+                            flat_indices=tuple(
+                                offset + index for index in group.flat_indices
+                            ),
+                            metadata=group.metadata,
+                        )
+                        for group in segment.availability.unavailable
+                    )
+            else:
+                size = (
+                    0
+                    if any(extent is None for extent in segment.shape)
+                    else math.prod(cast("tuple[int, ...]", segment.shape))
+                )
+                valid_chunks.append(np.zeros(size, dtype=np.bool_))
+                if size:
+                    unavailable.append(
+                        MeasurementArrayUnavailableGroup(
+                            reason=segment.reason,
+                            flat_indices=tuple(range(offset, offset + size)),
+                            metadata=segment.metadata,
+                        )
+                    )
+            offset += size
+        valid = np.concatenate(valid_chunks)
+        if bool(np.all(valid)):
+            return None
+        return MeasurementArrayAvailability(valid=valid, unavailable=unavailable)
+
+    @property
+    def has_unavailable_segments(self) -> bool:
+        return any(
+            isinstance(segment, MeasurementUnavailable) for segment in self.segments
+        )
+
+
+type MeasurementAcquisitionValue = Annotated[
     MeasurementScalar | MeasurementArray | MeasurementUnavailable,
+    Field(discriminator="kind"),
+]
+
+
+type MeasurementValue = Annotated[
+    MeasurementScalar
+    | MeasurementArray
+    | MeasurementSegmentedArray
+    | MeasurementUnavailable,
     Field(discriminator="kind"),
 ]
 
@@ -1317,7 +1406,7 @@ class InstrumentAcquisitionEvidenceRef(_FrozenMeasurementModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["instrument"] = "instrument"
-    event_id: _NonEmptyText
+    event_index: Annotated[int, Field(ge=0)]
     result_id: _NonEmptyText
 
 
@@ -1345,60 +1434,20 @@ type MeasurementAcquisitionEvidenceRef = Annotated[
 ]
 
 
-def _empty_evidence_events() -> Mapping[str, InstrumentAcquisitionEvent]:
+def _empty_evidence_events() -> Sequence[InstrumentAcquisitionEvent]:
+    return ()
+
+
+def _empty_evidence_entries() -> Sequence[MeasurementAcquisitionEvidenceRef]:
+    return ()
+
+
+def _empty_evidence_refs() -> Mapping[str, int]:
     return FrozenMapping()
 
 
-def _empty_evidence_entries() -> Mapping[str, MeasurementAcquisitionEvidenceRef]:
-    return FrozenMapping()
-
-
-def _empty_evidence_refs() -> Mapping[str, str]:
-    return FrozenMapping()
-
-
-def _freeze_evidence_events(
-    value: Mapping[str, InstrumentAcquisitionEvent],
-) -> Mapping[str, InstrumentAcquisitionEvent]:
-    return FrozenMapping(value.items())
-
-
-def _serialize_evidence_events(
-    value: Mapping[str, InstrumentAcquisitionEvent],
-) -> dict[str, InstrumentAcquisitionEvent]:
-    return dict(value)
-
-
-type MeasurementAcquisitionEvents = Annotated[
-    Mapping[_NonEmptyText, InstrumentAcquisitionEvent],
-    AfterValidator(_freeze_evidence_events),
-    PlainSerializer(
-        _serialize_evidence_events,
-        return_type=dict[str, InstrumentAcquisitionEvent],
-    ),
-]
-
-
-def _freeze_evidence_entries(
-    value: Mapping[str, MeasurementAcquisitionEvidenceRef],
-) -> Mapping[str, MeasurementAcquisitionEvidenceRef]:
-    return FrozenMapping(value.items())
-
-
-def _serialize_evidence_entries(
-    value: Mapping[str, MeasurementAcquisitionEvidenceRef],
-) -> dict[str, MeasurementAcquisitionEvidenceRef]:
-    return dict(value)
-
-
-type MeasurementAcquisitionEvidenceEntries = Annotated[
-    Mapping[_NonEmptyText, MeasurementAcquisitionEvidenceRef],
-    AfterValidator(_freeze_evidence_entries),
-    PlainSerializer(
-        _serialize_evidence_entries,
-        return_type=dict[str, MeasurementAcquisitionEvidenceRef],
-    ),
-]
+type MeasurementAcquisitionEvents = Sequence[InstrumentAcquisitionEvent]
+type MeasurementAcquisitionEvidenceEntries = Sequence[MeasurementAcquisitionEvidenceRef]
 
 
 def _freeze_measurement_values(
@@ -1423,23 +1472,23 @@ type MeasurementValueMap = Annotated[
 ]
 
 
-def _freeze_evidence_refs(value: Mapping[str, str]) -> Mapping[str, str]:
+def _freeze_evidence_refs(value: Mapping[str, int]) -> Mapping[str, int]:
     return FrozenMapping(value.items())
 
 
-def _serialize_evidence_refs(value: Mapping[str, str]) -> dict[str, str]:
+def _serialize_evidence_refs(value: Mapping[str, int]) -> dict[str, int]:
     return dict(value)
 
 
 type MeasurementAcquisitionEvidenceRefs = Annotated[
-    Mapping[_NonEmptyText, _NonEmptyText],
+    Mapping[_NonEmptyText, Annotated[int, Field(ge=0)]],
     AfterValidator(_freeze_evidence_refs),
-    PlainSerializer(_serialize_evidence_refs, return_type=dict[str, str]),
+    PlainSerializer(_serialize_evidence_refs, return_type=dict[str, int]),
 ]
 
 
 class MeasurementAcquisitionEvidenceCatalog(_FrozenMeasurementModel):
-    """Content-addressed results factored over shared acquisition events."""
+    """Result evidence factored over shared acquisition events by compact indexes."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -1451,57 +1500,63 @@ class MeasurementAcquisitionEvidenceCatalog(_FrozenMeasurementModel):
         default_factory=_empty_evidence_refs
     )
 
+    @field_validator("events", "entries")
+    @classmethod
+    def freeze_catalog_sequences[T](cls, value: Sequence[T]) -> Sequence[T]:
+        return tuple(value)
+
     @classmethod
     def create(
         cls,
         evidence_by_variable: Mapping[str, MeasurementAcquisitionEvidence],
     ) -> MeasurementAcquisitionEvidenceCatalog:
-        events: dict[str, InstrumentAcquisitionEvent] = {}
-        entries: dict[str, MeasurementAcquisitionEvidenceRef] = {}
-        variable_refs: dict[str, str] = {}
+        events: list[InstrumentAcquisitionEvent] = []
+        event_indexes: dict[InstrumentAcquisitionEvent, int] = {}
+        entries: list[MeasurementAcquisitionEvidenceRef] = []
+        entry_indexes: dict[MeasurementAcquisitionEvidenceRef, int] = {}
+        variable_refs: dict[str, int] = {}
         for variable_id in sorted(evidence_by_variable):
-            entry = _evidence_ref(evidence_by_variable[variable_id], events=events)
-            entry_id = model_wire_content_hash(entry)
-            existing = entries.setdefault(entry_id, entry)
-            if existing != entry:
-                raise AssertionError("acquisition evidence hash collision")
-            variable_refs[variable_id] = entry_id
+            entry = _evidence_ref(
+                evidence_by_variable[variable_id],
+                events=events,
+                event_indexes=event_indexes,
+            )
+            entry_index = entry_indexes.get(entry)
+            if entry_index is None:
+                entry_index = len(entries)
+                entries.append(entry)
+                entry_indexes[entry] = entry_index
+            variable_refs[variable_id] = entry_index
         return cls(events=events, entries=entries, variable_refs=variable_refs)
 
     @model_validator(mode="after")
     def validate_refs(self) -> MeasurementAcquisitionEvidenceCatalog:
+        if len(self.events) != len(set(self.events)):
+            raise ValueError("measurement acquisition events must be unique")
+        if len(self.entries) != len(set(self.entries)):
+            raise ValueError("measurement acquisition evidence entries must be unique")
         referenced_entries = set(self.variable_refs.values())
-        if referenced_entries != set(self.entries):
+        if referenced_entries != set(range(len(self.entries))):
             raise ValueError(
-                "measurement acquisition evidence entries must be referenced"
+                "measurement acquisition evidence entry indexes must be referenced"
             )
-        if any(
-            entry_id != model_wire_content_hash(entry)
-            for entry_id, entry in self.entries.items()
-        ):
-            raise ValueError("measurement acquisition evidence entry id is invalid")
         referenced_events = {
-            event_id
-            for entry in self.entries.values()
-            for event_id in _evidence_ref_event_ids(entry)
+            event_index
+            for entry in self.entries
+            for event_index in _evidence_ref_event_indices(entry)
         }
-        if referenced_events != set(self.events):
+        if referenced_events != set(range(len(self.events))):
             raise ValueError(
-                "measurement acquisition events must be referenced exactly"
+                "measurement acquisition event indexes must be referenced exactly"
             )
-        if any(
-            event_id != model_wire_content_hash(event)
-            for event_id, event in self.events.items()
-        ):
-            raise ValueError("measurement acquisition event id is invalid")
         return self
 
     def for_variable(self, variable_id: str) -> MeasurementAcquisitionEvidence | None:
-        entry_id = self.variable_refs.get(variable_id)
+        entry_index = self.variable_refs.get(variable_id)
         return (
             None
-            if entry_id is None
-            else _evidence_from_ref(self.entries[entry_id], events=self.events)
+            if entry_index is None
+            else _evidence_from_ref(self.entries[entry_index], events=self.events)
         )
 
     def select(
@@ -1509,45 +1564,39 @@ class MeasurementAcquisitionEvidenceCatalog(_FrozenMeasurementModel):
         variable_ids: Sequence[str],
     ) -> MeasurementAcquisitionEvidenceCatalog:
         selected = set(variable_ids)
-        variable_refs = {
-            variable_id: entry_id
-            for variable_id, entry_id in self.variable_refs.items()
-            if variable_id in selected
-        }
-        entry_ids = set(variable_refs.values())
-        entries = {
-            entry_id: entry
-            for entry_id, entry in self.entries.items()
-            if entry_id in entry_ids
-        }
-        event_ids = {
-            event_id
-            for entry in entries.values()
-            for event_id in _evidence_ref_event_ids(entry)
-        }
-        return type(self)(
-            events={
-                event_id: event
-                for event_id, event in self.events.items()
-                if event_id in event_ids
-            },
-            entries=entries,
-            variable_refs=variable_refs,
+        return type(self).create(
+            {
+                variable_id: evidence
+                for variable_id in self.variable_refs
+                if variable_id in selected
+                and (evidence := self.for_variable(variable_id)) is not None
+            }
         )
 
 
 def _evidence_ref(
     evidence: MeasurementAcquisitionEvidence,
     *,
-    events: dict[str, InstrumentAcquisitionEvent],
+    events: list[InstrumentAcquisitionEvent],
+    event_indexes: dict[InstrumentAcquisitionEvent, int],
 ) -> MeasurementAcquisitionEvidenceRef:
     if isinstance(evidence, InstrumentAcquisitionEvidence):
-        return _instrument_evidence_ref(evidence, events=events)
+        return _instrument_evidence_ref(
+            evidence,
+            events=events,
+            event_indexes=event_indexes,
+        )
     return EntityAcquisitionEvidenceRef(
         dimension_id=evidence.dimension_id,
         acquisition=evidence.acquisition,
         values=tuple(
-            None if value is None else _instrument_evidence_ref(value, events=events)
+            None
+            if value is None
+            else _instrument_evidence_ref(
+                value,
+                events=events,
+                event_indexes=event_indexes,
+            )
             for value in evidence.values
         ),
     )
@@ -1556,39 +1605,41 @@ def _evidence_ref(
 def _instrument_evidence_ref(
     evidence: InstrumentAcquisitionEvidence,
     *,
-    events: dict[str, InstrumentAcquisitionEvent],
+    events: list[InstrumentAcquisitionEvent],
+    event_indexes: dict[InstrumentAcquisitionEvent, int],
 ) -> InstrumentAcquisitionEvidenceRef:
     event = InstrumentAcquisitionEvent.from_result(evidence)
-    event_id = model_wire_content_hash(event)
-    existing = events.setdefault(event_id, event)
-    if existing != event:
-        raise AssertionError("acquisition event hash collision")
+    event_index = event_indexes.get(event)
+    if event_index is None:
+        event_index = len(events)
+        events.append(event)
+        event_indexes[event] = event_index
     return InstrumentAcquisitionEvidenceRef(
-        event_id=event_id,
+        event_index=event_index,
         result_id=evidence.result_id,
     )
 
 
-def _evidence_ref_event_ids(
+def _evidence_ref_event_indices(
     evidence: MeasurementAcquisitionEvidenceRef,
-) -> tuple[str, ...]:
+) -> tuple[int, ...]:
     if isinstance(evidence, InstrumentAcquisitionEvidenceRef):
-        return (evidence.event_id,)
-    return tuple(value.event_id for value in evidence.values if value is not None)
+        return (evidence.event_index,)
+    return tuple(value.event_index for value in evidence.values if value is not None)
 
 
 def _evidence_from_ref(
     evidence: MeasurementAcquisitionEvidenceRef,
     *,
-    events: Mapping[str, InstrumentAcquisitionEvent],
+    events: Sequence[InstrumentAcquisitionEvent],
 ) -> MeasurementAcquisitionEvidence:
     if isinstance(evidence, InstrumentAcquisitionEvidenceRef):
-        return events[evidence.event_id].result(evidence.result_id)
+        return events[evidence.event_index].result(evidence.result_id)
     return EntityAcquisitionEvidence(
         dimension_id=evidence.dimension_id,
         acquisition=evidence.acquisition,
         values=tuple(
-            None if value is None else events[value.event_id].result(value.result_id)
+            None if value is None else events[value.event_index].result(value.result_id)
             for value in evidence.values
         ),
     )

@@ -28,7 +28,6 @@ from scopecat.measurements.results import (
     Variable,
 )
 from scopecat.program.measurement_types import (
-    EntityAcquisitionSemantics,
     MeasurementArrayData,
     MeasurementDType,
 )
@@ -204,15 +203,12 @@ def test_typed_record_lookup_validates_schema_and_narrows_values() -> None:
         unit="V",
         dims=("point",),
         role="coordinate",
-        source_value_id="bias",
     )
     signal_ref: RecordRef[MeasurementArrayData] = RecordRef(
         id="signal",
         dtype="complex128",
         unit="ratio",
         dims=("point", "sample"),
-        source_product_id="readout/signal",
-        recording_group_id="readout",
     )
 
     bias = dataset[bias_ref]
@@ -422,7 +418,6 @@ def test_variable_require_helpers_reject_unavailable_rows() -> None:
         dtype="float64",
         unit="K",
         dims=("point",),
-        source_product_id="thermometer/temperature",
     )
     temperature = dataset[temperature_ref]
 
@@ -446,7 +441,6 @@ def test_variable_require_helpers_reject_unavailable_rows() -> None:
             unit="V",
             dims=("point",),
             role="coordinate",
-            source_value_id="bias",
         ),
         RecordRef[float](
             id="bias",
@@ -454,7 +448,6 @@ def test_variable_require_helpers_reject_unavailable_rows() -> None:
             unit="A",
             dims=("point",),
             role="coordinate",
-            source_value_id="bias",
         ),
         RecordRef[float](
             id="bias",
@@ -462,22 +455,12 @@ def test_variable_require_helpers_reject_unavailable_rows() -> None:
             unit="V",
             dims=("point", "sample"),
             role="coordinate",
-            source_value_id="bias",
         ),
         RecordRef[float](
             id="bias",
             dtype="float64",
             unit="V",
             dims=("point",),
-            source_value_id="bias",
-        ),
-        RecordRef[float](
-            id="bias",
-            dtype="float64",
-            unit="V",
-            dims=("point",),
-            role="coordinate",
-            source_value_id="other",
         ),
     ],
 )
@@ -624,7 +607,6 @@ def test_entity_dimensions_support_labeled_selection_and_partial_availability() 
                 size=3,
                 index=MeasurementEntityIndex(
                     values=(q0, q1, q2),
-                    entity_kind="qubit",
                 ),
             ),
         ),
@@ -820,10 +802,8 @@ def test_entity_alignment_reindexes_values_provenance_and_evidence() -> None:
         dtype="float64",
         unit=None,
         dims=("point", "qubit"),
-        source_product_ids=("left/q0", "left/q1"),
         entity_axis_id="qubit",
         entity_axis_fingerprint=left_index.fingerprint,
-        entity_acquisition=EntityAcquisitionSemantics(),
     )
 
     with pytest.raises(ValueError, match="ordered identities differ"):
@@ -932,7 +912,7 @@ def _entity_source_dataset(
                 id="qubit",
                 kind="entity",
                 size=len(entities),
-                index=MeasurementEntityIndex(values=entities, entity_kind="qubit"),
+                index=MeasurementEntityIndex(values=entities),
             ),
         ),
         variables=(

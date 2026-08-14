@@ -1402,7 +1402,7 @@ def _render_driver_handlers_module(
         "collections.abc": {"Mapping"},
         "dataclasses": {"dataclass", "field"},
         "pydantic": {"JsonValue"},
-        "scopecat.records.measurement": {"MeasurementValue"},
+        "scopecat.records.measurement": {"MeasurementAcquisitionValue"},
         "scopecat.sdk.instruments": {
             "AcquisitionResultRef",
             "DriverAcquisition",
@@ -1510,7 +1510,8 @@ def _driver_acquisition_model(
 def _render_driver_acquisition_types(model: _DriverAcquisitionModel) -> str:
     readback_type = f"{model.type_stem}DriverReadback"
     values = "".join(
-        f"    {field.python_name}: MeasurementValue\n" for field in model.fields
+        f"    {field.python_name}: MeasurementAcquisitionValue\n"
+        for field in model.fields
     )
     return (
         "\n\n@dataclass(frozen=True, slots=True)\n"
@@ -1992,15 +1993,23 @@ def _render_adapter_collect(
                 f"            {outcome_name} = self.{model.hook_name}()\n",
             )
         )
+        values_declaration = (
+            f"            {values_name}: dict[AcquisitionResultRef, "
+            "MeasurementAcquisitionValue] = {}\n"
+        )
+        if len(values_declaration.rstrip()) > 88:
+            values_declaration = (
+                f"            {values_name}: dict[\n"
+                "                AcquisitionResultRef, "
+                "MeasurementAcquisitionValue\n"
+                "            ] = {}\n"
+            )
         lines.extend(
             (
                 f"            if not isinstance({outcome_name}, DriverSuccess):\n",
                 f"                return {outcome_name}\n",
                 f"            {readback_name} = {outcome_name}.value\n",
-                (
-                    f"            {values_name}: dict[AcquisitionResultRef, "
-                    "MeasurementValue] = {}\n"
-                ),
+                values_declaration,
             )
         )
         for field in model.fields:
@@ -2998,7 +3007,7 @@ def _render_header(
         imports["dataclasses"] = {"dataclass", "field"}
         imports["scopecat.authoring"].add("ProductRef")
         imports["scopecat.authoring"].add("ProductBundle")
-        imports["scopecat.records.measurement"] = {"MeasurementValue"}
+        imports["scopecat.records.measurement"] = {"MeasurementAcquisitionValue"}
         if any(
             field.product_value_annotation == "MeasurementArrayData"
             for model in models
@@ -3401,7 +3410,7 @@ def _render_result_types(
             continue
         rendered.add(identity)
         readback_fields = "".join(
-            f"    {field_name}: MeasurementValue\n"
+            f"    {field_name}: MeasurementAcquisitionValue\n"
             for field_name in item.result_field_names
         )
         product_fields = "".join(

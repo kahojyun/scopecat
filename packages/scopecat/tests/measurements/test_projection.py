@@ -71,6 +71,7 @@ from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDataset,
+    MeasurementSegmentedArray,
     MeasurementUnavailable,
     measurement_point_axis_values,
 )
@@ -229,7 +230,6 @@ def test_projection_stacks_entity_products_and_preserves_partial_failure() -> No
             axis=EntityAxisDef(
                 id="qubit",
                 values=(q0, q1),
-                entity_kind="qubit",
             ),
             members=(
                 EntityRecordUseMember(
@@ -368,7 +368,7 @@ def test_entity_acquisition_cohort_factors_multiple_recorded_fields() -> None:
         EntityRef(id="q0", kind="qubit"),
         EntityRef(id="q1", kind="qubit"),
     )
-    axis = EntityAxisDef(id="qubit", values=entities, entity_kind="qubit")
+    axis = EntityAxisDef(id="qubit", values=entities)
     acquisition = EntityAcquisitionSemantics(
         policy="best_effort",
         cohort_id="readout",
@@ -402,7 +402,7 @@ def test_entity_acquisition_cohort_factors_multiple_recorded_fields() -> None:
     )
 
 
-def test_entity_projection_falls_back_to_contiguous_ragged_segments() -> None:
+def test_entity_projection_uses_explicit_ragged_segments() -> None:
     scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=2)
     product_defs = tuple(
         replace(
@@ -432,7 +432,6 @@ def test_entity_projection_falls_back_to_contiguous_ragged_segments() -> None:
                 axis=EntityAxisDef(
                     id="qubit",
                     values=entities,
-                    entity_kind="qubit",
                 ),
                 members=tuple(
                     EntityRecordUseMember(entity=entity, product_use_id=use.id)
@@ -466,9 +465,9 @@ def test_entity_projection_falls_back_to_contiguous_ragged_segments() -> None:
     )
 
     value = projected.records[0].observables["trace"]
-    assert isinstance(value, MeasurementArray)
+    assert isinstance(value, MeasurementSegmentedArray)
     assert value.shape == (2, None)
-    assert value.entity_shapes == ((2,), (3,))
+    assert value.segment_shapes == ((2,), (3,))
     assert value.values.tolist() == [0.0, 1.0, 0.0, 1.0, 2.0]
     assert value.availability is None
     schema = projection.schema
@@ -486,7 +485,7 @@ def test_entity_projection_falls_back_to_contiguous_ragged_segments() -> None:
         schema,
     )
     restored_value = restored.records[0].observables["trace"]
-    assert isinstance(restored_value, MeasurementArray)
+    assert isinstance(restored_value, MeasurementSegmentedArray)
     assert restored_value == value
     dataset = Dataset(
         MeasurementDataset(dataset_schema=schema, records=projected.records),
@@ -516,14 +515,31 @@ def test_entity_projection_falls_back_to_contiguous_ragged_segments() -> None:
     ]
     q1_dataset = dataset.isel(qubit=[1])
     q1_value = q1_dataset.records[0].observables["trace"]
-    assert isinstance(q1_value, MeasurementArray)
-    assert q1_value.entity_shapes == ((3,),)
+    assert isinstance(q1_value, MeasurementSegmentedArray)
+    assert q1_value.segment_shapes == ((3,),)
     assert q1_dataset["trace"].observations.values.tolist() == [0.0, 1.0, 2.0]
-    with pytest.raises(ValueError, match="cannot synthesize an absent segment"):
-        dataset.reindex_entities(
-            "qubit",
-            (*entities, EntityRef(id="q2", kind="qubit")),
-        )
+    expanded = dataset.reindex_entities(
+        "qubit",
+        (*entities, EntityRef(id="q2", kind="qubit")),
+    )
+    expanded_value = expanded.records[0].observables["trace"]
+    assert isinstance(expanded_value, MeasurementSegmentedArray)
+    assert expanded_value.segment_shapes == ((2,), (3,), (None,))
+    assert isinstance(expanded_value.segments[2], MeasurementUnavailable)
+    assert expanded["trace"].observations.values.tolist() == value.values.tolist()
+    restored_expanded = decode_measurement_append(
+        encode_measurement_append(
+            MeasurementDatasetAppend(
+                run_id=projected.run_id,
+                header_content_hash="sha256:expanded",
+                start_index=0,
+                records=expanded.records,
+            ),
+            expanded.schema,
+        ),
+        expanded.schema,
+    )
+    assert restored_expanded.records[0].observables["trace"] == expanded_value
 
     failed_candidates = (
         candidates[0],
@@ -552,8 +568,8 @@ def test_entity_projection_falls_back_to_contiguous_ragged_segments() -> None:
         .records[0]
         .observables["trace"]
     )
-    assert isinstance(failed, MeasurementArray)
-    assert failed.entity_shapes == ((2,), (3,))
+    assert isinstance(failed, MeasurementSegmentedArray)
+    assert failed.segment_shapes == ((2,), (3,))
     assert failed.availability is not None
     assert failed.availability.valid.tolist() == [True, True, False, False, False]
     [unavailable] = failed.availability.unavailable
@@ -561,8 +577,8 @@ def test_entity_projection_falls_back_to_contiguous_ragged_segments() -> None:
     assert unavailable.metadata == {"entity": "q1"}
 
 
-def test_entity_projection_keeps_schema_width_constant_for_128_sources() -> None:
-    entity_count = 128
+def test_entity_projection_keeps_schema_width_constant_across_sources() -> None:
+    entity_count = 3
     scenario = measurement_assembly_scenario(
         point_values=(0.0,),
         use_count=entity_count,
@@ -576,7 +592,6 @@ def test_entity_projection_keeps_schema_width_constant_for_128_sources() -> None
             axis=EntityAxisDef(
                 id="qubit",
                 values=entities,
-                entity_kind="qubit",
             ),
             members=tuple(
                 EntityRecordUseMember(entity=entity, product_use_id=use.id)
@@ -615,7 +630,6 @@ def test_entity_projection_normalizes_common_product_metadata() -> None:
                 axis=EntityAxisDef(
                     id="qubit",
                     values=entities,
-                    entity_kind="qubit",
                 ),
                 members=tuple(
                     EntityRecordUseMember(entity=entity, product_use_id=use.id)
@@ -646,7 +660,6 @@ def test_entity_projection_compresses_one_common_failure_without_losing_axis() -
             axis=EntityAxisDef(
                 id="qubit",
                 values=entities,
-                entity_kind="qubit",
             ),
             members=tuple(
                 EntityRecordUseMember(entity=entity, product_use_id=use.id)

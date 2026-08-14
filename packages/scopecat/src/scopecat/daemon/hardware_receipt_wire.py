@@ -19,10 +19,10 @@ from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.instrument import InstrumentReadback
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
+    MeasurementAcquisitionValue,
     MeasurementArray,
     MeasurementScalar,
     MeasurementUnavailable,
-    MeasurementValue,
 )
 from scopecat.records.metadata import JsonMetadata
 from scopecat.sdk.instruments.commands import CollectReceipt
@@ -207,7 +207,7 @@ def decode_run_hardware_receipt(content: bytes) -> RunHardwareBatchReceipt:
 
 
 def _encode_value(
-    value: MeasurementValue,
+    value: MeasurementAcquisitionValue,
     attachments: list[EncodedMeasurementArray],
 ) -> _WireValue:
     if not isinstance(value, MeasurementArray):
@@ -223,7 +223,7 @@ def _encode_value(
         size_bytes=len(content),
         dtype=value.dtype,
         unit=value.unit,
-        shape=tuple(cast("int", size) for size in value.shape),
+        shape=value.shape,
         metadata=cast("JsonMetadata", thaw_json_value(value.metadata)),
     )
     attachments.append(content)
@@ -233,7 +233,7 @@ def _encode_value(
 def _decode_value(
     value: _WireValue,
     attachments: tuple[memoryview, ...],
-) -> MeasurementValue:
+) -> MeasurementAcquisitionValue:
     if not isinstance(value, _ArrayReference):
         return value
     try:

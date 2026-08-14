@@ -44,9 +44,9 @@ from scopecat.records.config import (
     config_content_hash,
 )
 from scopecat.records.measurement import (
+    MeasurementAcquisitionValue,
     MeasurementArray,
     MeasurementScalar,
-    MeasurementValue,
 )
 from scopecat.records.run import (
     AnalysisCandidateRunConfigSource,
@@ -342,7 +342,7 @@ class _VariantDriver(_Driver):
                     ),
                 ),
             )
-        values: dict[AcquisitionResultRef, MeasurementValue] = {
+        values: dict[AcquisitionResultRef, MeasurementAcquisitionValue] = {
             result: (
                 MeasurementScalar.create(
                     dtype="float64",

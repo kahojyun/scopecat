@@ -8,10 +8,10 @@ from typing import cast
 import numpy as np
 from numpy.typing import NDArray
 from scopecat.measurements.results import (
+    MeasurementAcquisitionValue,
     MeasurementArray,
     MeasurementArrayAvailability,
     MeasurementUnavailable,
-    MeasurementValue,
 )
 from scopecat.sdk.domain import DomainResultValue
 from scopecat_quantum.program_results import MappedQuantumTarget
@@ -86,7 +86,7 @@ def realize_measurements(
 def _realize_integrated_iq_value(
     values: NDArray[np.complex128],
     available: NDArray[np.bool_],
-) -> MeasurementValue:
+) -> MeasurementAcquisitionValue:
     if not np.any(available):
         return MeasurementUnavailable.create(
             dtype="complex128",

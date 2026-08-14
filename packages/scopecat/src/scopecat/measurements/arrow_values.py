@@ -17,6 +17,7 @@ from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementScalar,
+    MeasurementSegmentedArray,
     MeasurementUnavailable,
     MeasurementValue,
 )
@@ -147,7 +148,7 @@ def _encode_scalar_column(
 
 
 def _encode_array_row(
-    value: MeasurementArray,
+    value: MeasurementArray | MeasurementSegmentedArray,
     *,
     dtype: MeasurementDType,
     expected_shape: tuple[int | None, ...],
@@ -156,13 +157,13 @@ def _encode_array_row(
 ) -> pa.Array:
     if value.dtype != dtype or not _shape_matches(expected_shape, value.shape):
         raise ValueError("measurement value does not match its Arrow column contract")
-    if value.entity_shapes is not None:
-        return _encode_entity_ragged_array_row(
+    if isinstance(value, MeasurementSegmentedArray):
+        return _encode_segmented_array_row(
             value,
             dtype=dtype,
             value_type=value_type,
         )
-    shape = cast("tuple[int, ...]", value.shape)
+    shape = value.shape
     if any(
         actual == 0 and expected == 0
         for expected, actual in zip(expected_shape, shape, strict=True)
@@ -213,26 +214,23 @@ def _encode_array_row(
     return encoded
 
 
-def _encode_entity_ragged_array_row(
-    value: MeasurementArray,
+def _encode_segmented_array_row(
+    value: MeasurementSegmentedArray,
     *,
     dtype: MeasurementDType,
     value_type: pa.DataType,
 ) -> pa.Array:
-    entity_shapes = cast("Sequence[tuple[int, ...]]", value.entity_shapes)
-    valid = (
-        np.ones(value.values.size, dtype=np.bool_)
-        if value.availability is None
-        else value.availability.valid
-    )
     entities: list[object] = []
-    offset = 0
-    for shape in entity_shapes:
-        size = math.prod(shape)
-        entity_values = value.values[offset : offset + size].reshape(shape)
-        entity_valid = valid[offset : offset + size].reshape(shape)
-        entities.append(_nullable_array_tree(entity_values, entity_valid, dtype=dtype))
-        offset += size
+    for segment in value.segments:
+        if isinstance(segment, MeasurementUnavailable):
+            entities.append(None)
+            continue
+        valid = (
+            np.ones(segment.shape, dtype=np.bool_)
+            if segment.availability is None
+            else segment.availability.valid
+        )
+        entities.append(_nullable_array_tree(segment.values, valid, dtype=dtype))
     encoded = pa.array([entities], type=value_type)
     if len(encoded) != 1 or not encoded.type.equals(value_type):
         raise ValueError("entity-ragged array cannot form its Arrow row type")
@@ -270,8 +268,10 @@ def _require_scalar(value: MeasurementValue) -> MeasurementScalar:
     return value
 
 
-def _require_array(value: MeasurementValue) -> MeasurementArray:
-    if not isinstance(value, MeasurementArray):
+def _require_array(
+    value: MeasurementValue,
+) -> MeasurementArray | MeasurementSegmentedArray:
+    if not isinstance(value, MeasurementArray | MeasurementSegmentedArray):
         raise ValueError("measurement Arrow array column requires array values")
     return value
 

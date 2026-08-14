@@ -151,7 +151,7 @@ def test_each_align_requires_an_exact_entity_identity_join() -> None:
         sc.each(q0, q1).align(sc.PerEntity(((q0, 1), (wrong_q1, 2))))
 
 
-def test_experiment_record_expands_per_entity_products_in_declaration_order() -> None:
+def test_experiment_alias_rejects_legacy_per_entity_expansion() -> None:
     context = sc.ExperimentContext()
     q1 = sc.EntityRef(id="q1", kind="logical_device")
     q0 = sc.EntityRef(id="q0", kind="logical_device")
@@ -159,26 +159,8 @@ def test_experiment_record_expands_per_entity_products_in_declaration_order() ->
     second = context._product("second")
     products = sc.PerEntity(((q1, first), (q0, second)))
 
-    context.alias(products)
-
-    definition = context.close_definition_internal(
-        id="test.per-entity-record",
-        kind="test",
-        metadata=None,
-        input_defaults={},
-        required_inputs=(),
-    )
-    selections = tuple(
-        selection
-        for selection in definition.record_selections
-        if isinstance(selection, RecordSelection)
-    )
-    assert len(selections) == len(definition.record_selections)
-    assert [selection.product_id.qualified_name for selection in selections] == [
-        "first",
-        "second",
-    ]
-    assert [selection.role for selection in selections] == ["observable", "observable"]
+    with pytest.raises(TypeError, match=r"use stack_entities\(\)"):
+        context.alias(products)  # pyright: ignore[reportCallIssue, reportArgumentType]
 
 
 def test_experiment_can_explicitly_stack_entity_products() -> None:
@@ -201,13 +183,9 @@ def test_experiment_can_explicitly_stack_entity_products() -> None:
     )
 
     assert record.dims == ("point", "qubit")
-    assert record.source_product_ids == ("q1/signal", "q0/signal")
+    assert record.entity_axis_id == "qubit"
     assert record.entity_axis_fingerprint is not None
     assert record.entity_axis_fingerprint.startswith("sha256:")
-    assert record.entity_acquisition == sc.EntityAcquisitionSemantics(
-        policy="best_effort",
-        cohort_id="readout-batch",
-    )
     definition = context.close_definition_internal(
         id="test.entity-stack",
         kind="test",
@@ -220,7 +198,10 @@ def test_experiment_can_explicitly_stack_entity_products() -> None:
     assert selection.record_id == "signal"
     assert selection.axis.id == "qubit"
     assert selection.axis.values == (q1, q0)
-    assert selection.acquisition == record.entity_acquisition
+    assert selection.acquisition == sc.EntityAcquisitionSemantics(
+        policy="best_effort",
+        cohort_id="readout-batch",
+    )
     assert [member.entity for member in selection.members] == [q1, q0]
 
 

@@ -280,12 +280,12 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     assert "DCSourceGroupTarget" in completed.stdout
     assert "DCMonitorPatch" in completed.stdout
     assert "class DCMonitorCurrentReadback:" in completed.stdout
-    assert "    current: MeasurementValue" in completed.stdout
+    assert "    current: MeasurementAcquisitionValue" in completed.stdout
     assert "class DCMonitorCurrentRecords:" not in completed.stdout
     assert "class DCMonitorCurrentProducts(ProductBundle):" in completed.stdout
     assert "    current: ProductRef[float]" in completed.stdout
     assert "class DCMonitorVoltageReadback:" in completed.stdout
-    assert "    voltage: MeasurementValue" in completed.stdout
+    assert "    voltage: MeasurementAcquisitionValue" in completed.stdout
     assert "class DCMonitorVoltageRecords:" not in completed.stdout
     assert "class DCMonitorVoltageProducts(ProductBundle):" in completed.stdout
     assert "    voltage: ProductRef[float]" in completed.stdout

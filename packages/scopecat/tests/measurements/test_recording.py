@@ -122,7 +122,6 @@ def test_arrow_recording_round_trips_entity_arrays_with_partial_availability() -
                 kind="entity",
                 size=2,
                 index=MeasurementEntityIndex(
-                    entity_kind="logical_qubit",
                     values=entities,
                 ),
             ),

@@ -7,9 +7,9 @@ from typing import Literal, override
 from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import (
+    MeasurementAcquisitionValue,
     MeasurementScalar,
     MeasurementUnavailable,
-    MeasurementValue,
 )
 from scopecat.sdk.instruments import (
     DriverOutcome,
@@ -300,7 +300,7 @@ class YokogawaGS200(DCSourceMonitorDriverAdapter):
         *,
         expected_mode: Literal["voltage", "current"],
         unit: Literal["A", "V"],
-    ) -> DriverOutcome[MeasurementValue]:
+    ) -> DriverOutcome[MeasurementAcquisitionValue]:
         try:
             mode = self.source_mode()
             if mode != expected_mode:

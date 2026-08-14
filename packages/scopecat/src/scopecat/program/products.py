@@ -248,8 +248,6 @@ def record_ref_from_product[ValueT: ProductNativeValue](
             ),
         ),
         role=selection.role,
-        source_product_id=product.id,
-        recording_group_id=selection.recording_group_id,
     )
 
 
@@ -329,7 +327,6 @@ class EntityAxisDef:
 
     id: str
     values: tuple[EntityRef, ...]
-    entity_kind: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -340,11 +337,14 @@ class EntityAxisDef:
         identities = tuple(entity_identity(value) for value in values)
         if len(identities) != len(set(identities)):
             raise ValueError("entity axes require unique members")
-        if self.entity_kind is not None and any(
-            value.kind not in {None, self.entity_kind} for value in values
-        ):
-            raise ValueError("entity axis members must match its declared kind")
         object.__setattr__(self, "values", values)
+
+    @property
+    def entity_kind(self) -> str | None:
+        kinds = {entity.kind for entity in self.values}
+        if len(kinds) != 1:
+            return None
+        return next(iter(kinds))
 
 
 @dataclass(frozen=True, slots=True)

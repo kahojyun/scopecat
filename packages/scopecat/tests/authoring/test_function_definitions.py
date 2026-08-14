@@ -290,7 +290,7 @@ def test_experiment_returns_a_typed_dataset_schema() -> None:
 
     assert output.count is invocation.with_repeat(2).output.count
     assert output.recorded_count.id == "count_copy"
-    assert output.recorded_count.source_value_id == "count"
+    assert output.recorded_count.dims == ("point",)
 
 
 def test_returned_values_are_durable_without_explicit_record_calls() -> None:
@@ -379,7 +379,7 @@ def test_homogeneous_per_entity_return_uses_one_entity_indexed_record() -> None:
     output = invocation.entity_result_ref("result")
     assert output.id == "result"
     assert output.dims == ("point", "qubit")
-    assert output.source_product_ids == ("q0/readout", "q1/readout")
+    assert output.entity_axis_id == "qubit"
     assert output.entity_axis_fingerprint is not None
 
 

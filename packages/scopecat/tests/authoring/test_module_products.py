@@ -83,7 +83,7 @@ def test_typed_product_schema_survives_export_projection() -> None:
     assert projected_ref.value_spec == expected
 
 
-def test_product_record_handle_preserves_schema_identity_and_group() -> None:
+def test_product_record_handle_preserves_logical_schema_identity() -> None:
     axis = product_axis("sample", size=4, kind="sample", unit="s")
     declaration: ModuleProductDecl[MeasurementArrayData] = ModuleProductDecl(
         "trace",
@@ -108,8 +108,6 @@ def test_product_record_handle_preserves_schema_identity_and_group() -> None:
     assert record.dtype == "complex128"
     assert record.unit == "V"
     assert record.dims == ("point", "product/capture/trace/sample")
-    assert record.source_product_id == "capture/trace"
-    assert record.recording_group_id == "calibration/readout"
 
 
 def test_product_schema_survives_module_definition_and_nested_invocation() -> None:

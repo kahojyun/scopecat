@@ -30,6 +30,7 @@ from scopecat.measurements.traces import Trace, measurement_traces
 from scopecat.program.measurement_types import (
     MeasurementArrayData,
     MeasurementDType,
+    MeasurementSegmentedData,
     NativeMeasurementScalar,
     NativeMeasurementValue,
     measurement_value_spec_from_scalar,
@@ -62,6 +63,7 @@ from scopecat.records.measurement import (
     MeasurementRecord,
     MeasurementResultContract,
     MeasurementScalar,
+    MeasurementSegmentedArray,
     MeasurementUnavailable,
     MeasurementUnavailableReason,
     MeasurementValue,
@@ -81,7 +83,7 @@ if TYPE_CHECKING:
 type NativeScalar = NativeMeasurementScalar
 type NativeAvailableValue = NativeMeasurementValue
 type NativeValue = NativeAvailableValue | None
-type NativeMagnitude = float | complex | MeasurementArrayData
+type NativeMagnitude = float | complex | MeasurementArrayData | MeasurementSegmentedData
 type MeasurementAvailability = (
     MeasurementUnavailableReason | MeasurementArrayAvailability | None
 )
@@ -475,32 +477,49 @@ class Variable[T = NativeAvailableValue]:
                 dtype: MeasurementDType = (
                     "complex128" if self.dtype == "complex128" else "float64"
                 )
-                converted_values = (
-                    np.asarray(
-                        value.values,
-                        dtype=(np.complex128 if dtype == "complex128" else np.float64),
+                if isinstance(value, MeasurementSegmentedArray):
+                    converted = MeasurementSegmentedArray.create(
+                        segments=tuple(
+                            segment.model_copy(
+                                update={"dtype": dtype, "unit": selected_unit}
+                            )
+                            if isinstance(segment, MeasurementUnavailable)
+                            else MeasurementArray.create(
+                                values=np.asarray(
+                                    segment.values,
+                                    dtype=(
+                                        np.complex128
+                                        if dtype == "complex128"
+                                        else np.float64
+                                    ),
+                                )
+                                * scale,
+                                dtype=dtype,
+                                unit=selected_unit,
+                                availability=segment.availability,
+                                metadata=segment.metadata,
+                            )
+                            for segment in value.segments
+                        ),
+                        dtype=dtype,
+                        unit=selected_unit,
+                        metadata=value.metadata,
                     )
-                    * scale
-                )
-                converted = (
-                    MeasurementArray.create(
-                        values=converted_values,
+                else:
+                    converted = MeasurementArray.create(
+                        values=np.asarray(
+                            value.values,
+                            dtype=(
+                                np.complex128 if dtype == "complex128" else np.float64
+                            ),
+                        )
+                        * scale,
                         dtype=dtype,
                         unit=selected_unit,
                         availability=value.availability,
                         metadata=value.metadata,
                     )
-                    if value.entity_shapes is None
-                    else MeasurementArray.create_entity_ragged(
-                        values=converted_values,
-                        entity_shapes=value.entity_shapes,
-                        dtype=dtype,
-                        unit=selected_unit,
-                        availability=value.availability,
-                        metadata=value.metadata,
-                    )
-                )
-                selected.append(cast("MeasurementArrayData", _native_value(converted)))
+                selected.append(cast("NativeMagnitude", _native_value(converted)))
         return tuple(selected)
 
     def require_magnitudes(
@@ -519,59 +538,6 @@ class Variable[T = NativeAvailableValue]:
                 f"variable {self.id!r} is unavailable at row positions: {rendered}"
             )
         return cast("tuple[NativeMagnitude, ...]", values)
-
-    def require_array_magnitudes(
-        self: Variable[MeasurementArrayData],
-        unit: str | None = None,
-    ) -> tuple[MeasurementArrayData, ...]:
-        """Return complete array magnitudes with a static ndarray result type."""
-
-        return cast("tuple[MeasurementArrayData, ...]", self.require_magnitudes(unit))
-
-    def require_real_array_magnitudes(
-        self: Variable[MeasurementArrayData],
-        unit: str | None = None,
-    ) -> tuple[NDArray[np.float64], ...]:
-        """Return complete real array magnitudes with a precise NumPy dtype."""
-
-        if self.dtype not in {"float64", "int64"}:
-            raise TypeError(f"variable {self.id!r} must be real numeric")
-        return tuple(
-            np.asarray(value, dtype=np.float64)
-            for value in self.require_array_magnitudes(unit)
-        )
-
-    def require_flat_real_array_magnitudes(
-        self: Variable[MeasurementArrayData],
-        unit: str | None = None,
-    ) -> tuple[tuple[float, ...], ...]:
-        """Return complete real arrays flattened to typed Python values."""
-
-        return tuple(
-            tuple(float(item) for item in values.reshape(-1))
-            for values in self.require_real_array_magnitudes(unit)
-        )
-
-    def require_bool_arrays(
-        self: Variable[MeasurementArrayData],
-    ) -> tuple[NDArray[np.bool_], ...]:
-        """Return complete boolean arrays with a precise NumPy dtype."""
-
-        if self.dtype != "bool":
-            raise TypeError(f"variable {self.id!r} must be boolean")
-        return tuple(
-            np.asarray(value, dtype=np.bool_) for value in self.require_values()
-        )
-
-    def require_flat_bool_array_values(
-        self: Variable[MeasurementArrayData],
-    ) -> tuple[tuple[bool, ...], ...]:
-        """Return complete boolean arrays flattened to typed Python values."""
-
-        return tuple(
-            tuple(bool(item) for item in values.reshape(-1))
-            for values in self.require_bool_arrays()
-        )
 
     def quantities(
         self,
@@ -623,6 +589,14 @@ class Variable[T = NativeAvailableValue]:
                 if isinstance(value, MeasurementUnavailable)
                 else value.availability
                 if isinstance(value, MeasurementArray)
+                else value.availability
+                or next(
+                    segment.reason
+                    for segment in value.segments
+                    if isinstance(segment, MeasurementUnavailable)
+                )
+                if isinstance(value, MeasurementSegmentedArray)
+                and value.has_unavailable_segments
                 else None
             )
             for value in self._raw_values
@@ -1454,7 +1428,6 @@ class Dataset:
         }
         target_index = MeasurementEntityIndex(
             values=target_entities,
-            entity_kind=_homogeneous_entity_kind(target_entities),
         )
         target_to_source = tuple(
             source_by_identity.get(entity_identity(entity))
@@ -1503,10 +1476,14 @@ class Dataset:
             }
         )
         variable_by_id = {variable.id: variable for variable in variables}
+        dimension_sizes = {
+            dimension.id: dimension.size for dimension in schema.dimensions
+        }
         records = tuple(
             _reindex_record_entities(
                 record,
                 variables=variable_by_id,
+                dimension_sizes=dimension_sizes,
                 dimension_id=dimension_id,
                 source_count=len(source_entities),
                 target_to_source=target_to_source,
@@ -2685,6 +2662,11 @@ def _native_value(value: MeasurementValue) -> NativeValue:
         return None
     if isinstance(value, MeasurementScalar):
         return cast("NativeValue", _native_leaf(value.value))
+    if isinstance(value, MeasurementSegmentedArray):
+        return cast(
+            "NativeValue",
+            tuple(_native_value(segment) for segment in value.segments),
+        )
     if value.availability is not None:
         masked = np.ma.MaskedArray(
             value.values,
@@ -2699,7 +2681,14 @@ def _native_value(value: MeasurementValue) -> NativeValue:
 
 def _measurement_value_is_complete(value: MeasurementValue) -> bool:
     return not isinstance(value, MeasurementUnavailable) and not (
-        isinstance(value, MeasurementArray) and value.availability is not None
+        isinstance(value, MeasurementArray | MeasurementSegmentedArray)
+        and (
+            value.availability is not None
+            or (
+                isinstance(value, MeasurementSegmentedArray)
+                and value.has_unavailable_segments
+            )
+        )
     )
 
 
@@ -2710,10 +2699,30 @@ def _measurement_value_is_unavailable(
 ) -> bool:
     if isinstance(value, MeasurementUnavailable):
         return reason is None or value.reason == reason
-    if not isinstance(value, MeasurementArray) or value.availability is None:
+    if not isinstance(value, MeasurementArray | MeasurementSegmentedArray):
         return False
-    return reason is None or any(
-        group.reason == reason for group in value.availability.unavailable
+    availability = value.availability
+    return (
+        (
+            reason is None
+            and isinstance(value, MeasurementSegmentedArray)
+            and value.has_unavailable_segments
+        )
+        or (
+            availability is not None
+            and (
+                reason is None
+                or any(group.reason == reason for group in availability.unavailable)
+            )
+        )
+        or (
+            isinstance(value, MeasurementSegmentedArray)
+            and any(
+                isinstance(segment, MeasurementUnavailable)
+                and (reason is None or segment.reason == reason)
+                for segment in value.segments
+            )
+        )
     )
 
 
@@ -2731,26 +2740,8 @@ def _require_record_ref_matches(
         "dtype": ref.dtype,
         "unit": ref.unit,
         "dims": ref.dims,
-        "source_product_id": ref.source_product_id,
-        "source_entity_products": (
-            None
-            if ref.source_product_ids is None
-            else {
-                "dimension_id": ref.entity_axis_id,
-                "product_ids": ref.source_product_ids,
-            }
-        ),
-        "entity_acquisition": (
-            None
-            if ref.entity_acquisition is None
-            else {
-                "policy": ref.entity_acquisition.policy,
-                "cohort_id": ref.entity_acquisition.cohort_id,
-            }
-        ),
+        "entity_axis_id": ref.entity_axis_id,
         "entity_axis_fingerprint": ref.entity_axis_fingerprint,
-        "source_value_id": ref.source_value_id,
-        "recording_group_id": ref.recording_group_id,
     }
     actual = {
         "id": definition.id,
@@ -2758,22 +2749,10 @@ def _require_record_ref_matches(
         "dtype": definition.dtype,
         "unit": definition.unit,
         "dims": tuple(definition.dims),
-        "source_product_id": definition.source_product_id,
-        "source_entity_products": (
+        "entity_axis_id": (
             None
             if definition.source_entity_products is None
-            else {
-                "dimension_id": definition.source_entity_products.dimension_id,
-                "product_ids": tuple(definition.source_entity_products.product_ids),
-            }
-        ),
-        "entity_acquisition": (
-            None
-            if definition.entity_acquisition is None
-            else {
-                "policy": definition.entity_acquisition.policy,
-                "cohort_id": definition.entity_acquisition.cohort_id,
-            }
+            else definition.source_entity_products.dimension_id
         ),
         "entity_axis_fingerprint": (
             None
@@ -2783,8 +2762,6 @@ def _require_record_ref_matches(
                 definition.source_entity_products.dimension_id,
             )
         ),
-        "source_value_id": definition.source_value_id,
-        "recording_group_id": definition.recording_group_id,
     }
     mismatches = tuple(
         name for name, value in expected.items() if actual[name] != value
@@ -3052,14 +3029,6 @@ def _visible_entity_values(
     )
 
 
-def _homogeneous_entity_kind(entities: Sequence[EntityRef]) -> str | None:
-    kinds = {entity.kind for entity in entities}
-    if len(kinds) != 1:
-        return None
-    [kind] = kinds
-    return kind
-
-
 def _derived_measurement_dataset_entry(
     source: RunContentEntry,
     dataset: MeasurementDataset,
@@ -3124,6 +3093,7 @@ def _reindex_record_entities(
     record: MeasurementRecord,
     *,
     variables: Mapping[str, MeasurementVariable],
+    dimension_sizes: Mapping[str, int | None],
     dimension_id: str,
     source_count: int,
     target_to_source: Sequence[int | None],
@@ -3138,6 +3108,10 @@ def _reindex_record_entities(
         values[variable.id] = _reindex_measurement_value_entities(
             values[variable.id],
             entity_axis=variable.dims[1:].index(dimension_id),
+            absent_segment_shape=tuple(
+                dimension_sizes[local_dimension_id]
+                for local_dimension_id in variable.dims[2:]
+            ),
             dimension_id=dimension_id,
             source_count=source_count,
             target_to_source=target_to_source,
@@ -3174,6 +3148,7 @@ def _reindex_measurement_value_entities(
     value: MeasurementValue,
     *,
     entity_axis: int,
+    absent_segment_shape: tuple[int | None, ...],
     dimension_id: str,
     source_count: int,
     target_to_source: Sequence[int | None],
@@ -3209,10 +3184,30 @@ def _reindex_measurement_value_entities(
     )
     if isinstance(value, MeasurementUnavailable):
         return value.model_copy(update={"shape": target_shape})
-    if value.entity_shapes is not None:
-        raise ValueError(
-            f"outer entity alignment cannot synthesize an absent segment for "
-            f"entity-local ragged variable on {dimension_id!r}; use join='inner'"
+    if isinstance(value, MeasurementSegmentedArray):
+        if entity_axis != 0:
+            raise ValueError(
+                "segmented measurement values require the entity dimension first"
+            )
+        return MeasurementSegmentedArray.create(
+            segments=tuple(
+                MeasurementUnavailable.create(
+                    reason="missing",
+                    dtype=value.dtype,
+                    unit=value.unit,
+                    shape=absent_segment_shape,
+                    metadata={
+                        "entity_alignment": "absent",
+                        "dimension_id": dimension_id,
+                    },
+                )
+                if source_position is None
+                else value.segments[source_position]
+                for source_position in target_to_source
+            ),
+            dtype=value.dtype,
+            unit=value.unit,
+            metadata=value.metadata,
         )
     dense_shape = cast("tuple[int, ...]", target_shape)
     target_values = np.zeros(dense_shape, dtype=value.values.dtype)
@@ -3349,8 +3344,8 @@ def _slice_measurement_value(
 ) -> MeasurementValue:
     if isinstance(value, MeasurementScalar):
         raise ValueError("cannot apply a local dimension indexer to a scalar value")
-    if isinstance(value, MeasurementArray) and value.entity_shapes is not None:
-        return _slice_entity_ragged_array(
+    if isinstance(value, MeasurementSegmentedArray):
+        return _slice_segmented_array(
             value,
             indices_by_axis={
                 local_dimensions.index(dimension_id): indices
@@ -3429,75 +3424,39 @@ def _slice_measurement_value(
     )
 
 
-def _slice_entity_ragged_array(
-    value: MeasurementArray,
+def _slice_segmented_array(
+    value: MeasurementSegmentedArray,
     *,
     indices_by_axis: Mapping[int, tuple[int, ...]],
-) -> MeasurementArray:
-    entity_shapes = cast("Sequence[tuple[int, ...]]", value.entity_shapes)
-    entity_indices = indices_by_axis.get(0, tuple(range(len(entity_shapes))))
+) -> MeasurementSegmentedArray:
+    entity_indices = indices_by_axis.get(0, tuple(range(len(value.segments))))
     if not entity_indices:
-        raise ValueError("entity-ragged selection must retain at least one entity")
-    source_valid = (
-        np.ones(value.values.size, dtype=np.bool_)
-        if value.availability is None
-        else value.availability.valid
-    )
-    source_groups = (
-        np.full(value.values.size, -1, dtype=np.int64)
-        if value.availability is None
-        else _array_unavailable_group_indices(value.availability)
-    )
-    offsets = cast(
-        "NDArray[np.int64]",
-        np.cumsum(
-            np.asarray(
-                (0, *(math.prod(shape) for shape in entity_shapes)),
-                dtype=np.int64,
-            )
-        ),
-    )
-    selected_values: list[np.ndarray] = []
-    selected_valid: list[np.ndarray] = []
-    selected_groups: list[np.ndarray] = []
-    selected_shapes: list[tuple[int, ...]] = []
+        raise ValueError("segmented array selection must retain at least one entity")
+    local_dimensions = tuple(f"__axis_{axis}" for axis in range(len(value.shape) - 1))
+    local_indices = {
+        local_dimensions[axis - 1]: indices
+        for axis, indices in indices_by_axis.items()
+        if axis != 0
+    }
+    segments: list[MeasurementArray | MeasurementUnavailable] = []
     for entity_index in entity_indices:
-        shape = entity_shapes[entity_index]
-        start = int(cast("np.int64", offsets[entity_index]))
-        stop = int(cast("np.int64", offsets[entity_index + 1]))
-        chunk_values = value.values[start:stop].reshape(shape)
-        chunk_valid = source_valid[start:stop].reshape(shape)
-        chunk_groups = source_groups[start:stop].reshape(shape)
-        for declared_axis, indices in sorted(indices_by_axis.items()):
-            if declared_axis == 0:
-                continue
-            local_axis = declared_axis - 1
-            chunk_values = np.take(chunk_values, indices, axis=local_axis)
-            chunk_valid = np.take(chunk_valid, indices, axis=local_axis)
-            chunk_groups = np.take(chunk_groups, indices, axis=local_axis)
-        selected_values.append(chunk_values.reshape(-1))
-        selected_valid.append(chunk_valid.reshape(-1))
-        selected_groups.append(chunk_groups.reshape(-1))
-        selected_shapes.append(tuple(chunk_values.shape))
-    flattened_values = np.concatenate(selected_values)
-    flattened_valid = np.concatenate(selected_valid)
-    flattened_groups = np.concatenate(selected_groups)
-    availability = (
-        None
-        if value.availability is None or bool(np.all(flattened_valid))
-        else _sliced_array_availability(
-            flattened_valid,
-            flattened_groups,
-            value.availability,
-            collapse_all_unavailable=False,
+        segment = value.segments[entity_index]
+        selected = (
+            segment
+            if not local_indices
+            else _slice_measurement_value(
+                segment,
+                local_dimensions=local_dimensions,
+                indices_by_dimension=local_indices,
+            )
         )
-    )
-    return MeasurementArray.create_entity_ragged(
+        if isinstance(selected, MeasurementScalar | MeasurementSegmentedArray):
+            raise AssertionError("segmented array slicing produced an invalid segment")
+        segments.append(selected)
+    return MeasurementSegmentedArray.create(
+        segments=segments,
         dtype=value.dtype,
         unit=value.unit,
-        values=flattened_values,
-        entity_shapes=selected_shapes,
-        availability=availability,
         metadata=value.metadata,
     )
 
@@ -3978,8 +3937,7 @@ def _ragged_xarray_layout(
     records: Sequence[MeasurementRecord],
 ) -> _RaggedXarrayLayout:
     if any(
-        isinstance(value, MeasurementArray) and value.entity_shapes is not None
-        for value in variable._raw_values
+        isinstance(value, MeasurementSegmentedArray) for value in variable._raw_values
     ):
         return _entity_ragged_xarray_layout(variable, records=records)
     local_extents: list[list[int | None]] = [[] for _dimension_id in variable.dims[1:]]
@@ -4080,15 +4038,19 @@ def _entity_ragged_xarray_layout(
         if isinstance(raw_value, MeasurementUnavailable):
             row_sizes.append(0)
             continue
-        if raw_value.entity_shapes is None:
+        if not isinstance(raw_value, MeasurementSegmentedArray):
             concrete_shape = cast("tuple[int, ...]", local_shape)
             indices = cartesian_product(*(range(extent) for extent in concrete_shape))
         else:
             indices = (
                 (entity_index, *local_index)
-                for entity_index, entity_shape in enumerate(raw_value.entity_shapes)
+                for entity_index, segment in enumerate(raw_value.segments)
+                if all(extent is not None for extent in segment.shape)
                 for local_index in cartesian_product(
-                    *(range(extent) for extent in entity_shape)
+                    *(
+                        range(extent)
+                        for extent in cast("tuple[int, ...]", segment.shape)
+                    )
                 )
             )
         count = 0

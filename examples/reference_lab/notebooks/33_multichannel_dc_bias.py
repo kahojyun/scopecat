@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import scopecat as sc
 
 from reference_lab.configuration import EXAMPLE_ROOT
@@ -30,8 +31,14 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
     entities = tuple(MULTICHANNEL_DC_BIAS.output.physical_bias)
     actual_voltage = MULTICHANNEL_DC_BIAS.entity_result_ref("readback.actual_voltage")
     settled_record = MULTICHANNEL_DC_BIAS.entity_result_ref("readback.settled")
-    actual_voltage_mv = data[actual_voltage].require_flat_real_array_magnitudes("mV")[0]
-    settled_values = data[settled_record].require_flat_bool_array_values()[0]
+    actual_voltage_mv = np.asarray(
+        data[actual_voltage].require_magnitudes("mV")[0],
+        dtype=np.float64,
+    ).reshape(-1)
+    settled_values = np.asarray(
+        data[settled_record].require_values()[0],
+        dtype=np.bool_,
+    ).reshape(-1)
     readback_mv = {
         entity.id: round(value, 6)
         for entity, value in zip(entities, actual_voltage_mv, strict=True)
