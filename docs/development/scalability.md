@@ -110,6 +110,10 @@ channels and a 72-sample point waveform. Point count is the only scale variable
 in the zero-delay run. The Scopecat workload declares its coordinate as a
 compact start/stop range; the direct runner derives its point-local waveform
 parameters from the loop index without retaining a coordinate list.
+The default acquisition policy is `prefer_device`, so a digitizer advertising
+compatible onboard integrated-IQ support returns the same scalar result shape
+as the direct baseline. The direct baseline does not model raw-trace transport
+or target-side DSP and cannot be selected with `--acquisition-dsp target`.
 `--point-delay-ms` adds the same logical-point dwell to both virtual hardware
 paths for a representative total-time run. Shot-heavy acquisition and long
 waveforms use separate matched profiles so their working sets do not obscure
@@ -178,11 +182,11 @@ and timing behavior.
 ### Latest Multichannel Waveform Profile
 
 The waveform profile varies the per-point physical waveform working set while
-retaining the same scalar integrated-IQ result. One to four driven qubits map to
-four to ten physical output channels: two drive channels per qubit plus one
-shared readout I/Q pair. Both runners render and upload the same number of
-float64 samples. With `--live-waveform`, each path retains only the latest
-completed point for a plotting-tool stand-in.
+retaining the same device-integrated scalar IQ result. One to four driven
+qubits map to four to ten physical output channels: two drive channels per
+qubit plus one shared readout I/Q pair. Both runners render and upload the same
+number of float64 waveform samples. With `--live-waveform`, each path retains
+only the latest completed point for a plotting-tool stand-in.
 
 Run a short staircase with:
 
@@ -201,7 +205,24 @@ In addition to timing and RSS, compare `waveform_bytes_uploaded`,
 retention must equal exactly one point's channel-by-sample payload. Maximum
 batch upload reveals whether target entry batching multiplies that working set.
 Increase waveform length independently of point count; do not combine this
-profile with shot-heavy or raw-acquisition payloads.
+profile with shot-heavy payloads.
+
+Target-side DSP is a separate Scopecat stress test because it transfers a raw
+trace for every logical point. It deliberately excludes the ad hoc runner,
+whose scalar device facade does not perform equivalent work:
+
+```console
+uv run python scripts/benchmark_scan_execution.py \
+  --profile waveform \
+  --acquisition-dsp target \
+  --runners scopecat-core,scopecat \
+  --points 10,100 \
+  --waveform-samples 100000 \
+  --qubits 4
+```
+
+Do not use this stress result as the default product comparison on digitizers
+that support compatible onboard IQ integration.
 
 ### Multiqubit Result Retention Profile
 

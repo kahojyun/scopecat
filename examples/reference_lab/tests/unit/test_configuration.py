@@ -336,15 +336,19 @@ def test_list_mode_target_owns_only_real_time_members() -> None:
 
 def test_acquisition_dsp_policy_selects_only_advertised_lowerings() -> None:
     config = bootstrap_config()
-    prefer_device = _with_dsp_policy(config, "prefer_device")
-    full_catalog = _instrument_catalog(prefer_device)
+    target = config.domain_target
+    assert target is not None
+    capabilities = target.configuration["capabilities"]
+    assert isinstance(capabilities, dict)
+    assert capabilities["acquisition_dsp_policy"] == "prefer_device"
+    full_catalog = _instrument_catalog(config)
 
-    selected = configured_list_mode_target(prefer_device, full_catalog)
+    selected = configured_list_mode_target(config, full_catalog)
 
     assert selected.digitizer_result_representation == "integrated_iq"
 
     limited_catalog = _without_onboard_dsp(full_catalog)
-    selected = configured_list_mode_target(prefer_device, limited_catalog)
+    selected = configured_list_mode_target(config, limited_catalog)
 
     assert selected.digitizer_result_representation == "raw_trace"
 
