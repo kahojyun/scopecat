@@ -308,6 +308,28 @@ def test_measurement_record_rejects_acquisition_evidence_for_unknown_variable() 
         )
 
 
+def test_acquisition_catalog_factors_events_and_keeps_stable_content_refs() -> None:
+    first = InstrumentAcquisitionEvidence(
+        command_id="collect-iq",
+        instrument_id="readout",
+        interface_id="test.scalar_signal/v1",
+        acquisition_id="sample",
+        result_id="i",
+        started_at=datetime(2026, 7, 29, 10, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 7, 29, 10, 0, 1, tzinfo=UTC),
+    )
+    second = first.model_copy(update={"result_id": "q"})
+
+    catalog = MeasurementAcquisitionEvidenceCatalog.create({"i": first, "q": second})
+    selected = catalog.select(("q",))
+
+    assert len(catalog.events) == 1
+    assert len(catalog.entries) == 2
+    assert catalog.variable_refs["q"] == selected.variable_refs["q"]
+    assert selected.events == catalog.events
+    assert selected.for_variable("q") == second
+
+
 def test_measurement_record_discriminator_restores_value_models() -> None:
     record = MeasurementRecord.model_validate(
         {

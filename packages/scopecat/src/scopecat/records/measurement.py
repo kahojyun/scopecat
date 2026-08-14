@@ -59,7 +59,7 @@ from scopecat.records.measurement_array_schema import (
 )
 from scopecat.records.metadata import MeasurementMetadata
 
-MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v7"
+MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v8"
 MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v14"
 
 MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
@@ -468,7 +468,7 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str = Field(min_length=1)
-    record_schema: Literal["scopecat.measurement_record.v7"] = (
+    record_schema: Literal["scopecat.measurement_record.v8"] = (
         MEASUREMENT_RECORD_SCHEMA_VERSION
     )
     point_domain: MeasurementPointDomain
@@ -1138,8 +1138,132 @@ type MeasurementAcquisitionEvidence = (
 )
 
 
-def _empty_evidence_refs() -> Mapping[str, int]:
+class InstrumentAcquisitionEvent(_FrozenMeasurementModel):
+    """Shared physical acquisition interval referenced by result evidence."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    command_id: _NonEmptyText
+    instrument_id: _NonEmptyText
+    interface_id: InterfaceId
+    component_path: tuple[_NonEmptyText, ...] = ()
+    acquisition_id: _NonEmptyText
+    started_at: AwareDatetime
+    completed_at: AwareDatetime
+
+    @classmethod
+    def from_result(cls, evidence: InstrumentAcquisitionEvidence) -> Self:
+        return cls(
+            command_id=evidence.command_id,
+            instrument_id=evidence.instrument_id,
+            interface_id=evidence.interface_id,
+            component_path=evidence.component_path,
+            acquisition_id=evidence.acquisition_id,
+            started_at=evidence.started_at,
+            completed_at=evidence.completed_at,
+        )
+
+    def result(self, result_id: str) -> InstrumentAcquisitionEvidence:
+        return InstrumentAcquisitionEvidence(
+            command_id=self.command_id,
+            instrument_id=self.instrument_id,
+            interface_id=self.interface_id,
+            component_path=self.component_path,
+            acquisition_id=self.acquisition_id,
+            result_id=result_id,
+            started_at=self.started_at,
+            completed_at=self.completed_at,
+        )
+
+
+class InstrumentAcquisitionEvidenceRef(_FrozenMeasurementModel):
+    """One result identifier within a shared acquisition event."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["instrument"] = "instrument"
+    event_id: _NonEmptyText
+    result_id: _NonEmptyText
+
+
+class EntityAcquisitionEvidenceRef(_FrozenMeasurementModel):
+    """Entity-aligned result references within shared acquisition events."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["entity"] = "entity"
+    dimension_id: _NonEmptyText
+    acquisition: MeasurementEntityAcquisition = Field(
+        default_factory=MeasurementEntityAcquisition
+    )
+    values: Sequence[InstrumentAcquisitionEvidenceRef | None] = Field(min_length=1)
+
+    @field_validator("values")
+    @classmethod
+    def freeze_values[T](cls, value: Sequence[T]) -> Sequence[T]:
+        return tuple(value)
+
+
+type MeasurementAcquisitionEvidenceRef = Annotated[
+    InstrumentAcquisitionEvidenceRef | EntityAcquisitionEvidenceRef,
+    Field(discriminator="kind"),
+]
+
+
+def _empty_evidence_events() -> Mapping[str, InstrumentAcquisitionEvent]:
     return FrozenMapping()
+
+
+def _empty_evidence_entries() -> Mapping[str, MeasurementAcquisitionEvidenceRef]:
+    return FrozenMapping()
+
+
+def _empty_evidence_refs() -> Mapping[str, str]:
+    return FrozenMapping()
+
+
+def _freeze_evidence_events(
+    value: Mapping[str, InstrumentAcquisitionEvent],
+) -> Mapping[str, InstrumentAcquisitionEvent]:
+    return FrozenMapping(value.items())
+
+
+def _serialize_evidence_events(
+    value: Mapping[str, InstrumentAcquisitionEvent],
+) -> dict[str, InstrumentAcquisitionEvent]:
+    return dict(value)
+
+
+type MeasurementAcquisitionEvents = Annotated[
+    Mapping[_NonEmptyText, InstrumentAcquisitionEvent],
+    AfterValidator(_freeze_evidence_events),
+    PlainSerializer(
+        _serialize_evidence_events,
+        return_type=dict[str, InstrumentAcquisitionEvent],
+    ),
+]
+
+
+def _freeze_evidence_entries(
+    value: Mapping[str, MeasurementAcquisitionEvidenceRef],
+) -> Mapping[str, MeasurementAcquisitionEvidenceRef]:
+    return FrozenMapping(value.items())
+
+
+def _serialize_evidence_entries(
+    value: Mapping[str, MeasurementAcquisitionEvidenceRef],
+) -> dict[str, MeasurementAcquisitionEvidenceRef]:
+    return dict(value)
+
+
+type MeasurementAcquisitionEvidenceEntries = Annotated[
+    Mapping[_NonEmptyText, MeasurementAcquisitionEvidenceRef],
+    AfterValidator(_freeze_evidence_entries),
+    PlainSerializer(
+        _serialize_evidence_entries,
+        return_type=dict[str, MeasurementAcquisitionEvidenceRef],
+    ),
+]
 
 
 def _freeze_measurement_values(
@@ -1164,27 +1288,30 @@ type MeasurementValueMap = Annotated[
 ]
 
 
-def _freeze_evidence_refs(value: Mapping[str, int]) -> Mapping[str, int]:
+def _freeze_evidence_refs(value: Mapping[str, str]) -> Mapping[str, str]:
     return FrozenMapping(value.items())
 
 
-def _serialize_evidence_refs(value: Mapping[str, int]) -> dict[str, int]:
+def _serialize_evidence_refs(value: Mapping[str, str]) -> dict[str, str]:
     return dict(value)
 
 
 type MeasurementAcquisitionEvidenceRefs = Annotated[
-    Mapping[_NonEmptyText, Annotated[int, Field(ge=0)]],
+    Mapping[_NonEmptyText, _NonEmptyText],
     AfterValidator(_freeze_evidence_refs),
-    PlainSerializer(_serialize_evidence_refs, return_type=dict[str, int]),
+    PlainSerializer(_serialize_evidence_refs, return_type=dict[str, str]),
 ]
 
 
 class MeasurementAcquisitionEvidenceCatalog(_FrozenMeasurementModel):
-    """Deduplicated evidence entries referenced by measurement variable id."""
+    """Content-addressed results factored over shared acquisition events."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    entries: Sequence[MeasurementAcquisitionEvidence] = Field(default_factory=tuple)
+    events: MeasurementAcquisitionEvents = Field(default_factory=_empty_evidence_events)
+    entries: MeasurementAcquisitionEvidenceEntries = Field(
+        default_factory=_empty_evidence_entries
+    )
     variable_refs: MeasurementAcquisitionEvidenceRefs = Field(
         default_factory=_empty_evidence_refs
     )
@@ -1194,59 +1321,142 @@ class MeasurementAcquisitionEvidenceCatalog(_FrozenMeasurementModel):
         cls,
         evidence_by_variable: Mapping[str, MeasurementAcquisitionEvidence],
     ) -> MeasurementAcquisitionEvidenceCatalog:
-        entries: list[MeasurementAcquisitionEvidence] = []
-        index_by_hash: dict[str, int] = {}
-        variable_refs: dict[str, int] = {}
+        events: dict[str, InstrumentAcquisitionEvent] = {}
+        entries: dict[str, MeasurementAcquisitionEvidenceRef] = {}
+        variable_refs: dict[str, str] = {}
         for variable_id in sorted(evidence_by_variable):
-            evidence = evidence_by_variable[variable_id]
-            digest = model_wire_content_hash(evidence)
-            entry_index = index_by_hash.get(digest)
-            if entry_index is None:
-                entry_index = len(entries)
-                index_by_hash[digest] = entry_index
-                entries.append(evidence)
-            elif entries[entry_index] != evidence:
+            entry = _evidence_ref(evidence_by_variable[variable_id], events=events)
+            entry_id = model_wire_content_hash(entry)
+            existing = entries.setdefault(entry_id, entry)
+            if existing != entry:
                 raise AssertionError("acquisition evidence hash collision")
-            variable_refs[variable_id] = entry_index
-        return cls(entries=entries, variable_refs=variable_refs)
-
-    @field_validator("entries")
-    @classmethod
-    def freeze_entries[T](cls, value: Sequence[T]) -> Sequence[T]:
-        return tuple(value)
+            variable_refs[variable_id] = entry_id
+        return cls(events=events, entries=entries, variable_refs=variable_refs)
 
     @model_validator(mode="after")
     def validate_refs(self) -> MeasurementAcquisitionEvidenceCatalog:
-        if any(index >= len(self.entries) for index in self.variable_refs.values()):
-            raise ValueError(
-                "measurement acquisition evidence reference is out of range"
-            )
-        referenced = set(self.variable_refs.values())
-        if referenced != set(range(len(self.entries))):
+        referenced_entries = set(self.variable_refs.values())
+        if referenced_entries != set(self.entries):
             raise ValueError(
                 "measurement acquisition evidence entries must be referenced"
             )
-        digests = [model_wire_content_hash(entry) for entry in self.entries]
-        if len(digests) != len(set(digests)):
-            raise ValueError("measurement acquisition evidence entries must be unique")
+        if any(
+            entry_id != model_wire_content_hash(entry)
+            for entry_id, entry in self.entries.items()
+        ):
+            raise ValueError("measurement acquisition evidence entry id is invalid")
+        referenced_events = {
+            event_id
+            for entry in self.entries.values()
+            for event_id in _evidence_ref_event_ids(entry)
+        }
+        if referenced_events != set(self.events):
+            raise ValueError(
+                "measurement acquisition events must be referenced exactly"
+            )
+        if any(
+            event_id != model_wire_content_hash(event)
+            for event_id, event in self.events.items()
+        ):
+            raise ValueError("measurement acquisition event id is invalid")
         return self
 
     def for_variable(self, variable_id: str) -> MeasurementAcquisitionEvidence | None:
-        entry_index = self.variable_refs.get(variable_id)
-        return None if entry_index is None else self.entries[entry_index]
+        entry_id = self.variable_refs.get(variable_id)
+        return (
+            None
+            if entry_id is None
+            else _evidence_from_ref(self.entries[entry_id], events=self.events)
+        )
 
     def select(
         self,
         variable_ids: Sequence[str],
     ) -> MeasurementAcquisitionEvidenceCatalog:
         selected = set(variable_ids)
-        return type(self).create(
-            {
-                variable_id: self.entries[index]
-                for variable_id, index in self.variable_refs.items()
-                if variable_id in selected
-            }
+        variable_refs = {
+            variable_id: entry_id
+            for variable_id, entry_id in self.variable_refs.items()
+            if variable_id in selected
+        }
+        entry_ids = set(variable_refs.values())
+        entries = {
+            entry_id: entry
+            for entry_id, entry in self.entries.items()
+            if entry_id in entry_ids
+        }
+        event_ids = {
+            event_id
+            for entry in entries.values()
+            for event_id in _evidence_ref_event_ids(entry)
+        }
+        return type(self)(
+            events={
+                event_id: event
+                for event_id, event in self.events.items()
+                if event_id in event_ids
+            },
+            entries=entries,
+            variable_refs=variable_refs,
         )
+
+
+def _evidence_ref(
+    evidence: MeasurementAcquisitionEvidence,
+    *,
+    events: dict[str, InstrumentAcquisitionEvent],
+) -> MeasurementAcquisitionEvidenceRef:
+    if isinstance(evidence, InstrumentAcquisitionEvidence):
+        return _instrument_evidence_ref(evidence, events=events)
+    return EntityAcquisitionEvidenceRef(
+        dimension_id=evidence.dimension_id,
+        acquisition=evidence.acquisition,
+        values=tuple(
+            None if value is None else _instrument_evidence_ref(value, events=events)
+            for value in evidence.values
+        ),
+    )
+
+
+def _instrument_evidence_ref(
+    evidence: InstrumentAcquisitionEvidence,
+    *,
+    events: dict[str, InstrumentAcquisitionEvent],
+) -> InstrumentAcquisitionEvidenceRef:
+    event = InstrumentAcquisitionEvent.from_result(evidence)
+    event_id = model_wire_content_hash(event)
+    existing = events.setdefault(event_id, event)
+    if existing != event:
+        raise AssertionError("acquisition event hash collision")
+    return InstrumentAcquisitionEvidenceRef(
+        event_id=event_id,
+        result_id=evidence.result_id,
+    )
+
+
+def _evidence_ref_event_ids(
+    evidence: MeasurementAcquisitionEvidenceRef,
+) -> tuple[str, ...]:
+    if isinstance(evidence, InstrumentAcquisitionEvidenceRef):
+        return (evidence.event_id,)
+    return tuple(value.event_id for value in evidence.values if value is not None)
+
+
+def _evidence_from_ref(
+    evidence: MeasurementAcquisitionEvidenceRef,
+    *,
+    events: Mapping[str, InstrumentAcquisitionEvent],
+) -> MeasurementAcquisitionEvidence:
+    if isinstance(evidence, InstrumentAcquisitionEvidenceRef):
+        return events[evidence.event_id].result(evidence.result_id)
+    return EntityAcquisitionEvidence(
+        dimension_id=evidence.dimension_id,
+        acquisition=evidence.acquisition,
+        values=tuple(
+            None if value is None else events[value.event_id].result(value.result_id)
+            for value in evidence.values
+        ),
+    )
 
 
 class MeasurementRecord(_FrozenMeasurementModel):

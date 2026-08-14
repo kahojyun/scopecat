@@ -160,7 +160,7 @@ class MeasurementDatasetAppend(MeasurementDatasetBatch):
     def content_hash(self) -> str:
         return stable_content_hash(
             {
-                "schema": "scopecat.measurement_dataset_append_content.v7",
+                "schema": "scopecat.measurement_dataset_append_content.v8",
                 "run_id": self.run_id,
                 "header_content_hash": self.header_content_hash,
                 "start_index": self.start_index,
