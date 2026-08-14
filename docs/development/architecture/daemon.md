@@ -149,16 +149,23 @@ stay quarantined. After externally reconciling hardware, an operator resolves
 attention through the GUI or `lab.control.resolve_attention(run_id)`. Resolution
 closes the run with an indeterminate failed outcome and releases the claims. The
 original program is not resumed because general effect replay is unsafe; another
-attempt is a new run.
+attempt is a new run. The daemon discards that executor's pending/live measurement
+state as soon as the lease supervisor fences it. Any already durable measurement
+prefix and coverage watermark remain inspectable, but neither authorizes appending
+to or resuming the failed attempt.
 
 A daemon restart immediately fences executors from the previous process rather
-than trusting their remaining lease time.
+than trusting their remaining lease time. Process-local measurement state is not
+reconstructed; seal, terminal commit, executor loss, and daemon shutdown are all
+release boundaries for it.
 
 ## API and event stream
 
 The daemon serves the bundled GUI and a versioned typed HTTP API. Run detail,
 resource state, configuration history, and measurements are exposed through
-bounded queries.
+bounded queries. Measurement control commands remain small JSON documents;
+measurement ingest and the live latest-point response use schema-driven Arrow
+IPC so waveform arrays cross neither boundary as JSON lists.
 
 Server-sent events replay the same durable globally ordered event log used by
 the API. On initial connection or reconnection, clients refresh canonical

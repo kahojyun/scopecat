@@ -185,7 +185,7 @@ class ListModeDomainRuntime:
                 execution_key=execution_key,
                 status="completed",
                 result_fingerprint=target_run.fingerprint,
-                result_count=len(target_run.frames),
+                result_count=target_run.results.result_count,
             ),
             result=target_run,
         )
@@ -213,8 +213,8 @@ def realize_executed_measurements(
     if executed.receipt.result_fingerprint != executed.result.fingerprint:
         msg = "list-mode target receipt does not cover its raw run"
         raise ValueError(msg)
-    if executed.receipt.result_count != len(executed.result.frames):
-        msg = "list-mode target receipt has the wrong raw frame count"
+    if executed.receipt.result_count != executed.result.results.result_count:
+        msg = "list-mode target receipt has the wrong raw result count"
         raise ValueError(msg)
     correlated = correlate_list_mode_run(
         mapped_target,

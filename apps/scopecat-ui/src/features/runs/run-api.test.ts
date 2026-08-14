@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Int64, LargeBinary, Schema, Table, Utf8, tableToIPC, vectorFromArray } from "apache-arrow";
 import {
   getMeasurementLivePreview,
   getMeasurementPreview,
@@ -59,6 +60,8 @@ describe("run daemon reads", () => {
           jsonResponse({
             control: {
               state: "closed",
+              completed_point_count: 1,
+              point_plan: staticPointPlan("run/1"),
               admission: {
                 run_id: "run/1",
                 display_name: "Ramsey calibration",
@@ -68,6 +71,11 @@ describe("run daemon reads", () => {
                   experiment_id: "ramsey",
                   experiment_kind: "scratch",
                   point_count: 1,
+                  initial_point_count: 1,
+                  point_limit: 1,
+                  coordinates: [],
+                  sampled_points: [],
+                  sampled_points_truncated: false,
                 },
               },
             },
@@ -140,6 +148,8 @@ describe("run daemon reads", () => {
           jsonResponse({
             control: {
               state: "attention_required",
+              completed_point_count: 0,
+              point_plan: staticPointPlan("run/attention"),
               attention_reason: "executor_lease_expired",
               admission: {
                 run_id: "run/attention",
@@ -147,6 +157,11 @@ describe("run daemon reads", () => {
                   experiment_id: "ramsey",
                   experiment_kind: "scratch",
                   point_count: 1,
+                  initial_point_count: 1,
+                  point_limit: 1,
+                  coordinates: [],
+                  sampled_points: [],
+                  sampled_points_truncated: false,
                 },
               },
             },
@@ -390,12 +405,19 @@ describe("run daemon reads", () => {
               control: {
                 sequence: path.includes("before=") ? 1 : 2,
                 state: "queued",
+                completed_point_count: 0,
+                point_plan: staticPointPlan(path.includes("before=") ? "run-old" : "run-new"),
                 admission: {
                   run_id: path.includes("before=") ? "run-old" : "run-new",
                   plan: {
                     experiment_id: "ramsey",
                     experiment_kind: "scratch",
                     point_count: 1,
+                    initial_point_count: 1,
+                    point_limit: 1,
+                    coordinates: [],
+                    sampled_points: [],
+                    sampled_points_truncated: false,
                   },
                 },
               },
@@ -452,16 +474,13 @@ describe("run daemon reads", () => {
   });
 
   it("reads the latest daemon-received measurement without forcing a flush", async () => {
-    const latest = measurementRecord("run/1", 3);
+    const latest = {
+      ...measurementRecord("run/1", 3),
+      acquisition_evidence: {},
+      metadata: {},
+    };
     const fetchMock = vi.fn((_input: RequestInfo | URL) =>
-      Promise.resolve(
-        jsonResponse({
-          active: true,
-          latest,
-          received_record_count: 4,
-          durable_record_count: 0,
-        }),
-      ),
+      Promise.resolve(liveArrowResponse("run/1", 3, 4, 0)),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -559,7 +578,7 @@ describe("run daemon reads", () => {
 
 function measurementSchema() {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v9" as const,
+    format_version: "scopecat.measurement_dataset_schema.v10" as const,
     dataset_id: "raw-measurements",
     record_schema: "scopecat.measurement_record.v4" as const,
     point_domain: { kind: "product_grid" as const, axes: [] },
@@ -583,12 +602,19 @@ function runSummary(runId: string, state: "queued" | "leased") {
     control: {
       sequence: state === "leased" ? 2 : 1,
       state,
+      completed_point_count: 0,
+      point_plan: staticPointPlan(runId),
       admission: {
         run_id: runId,
         plan: {
           experiment_id: "ramsey",
           experiment_kind: "scratch",
           point_count: 1,
+          initial_point_count: 1,
+          point_limit: 1,
+          coordinates: [],
+          sampled_points: [],
+          sampled_points_truncated: false,
         },
       },
     },
@@ -596,6 +622,20 @@ function runSummary(runId: string, state: "queued" | "leased") {
       run_id: runId,
       contents: [],
     },
+  };
+}
+
+function staticPointPlan(runId: string) {
+  return {
+    run_id: runId,
+    initial_point_count: 1,
+    accepted_point_count: 1,
+    point_limit: 1,
+    decision_count: 0,
+    optimizer_attempt_count: 0,
+    operator_request_count: 0,
+    plan_closed: true,
+    stop_reason: "static point plan",
   };
 }
 
@@ -627,5 +667,33 @@ function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+function liveArrowResponse(
+  runId: string,
+  pointIndex: number,
+  receivedRecordCount: number,
+  durableRecordCount: number,
+): Response {
+  const metadata = new TextEncoder().encode("{}");
+  const base = new Table({
+    "__scopecat.logical_point_id": vectorFromArray([`point-${pointIndex}`], new Utf8()),
+    "__scopecat.point_index": vectorFromArray([BigInt(pointIndex)], new Int64()),
+    "__scopecat.record_metadata": vectorFromArray([metadata], new LargeBinary()),
+  });
+  const table = new Table(
+    new Schema(base.schema.fields, new Map([["scopecat.run_id", runId]])),
+    base.batches,
+  );
+  const content = tableToIPC(table, "file");
+  return new Response(content.slice().buffer, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/vnd.apache.arrow.file",
+      "X-Scopecat-Measurement-Active": "true",
+      "X-Scopecat-Received-Record-Count": String(receivedRecordCount),
+      "X-Scopecat-Durable-Record-Count": String(durableRecordCount),
+    },
   });
 }

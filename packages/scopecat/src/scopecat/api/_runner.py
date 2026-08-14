@@ -7,14 +7,18 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from threading import Event, Lock, Thread
 from time import monotonic
-from typing import override
+from typing import Literal, cast, override
 from uuid import uuid4
 
 import httpx2
 
+from scopecat.adaptive_coordination import derive_adaptive_region_layout
+from scopecat.api.review import ExperimentReviewHandle, create_experiment_review
 from scopecat.authoring import MetadataValue
 from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.control.models import (
+    AdaptiveRegionSpec,
+    PointCoordinateValue,
     RunDomainTargetRequirement,
     RunPlanSummary,
     RunResourceRequirement,
@@ -33,7 +37,8 @@ from scopecat.daemon.wire import (
     RunSubmission,
 )
 from scopecat.execution.interpreter import execute_admitted_run
-from scopecat.planning.preview import build_run_program_preview
+from scopecat.planning.point_selection import point_coordinate_contract
+from scopecat.planning.preview import PreviewCoordinateMode, build_run_program_preview
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
 from scopecat.planning.service import PlannedRun, plan_experiment_invocation
@@ -122,6 +127,9 @@ class _DaemonRunner:
         experiment: ExperimentInvocation,
         *,
         config: ConfigProfileSnapshot | None = None,
+        point: int | Literal["first", "middle", "last"] = "first",
+        coordinates: Mapping[str, object] | None = None,
+        coordinate_mode: PreviewCoordinateMode = "exact",
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -141,6 +149,39 @@ class _DaemonRunner:
         return build_run_program_preview(
             planned.program,
             invocation=experiment,
+            point=point,
+            coordinates=coordinates,
+            coordinate_mode=coordinate_mode,
+        )
+
+    def review(
+        self,
+        experiment: ExperimentInvocation,
+        *,
+        config: ConfigProfileSnapshot | None = None,
+        name: str | None = None,
+        tags: tuple[str, ...] = (),
+        description: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+        operator: str | None = None,
+    ) -> ExperimentReviewHandle:
+        planned = self._plan(
+            experiment,
+            config=config,
+            config_source=None,
+            name=name,
+            tags=tags,
+            description=description,
+            metadata=metadata,
+            operator=operator,
+        )
+        return create_experiment_review(
+            client=self.client,
+            program=planned.program,
+            invocation=experiment,
+            session_id=uuid4().hex,
+            worker_id=uuid4().hex,
+            title=name or planned.program.experiment_id,
         )
 
     def _plan(
@@ -267,6 +308,17 @@ def _executor_lease_timing(lease: ExecutorLease) -> tuple[float, float]:
 
 def _run_plan_summary(planned: PlannedRun) -> RunPlanSummary:
     program = planned.program
+    adaptive = program.adaptive_domain_plan
+    region_layout = (
+        None
+        if adaptive is None
+        else derive_adaptive_region_layout(adaptive, program.points)
+    )
+    adaptive_regions = () if region_layout is None else region_layout.regions
+    sampled_adaptive_regions = adaptive_regions[:256]
+    coordinates, sampled_points, sampled_points_truncated = point_coordinate_contract(
+        program.points
+    )
     host = program.host
     descriptions = (
         ()
@@ -279,8 +331,41 @@ def _run_plan_summary(planned: PlannedRun) -> RunPlanSummary:
     return RunPlanSummary(
         experiment_id=program.experiment_id,
         experiment_kind=program.points.experiment_kind,
-        point_count=len(program.points.points),
-        coordinate_ids=program.measurements.coordinate_ids,
+        point_count=program.points.contract.point_count,
+        initial_point_count=len(program.points.points),
+        point_limit=program.points.contract.point_limit,
+        adaptive_coordinate_ids=(
+            ()
+            if program.adaptive_domain_plan is None
+            else program.adaptive_domain_plan.adaptive_coordinate_ids
+            or program.points.coordinate_ids
+        ),
+        adaptive_scope=(
+            None
+            if program.adaptive_domain_plan is None
+            else program.adaptive_domain_plan.scope
+        ),
+        per_region_point_limit=(
+            None if adaptive is None else adaptive.per_region_point_limit
+        ),
+        adaptive_region_count=len(adaptive_regions),
+        adaptive_regions=tuple(
+            AdaptiveRegionSpec(
+                id=region.id,
+                coordinates=cast(
+                    "dict[str, PointCoordinateValue]",
+                    dict(region.coordinates),
+                ),
+                initial_point_count=region.point_count,
+            )
+            for region in sampled_adaptive_regions
+        ),
+        adaptive_regions_truncated=(
+            len(sampled_adaptive_regions) < len(adaptive_regions)
+        ),
+        coordinates=coordinates,
+        sampled_points=sampled_points,
+        sampled_points_truncated=sampled_points_truncated,
         record_ids=tuple(record.id for record in program.measurements.records),
         host_instrument_order=program.resource_order,
         host_provider_id=None if host is None else host.provider_id,

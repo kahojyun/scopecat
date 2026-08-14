@@ -16,12 +16,14 @@ if TYPE_CHECKING:
         LocalOperation,
     )
     from scopecat.kernel.graph_identity import ValueId
+    from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
     from scopecat.kernel.resource_identity import (
         DomainTargetRequirement,
         ResourceRequirement,
     )
     from scopecat.measurements.points import RunPointCatalog
     from scopecat.measurements.projection import MeasurementProjection
+    from scopecat.optimization import AdaptiveDomainPlan
     from scopecat.records.config import ConfigContentHash
     from scopecat.sdk.domain.execution import PreparedDomainExecution
     from scopecat.sdk.instruments.contracts import InstrumentDescription
@@ -68,19 +70,49 @@ class RunCoverageCheckpoint:
 type RunCoveredOperation = RunCoverageCheckpoint | RunCoverageEffect | RunDomainJob
 
 
+@dataclass(frozen=True, slots=True)
+class RunPointInspection:
+    """Pure compilation result for one planned or unaccepted coordinate row."""
+
+    point_index: int | None
+    candidate: PointProposalAttempt
+    jobs: tuple[RunDomainJob, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RunAcceptedPointCoverage:
+    """One accepted candidate and its eagerly validated bounded operations."""
+
+    point: AcceptedRunPoint
+    operations: tuple[RunCoveredOperation, ...]
+    inspection: RunPointInspection
+
+
 class RunCoverage:
     """A lazy operation stream rebuilt for each planning or execution pass."""
 
-    __slots__ = ("_factory", "_preflight")
+    __slots__ = ("_accept", "_accept_all", "_factory", "_inspect", "_preflight")
 
     def __init__(
         self,
         factory: Callable[[], Iterator[RunCoveredOperation]],
         *,
         preflight: Callable[[], None] | None = None,
+        inspect: Callable[[int | PointProposalAttempt], RunPointInspection]
+        | None = None,
+        accept: Callable[[PointProposalAttempt], RunAcceptedPointCoverage]
+        | None = None,
+        accept_all: Callable[
+            [tuple[PointProposalAttempt, ...]],
+            tuple[RunAcceptedPointCoverage, ...],
+        ]
+        | None = None,
     ) -> None:
         self._factory = factory
         self._preflight = preflight
+        self._inspect = inspect
+        self._accept = accept
+        self._accept_all = accept_all
 
     def __iter__(self) -> Iterator[RunCoveredOperation]:
         return self._factory()
@@ -90,6 +122,30 @@ class RunCoverage:
 
         if self._preflight is not None:
             self._preflight()
+
+    def inspect(self, point: int | PointProposalAttempt) -> RunPointInspection | None:
+        """Compile target-owned inspection data for exactly one logical point."""
+
+        if self._inspect is None:
+            return None
+        return self._inspect(point)
+
+    def accept(self, candidate: PointProposalAttempt) -> RunAcceptedPointCoverage:
+        """Compile and atomically append one candidate to the run point domain."""
+
+        if self._accept is None:
+            raise ValueError("run coverage does not accept adaptive points")
+        return self._accept(candidate)
+
+    def accept_all(
+        self,
+        candidates: tuple[PointProposalAttempt, ...],
+    ) -> tuple[RunAcceptedPointCoverage, ...]:
+        """Compile and atomically append one complete domain fragment."""
+
+        if self._accept_all is None:
+            raise ValueError("run coverage does not accept adaptive domains")
+        return self._accept_all(candidates)
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +165,10 @@ class RunProgram:
     measurements: MeasurementProjection = field(repr=False)
     resource_requirements: tuple[ResourceRequirement, ...]
     domain_target_requirement: DomainTargetRequirement | None
+    adaptive_domain_plan: AdaptiveDomainPlan | None = field(
+        default=None,
+        repr=False,
+    )
     success_state: tuple[ApplyStateOperation, ...] = field(
         default=(),
         repr=False,

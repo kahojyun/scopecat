@@ -1,4 +1,5 @@
 import type {
+  AdaptiveRegion,
   AnalysisArtifactReference,
   AnalysisDatasetDerivation,
   AnalysisDatasetReference,
@@ -10,8 +11,8 @@ import type {
   AnalysisRecordInput,
   AnalysisTableView,
   MeasurementDatasetSchema,
-  MeasurementLivePreview as MeasurementLivePreviewResponse,
   MeasurementRecord,
+  PointCoordinateSpec,
 } from "./api-contract";
 
 export type PresentationRunStatus =
@@ -40,8 +41,30 @@ export interface ContentEntry {
 
 export interface RunPlanSummary {
   pointCount?: number;
+  initialPointCount: number;
+  pointLimit: number;
   coordinateIds: string[];
+  coordinateSpecs: PointCoordinateSpec[];
+  adaptiveCoordinateIds: string[];
+  adaptiveScope?: "per_region" | "global";
+  perRegionPointLimit?: number;
+  adaptiveRegionCount: number;
+  adaptiveRegions: AdaptiveRegion[];
+  adaptiveRegionsTruncated: boolean;
+  sampledPoints: Record<string, unknown>[];
+  sampledPointsTruncated: boolean;
   recordIds: string[];
+}
+
+export interface RunPointPlanProgress {
+  initialPointCount: number;
+  acceptedPointCount: number;
+  pointLimit: number;
+  decisionCount: number;
+  optimizerAttemptCount: number;
+  operatorRequestCount: number;
+  closed: boolean;
+  stopReason?: string;
 }
 
 export interface ProjectRun {
@@ -60,6 +83,7 @@ export interface ProjectRun {
   result?: string;
   certainty?: string;
   progressCompleted?: number;
+  pointPlan: RunPointPlanProgress;
   plan: RunPlanSummary;
   resources: RunResource[];
   contents: ContentEntry[];
@@ -97,7 +121,7 @@ export interface MeasurementPreview {
 
 export interface MeasurementLivePreview {
   active: boolean;
-  latest?: MeasurementLivePreviewResponse["latest"];
+  latest?: MeasurementRecord;
   receivedRecordCount: number;
   durableRecordCount: number;
 }

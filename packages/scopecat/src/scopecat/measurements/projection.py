@@ -10,10 +10,10 @@ from scopecat.kernel.content_identity import content_fingerprint, stable_content
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.point_identity import LogicalPointId
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.value_data import CellValue
-from scopecat.measurements.points import RunPoint
 from scopecat.measurements.products import ProductDef
 from scopecat.measurements.records import (
     BoundRecordUse,
@@ -44,12 +44,14 @@ from scopecat.records.measurement import (
 )
 
 type StaticValueCandidateSource = Callable[
-    [Sequence[RunPoint]],
+    [Sequence[AcceptedRunPoint]],
     tuple[ValueRecordCandidate, ...],
 ]
 
 
-def _no_static_values(_points: Sequence[RunPoint]) -> tuple[ValueRecordCandidate, ...]:
+def _no_static_values(
+    _points: Sequence[AcceptedRunPoint],
+) -> tuple[ValueRecordCandidate, ...]:
     return ()
 
 
@@ -111,7 +113,7 @@ class MeasurementProjection:
 
     def static_value_candidates(
         self,
-        points: Sequence[RunPoint],
+        points: Sequence[AcceptedRunPoint],
     ) -> tuple[ValueRecordCandidate, ...]:
         """Materialize static recorded values only for one execution coverage."""
 
@@ -141,7 +143,11 @@ class MeasurementProjection:
             point_count=self.catalog.point_contract.point_count,
             records=self.records,
             point_coordinate_columns=self.catalog.point_contract.coordinate_columns,
-            point_domain_layout=self.catalog.point_contract.domain_layout,
+            point_domain_layout=(
+                "point_cloud"
+                if self.catalog.point_contract.open_length
+                else self.catalog.point_contract.domain_layout
+            ),
             result_fields=self._result_fields,
             point_domain_axes=self.catalog.point_contract.domain_axes,
         )
@@ -244,7 +250,7 @@ def project_measurement_records(
     product_values: ClosedMeasurementProductValues,
     *,
     run_id: str,
-    points: Sequence[RunPoint],
+    points: Sequence[AcceptedRunPoint],
     value_candidates: Sequence[ValueRecordCandidate] = (),
 ) -> ProjectedMeasurementDataset:
     """Project one closed admitted point range without changing product values."""
@@ -340,7 +346,7 @@ def _projected_values(
     role: MeasurementVariableRole,
     product_values: ClosedMeasurementProductValues,
     value_candidates: Mapping[tuple[LogicalPointId, ValueId], object],
-    point: RunPoint,
+    point: AcceptedRunPoint,
 ) -> dict[str, MeasurementValue]:
     projected: dict[str, MeasurementValue] = {}
     for record in records:
@@ -375,7 +381,7 @@ def _projected_acquisition_evidence(
     records: Sequence[DatasetRecordPlan],
     *,
     product_values: ClosedMeasurementProductValues,
-    point: RunPoint,
+    point: AcceptedRunPoint,
 ) -> dict[str, InstrumentAcquisitionEvidence]:
     acquisition_evidence: dict[str, InstrumentAcquisitionEvidence] = {}
     for record in records:

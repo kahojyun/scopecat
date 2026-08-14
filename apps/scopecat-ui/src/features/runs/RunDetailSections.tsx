@@ -41,16 +41,17 @@ export function ProgressCard({
   const expected = run.plan.pointCount;
   const completed = Math.max(completedPoints(run, events), measurements?.recordCount ?? 0);
   const terminal = ["succeeded", "failed", "cancelled"].includes(run.status);
-  const hasProgress = expected !== undefined && expected > 0;
+  const adaptive = expected === undefined;
+  const accepted = run.pointPlan.acceptedPointCount;
+  const target = expected ?? (run.pointPlan.closed ? accepted : run.pointPlan.pointLimit);
+  const hasProgress = target > 0;
   const progressValue = hasProgress
-    ? terminal && run.status === "succeeded"
-      ? expected
-      : Math.min(completed, expected)
+    ? terminal && run.status === "succeeded" && expected !== undefined
+      ? target
+      : Math.min(completed, target)
     : undefined;
   const percentage =
-    progressValue !== undefined && expected
-      ? Math.round((progressValue / expected) * 100)
-      : undefined;
+    progressValue !== undefined && target ? Math.round((progressValue / target) * 100) : undefined;
 
   return (
     <article className={classes(detailCard, "col-span-full max-[680px]:col-auto")}>
@@ -69,15 +70,22 @@ export function ProgressCard({
         <>
           <progress
             className="h-2 w-full appearance-none overflow-hidden rounded-full border-0 bg-panel-strong [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-accent [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-panel-strong [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-accent"
-            max={expected}
+            max={target}
             value={progressValue}
-            aria-label={`${progressValue ?? 0} of ${expected} points complete`}
+            aria-label={`${progressValue ?? 0} of ${target} points complete`}
           />
           <div className="mt-[7px] flex justify-between text-[0.65rem] text-text-dim max-[460px]:flex-wrap max-[460px]:gap-2 [&_strong]:text-text-soft">
             <span>
-              <strong>{progressValue ?? 0}</strong> / {expected} points
+              <strong>{progressValue ?? 0}</strong> / {adaptive ? accepted : target} points
+              {adaptive && ` accepted · ${run.pointPlan.pointLimit} max`}
             </span>
-            <span>{events.length} durable events</span>
+            <span>
+              {adaptive
+                ? run.pointPlan.closed
+                  ? run.pointPlan.stopReason
+                  : `Optimizer attempts ${run.pointPlan.optimizerAttemptCount} · operator requests ${run.pointPlan.operatorRequestCount} · plan open`
+                : `${events.length} durable events`}
+            </span>
           </div>
         </>
       ) : (
@@ -454,8 +462,16 @@ export function DataCard({
       {hasPlanMetadata && (
         <div className="mb-[13px] grid grid-cols-3 gap-2 rounded-[8px] border border-line bg-[rgb(255_255_255_/_1%)] p-2.5 max-[460px]:grid-cols-1">
           <Fact
-            label="Planned points"
-            value={run.plan.pointCount !== undefined ? run.plan.pointCount.toLocaleString() : "—"}
+            label={
+              run.plan.pointCount === undefined
+                ? "Initial / accepted / max points"
+                : "Planned points"
+            }
+            value={
+              run.plan.pointCount !== undefined
+                ? run.plan.pointCount.toLocaleString()
+                : `${run.pointPlan.initialPointCount.toLocaleString()} / ${run.pointPlan.acceptedPointCount.toLocaleString()} / ${run.pointPlan.pointLimit.toLocaleString()}`
+            }
           />
           <Fact label="Coordinates" value={String(run.plan.coordinateIds.length)} />
           <Fact label="Records" value={String(run.plan.recordIds.length)} />

@@ -1,149 +1,176 @@
-"""Execution results and stable identities for the list-mode target.
-
-Every frame retains the entry, acquisition slot, and shot used for logical
-result correlation.
-"""
+"""Array-native execution results and identities for the list-mode target."""
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import Protocol
 
-from scopecat_quantum._ids import (
-    AcquisitionSlotId,
-    TargetCompileEntryId,
-)
+import numpy as np
+from numpy.typing import NDArray
+from scopecat_quantum._ids import TargetCompileEntryId
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from reference_lab.targets.list_mode.model import (
     DigitizerAcquisitionWindow,
     ListModeArtifact,
-    ListModeEntry,
     acquisition_slot_identity_payload,
-    awg_waveform_identity_payload,
     canonical_fingerprint,
 )
 
-type DigitizerValue = complex | None
+
+@dataclass(frozen=True, slots=True)
+class DigitizerValueBlock:
+    """One acquisition address across a contiguous vector of shots."""
+
+    values: NDArray[np.complex128]
+    available: NDArray[np.bool_]
+
+    def __post_init__(self) -> None:
+        values, available = _normalized_arrays(self.values, self.available, ndim=1)
+        object.__setattr__(self, "values", values)
+        object.__setattr__(self, "available", available)
 
 
 @dataclass(frozen=True, slots=True)
-class AwgPlayback:
-    """One physical AWG playback retaining its logical list-entry identity."""
+class DigitizerResultBatch:
+    """Address-major integrated-IQ matrix with one column per shot."""
 
-    shot_index: int
-    entry_id: TargetCompileEntryId
-    waveform_fingerprint: str
+    addresses: tuple[TargetAcquisitionAddress, ...]
+    values: NDArray[np.complex128]
+    available: NDArray[np.bool_]
+
+    def __post_init__(self) -> None:
+        values, available = _normalized_arrays(self.values, self.available, ndim=2)
+        if values.shape[0] != len(self.addresses):
+            raise ValueError("digitizer result rows must match acquisition addresses")
+        if len(self.addresses) != len(set(self.addresses)):
+            raise ValueError("digitizer result addresses must be unique")
+        object.__setattr__(self, "addresses", tuple(self.addresses))
+        object.__setattr__(self, "values", values)
+        object.__setattr__(self, "available", available)
+
+    @property
+    def result_count(self) -> int:
+        """Return the number of address-qualified shot results."""
+
+        return int(self.values.size)
+
+    def select(
+        self,
+        addresses: tuple[TargetAcquisitionAddress, ...],
+    ) -> DigitizerResultBatch:
+        """Select and reorder address rows without constructing shot objects."""
+
+        row_by_address = {
+            address: row_index for row_index, address in enumerate(self.addresses)
+        }
+        rows = [row_by_address[address] for address in addresses]
+        return DigitizerResultBatch(
+            addresses=addresses,
+            values=self.values[rows],
+            available=self.available[rows],
+        )
 
 
 class AcquisitionResponse(Protocol):
-    """Pluggable deterministic response model for virtual acquisitions.
-
-    The fingerprint is part of every run identity and must change whenever
-    response behavior or configuration changes.
-    """
+    """Pluggable deterministic vector response for virtual acquisitions."""
 
     @property
     def fingerprint(self) -> str:
         """Return the stable identity of this response behavior."""
         ...
 
-    def value_for(
+    def values_for(
         self,
         *,
-        playback: AwgPlayback,
+        entry_id: TargetCompileEntryId,
         window: DigitizerAcquisitionWindow,
-    ) -> DigitizerValue:
-        """Return one response for an acquisition window and playback."""
+        shot_indices: NDArray[np.int64],
+    ) -> DigitizerValueBlock:
+        """Return one address's values for a contiguous shot vector."""
         ...
-
-
-@dataclass(frozen=True, slots=True)
-class DigitizerFrame:
-    """One entry-, slot-, and shot-qualified integrated-IQ result."""
-
-    shot_index: int
-    entry_id: TargetCompileEntryId
-    slot_id: AcquisitionSlotId
-    value: DigitizerValue
-
-    @property
-    def address(self) -> TargetAcquisitionAddress:
-        """Return the entry-qualified acquisition identity of this frame."""
-
-        return TargetAcquisitionAddress(
-            entry_id=self.entry_id,
-            slot_id=self.slot_id,
-        )
 
 
 @dataclass(frozen=True, slots=True)
 class ListModeRun:
     """Immutable result of one complete list-mode execution."""
 
-    frames: tuple[DigitizerFrame, ...]
+    results: DigitizerResultBatch
     artifact: ListModeArtifact
     fingerprint: str
 
 
-def waveform_fingerprint(entry: ListModeEntry) -> str:
-    return canonical_fingerprint(
-        {
-            "schema": "reference_lab.virtual_awg_waveforms.v2",
-            "sample_count": entry.sample_count,
-            "waveforms": [
-                awg_waveform_identity_payload(waveform) for waveform in entry.waveforms
-            ],
-        }
+def digitizer_addresses(
+    artifact: ListModeArtifact,
+) -> tuple[TargetAcquisitionAddress, ...]:
+    """Return canonical address rows in target entry/window order."""
+
+    return tuple(
+        TargetAcquisitionAddress(entry_id=entry.entry_id, slot_id=window.slot_id)
+        for entry in artifact.entries
+        for window in entry.acquisitions
     )
 
 
 def run_fingerprint(
     *,
     artifact: ListModeArtifact,
-    playbacks: tuple[AwgPlayback, ...],
-    frames: tuple[DigitizerFrame, ...],
+    results: DigitizerResultBatch,
     response_fingerprint: str,
 ) -> str:
+    """Identify one array-native raw result without per-shot JSON expansion."""
+
     return canonical_fingerprint(
         {
-            "schema": "reference_lab.virtual_list_mode_run.v2",
+            "schema": "reference_lab.virtual_list_mode_run.v3",
             "artifact_id": artifact.id.value,
             "artifact_fingerprint": artifact.artifact_fingerprint,
             "response_fingerprint": response_fingerprint,
-            "playbacks": [
+            "addresses": [
                 {
-                    "shot_index": playback.shot_index,
-                    "entry_id": playback.entry_id.value,
-                    "waveform_fingerprint": playback.waveform_fingerprint,
+                    "entry_id": address.entry_id.value,
+                    "slot_id": acquisition_slot_identity_payload(address.slot_id),
                 }
-                for playback in playbacks
+                for address in results.addresses
             ],
-            "frames": [
-                {
-                    "shot_index": frame.shot_index,
-                    "entry_id": frame.entry_id.value,
-                    "slot_id": acquisition_slot_identity_payload(frame.slot_id),
-                    "value": _value_payload(frame.value),
-                }
-                for frame in frames
-            ],
+            "shape": list(results.values.shape),
+            "values_sha256": hashlib.sha256(
+                memoryview(results.values).cast("B")
+            ).hexdigest(),
+            "available_sha256": hashlib.sha256(
+                memoryview(results.available).cast("B")
+            ).hexdigest(),
         }
     )
 
 
-def _value_payload(value: DigitizerValue) -> object:
-    if value is None:
-        return None
-    return [float(value.real).hex(), float(value.imag).hex()]
+def _normalized_arrays(
+    values: object,
+    available: object,
+    *,
+    ndim: int,
+) -> tuple[NDArray[np.complex128], NDArray[np.bool_]]:
+    selected_values = np.ascontiguousarray(values, dtype=np.complex128)
+    selected_available = np.ascontiguousarray(available, dtype=np.bool_)
+    if (
+        selected_values.ndim != ndim
+        or selected_values.shape != selected_available.shape
+    ):
+        raise ValueError("digitizer values and availability must have matching shape")
+    if not np.all(selected_available):
+        selected_values = selected_values.copy()
+        selected_values[~selected_available] = 0j
+    selected_values.flags.writeable = False
+    selected_available.flags.writeable = False
+    return selected_values, selected_available
 
 
 __all__ = [
     "AcquisitionResponse",
-    "AwgPlayback",
-    "DigitizerFrame",
-    "DigitizerValue",
+    "DigitizerResultBatch",
+    "DigitizerValueBlock",
     "ListModeRun",
+    "digitizer_addresses",
     "run_fingerprint",
-    "waveform_fingerprint",
 ]

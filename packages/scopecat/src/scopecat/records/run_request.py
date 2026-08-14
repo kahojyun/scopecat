@@ -15,6 +15,7 @@ from pydantic import (
     Field,
     StrictFloat,
     StrictInt,
+    field_validator,
     model_validator,
 )
 
@@ -261,6 +262,25 @@ class PointPlanRecord(_RunRequestModel):
         return self
 
 
+class AdaptiveDomainPlanRecord(_RunRequestModel):
+    """Durable optimizer policy for compatible runtime domain extensions."""
+
+    optimizer_id: str = Field(min_length=1)
+    total_point_limit: StrictInt = Field(ge=1)
+    adaptive_coordinate_ids: tuple[Annotated[str, Field(min_length=1)], ...] = ()
+    scope: Literal["per_region", "global"] = "per_region"
+    per_region_point_limit: StrictInt | None = Field(default=None, ge=1)
+
+    @field_validator("adaptive_coordinate_ids")
+    @classmethod
+    def validate_adaptive_coordinate_ids(
+        cls, value: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        if len(value) != len(set(value)):
+            raise ValueError("adaptive coordinate ids must be unique")
+        return value
+
+
 def _point_domain_ids(domain: PointDomainRecord) -> set[str]:
     if isinstance(domain, GridDomainRecord):
         return {axis.axis_id for axis in domain.axes}
@@ -277,10 +297,12 @@ class RunRequest(_RunRequestModel):
     inputs: dict[str, RunRequestValue] = Field(default_factory=dict)
     operator: str | None = None
     point_plan: PointPlanRecord = Field(default_factory=PointPlanRecord)
+    adaptive_domain_plan: AdaptiveDomainPlanRecord | None = None
     metadata: dict[str, RunRequestJsonValue] = Field(default_factory=dict)
 
 
 __all__ = [
+    "AdaptiveDomainPlanRecord",
     "AxisAroundSourceRecord",
     "AxisRangeSourceRecord",
     "AxisRecord",

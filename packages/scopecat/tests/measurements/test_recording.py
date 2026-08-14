@@ -27,6 +27,8 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
+    measurement_dataset_content_hash,
+    measurement_record_content_hash,
 )
 from scopecat.sdk.journal import ExecutionJournal
 
@@ -50,7 +52,9 @@ def _seal(
         run_id=projected.run_id,
         header=header,
         point_count=len(projected.records),
-        append_content_hashes=(append_receipt.dataset_content_hash,),
+        record_content_hashes=tuple(
+            measurement_record_content_hash(record) for record in projected.records
+        ),
         writer=writer,
         journal=journal,
     )
@@ -64,6 +68,7 @@ def _header(projected: ProjectedMeasurementDataset) -> MeasurementDatasetHeader:
         recording_contract_fingerprint=projected.recording_contract_fingerprint,
         dataset_schema=schema,
         expected_record_count=projected.projection.catalog.point_contract.point_count,
+        record_count_limit=projected.projection.catalog.point_contract.point_limit,
     )
 
 
@@ -125,6 +130,40 @@ def test_append_identity_is_stable_and_content_detects_conflict() -> None:
     assert changed.content_hash != append.content_hash
     assert changed_header.operation_id == header.operation_id
     assert changed_header.content_hash != header.content_hash
+
+
+def test_dataset_identity_is_independent_of_append_chunk_boundaries() -> None:
+    projected = _projected()
+    header = _header(projected)
+    records = projected.records
+    whole = MeasurementDatasetAppend(
+        run_id=projected.run_id,
+        header_content_hash=header.content_hash,
+        start_index=0,
+        records=records,
+    )
+    split_at = len(records) // 2
+    first = whole.model_copy(update={"records": records[:split_at]})
+    second = whole.model_copy(
+        update={
+            "start_index": split_at,
+            "records": records[split_at:],
+        }
+    )
+
+    whole_hash = measurement_dataset_content_hash(
+        header_content_hash=header.content_hash,
+        record_content_hashes=whole.record_content_hashes,
+    )
+    split_hash = measurement_dataset_content_hash(
+        header_content_hash=header.content_hash,
+        record_content_hashes=(
+            *first.record_content_hashes,
+            *second.record_content_hashes,
+        ),
+    )
+
+    assert whole_hash == split_hash
 
 
 def test_header_and_append_content_hashes_cannot_change_after_construction() -> None:

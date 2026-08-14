@@ -15,13 +15,13 @@ from scopecat.execution.local.program import (
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
 from scopecat.execution.persistence import validate_run_measurements
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.product_identity import product_id, product_use
 from scopecat.kernel.resource_identity import (
     DEFAULT_RESOURCE_ROLE,
     ResourceRequirement,
     logical_resource_port_id,
 )
-from scopecat.measurements.points import RunPoint
 from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.sdk.instruments.commands import (
@@ -145,7 +145,7 @@ def _collect_program(
     signal_use = product_use(product_id("signal"))
     return LocalEffectInspection(
         points=(
-            RunPoint(
+            AcceptedRunPoint(
                 logical_id=LogicalPointId(PointDomainId("product-lookup", "root"), 0),
                 coordinates={},
             ),

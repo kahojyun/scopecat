@@ -9,8 +9,14 @@ import type {
   RunManifest,
   RunResourceView,
   RunSummaryPage,
+  RunInspectionFeed,
+  ResolvedRunDomain,
+  RunDomainEnqueueCommand,
+  RunDomainQueue,
+  RunDomainResolveCommand,
 } from "../../api-contract";
 import { ApiError, apiClient, apiData } from "../../api-client";
+import { decodeMeasurementArrowRecord } from "./measurement-arrow";
 import type {
   ContentEntry,
   MeasurementPreview,
@@ -75,6 +81,56 @@ export async function getRun(runId: string, signal?: AbortSignal): Promise<Proje
   return normalizeRun(response.control, response.manifest, response.resources ?? []);
 }
 
+export async function getRunInspections(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<RunInspectionFeed> {
+  return apiData(
+    apiClient.GET("/api/v1/runs/{run_id}/inspections", {
+      params: { path: { run_id: runId } },
+      signal,
+    }),
+  );
+}
+
+export async function getRunDomainQueue(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<RunDomainQueue> {
+  return apiData(
+    apiClient.GET("/api/v1/runs/{run_id}/point-plan/queue", {
+      params: { path: { run_id: runId } },
+      signal,
+    }),
+  );
+}
+
+export async function enqueueRunDomain(
+  runId: string,
+  command: RunDomainEnqueueCommand,
+): Promise<RunDomainQueue["items"][number]> {
+  return apiData(
+    apiClient.POST("/api/v1/runs/{run_id}/point-plan/queue", {
+      params: { path: { run_id: runId } },
+      body: command,
+    }),
+  );
+}
+
+export async function resolveRunDomain(
+  runId: string,
+  command: RunDomainResolveCommand,
+  signal?: AbortSignal,
+): Promise<ResolvedRunDomain> {
+  return apiData(
+    apiClient.POST("/api/v1/runs/{run_id}/point-plan/resolve", {
+      params: { path: { run_id: runId } },
+      body: command,
+      signal,
+    }),
+  );
+}
+
 export async function getMeasurementPreview(
   runId: string,
   signal?: AbortSignal,
@@ -100,21 +156,48 @@ export async function getMeasurementLivePreview(
   signal?: AbortSignal,
   afterRecordCount?: number,
 ): Promise<MeasurementLivePreview> {
-  const response = await apiData(
-    apiClient.GET("/api/v1/runs/{run_id}/measurements/live", {
-      params: {
-        path: { run_id: runId },
-        query: { after_record_count: afterRecordCount },
-      },
-      signal,
-    }),
+  const url = new URL(
+    `/api/v1/runs/${encodeURIComponent(runId)}/measurements/live`,
+    globalThis.location?.origin ?? "http://localhost",
   );
+  if (afterRecordCount !== undefined) {
+    url.searchParams.set("after_record_count", String(afterRecordCount));
+  }
+  let response: Response;
+  try {
+    response = await globalThis.fetch(url, {
+      headers: { Accept: "application/vnd.apache.arrow.file" },
+      signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    throw new ApiError("The local daemon did not respond.");
+  }
+  if (!response.ok) {
+    throw new ApiError(
+      `The daemon returned ${response.status} ${response.statusText}.`,
+      response.status,
+    );
+  }
+  const receivedRecordCount = requiredCountHeader(response, "X-Scopecat-Received-Record-Count");
+  const durableRecordCount = requiredCountHeader(response, "X-Scopecat-Durable-Record-Count");
+  const active = response.headers.get("X-Scopecat-Measurement-Active") === "true";
+  const content = await response.arrayBuffer();
   return {
-    active: response.active,
-    latest: response.latest ?? undefined,
-    receivedRecordCount: response.received_record_count,
-    durableRecordCount: response.durable_record_count,
+    active,
+    latest: content.byteLength === 0 ? undefined : decodeMeasurementArrowRecord(content),
+    receivedRecordCount,
+    durableRecordCount,
   };
+}
+
+function requiredCountHeader(response: Response, name: string): number {
+  const encoded = response.headers.get(name);
+  const value = encoded === null ? Number.NaN : Number(encoded);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new ApiError(`The daemon returned an invalid ${name} header.`);
+  }
+  return value;
 }
 
 export async function getMeasurementSlice(
@@ -367,9 +450,31 @@ function normalizeRun(
     attentionReason: control.attention_reason ?? undefined,
     result: outcome?.result,
     certainty: outcome?.certainty,
+    progressCompleted: control.completed_point_count,
+    pointPlan: {
+      initialPointCount: control.point_plan.initial_point_count,
+      acceptedPointCount: control.point_plan.accepted_point_count,
+      pointLimit: control.point_plan.point_limit,
+      decisionCount: control.point_plan.decision_count,
+      optimizerAttemptCount: control.point_plan.optimizer_attempt_count,
+      operatorRequestCount: control.point_plan.operator_request_count,
+      closed: control.point_plan.plan_closed,
+      stopReason: control.point_plan.stop_reason ?? undefined,
+    },
     plan: {
-      pointCount: plan.point_count,
-      coordinateIds: plan.coordinate_ids ?? [],
+      pointCount: plan.point_count ?? undefined,
+      initialPointCount: plan.initial_point_count,
+      pointLimit: plan.point_limit,
+      coordinateIds: plan.coordinates.map((coordinate) => coordinate.id),
+      coordinateSpecs: plan.coordinates,
+      adaptiveCoordinateIds: plan.adaptive_coordinate_ids,
+      adaptiveScope: plan.adaptive_scope ?? undefined,
+      perRegionPointLimit: plan.per_region_point_limit ?? undefined,
+      adaptiveRegionCount: plan.adaptive_region_count,
+      adaptiveRegions: plan.adaptive_regions,
+      adaptiveRegionsTruncated: plan.adaptive_regions_truncated,
+      sampledPoints: plan.sampled_points,
+      sampledPointsTruncated: plan.sampled_points_truncated,
       recordIds: plan.record_ids ?? [],
     },
     resources:

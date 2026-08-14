@@ -3,13 +3,27 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import suppress
 from threading import Lock
 from time import monotonic
-from typing import Protocol
+from typing import Protocol, cast
 
 from pydantic import BaseModel, JsonValue, TypeAdapter
 
+from scopecat.adaptive_domains import DomainProposalAttempt
 from scopecat.daemon.client import DaemonClient
+from scopecat.daemon.points import (
+    AcceptedRunPointView,
+    RunDomainDecisionCommand,
+    RunDomainProposalAttemptView,
+    RunPointCoordinateValue,
+    RunPointPlanCloseCommand,
+)
+from scopecat.daemon.reviews import (
+    ReviewInspectionView,
+    RunDomainInspectionEvent,
+    RunInspectionAppendCommand,
+)
 from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
     ExecutionTransitionClaim,
@@ -18,7 +32,6 @@ from scopecat.daemon.wire import (
     ExecutorStartRequest,
     MeasurementFlushCommand,
     MeasurementHeaderCommand,
-    MeasurementIngestCommand,
     MeasurementSealCommand,
     RunAdmission,
     RunCoverageAdvanceCommand,
@@ -30,12 +43,20 @@ from scopecat.daemon.wire import (
     TerminalModelWrite,
     TerminalRunCommitCommand,
 )
-from scopecat.execution.services import ExecutionSession
+from scopecat.execution.program import RunPointInspection
+from scopecat.execution.services import ExecutionSession, QueuedOperatorDomainRequest
+from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import Problem
+from scopecat.optimization import DomainProposalDecision
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.records.measurement import MeasurementArray, MeasurementRecord
+from scopecat.records.measurement import (
+    MeasurementArray,
+    MeasurementDatasetSchema,
+    MeasurementRecord,
+)
 from scopecat.records.measurement_recording import (
     MeasurementDatasetBatch,
     MeasurementDatasetHeader,
@@ -98,6 +119,7 @@ def daemon_execution_session(
     )
     instruments = _DaemonRunInstrumentHost(authority)
     coverage = _DaemonRunCoverage(authority)
+    domain_proposals = _DaemonRunDomainProposals(authority)
 
     def begin() -> None:
         authority.start()
@@ -112,6 +134,7 @@ def daemon_execution_session(
         measurements=_DaemonMeasurementRepository(authority),
         instruments=instruments,
         coverage=coverage,
+        domain_proposals=domain_proposals,
         cancellation_requested=authority.cancellation_requested,
         effects_ready=lambda: instruments.provisioned,
     )
@@ -287,6 +310,103 @@ class _DaemonRunCoverage:
         self._last_send_at = monotonic() if now is None else now
 
 
+class _DaemonRunDomainProposals:
+    """Persist domain decisions and publish bounded transient inspections."""
+
+    def __init__(self, authority: _LeaseAuthority) -> None:
+        self._authority = authority
+
+    def next_queued(self) -> QueuedOperatorDomainRequest | None:
+        pending = self._authority.client.get_next_queued_run_domain(
+            self._authority.run_id
+        )
+        if pending is None:
+            return None
+        return QueuedOperatorDomainRequest(request=pending.request.request())
+
+    def append(
+        self,
+        proposal: DomainProposalAttempt,
+        decision: DomainProposalDecision,
+        accepted_points: tuple[AcceptedRunPoint, ...],
+        inspections: tuple[RunPointInspection, ...],
+        *,
+        operator_request_id: str | None = None,
+    ) -> None:
+        accepted_point_views = tuple(
+            AcceptedRunPointView(
+                point_index=point.ordinal,
+                coordinates=cast(
+                    "dict[str, RunPointCoordinateValue]",
+                    dict(point.coordinates),
+                ),
+                proposal_fingerprint=cast("str", point.proposal_fingerprint),
+                source=point.source,
+                region_id=cast("str", point.region_id),
+                domain_proposal_fingerprint=cast(
+                    "str", point.domain_proposal_fingerprint
+                ),
+            )
+            for point in accepted_points
+        )
+        durable = self._authority.client.append_run_domain_decision(
+            self._authority.run_id,
+            RunDomainDecisionCommand(
+                lease_id=self._authority.fence(),
+                operation_id=_domain_decision_operation_id(
+                    decision,
+                    operator_request_id=operator_request_id,
+                ),
+                operator_request_id=operator_request_id,
+                proposal=RunDomainProposalAttemptView.from_proposal(proposal),
+                outcome=decision.outcome,
+                accepted_points=accepted_point_views,
+                reason=decision.reason,
+            ),
+        )
+        if durable.proposal_index != decision.proposal_index:
+            raise ValueError("daemon assigned a different proposal index")
+        if durable.outcome != decision.outcome:
+            raise ValueError("daemon recorded a different proposal outcome")
+        if durable.accepted_point_start != decision.accepted_point_start:
+            raise ValueError("daemon recorded a different accepted point start")
+        if durable.accepted_point_count != decision.accepted_point_count:
+            raise ValueError("daemon recorded a different accepted point count")
+        with suppress(Exception):
+            self._authority.client.append_run_inspection(
+                self._authority.run_id,
+                RunInspectionAppendCommand(
+                    lease_id=self._authority.fence(),
+                    event=RunDomainInspectionEvent(
+                        proposal_index=durable.proposal_index,
+                        occurred_at=durable.occurred_at,
+                        fragment=durable.proposal.fragment,
+                        region_ids=durable.proposal.region_ids,
+                        source=durable.proposal.source,
+                        outcome=durable.outcome,
+                        accepted_point_start=durable.accepted_point_start,
+                        accepted_point_count=durable.accepted_point_count,
+                        reason=durable.reason,
+                        inspections=_review_inspections(inspections),
+                    ),
+                ),
+            )
+
+    def close(self, *, completed_point_count: int, reason: str) -> None:
+        self._authority.client.close_run_point_plan(
+            self._authority.run_id,
+            RunPointPlanCloseCommand(
+                lease_id=self._authority.fence(),
+                operation_id=_point_plan_close_operation_id(
+                    completed_point_count=completed_point_count,
+                    reason=reason,
+                ),
+                based_on_completed_point_count=completed_point_count,
+                reason=reason,
+            ),
+        )
+
+
 class _DaemonMeasurementRepository:
     def __init__(self, authority: _LeaseAuthority) -> None:
         self._authority = authority
@@ -294,6 +414,7 @@ class _DaemonMeasurementRepository:
         self._pending_value_bytes = 0
         self._last_send_at: float | None = None
         self._header_content_hash: str | None = None
+        self._dataset_schema: MeasurementDatasetSchema | None = None
 
     def initialize(
         self,
@@ -308,6 +429,7 @@ class _DaemonMeasurementRepository:
             ),
         )
         self._header_content_hash = header.content_hash
+        self._dataset_schema = header.dataset_schema
         return receipt
 
     def ingest(
@@ -339,6 +461,9 @@ class _DaemonMeasurementRepository:
         header_content_hash = self._header_content_hash
         if header_content_hash is None:
             raise RuntimeError("measurement transport requires an initialized header")
+        dataset_schema = self._dataset_schema
+        if dataset_schema is None:
+            raise RuntimeError("measurement transport requires an initialized schema")
         batch = MeasurementDatasetBatch(
             run_id=self._authority.run_id,
             header_content_hash=header_content_hash,
@@ -348,10 +473,9 @@ class _DaemonMeasurementRepository:
         lease_id = self._authority.fence()
         receipt = self._authority.client.ingest_measurements(
             self._authority.run_id,
-            MeasurementIngestCommand(
-                lease_id=lease_id,
-                batch=batch,
-            ),
+            lease_id=lease_id,
+            batch=batch,
+            dataset_schema=dataset_schema,
         )
         self._pending.clear()
         self._pending_value_bytes = 0
@@ -467,6 +591,64 @@ class _DaemonRunInstrumentHost:
         if receipt is None:
             raise RuntimeError("run instruments have not been provisioned")
         return receipt
+
+
+def _domain_decision_operation_id(
+    decision: DomainProposalDecision,
+    *,
+    operator_request_id: str | None,
+) -> str:
+    return "domain-decision." + stable_content_hash(
+        content_fingerprint(
+            {
+                "schema": "scopecat.domain_decision_operation.v1",
+                "proposal_index": decision.proposal_index,
+                "proposal_fingerprint": decision.proposal.proposal_fingerprint,
+                "operator_request_id": operator_request_id,
+                "outcome": decision.outcome,
+                "reason": decision.reason,
+            }
+        )
+    )
+
+
+def _point_plan_close_operation_id(
+    *,
+    completed_point_count: int,
+    reason: str,
+) -> str:
+    return "point-plan.close." + stable_content_hash(
+        content_fingerprint(
+            {
+                "schema": "scopecat.point_plan_close_operation.v1",
+                "completed_point_count": completed_point_count,
+                "reason": reason,
+            }
+        )
+    )
+
+
+def _review_inspections(
+    inspections: tuple[RunPointInspection, ...],
+) -> tuple[ReviewInspectionView, ...]:
+    projected: list[ReviewInspectionView] = []
+    for inspection in inspections:
+        for job in inspection.jobs:
+            content = job.execution.inspection
+            if content is None:
+                continue
+            intent = job.execution.invocation.intent
+            projected.append(
+                ReviewInspectionView(
+                    operation_id=job.id,
+                    point_index=inspection.point_index,
+                    target_id=intent.target_id,
+                    artifact_id=intent.artifact_id,
+                    artifact_fingerprint=intent.artifact_fingerprint,
+                    content=content,
+                )
+            )
+    return tuple(projected)
 
 
 def _json_document(model: BaseModel) -> dict[str, JsonValue]:

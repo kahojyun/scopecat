@@ -229,7 +229,8 @@ def _validate_dimension_sizes(
         dimension for dimension in schema.dimensions if dimension.id == "point"
     )
     point_size = point_dimension.size
-    assert point_size is not None
+    if point_size is None:
+        return []
     if point_size != len(records) and not (
         allow_partial and len(records) <= point_size
     ):

@@ -8,6 +8,7 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
+from datetime import date, datetime, time
 from enum import Enum
 from typing import cast
 
@@ -58,16 +59,15 @@ def content_fingerprint(value: object) -> object:
         return {"kind": "bool", "value": value}
     if isinstance(value, int):
         return {"kind": "int", "value": str(value)}
-    if isinstance(value, float):
-        if math.isnan(value):
-            encoded_float = "nan"
-        elif math.isinf(value):
-            encoded_float = "+inf" if value > 0 else "-inf"
-        else:
-            encoded_float = value.hex()
-        return {"kind": "float", "value": encoded_float}
+    if isinstance(value, float | complex):
+        return _numeric_fingerprint(value)
     if isinstance(value, str):
         return {"kind": "str", "value": value}
+    if isinstance(value, datetime | date | time):
+        return {
+            "kind": type(value).__name__,
+            "value": value.isoformat(),
+        }
     if isinstance(value, bytes | bytearray | memoryview):
         encoded_bytes = (
             value.tobytes() if isinstance(value, memoryview) else bytes(value)
@@ -153,6 +153,23 @@ def content_fingerprint(value: object) -> object:
         "__scopecat_fingerprint__()"
     )
     raise TypeError(msg)
+
+
+def _numeric_fingerprint(value: object) -> dict[str, object]:
+    if isinstance(value, complex):
+        return {
+            "kind": "complex",
+            "real": _numeric_fingerprint(value.real),
+            "imag": _numeric_fingerprint(value.imag),
+        }
+    selected = cast("float", value)
+    if math.isnan(selected):
+        encoded = "nan"
+    elif math.isinf(selected):
+        encoded = "+inf" if selected > 0 else "-inf"
+    else:
+        encoded = selected.hex()
+    return {"kind": "float", "value": encoded}
 
 
 def _array_fingerprint(

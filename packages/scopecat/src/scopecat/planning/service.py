@@ -43,6 +43,7 @@ def _plan_compiled_run(
     program = compile_run_program(
         system,
         bound=bound,
+        adaptive_domain_plan=experiment.adaptive_domain_plan,
     )
     return PlannedRun(
         config=config,

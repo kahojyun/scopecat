@@ -13,6 +13,7 @@ from typing import Literal, Never, cast
 import pyarrow as pa
 import pytest
 from fastapi.testclient import TestClient
+from scopecat.adaptive_domains import DomainProposalAttempt, ResolvedDomainFragment
 from scopecat.analysis.datasets import DerivedDataset
 from scopecat.application import LabApplication
 from scopecat.config.changes import parameter_change_proposal_from_updates
@@ -21,14 +22,26 @@ from scopecat.config.inventory import InstrumentInventoryRekey
 from scopecat.config.parameters import ReplaceParameter, replace_scalar_parameter
 from scopecat.config.registry import ActiveConfigRegistrySnapshot
 from scopecat.control.models import (
+    AdaptiveRegionSpec,
     DurableEvent,
     DurableEventInput,
     EventPage,
+    PointCoordinateSpec,
     ResourceClaim,
     ResourceKey,
     RunDomainTargetRequirement,
     RunPlanSummary,
     RunResourceRequirement,
+)
+from scopecat.daemon.points import (
+    AcceptedRunPointView,
+    RunDomainDecisionCommand,
+    RunDomainEnqueueCommand,
+    RunDomainFragmentInput,
+    RunDomainProposalAttemptView,
+    RunDomainResolveCommand,
+    RunPointCoordinateValue,
+    RunPointPlanCloseCommand,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -69,7 +82,6 @@ from scopecat.daemon.wire import (
     ManualConfigDraftRevisionSource,
     MeasurementFlushCommand,
     MeasurementHeaderCommand,
-    MeasurementIngestCommand,
     RunAdmission,
     RunAttachmentCommand,
     RunCancellationReceipt,
@@ -77,9 +89,14 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.measurements.recording_arrow import (
+    decode_measurement_append,
+    encode_measurement_append,
+)
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import (
     AnalysisDatasetViewSource,
@@ -107,6 +124,7 @@ from scopecat.records.measurement import (
     MeasurementVariable,
 )
 from scopecat.records.measurement_recording import (
+    MeasurementDatasetAppend,
     MeasurementDatasetBatch,
     MeasurementDatasetHeader,
 )
@@ -130,6 +148,7 @@ from scopecat_server import BackendConflict, LocalDaemonRuntime
 from scopecat_server.instruments.actors import InstrumentActorRetirement
 from scopecat_server.services.admission import AdmissionService
 from scopecat_server.services.leases import OwnershipLeaseSupervisor
+from scopecat_server.services.point_plans import RunPointPlanService
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.control_plane import (
@@ -220,6 +239,8 @@ def _submission(
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=point_count,
+            initial_point_count=point_count,
+            point_limit=point_count,
             run_resource_requirements=(
                 RunResourceRequirement(id="source-0", kind="instrument"),
             ),
@@ -311,6 +332,8 @@ def _domain_only_submission(
             experiment_id="domain-only",
             experiment_kind="domain-only",
             point_count=1,
+            initial_point_count=1,
+            point_limit=1,
             domain_target_requirement=RunDomainTargetRequirement(
                 id=target.id,
                 kind=target.kind,
@@ -473,6 +496,103 @@ def test_lease_supervisor_health_recovers_after_one_failed_iteration(
         ):
             time.sleep(0.01)
         assert runtime.application.health().status == "ok"
+
+
+def test_lease_supervisor_releases_unflushed_live_measurements(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(
+        tmp_path,
+        bootstrap_config=_config(),
+        lease_ttl=timedelta(seconds=1),
+    ) as runtime:
+        admission = runtime.application.submit_run(_submission("lost-live-data"))
+        lease = runtime.application.executor.start_executor(
+            admission.run_id,
+            ExecutorStartRequest(executor_id="notebook-1"),
+        )
+        header = MeasurementDatasetHeader(
+            run_id=admission.run_id,
+            recording_contract_fingerprint="test.recording.v1",
+            dataset_schema=MeasurementDatasetSchema(
+                dataset_id="raw-measurements",
+                point_domain=MeasurementProductGridPointDomain(axes=[]),
+                dimensions=[
+                    MeasurementDimension(id="point", kind="point", size=1),
+                    MeasurementDimension(id="sample", kind="trace", size=4),
+                ],
+                variables=[
+                    MeasurementVariable(
+                        id="waveform",
+                        role="observable",
+                        dtype="float64",
+                        dims=["point", "sample"],
+                    )
+                ],
+            ),
+            expected_record_count=1,
+            record_count_limit=1,
+        )
+        record = MeasurementRecord(
+            run_id=admission.run_id,
+            logical_point_id="point-0",
+            point_index=0,
+            coordinates={},
+            observables={
+                "waveform": MeasurementArray.create(
+                    dtype="float64",
+                    values=(0.0, 1.0, 2.0, 3.0),
+                )
+            },
+        )
+        runtime.application.executor.initialize_measurements(
+            admission.run_id,
+            MeasurementHeaderCommand(lease_id=lease.lease_id, header=header),
+        )
+        runtime.application.executor.ingest_measurements(
+            admission.run_id,
+            lease_id=lease.lease_id,
+            content=encode_measurement_append(
+                MeasurementDatasetAppend(
+                    run_id=admission.run_id,
+                    header_content_hash=header.content_hash,
+                    start_index=0,
+                    records=(record,),
+                ),
+                header.dataset_schema,
+            ),
+        )
+
+        live = runtime.application.runs.measurement_live_preview(
+            admission.run_id,
+            after_record_count=None,
+        )
+        assert live.active
+        assert live.received_record_count == 1
+        assert live.durable_record_count == 0
+
+        control = _control_run(runtime, admission.run_id)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            control = _control_run(runtime, admission.run_id)
+            live = runtime.application.runs.measurement_live_preview(
+                admission.run_id,
+                after_record_count=None,
+            )
+            if control.state == "attention_required" and not live.active:
+                break
+            time.sleep(0.01)
+
+        assert control.state == "attention_required"
+        assert not live.active
+        assert live.latest is None
+        assert (
+            runtime.application.runs.measurement_preview(
+                admission.run_id,
+                limit=10,
+            ).items
+            == ()
+        )
 
 
 def test_runtime_shutdown_unblocks_an_active_lease_supervisor(
@@ -1230,14 +1350,16 @@ def test_admission_is_durably_idempotent(tmp_path: Path) -> None:
             sqlite = SQLiteDatabase(database)
             runs = SQLiteRunRepository(sqlite, state / "objects")
             registry = SQLiteConfigRegistryStore(sqlite, runs=runs)
+            control = SQLiteControlPlane(sqlite)
             admission_services.append(
                 AdmissionService(
-                    control=SQLiteControlPlane(sqlite),
+                    control=control,
                     runs=runs,
                     services=ProjectStateServices(
                         runs=runs,
                         config_registry=registry.read_unit_of_work,
                     ),
+                    point_plans=RunPointPlanService(control=control, runs=runs),
                 )
             )
         services = tuple(admission_services)
@@ -1510,13 +1632,15 @@ def test_authority_failure_replays_a_concurrently_admitted_submission(
         sqlite = SQLiteDatabase(database)
         runs = SQLiteRunRepository(sqlite, state / "objects")
         registry = SQLiteConfigRegistryStore(sqlite, runs=runs)
+        control = SQLiteControlPlane(sqlite)
         racing = AdmissionService(
-            control=SQLiteControlPlane(sqlite),
+            control=control,
             runs=runs,
             services=ProjectStateServices(
                 runs=runs,
                 config_registry=registry.read_unit_of_work,
             ),
+            point_plans=RunPointPlanService(control=control, runs=runs),
         )
         resolve_active = racing._resolve_active_config
         admitted: RunAdmission | None = None
@@ -1600,7 +1724,17 @@ def test_admission_canonicalizes_domain_only_instrument_claims(
         "experiment_id",
         "experiment_kind",
         "point_count",
-        "coordinate_ids",
+        "initial_point_count",
+        "point_limit",
+        "adaptive_coordinate_ids",
+        "adaptive_scope",
+        "per_region_point_limit",
+        "adaptive_region_count",
+        "adaptive_regions",
+        "adaptive_regions_truncated",
+        "coordinates",
+        "sampled_points",
+        "sampled_points_truncated",
         "record_ids",
         "run_resource_requirements",
     }
@@ -2078,6 +2212,494 @@ def test_run_coverage_is_contiguous_durable_and_retryable(tmp_path: Path) -> Non
         assert historical_retry == completed
 
 
+def test_open_point_plan_can_succeed_below_its_limit_and_exposes_coverage(
+    tmp_path: Path,
+) -> None:
+    submission = _submission("adaptive-coverage").model_copy(
+        update={
+            "plan": RunPlanSummary(
+                experiment_id="scratch",
+                experiment_kind="scratch",
+                point_count=None,
+                initial_point_count=1,
+                point_limit=3,
+                adaptive_coordinate_ids=("frequency",),
+                adaptive_scope="per_region",
+                adaptive_region_count=1,
+                adaptive_regions=(
+                    AdaptiveRegionSpec(
+                        id="region-0", coordinates={}, initial_point_count=1
+                    ),
+                ),
+                coordinates=(
+                    PointCoordinateSpec(
+                        id="frequency",
+                        kind="quantity",
+                        unit="GHz",
+                        sampled_values=(Quantity(5.0, "GHz"),),
+                    ),
+                ),
+                sampled_points=({"frequency": Quantity(5.0, "GHz")},),
+                run_resource_requirements=(
+                    RunResourceRequirement(id="source-0", kind="instrument"),
+                ),
+            )
+        }
+    )
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(submission)
+        initialized = runtime.application.point_plans.read(admission.run_id)
+        lease = runtime.application.executor.start_executor(
+            admission.run_id,
+            ExecutorStartRequest(executor_id="notebook-adaptive"),
+        )
+        runtime.application.executor.advance_run_coverage(
+            admission.run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=lease.lease_id,
+                start_index=0,
+                point_count=1,
+            ),
+        )
+        terminal = TerminalRunCommitCommand(
+            lease_id=lease.lease_id,
+            outcome=RunOutcome(
+                run_id=admission.run_id,
+                result="succeeded",
+                certainty="known",
+            ),
+        )
+        with pytest.raises(BackendConflict, match="closed durable point plan"):
+            runtime.application.executor.commit_terminal(
+                admission.run_id,
+                terminal,
+            )
+        closed = runtime.application.executor.close_run_point_plan(
+            admission.run_id,
+            RunPointPlanCloseCommand(
+                lease_id=lease.lease_id,
+                operation_id="close-adaptive-coverage",
+                based_on_completed_point_count=1,
+                reason="optimizer converged",
+            ),
+        )
+        manifest = runtime.application.executor.commit_terminal(
+            admission.run_id,
+            terminal,
+        )
+        view = runtime.application.runs.get_run(admission.run_id)
+
+    assert not initialized.plan_closed
+    assert closed.plan_closed
+    assert manifest.outcome is not None
+    assert manifest.outcome.result == "succeeded"
+    assert view.control.completed_point_count == 1
+    assert view.control.point_plan == closed
+    assert view.control.admission.plan.point_count is None
+    assert view.control.admission.plan.initial_point_count == 1
+    assert view.control.admission.plan.point_limit == 3
+
+
+def test_run_point_resolution_preserves_raw_input_and_makes_snap_explicit(
+    tmp_path: Path,
+) -> None:
+    submission = _submission("adaptive-resolution").model_copy(
+        update={
+            "plan": RunPlanSummary(
+                experiment_id="scratch",
+                experiment_kind="scratch",
+                point_count=None,
+                initial_point_count=2,
+                point_limit=4,
+                adaptive_coordinate_ids=("frequency",),
+                adaptive_scope="per_region",
+                adaptive_region_count=1,
+                adaptive_regions=(
+                    AdaptiveRegionSpec(
+                        id="region-0",
+                        coordinates={},
+                        initial_point_count=2,
+                    ),
+                ),
+                coordinates=(
+                    PointCoordinateSpec(
+                        id="frequency",
+                        kind="quantity",
+                        unit="GHz",
+                        minimum=4.0,
+                        maximum=6.0,
+                        sampled_values=(
+                            Quantity(5.0, "GHz"),
+                            Quantity(5.2, "GHz"),
+                        ),
+                    ),
+                ),
+                sampled_points=(
+                    {"frequency": Quantity(5.0, "GHz")},
+                    {"frequency": Quantity(5.2, "GHz")},
+                ),
+                run_resource_requirements=(
+                    RunResourceRequirement(id="source-0", kind="instrument"),
+                ),
+            )
+        }
+    )
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(submission)
+        runtime.application.executor.start_executor(
+            admission.run_id,
+            ExecutorStartRequest(executor_id="adaptive-resolution-test"),
+        )
+        snap = runtime.application.point_plans.resolve(
+            admission.run_id,
+            RunDomainResolveCommand(
+                coordinate_mode="snap",
+                region_scope="current",
+                fragment=RunDomainFragmentInput.from_fragment(
+                    ResolvedDomainFragment.points(
+                        ({"frequency": Quantity(5.16, "GHz")},)
+                    )
+                ),
+            ),
+        )
+        free = runtime.application.point_plans.resolve(
+            admission.run_id,
+            RunDomainResolveCommand(
+                coordinate_mode="free",
+                region_scope="current",
+                fragment=RunDomainFragmentInput.from_fragment(
+                    ResolvedDomainFragment.points(
+                        ({"frequency": Quantity(4.5, "GHz")},)
+                    )
+                ),
+            ),
+        )
+        queued = runtime.application.point_plans.enqueue(
+            admission.run_id,
+            RunDomainEnqueueCommand(
+                request_id="operator-snap",
+                coordinate_mode="snap",
+                region_scope="current",
+                fragment=RunDomainFragmentInput.from_fragment(
+                    ResolvedDomainFragment.points(
+                        ({"frequency": Quantity(5.16, "GHz")},)
+                    )
+                ),
+            ),
+        )
+
+        with pytest.raises(BackendConflict, match="at least"):
+            runtime.application.point_plans.resolve(
+                admission.run_id,
+                RunDomainResolveCommand(
+                    coordinate_mode="free",
+                    region_scope="current",
+                    fragment=RunDomainFragmentInput.from_fragment(
+                        ResolvedDomainFragment.points(
+                            ({"frequency": Quantity(3.5, "GHz")},)
+                        )
+                    ),
+                ),
+            )
+
+    assert tuple(snap.requested_fragment.fragment().rows()) == (
+        {"frequency": Quantity(5.16, "GHz")},
+    )
+    assert tuple(snap.fragment.fragment().rows()) == (
+        {"frequency": Quantity(5.2, "GHz")},
+    )
+    assert tuple(free.fragment.fragment().rows()) == (
+        {"frequency": Quantity(4.5, "GHz")},
+    )
+    assert queued.request.coordinate_mode == "snap"
+    assert queued.request.requested_fragment == snap.requested_fragment
+    assert queued.request.fragment == snap.fragment
+
+
+def test_selected_region_resolution_defers_to_executor_when_region_sample_is_truncated(
+    tmp_path: Path,
+) -> None:
+    submission = _submission("truncated-adaptive-regions").model_copy(
+        update={
+            "plan": RunPlanSummary(
+                experiment_id="scratch",
+                experiment_kind="scratch",
+                point_count=None,
+                initial_point_count=0,
+                point_limit=4,
+                adaptive_coordinate_ids=("frequency",),
+                adaptive_scope="per_region",
+                adaptive_region_count=300,
+                adaptive_regions=(
+                    AdaptiveRegionSpec(
+                        id="region-0",
+                        coordinates={},
+                        initial_point_count=0,
+                    ),
+                ),
+                adaptive_regions_truncated=True,
+                coordinates=(
+                    PointCoordinateSpec(
+                        id="frequency",
+                        kind="quantity",
+                        unit="GHz",
+                        sampled_values=(Quantity(5.0, "GHz"),),
+                    ),
+                ),
+                run_resource_requirements=(
+                    RunResourceRequirement(id="source-0", kind="instrument"),
+                ),
+            )
+        }
+    )
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(submission)
+        resolved = runtime.application.point_plans.resolve(
+            admission.run_id,
+            RunDomainResolveCommand(
+                coordinate_mode="free",
+                region_scope="selected",
+                region_ids=("region-299",),
+                fragment=RunDomainFragmentInput.from_fragment(
+                    ResolvedDomainFragment.points(
+                        ({"frequency": Quantity(5.1, "GHz")},)
+                    )
+                ),
+            ),
+        )
+
+    assert resolved.region_ids == ("region-299",)
+    assert resolved.region_count == 1
+
+
+def test_adaptive_domain_ledger_survives_runtime_restart(tmp_path: Path) -> None:
+    submission = _submission("adaptive-ledger").model_copy(
+        update={
+            "plan": RunPlanSummary(
+                experiment_id="scratch",
+                experiment_kind="scratch",
+                point_count=None,
+                initial_point_count=1,
+                point_limit=3,
+                adaptive_coordinate_ids=("frequency",),
+                adaptive_scope="per_region",
+                adaptive_region_count=1,
+                adaptive_regions=(
+                    AdaptiveRegionSpec(
+                        id="region-0",
+                        coordinates={},
+                        initial_point_count=1,
+                    ),
+                ),
+                coordinates=(
+                    PointCoordinateSpec(
+                        id="frequency",
+                        kind="quantity",
+                        unit="GHz",
+                        sampled_values=(Quantity(5.0, "GHz"),),
+                    ),
+                ),
+                sampled_points=({"frequency": Quantity(5.0, "GHz")},),
+                run_resource_requirements=(
+                    RunResourceRequirement(id="source-0", kind="instrument"),
+                ),
+            )
+        }
+    )
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(submission)
+        initialized = runtime.application.point_plans.read(admission.run_id)
+        lease = runtime.application.executor.start_executor(
+            admission.run_id,
+            ExecutorStartRequest(executor_id="adaptive-ledger-test"),
+        )
+        runtime.application.executor.advance_run_coverage(
+            admission.run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=lease.lease_id,
+                start_index=0,
+                point_count=1,
+            ),
+        )
+        fragment = ResolvedDomainFragment.points(({"frequency": Quantity(5.2, "GHz")},))
+        queued = runtime.application.point_plans.enqueue(
+            admission.run_id,
+            RunDomainEnqueueCommand(
+                request_id="queue-1",
+                coordinate_mode="free",
+                region_scope="current",
+                fragment=RunDomainFragmentInput.from_fragment(fragment),
+            ),
+        )
+        proposal = DomainProposalAttempt(
+            fragment,
+            region_ids=("region-0",),
+            source="operator",
+        )
+        [row] = fragment.rows()
+        candidate = PointProposalAttempt(
+            row,
+            source="operator",
+            region_id="region-0",
+            domain_proposal_fingerprint=proposal.proposal_fingerprint,
+        )
+        decision = runtime.application.executor.append_run_domain_decision(
+            admission.run_id,
+            RunDomainDecisionCommand(
+                lease_id=lease.lease_id,
+                operation_id="decision-1",
+                operator_request_id=queued.request.request_id,
+                proposal=RunDomainProposalAttemptView.from_proposal(proposal),
+                accepted_points=(
+                    AcceptedRunPointView(
+                        point_index=1,
+                        coordinates=cast("dict[str, RunPointCoordinateValue]", row),
+                        proposal_fingerprint=candidate.proposal_fingerprint,
+                        source="operator",
+                        region_id="region-0",
+                        domain_proposal_fingerprint=proposal.proposal_fingerprint,
+                    ),
+                ),
+                outcome="accepted",
+            ),
+        )
+        runtime.application.executor.advance_run_coverage(
+            admission.run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=lease.lease_id,
+                start_index=1,
+                point_count=1,
+            ),
+        )
+        closed = runtime.application.executor.close_run_point_plan(
+            admission.run_id,
+            RunPointPlanCloseCommand(
+                lease_id=lease.lease_id,
+                operation_id="close",
+                based_on_completed_point_count=2,
+                reason="optimizer converged",
+            ),
+        )
+
+        assert initialized.accepted_point_count == 1
+        assert decision.accepted_point_start == 1
+        assert decision.accepted_point_count == 1
+        assert closed.accepted_point_count == 2
+        assert closed.plan_closed
+
+    with LocalDaemonRuntime(tmp_path) as restarted:
+        restored = restarted.application.point_plans.read(admission.run_id)
+        restored_queue = restarted.application.point_plans.queue(admission.run_id)
+
+    assert restored == closed
+    assert restored_queue.items[0].status == "accepted"
+    assert restored_queue.items[0].accepted_point_start == 1
+
+
+def test_closed_point_plan_cannot_succeed_before_full_coverage(tmp_path: Path) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(
+            _submission("incomplete-success", point_count=2)
+        )
+        lease = runtime.application.executor.start_executor(
+            admission.run_id,
+            ExecutorStartRequest(executor_id="notebook-incomplete"),
+        )
+
+        with pytest.raises(BackendConflict, match="coverage"):
+            runtime.application.executor.commit_terminal(
+                admission.run_id,
+                TerminalRunCommitCommand(
+                    lease_id=lease.lease_id,
+                    outcome=RunOutcome(
+                        run_id=admission.run_id,
+                        result="succeeded",
+                        certainty="known",
+                    ),
+                ),
+            )
+
+
+def test_failed_adaptive_run_abandons_pending_operator_domains(tmp_path: Path) -> None:
+    submission = _submission("failed-adaptive-queue").model_copy(
+        update={
+            "plan": RunPlanSummary(
+                experiment_id="scratch",
+                experiment_kind="scratch",
+                point_count=None,
+                initial_point_count=1,
+                point_limit=3,
+                adaptive_coordinate_ids=("frequency",),
+                adaptive_scope="per_region",
+                adaptive_region_count=1,
+                adaptive_regions=(
+                    AdaptiveRegionSpec(
+                        id="region-0", coordinates={}, initial_point_count=1
+                    ),
+                ),
+                coordinates=(
+                    PointCoordinateSpec(
+                        id="frequency",
+                        kind="quantity",
+                        unit="GHz",
+                        sampled_values=(Quantity(5.0, "GHz"),),
+                    ),
+                ),
+                sampled_points=({"frequency": Quantity(5.0, "GHz")},),
+                run_resource_requirements=(
+                    RunResourceRequirement(id="source-0", kind="instrument"),
+                ),
+            )
+        }
+    )
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(submission)
+        lease = runtime.application.executor.start_executor(
+            admission.run_id,
+            ExecutorStartRequest(executor_id="failed-adaptive-test"),
+        )
+        runtime.application.point_plans.enqueue(
+            admission.run_id,
+            RunDomainEnqueueCommand(
+                request_id="pending-at-failure",
+                coordinate_mode="free",
+                region_scope="current",
+                fragment=RunDomainFragmentInput.from_fragment(
+                    ResolvedDomainFragment.points(
+                        ({"frequency": Quantity(5.2, "GHz")},)
+                    )
+                ),
+            ),
+        )
+        manifest = runtime.application.executor.commit_terminal(
+            admission.run_id,
+            TerminalRunCommitCommand(
+                lease_id=lease.lease_id,
+                outcome=RunOutcome(
+                    run_id=admission.run_id,
+                    result="failed",
+                    certainty="known",
+                    problems=(
+                        problem(
+                            "test.adaptive_failure",
+                            "adaptive execution failed",
+                            phase=ProblemPhase.EXECUTION,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        point_plan = runtime.application.point_plans.read(admission.run_id)
+        queue = runtime.application.point_plans.queue(admission.run_id)
+
+    assert manifest.outcome is not None
+    assert manifest.outcome.result == "failed"
+    assert point_plan.plan_closed
+    assert point_plan.stop_reason == "run failed"
+    assert queue.items[0].status == "cancelled"
+    assert queue.items[0].reason == "point plan abandoned: run failed"
+
+
 def test_queued_run_cancellation_is_immediate_durable_and_idempotent(
     tmp_path: Path,
 ) -> None:
@@ -2242,6 +2864,14 @@ def test_leased_run_cancellation_reaches_heartbeat_and_preserves_terminal_histor
             run_id=succeeded.run_id,
             result="succeeded",
             certainty="known",
+        )
+        runtime.application.executor.advance_run_coverage(
+            succeeded.run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=succeeded_lease.lease_id,
+                start_index=0,
+                point_count=1,
+            ),
         )
         runtime.application.executor.commit_terminal(
             succeeded.run_id,
@@ -2475,6 +3105,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
                 primary_observables=["signal", "trace"],
             ),
             expected_record_count=4,
+            record_count_limit=4,
         )
         measurement_batch = MeasurementDatasetBatch(
             run_id=run_id,
@@ -2499,10 +3130,19 @@ def test_effect_is_fenced_and_terminal_updates_control(
         )
         measurement_response = client.post(
             f"/api/v1/runs/{run_id}/measurements/ingest",
-            json=MeasurementIngestCommand(
-                lease_id=lease.lease_id,
-                batch=measurement_batch,
-            ).model_dump(mode="json"),
+            content=encode_measurement_append(
+                MeasurementDatasetAppend(
+                    run_id=measurement_batch.run_id,
+                    header_content_hash=measurement_batch.header_content_hash,
+                    start_index=measurement_batch.start_index,
+                    records=measurement_batch.records,
+                ),
+                measurement_header.dataset_schema,
+            ),
+            headers={
+                "Content-Type": "application/vnd.apache.arrow.file",
+                "X-Scopecat-Lease-ID": lease.lease_id,
+            },
         )
         pending_preview = client.get(f"/api/v1/runs/{run_id}/measurements/preview")
         live_preview = client.get(f"/api/v1/runs/{run_id}/measurements/live")
@@ -2626,9 +3266,14 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert measurement_response.json()["received_record_count"] == 4
         assert measurement_response.json()["durable_record_count"] == 0
         assert pending_preview.json()["items"] == []
-        assert live_preview.json()["latest"]["point_index"] == 3
-        assert live_preview.json()["received_record_count"] == 4
-        assert live_preview.json()["durable_record_count"] == 0
+        live_append = decode_measurement_append(
+            live_preview.content,
+            measurement_header.dataset_schema,
+        )
+        assert live_append.records[0].point_index == 3
+        assert live_preview.headers["x-scopecat-measurement-active"] == "true"
+        assert live_preview.headers["x-scopecat-received-record-count"] == "4"
+        assert live_preview.headers["x-scopecat-durable-record-count"] == "0"
         assert pending_coverage.json()["completed_point_count"] == 0
         assert flush_response.status_code == 200
         assert flush_response.json()["durable_record_count"] == 4
@@ -2830,6 +3475,7 @@ def test_effect_and_terminal_publication_roll_back_with_control(
                 ],
             ),
             expected_record_count=1,
+            record_count_limit=1,
         )
         batch = MeasurementDatasetBatch(
             run_id=admission.run_id,
@@ -2846,9 +3492,15 @@ def test_effect_and_terminal_publication_roll_back_with_control(
         )
         runtime.application.executor.ingest_measurements(
             admission.run_id,
-            MeasurementIngestCommand(
-                lease_id=lease.lease_id,
-                batch=batch,
+            lease_id=lease.lease_id,
+            content=encode_measurement_append(
+                MeasurementDatasetAppend(
+                    run_id=batch.run_id,
+                    header_content_hash=batch.header_content_hash,
+                    start_index=batch.start_index,
+                    records=batch.records,
+                ),
+                header.dataset_schema,
             ),
         )
 
@@ -2877,6 +3529,10 @@ def test_effect_and_terminal_publication_roll_back_with_control(
             ),
         )
         assert rolled_back.num_rows == 0
+        runtime.application.executor.flush_measurements(
+            admission.run_id,
+            MeasurementFlushCommand(lease_id=lease.lease_id),
+        )
 
         outcome = RunOutcome(
             run_id=admission.run_id,
@@ -2910,12 +3566,63 @@ def test_restart_quarantines_executor_until_operator_reconciles(
     tmp_path: Path,
 ) -> None:
     with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
-        submission = _submission("operator-recovery")
+        submission = _submission("operator-recovery").model_copy(
+            update={
+                "plan": RunPlanSummary(
+                    experiment_id="scratch",
+                    experiment_kind="scratch",
+                    point_count=None,
+                    initial_point_count=1,
+                    point_limit=3,
+                    adaptive_coordinate_ids=("frequency",),
+                    adaptive_scope="per_region",
+                    adaptive_region_count=1,
+                    adaptive_regions=(
+                        AdaptiveRegionSpec(
+                            id="region-0", coordinates={}, initial_point_count=1
+                        ),
+                    ),
+                    coordinates=(
+                        PointCoordinateSpec(
+                            id="frequency",
+                            kind="quantity",
+                            unit="GHz",
+                            sampled_values=(Quantity(5.0, "GHz"),),
+                        ),
+                    ),
+                    sampled_points=({"frequency": Quantity(5.0, "GHz")},),
+                    run_resource_requirements=(
+                        RunResourceRequirement(id="source-0", kind="instrument"),
+                    ),
+                )
+            }
+        )
         admission = runtime.application.submit_run(submission)
-        runtime.application.executor.start_executor(
+        lease = runtime.application.executor.start_executor(
             admission.run_id,
             ExecutorStartRequest(
                 executor_id="notebook-1",
+            ),
+        )
+        runtime.application.executor.advance_run_coverage(
+            admission.run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=lease.lease_id,
+                start_index=0,
+                point_count=1,
+            ),
+        )
+        runtime.application.point_plans.enqueue(
+            admission.run_id,
+            RunDomainEnqueueCommand(
+                request_id="queue-before-restart",
+                coordinate_mode="free",
+                region_scope="current",
+                fragment=RunDomainFragmentInput.from_fragment(
+                    ResolvedDomainFragment.points(
+                        ({"frequency": Quantity(5.2, "GHz")},)
+                    )
+                ),
             ),
         )
         run_id = admission.run_id
@@ -2925,6 +3632,17 @@ def test_restart_quarantines_executor_until_operator_reconciles(
         assert attention.state == "attention_required"
         assert attention.attention_reason == "daemon_restarted"
         assert _resource_claims(tmp_path)[0].status == "quarantined"
+        coverage = reopened.application.executor.run_coverage(run_id)
+        assert coverage.completed_point_count == 1
+        interrupted_plan = reopened.application.point_plans.read(run_id)
+        interrupted_queue = reopened.application.point_plans.queue(run_id)
+        assert not interrupted_plan.plan_closed
+        assert interrupted_queue.items[0].status == "pending"
+        with pytest.raises(BackendConflict, match="attention_required"):
+            reopened.application.executor.start_executor(
+                run_id,
+                ExecutorStartRequest(executor_id="notebook-2"),
+            )
 
         resolved = reopened.application.resolve_attention(run_id)
         assert resolved.state == "closed"
@@ -2935,4 +3653,17 @@ def test_restart_quarantines_executor_until_operator_reconciles(
         assert manifest.outcome is not None
         assert manifest.outcome.certainty == "indeterminate"
         assert manifest.outcome.problems[0].code == "daemon.executor_loss_reconciled"
+        abandoned_plan = reopened.application.point_plans.read(run_id)
+        abandoned_queue = reopened.application.point_plans.queue(run_id)
+        assert abandoned_plan.plan_closed
+        assert abandoned_plan.stop_reason == "executor loss reconciled"
+        assert abandoned_queue.items[0].status == "cancelled"
+        assert abandoned_queue.items[0].reason == (
+            "point plan abandoned: executor loss reconciled"
+        )
         assert _resource_claims(tmp_path) == ()
+        with pytest.raises(BackendConflict, match="not ready to start"):
+            reopened.application.executor.start_executor(
+                run_id,
+                ExecutorStartRequest(executor_id="notebook-2"),
+            )

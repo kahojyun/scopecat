@@ -14,6 +14,19 @@ from pydantic import (
     model_validator,
 )
 
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
+
+type PointCoordinateValue = bool | int | float | str | Quantity | EntityRef | None
+type PointCoordinateKind = Literal[
+    "bool",
+    "int",
+    "float",
+    "string",
+    "quantity",
+    "entity",
+]
+
 type ControlRunState = Literal[
     "queued",
     "leased",
@@ -81,13 +94,47 @@ class RunDomainTargetRequirement(_ControlModel):
         return tuple(sorted(value))
 
 
+class PointCoordinateSpec(_ControlModel):
+    """Admissibility and authored sampling facts for one point coordinate."""
+
+    id: str = Field(min_length=1)
+    kind: PointCoordinateKind
+    dimension: str | None = None
+    unit: str | None = None
+    minimum: int | float | None = None
+    maximum: int | float | None = None
+    finite: bool = True
+    choices: tuple[str, ...] | None = None
+    entity_kind: str | None = None
+    sampled_values: tuple[PointCoordinateValue, ...] = ()
+    sampled_values_truncated: bool = False
+
+
+class AdaptiveRegionSpec(_ControlModel):
+    """One stable outer-domain region admitted for adaptive extension."""
+
+    id: str = Field(min_length=1)
+    coordinates: dict[str, PointCoordinateValue]
+    initial_point_count: int = Field(ge=0)
+
+
 class RunPlanSummary(_ControlModel):
     """Bounded scheduling and presentation facts for an in-process plan."""
 
     experiment_id: str = Field(min_length=1)
     experiment_kind: str = Field(min_length=1)
-    point_count: int = Field(ge=0)
-    coordinate_ids: tuple[str, ...] = ()
+    point_count: int | None = Field(default=None, ge=0)
+    initial_point_count: int = Field(ge=0)
+    point_limit: int = Field(ge=0)
+    adaptive_coordinate_ids: tuple[str, ...] = ()
+    adaptive_scope: Literal["per_region", "global"] | None = None
+    per_region_point_limit: int | None = Field(default=None, ge=1)
+    adaptive_region_count: int = Field(default=0, ge=0)
+    adaptive_regions: tuple[AdaptiveRegionSpec, ...] = ()
+    adaptive_regions_truncated: bool = False
+    coordinates: tuple[PointCoordinateSpec, ...] = ()
+    sampled_points: tuple[dict[str, PointCoordinateValue], ...] = ()
+    sampled_points_truncated: bool = False
     record_ids: tuple[str, ...] = ()
     run_resource_requirements: tuple[RunResourceRequirement, ...] = ()
     domain_target_requirement: RunDomainTargetRequirement | None = None
@@ -99,7 +146,6 @@ class RunPlanSummary(_ControlModel):
     )
 
     @field_validator(
-        "coordinate_ids",
         "record_ids",
         "host_instrument_order",
     )
@@ -110,6 +156,49 @@ class RunPlanSummary(_ControlModel):
         if len(value) != len(set(value)):
             raise ValueError("run plan summary ids must be unique")
         return value
+
+    @model_validator(mode="after")
+    def validate_coordinate_contract(self) -> RunPlanSummary:
+        coordinate_ids = self.coordinate_ids
+        if len(coordinate_ids) != len(set(coordinate_ids)):
+            raise ValueError("run point coordinate ids must be unique")
+        expected = set(coordinate_ids)
+        if any(set(point) != expected for point in self.sampled_points):
+            raise ValueError("sampled points must contain every coordinate")
+        if not set(self.adaptive_coordinate_ids).issubset(expected):
+            raise ValueError("adaptive coordinates must reference admitted axes")
+        if len(self.adaptive_coordinate_ids) != len(set(self.adaptive_coordinate_ids)):
+            raise ValueError("adaptive coordinate ids must be unique")
+        adaptive = self.point_count is None
+        if adaptive != (self.adaptive_scope is not None):
+            raise ValueError("open point plans require an adaptive scope")
+        if not adaptive and (
+            self.adaptive_coordinate_ids
+            or self.per_region_point_limit is not None
+            or self.adaptive_region_count
+            or self.adaptive_regions
+            or self.adaptive_regions_truncated
+        ):
+            raise ValueError("static point plans cannot declare adaptive axes")
+        if adaptive:
+            if self.adaptive_region_count < 1:
+                raise ValueError("adaptive point plans require at least one region")
+            if len(self.adaptive_regions) > self.adaptive_region_count:
+                raise ValueError("adaptive region sample exceeds its total count")
+            if self.adaptive_regions_truncated != (
+                len(self.adaptive_regions) < self.adaptive_region_count
+            ):
+                raise ValueError("adaptive region truncation must match its sample")
+            outer_ids = expected - set(self.adaptive_coordinate_ids)
+            if any(
+                set(region.coordinates) != outer_ids for region in self.adaptive_regions
+            ):
+                raise ValueError("adaptive regions must identify every outer axis")
+        return self
+
+    @property
+    def coordinate_ids(self) -> tuple[str, ...]:
+        return tuple(spec.id for spec in self.coordinates)
 
     @field_validator("run_resource_requirements")
     @classmethod
@@ -124,6 +213,15 @@ class RunPlanSummary(_ControlModel):
 
     @model_validator(mode="after")
     def validate_resource_alignment(self) -> RunPlanSummary:
+        if self.initial_point_count > self.point_limit:
+            raise ValueError("initial point count cannot exceed the point limit")
+        if self.point_count is not None and self.point_count != self.point_limit:
+            raise ValueError("a closed point count must equal the point limit")
+        if (
+            self.point_count is not None
+            and self.initial_point_count != self.point_count
+        ):
+            raise ValueError("a closed point plan is entirely initial")
         domain = self.domain_target_requirement
         if domain is not None:
             instrument_ids = {

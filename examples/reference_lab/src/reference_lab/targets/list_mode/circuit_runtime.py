@@ -1,32 +1,26 @@
-"""Correlate list-mode target evidence to Scopecat logical quantum outputs."""
+"""Correlate list-mode result matrices to logical quantum outputs."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
+from numpy.typing import NDArray
 from scopecat.measurements.results import (
     MeasurementArray,
     MeasurementUnavailable,
     MeasurementValue,
 )
-from scopecat.sdk.domain import (
-    DomainResultValue,
-)
-from scopecat_quantum.program_results import (
-    MappedQuantumTarget,
-)
-from scopecat_quantum.targets import (
-    TargetAcquisitionAddress,
-)
+from scopecat.sdk.domain import DomainResultValue
+from scopecat_quantum.program_results import MappedQuantumTarget
+from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from reference_lab.targets.list_mode.execution_model import (
-    DigitizerFrame,
+    DigitizerResultBatch,
     ListModeRun,
 )
-from reference_lab.targets.list_mode.model import (
-    ListModeArtifact,
-)
+from reference_lab.targets.list_mode.model import ListModeArtifact
 
 _RESPONSE_UNIT = "ratio"
 
@@ -35,100 +29,79 @@ type _MappedListModeTarget = MappedQuantumTarget[ListModeArtifact]
 
 @dataclass(frozen=True, slots=True)
 class CorrelatedListModeRun:
-    """Canonically ordered raw target data after correlation."""
+    """Mapping-ordered raw target data retained as address-major arrays."""
 
     mapped_target: _MappedListModeTarget
-    frames: tuple[DigitizerFrame, ...]
+    results: DigitizerResultBatch
 
 
 def correlate_list_mode_run(
     mapped_target: _MappedListModeTarget,
     target_run: ListModeRun,
 ) -> CorrelatedListModeRun:
-    """Correlate one raw device run without interpreting values."""
+    """Validate and reorder one raw result batch without expanding shots."""
 
-    mapping = mapped_target.mapping
     artifact = mapped_target.artifact
     if target_run.artifact != artifact:
-        msg = "list-mode run does not retain the compiled target artifact"
-        raise ValueError(msg)
-
-    raw_by_address_shot = {
-        (frame.address, frame.shot_index): frame for frame in target_run.frames
-    }
-    if len(raw_by_address_shot) != len(target_run.frames):
-        msg = "list-mode run contains duplicate acquisition-address shots"
-        raise ValueError(msg)
-    expected_keys = {
-        (result.result_address, shot_index)
-        for result in mapping.results
-        for shot_index in range(artifact.repetitions)
-    }
-    if set(raw_by_address_shot) != expected_keys:
-        msg = (
-            "list-mode frames must exactly cover every mapped acquisition for "
-            "every shot"
-        )
-        raise ValueError(msg)
-
-    correlated_frames = tuple(
-        raw_by_address_shot[(result.result_address, shot_index)]
-        for result in mapping.results
-        for shot_index in range(artifact.repetitions)
+        raise ValueError("list-mode run does not retain the compiled target artifact")
+    expected_addresses = tuple(
+        result.result_address for result in mapped_target.mapping.results
     )
+    if set(target_run.results.addresses) != set(expected_addresses):
+        raise ValueError(
+            "list-mode result rows must exactly cover every mapped acquisition"
+        )
+    if target_run.results.values.shape[1] != artifact.repetitions:
+        raise ValueError("list-mode result shot count does not match the artifact")
     return CorrelatedListModeRun(
-        mapped_target,
-        correlated_frames,
+        mapped_target=mapped_target,
+        results=target_run.results.select(expected_addresses),
     )
 
 
 def realize_measurements(
     correlated_run: CorrelatedListModeRun,
 ) -> tuple[DomainResultValue[TargetAcquisitionAddress], ...]:
-    """Project one correlated run to canonical integrated-IQ values."""
+    """Project address rows directly to integrated-IQ measurement arrays."""
 
     return tuple(
         DomainResultValue(
             result.result_address,
             _realize_integrated_iq_value(
-                _frames_for_result_address(correlated_run, result.result_address),
+                cast(
+                    "NDArray[np.complex128]",
+                    correlated_run.results.values[row_index],
+                ),
+                cast(
+                    "NDArray[np.bool_]",
+                    correlated_run.results.available[row_index],
+                ),
             ),
         )
-        for result in correlated_run.mapped_target.mapping.results
-    )
-
-
-def _frames_for_result_address(
-    correlated_run: CorrelatedListModeRun,
-    result_address: TargetAcquisitionAddress,
-) -> tuple[DigitizerFrame, ...]:
-    return tuple(
-        frame for frame in correlated_run.frames if frame.address == result_address
+        for row_index, result in enumerate(correlated_run.mapped_target.mapping.results)
     )
 
 
 def _realize_integrated_iq_value(
-    frames: tuple[DigitizerFrame, ...],
+    values: NDArray[np.complex128],
+    available: NDArray[np.bool_],
 ) -> MeasurementValue:
-    if all(frame.value is None for frame in frames):
+    if not np.any(available):
         return MeasurementUnavailable.create(
             dtype="complex128",
             unit=_RESPONSE_UNIT,
-            shape=(len(frames),),
+            shape=(len(values),),
             reason="missing",
             metadata={"source": "virtual-demodulator", "detail": "no lock"},
         )
-    if any(frame.value is None for frame in frames):
+    if not np.all(available):
         raise ValueError(
             "one acquisition result cannot mix available and missing shots"
         )
     return MeasurementArray.create(
         dtype="complex128",
         unit=_RESPONSE_UNIT,
-        values=np.asarray(
-            [frame.value for frame in frames],
-            dtype=np.complex128,
-        ),
+        values=values,
     )
 
 

@@ -14,11 +14,15 @@ from scopecat.config.registry.records import (
     ConfigRegistryEntry,
 )
 from scopecat.control.models import (
+    AdaptiveRegionSpec,
     ControlRunState,
+    PointCoordinateSpec,
+    PointCoordinateValue,
     ResourceOwnerKind,
     RunResourceRequirement,
 )
 from scopecat.daemon.health import DaemonHealth
+from scopecat.daemon.points import RunPointPlanView
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import Problem
 from scopecat.measurements.datasets import (
@@ -154,10 +158,24 @@ class RunPlanView(_ViewModel):
 
     experiment_id: str = Field(min_length=1)
     experiment_kind: str = Field(min_length=1)
-    point_count: int = Field(ge=0)
-    coordinate_ids: tuple[str, ...] = ()
+    point_count: int | None = Field(default=None, ge=0)
+    initial_point_count: int = Field(ge=0)
+    point_limit: int = Field(ge=0)
+    adaptive_coordinate_ids: tuple[str, ...] = ()
+    adaptive_scope: Literal["per_region", "global"] | None = None
+    per_region_point_limit: int | None = Field(default=None, ge=1)
+    adaptive_region_count: int = Field(default=0, ge=0)
+    adaptive_regions: tuple[AdaptiveRegionSpec, ...] = ()
+    adaptive_regions_truncated: bool = False
+    coordinates: tuple[PointCoordinateSpec, ...] = ()
+    sampled_points: tuple[dict[str, PointCoordinateValue], ...] = ()
+    sampled_points_truncated: bool = False
     record_ids: tuple[str, ...] = ()
     run_resource_requirements: tuple[RunResourceRequirement, ...] = ()
+
+    @property
+    def coordinate_ids(self) -> tuple[str, ...]:
+        return tuple(spec.id for spec in self.coordinates)
 
 
 class RunAdmissionView(_ViewModel):
@@ -178,6 +196,8 @@ class RunControlView(_ViewModel):
     updated_at: datetime
     attention_reason: str | None = None
     cancellation_requested_at: datetime | None = None
+    completed_point_count: int = Field(ge=0)
+    point_plan: RunPointPlanView
 
     @property
     def run_id(self) -> str:
@@ -221,6 +241,7 @@ class RunDomainExecutionView(_ViewModel):
     target_id: str = Field(min_length=1)
     compiler_id: str = Field(min_length=1)
     artifact_id: str = Field(min_length=1)
+    artifact_fingerprint: str = Field(min_length=1)
     state: Literal["started", "completed", "failed", "unknown"]
     execution_summary: dict[str, JsonValue]
     receipt_status: Literal["completed", "not_executed", "unknown"] | None = None

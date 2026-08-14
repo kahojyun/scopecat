@@ -10,9 +10,24 @@ from pydantic import BaseModel
 from scopecat_testkit.workflow_fixtures import load_config
 
 import scopecat.daemon.execution as daemon_execution
-from scopecat.control.models import RunPlanSummary
+from scopecat.adaptive_domains import DomainProposalAttempt, ResolvedDomainFragment
+from scopecat.control.models import (
+    AdaptiveRegionSpec,
+    PointCoordinateSpec,
+    RunPlanSummary,
+)
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.execution import daemon_execution_session
+from scopecat.daemon.points import (
+    RunDomainDecisionCommand,
+    RunDomainDecisionView,
+    RunPointPlanCloseCommand,
+    RunPointPlanView,
+)
+from scopecat.daemon.reviews import (
+    RunInspectionAppendCommand,
+    RunInspectionView,
+)
 from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
     ExecutionTransitionClaim,
@@ -21,7 +36,6 @@ from scopecat.daemon.wire import (
     MeasurementFlushCommand,
     MeasurementFlushReceipt,
     MeasurementHeaderCommand,
-    MeasurementIngestCommand,
     MeasurementIngestReceipt,
     MeasurementSealCommand,
     RunAdmission,
@@ -34,9 +48,13 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
+from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import StateValue
+from scopecat.measurements.recording_arrow import decode_measurement_append
+from scopecat.optimization import DomainProposalDecision, DomainProposalSummary
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import (
     ExecutionTransition,
@@ -49,6 +67,7 @@ from scopecat.records.measurement import (
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
+    MeasurementVariable,
 )
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
@@ -82,7 +101,25 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
         plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
-            point_count=1,
+            point_count=None,
+            initial_point_count=1,
+            point_limit=3,
+            adaptive_coordinate_ids=("frequency",),
+            adaptive_scope="per_region",
+            adaptive_region_count=1,
+            adaptive_regions=(
+                AdaptiveRegionSpec(
+                    id="region-0", coordinates={}, initial_point_count=1
+                ),
+            ),
+            coordinates=(
+                PointCoordinateSpec(
+                    id="frequency",
+                    kind="quantity",
+                    dimension="frequency",
+                    unit="GHz",
+                ),
+            ),
         ),
     )
     admission = RunAdmission(
@@ -109,6 +146,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     hardware_sequences: list[int] = []
     coverage_ranges: list[tuple[int, int]] = []
     measurement_ingest_ranges: list[tuple[int, int]] = []
+    inspection_commands: list[RunInspectionAppendCommand] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
@@ -147,6 +185,43 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                     completed_point_count=command.start_index + command.point_count,
                 )
             )
+        if path.endswith("/point-plan/queue/next") and request.method == "GET":
+            return httpx2.Response(200, content=b"null")
+        if path.endswith("/point-plan/decisions"):
+            command = RunDomainDecisionCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            return _model(
+                RunDomainDecisionView(
+                    operation_id=command.operation_id,
+                    proposal_index=0,
+                    occurred_at=_NOW,
+                    proposal=command.proposal,
+                    outcome="accepted",
+                    accepted_point_start=command.accepted_points[0].point_index,
+                    accepted_point_count=len(command.accepted_points),
+                )
+            )
+        if path.endswith("/point-plan/close"):
+            command = RunPointPlanCloseCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            return _model(
+                RunPointPlanView(
+                    run_id="run-1",
+                    initial_point_count=1,
+                    accepted_point_count=2,
+                    point_limit=3,
+                    decision_count=1,
+                    optimizer_attempt_count=1,
+                    operator_request_count=0,
+                    plan_closed=True,
+                    stop_reason=command.reason,
+                )
+            )
+        if path.endswith("/inspections"):
+            command = RunInspectionAppendCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            inspection_commands.append(command)
+            return _model(RunInspectionView(run_id="run-1", items=(command.event,)))
         if path.endswith("/hardware/finish"):
             command = RunHardwareFinishCommand.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
@@ -167,10 +242,16 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
             transition_commands.append(command)
             return _model(committed_transition)
         if path.endswith("/measurements/ingest"):
-            command = MeasurementIngestCommand.model_validate_json(request.content)
-            _remember_fence(fences, "run-1", command)
+            assert request.headers["content-type"] == (
+                "application/vnd.apache.arrow.file"
+            )
+            fences.append(("run-1", request.headers["x-scopecat-lease-id"]))
+            decoded = decode_measurement_append(
+                request.content,
+                header.dataset_schema,
+            )
             measurement_ingest_ranges.append(
-                (command.batch.start_index, len(command.batch.records))
+                (decoded.start_index, len(decoded.records))
             )
             return _model(
                 MeasurementIngestReceipt(
@@ -225,13 +306,16 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     measurements = session.measurements
     instruments = session.instruments
     coverage = session.coverage
+    domain_proposals = session.domain_proposals
     assert coverage is not None
+    assert domain_proposals is not None
     assert instruments.observed_state == (
         InstrumentStateSnapshot(instrument_id="source-0"),
     )
     assert instruments.baseline_state == (
         InstrumentStateSnapshot(instrument_id="source-0"),
     )
+    assert domain_proposals.next_queued() is None
 
     batch = RunHardwareBatch(
         operation_id="hardware.batch-1",
@@ -255,6 +339,36 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     coverage.advance(start_index=0, point_count=1)
     coverage.advance(start_index=1, point_count=2)
     coverage.flush()
+    proposal = DomainProposalAttempt(
+        ResolvedDomainFragment.points(({"frequency": Quantity(5.2, "GHz")},)),
+        region_ids=("region-0",),
+        source="optimizer",
+        based_on_region_revisions={"region-0": 1},
+    )
+    candidate = PointProposalAttempt(
+        {"frequency": Quantity(5.2, "GHz")},
+        source="optimizer",
+        region_id="region-0",
+        domain_proposal_fingerprint=proposal.proposal_fingerprint,
+        based_on_region_revision=1,
+    )
+    accepted_point = AcceptedRunPoint.accept(
+        candidate,
+        logical_id=LogicalPointId(PointDomainId("scratch", "points"), 1),
+    )
+    domain_proposals.append(
+        proposal,
+        DomainProposalDecision(
+            proposal_index=0,
+            proposal=DomainProposalSummary.from_proposal(proposal),
+            outcome="accepted",
+            accepted_point_start=accepted_point.ordinal,
+            accepted_point_count=1,
+        ),
+        (accepted_point,),
+        (),
+    )
+    domain_proposals.close(completed_point_count=2, reason="test complete")
     assert (
         instruments.finish(operation_id="hardware.finish", failed=False).operation_id
         == "hardware.finish"
@@ -329,6 +443,8 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     ]
     assert hardware_sequences == [0]
     assert coverage_ranges == [(0, 1), (1, 2)]
+    assert inspection_commands[0].event.accepted_point_start == 1
+    assert inspection_commands[0].event.accepted_point_count == 1
 
 
 def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> None:
@@ -340,6 +456,8 @@ def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> N
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
+            initial_point_count=1,
+            point_limit=1,
         ),
     )
     admission = RunAdmission(
@@ -384,6 +502,8 @@ def test_initial_lease_cancellation_skips_remote_provisioning() -> None:
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=0,
+            initial_point_count=0,
+            point_limit=0,
         ),
     )
     admission = RunAdmission(
@@ -498,8 +618,18 @@ def _measurement_header() -> MeasurementDatasetHeader:
             dataset_id="raw-measurements",
             point_domain=MeasurementProductGridPointDomain(axes=[]),
             dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
+            variables=[
+                MeasurementVariable(
+                    id="signal",
+                    role="observable",
+                    dtype="float64",
+                    unit="ratio",
+                    dims=["point"],
+                )
+            ],
         ),
         expected_record_count=1,
+        record_count_limit=1,
     )
 
 
@@ -543,7 +673,7 @@ def _measurement_seal(
         point_count=1,
         dataset_content_hash=measurement_dataset_content_hash(
             header_content_hash=header.content_hash,
-            append_content_hashes=(append.content_hash,),
+            record_content_hashes=append.record_content_hashes,
         ),
     )
 

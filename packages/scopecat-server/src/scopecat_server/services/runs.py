@@ -20,6 +20,7 @@ from scopecat.control.models import (
     EventPage,
     RunResourceRequirement,
 )
+from scopecat.daemon.points import RunPointPlanView
 from scopecat.daemon.views import (
     MeasurementArrowQuery,
     MeasurementLivePreview,
@@ -79,6 +80,7 @@ from scopecat.records.measurement import (
     MeasurementProductGridPointDomain,
     MeasurementRecord,
 )
+from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.runs.access import list_records
 from scopecat.runs.attachments import attach_run_artifact
 from scopecat.runs.data import (
@@ -104,11 +106,13 @@ from scopecat_server.storage.sqlite.control_plane import (
 from scopecat_server.storage.sqlite.execution import (
     SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
+    SQLiteRunCoverage,
 )
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
 from .active_measurements import ActiveMeasurementStore
+from .point_plans import RunPointPlanService
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -182,7 +186,12 @@ def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
     )
 
 
-def _run_control_view(control: ControlRun) -> RunControlView:
+def _run_control_view(
+    control: ControlRun,
+    *,
+    completed_point_count: int,
+    point_plan: RunPointPlanView,
+) -> RunControlView:
     plan = control.admission.plan
     return RunControlView(
         sequence=control.sequence,
@@ -196,7 +205,17 @@ def _run_control_view(control: ControlRun) -> RunControlView:
                 experiment_id=plan.experiment_id,
                 experiment_kind=plan.experiment_kind,
                 point_count=plan.point_count,
-                coordinate_ids=plan.coordinate_ids,
+                initial_point_count=plan.initial_point_count,
+                point_limit=plan.point_limit,
+                adaptive_coordinate_ids=plan.adaptive_coordinate_ids,
+                adaptive_scope=plan.adaptive_scope,
+                per_region_point_limit=plan.per_region_point_limit,
+                adaptive_region_count=plan.adaptive_region_count,
+                adaptive_regions=plan.adaptive_regions,
+                adaptive_regions_truncated=plan.adaptive_regions_truncated,
+                coordinates=plan.coordinates,
+                sampled_points=plan.sampled_points,
+                sampled_points_truncated=plan.sampled_points_truncated,
                 record_ids=plan.record_ids,
                 run_resource_requirements=tuple(
                     RunResourceRequirement(kind=resource.kind, id=resource.id)
@@ -208,6 +227,8 @@ def _run_control_view(control: ControlRun) -> RunControlView:
         updated_at=control.updated_at,
         attention_reason=control.attention_reason,
         cancellation_requested_at=control.cancellation_requested_at,
+        completed_point_count=completed_point_count,
+        point_plan=point_plan,
     )
 
 
@@ -221,11 +242,13 @@ class RunService:
         runs: SQLiteRunRepository,
         services: ProjectStateServices,
         active_measurements: ActiveMeasurementStore,
+        point_plans: RunPointPlanService,
     ) -> None:
         self._control = control
         self._runs = runs
         self._services = services
         self._active_measurements = active_measurements
+        self._point_plans = point_plans
 
     def list_runs(
         self,
@@ -244,7 +267,17 @@ class RunService:
             return RunSummaryPage(
                 items=tuple(
                     RunSummary(
-                        control=_run_control_view(control),
+                        control=_run_control_view(
+                            control,
+                            completed_point_count=SQLiteRunCoverage(
+                                self._runs,
+                                run_id=control.run_id,
+                            ).read_in_transaction(connection),
+                            point_plan=self._point_plans.read_in_transaction(
+                                connection,
+                                control.run_id,
+                            ),
+                        ),
                         manifest=self._runs.read_manifest_in_transaction(
                             connection,
                             control.run_id,
@@ -276,6 +309,14 @@ class RunService:
                         self._runs,
                         run_id=run_id,
                     ).list_in_transaction(connection)
+                )
+                completed_point_count = SQLiteRunCoverage(
+                    self._runs,
+                    run_id=run_id,
+                ).read_in_transaction(connection)
+                point_plan = self._point_plans.read_in_transaction(
+                    connection,
+                    run_id,
                 )
         except ControlPlaneNotFound as error:
             raise BackendNotFound(str(error)) from error
@@ -310,7 +351,11 @@ class RunService:
             )
         )
         return RunDetail(
-            control=_run_control_view(control),
+            control=_run_control_view(
+                control,
+                completed_point_count=completed_point_count,
+                point_plan=point_plan,
+            ),
             manifest=manifest,
             resources=resources,
             domain_executions=domain_executions,
@@ -681,6 +726,36 @@ class RunService:
             after_record_count=after_record_count,
         )
 
+    def measurement_live_arrow(
+        self,
+        run_id: str,
+        *,
+        after_record_count: int | None,
+    ) -> tuple[MeasurementLivePreview, bytes]:
+        """Encode only a newly received latest record as Arrow IPC."""
+
+        from scopecat.measurements.recording_arrow import encode_measurement_append
+
+        with self._config_errors():
+            self._runs.read_manifest(run_id)
+        preview, header = self._active_measurements.snapshot(
+            run_id,
+            after_record_count=after_record_count,
+        )
+        latest = preview.latest
+        if latest is None or header is None:
+            return preview, b""
+        append = MeasurementDatasetAppend(
+            run_id=run_id,
+            header_content_hash=header.content_hash,
+            start_index=latest.point_index,
+            records=(latest,),
+        )
+        return preview, encode_measurement_append(
+            append,
+            header.dataset_schema,
+        )
+
     def measurement_slice(
         self,
         run_id: str,
@@ -739,6 +814,8 @@ class RunService:
             schema = repository.measurement_schema()
         if schema is None:
             raise BackendConflict("measurement dataset has no registered schema")
+        with self._config_errors():
+            available_point_count = repository.measurement_record_count()
         series_read_limit = min(query.max_series, query.max_samples // 2)
         selection_offset = 0
         selected_series_count = 0
@@ -753,6 +830,7 @@ class RunService:
                     query.fixed_axis_indices,
                     offset=selection_offset,
                     limit=remaining_series,
+                    available_point_count=available_point_count,
                 )
             except ValueError as error:
                 raise BackendConflict(str(error)) from error
@@ -873,6 +951,7 @@ def _domain_execution_views(
                     target_id=intent.target_id,
                     compiler_id=intent.compiler_id,
                     artifact_id=intent.artifact_id,
+                    artifact_fingerprint=intent.artifact_fingerprint,
                     state="started",
                     execution_summary=intent.execution_summary,
                     started_at=transition.timestamp,
@@ -917,6 +996,7 @@ def _trace_preview_point_indices(
     *,
     offset: int,
     limit: int,
+    available_point_count: int,
 ) -> tuple[tuple[int, ...], int]:
     domain = schema.point_domain
     if isinstance(domain, MeasurementProductGridPointDomain):
@@ -931,10 +1011,12 @@ def _trace_preview_point_indices(
     point_dimension = next(
         dimension for dimension in schema.dimensions if dimension.id == "point"
     )
-    assert point_dimension.size is not None
+    point_count = (
+        available_point_count if point_dimension.size is None else point_dimension.size
+    )
     return (
-        tuple(range(offset, min(point_dimension.size, offset + limit))),
-        point_dimension.size,
+        tuple(range(offset, min(point_count, offset + limit))),
+        point_count,
     )
 
 

@@ -259,7 +259,9 @@ The canonical schema is registered before the first append, so the GUI can
 render live and empty datasets without guessing from JSON values. Roles,
 dimensions, recording groups, labels, units, dtype, and point-domain layout
 determine safe table, scalar, trace, scatter, and product-grid views. Complex
-values expose magnitude, phase, real, and imaginary modes.
+values expose magnitude, phase, real, and imaginary modes. During execution,
+the newest received point reaches the browser as Arrow IPC; large traces do not
+take a JSON-array detour before rendering.
 
 Automatic plots request bounded projections and label incomplete live surfaces.
 When no safe automatic visual exists, the typed table remains available. Exact

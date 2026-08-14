@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from scopecat.compiler.frontend.elaboration import (
     compose_experiment,
@@ -32,6 +32,7 @@ from scopecat.kernel.value_type_compatibility import (
     describe_value_type,
     is_assignable,
 )
+from scopecat.optimization import AdaptiveDomainPlan
 from scopecat.program.definitions import ExperimentInvocation
 from scopecat.program.logical import LogicalProgram
 from scopecat.program.point_domain import analyze_point_domain
@@ -45,6 +46,7 @@ from scopecat.program.scans import (
 )
 from scopecat.program.value_refs import ValueRef
 from scopecat.records.run_request import (
+    AdaptiveDomainPlanRecord,
     GridDomainRecord,
     PointPlanRecord,
     RunRequest,
@@ -57,6 +59,10 @@ class CompiledInvocation:
 
     program: VerifiedLogicalProgram
     request: RunRequest
+    adaptive_domain_plan: AdaptiveDomainPlan | None = field(
+        default=None,
+        repr=False,
+    )
 
 
 def compile_invocation(
@@ -112,6 +118,7 @@ def compile_invocation(
     return CompiledInvocation(
         program=verify_logical_program(logical),
         request=request,
+        adaptive_domain_plan=invocation.adaptive_domain_plan,
     )
 
 
@@ -209,6 +216,23 @@ def _materialized_request(
                 repeat=point_plan.repeat,
                 repeat_mode=point_plan.repeat_mode,
                 traversal=point_plan.traversal,
+            ),
+            "adaptive_domain_plan": (
+                None
+                if invocation.adaptive_domain_plan is None
+                else AdaptiveDomainPlanRecord(
+                    optimizer_id=invocation.adaptive_domain_plan.optimizer_id,
+                    total_point_limit=(
+                        invocation.adaptive_domain_plan.total_point_limit
+                    ),
+                    adaptive_coordinate_ids=(
+                        invocation.adaptive_domain_plan.adaptive_coordinate_ids
+                    ),
+                    scope=invocation.adaptive_domain_plan.scope,
+                    per_region_point_limit=(
+                        invocation.adaptive_domain_plan.per_region_point_limit
+                    ),
+                )
             ),
             "operator": operator,
             "metadata": dict(metadata or {}),

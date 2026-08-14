@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import pytest
 
+from scopecat.adaptive_domains import DomainProposalAttempt
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Int, Scalar
+from scopecat.optimization import DomainOptimizerContext, OptimizationComplete
 from scopecat.program.definitions import (
     ExperimentDef,
     ExperimentInvocation,
@@ -21,6 +23,17 @@ from scopecat.program.scans import (
 from scopecat.program.values import coordinate, input
 
 _INT = Scalar(Int())
+
+
+class _Optimizer:
+    id = "test.optimizer"
+
+    def propose(
+        self,
+        context: DomainOptimizerContext,
+    ) -> DomainProposalAttempt | OptimizationComplete:
+        del context
+        return OptimizationComplete()
 
 
 def _axis(id: str, *values: int) -> AxisSpec:
@@ -102,6 +115,25 @@ def test_point_cloud_rejects_incremental_grid_edits() -> None:
         invocation.with_axis(_axis("y", 2))
     with pytest.raises(TypeError, match="point clouds"):
         invocation.without_axis(x)
+
+
+def test_adaptive_policy_is_orthogonal_to_initial_point_edits() -> None:
+    optimizer = _Optimizer()
+    invocation = ExperimentInvocation(_definition(), output=None).adaptive(
+        optimizer,
+        max_points=7,
+    )
+
+    edited = invocation.grid(_axis("x", 1, 2)).with_repeat(2)
+
+    assert edited.point_plan == PointPlan(
+        GridSpec((_axis("x", 1, 2),)),
+        repeat=2,
+    )
+    assert edited.adaptive_domain_plan is not None
+    assert edited.adaptive_domain_plan.optimizer is optimizer
+    assert edited.adaptive_domain_plan.total_point_limit == 7
+    assert edited.without_adaptation().adaptive_domain_plan is None
 
 
 def test_definition_verification_discovers_inputs_from_point_plan_axes() -> None:

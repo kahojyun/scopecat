@@ -17,6 +17,13 @@ from scopecat.control.models import (
 from scopecat.control.models import (
     ExecutorLease as ControlExecutorLease,
 )
+from scopecat.daemon.points import (
+    RunDomainDecisionCommand,
+    RunDomainDecisionView,
+    RunPointPlanCloseCommand,
+    RunPointPlanView,
+)
+from scopecat.daemon.reviews import RunInspectionAppendCommand, RunInspectionView
 from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
     ExecutionTransitionClaim,
@@ -26,7 +33,6 @@ from scopecat.daemon.wire import (
     MeasurementFlushCommand,
     MeasurementFlushReceipt,
     MeasurementHeaderCommand,
-    MeasurementIngestCommand,
     MeasurementIngestReceipt,
     MeasurementSealCommand,
     RunCancellationReceipt,
@@ -64,6 +70,8 @@ from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
 from .active_measurements import ActiveMeasurementConflict, ActiveMeasurementStore
+from .point_plans import RunPointPlanService
+from .reviews import RunInspectionFeedService
 
 if TYPE_CHECKING:
     from ..instruments.service import InstrumentService
@@ -83,12 +91,16 @@ class ExecutorService:
         runs: SQLiteRunRepository,
         instruments: InstrumentService,
         active_measurements: ActiveMeasurementStore,
+        run_inspections: RunInspectionFeedService,
+        point_plans: RunPointPlanService,
         lease_ttl: timedelta | None = None,
     ) -> None:
         self._control = control
         self._runs = runs
         self._instruments = instruments
         self._active_measurements = active_measurements
+        self._run_inspections = run_inspections
+        self._point_plans = point_plans
         self._lease_ttl = lease_ttl or timedelta(seconds=30)
         self._heartbeat_interval_seconds = self._lease_ttl.total_seconds() / 3
         self._measurement_repositories: dict[
@@ -147,7 +159,7 @@ class ExecutorService:
         with self.fenced_write(run_id, token=command.lease_id) as connection:
             run = self._control.get_run_in_transaction(connection, run_id)
             end_index = command.start_index + command.point_count
-            if end_index > run.admission.plan.point_count:
+            if end_index > run.admission.plan.point_limit:
                 raise ExecutionJournalConflict(
                     "coverage range exceeds the admitted point count"
                 )
@@ -160,6 +172,41 @@ class ExecutorService:
             run_id=run_id,
             completed_point_count=completed,
         )
+
+    def append_run_domain_decision(
+        self,
+        run_id: str,
+        command: RunDomainDecisionCommand,
+    ) -> RunDomainDecisionView:
+        with self.fenced_write(run_id, token=command.lease_id) as connection:
+            return self._point_plans.append_decision_in_transaction(
+                connection,
+                run_id,
+                command,
+            )
+
+    def close_run_point_plan(
+        self,
+        run_id: str,
+        command: RunPointPlanCloseCommand,
+    ) -> RunPointPlanView:
+        coverage = SQLiteRunCoverage(self._runs, run_id=run_id)
+        with self.fenced_write(run_id, token=command.lease_id) as connection:
+            completed = coverage.read_in_transaction(connection)
+            return self._point_plans.close_in_transaction(
+                connection,
+                run_id,
+                command,
+                completed_point_count=completed,
+            )
+
+    def append_run_inspection(
+        self,
+        run_id: str,
+        command: RunInspectionAppendCommand,
+    ) -> RunInspectionView:
+        with self.fenced_write(run_id, token=command.lease_id):
+            return self._run_inspections.append(run_id, command.event)
 
     def cancel_run(self, run_id: str) -> RunCancellationReceipt:
         """Cancel queued work now or request a leased executor checkpoint stop."""
@@ -202,6 +249,12 @@ class ExecutorService:
                         status="cancel_requested",
                         cancellation_requested_at=current.cancellation_requested_at,
                     )
+                self._point_plans.abandon_in_transaction(
+                    connection,
+                    run_id,
+                    operation_id="point-plan.terminal.cancelled",
+                    reason="run cancelled",
+                )
                 manifest = self._runs.commit_prepared_terminal_in_transaction(
                     connection,
                     prepared,
@@ -251,18 +304,35 @@ class ExecutorService:
     def ingest_measurements(
         self,
         run_id: str,
-        command: MeasurementIngestCommand,
+        *,
+        lease_id: str,
+        content: bytes,
     ) -> MeasurementIngestReceipt:
-        self.fence_executor(run_id, command.lease_id)
+        from scopecat.measurements.recording_arrow import (
+            MeasurementArrowCodecError,
+            decode_measurement_append,
+        )
+
+        self.fence_executor(run_id, lease_id)
         try:
-            self._active_measurements.ingest(command.batch)
+            dataset_schema = self._measurement_repository(run_id).measurement_schema()
+            if dataset_schema is None:
+                raise ActiveMeasurementConflict(
+                    "measurement ingest requires a registered dataset schema"
+                )
+            append = decode_measurement_append(content, dataset_schema)
+            if append.run_id != run_id:
+                raise ActiveMeasurementConflict(
+                    "measurement ingest run id does not match its route"
+                )
+            self._active_measurements.ingest(append)
             receipts = self._flush_measurements(
                 run_id,
-                token=command.lease_id,
+                token=lease_id,
                 force=False,
             )
             preview = self._active_measurements.preview(run_id)
-        except ActiveMeasurementConflict as error:
+        except (ActiveMeasurementConflict, MeasurementArrowCodecError) as error:
             raise BackendConflict(str(error)) from error
         return MeasurementIngestReceipt(
             run_id=run_id,
@@ -311,9 +381,12 @@ class ExecutorService:
             token=command.lease_id,
         ) as connection:
             run = self._control.get_run_in_transaction(connection, run_id)
-            if command.header.expected_record_count != run.admission.plan.point_count:
+            if (
+                command.header.expected_record_count != run.admission.plan.point_count
+                or command.header.record_count_limit != run.admission.plan.point_limit
+            ):
                 raise ExecutionJournalConflict(
-                    "measurement point count differs from the admitted run plan"
+                    "measurement point extent differs from the admitted run plan"
                 )
             receipt, created = repository.header_prepared_in_transaction(
                 connection,
@@ -453,7 +526,14 @@ class ExecutorService:
             self._instruments.release_run(run_id)
             self._measurement_repositories.pop(run_id, None)
             self._active_measurements.clear(run_id)
+            self._run_inspections.mark_inactive(run_id)
             return manifest
+        if commit.outcome.result == "succeeded":
+            with self._runs.sqlite.read_transaction() as connection:
+                self._validate_successful_point_progress_in_transaction(
+                    connection,
+                    control_run,
+                )
         self._instruments.finalize_run(
             run_id,
             token=command.lease_id,
@@ -475,7 +555,31 @@ class ExecutorService:
         self._instruments.release_run(run_id)
         self._measurement_repositories.pop(run_id, None)
         self._active_measurements.clear(run_id)
+        self._run_inspections.mark_inactive(run_id)
         return manifest
+
+    def reconcile_volatile_state(self) -> None:
+        """Release measurement state whose executor can no longer write."""
+
+        for run_id in self._active_measurements.run_ids():
+            try:
+                run = self._control.get_run(run_id)
+            except ControlPlaneNotFound:
+                self._discard_measurement_state(run_id)
+                continue
+            if run.state != "leased":
+                self._discard_measurement_state(run_id)
+
+    def close(self) -> None:
+        """Release all process-local executor state during daemon shutdown."""
+
+        self._measurement_repositories.clear()
+        self._active_measurements.clear_all()
+
+    def _discard_measurement_state(self, run_id: str) -> None:
+        self._measurement_repositories.pop(run_id, None)
+        self._active_measurements.clear(run_id)
+        self._run_inspections.mark_inactive(run_id)
 
     def _start_execution(
         self,
@@ -606,6 +710,18 @@ class ExecutorService:
         ) as connection:
             control = self._control.get_run_in_transaction(connection, run_id)
             commit = _honor_cancellation(control, commit)
+            if commit.outcome.result == "succeeded":
+                self._validate_successful_point_progress_in_transaction(
+                    connection,
+                    control,
+                )
+            else:
+                self._point_plans.abandon_in_transaction(
+                    connection,
+                    run_id,
+                    operation_id=f"point-plan.terminal.{commit.outcome.result}",
+                    reason=f"run {commit.outcome.result}",
+                )
             prepared = replace(prepared, commit=commit)
             manifest = self._runs.commit_prepared_terminal_in_transaction(
                 connection,
@@ -617,6 +733,37 @@ class ExecutorService:
                 executor_token=token,
             )
             return manifest
+
+    def _validate_successful_point_progress_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        control: ControlRun,
+    ) -> None:
+        run_id = control.run_id
+        completed = SQLiteRunCoverage(
+            self._runs,
+            run_id=run_id,
+        ).read_in_transaction(connection)
+        admitted = control.admission.plan
+        if completed < admitted.initial_point_count or completed > admitted.point_limit:
+            raise BackendConflict(
+                "successful run coverage does not match its admitted point extent"
+            )
+        if admitted.point_count is not None:
+            if completed != admitted.point_count:
+                raise BackendConflict(
+                    "successful run coverage does not match its admitted point extent"
+                )
+            return
+        point_plan = self._point_plans.read_in_transaction(connection, run_id)
+        if not point_plan.plan_closed:
+            raise BackendConflict(
+                "successful adaptive run requires a closed durable point plan"
+            )
+        if completed != point_plan.accepted_point_count:
+            raise BackendConflict(
+                "successful adaptive run coverage does not match its accepted prefix"
+            )
 
 
 def _matches_terminal_intent(

@@ -2,34 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 
-from scopecat.kernel.point_identity import LogicalPointId, PointDomainLayout
+from scopecat.kernel.point_identity import PointDomainLayout
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import TableColumn
 from scopecat.program.point_domain import PointAxes, point_axis_size
-
-
-@dataclass(frozen=True, slots=True)
-class RunPoint:
-    """One closed logical point retained by the executable program."""
-
-    logical_id: LogicalPointId
-    coordinates: Mapping[str, CellValue]
-
-    @property
-    def ordinal(self) -> int:
-        return self.logical_id.logical_ordinal
-
-    @property
-    def logical_ordinal(self) -> int:
-        return self.ordinal
-
-    @property
-    def row(self) -> Mapping[str, CellValue]:
-        return self.coordinates
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,14 +18,23 @@ class RunPointContract:
 
     experiment_id: str
     experiment_kind: str
-    point_count: int
+    point_count: int | None
+    point_limit: int
     coordinate_columns: tuple[TableColumn, ...]
     domain_layout: PointDomainLayout = "product_grid"
     domain_axes: PointAxes[Quantity] = ()
 
     def __post_init__(self) -> None:
-        if self.point_count < 0:
+        if self.point_count is not None and self.point_count < 0:
             raise ValueError("run point count must be non-negative")
+        if self.point_limit < 0:
+            raise ValueError("run point limit must be non-negative")
+        if self.point_count is not None and self.point_count > self.point_limit:
+            raise ValueError("run point count cannot exceed its limit")
+
+    @property
+    def open_length(self) -> bool:
+        return self.point_count is None
 
     @property
     def coordinate_ids(self) -> tuple[str, ...]:
@@ -63,7 +52,7 @@ class RunPointCatalog:
     """Run-owned point inventory, which may project a subset of the full contract."""
 
     contract: RunPointContract
-    points: Sequence[RunPoint]
+    points: Sequence[AcceptedRunPoint]
 
     @property
     def experiment_id(self) -> str:
@@ -78,4 +67,7 @@ class RunPointCatalog:
         return self.contract.coordinate_ids
 
 
-__all__ = ["RunPoint", "RunPointCatalog", "RunPointContract"]
+__all__ = [
+    "RunPointCatalog",
+    "RunPointContract",
+]

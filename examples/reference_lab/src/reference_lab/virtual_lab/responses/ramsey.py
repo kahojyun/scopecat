@@ -8,12 +8,14 @@ import math
 from dataclasses import dataclass, field
 from typing import override
 
+import numpy as np
+from numpy.typing import NDArray
+from scopecat_quantum._ids import TargetCompileEntryId
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from reference_lab.targets.list_mode.execution_model import (
     AcquisitionResponse,
-    AwgPlayback,
-    DigitizerValue,
+    DigitizerValueBlock,
 )
 from reference_lab.targets.list_mode.model import (
     DigitizerAcquisitionWindow,
@@ -36,7 +38,7 @@ class RamseyAcquisitionResponse(AcquisitionResponse):
 
     points: tuple[RamseyResponsePoint, ...]
     shots: int
-    _state_one_shots: dict[TargetAcquisitionAddress, frozenset[int]] = field(
+    _state_one_shots: dict[TargetAcquisitionAddress, NDArray[np.bool_]] = field(
         init=False,
         repr=False,
         compare=False,
@@ -64,7 +66,7 @@ class RamseyAcquisitionResponse(AcquisitionResponse):
             ],
         }
         fingerprint = canonical_fingerprint(payload)
-        selected: dict[TargetAcquisitionAddress, frozenset[int]] = {}
+        selected: dict[TargetAcquisitionAddress, NDArray[np.bool_]] = {}
         for point in self.points:
             if not point.available:
                 continue
@@ -74,7 +76,10 @@ class RamseyAcquisitionResponse(AcquisitionResponse):
                 range(self.shots),
                 key=lambda shot: _digest(fingerprint, point.address, shot),
             )
-            selected[point.address] = frozenset(ranked[:count])
+            state_one = np.zeros(self.shots, dtype=np.bool_)
+            state_one[ranked[:count]] = True
+            state_one.flags.writeable = False
+            selected[point.address] = state_one
         object.__setattr__(self, "_state_one_shots", selected)
         object.__setattr__(
             self,
@@ -89,21 +94,26 @@ class RamseyAcquisitionResponse(AcquisitionResponse):
         return self._fingerprint
 
     @override
-    def value_for(
+    def values_for(
         self,
         *,
-        playback: AwgPlayback,
+        entry_id: TargetCompileEntryId,
         window: DigitizerAcquisitionWindow,
-    ) -> DigitizerValue:
+        shot_indices: NDArray[np.int64],
+    ) -> DigitizerValueBlock:
         address = TargetAcquisitionAddress(
-            entry_id=playback.entry_id,
+            entry_id=entry_id,
             slot_id=window.slot_id,
         )
         if address in self._unavailable:
-            return None
-        return complex(
-            1.0 if playback.shot_index in self._state_one_shots[address] else -1.0,
-            0.0,
+            return DigitizerValueBlock(
+                values=np.zeros(len(shot_indices), dtype=np.complex128),
+                available=np.zeros(len(shot_indices), dtype=np.bool_),
+            )
+        state_one = self._state_one_shots[address][shot_indices]
+        return DigitizerValueBlock(
+            values=np.where(state_one, 1.0, -1.0).astype(np.complex128),
+            available=np.ones(len(shot_indices), dtype=np.bool_),
         )
 
 

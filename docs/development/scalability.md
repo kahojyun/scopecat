@@ -281,6 +281,9 @@ The retention invariants are:
   values, even though the descriptive ad hoc baseline retains integer arrays;
 - IQ and bit arrays remain shot dimensions within each point rather than new
   logical scan points;
+- the reference list-mode runtime retains raw integrated-IQ as one
+  address-major `complex128` matrix plus a boolean availability mask; it does
+  not allocate one Python frame object per acquisition shot;
 - measurement files grow with bounded chunks, not one file per point;
 - the direct-runner discard lower bound creates no durable metadata or
   measurement dataset.
@@ -375,7 +378,10 @@ The present architecture provides a direct end-to-end baseline:
 - local target preparation retains static route manifests and materializes one
   initial physical probe for fast validation and preview. Execution reuses that
   probe in its first bounded coverage batch instead of lowering the first point
-  again. The user-visible point preview samples at most 64 edge points;
+  again. An explicit domain inspection compiles only its selected logical point
+  and returns target-owned waveform statistics and min/max samples under a hard
+  response budget without persisting them. The general point preview samples at
+  most 64 edge points;
   local-only coverage starts with 32 points and then uses batches of at most 256
   points;
 - domain compilation uses a backend-declared point capacity but prepares only
@@ -391,8 +397,12 @@ The present architecture provides a direct end-to-end baseline:
   the operations actually emitted, so a run may conservatively reserve an
   unused candidate rather than scanning every point before admission;
 - one SQLite writer owns durable ordering while immutable object storage carries
-  large content, and measurement records are appended in chunks bounded by both
-  record count and value bytes;
+  large content. The executor-to-daemon ingest path, durable chunks, and live
+  GUI latest-point path all use the same schema-driven Arrow IPC columns, so
+  numeric arrays never expand into JSON lists. Measurement chunks remain
+  bounded by both record count and value bytes, while dataset identity hashes
+  the ordered record identities and is therefore independent of those chunk
+  boundaries;
 - ordinary command payload uploads use an in-memory spool scoped by run and
   hardware operation, or by direct session and command. A completed, rejected,
   or replayed operation releases its bytes immediately; owner termination and
@@ -409,7 +419,37 @@ generated. Cartesian products do not multiply any of those factors into
 retained rows. Local effects, static value evaluation, runtime point projection,
 and live prepared target artifacts are bounded by the current physical batch.
 During active execution the completed point index set and durable scalar results
-still grow with completed point count; neither contains waveform payloads.
+still grow with completed point count; neither contains waveform payloads. The
+daemon's live compiled-inspection feed retains only the latest 64 proposal
+events. Active feeds are never pruned, while only the 32 most recently used
+inactive run feeds and 32 most recently updated inactive review sessions remain
+available. Every inspection already enforces point, waveform, and sample budgets.
+It is an operator view, not durable run content.
+Adaptive optimizer calls likewise receive exact counters but only the latest
+1,024 domain decisions and 256 completed-point observations for their scope.
+Durable domain decisions remain queryable through the daemon ledger.
+Completed-point observations retain canonical point identity plus metadata-free
+scalar and unavailable observable values. Array values, acquisition evidence, record
+metadata, and scalar metadata are deliberately omitted; optimizers that need a
+trace-derived feature should declare a scalar measurement compute for that
+feature. Heavyweight measurement records therefore do not accumulate in the
+in-process optimizer context.
+Run the long-run memory probe with:
+
+```console
+uv run python scripts/benchmark_adaptive_optimizer.py --decisions 20000 --domain-points 1024
+```
+
+The probe feeds a distinct 256 KiB waveform through every retained observation
+and proposes large point-cloud domains without retaining their coordinate rows.
+The emitted `retained_decisions` and `retained_observations` must stay at their
+fixed windows, `retained_array_observables` and `retained_fragment_payloads`
+must remain zero, and retained
+tracemalloc/RSS measurements must not include the reported discarded waveform
+payload.
+The daemon retains the latest received measurement for the live Arrow view plus the
+bounded not-yet-durable prefix. That state exists only while its executor lease is
+active and is released on seal, terminal commit, lease loss, or daemon shutdown.
 Inline command payloads retain raw bytes in memory and convert to base64 only
 for an actual JSON wire representation; the daemon client uploads those bytes
 to an operation-scoped content-addressed spool before posting a control command

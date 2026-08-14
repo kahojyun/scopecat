@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from scopecat.compiler.bind import BoundPlan
 from scopecat.execution.local.program import LocalOperation
 from scopecat.execution.program import RunCoverageEffect
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.resource_identity import ResourceRequirement
-from scopecat.measurements.points import RunPoint
 from scopecat.planning.local_effects import local_operation_resource_requirements
 from scopecat.planning.local_materialization import (
     materialize_local_execution as lower_local_execution,
@@ -25,7 +25,7 @@ from scopecat.planning.point_materialization import prepare_bound_points
 class LocalEffectInspection:
     """Production-aligned test view of points and exact effect coverage."""
 
-    points: tuple[RunPoint, ...]
+    points: tuple[AcceptedRunPoint, ...]
     effects: tuple[RunCoverageEffect, ...]
     resource_order: tuple[str, ...]
     resource_requirements: tuple[ResourceRequirement, ...]
@@ -33,7 +33,7 @@ class LocalEffectInspection:
     @classmethod
     def at_point(
         cls,
-        point: RunPoint,
+        point: AcceptedRunPoint,
         operations: Sequence[LocalOperation],
         *,
         resource_order: Sequence[str] = (),

@@ -102,6 +102,7 @@ def _header(*, point_count: int) -> MeasurementDatasetHeader:
             ],
         ),
         expected_record_count=point_count,
+        record_count_limit=point_count,
     )
 
 

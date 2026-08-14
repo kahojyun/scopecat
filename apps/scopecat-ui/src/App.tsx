@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNod
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Atom,
+  Activity,
   Cable,
   LayoutDashboard,
   LoaderCircle,
@@ -14,7 +15,7 @@ import { RunsWorkspace } from "./features/runs/RunsWorkspace";
 import { titleCase } from "./lib/presentation";
 import { classes, iconButton } from "./ui/styles";
 
-type ProjectView = "runs" | "instruments" | "configuration";
+type ProjectView = "runs" | "reviews" | "instruments" | "configuration";
 
 const ConfigWorkspace = lazy(async () => {
   const module = await import("./features/config/ConfigWorkspace");
@@ -24,6 +25,11 @@ const ConfigWorkspace = lazy(async () => {
 const InstrumentsWorkspace = lazy(async () => {
   const module = await import("./features/instruments/InstrumentsWorkspace");
   return { default: module.InstrumentsWorkspace };
+});
+
+const ReviewWorkspace = lazy(async () => {
+  const module = await import("./features/reviews/ReviewWorkspace");
+  return { default: module.ReviewWorkspace };
 });
 
 export default function App() {
@@ -69,6 +75,8 @@ export default function App() {
       void queryClient.invalidateQueries({ queryKey: ["run-content"] });
       void queryClient.invalidateQueries({ queryKey: ["config"] });
       void queryClient.invalidateQueries({ queryKey: ["instruments"] });
+      void queryClient.invalidateQueries({ queryKey: ["reviews"] });
+      void queryClient.invalidateQueries({ queryKey: ["review"] });
       void queryClient.invalidateQueries({
         queryKey: ["parameter-proposals"],
       });
@@ -175,6 +183,15 @@ export default function App() {
           </button>
           <button
             type="button"
+            className={navigationClass(view === "reviews")}
+            aria-current={view === "reviews" ? "page" : undefined}
+            onClick={() => selectView("reviews")}
+          >
+            <Activity size={15} aria-hidden="true" />
+            Reviews
+          </button>
+          <button
+            type="button"
             className={navigationClass(view === "instruments")}
             aria-current={view === "instruments" ? "page" : undefined}
             onClick={() => selectView("instruments")}
@@ -264,6 +281,18 @@ export default function App() {
             healthReachable={daemonReachable}
             daemonUnavailable={daemonUnavailable}
           />
+        ) : view === "reviews" ? (
+          <Suspense
+            fallback={
+              <DetailEmpty
+                icon={<LoaderCircle className="animate-spin" />}
+                title="Loading reviews"
+                detail="The compiled waveform workspace is being prepared."
+              />
+            }
+          >
+            <ReviewWorkspace daemonUnavailable={daemonUnavailable} />
+          </Suspense>
         ) : view === "instruments" ? (
           <Suspense
             fallback={
@@ -364,6 +393,7 @@ function selectedRunFromUrl(): string | undefined {
 function projectViewFromLocation(): ProjectView {
   if (window.location.hash === "#configuration") return "configuration";
   if (window.location.hash === "#instruments") return "instruments";
+  if (window.location.hash.startsWith("#reviews")) return "reviews";
   return "runs";
 }
 
@@ -375,7 +405,13 @@ function replaceNavigation(view: ProjectView, runId?: string): void {
     location.searchParams.delete("run");
   }
   location.hash =
-    view === "configuration" ? "configuration" : view === "instruments" ? "instruments" : "";
+    view === "configuration"
+      ? "configuration"
+      : view === "instruments"
+        ? "instruments"
+        : view === "reviews"
+          ? "reviews"
+          : "";
   window.history.replaceState(null, "", `${location.pathname}${location.search}${location.hash}`);
 }
 

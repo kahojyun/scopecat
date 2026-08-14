@@ -6,7 +6,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
+from scopecat.adaptive_domains import DomainProposalAttempt, OperatorDomainRequest
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
+from scopecat.execution.program import RunPointInspection
+from scopecat.kernel.points import AcceptedRunPoint
+from scopecat.optimization import DomainProposalDecision
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments.execution import RunInstrumentHost
@@ -30,6 +34,29 @@ class RunCoverageWriter(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class QueuedOperatorDomainRequest:
+    request: OperatorDomainRequest
+
+
+class RunDomainProposalWriter(Protocol):
+    """Commit point-plan facts and publish bounded live inspections."""
+
+    def next_queued(self) -> QueuedOperatorDomainRequest | None: ...
+
+    def append(
+        self,
+        proposal: DomainProposalAttempt,
+        decision: DomainProposalDecision,
+        accepted_points: tuple[AcceptedRunPoint, ...],
+        inspections: tuple[RunPointInspection, ...],
+        *,
+        operator_request_id: str | None = None,
+    ) -> None: ...
+
+    def close(self, *, completed_point_count: int, reason: str) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionSession:
     """Bind one run's effect ports so execution cannot mix storage scopes."""
 
@@ -40,6 +67,7 @@ class ExecutionSession:
     measurements: MeasurementDatasetWriter
     instruments: RunInstrumentHost
     coverage: RunCoverageWriter | None = None
+    domain_proposals: RunDomainProposalWriter | None = None
     cancellation_requested: Callable[[], bool] = _never_cancel
     effects_ready: Callable[[], bool] = _effects_are_ready
 

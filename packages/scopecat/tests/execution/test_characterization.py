@@ -21,6 +21,7 @@ from scopecat.execution.local.program import (
 )
 from scopecat.execution.program import RunCoverageCheckpoint
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import (
     ProblemPhase,
     model_location,
@@ -37,7 +38,6 @@ from scopecat.kernel.state import StateValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.measurements.points import RunPoint
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.program.value_graph import (
@@ -85,7 +85,7 @@ def _state_origin(instrument_id: str) -> StateDemandOrigin:
 def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
     delivered: list[tuple[int, ...]] = []
     points = tuple(
-        RunPoint(_logical_point_id("incremental-source", ordinal), {})
+        AcceptedRunPoint(_logical_point_id("incremental-source", ordinal), {})
         for ordinal in range(2)
     )
 
@@ -111,7 +111,7 @@ def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
 def test_normal_completion_applies_success_state_after_point_coverage() -> None:
     driver = SignalInstrumentDriver(instrument_id="source-0")
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("success_state-point"), {}),
+        AcceptedRunPoint(_logical_point_id("success_state-point"), {}),
         (_gain_operation("source-0", 1.0),),
         resource_order=("source-0",),
         resource_requirements=_requirements("source-0"),
@@ -142,7 +142,7 @@ def test_cancellation_waits_for_hardware_batch_then_skips_success_state() -> Non
     first = SignalInstrumentDriver(instrument_id="source-a")
     second = SignalInstrumentDriver(instrument_id="source-b")
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("cancel-batch-point"), {}),
+        AcceptedRunPoint(_logical_point_id("cancel-batch-point"), {}),
         (
             _gain_operation("source-a", 1.0),
             _gain_operation("source-b", 2.0),
@@ -180,7 +180,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
         return value.value
 
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("normalized-output-point"), {}),
+        AcceptedRunPoint(_logical_point_id("normalized-output-point"), {}),
         (
             ComputeOperation(
                 operation_id=producer_id,
@@ -230,7 +230,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
 
 def test_recorded_compute_output_is_exported_before_point_state_is_closed() -> None:
     result_id = operation_result_id(OperationId(SymbolId(local_id="score")))
-    point = RunPoint(_logical_point_id("recorded-compute-point"), {})
+    point = AcceptedRunPoint(_logical_point_id("recorded-compute-point"), {})
     program = LocalEffectInspection.at_point(
         point,
         (
@@ -280,7 +280,7 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
         return 2.0
 
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("implementation-cache-point"), {}),
+        AcceptedRunPoint(_logical_point_id("implementation-cache-point"), {}),
         (
             ComputeOperation(
                 operation_id="implementation-cache-point.compute.first",
@@ -330,7 +330,7 @@ def test_compute_failure_wins_over_a_concurrent_cancellation_request() -> None:
         raise RuntimeError("compute failed")
 
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("failing-compute-point"), {}),
+        AcceptedRunPoint(_logical_point_id("failing-compute-point"), {}),
         (
             ComputeOperation(
                 operation_id="failing-compute-point.compute.failing",
@@ -462,7 +462,7 @@ class _RejectOnSuccessStateDriver(_FinalizationTrackingDriver):
 def test_rejected_on_success_state_aborts_hardware_finish() -> None:
     driver = _RejectOnSuccessStateDriver(instrument_id="source-0")
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("rejected-on-success-point"), {}),
+        AcceptedRunPoint(_logical_point_id("rejected-on-success-point"), {}),
         (_gain_operation("source-0", 1.0),),
         resource_order=("source-0",),
         resource_requirements=_requirements("source-0"),
@@ -489,7 +489,7 @@ def test_rejected_on_success_state_aborts_hardware_finish() -> None:
 
 def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
     driver = SignalInstrumentDriver()
-    point = RunPoint(_logical_point_id("shared-readback-point"), {})
+    point = AcceptedRunPoint(_logical_point_id("shared-readback-point"), {})
     uses = (
         _collection_product_use("first-signal-use"),
         _collection_product_use("second-signal-use"),
@@ -570,7 +570,7 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
 def test_driver_disconnect_failure_is_reported_after_terminal_read() -> None:
     driver = _DisconnectFailureDriver(instrument_id="source-0")
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("disconnect-failure-point"), {}),
+        AcceptedRunPoint(_logical_point_id("disconnect-failure-point"), {}),
         (_gain_operation("source-0", 1.0),),
         resource_order=("source-0",),
         resource_requirements=_requirements("source-0"),
@@ -592,7 +592,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
     first = _BlockingStateDriver(instrument_id="source-a")
     second = SignalInstrumentDriver(instrument_id="source-b")
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("blocking-state-point"), {}),
+        AcceptedRunPoint(_logical_point_id("blocking-state-point"), {}),
         (
             _gain_operation("source-a", 1.0),
             _gain_operation("source-b", 2.0),
@@ -622,7 +622,7 @@ def test_state_apply_stops_when_readback_does_not_confirm_assignment() -> None:
     first = _NonConvergingStateDriver(instrument_id="source-a")
     second = SignalInstrumentDriver(instrument_id="source-b")
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("non-converging-state-point"), {}),
+        AcceptedRunPoint(_logical_point_id("non-converging-state-point"), {}),
         (
             _gain_operation("source-a", 1.0),
             _gain_operation("source-b", 2.0),
@@ -649,7 +649,7 @@ def test_state_apply_stops_when_readback_does_not_confirm_assignment() -> None:
 def test_failed_coverage_does_not_apply_normal_completion_success_state() -> None:
     driver = _BlockingStateDriver(instrument_id="source-0")
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("failed-success_state-point"), {}),
+        AcceptedRunPoint(_logical_point_id("failed-success_state-point"), {}),
         (_gain_operation("source-0", 1.0),),
         resource_order=("source-0",),
         resource_requirements=_requirements("source-0"),
@@ -703,7 +703,7 @@ def test_unexpected_result_stops_later_collection() -> None:
     first_operation = _collect_operation(point_uid, "source-a", "first")
     second_operation = _collect_operation(point_uid, "source-b", "second")
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id(point_uid), {}),
+        AcceptedRunPoint(_logical_point_id(point_uid), {}),
         (first_operation, second_operation),
         resource_order=("source-a", "source-b"),
         resource_requirements=_requirements("source-a", "source-b"),
@@ -727,7 +727,7 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
     first = _UnknownAppliedStateDriver(instrument_id="source-a")
     second = SignalInstrumentDriver(instrument_id="source-b")
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("conflicting-applied-state-point"), {}),
+        AcceptedRunPoint(_logical_point_id("conflicting-applied-state-point"), {}),
         (
             ApplyStateOperation(
                 operation_id=("conflicting-applied-state-point.state.source-a"),

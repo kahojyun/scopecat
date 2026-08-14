@@ -22,7 +22,7 @@ class ActiveMeasurementConflict(ValueError):
 
 @dataclass(slots=True)
 class _ActiveMeasurementDataset:
-    header_content_hash: str
+    header: MeasurementDatasetHeader
     received_record_count: int = 0
     durable_record_count: int = 0
     pending: list[MeasurementRecord] = field(default_factory=list)
@@ -48,11 +48,9 @@ class ActiveMeasurementStore:
         with self._lock:
             current = self._datasets.get(header.run_id)
             if current is None:
-                self._datasets[header.run_id] = _ActiveMeasurementDataset(
-                    header_content_hash=header.content_hash
-                )
+                self._datasets[header.run_id] = _ActiveMeasurementDataset(header=header)
                 return
-            if current.header_content_hash != header.content_hash:
+            if current.header.content_hash != header.content_hash:
                 raise ActiveMeasurementConflict(
                     "active measurement header already has different content"
                 )
@@ -60,7 +58,7 @@ class ActiveMeasurementStore:
     def ingest(self, batch: MeasurementDatasetBatch) -> None:
         with self._lock:
             active = self._require(batch.run_id)
-            if batch.header_content_hash != active.header_content_hash:
+            if batch.header_content_hash != active.header.content_hash:
                 raise ActiveMeasurementConflict(
                     "measurement ingest references a different active header"
                 )
@@ -124,25 +122,41 @@ class ActiveMeasurementStore:
         *,
         after_record_count: int | None = None,
     ) -> MeasurementLivePreview:
+        return self.snapshot(
+            run_id,
+            after_record_count=after_record_count,
+        )[0]
+
+    def snapshot(
+        self,
+        run_id: str,
+        *,
+        after_record_count: int | None = None,
+    ) -> tuple[MeasurementLivePreview, MeasurementDatasetHeader | None]:
+        """Read live counters, latest record, and its schema atomically."""
+
         with self._lock:
             active = self._datasets.get(run_id)
             if active is None:
-                return MeasurementLivePreview()
-            return MeasurementLivePreview(
-                active=True,
-                latest=(
-                    active.latest
-                    if after_record_count is None
-                    or active.received_record_count > after_record_count
-                    else None
+                return MeasurementLivePreview(), None
+            return (
+                MeasurementLivePreview(
+                    active=True,
+                    latest=(
+                        active.latest
+                        if after_record_count is None
+                        or active.received_record_count > after_record_count
+                        else None
+                    ),
+                    received_record_count=active.received_record_count,
+                    durable_record_count=active.durable_record_count,
                 ),
-                received_record_count=active.received_record_count,
-                durable_record_count=active.durable_record_count,
+                active.header,
             )
 
     def header_content_hash(self, run_id: str) -> str:
         with self._lock:
-            return self._require(run_id).header_content_hash
+            return self._require(run_id).header.content_hash
 
     def durable_record_count(self, run_id: str) -> int:
         with self._lock:
@@ -151,6 +165,18 @@ class ActiveMeasurementStore:
     def clear(self, run_id: str) -> None:
         with self._lock:
             self._datasets.pop(run_id, None)
+
+    def run_ids(self) -> tuple[str, ...]:
+        """Return a stable snapshot of runs retaining volatile measurement state."""
+
+        with self._lock:
+            return tuple(self._datasets)
+
+    def clear_all(self) -> None:
+        """Release every process-local measurement dataset."""
+
+        with self._lock:
+            self._datasets.clear()
 
     def _require(self, run_id: str) -> _ActiveMeasurementDataset:
         try:

@@ -17,6 +17,28 @@ from scopecat.control.models import (
     ControlRunState,
     EventPage,
 )
+from scopecat.daemon.points import (
+    RunDomainDecisionCommand,
+    RunDomainDecisionView,
+    RunDomainEnqueueCommand,
+    RunDomainQueueEntryView,
+    RunDomainQueueView,
+    RunPointPlanCloseCommand,
+    RunPointPlanView,
+)
+from scopecat.daemon.reviews import (
+    ReviewCompileCommand,
+    ReviewCompileReceipt,
+    ReviewCompletionCommand,
+    ReviewHeartbeatReceipt,
+    ReviewSessionCloseReceipt,
+    ReviewSessionCreateCommand,
+    ReviewSessionListView,
+    ReviewSessionView,
+    ReviewWorkItem,
+    RunInspectionAppendCommand,
+    RunInspectionView,
+)
 from scopecat.daemon.views import (
     ActiveConfigView,
     ConfigActivationHistoryView,
@@ -67,7 +89,6 @@ from scopecat.daemon.wire import (
     MeasurementFlushCommand,
     MeasurementFlushReceipt,
     MeasurementHeaderCommand,
-    MeasurementIngestCommand,
     MeasurementIngestReceipt,
     MeasurementSealCommand,
     PayloadObjectReceipt,
@@ -84,6 +105,7 @@ from scopecat.daemon.wire import (
     TerminalRunCommitCommand,
 )
 from scopecat.kernel.content_identity import sha256_content_hash
+from scopecat.measurements.recording_arrow import encode_measurement_append
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.artifact import (
     BlobPayloadBody,
@@ -94,7 +116,12 @@ from scopecat.records.artifact import (
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.records.measurement_recording import MeasurementDatasetReceipt
+from scopecat.records.measurement import MeasurementDatasetSchema
+from scopecat.records.measurement_recording import (
+    MeasurementDatasetAppend,
+    MeasurementDatasetBatch,
+    MeasurementDatasetReceipt,
+)
 from scopecat.records.run import RunManifest
 from scopecat.runs.data import (
     RunArtifactJsonResult,
@@ -157,8 +184,9 @@ class DaemonClient:
         timeout: float | httpx2.Timeout | None = _DEFAULT_TIMEOUT,
         transport: httpx2.BaseTransport | None = None,
     ) -> None:
+        self.base_url = base_url.rstrip("/")
         self._http = httpx2.Client(
-            base_url=base_url.rstrip("/"),
+            base_url=self.base_url,
             timeout=timeout,
             transport=transport,
         )
@@ -179,6 +207,85 @@ class DaemonClient:
 
     def health(self) -> DaemonHealth:
         return self._get_model(f"{_API_PREFIX}/health", DaemonHealth)
+
+    def create_review(
+        self,
+        command: ReviewSessionCreateCommand,
+    ) -> ReviewSessionView:
+        return self._post_model(
+            f"{_API_PREFIX}/reviews",
+            command,
+            ReviewSessionView,
+        )
+
+    def list_reviews(self) -> ReviewSessionListView:
+        return self._get_model(f"{_API_PREFIX}/reviews", ReviewSessionListView)
+
+    def get_review(self, session_id: str) -> ReviewSessionView:
+        return self._get_model(
+            f"{_API_PREFIX}/reviews/{quote(session_id, safe='')}",
+            ReviewSessionView,
+        )
+
+    def enqueue_review_compile(
+        self,
+        session_id: str,
+        command: ReviewCompileCommand,
+    ) -> ReviewCompileReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/reviews/{quote(session_id, safe='')}/compile",
+            command,
+            ReviewCompileReceipt,
+        )
+
+    def claim_review_work(
+        self,
+        session_id: str,
+        worker_id: str,
+    ) -> ReviewWorkItem | None:
+        response = self._request(
+            "POST",
+            f"{_API_PREFIX}/reviews/{quote(session_id, safe='')}/worker/claim",
+            params={"worker_id": worker_id},
+        )
+        if response.content == b"null":
+            return None
+        return ReviewWorkItem.model_validate_json(response.content)
+
+    def complete_review_work(
+        self,
+        session_id: str,
+        command: ReviewCompletionCommand,
+    ) -> ReviewSessionView:
+        return self._post_model(
+            f"{_API_PREFIX}/reviews/{quote(session_id, safe='')}/worker/complete",
+            command,
+            ReviewSessionView,
+        )
+
+    def heartbeat_review_worker(
+        self,
+        session_id: str,
+        worker_id: str,
+    ) -> ReviewHeartbeatReceipt:
+        response = self._request(
+            "POST",
+            f"{_API_PREFIX}/reviews/{quote(session_id, safe='')}/worker/heartbeat",
+            params={"worker_id": worker_id},
+        )
+        return ReviewHeartbeatReceipt.model_validate_json(response.content)
+
+    def close_review_worker(
+        self,
+        session_id: str,
+        worker_id: str,
+    ) -> ReviewSessionCloseReceipt:
+        response = self._request(
+            "POST",
+            f"{_API_PREFIX}/reviews/{quote(session_id, safe='')}/worker/close",
+            params={"worker_id": worker_id},
+        )
+        return ReviewSessionCloseReceipt.model_validate_json(response.content)
 
     def config_registry(self) -> ConfigRegistryView:
         return self._get_model(
@@ -726,6 +833,80 @@ class DaemonClient:
             RunCoverageState,
         )
 
+    def get_run_point_plan(self, run_id: str) -> RunPointPlanView:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan",
+            RunPointPlanView,
+        )
+
+    def append_run_domain_decision(
+        self,
+        run_id: str,
+        command: RunDomainDecisionCommand,
+    ) -> RunDomainDecisionView:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/decisions",
+            command,
+            RunDomainDecisionView,
+        )
+
+    def close_run_point_plan(
+        self,
+        run_id: str,
+        command: RunPointPlanCloseCommand,
+    ) -> RunPointPlanView:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/close",
+            command,
+            RunPointPlanView,
+        )
+
+    def get_run_domain_queue(self, run_id: str) -> RunDomainQueueView:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/queue",
+            RunDomainQueueView,
+        )
+
+    def get_next_queued_run_domain(
+        self,
+        run_id: str,
+    ) -> RunDomainQueueEntryView | None:
+        response = self._request(
+            "GET",
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/queue/next",
+        )
+        if response.content == b"null":
+            return None
+        return RunDomainQueueEntryView.model_validate_json(response.content)
+
+    def enqueue_run_domain(
+        self,
+        run_id: str,
+        command: RunDomainEnqueueCommand,
+    ) -> RunDomainQueueEntryView:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/queue",
+            command,
+            RunDomainQueueEntryView,
+        )
+
+    def get_run_inspections(self, run_id: str) -> RunInspectionView:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/inspections",
+            RunInspectionView,
+        )
+
+    def append_run_inspection(
+        self,
+        run_id: str,
+        command: RunInspectionAppendCommand,
+    ) -> RunInspectionView:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/inspections",
+            command,
+            RunInspectionView,
+        )
+
     def provision_run_instruments(
         self,
         run_id: str,
@@ -800,13 +981,27 @@ class DaemonClient:
     def ingest_measurements(
         self,
         run_id: str,
-        command: MeasurementIngestCommand,
+        *,
+        lease_id: str,
+        batch: MeasurementDatasetBatch,
+        dataset_schema: MeasurementDatasetSchema,
     ) -> MeasurementIngestReceipt:
-        return self._post_model(
-            f"{_API_PREFIX}/runs/{run_id}/measurements/ingest",
-            command,
-            MeasurementIngestReceipt,
+        append = MeasurementDatasetAppend(
+            run_id=batch.run_id,
+            header_content_hash=batch.header_content_hash,
+            start_index=batch.start_index,
+            records=batch.records,
         )
+        response = self._request(
+            "POST",
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/measurements/ingest",
+            content=encode_measurement_append(append, dataset_schema),
+            headers={
+                "Content-Type": "application/vnd.apache.arrow.file",
+                "X-Scopecat-Lease-ID": lease_id,
+            },
+        )
+        return MeasurementIngestReceipt.model_validate_json(response.content)
 
     def flush_measurements(
         self,

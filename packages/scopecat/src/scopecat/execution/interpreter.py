@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
+
+from scopecat.adaptive_coordination import AdaptiveDomainCoordinator
+from scopecat.adaptive_domains import (
+    RegionOptimizationComplete,
+)
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.effect_result import (
     CoverageMeasurementObserver,
@@ -25,14 +32,23 @@ from scopecat.execution.measurement_recording import (
     initialize_measurement_dataset,
     seal_measurement_dataset,
 )
+from scopecat.execution.optimizer_observations import (
+    project_completed_point_observation,
+)
 from scopecat.execution.persistence import (
     validate_run_measurements,
 )
-from scopecat.execution.program import RunDomainJob, RunProgram
+from scopecat.execution.program import (
+    RunCoveredOperation,
+    RunDomainJob,
+    RunProgram,
+)
 from scopecat.execution.services import (
     ExecutionSession,
+    RunDomainProposalWriter,
 )
 from scopecat.kernel.errors import (
+    CheckFailed,
     DomainRuntimeFailure,
     DomainRuntimePersistenceError,
     MeasurementRecordingError,
@@ -41,12 +57,12 @@ from scopecat.kernel.errors import (
     RunFailed,
     RunIndeterminate,
 )
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
 )
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.measurements.points import RunPoint
 from scopecat.measurements.projection import (
     ProjectedMeasurementDataset,
     project_measurement_records,
@@ -56,9 +72,14 @@ from scopecat.measurements.values import (
     MeasurementValueCandidate,
     seal_measurement_values,
 )
+from scopecat.optimization import (
+    CompletedPointObservation,
+    OptimizationComplete,
+)
 from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
+    measurement_record_content_hash,
 )
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import (
@@ -101,7 +122,10 @@ def _execute_run(
 ) -> RunManifest:
     host = program.host
     projection = program.measurements
-    point_count = len(program.points.points)
+    point_state = _ExecutionPointState.create(
+        program,
+        proposal_writer=session.domain_proposals,
+    )
     run_id = session.run_id
     journal = session.journal
     measurements = session.measurements
@@ -110,11 +134,11 @@ def _execute_run(
     )
     recorded_measurement_count = 0
     completed_coverage_count = 0
-    append_content_hashes: list[str] = []
+    record_content_hashes: list[str] = []
     measurement_buffer = CanonicalMeasurementBuffer()
 
     def commit_coverage(
-        points: tuple[RunPoint, ...],
+        points: tuple[AcceptedRunPoint, ...],
         candidates: tuple[MeasurementValueCandidate, ...],
         value_candidates: tuple[ValueRecordCandidate, ...],
     ) -> None:
@@ -154,20 +178,34 @@ def _execute_run(
                 points,
                 completed_point_count=completed_coverage_count,
             )
-            return
-        ready_records = measurement_buffer.add(projected.records)
-        if not ready_records:
-            return
-        if dataset_header is None:
-            raise ValueError("projected measurements require a dataset header")
-        receipts = ingest_measurement_dataset(
-            ProjectedMeasurementDataset(projection, run_id, ready_records),
-            measurements,
-            header=dataset_header,
-        )
-        recorded_measurement_count += len(ready_records)
-        append_content_hashes.extend(
-            receipt.dataset_content_hash for receipt in receipts
+        else:
+            ready_records = measurement_buffer.add(projected.records)
+            if ready_records:
+                if dataset_header is None:
+                    raise ValueError("projected measurements require a dataset header")
+                ingest_measurement_dataset(
+                    ProjectedMeasurementDataset(projection, run_id, ready_records),
+                    measurements,
+                    header=dataset_header,
+                )
+                recorded_measurement_count += len(ready_records)
+                record_content_hashes.extend(
+                    measurement_record_content_hash(record) for record in ready_records
+                )
+        records_by_point = {
+            point.ordinal: tuple(
+                record
+                for record in projected.records
+                if record.point_index == point.ordinal
+            )
+            for point in points
+        }
+        point_state.add_observations(
+            project_completed_point_observation(
+                point,
+                records_by_point[point.ordinal],
+            )
+            for point in points
         )
 
     effect_result = _execute_or_cancel_effects(
@@ -176,6 +214,7 @@ def _execute_run(
         coverage_observer=commit_coverage,
         header_failure=header_failure,
         cancelled_without_effects=cancelled_without_effects,
+        point_state=point_state,
     )
 
     problems = _effect_problems(
@@ -207,12 +246,9 @@ def _execute_run(
     seal_receipt = None
     coverage_failure = effect_result.coverage_failure
     try:
-        append_content_hashes.extend(
-            receipt.dataset_content_hash
-            for receipt in _flush_execution_progress(
-                session,
-                has_dataset=dataset_header is not None,
-            )
+        _flush_execution_progress(
+            session,
+            has_dataset=dataset_header is not None,
         )
         if coverage_failure is not None:
             raise coverage_failure
@@ -225,7 +261,7 @@ def _execute_run(
                 run_id=run_id,
                 header=dataset_header,
                 point_count=recorded_measurement_count,
-                append_content_hashes=tuple(append_content_hashes),
+                record_content_hashes=tuple(record_content_hashes),
                 writer=measurements,
                 journal=journal,
             )
@@ -296,7 +332,9 @@ def _execute_run(
             None if seal_receipt is None else seal_receipt.dataset_content_hash
         ),
         dataset_schema=dataset_schema,
-        expected_record_count=(point_count if projection.has_dataset else None),
+        expected_record_count=(
+            len(point_state.points) if projection.has_dataset else None
+        ),
         instrument_state=instrument_state,
     )
     models: list[RunModelWrite] = []
@@ -328,7 +366,7 @@ def _execute_run(
 
 def _advance_unrecorded_coverage(
     session: ExecutionSession,
-    points: tuple[RunPoint, ...],
+    points: tuple[AcceptedRunPoint, ...],
     *,
     completed_point_count: int,
 ) -> int:
@@ -384,7 +422,8 @@ def _initialize_dataset_header(
         run_id=session.run_id,
         recording_contract_fingerprint=program.measurements.contract_fingerprint,
         dataset_schema=schema,
-        expected_record_count=len(program.points.points),
+        expected_record_count=program.points.contract.point_count,
+        record_count_limit=program.points.contract.point_limit,
     )
     try:
         initialize_measurement_dataset(
@@ -414,6 +453,7 @@ def _execute_or_cancel_effects(
     coverage_observer: CoverageMeasurementObserver,
     header_failure: MeasurementRecordingError | None,
     cancelled_without_effects: bool,
+    point_state: _ExecutionPointState,
 ) -> RunEffectResult:
     if cancelled_without_effects:
         return RunEffectResult(
@@ -442,6 +482,7 @@ def _execute_or_cancel_effects(
         program=program,
         session=session,
         coverage_observer=coverage_observer,
+        point_state=point_state,
     )
 
 
@@ -470,6 +511,7 @@ def _execute_instrument_effects(
     program: RunProgram,
     session: ExecutionSession,
     coverage_observer: CoverageMeasurementObserver,
+    point_state: _ExecutionPointState,
 ) -> RunEffectResult:
     instruments = session.instruments
     setup_problems = list(instruments.setup_problems)
@@ -522,11 +564,139 @@ def _execute_instrument_effects(
         ),
         cancellation_requested=session.cancellation_requested,
     )
-    return engine.run(
-        program.coverage,
-        points=program.points.points,
+
+    def commit_durable_progress() -> None:
+        _flush_execution_progress(
+            session,
+            has_dataset=program.measurements.has_dataset,
+        )
+
+    result = engine.run(
+        _execution_coverage(
+            program,
+            point_state,
+            durable_progress=commit_durable_progress,
+        ),
+        points=point_state.points,
         success_state=program.success_state,
     )
+    return result
+
+
+@dataclass(slots=True)
+class _ExecutionPointState:
+    points: list[AcceptedRunPoint]
+    coordinator: AdaptiveDomainCoordinator | None
+    proposal_writer: RunDomainProposalWriter | None
+    completed_point_count: int
+
+    @classmethod
+    def create(
+        cls,
+        program: RunProgram,
+        *,
+        proposal_writer: RunDomainProposalWriter | None,
+    ) -> _ExecutionPointState:
+        adaptive = program.adaptive_domain_plan
+        points = list(program.points.points)
+        return cls(
+            points=points,
+            coordinator=(
+                None
+                if adaptive is None
+                else AdaptiveDomainCoordinator.create(adaptive, program.points)
+            ),
+            proposal_writer=proposal_writer,
+            completed_point_count=0,
+        )
+
+    def add_observations(
+        self,
+        observations: Iterator[CompletedPointObservation],
+    ) -> None:
+        added = tuple(observations)
+        self.completed_point_count += len(added)
+        if self.coordinator is not None:
+            for observation in added:
+                self.coordinator.add_observation(observation)
+
+
+def _execution_coverage(
+    program: RunProgram,
+    state: _ExecutionPointState,
+    *,
+    durable_progress: Callable[[], None],
+) -> Iterator[RunCoveredOperation]:
+    yield from program.coverage
+    adaptive = program.adaptive_domain_plan
+    if adaptive is None:
+        return
+    durable_progress()
+    coordinator = state.coordinator
+    if coordinator is None:
+        raise AssertionError("adaptive execution requires a domain coordinator")
+    while len(state.points) < adaptive.total_point_limit and not coordinator.closed:
+        queued = (
+            None
+            if state.proposal_writer is None
+            else state.proposal_writer.next_queued()
+        )
+        context = coordinator.optimizer_context()
+        if context is None:
+            break
+        if (
+            queued is None
+            and coordinator.ledger.optimizer_attempt_count >= adaptive.proposal_limit
+        ):
+            raise RuntimeError("optimizer exceeded the adaptive proposal limit")
+        proposal = (
+            coordinator.operator_proposal(queued.request)
+            if queued is not None
+            else adaptive.optimizer.propose(context)
+        )
+        if isinstance(proposal, RegionOptimizationComplete | OptimizationComplete):
+            coordinator.apply_completion(
+                proposal,
+                region_id=None if context.region is None else context.region.id,
+            )
+            continue
+        try:
+            bound = coordinator.bind(proposal)
+            accepted = program.coverage.accept_all(bound.candidates)
+        except (CheckFailed, ValueError) as error:
+            decision = coordinator.reject(proposal, reason=str(error))
+            if state.proposal_writer is not None:
+                state.proposal_writer.append(
+                    proposal,
+                    decision,
+                    (),
+                    (),
+                    operator_request_id=(
+                        None if queued is None else queued.request.request_id
+                    ),
+                )
+            continue
+        accepted_points = tuple(item.point for item in accepted)
+        decision = coordinator.accept(bound, accepted_points)
+        if state.proposal_writer is not None:
+            state.proposal_writer.append(
+                bound.proposal,
+                decision,
+                accepted_points,
+                tuple(item.inspection for item in accepted),
+                operator_request_id=(
+                    None if queued is None else queued.request.request_id
+                ),
+            )
+        state.points.extend(item.point for item in accepted)
+        for item in accepted:
+            yield from item.operations
+        durable_progress()
+    if state.proposal_writer is not None:
+        state.proposal_writer.close(
+            completed_point_count=state.completed_point_count,
+            reason=coordinator.stop_reason or "point budget exhausted",
+        )
 
 
 def _effect_problems(

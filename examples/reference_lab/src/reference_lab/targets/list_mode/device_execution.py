@@ -32,6 +32,7 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareCollectBinding,
     RunHardwareInvoke,
 )
+from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from reference_lab.bench_interfaces import (
     ANALOG_WAVEFORM_OUTPUT_AMPLITUDE,
@@ -71,11 +72,10 @@ from reference_lab.payloads import (
     reference_lab_payload_codecs,
 )
 from reference_lab.targets.list_mode.execution_model import (
-    AwgPlayback,
-    DigitizerFrame,
+    DigitizerResultBatch,
     ListModeRun,
+    digitizer_addresses,
     run_fingerprint,
-    waveform_fingerprint,
 )
 from reference_lab.targets.list_mode.iq_semantics import (
     integrate_rectangular_iq,
@@ -136,38 +136,42 @@ class InstrumentListModeRuntime:
             execution_id=execution_id,
         )
         block_offsets = dict.fromkeys(blocks, 0)
-        playbacks: list[AwgPlayback] = []
-        frames: list[DigitizerFrame] = []
+        addresses = digitizer_addresses(artifact)
+        row_by_address = {
+            address: row_index for row_index, address in enumerate(addresses)
+        }
+        values = np.zeros(
+            (len(addresses), artifact.repetitions),
+            dtype=np.complex128,
+        )
+        available = np.ones(values.shape, dtype=np.bool_)
         for shot_index in range(artifact.repetitions):
             for entry in artifact.entries:
-                playback = AwgPlayback(
+                _write_digitizer_results(
+                    artifact,
+                    entry,
                     shot_index=shot_index,
-                    entry_id=entry.entry_id,
-                    waveform_fingerprint=waveform_fingerprint(entry),
-                )
-                playbacks.append(playback)
-                frames.extend(
-                    _digitizer_frames(
-                        artifact,
-                        entry,
-                        playback=playback,
-                        blocks=blocks,
-                        block_offsets=block_offsets,
-                    )
+                    blocks=blocks,
+                    block_offsets=block_offsets,
+                    row_by_address=row_by_address,
+                    values=values,
+                    available=available,
                 )
         if any(
             block_offsets[input_id] != len(block) for input_id, block in blocks.items()
         ):
             raise RuntimeError("digitizer result block contains unclaimed values")
-        selected_playbacks = tuple(playbacks)
-        selected_frames = tuple(frames)
+        results = DigitizerResultBatch(
+            addresses=addresses,
+            values=values,
+            available=available,
+        )
         return ListModeRun(
-            frames=selected_frames,
+            results=results,
             artifact=artifact,
             fingerprint=run_fingerprint(
                 artifact=artifact,
-                playbacks=selected_playbacks,
-                frames=selected_frames,
+                results=results,
                 response_fingerprint=WORKER_ADC_DSP_FINGERPRINT,
             ),
         )
@@ -727,14 +731,17 @@ def _result_blocks(
     return blocks
 
 
-def _digitizer_frames(
+def _write_digitizer_results(
     artifact: ListModeArtifact,
     entry: ListModeEntry,
     *,
-    playback: AwgPlayback,
+    shot_index: int,
     blocks: dict[DigitizerInputId, _ResultBlock],
     block_offsets: dict[DigitizerInputId, int],
-) -> tuple[DigitizerFrame, ...]:
+    row_by_address: dict[TargetAcquisitionAddress, int],
+    values: NDArray[np.complex128],
+    available: NDArray[np.bool_],
+) -> None:
     traces: dict[DigitizerInputId, tuple[float, ...] | None] = {}
     device_iq: dict[DigitizerAcquisitionWindow, complex | None] = {}
     windows_by_input: dict[DigitizerInputId, list[DigitizerAcquisitionWindow]] = {}
@@ -758,23 +765,25 @@ def _digitizer_frames(
         block_offsets[input_id] += len(windows)
         device_iq.update(zip(windows, lowered_values, strict=True))
 
-    return tuple(
-        DigitizerFrame(
-            shot_index=playback.shot_index,
-            entry_id=playback.entry_id,
-            slot_id=window.slot_id,
-            value=(
-                device_iq[window]
-                if window.lowering.execution == "device"
-                else _demodulate(
-                    traces[window.input_id],
-                    window=window,
-                    sample_rate_hz=artifact.sample_rate_hz,
-                )
-            ),
+    for window in entry.acquisitions:
+        value = (
+            device_iq[window]
+            if window.lowering.execution == "device"
+            else _demodulate(
+                traces[window.input_id],
+                window=window,
+                sample_rate_hz=artifact.sample_rate_hz,
+            )
         )
-        for window in entry.acquisitions
-    )
+        address = TargetAcquisitionAddress(
+            entry_id=entry.entry_id,
+            slot_id=window.slot_id,
+        )
+        row_index = row_by_address[address]
+        if value is None:
+            available[row_index, shot_index] = False
+        else:
+            values[row_index, shot_index] = value
 
 
 def _raw_value_id(input_id: DigitizerInputId) -> str:

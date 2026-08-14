@@ -49,7 +49,7 @@ export type InstrumentConfiguredDefaultsApplyReceipt =
 export type InstrumentComponent = components["schemas"]["ComponentSpec"];
 export type InstrumentCollectReceipt =
   PostResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect">;
-export type InstrumentConnection = components["schemas"]["InstrumentConnection-Input"];
+export type InstrumentConnection = components["schemas"]["InstrumentConnection"];
 export type InstrumentDescription = components["schemas"]["InstrumentDescription"];
 export type InstrumentDriverProbeCommand = components["schemas"]["InstrumentDriverProbeCommand"];
 export type InstrumentDriverProbeReceipt = PostResponse<"/api/v1/instrument-drivers/probe">;
@@ -63,7 +63,7 @@ export type InstrumentPropertyState = components["schemas"]["InstrumentPropertyS
 export type InstrumentSession = PostResponse<"/api/v1/instrument-sessions">;
 export type InstrumentSessionLease =
   PostResponse<"/api/v1/instrument-sessions/{session_id}/heartbeat">;
-export type InstrumentSpec = components["schemas"]["InstrumentSpec-Input"];
+export type InstrumentSpec = components["schemas"]["InstrumentSpec"];
 export type InstrumentState =
   GetResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state">;
 export type InstrumentStateValue = components["schemas"]["StateValue"];
@@ -72,22 +72,21 @@ export type AnalysisFigureView = components["schemas"]["AnalysisFigureView"];
 export type AnalysisArtifactReference = components["schemas"]["AnalysisArtifactReference"];
 export type AnalysisDatasetReference = components["schemas"]["AnalysisDatasetReference"];
 export type AnalysisDatasetDerivation = components["schemas"]["AnalysisDatasetDerivation"];
-export type AnalysisExecution = components["schemas"]["AnalysisExecution-Output"];
+export type AnalysisExecution = components["schemas"]["AnalysisExecution"];
 export type AnalysisExecutionOutputReference =
   components["schemas"]["AnalysisExecutionOutputReference"];
-export type AnalysisFact = components["schemas"]["AnalysisFact-Output"];
+export type AnalysisFact = components["schemas"]["AnalysisFact"];
 export type AnalysisRecordInput = components["schemas"]["AnalysisRecordInput"];
 export type AnalysisRecordOutput = components["schemas"]["AnalysisRecordOutput"];
 export type AnalysisParameterProposalReference =
   components["schemas"]["AnalysisParameterProposalReference"];
 export type AnalysisTableView = components["schemas"]["AnalysisTableView"];
 export type MeasurementDatasetSchema = components["schemas"]["MeasurementDatasetSchema-Output"];
-export type MeasurementLivePreview = components["schemas"]["MeasurementLivePreview"];
-export type MeasurementRecord = components["schemas"]["MeasurementRecord-Output"];
+export type MeasurementRecord = components["schemas"]["MeasurementRecord"];
 export type MeasurementSlice = components["schemas"]["MeasurementSlice"];
 export type MeasurementTracePreview = components["schemas"]["MeasurementTracePreview"];
 export type MeasurementTracePreviewQuery = components["schemas"]["MeasurementTracePreviewQuery"];
-export type MeasurementValue = components["schemas"]["MeasurementValue-Output"];
+export type MeasurementValue = components["schemas"]["MeasurementValue"];
 /** Complex scalar representation on the JSON wire. */
 export type ComplexComponents = Extract<
   Extract<MeasurementValue, { kind: "scalar" }>["value"],
@@ -113,7 +112,22 @@ export type ParameterValueDelta = Omit<
 };
 export type ParameterValueType = components["schemas"]["PersistableValueType"];
 export type Quantity = components["schemas"]["scopecat__kernel__quantity__Quantity"];
-export type RunContentEntry = components["schemas"]["RunContentEntry-Output"];
+export type ReviewCompileCommand = components["schemas"]["ReviewCompileCommand"];
+export type PointCoordinateSpec = components["schemas"]["PointCoordinateSpec-Output"];
+export type ReviewSession = GetResponse<"/api/v1/reviews/{session_id}">;
+export type ReviewSessionList = GetResponse<"/api/v1/reviews">;
+export type ReviewInspection = components["schemas"]["ReviewInspectionView-Output"];
+export type RunInspectionFeed = GetResponse<"/api/v1/runs/{run_id}/inspections">;
+export type AdaptiveRegion = components["schemas"]["AdaptiveRegionSpec-Output"];
+export type RunDomainAxis = components["schemas"]["RunDomainAxisView-Input"];
+export type RunDomainEnqueueCommand = components["schemas"]["RunDomainEnqueueCommand"];
+export type RunDomainResolveCommand = components["schemas"]["RunDomainResolveCommand"];
+export type ResolvedRunDomain = components["schemas"]["ResolvedRunDomainView"];
+export type RunDomainQueue = GetResponse<"/api/v1/runs/{run_id}/point-plan/queue">;
+export type CompiledArtifactInspection = components["schemas"]["CompiledArtifactInspection-Output"];
+export type CompiledPointInspection = components["schemas"]["CompiledPointInspection-Output"];
+export type CompiledWaveformInspection = components["schemas"]["CompiledWaveformInspection"];
+export type RunContentEntry = components["schemas"]["RunContentEntry"];
 export type RunManifest = components["schemas"]["RunManifest"];
 export type RunResourceView = components["schemas"]["RunResourceView"];
 export type StoredParameterValue = components["schemas"]["StoredParameterValue-Input"];

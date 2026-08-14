@@ -6,15 +6,15 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from scopecat.execution.program import RunDomainJob
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import Problem
-from scopecat.measurements.points import RunPoint
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.records.instrument import InstrumentStateSnapshot
 
 type CoverageMeasurementObserver = Callable[
     [
-        tuple[RunPoint, ...],
+        tuple[AcceptedRunPoint, ...],
         tuple[MeasurementValueCandidate, ...],
         tuple[ValueRecordCandidate, ...],
     ],

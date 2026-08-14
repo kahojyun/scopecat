@@ -5,7 +5,9 @@ from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import cast
 
+import numpy as np
 import pytest
 from scopecat import Quantity
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
@@ -46,6 +48,7 @@ from scopecat_quantum.pulses import (
 from scopecat_quantum.pulses import Parallel as PulseParallel
 from scopecat_quantum.pulses import Sequence as PulseSequence
 from scopecat_quantum.targets import (
+    TargetAcquisitionAddress,
     TargetCompilationError,
     TargetCompileEntry,
     TargetCompileRequest,
@@ -61,10 +64,12 @@ from reference_lab.physical_policies import (
 )
 from reference_lab.provider import ReferenceLabProvider
 from reference_lab.targets.list_mode import (
+    ArtifactInspectionBounds,
     ListModeArtifact,
     ListModeTarget,
     ListModeTargetCompiler,
     configured_list_mode_target,
+    inspect_list_mode_artifact,
 )
 from reference_lab.targets.list_mode.device_execution import InstrumentListModeRuntime
 from reference_lab.targets.list_mode.model import IqMixerCalibration
@@ -340,12 +345,20 @@ def test_list_mode_worker_protocol_is_stable_per_execution_identity() -> None:
         execution_id="test.calibrated-acquisition",
         instruments=instruments,
     )
-    assert [
-        (frame.shot_index, frame.entry_id, frame.slot_id)
-        for frame in instrument_run.frames
-    ] == [(shot, TargetCompileEntryId("entry-0"), slot.id) for shot in range(2)]
-    [first_value, second_value] = [frame.value for frame in instrument_run.frames]
-    assert first_value is not None
+    assert instrument_run.results.addresses == (
+        TargetAcquisitionAddress(
+            entry_id=TargetCompileEntryId("entry-0"),
+            slot_id=slot.id,
+        ),
+    )
+    assert instrument_run.results.values.shape == (1, 2)
+    assert instrument_run.results.values.nbytes == 2 * np.dtype(np.complex128).itemsize
+    assert instrument_run.results.available.nbytes == 2 * np.dtype(np.bool_).itemsize
+    assert not instrument_run.results.values.flags.writeable
+    assert not instrument_run.results.available.flags.writeable
+    assert np.all(instrument_run.results.available)
+    first_value = cast("np.complex128", instrument_run.results.values[0, 0])
+    second_value = cast("np.complex128", instrument_run.results.values[0, 1])
     assert second_value == pytest.approx(first_value)
 
     assert instruments.batches[0].operation_id.endswith(":load")
@@ -642,6 +655,62 @@ def test_list_mode_renders_gaussian_and_records_realized_timing() -> None:
     )
     assert waveforms[binding.q_channel_id] == pytest.approx(
         tuple(sample.imag for sample in carrier)
+    )
+
+
+def test_list_mode_artifact_inspection_is_bounded_and_preserves_peaks() -> None:
+    target = _target()
+    scheduled = schedule(
+        PulseProgram(
+            id=PulseProgramId("preview"),
+            body=Play(
+                PulseEventId("preview-play"),
+                DRIVE_Q0,
+                Gaussian(
+                    duration=Quantity(100.4, "ns"),
+                    amplitude=Quantity(0.8, "arb"),
+                    sigma=Quantity(2, "ns"),
+                ),
+            ),
+        )
+    )
+    compiler, request = _request(target, (scheduled, scheduled), repetitions=3)
+    artifact = compiler.compile(request)
+
+    inspection = inspect_list_mode_artifact(
+        artifact,
+        bounds=ArtifactInspectionBounds(
+            max_entries=1,
+            max_channels_per_entry=1,
+            max_samples_per_waveform=10,
+        ),
+    )
+    [entry] = inspection.points
+    [preview] = entry.waveforms
+    source = artifact.entries[0].waveforms[0].samples
+
+    assert inspection.schema_id == "scopecat.compiled_artifact_inspection.v1"
+    assert inspection.kind == "reference_lab.list_mode.v1"
+    assert inspection.point_count == 2
+    assert inspection.points_truncated
+    assert inspection.fact("max_abs_boundary_error_seconds").value == "4E-10"
+    assert entry.waveform_count == 2
+    assert entry.waveforms_truncated
+    assert preview.source_sample_count == 100
+    assert len(preview.samples) <= 10
+    assert preview.sample_indices == tuple(sorted(preview.sample_indices))
+    assert preview.peak_abs == float(cast("np.float64", np.max(np.abs(source))))
+    assert preview.peak_abs == max(abs(sample) for sample in preview.samples)
+    assert inspection.bounds.max_points == 1
+    assert inspection.bounds.max_waveforms_per_point == 1
+    assert inspection.bounds.max_samples_per_waveform == 10
+
+    complete = inspect_list_mode_artifact(
+        artifact,
+        bounds=ArtifactInspectionBounds(max_entries=2),
+    )
+    assert complete.points[0].realization_fingerprint == (
+        complete.points[1].realization_fingerprint
     )
 
 

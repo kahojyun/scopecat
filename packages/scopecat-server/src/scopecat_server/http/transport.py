@@ -21,6 +21,30 @@ from scopecat.daemon.endpoint import (
     DAEMON_SHUTDOWN_PATH,
     DAEMON_SHUTDOWN_TOKEN_HEADER,
 )
+from scopecat.daemon.points import (
+    ResolvedRunDomainView,
+    RunDomainDecisionCommand,
+    RunDomainDecisionView,
+    RunDomainEnqueueCommand,
+    RunDomainQueueEntryView,
+    RunDomainQueueView,
+    RunDomainResolveCommand,
+    RunPointPlanCloseCommand,
+    RunPointPlanView,
+)
+from scopecat.daemon.reviews import (
+    ReviewCompileCommand,
+    ReviewCompileReceipt,
+    ReviewCompletionCommand,
+    ReviewHeartbeatReceipt,
+    ReviewSessionCloseReceipt,
+    ReviewSessionCreateCommand,
+    ReviewSessionListView,
+    ReviewSessionView,
+    ReviewWorkItem,
+    RunInspectionAppendCommand,
+    RunInspectionView,
+)
 from scopecat.daemon.views import (
     ActiveConfigView,
     ConfigActivationHistoryView,
@@ -31,7 +55,6 @@ from scopecat.daemon.views import (
     InstrumentListView,
     InstrumentView,
     MeasurementArrowQuery,
-    MeasurementLivePreview,
     MeasurementPreview,
     MeasurementSlice,
     MeasurementSliceQuery,
@@ -75,7 +98,6 @@ from scopecat.daemon.wire import (
     MeasurementFlushCommand,
     MeasurementFlushReceipt,
     MeasurementHeaderCommand,
-    MeasurementIngestCommand,
     MeasurementIngestReceipt,
     MeasurementSealCommand,
     PayloadObjectReceipt,
@@ -135,6 +157,10 @@ from ..services.application import DaemonApplication
 
 _API_PREFIX = "/api/v1"
 _ARROW_STREAM_MEDIA_TYPE = "application/vnd.apache.arrow.stream"
+_ARROW_FILE_MEDIA_TYPE = "application/vnd.apache.arrow.file"
+_MEASUREMENT_ACTIVE_HEADER = "X-Scopecat-Measurement-Active"
+_MEASUREMENT_DURABLE_COUNT_HEADER = "X-Scopecat-Durable-Record-Count"
+_MEASUREMENT_RECEIVED_COUNT_HEADER = "X-Scopecat-Received-Record-Count"
 _NEXT_OFFSET_HEADER = "X-Scopecat-Next-Offset"
 _SNAPSHOT_SIZE_HEADER = "X-Scopecat-Snapshot-Size"
 _SSE_PAGE_SIZE = 100
@@ -396,6 +422,53 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> InstrumentSessionEndReceipt:
         return application.instruments.resolve_attention(session_id)
 
+    @app.post(f"{_API_PREFIX}/reviews", status_code=201)
+    def create_review(command: ReviewSessionCreateCommand) -> ReviewSessionView:
+        return application.reviews.create(command)
+
+    @app.get(f"{_API_PREFIX}/reviews")
+    def list_reviews() -> ReviewSessionListView:
+        return application.reviews.list()
+
+    @app.get(f"{_API_PREFIX}/reviews/{{session_id}}")
+    def get_review(session_id: str) -> ReviewSessionView:
+        return application.reviews.get(session_id)
+
+    @app.post(f"{_API_PREFIX}/reviews/{{session_id}}/compile", status_code=202)
+    def compile_review_point(
+        session_id: str,
+        command: ReviewCompileCommand,
+    ) -> ReviewCompileReceipt:
+        return application.reviews.enqueue(session_id, command)
+
+    @app.post(f"{_API_PREFIX}/reviews/{{session_id}}/worker/claim")
+    def claim_review_work(
+        session_id: str,
+        worker_id: Annotated[str, Query(min_length=1)],
+    ) -> ReviewWorkItem | None:
+        return application.reviews.claim(session_id, worker_id)
+
+    @app.post(f"{_API_PREFIX}/reviews/{{session_id}}/worker/complete")
+    def complete_review_work(
+        session_id: str,
+        command: ReviewCompletionCommand,
+    ) -> ReviewSessionView:
+        return application.reviews.complete(session_id, command)
+
+    @app.post(f"{_API_PREFIX}/reviews/{{session_id}}/worker/heartbeat")
+    def heartbeat_review_worker(
+        session_id: str,
+        worker_id: Annotated[str, Query(min_length=1)],
+    ) -> ReviewHeartbeatReceipt:
+        return application.reviews.heartbeat(session_id, worker_id)
+
+    @app.post(f"{_API_PREFIX}/reviews/{{session_id}}/worker/close")
+    def close_review_worker(
+        session_id: str,
+        worker_id: Annotated[str, Query(min_length=1)],
+    ) -> ReviewSessionCloseReceipt:
+        return application.reviews.close(session_id, worker_id)
+
     @app.get(f"{_API_PREFIX}/runs")
     def list_runs(
         limit: Annotated[int, Query(ge=1, le=500)] = 50,
@@ -556,14 +629,35 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> MeasurementPreview:
         return application.runs.measurement_preview(run_id, limit=limit)
 
-    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/measurements/live")
+    @app.get(
+        f"{_API_PREFIX}/runs/{{run_id}}/measurements/live",
+        response_class=Response,
+        responses={
+            200: {
+                "content": {
+                    _ARROW_FILE_MEDIA_TYPE: {
+                        "schema": {"type": "string", "format": "binary"}
+                    }
+                }
+            }
+        },
+    )
     def measurement_live_preview(
         run_id: str,
         after_record_count: Annotated[int | None, Query(ge=0)] = None,
-    ) -> MeasurementLivePreview:
-        return application.runs.measurement_live_preview(
+    ) -> Response:
+        preview, content = application.runs.measurement_live_arrow(
             run_id,
             after_record_count=after_record_count,
+        )
+        return Response(
+            content=content,
+            media_type=_ARROW_FILE_MEDIA_TYPE,
+            headers={
+                _MEASUREMENT_ACTIVE_HEADER: str(preview.active).lower(),
+                _MEASUREMENT_RECEIVED_COUNT_HEADER: str(preview.received_record_count),
+                _MEASUREMENT_DURABLE_COUNT_HEADER: str(preview.durable_record_count),
+            },
         )
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/query")
@@ -647,6 +741,57 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> RunCoverageState:
         return application.executor.advance_run_coverage(run_id, command)
 
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan")
+    def get_run_point_plan(run_id: str) -> RunPointPlanView:
+        return application.point_plans.read(run_id)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/decisions")
+    def append_run_domain_decision(
+        run_id: str,
+        command: RunDomainDecisionCommand,
+    ) -> RunDomainDecisionView:
+        return application.executor.append_run_domain_decision(run_id, command)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/close")
+    def close_run_point_plan(
+        run_id: str,
+        command: RunPointPlanCloseCommand,
+    ) -> RunPointPlanView:
+        return application.executor.close_run_point_plan(run_id, command)
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/queue")
+    def get_run_domain_queue(run_id: str) -> RunDomainQueueView:
+        return application.point_plans.queue(run_id)
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/queue/next")
+    def get_next_queued_run_domain(run_id: str) -> RunDomainQueueEntryView | None:
+        return application.point_plans.next_queued(run_id)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/queue")
+    def enqueue_run_domain(
+        run_id: str,
+        command: RunDomainEnqueueCommand,
+    ) -> RunDomainQueueEntryView:
+        return application.point_plans.enqueue(run_id, command)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/resolve")
+    def resolve_run_domain(
+        run_id: str,
+        command: RunDomainResolveCommand,
+    ) -> ResolvedRunDomainView:
+        return application.point_plans.resolve(run_id, command)
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/inspections")
+    def get_run_inspections(run_id: str) -> RunInspectionView:
+        return application.run_inspections.read(run_id)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/inspections")
+    def append_run_inspection(
+        run_id: str,
+        command: RunInspectionAppendCommand,
+    ) -> RunInspectionView:
+        return application.executor.append_run_inspection(run_id, command)
+
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/instruments/provision")
     def provision_run_instruments(
         run_id: str,
@@ -693,12 +838,19 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         return application.executor.initialize_measurements(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/ingest")
-    def ingest_measurements(
+    async def ingest_measurements(
         run_id: str,
-        command: MeasurementIngestCommand,
+        request: Request,
+        lease_id: Annotated[
+            str,
+            Header(alias="X-Scopecat-Lease-ID", min_length=1),
+        ],
     ) -> MeasurementIngestReceipt:
-        _require_run_id(run_id, command.batch.run_id)
-        return application.executor.ingest_measurements(run_id, command)
+        return application.executor.ingest_measurements(
+            run_id,
+            lease_id=lease_id,
+            content=await request.body(),
+        )
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/flush")
     def flush_measurements(

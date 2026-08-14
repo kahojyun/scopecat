@@ -13,6 +13,17 @@ from typing import cast
 
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
+from scopecat.adaptive_domains import ResolvedDomainFragment
+from scopecat.daemon.points import (
+    AcceptedRunPointView,
+    RunDomainDecisionCommand,
+    RunDomainDecisionView,
+    RunDomainEnqueueCommand,
+    RunDomainQueueEntryView,
+    RunDomainQueueView,
+    RunPointPlanCloseCommand,
+    RunPointPlanView,
+)
 from scopecat.records.execution_journal import (
     ExecutionTransition,
     execution_transition_content_hash,
@@ -100,6 +111,577 @@ class SQLiteRunCoverage:
             (self._run_id, end_index),
         )
         return end_index, True
+
+
+class SQLiteRunPointLedger:
+    """Persist dynamic point decisions and the final plan closure."""
+
+    def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
+        self._runs = runs
+        self._run_id = run_id
+
+    def read(self) -> RunPointPlanView | None:
+        with self._runs.sqlite.read_transaction() as connection:
+            return self.read_in_transaction(connection)
+
+    def read_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+    ) -> RunPointPlanView | None:
+        row = _one(
+            connection.execute(
+                """
+                SELECT initial_point_count, accepted_point_count, point_limit,
+                       plan_closed, stop_reason,
+                       (
+                           SELECT COUNT(*)
+                           FROM execution_domain_decisions AS decisions
+                           WHERE decisions.run_id = execution_point_plans.run_id
+                       ) AS decision_count,
+                       (
+                           SELECT COUNT(*)
+                           FROM execution_domain_decisions AS decisions
+                           WHERE decisions.run_id = execution_point_plans.run_id
+                             AND json_extract(
+                                 decisions.decision_json,
+                                 '$.proposal.source'
+                             ) = 'optimizer'
+                       ) AS optimizer_attempt_count,
+                       (
+                           SELECT COUNT(*)
+                           FROM execution_domain_queue AS requests
+                           WHERE requests.run_id = execution_point_plans.run_id
+                       ) AS operator_request_count
+                FROM execution_point_plans
+                WHERE run_id = ?
+                """,
+                (self._run_id,),
+            )
+        )
+        if row is None:
+            return None
+        return RunPointPlanView(
+            run_id=self._run_id,
+            initial_point_count=_integer(row, "initial_point_count"),
+            accepted_point_count=_integer(row, "accepted_point_count"),
+            point_limit=_integer(row, "point_limit"),
+            decision_count=_integer(row, "decision_count"),
+            optimizer_attempt_count=_integer(row, "optimizer_attempt_count"),
+            operator_request_count=_integer(row, "operator_request_count"),
+            plan_closed=bool(_integer(row, "plan_closed")),
+            stop_reason=(
+                None if row["stop_reason"] is None else _text(row, "stop_reason")
+            ),
+        )
+
+    def queue(self) -> RunDomainQueueView:
+        with self._runs.sqlite.read_transaction() as connection:
+            return self.queue_in_transaction(connection)
+
+    def queue_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+    ) -> RunDomainQueueView:
+        rows = _all(
+            connection.execute(
+                """
+                SELECT entry_json
+                FROM execution_domain_queue
+                WHERE run_id = ?
+                ORDER BY queue_index
+                """,
+                (self._run_id,),
+            )
+        )
+        return RunDomainQueueView(
+            run_id=self._run_id,
+            items=tuple(
+                RunDomainQueueEntryView.model_validate_json(_text(row, "entry_json"))
+                for row in rows
+            ),
+        )
+
+    def next_pending(self) -> RunDomainQueueEntryView | None:
+        with self._runs.sqlite.read_transaction() as connection:
+            row = _one(
+                connection.execute(
+                    """
+                    SELECT entry_json
+                    FROM execution_domain_queue
+                    WHERE run_id = ? AND status = 'pending'
+                    ORDER BY queue_index
+                    LIMIT 1
+                    """,
+                    (self._run_id,),
+                )
+            )
+        return (
+            None
+            if row is None
+            else RunDomainQueueEntryView.model_validate_json(_text(row, "entry_json"))
+        )
+
+    def enqueue_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        command: RunDomainEnqueueCommand,
+        *,
+        resolved_fragment: ResolvedDomainFragment,
+        region_count: int,
+    ) -> tuple[RunDomainQueueEntryView, bool]:
+        request = command.domain_request(
+            resolved_fragment,
+            region_count=region_count,
+        )
+        existing = _one(
+            connection.execute(
+                """
+                SELECT entry_json
+                FROM execution_domain_queue
+                WHERE run_id = ? AND request_id = ?
+                """,
+                (self._run_id, command.request_id),
+            )
+        )
+        if existing is not None:
+            entry = RunDomainQueueEntryView.model_validate_json(
+                _text(existing, "entry_json")
+            )
+            if entry.request != request:
+                raise ExecutionJournalConflict(
+                    "operator domain request conflicts with durable state"
+                )
+            return entry, False
+        plan = self.read_in_transaction(connection)
+        if plan is None:
+            raise ExecutionJournalConflict("point plan is not initialized")
+        if plan.plan_closed:
+            raise ExecutionJournalConflict("point plan is already closed")
+        pending_count = sum(
+            entry.request.request().total_point_count
+            for entry in self.queue_in_transaction(connection).items
+            if entry.status == "pending"
+        )
+        if (
+            pending_count + request.request().total_point_count
+            > plan.point_limit - plan.accepted_point_count
+        ):
+            raise ExecutionJournalConflict("domain queue exceeds the remaining budget")
+        queue_index = _scalar_int(
+            connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM execution_domain_queue
+                WHERE run_id = ?
+                """,
+                (self._run_id,),
+            )
+        )
+        entry = RunDomainQueueEntryView(
+            queue_index=queue_index,
+            occurred_at=datetime.now(UTC),
+            request=request,
+            status="pending",
+        )
+        connection.execute(
+            """
+            INSERT INTO execution_domain_queue(
+                run_id, queue_index, request_id, status, entry_json
+            )
+            VALUES (?, ?, ?, 'pending', ?)
+            """,
+            (
+                self._run_id,
+                entry.queue_index,
+                entry.request.request_id,
+                entry.model_dump_json(),
+            ),
+        )
+        return entry, True
+
+    def initialize_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        operation_id: str,
+        initial_point_count: int,
+        point_limit: int,
+        plan_closed: bool,
+    ) -> RunPointPlanView:
+        existing = _one(
+            connection.execute(
+                """
+                SELECT initialize_operation_id, initial_point_count, point_limit,
+                       plan_closed
+                FROM execution_point_plans
+                WHERE run_id = ?
+                """,
+                (self._run_id,),
+            )
+        )
+        if existing is not None:
+            if (
+                _text(existing, "initialize_operation_id") != operation_id
+                or _integer(existing, "initial_point_count") != initial_point_count
+                or _integer(existing, "point_limit") != point_limit
+                or bool(_integer(existing, "plan_closed")) != plan_closed
+            ):
+                raise ExecutionJournalConflict(
+                    "point-plan initialization conflicts with durable state"
+                )
+            view = self.read_in_transaction(connection)
+            assert view is not None
+            return view
+        stop_operation_id = f"{operation_id}.static" if plan_closed else None
+        stop_reason = "static point plan" if plan_closed else None
+        connection.execute(
+            """
+            INSERT INTO execution_point_plans(
+                run_id, initialize_operation_id, initial_point_count,
+                accepted_point_count, point_limit, plan_closed,
+                stop_operation_id, stop_reason
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                self._run_id,
+                operation_id,
+                initial_point_count,
+                initial_point_count,
+                point_limit,
+                int(plan_closed),
+                stop_operation_id,
+                stop_reason,
+            ),
+        )
+        view = self.read_in_transaction(connection)
+        assert view is not None
+        return view
+
+    def append_decision_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        command: RunDomainDecisionCommand,
+    ) -> RunDomainDecisionView:
+        existing = _one(
+            connection.execute(
+                """
+                SELECT run_id, decision_json
+                FROM execution_domain_decisions
+                WHERE run_id = ? AND operation_id = ?
+                """,
+                (self._run_id, command.operation_id),
+            )
+        )
+        if existing is not None:
+            decision = RunDomainDecisionView.model_validate_json(
+                _text(existing, "decision_json")
+            )
+            if (
+                decision.proposal != command.proposal
+                or decision.outcome != command.outcome
+                or decision.accepted_point_start
+                != _accepted_point_start(command.accepted_points)
+                or decision.accepted_point_count != len(command.accepted_points)
+                or self._decision_points_in_transaction(
+                    connection,
+                    command.operation_id,
+                )
+                != command.accepted_points
+                or decision.reason != command.reason
+                or decision.operator_request_id != command.operator_request_id
+            ):
+                raise ExecutionJournalConflict(
+                    "point decision operation conflicts with durable state"
+                )
+            return decision
+        plan = self.read_in_transaction(connection)
+        if plan is None:
+            raise ExecutionJournalConflict("point plan is not initialized")
+        if plan.plan_closed:
+            raise ExecutionJournalConflict("point plan is already closed")
+        queued_entry = self._queued_entry_for_decision_in_transaction(
+            connection,
+            command,
+        )
+        accepted_points = command.accepted_points
+        if command.outcome == "accepted":
+            if plan.accepted_point_count + len(accepted_points) > plan.point_limit:
+                raise ExecutionJournalConflict(
+                    "domain decision exceeds the point budget"
+                )
+            if tuple(point.point_index for point in accepted_points) != tuple(
+                range(
+                    plan.accepted_point_count,
+                    plan.accepted_point_count + len(accepted_points),
+                )
+            ):
+                raise ExecutionJournalConflict(
+                    "accepted domain points must extend the durable point prefix"
+                )
+            if any(
+                point.domain_proposal_fingerprint
+                != command.proposal.proposal_fingerprint
+                for point in accepted_points
+            ):
+                raise ExecutionJournalConflict(
+                    "accepted points do not match their domain proposal"
+                )
+        decision = RunDomainDecisionView(
+            operation_id=command.operation_id,
+            operator_request_id=command.operator_request_id,
+            proposal_index=plan.decision_count,
+            occurred_at=datetime.now(UTC),
+            proposal=command.proposal,
+            outcome=command.outcome,
+            accepted_point_start=_accepted_point_start(accepted_points),
+            accepted_point_count=len(accepted_points),
+            reason=command.reason,
+        )
+        connection.execute(
+            """
+            INSERT INTO execution_domain_decisions(
+                run_id, proposal_index, operation_id, decision_json
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                self._run_id,
+                decision.proposal_index,
+                decision.operation_id,
+                decision.model_dump_json(),
+            ),
+        )
+        if accepted_points:
+            connection.executemany(
+                """
+                INSERT INTO execution_run_points(
+                    run_id, point_index, decision_operation_id, point_json
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                tuple(
+                    (
+                        self._run_id,
+                        accepted_point.point_index,
+                        decision.operation_id,
+                        accepted_point.model_dump_json(),
+                    )
+                    for accepted_point in accepted_points
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE execution_point_plans
+                SET accepted_point_count = accepted_point_count + ?
+                WHERE run_id = ?
+                """,
+                (len(accepted_points), self._run_id),
+            )
+        if queued_entry is not None:
+            self._resolve_queue_entry_in_transaction(
+                connection,
+                queued_entry,
+                decision,
+            )
+        return decision
+
+    def _decision_points_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        operation_id: str,
+    ) -> tuple[AcceptedRunPointView, ...]:
+        rows = _all(
+            connection.execute(
+                """
+                SELECT point_json
+                FROM execution_run_points
+                WHERE run_id = ? AND decision_operation_id = ?
+                ORDER BY point_index
+                """,
+                (self._run_id, operation_id),
+            )
+        )
+        return tuple(
+            AcceptedRunPointView.model_validate_json(_text(row, "point_json"))
+            for row in rows
+        )
+
+    def _queued_entry_for_decision_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        command: RunDomainDecisionCommand,
+    ) -> RunDomainQueueEntryView | None:
+        if command.operator_request_id is None:
+            return None
+        row = _one(
+            connection.execute(
+                """
+                SELECT entry_json
+                FROM execution_domain_queue
+                WHERE run_id = ? AND request_id = ?
+                """,
+                (self._run_id, command.operator_request_id),
+            )
+        )
+        if row is None:
+            raise ExecutionJournalConflict("operator domain request does not exist")
+        entry = RunDomainQueueEntryView.model_validate_json(_text(row, "entry_json"))
+        if entry.status != "pending":
+            raise ExecutionJournalConflict(
+                "operator domain request is already resolved"
+            )
+        if entry.request.fragment != command.proposal.fragment:
+            raise ExecutionJournalConflict(
+                "domain proposal does not match its operator request"
+            )
+        return entry
+
+    def _resolve_queue_entry_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        entry: RunDomainQueueEntryView,
+        decision: RunDomainDecisionView,
+    ) -> None:
+        resolved = RunDomainQueueEntryView(
+            queue_index=entry.queue_index,
+            occurred_at=entry.occurred_at,
+            request=entry.request,
+            status=decision.outcome,
+            decision_operation_id=decision.operation_id,
+            accepted_point_start=decision.accepted_point_start,
+            accepted_point_count=decision.accepted_point_count,
+            reason=decision.reason,
+        )
+        connection.execute(
+            """
+            UPDATE execution_domain_queue
+            SET status = ?, decision_operation_id = ?, entry_json = ?
+            WHERE run_id = ? AND request_id = ?
+            """,
+            (
+                resolved.status,
+                resolved.decision_operation_id,
+                resolved.model_dump_json(),
+                self._run_id,
+                resolved.request.request_id,
+            ),
+        )
+
+    def close_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        command: RunPointPlanCloseCommand,
+        *,
+        completed_point_count: int,
+    ) -> RunPointPlanView:
+        row = _one(
+            connection.execute(
+                """
+                SELECT stop_operation_id, stop_reason
+                FROM execution_point_plans
+                WHERE run_id = ?
+                """,
+                (self._run_id,),
+            )
+        )
+        if row is None:
+            raise ExecutionJournalConflict("point plan is not initialized")
+        if row["stop_operation_id"] is not None:
+            if (
+                _text(row, "stop_operation_id") != command.operation_id
+                or _text(row, "stop_reason") != command.reason
+            ):
+                raise ExecutionJournalConflict(
+                    "point-plan closure conflicts with durable state"
+                )
+            view = self.read_in_transaction(connection)
+            assert view is not None
+            return view
+        plan = self.read_in_transaction(connection)
+        assert plan is not None
+        if (
+            command.based_on_completed_point_count != completed_point_count
+            or completed_point_count != plan.accepted_point_count
+        ):
+            raise ExecutionJournalConflict(
+                "point plan can close only at its durable accepted prefix"
+            )
+        connection.execute(
+            """
+            UPDATE execution_point_plans
+            SET plan_closed = 1, stop_operation_id = ?, stop_reason = ?
+            WHERE run_id = ?
+            """,
+            (command.operation_id, command.reason, self._run_id),
+        )
+        self._cancel_pending_queue_in_transaction(
+            connection,
+            reason=f"point plan closed: {command.reason}",
+        )
+        view = self.read_in_transaction(connection)
+        assert view is not None
+        return view
+
+    def abandon_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        operation_id: str,
+        reason: str,
+    ) -> RunPointPlanView | None:
+        """Close an unfinished adaptive plan after a non-successful terminal result."""
+
+        plan = self.read_in_transaction(connection)
+        if plan is None or plan.plan_closed:
+            return plan
+        connection.execute(
+            """
+            UPDATE execution_point_plans
+            SET plan_closed = 1, stop_operation_id = ?, stop_reason = ?
+            WHERE run_id = ?
+            """,
+            (operation_id, reason, self._run_id),
+        )
+        self._cancel_pending_queue_in_transaction(
+            connection,
+            reason=f"point plan abandoned: {reason}",
+        )
+        view = self.read_in_transaction(connection)
+        assert view is not None
+        return view
+
+    def _cancel_pending_queue_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        reason: str,
+    ) -> None:
+        pending = tuple(
+            entry
+            for entry in self.queue_in_transaction(connection).items
+            if entry.status == "pending"
+        )
+        for entry in pending:
+            cancelled = RunDomainQueueEntryView(
+                queue_index=entry.queue_index,
+                occurred_at=entry.occurred_at,
+                request=entry.request,
+                status="cancelled",
+                reason=reason,
+            )
+            connection.execute(
+                """
+                UPDATE execution_domain_queue
+                SET status = 'cancelled', entry_json = ?
+                WHERE run_id = ? AND request_id = ?
+                """,
+                (
+                    cancelled.model_dump_json(),
+                    self._run_id,
+                    cancelled.request.request_id,
+                ),
+            )
 
 
 class SQLiteExecutionJournal:
@@ -330,9 +912,10 @@ class SQLiteMeasurementDatasetRepository:
                 """
                 INSERT INTO execution_measurement_headers(
                     run_id, operation_id, content_hash,
-                    contract_fingerprint, expected_record_count, ref
+                    contract_fingerprint, expected_record_count,
+                    record_count_limit, ref
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     self._run_id,
@@ -340,6 +923,7 @@ class SQLiteMeasurementDatasetRepository:
                     durable.content_hash,
                     durable.recording_contract_fingerprint,
                     durable.expected_record_count,
+                    durable.record_count_limit,
                     prepared.ref,
                 ),
             )
@@ -442,7 +1026,7 @@ class SQLiteMeasurementDatasetRepository:
                     "measurement dataset append is not the next contiguous range"
                 )
             if record_count + len(durable.records) > _integer(
-                header, "expected_record_count"
+                header, "record_count_limit"
             ):
                 raise ExecutionJournalConflict(
                     "measurement dataset append exceeds its declared point count"
@@ -452,10 +1036,11 @@ class SQLiteMeasurementDatasetRepository:
                 """
                 INSERT INTO execution_measurement_appends(
                     run_id, start_index, operation_id,
-                    content_hash, header_content_hash, record_count,
+                    content_hash, header_content_hash,
+                    record_content_hashes_json, record_count,
                     ref
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     self._run_id,
@@ -463,6 +1048,7 @@ class SQLiteMeasurementDatasetRepository:
                     durable.operation_id,
                     durable.content_hash,
                     durable.header_content_hash,
+                    json.dumps(durable.record_content_hashes),
                     len(durable.records),
                     ref,
                 ),
@@ -539,7 +1125,7 @@ class SQLiteMeasurementDatasetRepository:
                     raise ExecutionJournalConflict(
                         "measurement dataset seal references a different header"
                     )
-                if durable.point_count > _integer(header, "expected_record_count"):
+                if durable.point_count > _integer(header, "record_count_limit"):
                     raise ExecutionJournalConflict(
                         "measurement dataset seal exceeds its declared point count"
                     )
@@ -552,8 +1138,13 @@ class SQLiteMeasurementDatasetRepository:
                     )
                 actual_hash = measurement_dataset_content_hash(
                     header_content_hash=durable.header_content_hash,
-                    append_content_hashes=tuple(
-                        _text(row, "content_hash") for row in appends
+                    record_content_hashes=tuple(
+                        record_hash
+                        for row in appends
+                        for record_hash in cast(
+                            "list[str]",
+                            json.loads(_text(row, "record_content_hashes_json")),
+                        )
                     ),
                 )
                 if actual_hash != durable.dataset_content_hash:
@@ -646,7 +1237,7 @@ class SQLiteMeasurementDatasetRepository:
         though one intersecting blob remains the physical I/O unit.
         """
 
-        from scopecat_server.storage.sqlite.measurement_arrow import (
+        from scopecat.measurements.recording_arrow import (
             decode_measurement_record_slice,
         )
 
@@ -713,6 +1304,17 @@ class SQLiteMeasurementDatasetRepository:
                 f"failed to read measurement dataset page: {error}"
             ) from error
 
+    def measurement_record_count(self) -> int:
+        """Read the current durable point-row count without opening append blobs."""
+
+        try:
+            with closing(self._runs.sqlite.connect()) as connection:
+                return _measurement_record_count(connection, self._run_id)
+        except Exception as error:
+            raise ExecutionJournalError(
+                f"failed to read measurement dataset size: {error}"
+            ) from error
+
     def measurement_records_at(
         self,
         point_indices: tuple[int, ...],
@@ -721,7 +1323,7 @@ class SQLiteMeasurementDatasetRepository:
     ) -> tuple[MeasurementRecord, ...]:
         """Read selected point indices from intersecting Arrow record batches."""
 
-        from scopecat_server.storage.sqlite.measurement_arrow import (
+        from scopecat.measurements.recording_arrow import (
             decode_measurement_record_indices,
         )
 
@@ -779,7 +1381,7 @@ class SQLiteMeasurementDatasetRepository:
         dataset_schema: MeasurementDatasetSchema,
     ) -> tuple[MeasurementDatasetSchema, str]:
         if dataset_schema != self._dataset_schema:
-            from scopecat_server.storage.sqlite.measurement_arrow import (
+            from scopecat.measurements.recording_arrow import (
                 measurement_dataset_schema_hash,
             )
 
@@ -912,7 +1514,7 @@ def _store_measurement_append(
     dataset_schema: MeasurementDatasetSchema,
     dataset_schema_hash: str,
 ) -> StoredObject:
-    from scopecat_server.storage.sqlite.measurement_arrow import (
+    from scopecat.measurements.recording_arrow import (
         MeasurementArrowCodecError,
         encode_measurement_append,
     )
@@ -970,6 +1572,12 @@ def _one(cursor: sqlite3.Cursor) -> sqlite3.Row | None:
     return cast("sqlite3.Row | None", cursor.fetchone())
 
 
+def _scalar_int(cursor: sqlite3.Cursor) -> int:
+    row = _one(cursor)
+    assert row is not None
+    return cast("int", row[0])
+
+
 def _all(cursor: sqlite3.Cursor) -> list[sqlite3.Row]:
     return cast("list[sqlite3.Row]", cursor.fetchall())
 
@@ -980,3 +1588,7 @@ def _text(row: sqlite3.Row, column: str) -> str:
 
 def _integer(row: sqlite3.Row, column: str) -> int:
     return cast("int", row[column])
+
+
+def _accepted_point_start(points: tuple[AcceptedRunPointView, ...]) -> int | None:
+    return None if not points else points[0].point_index

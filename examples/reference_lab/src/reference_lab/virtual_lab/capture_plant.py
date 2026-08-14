@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from typing import override
+from dataclasses import dataclass
+from typing import cast, override
 
 import numpy as np
 from numpy.typing import NDArray
@@ -22,17 +22,17 @@ from scopecat.sdk.instruments import (
 )
 from scopecat.sdk.instruments.commands import InstrumentOperationArgument
 from scopecat.sdk.instruments.execution import RunHardwareBatch, RunHardwareInvoke
-from scopecat_quantum._ids import AcquisitionSlotId, TargetCompileEntryId
+from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from reference_lab.payloads import reference_lab_payload_codecs
 from reference_lab.targets.list_mode.domain_runtime import ListModeDomainRuntime
 from reference_lab.targets.list_mode.execution_model import (
     AcquisitionResponse,
-    AwgPlayback,
-    DigitizerValue,
+    DigitizerResultBatch,
+    DigitizerValueBlock,
     ListModeRun,
+    digitizer_addresses,
     run_fingerprint,
-    waveform_fingerprint,
 )
 from reference_lab.targets.list_mode.model import (
     DigitizerAcquisitionWindow,
@@ -46,6 +46,8 @@ from reference_lab.virtual_lab.capture_payload import (
 VIRTUAL_CAPTURE_SOURCE = InterfaceRef("reference_lab.virtual_capture_source/v1")
 VIRTUAL_CAPTURE_LOAD = VIRTUAL_CAPTURE_SOURCE.operation("load")
 VIRTUAL_CAPTURE_QUEUE = VIRTUAL_CAPTURE_LOAD.argument("captures")
+
+type _DigitizerValue = complex | None
 
 
 def virtual_capture_source_interface() -> InterfaceSpec:
@@ -98,26 +100,17 @@ class VirtualListModeDomainRuntime(ListModeDomainRuntime):
             execution_id=execution_id,
             instruments=instruments,
         )
-        frames = tuple(
-            replace(
-                frame,
-                value=(
-                    frame.value
-                    if plant.available[
-                        (frame.shot_index, frame.entry_id, frame.slot_id)
-                    ]
-                    else None
-                ),
-            )
-            for frame in target_run.frames
+        results = DigitizerResultBatch(
+            addresses=target_run.results.addresses,
+            values=target_run.results.values,
+            available=target_run.results.available & plant.available,
         )
         return ListModeRun(
-            frames=frames,
+            results=results,
             artifact=artifact,
             fingerprint=run_fingerprint(
                 artifact=artifact,
-                playbacks=plant.playbacks,
-                frames=frames,
+                results=results,
                 response_fingerprint=self._response.fingerprint,
             ),
         )
@@ -126,8 +119,7 @@ class VirtualListModeDomainRuntime(ListModeDomainRuntime):
 @dataclass(frozen=True, slots=True)
 class _VirtualPlantPreparation:
     batch: RunHardwareBatch
-    playbacks: tuple[AwgPlayback, ...]
-    available: dict[tuple[int, TargetCompileEntryId, AcquisitionSlotId], bool]
+    available: NDArray[np.bool_]
 
 
 def _virtual_plant_preparation(
@@ -136,17 +128,31 @@ def _virtual_plant_preparation(
     *,
     execution_id: str,
 ) -> _VirtualPlantPreparation:
+    addresses = digitizer_addresses(artifact)
+    row_by_address = {address: row_index for row_index, address in enumerate(addresses)}
+    shot_indices = np.arange(artifact.repetitions, dtype=np.int64)
+    response_blocks: dict[TargetAcquisitionAddress, DigitizerValueBlock] = {}
+    available = np.empty(
+        (len(addresses), artifact.repetitions),
+        dtype=np.bool_,
+    )
+    for entry in artifact.entries:
+        for window in entry.acquisitions:
+            address = TargetAcquisitionAddress(
+                entry_id=entry.entry_id,
+                slot_id=window.slot_id,
+            )
+            block = response.values_for(
+                entry_id=entry.entry_id,
+                window=window,
+                shot_indices=shot_indices,
+            )
+            response_blocks[address] = block
+            available[row_by_address[address]] = block.available
+
     captures: list[dict[str, object]] = []
-    playbacks: list[AwgPlayback] = []
-    available: dict[tuple[int, TargetCompileEntryId, AcquisitionSlotId], bool] = {}
     for shot_index in range(artifact.repetitions):
         for entry in artifact.entries:
-            playback = AwgPlayback(
-                shot_index=shot_index,
-                entry_id=entry.entry_id,
-                waveform_fingerprint=waveform_fingerprint(entry),
-            )
-            playbacks.append(playback)
             windows_by_input: dict[
                 DigitizerInputId, list[DigitizerAcquisitionWindow]
             ] = {}
@@ -155,13 +161,17 @@ def _virtual_plant_preparation(
             traces: list[dict[str, object]] = []
             for input_id, windows in windows_by_input.items():
                 desired = tuple(
-                    response.value_for(playback=playback, window=window)
+                    _block_value(
+                        response_blocks[
+                            TargetAcquisitionAddress(
+                                entry_id=entry.entry_id,
+                                slot_id=window.slot_id,
+                            )
+                        ],
+                        shot_index,
+                    )
                     for window in windows
                 )
-                for window, value in zip(windows, desired, strict=True):
-                    available[(shot_index, entry.entry_id, window.slot_id)] = (
-                        value is not None
-                    )
                 traces.append(
                     {
                         "instrument_id": input_id.instrument_id,
@@ -211,8 +221,15 @@ def _virtual_plant_preparation(
                 ),
             ),
         ),
-        playbacks=tuple(playbacks),
         available=available,
+    )
+
+
+def _block_value(block: DigitizerValueBlock, shot_index: int) -> _DigitizerValue:
+    return (
+        complex(cast("np.complex128", block.values[shot_index]))
+        if block.available[shot_index]
+        else None
     )
 
 
@@ -221,7 +238,7 @@ def _synthesize_trace(
     sample_count: int,
     sample_rate_hz: int,
     windows: tuple[DigitizerAcquisitionWindow, ...],
-    desired: tuple[DigitizerValue, ...],
+    desired: tuple[_DigitizerValue, ...],
 ) -> NDArray[np.float64]:
     rows: list[NDArray[np.float64]] = []
     targets: list[float] = []

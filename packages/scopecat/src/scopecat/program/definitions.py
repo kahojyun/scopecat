@@ -6,8 +6,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Generic, Self, TypeVar, cast
 
+from scopecat.adaptive_domains import AdaptiveScope
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.value_types import ValueType
+from scopecat.optimization import AdaptiveDomainPlan, DomainOptimizer
 from scopecat.program.bindings import (
     BindingIntent,
     EnsureStateIntent,
@@ -107,6 +109,10 @@ class ExperimentInvocation(Generic[_ExperimentResultT_co]):
         default_factory=empty_program_mapping
     )
     point_plan_override: PointPlan | None = None
+    adaptive_domain_plan: AdaptiveDomainPlan | None = field(
+        default=None,
+        repr=False,
+    )
     output: _ExperimentResultT_co = field(
         kw_only=True,
         repr=False,
@@ -131,6 +137,33 @@ class ExperimentInvocation(Generic[_ExperimentResultT_co]):
             self,
             input_overrides=FrozenMapping(selected.items()),
         )
+
+    def adaptive(
+        self,
+        optimizer: DomainOptimizer,
+        *,
+        max_points: int,
+        axes: Sequence[CoordinateRef | str] = (),
+        scope: AdaptiveScope = "per_region",
+        per_region_max_points: int | None = None,
+    ) -> Self:
+        """Extend selected coordinates with compatible optimizer domains."""
+
+        return replace(
+            self,
+            adaptive_domain_plan=AdaptiveDomainPlan(
+                optimizer=optimizer,
+                total_point_limit=max_points,
+                adaptive_coordinate_ids=tuple(_axis_target_id(axis) for axis in axes),
+                scope=scope,
+                per_region_point_limit=per_region_max_points,
+            ),
+        )
+
+    def without_adaptation(self) -> Self:
+        """Retain the authored point plan but remove its optimizer policy."""
+
+        return replace(self, adaptive_domain_plan=None)
 
     def unbind(self, *input_ids: str) -> Self:
         """Remove invocation overrides so definition defaults apply again."""

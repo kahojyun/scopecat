@@ -59,6 +59,8 @@ from scopecat.execution.program import (
     RunDomainJob,
 )
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
+from scopecat.kernel.point_identity import LogicalPointId
+from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.product_identity import product_use
 from scopecat.kernel.quantity import Quantity
@@ -72,6 +74,11 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, Table, TableColumn
 from scopecat.measurements.results import MeasurementValue
+from scopecat.optimization import (
+    AdaptiveDomainPlan,
+    DomainOptimizerContext,
+    OptimizationComplete,
+)
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.local_effects import LocalTargetPlan, MaterializedLocalEffects
 from scopecat.planning.local_materialization import materialize_local_execution
@@ -122,6 +129,17 @@ from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
 )
+
+
+class _CompleteOptimizer:
+    id = "tests.complete"
+
+    def propose(
+        self,
+        context: DomainOptimizerContext,
+    ) -> sc.DomainProposalAttempt | OptimizationComplete:
+        del context
+        return OptimizationComplete()
 
 
 class _EffectProbeRuntime:
@@ -970,6 +988,67 @@ def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
     ]
 
 
+def test_free_preview_compiles_a_canonical_unplanned_point() -> None:
+    frequency_type = Scalar(QuantityType(unit="GHz"))
+    point_type = Table(columns=(TableColumn("frequency", frequency_type),))
+    domain_input = verified_scalar_expr(
+        point_col("frequency", frequency_type),
+        bindings=ExpressionTypeBindings(point_row=RowType.from_table(point_type)),
+        expected_type=frequency_type,
+    )
+    bound = _bound_program(domain_input=domain_input)
+    compiler = _DomainCompiler("tests.free-preview")
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(bound)
+
+    preview = build_run_program_preview(
+        plan,
+        coordinates={"frequency": Quantity(5050.0, "MHz")},
+        coordinate_mode="free",
+    )
+
+    assert preview.selected_point is not None
+    assert preview.selected_point.point_index is None
+    assert not preview.selected_point.is_planned
+    assert preview.selected_point.source == "operator"
+    assert preview.selected_point.coordinates == {"frequency": Quantity(5.05, "GHz")}
+    assert preview.selected_point.proposal_fingerprint is not None
+    assert preview.domain_inspections == ()
+    assert compiler.prepared_inputs == [(Quantity(5.05, "GHz"),)]
+    [request] = compiler.compile_requests
+    assert request.point_ordinals == (0,)
+    assert cast(
+        "LogicalPointId", request.points[0].native
+    ).domain_id.domain_id.startswith("root.inspection-")
+
+
+def test_snap_preview_selects_nearest_planned_point_without_free_compilation() -> None:
+    bound = _bound_program(point_count=3)
+    compiler = _DomainCompiler("tests.snap-preview")
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(bound)
+    compile_calls = compiler.compile_calls
+
+    preview = build_run_program_preview(
+        plan,
+        coordinates={"frequency": Quantity(5.04, "GHz")},
+        coordinate_mode="snap",
+    )
+
+    assert preview.selected_point is not None
+    assert preview.selected_point.point_index == 1
+    assert preview.selected_point.is_planned
+    assert preview.selected_point.coordinates == {"frequency": Quantity(5.1, "GHz")}
+    assert compiler.compile_calls == compile_calls + 1
+    assert compiler.prepared_inputs == []
+    [request] = compiler.compile_requests
+    assert request.point_ordinals == (1,)
+
+
 def test_domain_target_initial_batch_must_fit_the_complete_point_space() -> None:
     bound = _bound_program(point_count=2)
     compiler = _DomainCompiler(
@@ -1718,3 +1797,99 @@ def test_zero_point_domain_plan_retains_direct_product_ownership() -> None:
     )
     assert compiler.compile_calls == 0
     assert tuple(plan.points.points) == ()
+
+
+def test_zero_point_domain_can_inspect_a_free_seed_candidate() -> None:
+    bound = _bound_program(point_count=0)
+    compiler = _DomainCompiler("tests.zero-point-candidate")
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(bound)
+
+    preview = build_run_program_preview(
+        plan,
+        coordinates={"frequency": Quantity(5.0, "GHz")},
+        coordinate_mode="free",
+    )
+
+    assert preview.total_point_count == 0
+    assert preview.selected_point is not None
+    assert preview.selected_point.point_index is None
+    assert preview.selected_point.coordinates == {"frequency": Quantity(5.0, "GHz")}
+    assert compiler.compile_calls == 1
+
+
+def test_adaptive_plan_uses_an_open_point_extent_with_a_hard_limit() -> None:
+    bound = _bound_program(point_count=2)
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=_DomainCompiler("tests.adaptive"),
+    ).compile(
+        bound,
+        adaptive_domain_plan=AdaptiveDomainPlan(
+            _CompleteOptimizer(),
+            total_point_limit=5,
+            adaptive_coordinate_ids=("frequency",),
+        ),
+    )
+
+    assert plan.points.contract.point_count is None
+    assert plan.points.contract.point_limit == 5
+    assert len(plan.points.points) == 2
+    schema = plan.measurements.schema
+    assert schema is not None
+    assert schema.point_domain.kind == "point_cloud"
+    point_dimension = next(
+        dimension for dimension in schema.dimensions if dimension.id == "point"
+    )
+    assert point_dimension.size is None
+    preview = build_run_program_preview(plan)
+    assert preview.total_point_count is None
+    assert preview.initial_point_count == 2
+    assert preview.point_limit == 5
+    assert preview.records[0].shape[0] is None
+
+
+def test_adaptive_coverage_accepts_candidates_into_the_canonical_run_domain() -> None:
+    bound = _bound_program(point_count=2)
+    compiler = _DomainCompiler("tests.adaptive-accept")
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(
+        bound,
+        adaptive_domain_plan=AdaptiveDomainPlan(
+            _CompleteOptimizer(),
+            total_point_limit=5,
+            adaptive_coordinate_ids=("frequency",),
+        ),
+    )
+
+    accepted = plan.coverage.accept(
+        PointProposalAttempt(
+            {"frequency": Quantity(5.3, "GHz")},
+            source="optimizer",
+        )
+    )
+    next_accepted = plan.coverage.accept(
+        PointProposalAttempt(
+            {"frequency": Quantity(5.5, "GHz")},
+            source="optimizer",
+        )
+    )
+
+    assert accepted.point.ordinal == 2
+    assert accepted.point.coordinates == {"frequency": Quantity(5.3, "GHz")}
+    assert accepted.inspection.point_index == 2
+    assert [job.point_ordinals for job in accepted.inspection.jobs] == [(2,)]
+    assert next_accepted.point.ordinal == 3
+    assert [request.point_ordinals for request in compiler.compile_requests] == [
+        (2,),
+        (3,),
+    ]
+    assert [request.batch_ordinal for request in compiler.compile_requests] == [2, 3]
+    assert all(
+        isinstance(operation, RunCoverageCheckpoint | RunDomainJob)
+        for operation in accepted.operations
+    )

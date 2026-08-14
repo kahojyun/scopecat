@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
 
+from scopecat.inspection import CompiledArtifactInspection
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.state import StateValue
 from scopecat.measurements.values import MeasurementValueCandidate
@@ -90,6 +91,11 @@ class PreparedDomainExecution:
     setup: ErasedDomainSetup | None = field(repr=False, compare=False)
     runtime: ErasedDomainRuntime = field(repr=False, compare=False)
     realize: ErasedDomainRealizer = field(repr=False, compare=False)
+    inspection: CompiledArtifactInspection | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         if self.next_batch_max_points <= 0:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
 from scopecat.api.run import (
     RunHandle,
@@ -17,6 +19,7 @@ from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.kernel.errors import CheckFailed
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.check_results import ExperimentCheckResult
+from scopecat.planning.preview import PreviewCoordinateMode
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.planning.system import ExperimentSystem, ExperimentSystemBuilder
@@ -71,8 +74,23 @@ class InProcessPreparedExperiment:
             build_experiment_system=self.build_experiment_system,
         )
 
-    def preview(self) -> ExperimentPreview:
-        result = self.check()
+    def preview(
+        self,
+        *,
+        point: int | Literal["first", "middle", "last"] = "first",
+        coordinates: Mapping[str, object] | None = None,
+        coordinate_mode: PreviewCoordinateMode = "exact",
+    ) -> ExperimentPreview:
+        result = check_experiment(
+            self.invocation,
+            services=self.lab.services,
+            config=self.config,
+            system=self.system,
+            build_experiment_system=self.build_experiment_system,
+            preview_point=point,
+            preview_coordinates=coordinates,
+            preview_coordinate_mode=coordinate_mode,
+        )
         if result.preview is None:
             raise CheckFailed(result.problems)
         return result.preview

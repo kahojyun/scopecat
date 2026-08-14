@@ -23,8 +23,8 @@ from scopecat.execution.program import (
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import ProblemPhase
-from scopecat.measurements.points import RunPoint
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.execution import RunInstrumentHost
@@ -70,7 +70,7 @@ class RunEffectInterpreter:
     ) -> None:
         self.run_id = run_id
         self.coordinate_ids = frozenset(coordinate_ids)
-        self.run_points: Sequence[RunPoint] = ()
+        self.run_points: Sequence[AcceptedRunPoint] = ()
         self.observed_state = list(instruments.observed_state)
         self.baseline_state = list(instruments.baseline_state)
         self.final_state: list[InstrumentStateSnapshot] = []
@@ -99,7 +99,7 @@ class RunEffectInterpreter:
         self,
         coverage: Iterable[RunCoveredOperation],
         *,
-        points: Sequence[RunPoint],
+        points: Sequence[AcceptedRunPoint],
         success_state: Sequence[ApplyStateOperation] = (),
     ) -> effect_result.RunEffectResult:
         """Interpret the residual effect sequence exactly in program order."""
@@ -349,7 +349,7 @@ class RunEffectInterpreter:
     def _known_point(self, point_index: int) -> bool:
         return 0 <= point_index < len(self.run_points)
 
-    def _point(self, point_index: int) -> RunPoint:
+    def _point(self, point_index: int) -> AcceptedRunPoint:
         if not self._known_point(point_index):
             raise AssertionError("point effect references an unknown point")
         point = self.run_points[point_index]

@@ -313,9 +313,18 @@ describe("config provenance navigation", () => {
       status: "running" as const,
       stateLabel: "Running",
       plan: {
+        coordinateSpecs: [],
+        adaptiveCoordinateIds: [],
+        adaptiveRegionCount: 0,
+        adaptiveRegions: [],
+        adaptiveRegionsTruncated: false,
+        sampledPoints: [],
+        sampledPointsTruncated: false,
         coordinateIds: [],
         recordIds: [],
         pointCount: 3,
+        initialPointCount: 3,
+        pointLimit: 3,
       },
     };
     vi.mocked(getRuns).mockResolvedValue({ items: [running] });
@@ -354,6 +363,54 @@ describe("config provenance navigation", () => {
     expect(screen.getByText("33%")).toBeVisible();
   });
 
+  it("shows adaptive coverage against its point limit", async () => {
+    window.history.replaceState(null, "", "/?run=run-1");
+    const running = {
+      ...projectRun("run-1"),
+      status: "running" as const,
+      stateLabel: "Running",
+      progressCompleted: 2,
+      pointPlan: {
+        initialPointCount: 1,
+        acceptedPointCount: 3,
+        pointLimit: 4,
+        decisionCount: 2,
+        optimizerAttemptCount: 1,
+        operatorRequestCount: 1,
+        closed: false,
+      },
+      plan: {
+        coordinateSpecs: [],
+        adaptiveCoordinateIds: ["frequency"],
+        adaptiveScope: "per_region" as const,
+        adaptiveRegionCount: 1,
+        adaptiveRegions: [{ id: "region-0", coordinates: {}, initial_point_count: 1 }],
+        adaptiveRegionsTruncated: false,
+        sampledPoints: [],
+        sampledPointsTruncated: false,
+        coordinateIds: ["frequency"],
+        recordIds: ["signal"],
+        initialPointCount: 1,
+        pointLimit: 4,
+      },
+    };
+    vi.mocked(getRuns).mockResolvedValue({ items: [running] });
+    vi.mocked(getRun).mockResolvedValue(running);
+
+    renderApp();
+
+    const progress = await screen.findByRole("progressbar", {
+      name: "2 of 4 points complete",
+    });
+    expect(progress).toBeVisible();
+    expect(progress.closest("article")).toHaveTextContent("2 / 3 points accepted · 4 max");
+    expect(progress.closest("article")).toHaveTextContent(
+      "Optimizer attempts 1 · operator requests 1 · plan open",
+    );
+    expect(screen.getByText("Initial / accepted / max points")).toBeVisible();
+    expect(screen.getByText("1 / 3 / 4")).toBeVisible();
+  });
+
   it("keeps distinct records in one bounded measurement preview", async () => {
     window.history.replaceState(null, "", "/");
     vi.mocked(getMeasurementPreview).mockResolvedValue({
@@ -376,9 +433,18 @@ describe("config provenance navigation", () => {
       status: "running" as const,
       stateLabel: "Running",
       plan: {
+        coordinateSpecs: [],
+        adaptiveCoordinateIds: [],
+        adaptiveRegionCount: 0,
+        adaptiveRegions: [],
+        adaptiveRegionsTruncated: false,
+        sampledPoints: [],
+        sampledPointsTruncated: false,
         coordinateIds: [],
         recordIds: [],
         pointCount: 3,
+        initialPointCount: 3,
+        pointLimit: 3,
       },
     };
     vi.mocked(getRuns).mockResolvedValue({ items: [running] });
@@ -564,8 +630,27 @@ function projectRun(runId: string): ProjectRun {
     status: "succeeded",
     stateLabel: "Succeeded",
     updatedAt: "2026-07-24T08:00:00Z",
+    pointPlan: {
+      initialPointCount: 0,
+      acceptedPointCount: 0,
+      pointLimit: 0,
+      decisionCount: 0,
+      optimizerAttemptCount: 0,
+      operatorRequestCount: 0,
+      closed: true,
+      stopReason: "static point plan",
+    },
     plan: {
+      initialPointCount: 0,
+      pointLimit: 0,
       coordinateIds: [],
+      coordinateSpecs: [],
+      adaptiveCoordinateIds: [],
+      adaptiveRegionCount: 0,
+      adaptiveRegions: [],
+      adaptiveRegionsTruncated: false,
+      sampledPoints: [],
+      sampledPointsTruncated: false,
       recordIds: [],
     },
     resources: [],
@@ -597,7 +682,7 @@ function measurementRecord(
 
 function traceDatasetSchema(): MeasurementDatasetSchema {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v9",
+    format_version: "scopecat.measurement_dataset_schema.v10",
     dataset_id: "raw-measurements",
     record_schema: "scopecat.measurement_record.v4",
     point_domain: {

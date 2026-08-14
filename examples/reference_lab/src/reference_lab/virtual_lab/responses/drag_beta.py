@@ -12,15 +12,17 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass, field
-from typing import override
+from typing import cast, override
 
+import numpy as np
+from numpy.typing import NDArray
 from scopecat import Quantity
+from scopecat_quantum._ids import TargetCompileEntryId
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from reference_lab.targets.list_mode.execution_model import (
     AcquisitionResponse,
-    AwgPlayback,
-    DigitizerValue,
+    DigitizerValueBlock,
 )
 from reference_lab.targets.list_mode.model import (
     DigitizerAcquisitionWindow,
@@ -64,7 +66,7 @@ class DragBetaAcquisitionResponse(AcquisitionResponse):
     shots: int
     _state_one_shots: dict[
         TargetAcquisitionAddress,
-        frozenset[int],
+        NDArray[np.bool_],
     ] = field(init=False, repr=False, compare=False, hash=False)
     _fingerprint: str = field(init=False, repr=False)
 
@@ -90,7 +92,7 @@ class DragBetaAcquisitionResponse(AcquisitionResponse):
             ],
         }
         fingerprint = canonical_fingerprint(payload)
-        state_one_shots: dict[TargetAcquisitionAddress, frozenset[int]] = {}
+        state_one_shots: dict[TargetAcquisitionAddress, NDArray[np.bool_]] = {}
         for point in selected:
             probability = _probability_one(
                 beta_ns=point.beta_ns,
@@ -106,7 +108,10 @@ class DragBetaAcquisitionResponse(AcquisitionResponse):
                     purpose="state",
                 ),
             )
-            state_one_shots[point.address] = frozenset(ranked[:count])
+            state_one = np.zeros(self.shots, dtype=np.bool_)
+            state_one[ranked[:count]] = True
+            state_one.flags.writeable = False
+            state_one_shots[point.address] = state_one
 
         object.__setattr__(self, "points", selected)
         object.__setattr__(self, "_state_one_shots", state_one_shots)
@@ -120,28 +125,38 @@ class DragBetaAcquisitionResponse(AcquisitionResponse):
         return self._fingerprint
 
     @override
-    def value_for(
+    def values_for(
         self,
         *,
-        playback: AwgPlayback,
+        entry_id: TargetCompileEntryId,
         window: DigitizerAcquisitionWindow,
-    ) -> DigitizerValue:
-        """Generate one deterministic integrated-IQ frame."""
+        shot_indices: NDArray[np.int64],
+    ) -> DigitizerValueBlock:
+        """Generate one vector of deterministic integrated-IQ shots."""
 
         address = TargetAcquisitionAddress(
-            entry_id=playback.entry_id,
+            entry_id=entry_id,
             slot_id=window.slot_id,
         )
-        state_one = playback.shot_index in self._state_one_shots[address]
-        digest = _shot_digest(
-            self.fingerprint,
-            address,
-            playback.shot_index,
-            purpose="jitter",
+        state_one = self._state_one_shots[address]
+        values = np.empty(len(shot_indices), dtype=np.complex128)
+        for position, shot_index in enumerate(cast("list[int]", shot_indices.tolist())):
+            digest = _shot_digest(
+                self.fingerprint,
+                address,
+                shot_index,
+                purpose="jitter",
+            )
+            real_jitter = _symmetric_fraction(digest[:8]) * _IQ_JITTER
+            imag_jitter = _symmetric_fraction(digest[8:16]) * _IQ_JITTER
+            values[position] = complex(
+                (1.0 if state_one[shot_index] else -1.0) + real_jitter,
+                imag_jitter,
+            )
+        return DigitizerValueBlock(
+            values=values,
+            available=np.ones(len(shot_indices), dtype=np.bool_),
         )
-        real_jitter = _symmetric_fraction(digest[:8]) * _IQ_JITTER
-        imag_jitter = _symmetric_fraction(digest[8:16]) * _IQ_JITTER
-        return complex((1.0 if state_one else -1.0) + real_jitter, imag_jitter)
 
 
 def _probability_one(

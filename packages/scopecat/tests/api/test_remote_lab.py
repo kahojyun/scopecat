@@ -44,6 +44,7 @@ from scopecat.daemon.client import (
     DaemonUnavailableError,
 )
 from scopecat.daemon.execution import ExecutorLeaseLostError
+from scopecat.daemon.points import RunPointPlanView
 from scopecat.daemon.views import (
     ActiveConfigView,
     ConfigDraftPreview,
@@ -120,11 +121,25 @@ def test_remote_run_uses_full_dataset_batches_and_projected_arrow_pages() -> Non
                     experiment_id="remote-batches",
                     experiment_kind="test",
                     point_count=3,
+                    initial_point_count=3,
+                    point_limit=3,
                 ),
                 admitted_at=_NOW,
             ),
             state="closed",
             updated_at=_NOW,
+            completed_point_count=3,
+            point_plan=RunPointPlanView(
+                run_id=manifest.run_id,
+                initial_point_count=3,
+                accepted_point_count=3,
+                point_limit=3,
+                decision_count=0,
+                optimizer_attempt_count=0,
+                operator_request_count=0,
+                plan_closed=True,
+                stop_reason="static point plan",
+            ),
         ),
         manifest=manifest,
     )
@@ -253,6 +268,9 @@ def test_lab_preview_and_run_are_direct_prepare_shortcuts(
         (
             "preview",
             {
+                "point": "first",
+                "coordinates": None,
+                "coordinate_mode": "exact",
                 "name": "preview",
                 "tags": (),
                 "description": None,
@@ -925,6 +943,7 @@ def test_preview_invocation_uses_active_config_without_admission() -> None:
         lambda _config, catalog: ExperimentSystem(instrument_catalog=catalog),
     ).preview(load_invocation())
 
+    assert preview.point_count is not None
     assert preview.point_count > 0
     assert [request.url.path for request in requests] == [
         "/api/v1/config-registry/active",

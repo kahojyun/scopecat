@@ -10,8 +10,9 @@ from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import evaluate_scalar
 from scopecat.compiler.value_resolution import BoundValueResolver
 from scopecat.kernel.graph_identity import ValueId
+from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.kernel.value_types import Scalar
-from scopecat.measurements.points import RunPoint, RunPointCatalog, RunPointContract
+from scopecat.measurements.points import RunPointCatalog, RunPointContract
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import MeasurementValueCatalog
 from scopecat.planning.point_materialization import MaterializedBoundPoints
@@ -25,6 +26,8 @@ from scopecat.program.expressions import (
 
 def project_measurement_catalog(
     bound_points: MaterializedBoundPoints,
+    *,
+    point_limit: int | None = None,
 ) -> MeasurementValueCatalog:
     """Close typed point-domain and product contracts at the run boundary."""
 
@@ -35,7 +38,10 @@ def project_measurement_catalog(
         RunPointContract(
             experiment_id=bound.program.experiment_id,
             experiment_kind=bound.program.kind,
-            point_count=len(point_domain.points),
+            point_count=(len(point_domain.points) if point_limit is None else None),
+            point_limit=(
+                len(point_domain.points) if point_limit is None else point_limit
+            ),
             coordinate_columns=coordinate_columns,
             domain_layout=point_domain.layout,
             domain_axes=point_domain.axes,
@@ -48,6 +54,8 @@ def project_measurement_catalog(
 def project_run_point_catalog(
     bound_points: MaterializedBoundPoints,
     point_ordinals: Sequence[int] | None = None,
+    *,
+    point_limit: int | None = None,
 ) -> RunPointCatalog:
     """Project runtime points and their typed coordinate contract."""
 
@@ -59,7 +67,10 @@ def project_run_point_catalog(
         contract=RunPointContract(
             experiment_id=bound.program.experiment_id,
             experiment_kind=bound.program.kind,
-            point_count=len(point_domain.points),
+            point_count=(len(point_domain.points) if point_limit is None else None),
+            point_limit=(
+                len(point_domain.points) if point_limit is None else point_limit
+            ),
             coordinate_columns=coordinate_columns,
             domain_layout=point_domain.layout,
             domain_axes=point_domain.axes,
@@ -76,7 +87,7 @@ def project_run_point_catalog(
     )
 
 
-class _RunPointSequence(Sequence[RunPoint]):
+class _RunPointSequence(Sequence[AcceptedRunPoint]):
     __slots__ = ("_coordinate_ids", "_ordinals", "_points")
 
     def __init__(
@@ -95,26 +106,30 @@ class _RunPointSequence(Sequence[RunPoint]):
         return len(self._ordinals)
 
     @overload
-    def __getitem__(self, index: int) -> RunPoint: ...
+    def __getitem__(self, index: int) -> AcceptedRunPoint: ...
 
     @overload
-    def __getitem__(self, index: slice) -> tuple[RunPoint, ...]: ...
+    def __getitem__(self, index: slice) -> tuple[AcceptedRunPoint, ...]: ...
 
     @override
-    def __getitem__(self, index: int | slice) -> RunPoint | tuple[RunPoint, ...]:
+    def __getitem__(
+        self, index: int | slice
+    ) -> AcceptedRunPoint | tuple[AcceptedRunPoint, ...]:
         if isinstance(index, slice):
             return tuple(self[offset] for offset in range(*index.indices(len(self))))
         point = self._points[self._ordinals[index]]
-        return RunPoint(
-            point.logical_id,
-            {
-                coordinate_id: point.row[coordinate_id]
-                for coordinate_id in self._coordinate_ids
-            },
+        return AcceptedRunPoint.accept(
+            PointProposalAttempt(
+                {
+                    coordinate_id: point.row[coordinate_id]
+                    for coordinate_id in self._coordinate_ids
+                }
+            ),
+            logical_id=point.logical_id,
         )
 
     @override
-    def __iter__(self) -> Iterator[RunPoint]:
+    def __iter__(self) -> Iterator[AcceptedRunPoint]:
         return (self[index] for index in range(len(self)))
 
 

@@ -60,6 +60,7 @@ from scopecat_server.storage.sqlite.control_plane import (
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
 from ..errors import BackendConflict, BackendNotFound
+from .point_plans import RunPointPlanService
 
 
 class AdmissionService:
@@ -71,10 +72,12 @@ class AdmissionService:
         control: SQLiteControlPlane,
         runs: SQLiteRunRepository,
         services: ProjectStateServices,
+        point_plans: RunPointPlanService,
     ) -> None:
         self._control = control
         self._runs = runs
         self._services = services
+        self._point_plans = point_plans
 
     def submit_run(self, submission: RunSubmission) -> RunAdmission:
         retry = self._replay_admission(submission)
@@ -139,6 +142,7 @@ class AdmissionService:
                     admission,
                     expected_config_generation=active.activation.generation,
                 )
+                self._point_plans.initialize_admitted_in_transaction(connection, run)
                 if run.run_id == admission.run_id:
                     self._runs.commit_run_skeleton_in_transaction(
                         connection,
@@ -313,6 +317,12 @@ class AdmissionService:
                 released = self._control.release_run_resources_in_transaction(
                     connection,
                     run_id,
+                )
+                self._point_plans.abandon_in_transaction(
+                    connection,
+                    run_id,
+                    operation_id="point-plan.reconcile.executor-loss",
+                    reason="executor loss reconciled",
                 )
                 self._runs.commit_prepared_terminal_in_transaction(
                     connection,

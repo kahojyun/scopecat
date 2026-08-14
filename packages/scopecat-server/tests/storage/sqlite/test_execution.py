@@ -8,12 +8,26 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier
+from typing import Literal, cast
 
 import pytest
+from scopecat.adaptive_domains import DomainProposalAttempt, ResolvedDomainFragment
+from scopecat.daemon.points import (
+    AcceptedRunPointView,
+    RunDomainDecisionCommand,
+    RunDomainEnqueueCommand,
+    RunDomainFragmentInput,
+    RunDomainProposalAttemptView,
+    RunPointCoordinateValue,
+    RunPointPlanCloseCommand,
+)
+from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.problems import (
     ProblemPhase,
     problem,
 )
+from scopecat.kernel.quantity import Quantity
+from scopecat.measurements import recording_arrow
 from scopecat.records.execution_journal import (
     ExecutionTransition,
     execution_transition_content_hash,
@@ -38,11 +52,11 @@ from scopecat_testkit.server.runtime import (
     SQLiteTestExecutionJournal as SQLiteExecutionJournal,
 )
 
-from scopecat_server.storage.sqlite import measurement_arrow
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.execution import (
     ExecutionJournalConflict,
     SQLiteMeasurementDatasetRepository,
+    SQLiteRunPointLedger,
 )
 from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
@@ -84,6 +98,264 @@ def _sqlite_transaction(
         connection.close()
 
 
+def test_adaptive_domain_ledger_persists_idempotent_decisions_and_closure(
+    tmp_path: Path,
+) -> None:
+    runs = _runs(tmp_path)
+    run_id = "adaptive-ledger-run"
+    with _sqlite_transaction(runs) as connection:
+        connection.execute(
+            """
+            INSERT INTO scheduler_runs(
+                submission_id, run_id, state, updated_at, admission_json
+            )
+            VALUES (?, ?, 'queued', ?, '{}')
+            """,
+            ("adaptive-ledger-submission", run_id, datetime.now(UTC).isoformat()),
+        )
+        ledger = SQLiteRunPointLedger(runs, run_id=run_id)
+        initialized = ledger.initialize_in_transaction(
+            connection,
+            operation_id="initialize",
+            initial_point_count=2,
+            point_limit=5,
+            plan_closed=False,
+        )
+        first_command = _domain_decision_command(
+            operation_id="decision-1",
+            point_start=2,
+            point_count=2,
+        )
+        accepted = ledger.append_decision_in_transaction(
+            connection,
+            first_command,
+        )
+        retry = ledger.append_decision_in_transaction(
+            connection,
+            first_command,
+        )
+        rejected = ledger.append_decision_in_transaction(
+            connection,
+            _domain_decision_command(
+                operation_id="decision-2",
+                point_start=4,
+                outcome="rejected",
+                reason="stale optimizer state",
+            ),
+        )
+        with pytest.raises(ExecutionJournalConflict, match="point prefix"):
+            ledger.append_decision_in_transaction(
+                connection,
+                _domain_decision_command(
+                    operation_id="noncontiguous",
+                    point_start=3,
+                ),
+            )
+        close = RunPointPlanCloseCommand(
+            lease_id="lease-1",
+            operation_id="close",
+            based_on_completed_point_count=4,
+            reason="optimizer converged",
+        )
+        closed = ledger.close_in_transaction(
+            connection,
+            close,
+            completed_point_count=4,
+        )
+        close_retry = ledger.close_in_transaction(
+            connection,
+            close,
+            completed_point_count=4,
+        )
+
+    assert initialized.accepted_point_count == 2
+    assert accepted == retry
+    assert accepted.accepted_point_start == 2
+    assert accepted.accepted_point_count == 2
+    assert rejected.outcome == "rejected"
+    assert closed == close_retry
+    assert closed.accepted_point_count == 4
+    assert closed.decision_count == 2
+    assert closed.plan_closed
+    assert closed.stop_reason == "optimizer converged"
+    assert SQLiteRunPointLedger(runs, run_id=run_id).read() == closed
+    with runs.sqlite.read_transaction() as connection:
+        row = connection.execute(
+            """
+            SELECT COUNT(*) AS point_count
+            FROM execution_run_points
+            WHERE run_id = ?
+            """,
+            (run_id,),
+        ).fetchone()
+    assert row is not None
+    assert row["point_count"] == 2
+
+
+def _domain_decision_command(
+    *,
+    operation_id: str,
+    point_start: int,
+    point_count: int = 1,
+    outcome: Literal["accepted", "rejected"] = "accepted",
+    reason: str | None = None,
+) -> RunDomainDecisionCommand:
+    fragment = ResolvedDomainFragment.points(
+        tuple(
+            {"frequency": Quantity(5.2 + index / 10, "GHz")}
+            for index in range(point_count)
+        )
+    )
+    proposal = DomainProposalAttempt(
+        fragment,
+        region_ids=("region-0",),
+        based_on_region_revisions={"region-0": 2},
+    )
+    accepted_points = tuple(
+        AcceptedRunPointView(
+            point_index=point_start + index,
+            coordinates=cast("dict[str, RunPointCoordinateValue]", row),
+            proposal_fingerprint=PointProposalAttempt(
+                row,
+                source="optimizer",
+                region_id="region-0",
+                domain_proposal_fingerprint=proposal.proposal_fingerprint,
+                based_on_region_revision=2,
+            ).proposal_fingerprint,
+            source="optimizer",
+            region_id="region-0",
+            domain_proposal_fingerprint=proposal.proposal_fingerprint,
+        )
+        for index, row in enumerate(fragment.rows())
+    )
+    return RunDomainDecisionCommand(
+        lease_id="lease-1",
+        operation_id=operation_id,
+        proposal=RunDomainProposalAttemptView.from_proposal(proposal),
+        outcome=outcome,
+        accepted_points=accepted_points if outcome == "accepted" else (),
+        reason=reason,
+    )
+
+
+def test_operator_domain_queue_is_fifo_bounded_and_resolved_by_decisions(
+    tmp_path: Path,
+) -> None:
+    runs = _runs(tmp_path)
+    run_id = "operator-queue-run"
+    fragment = ResolvedDomainFragment.points(({"frequency": Quantity(5.15, "GHz")},))
+    enqueue = RunDomainEnqueueCommand(
+        request_id="queue-1",
+        coordinate_mode="free",
+        region_scope="current",
+        fragment=RunDomainFragmentInput.from_fragment(fragment),
+    )
+    second_enqueue = enqueue.model_copy(update={"request_id": "queue-2"})
+    with _sqlite_transaction(runs) as connection:
+        connection.execute(
+            """
+            INSERT INTO scheduler_runs(
+                submission_id, run_id, state, updated_at, admission_json
+            )
+            VALUES (?, ?, 'leased', ?, '{}')
+            """,
+            ("operator-queue-submission", run_id, datetime.now(UTC).isoformat()),
+        )
+        ledger = SQLiteRunPointLedger(runs, run_id=run_id)
+        ledger.initialize_in_transaction(
+            connection,
+            operation_id="initialize",
+            initial_point_count=1,
+            point_limit=3,
+            plan_closed=False,
+        )
+        first, first_created = ledger.enqueue_in_transaction(
+            connection,
+            enqueue,
+            resolved_fragment=fragment,
+            region_count=1,
+        )
+        retry, retry_created = ledger.enqueue_in_transaction(
+            connection,
+            enqueue,
+            resolved_fragment=fragment,
+            region_count=1,
+        )
+        second, _ = ledger.enqueue_in_transaction(
+            connection,
+            second_enqueue,
+            resolved_fragment=fragment,
+            region_count=1,
+        )
+        with pytest.raises(ExecutionJournalConflict, match="remaining budget"):
+            ledger.enqueue_in_transaction(
+                connection,
+                enqueue.model_copy(update={"request_id": "queue-3"}),
+                resolved_fragment=fragment,
+                region_count=1,
+            )
+
+    assert first == retry
+    assert first_created
+    assert not retry_created
+    assert ledger.next_pending() == first
+    proposal = DomainProposalAttempt(
+        fragment,
+        region_ids=("region-0",),
+        source="operator",
+    )
+    [row] = fragment.rows()
+    normalized = PointProposalAttempt(
+        row,
+        source="operator",
+        region_id="region-0",
+        domain_proposal_fingerprint=proposal.proposal_fingerprint,
+    )
+    with _sqlite_transaction(runs) as connection:
+        decision = ledger.append_decision_in_transaction(
+            connection,
+            RunDomainDecisionCommand(
+                lease_id="lease-1",
+                operation_id="decision-1",
+                operator_request_id=first.request.request_id,
+                proposal=RunDomainProposalAttemptView.from_proposal(proposal),
+                outcome="accepted",
+                accepted_points=(
+                    AcceptedRunPointView(
+                        point_index=1,
+                        coordinates=cast("dict[str, RunPointCoordinateValue]", row),
+                        proposal_fingerprint=normalized.proposal_fingerprint,
+                        source="operator",
+                        region_id="region-0",
+                        domain_proposal_fingerprint=proposal.proposal_fingerprint,
+                    ),
+                ),
+            ),
+        )
+        closed = ledger.close_in_transaction(
+            connection,
+            RunPointPlanCloseCommand(
+                lease_id="lease-1",
+                operation_id="close",
+                based_on_completed_point_count=2,
+                reason="operator sweep complete",
+            ),
+            completed_point_count=2,
+        )
+
+    queue = ledger.queue()
+    assert decision.accepted_point_start == 1
+    assert decision.accepted_point_count == 1
+    assert decision.operator_request_id == first.request.request_id
+    assert closed.plan_closed
+    assert queue.items[0].status == "accepted"
+    assert queue.items[0].accepted_point_start == 1
+    assert queue.items[0].accepted_point_count == 1
+    assert queue.items[1].request.request_id == second.request.request_id
+    assert queue.items[1].status == "cancelled"
+    assert queue.items[1].reason == "point plan closed: operator sweep complete"
+
+
 def _header(
     run_id: str,
     *,
@@ -110,6 +382,7 @@ def _header(
             primary_observables=("signal",),
         ),
         expected_record_count=point_count,
+        record_count_limit=point_count,
     )
 
 
@@ -151,7 +424,7 @@ def _seal(
         point_count=len(append.records),
         dataset_content_hash=measurement_dataset_content_hash(
             header_content_hash=header.content_hash,
-            append_content_hashes=(append.content_hash,),
+            record_content_hashes=append.record_content_hashes,
         ),
     )
 
@@ -193,7 +466,7 @@ def test_measurement_repository_reuses_schema_hash_for_appends(
     runs = _runs(tmp_path)
     repository = SQLiteMeasurementDatasetRepository(runs, run_id="run-cached-schema")
     header = _header("run-cached-schema", point_count=2)
-    original = measurement_arrow.measurement_dataset_schema_hash
+    original = recording_arrow.measurement_dataset_schema_hash
     hash_calls = 0
 
     def counted_hash(dataset_schema: MeasurementDatasetSchema) -> str:
@@ -202,7 +475,7 @@ def test_measurement_repository_reuses_schema_hash_for_appends(
         return original(dataset_schema)
 
     monkeypatch.setattr(
-        measurement_arrow,
+        recording_arrow,
         "measurement_dataset_schema_hash",
         counted_hash,
     )
@@ -658,7 +931,7 @@ def test_measurement_header_makes_an_empty_dataset_readable(tmp_path: Path) -> N
         point_count=0,
         dataset_content_hash=measurement_dataset_content_hash(
             header_content_hash=header.content_hash,
-            append_content_hashes=(),
+            record_content_hashes=(),
         ),
     )
     _commit_seal(runs, repository, seal)

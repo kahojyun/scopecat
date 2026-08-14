@@ -29,6 +29,8 @@ from scopecat_server.services.application import DaemonApplication
 from scopecat_server.services.config import ConfigService
 from scopecat_server.services.executor import ExecutorService
 from scopecat_server.services.leases import OwnershipLeaseSupervisor
+from scopecat_server.services.point_plans import RunPointPlanService
+from scopecat_server.services.reviews import ReviewService, RunInspectionFeedService
 from scopecat_server.services.runs import RunService
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
@@ -116,6 +118,8 @@ class LocalDaemonRuntime:
                 config_registry=config_registry.read_unit_of_work,
             )
             active_measurements = ActiveMeasurementStore()
+            reviews = ReviewService()
+            run_inspections = RunInspectionFeedService()
             instrument_actors = InstrumentActorRegistry()
             config_service = ConfigService(
                 control=control,
@@ -124,16 +128,19 @@ class LocalDaemonRuntime:
                 services=services,
                 actors=instrument_actors,
             )
+            point_plans = RunPointPlanService(control=control, runs=runs)
             run_service = RunService(
                 control=control,
                 runs=runs,
                 services=services,
                 active_measurements=active_measurements,
+                point_plans=point_plans,
             )
             admission = AdmissionService(
                 control=control,
                 runs=runs,
                 services=services,
+                point_plans=point_plans,
             )
             instruments = InstrumentService(
                 control=control,
@@ -150,11 +157,14 @@ class LocalDaemonRuntime:
                 runs=runs,
                 instruments=instruments,
                 active_measurements=active_measurements,
+                run_inspections=run_inspections,
+                point_plans=point_plans,
                 lease_ttl=lease_ttl,
             )
             project_id = _project_id(self.project_root)
             lease_supervisor = OwnershipLeaseSupervisor(
                 instruments=instruments,
+                executor=executor,
                 shutdown_timeout_seconds=instrument_shutdown_grace.total_seconds(),
             )
             application = DaemonApplication(
@@ -168,6 +178,9 @@ class LocalDaemonRuntime:
                 instruments=instruments,
                 payloads=payloads,
                 lease_supervisor=lease_supervisor,
+                reviews=reviews,
+                run_inspections=run_inspections,
+                point_plans=point_plans,
             )
             try:
                 bootstrap_source = (

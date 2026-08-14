@@ -15,6 +15,13 @@ from importlib import import_module
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from scopecat.adaptive_domains import (
+        AdaptiveRegion,
+        DomainProposalAttempt,
+        RegionOptimizationComplete,
+        ResolvedDomainAxis,
+        ResolvedDomainFragment,
+    )
     from scopecat.analysis.datasets import (
         DerivedDataset,
         DerivedDatasetField,
@@ -114,6 +121,19 @@ if TYPE_CHECKING:
         entity_ref,
     )
     from scopecat.kernel.quantity import Quantity
+    from scopecat.optimization import (
+        AdaptiveDomainPlan,
+        CompletedPointObservation,
+        DomainOptimizer,
+        DomainOptimizerContext,
+        DomainProposalDecision,
+        DomainProposalLedger,
+        DomainProposalSummary,
+        OptimizationComplete,
+        OptimizerMeasurementObservation,
+        OptimizerScalarObservation,
+        OptimizerUnavailableObservation,
+    )
     from scopecat.planning.system import ExperimentSystem
     from scopecat.project import open_project
     from scopecat.sdk.payloads import (
@@ -238,6 +258,58 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "TemporaryInstrumentRef",
     ),
     "Quantity": ("scopecat.kernel.quantity", "Quantity"),
+    "AdaptiveRegion": ("scopecat.adaptive_domains", "AdaptiveRegion"),
+    "DomainProposalAttempt": (
+        "scopecat.adaptive_domains",
+        "DomainProposalAttempt",
+    ),
+    "RegionOptimizationComplete": (
+        "scopecat.adaptive_domains",
+        "RegionOptimizationComplete",
+    ),
+    "ResolvedDomainAxis": (
+        "scopecat.adaptive_domains",
+        "ResolvedDomainAxis",
+    ),
+    "ResolvedDomainFragment": (
+        "scopecat.adaptive_domains",
+        "ResolvedDomainFragment",
+    ),
+    "AdaptiveDomainPlan": ("scopecat.optimization", "AdaptiveDomainPlan"),
+    "CompletedPointObservation": (
+        "scopecat.optimization",
+        "CompletedPointObservation",
+    ),
+    "OptimizationComplete": ("scopecat.optimization", "OptimizationComplete"),
+    "OptimizerMeasurementObservation": (
+        "scopecat.optimization",
+        "OptimizerMeasurementObservation",
+    ),
+    "OptimizerScalarObservation": (
+        "scopecat.optimization",
+        "OptimizerScalarObservation",
+    ),
+    "OptimizerUnavailableObservation": (
+        "scopecat.optimization",
+        "OptimizerUnavailableObservation",
+    ),
+    "DomainOptimizer": ("scopecat.optimization", "DomainOptimizer"),
+    "DomainOptimizerContext": (
+        "scopecat.optimization",
+        "DomainOptimizerContext",
+    ),
+    "DomainProposalDecision": (
+        "scopecat.optimization",
+        "DomainProposalDecision",
+    ),
+    "DomainProposalLedger": (
+        "scopecat.optimization",
+        "DomainProposalLedger",
+    ),
+    "DomainProposalSummary": (
+        "scopecat.optimization",
+        "DomainProposalSummary",
+    ),
     "open_project": ("scopecat.project", "open_project"),
     "analysis_step": ("scopecat.api.analysis", "analysis_step"),
     "instrument": ("scopecat.api.instruments", "instrument"),

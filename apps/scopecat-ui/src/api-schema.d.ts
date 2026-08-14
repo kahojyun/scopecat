@@ -396,6 +396,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Reviews */
+        get: operations["list_reviews_api_v1_reviews_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reviews/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Review */
+        get: operations["get_review_api_v1_reviews__session_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reviews/{session_id}/compile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Compile Review Point */
+        post: operations["compile_review_point_api_v1_reviews__session_id__compile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs": {
         parameters: {
             query?: never;
@@ -532,6 +583,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/inspections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run Inspections */
+        get: operations["get_run_inspections_api_v1_runs__run_id__inspections_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/measurements/live": {
         parameters: {
             query?: never;
@@ -611,6 +679,41 @@ export interface paths {
         get: operations["list_parameter_proposals_api_v1_runs__run_id__parameter_proposals_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/point-plan/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run Domain Queue */
+        get: operations["get_run_domain_queue_api_v1_runs__run_id__point_plan_queue_get"];
+        put?: never;
+        /** Enqueue Run Domain */
+        post: operations["enqueue_run_domain_api_v1_runs__run_id__point_plan_queue_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/point-plan/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve Run Domain */
+        post: operations["resolve_run_domain_api_v1_runs__run_id__point_plan_resolve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -822,6 +925,20 @@ export interface components {
             config: components["schemas"]["ConfigProfileSnapshot-Output"];
             entry: components["schemas"]["ConfigRegistryEntry"];
         };
+        /**
+         * AdaptiveRegionSpec
+         * @description One stable outer-domain region admitted for adaptive extension.
+         */
+        "AdaptiveRegionSpec-Output": {
+            /** Coordinates */
+            coordinates: {
+                [key: string]: components["schemas"]["PointCoordinateValue-Output"];
+            };
+            /** Id */
+            id: string;
+            /** Initial Point Count */
+            initial_point_count: number;
+        };
         /** AnalysisArtifactRecordOutput */
         AnalysisArtifactRecordOutput: {
             content: components["schemas"]["AnalysisArtifactReference"];
@@ -831,7 +948,7 @@ export interface components {
              * @enum {string}
              */
             kind: "artifact";
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["JsonMetadata"];
             produced_by?: components["schemas"]["AnalysisExecutionOutputReference"] | null;
             title: components["schemas"]["_NonEmptyText"];
         };
@@ -902,7 +1019,7 @@ export interface components {
              * @enum {string}
              */
             kind: "dataset";
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["JsonMetadata"];
             produced_by?: components["schemas"]["AnalysisExecutionOutputReference"] | null;
             title: components["schemas"]["_NonEmptyText"];
         };
@@ -932,7 +1049,7 @@ export interface components {
          * AnalysisExecution
          * @description Optional execution evidence retained by an analysis publication.
          */
-        "AnalysisExecution-Output": {
+        AnalysisExecution: {
             /**
              * Access
              * @default full
@@ -949,10 +1066,10 @@ export interface components {
             id: components["schemas"]["_NonEmptyText"];
             implementation: components["schemas"]["_NonEmptyText"];
             /** Input Bindings */
-            input_bindings: components["schemas"]["AnalysisExecutionInput-Output"][];
+            input_bindings: components["schemas"]["AnalysisExecutionInput"][];
             /** Inputs */
             inputs: components["schemas"]["_NonEmptyText"][];
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["JsonMetadata"];
             /** Outputs */
             outputs: components["schemas"]["AnalysisExecutionOutput"][];
         };
@@ -960,7 +1077,7 @@ export interface components {
          * AnalysisExecutionInput
          * @description One named, content-identified input consumed by an analysis execution.
          */
-        "AnalysisExecutionInput-Output": {
+        AnalysisExecutionInput: {
             codec: components["schemas"]["_NonEmptyText"];
             content_hash: components["schemas"]["_NonEmptyText"];
             /**
@@ -998,7 +1115,7 @@ export interface components {
          * AnalysisFact
          * @description Small typed conclusion retained directly in an analysis record.
          */
-        "AnalysisFact-Output": {
+        AnalysisFact: {
             codec: components["schemas"]["_NonEmptyText"];
             /**
              * Schema Codec
@@ -1011,14 +1128,14 @@ export interface components {
         };
         /** AnalysisFactRecordOutput */
         AnalysisFactRecordOutput: {
-            content: components["schemas"]["AnalysisFact-Output"];
+            content: components["schemas"]["AnalysisFact"];
             id: components["schemas"]["_NonEmptyText"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             kind: "fact";
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["JsonMetadata"];
             produced_by?: components["schemas"]["AnalysisExecutionOutputReference"] | null;
             title: components["schemas"]["_NonEmptyText"];
         };
@@ -1080,7 +1197,7 @@ export interface components {
              * @enum {string}
              */
             kind: "figure";
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["JsonMetadata"];
             title: components["schemas"]["_NonEmptyText"];
         };
         /**
@@ -1117,7 +1234,7 @@ export interface components {
              * @enum {string}
              */
             kind: "parameter_change_proposal";
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["JsonMetadata"];
             title: components["schemas"]["_NonEmptyText"];
         };
         /**
@@ -1139,7 +1256,7 @@ export interface components {
         /** AnalysisRecord */
         AnalysisRecord: {
             /** Executions */
-            executions?: components["schemas"]["AnalysisExecution-Output"][];
+            executions?: components["schemas"]["AnalysisExecution"][];
             /** Inputs */
             inputs?: components["schemas"]["AnalysisRecordInput"][];
             key?: components["schemas"]["_NonEmptyText"] | null;
@@ -1161,7 +1278,7 @@ export interface components {
              * @enum {string}
              */
             kind: "measurement_dataset" | "analysis_dataset";
-            metadata?: components["schemas"]["JsonMetadata-Output"] | null;
+            metadata?: components["schemas"]["JsonMetadata"] | null;
             role: components["schemas"]["_NonEmptyText"];
             source?: components["schemas"]["AnalysisPublishedOutputReference"] | null;
             target: components["schemas"]["_NonEmptyText"];
@@ -1198,7 +1315,7 @@ export interface components {
              * @enum {string}
              */
             kind: "table";
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["JsonMetadata"];
             title: components["schemas"]["_NonEmptyText"];
         };
         /**
@@ -1232,7 +1349,7 @@ export interface components {
          *     reconcile state before it can safely issue another command or retry.
          */
         ApplyReceipt: {
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["JsonMetadata"];
             /**
              * Problems
              * @default []
@@ -1301,7 +1418,7 @@ export interface components {
          *     duplicating an external acquisition.
          */
         CollectReceipt: {
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["JsonMetadata"];
             /**
              * Problems
              * @default []
@@ -1343,6 +1460,107 @@ export interface components {
             size_bytes: number;
         };
         CommandPayloadBody: components["schemas"]["InlinePayloadBody"] | components["schemas"]["BlobPayloadBody"];
+        /**
+         * CompiledArtifactInspection
+         * @description Common inspection envelope shared by pre-run and running views.
+         */
+        "CompiledArtifactInspection-Output": {
+            bounds: components["schemas"]["CompiledInspectionBounds"];
+            /** Facts */
+            facts: components["schemas"]["CompiledInspectionFact-Output"][];
+            /** Kind */
+            kind: string;
+            /** Point Count */
+            point_count: number;
+            /** Points */
+            points: components["schemas"]["CompiledPointInspection-Output"][];
+            /** Points Truncated */
+            points_truncated: boolean;
+            /**
+             * Schema Id
+             * @default scopecat.compiled_artifact_inspection.v1
+             * @constant
+             */
+            schema_id: "scopecat.compiled_artifact_inspection.v1";
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+        };
+        /**
+         * CompiledInspectionBounds
+         * @description Hard response budgets applied to one transient inspection.
+         */
+        CompiledInspectionBounds: {
+            /** Max Points */
+            max_points: number;
+            /** Max Samples Per Waveform */
+            max_samples_per_waveform: number;
+            /** Max Waveforms Per Point */
+            max_waveforms_per_point: number;
+        };
+        /**
+         * CompiledInspectionFact
+         * @description One named target fact suitable for display and transport.
+         */
+        "CompiledInspectionFact-Output": {
+            /** Id */
+            id: string;
+            /** Unit */
+            unit?: string | null;
+            value: components["schemas"]["scopecat__kernel__json_types__JsonValue-Output"];
+        };
+        /**
+         * CompiledPointInspection
+         * @description One batch-independent physical realization of a point candidate.
+         */
+        "CompiledPointInspection-Output": {
+            /** Facts */
+            facts: components["schemas"]["CompiledInspectionFact-Output"][];
+            /** Realization Fingerprint */
+            realization_fingerprint: string;
+            /** Target Entry Id */
+            target_entry_id: string;
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /** Waveform Count */
+            waveform_count: number;
+            /** Waveforms */
+            waveforms: components["schemas"]["CompiledWaveformInspection"][];
+            /** Waveforms Truncated */
+            waveforms_truncated: boolean;
+        };
+        /**
+         * CompiledWaveformInspection
+         * @description Bounded samples and stable identity for one physical waveform.
+         */
+        CompiledWaveformInspection: {
+            /** Channel Id */
+            channel_id: string;
+            /**
+             * Downsampling
+             * @enum {string}
+             */
+            downsampling: "none" | "minmax";
+            /** Instrument Id */
+            instrument_id: string;
+            /** Peak Abs */
+            peak_abs: number;
+            /** Rms */
+            rms: number;
+            /** Sample Indices */
+            sample_indices: number[];
+            /** Samples */
+            samples: number[];
+            /** Samples Sha256 */
+            samples_sha256: string;
+            /** Source Sample Count */
+            source_sample_count: number;
+        };
         /**
          * ComponentSpec
          * @description One stable role nested below an interface endpoint.
@@ -1631,23 +1849,7 @@ export interface components {
          * DomainTargetBinding
          * @description One composite target and the instruments it is authorized to coordinate.
          */
-        "DomainTargetBinding-Input": {
-            /** Configuration */
-            configuration?: {
-                [key: string]: components["schemas"]["JsonValue-Input"];
-            };
-            /** Id */
-            id: string;
-            /** Instrument Ids */
-            instrument_ids?: string[];
-            /** Kind */
-            kind: string;
-        };
-        /**
-         * DomainTargetBinding
-         * @description One composite target and the instruments it is authorized to coordinate.
-         */
-        "DomainTargetBinding-Output": {
+        DomainTargetBinding: {
             /** Configuration */
             configuration?: {
                 [key: string]: components["schemas"]["pydantic__types__JsonValue"];
@@ -1829,7 +2031,7 @@ export interface components {
          * @description Provider-visible identity and connection for one configured instrument.
          */
         InstrumentBindingSpec: {
-            connection: components["schemas"]["InstrumentConnection-Input"];
+            connection: components["schemas"]["InstrumentConnection"];
             /** Driver Id */
             driver_id: string;
             /** Id */
@@ -1876,8 +2078,7 @@ export interface components {
              */
             status: "applied" | "unchanged" | "rejected";
         };
-        "InstrumentConnection-Input": components["schemas"]["VirtualInstrumentConnection-Input"] | components["schemas"]["TcpipSocketInstrumentConnection-Input"];
-        "InstrumentConnection-Output": components["schemas"]["VirtualInstrumentConnection-Output"] | components["schemas"]["TcpipSocketInstrumentConnection-Output"];
+        InstrumentConnection: components["schemas"]["VirtualInstrumentConnection"] | components["schemas"]["TcpipSocketInstrumentConnection"];
         /** @enum {string} */
         InstrumentConnectionKind: "virtual" | "tcpip_socket";
         InstrumentConnectionSummary: components["schemas"]["VirtualInstrumentConnectionSummary"] | components["schemas"]["TcpipSocketInstrumentConnectionSummary"];
@@ -1962,27 +2163,19 @@ export interface components {
         };
         /** InstrumentReadback */
         InstrumentReadback: {
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["JsonMetadata"];
             /** Values */
             values?: {
-                [key: string]: components["schemas"]["MeasurementValue-Output"];
+                [key: string]: components["schemas"]["MeasurementValue"];
             };
         };
         /**
          * InstrumentRegistry
          * @description Logical instruments with one owner for each physical access domain.
          */
-        "InstrumentRegistry-Input": {
+        InstrumentRegistry: {
             /** Instruments */
-            instruments: components["schemas"]["InstrumentSpec-Input"][];
-        };
-        /**
-         * InstrumentRegistry
-         * @description Logical instruments with one owner for each physical access domain.
-         */
-        "InstrumentRegistry-Output": {
-            /** Instruments */
-            instruments: components["schemas"]["InstrumentSpec-Output"][];
+            instruments: components["schemas"]["InstrumentSpec"][];
         };
         /** @enum {string} */
         InstrumentRunStartPolicy: "preserve" | "apply_default_state";
@@ -2068,35 +2261,8 @@ export interface components {
          *     baseline before terminal readback. Failure always aborts first and may then
          *     apply ``safe_state`` while the instrument remains commandable.
          */
-        "InstrumentSpec-Input": {
-            connection: components["schemas"]["InstrumentConnection-Input"];
-            /** Default State */
-            default_state?: components["schemas"]["InstrumentPropertyState"][];
-            /** Driver Id */
-            driver_id: string;
-            /** Exclusivity Key */
-            exclusivity_key: string;
-            failure_action: components["schemas"]["InstrumentFailureAction"];
-            /** Id */
-            id: string;
-            run_start: components["schemas"]["InstrumentRunStartPolicy"];
-            /** Safe State */
-            safe_state?: components["schemas"]["InstrumentPropertyState"][];
-            success_action: components["schemas"]["InstrumentSuccessAction"];
-        };
-        /**
-         * InstrumentSpec
-         * @description Configured instrument with a stable physical access domain.
-         *
-         *     Default and safe states are sparse patches over freshly observed state.
-         *     After exclusive acquisition, ``run_start`` either preserves that observed
-         *     baseline or applies ``default_state`` to establish the execution baseline.
-         *     A successful run either releases its final authored state or restores that
-         *     baseline before terminal readback. Failure always aborts first and may then
-         *     apply ``safe_state`` while the instrument remains commandable.
-         */
-        "InstrumentSpec-Output": {
-            connection: components["schemas"]["InstrumentConnection-Output"];
+        InstrumentSpec: {
+            connection: components["schemas"]["InstrumentConnection"];
             /** Default State */
             default_state?: components["schemas"]["InstrumentPropertyState"][];
             /** Driver Id */
@@ -2139,7 +2305,7 @@ export interface components {
         InstrumentStateSnapshot: {
             /** Instrument Id */
             instrument_id: string;
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["JsonMetadata"];
             /** Properties */
             properties?: components["schemas"]["InstrumentPropertyState"][];
         };
@@ -2240,7 +2406,7 @@ export interface components {
          * @description Outcome reported after one atomic instrument operation.
          */
         InvokeReceipt: {
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["JsonMetadata"];
             /**
              * Problems
              * @default []
@@ -2254,10 +2420,9 @@ export interface components {
              */
             status: "invoked" | "not_invoked" | "unknown";
         };
-        "JsonMetadata-Output": {
+        JsonMetadata: {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
         };
-        "JsonValue-Input": unknown;
         LocationPathItem: string | number;
         /**
          * ManualConfigDraftRegistrySource
@@ -2289,7 +2454,7 @@ export interface components {
          * MeasurementArray
          * @description One typed array backed by an immutable, read-only NumPy buffer.
          */
-        "MeasurementArray-Output": {
+        MeasurementArray: {
             /** @default float64 */
             dtype: components["schemas"]["MeasurementDType"];
             /**
@@ -2302,10 +2467,10 @@ export interface components {
             shape: number[];
             /** Unit */
             unit?: string | null;
-            values: components["schemas"]["MeasurementArrayJson-Output"];
+            values: components["schemas"]["MeasurementArrayJson"];
         };
-        "MeasurementArrayJson-Output": components["schemas"]["MeasurementArrayJsonItem-Output"][];
-        "MeasurementArrayJsonItem-Output": components["schemas"]["MeasurementArrayJsonLeaf"] | components["schemas"]["MeasurementArrayJsonItem-Output"][];
+        MeasurementArrayJson: components["schemas"]["MeasurementArrayJsonItem"][];
+        MeasurementArrayJsonItem: components["schemas"]["MeasurementArrayJsonLeaf"] | components["schemas"]["MeasurementArrayJsonItem"][];
         MeasurementArrayJsonLeaf: boolean | number | string | components["schemas"]["MeasurementComplexJson"];
         MeasurementComplexJson: {
             imag: number;
@@ -2319,7 +2484,7 @@ export interface components {
             dataset_schema: components["schemas"]["MeasurementDatasetSchema-Output"];
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
             /** Records */
-            records: components["schemas"]["MeasurementRecord-Output"][];
+            records: components["schemas"]["MeasurementRecord"][];
         };
         /**
          * MeasurementDatasetSchema
@@ -2332,10 +2497,10 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension-Output"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v9
+             * @default scopecat.measurement_dataset_schema.v10
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v9";
+            format_version: "scopecat.measurement_dataset_schema.v10";
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
             point_domain: components["schemas"]["MeasurementPointDomain-Output"];
             /** Primary Coordinates */
@@ -2369,28 +2534,6 @@ export interface components {
         };
         /** @enum {string} */
         MeasurementDType: "float64" | "int64" | "complex128" | "bool" | "string";
-        /**
-         * MeasurementLivePreview
-         * @description Latest daemon-received measurement, whether or not it is durable yet.
-         */
-        MeasurementLivePreview: {
-            /**
-             * Active
-             * @default false
-             */
-            active: boolean;
-            /**
-             * Durable Record Count
-             * @default 0
-             */
-            durable_record_count: number;
-            latest?: components["schemas"]["MeasurementRecord-Output"] | null;
-            /**
-             * Received Record Count
-             * @default 0
-             */
-            received_record_count: number;
-        };
         "MeasurementMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
         };
@@ -2477,7 +2620,7 @@ export interface components {
              * Items
              * @default []
              */
-            items: components["schemas"]["MeasurementRecord-Output"][];
+            items: components["schemas"]["MeasurementRecord"][];
             /**
              * Truncated
              * @default false
@@ -2501,13 +2644,13 @@ export interface components {
          * MeasurementRecord
          * @description One durable point row with immutable values, evidence, and metadata.
          */
-        "MeasurementRecord-Output": {
+        MeasurementRecord: {
             acquisition_evidence?: components["schemas"]["InstrumentAcquisitionEvidenceMap"];
-            coordinates: components["schemas"]["MeasurementValueMap-Output"];
+            coordinates: components["schemas"]["MeasurementValueMap"];
             /** Logical Point Id */
             logical_point_id?: string | null;
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
-            observables: components["schemas"]["MeasurementValueMap-Output"];
+            observables: components["schemas"]["MeasurementValueMap"];
             /** Point Index */
             point_index: number;
             /** Run Id */
@@ -2566,7 +2709,7 @@ export interface components {
              * Items
              * @default []
              */
-            items: components["schemas"]["MeasurementRecord-Output"][];
+            items: components["schemas"]["MeasurementRecord"][];
             /** Selected Point Count */
             selected_point_count: number;
             /**
@@ -2708,7 +2851,7 @@ export interface components {
          *     ``None`` preserves an unknown extent for a ragged product axis when no
          *     available value exists from which to learn that point-local size.
          */
-        "MeasurementUnavailable-Output": {
+        MeasurementUnavailable: {
             dtype: components["schemas"]["MeasurementDType"];
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -2726,9 +2869,9 @@ export interface components {
             /** Unit */
             unit: string | null;
         };
-        "MeasurementValue-Output": components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray-Output"] | components["schemas"]["MeasurementUnavailable-Output"];
-        "MeasurementValueMap-Output": {
-            [key: string]: components["schemas"]["MeasurementValue-Output"];
+        MeasurementValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementUnavailable"];
+        MeasurementValueMap: {
+            [key: string]: components["schemas"]["MeasurementValue"];
         };
         /**
          * MeasurementVariable
@@ -2792,6 +2935,30 @@ export interface components {
             /** Label */
             label?: string | null;
         };
+        /** OperatorDomainRequestView */
+        OperatorDomainRequestView: {
+            /**
+             * Coordinate Mode
+             * @enum {string}
+             */
+            coordinate_mode: "snap" | "free";
+            fragment: components["schemas"]["RunDomainFragmentView-Output"];
+            /** Region Count */
+            region_count: number;
+            /**
+             * Region Ids
+             * @default []
+             */
+            region_ids: string[];
+            region_scope: components["schemas"]["OperatorRegionScope"];
+            /** Request Fingerprint */
+            request_fingerprint: string;
+            /** Request Id */
+            request_id: string;
+            requested_fragment: components["schemas"]["RunDomainFragmentView-Output"];
+        };
+        /** @enum {string} */
+        OperatorRegionScope: "current" | "selected" | "all";
         "ParameterAtomValue-Input": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | boolean | number | string;
         "ParameterAtomValue-Output": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | boolean | number | string;
         /**
@@ -2930,6 +3097,45 @@ export interface components {
         };
         PersistableScalarWire: components["schemas"]["_PersistableScalarModel"];
         PersistableValueType: components["schemas"]["_PersistableValueTypeWire"];
+        /** @enum {string} */
+        PointCoordinateKind: "bool" | "int" | "float" | "string" | "quantity" | "entity";
+        /**
+         * PointCoordinateSpec
+         * @description Admissibility and authored sampling facts for one point coordinate.
+         */
+        "PointCoordinateSpec-Output": {
+            /** Choices */
+            choices?: string[] | null;
+            /** Dimension */
+            dimension?: string | null;
+            /** Entity Kind */
+            entity_kind?: string | null;
+            /**
+             * Finite
+             * @default true
+             */
+            finite: boolean;
+            /** Id */
+            id: string;
+            kind: components["schemas"]["PointCoordinateKind"];
+            /** Maximum */
+            maximum?: number | null;
+            /** Minimum */
+            minimum?: number | null;
+            /**
+             * Sampled Values
+             * @default []
+             */
+            sampled_values: components["schemas"]["PointCoordinateValue-Output"][];
+            /**
+             * Sampled Values Truncated
+             * @default false
+             */
+            sampled_values_truncated: boolean;
+            /** Unit */
+            unit?: string | null;
+        };
+        "PointCoordinateValue-Output": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | null;
         /**
          * Problem
          * @description One expected, structured finding without presentation policy.
@@ -2986,6 +3192,26 @@ export interface components {
             kind: "replace_parameter";
             value: components["schemas"]["StoredParameterValue-Input"];
         };
+        /** ResolvedRunDomainView */
+        ResolvedRunDomainView: {
+            /**
+             * Coordinate Mode
+             * @enum {string}
+             */
+            coordinate_mode: "snap" | "free";
+            fragment: components["schemas"]["RunDomainFragmentView-Output"];
+            /** Region Count */
+            region_count: number;
+            /**
+             * Region Ids
+             * @default []
+             */
+            region_ids: string[];
+            region_scope: components["schemas"]["OperatorRegionScope"];
+            requested_fragment: components["schemas"]["RunDomainFragmentView-Output"];
+            /** Total Point Count */
+            total_point_count: number;
+        };
         /** @constant */
         ResourceKind: "instrument";
         /** @enum {string} */
@@ -3020,6 +3246,134 @@ export interface components {
             instrument_id: string;
             /** Role Id */
             role_id?: string | null;
+        };
+        /** ReviewCompilationResult */
+        "ReviewCompilationResult-Output": {
+            /**
+             * Completed At
+             * Format: date-time
+             */
+            completed_at: string;
+            /** Error */
+            error?: string | null;
+            /**
+             * Inspections
+             * @default []
+             */
+            inspections: components["schemas"]["ReviewInspectionView-Output"][];
+            point?: components["schemas"]["ReviewPointView-Output"] | null;
+            /** Request Id */
+            request_id: string;
+        };
+        /** ReviewCompileCommand */
+        ReviewCompileCommand: {
+            /** @default exact */
+            coordinate_mode: components["schemas"]["ReviewCoordinateMode"];
+            /** Coordinates */
+            coordinates?: {
+                [key: string]: components["schemas"]["ReviewCoordinateValue-Input"];
+            } | null;
+            /** Point Index */
+            point_index?: number | null;
+        };
+        /** ReviewCompileReceipt */
+        ReviewCompileReceipt: {
+            /** Request Id */
+            request_id: string;
+            /** Session Id */
+            session_id: string;
+            /**
+             * State
+             * @default queued
+             * @constant
+             */
+            state: "queued";
+        };
+        /** @enum {string} */
+        ReviewCoordinateMode: "exact" | "snap" | "free";
+        "ReviewCoordinateValue-Input": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | null;
+        "ReviewCoordinateValue-Output": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | null;
+        /** ReviewInspectionView */
+        "ReviewInspectionView-Output": {
+            /** Artifact Fingerprint */
+            artifact_fingerprint: string;
+            /** Artifact Id */
+            artifact_id: string;
+            content: components["schemas"]["CompiledArtifactInspection-Output"];
+            /** Operation Id */
+            operation_id: string;
+            /** Point Index */
+            point_index?: number | null;
+            /** Target Id */
+            target_id: string;
+        };
+        /** ReviewPointView */
+        "ReviewPointView-Output": {
+            /** Coordinates */
+            coordinates: {
+                [key: string]: components["schemas"]["ReviewCoordinateValue-Output"];
+            };
+            /** Point Index */
+            point_index?: number | null;
+            /** Proposal Fingerprint */
+            proposal_fingerprint?: string | null;
+            /**
+             * Source
+             * @default author
+             * @enum {string}
+             */
+            source: "author" | "optimizer" | "operator";
+        };
+        /** ReviewSessionListView */
+        ReviewSessionListView: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["ReviewSessionView"][];
+        };
+        /** ReviewSessionView */
+        ReviewSessionView: {
+            /** Active */
+            active: boolean;
+            /** Coordinates */
+            coordinates: components["schemas"]["PointCoordinateSpec-Output"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Experiment Id */
+            experiment_id: string;
+            /** Experiment Kind */
+            experiment_kind: string;
+            /** Heartbeat Interval Seconds */
+            heartbeat_interval_seconds: number;
+            latest_result?: components["schemas"]["ReviewCompilationResult-Output"] | null;
+            /**
+             * Pending Request Count
+             * @default 0
+             */
+            pending_request_count: number;
+            /**
+             * Planned Points
+             * @default []
+             */
+            planned_points: components["schemas"]["ReviewPointView-Output"][];
+            /**
+             * Planned Points Truncated
+             * @default false
+             */
+            planned_points_truncated: boolean;
+            /** Session Id */
+            session_id: string;
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /**
          * RoutingEndpoint
@@ -3093,13 +3447,13 @@ export interface components {
          */
         RunAnalysisView: {
             analysis: components["schemas"]["AnalysisRecord"];
-            entry: components["schemas"]["RunContentEntry-Output"];
+            entry: components["schemas"]["RunContentEntry"];
             /** Run Id */
             run_id: string;
         };
         /** RunArtifactBytesView */
         RunArtifactBytesView: {
-            artifact: components["schemas"]["RunContentEntry-Output"];
+            artifact: components["schemas"]["RunContentEntry"];
             /** Content Base64 */
             content_base64: string;
             /** Run Id */
@@ -3107,15 +3461,15 @@ export interface components {
         };
         /** RunArtifactJsonResult */
         RunArtifactJsonResult: {
-            artifact: components["schemas"]["RunContentEntry-Output"];
+            artifact: components["schemas"]["RunContentEntry"];
             /** Content */
             content: {
-                [key: string]: components["schemas"]["scopecat__kernel__json_types__JsonValue"];
+                [key: string]: components["schemas"]["scopecat__kernel__json_types__JsonValue-Output"];
             };
         };
         /** RunArtifactTextResult */
         RunArtifactTextResult: {
-            artifact: components["schemas"]["RunContentEntry-Output"];
+            artifact: components["schemas"]["RunContentEntry"];
             /** Content */
             content: string;
         };
@@ -3124,7 +3478,7 @@ export interface components {
          * RunContentEntry
          * @description One content-addressable run-local manifest entry.
          */
-        "RunContentEntry-Output": {
+        RunContentEntry: {
             /** Content Hash */
             content_hash: string;
             /** Filename */
@@ -3135,7 +3489,7 @@ export interface components {
             kind: string;
             /** Media Type */
             media_type?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["JsonMetadata"];
             /** Produced By */
             produced_by?: string | null;
             /**
@@ -3160,6 +3514,9 @@ export interface components {
             attention_reason?: string | null;
             /** Cancellation Requested At */
             cancellation_requested_at?: string | null;
+            /** Completed Point Count */
+            completed_point_count: number;
+            point_plan: components["schemas"]["RunPointPlanView"];
             /** Sequence */
             sequence: number;
             state: components["schemas"]["ControlRunState"];
@@ -3187,11 +3544,58 @@ export interface components {
              */
             resources: components["schemas"]["RunResourceView"][];
         };
+        /** RunDomainAroundSourceView */
+        RunDomainAroundSourceView: {
+            /** Center */
+            center: number | components["schemas"]["scopecat__kernel__quantity__Quantity"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "around";
+            /** Points */
+            points: number;
+            /** Span */
+            span: number | components["schemas"]["scopecat__kernel__quantity__Quantity"];
+        };
+        "RunDomainAxisSourceView-Input": components["schemas"]["RunDomainValuesSourceView-Input"] | components["schemas"]["RunDomainRangeSourceView"] | components["schemas"]["RunDomainAroundSourceView"];
+        "RunDomainAxisSourceView-Output": components["schemas"]["RunDomainValuesSourceView-Output"] | components["schemas"]["RunDomainRangeSourceView"] | components["schemas"]["RunDomainAroundSourceView"];
+        /** RunDomainAxisView */
+        "RunDomainAxisView-Input": {
+            /** Axis Id */
+            axis_id: string;
+            source: components["schemas"]["RunDomainAxisSourceView-Input"];
+        };
+        /** RunDomainAxisView */
+        "RunDomainAxisView-Output": {
+            /** Axis Id */
+            axis_id: string;
+            source: components["schemas"]["RunDomainAxisSourceView-Output"];
+        };
+        /** RunDomainEnqueueCommand */
+        RunDomainEnqueueCommand: {
+            /**
+             * Coordinate Mode
+             * @enum {string}
+             */
+            coordinate_mode: "snap" | "free";
+            fragment: components["schemas"]["RunDomainFragmentInput"];
+            /**
+             * Region Ids
+             * @default []
+             */
+            region_ids: string[];
+            region_scope: components["schemas"]["OperatorRegionScope"];
+            /** Request Id */
+            request_id: string;
+        };
         /**
          * RunDomainExecutionView
          * @description Compact target-authored provenance for one domain execution.
          */
         RunDomainExecutionView: {
+            /** Artifact Fingerprint */
+            artifact_fingerprint: string;
             /** Artifact Id */
             artifact_id: string;
             /** Compiler Id */
@@ -3200,7 +3604,7 @@ export interface components {
             execution_key: string;
             /** Execution Summary */
             execution_summary: {
-                [key: string]: components["schemas"]["scopecat__kernel__json_types__JsonValue"];
+                [key: string]: components["schemas"]["scopecat__kernel__json_types__JsonValue-Output"];
             };
             /** Intent Fingerprint */
             intent_fingerprint: string;
@@ -3237,6 +3641,176 @@ export interface components {
              */
             updated_at: string;
         };
+        /** RunDomainFragmentInput */
+        RunDomainFragmentInput: {
+            /** Axes */
+            axes: components["schemas"]["RunDomainAxisView-Input"][];
+            /**
+             * Layout
+             * @enum {string}
+             */
+            layout: "grid" | "point_cloud";
+        };
+        /** RunDomainFragmentView */
+        "RunDomainFragmentView-Output": {
+            /** Axes */
+            axes: components["schemas"]["RunDomainAxisView-Output"][];
+            /** Fragment Fingerprint */
+            fragment_fingerprint: string;
+            /**
+             * Layout
+             * @enum {string}
+             */
+            layout: "grid" | "point_cloud";
+            /** Point Count */
+            point_count: number;
+        };
+        /**
+         * RunDomainInspectionEvent
+         * @description One transient domain decision and all compiled point inspections.
+         */
+        "RunDomainInspectionEvent-Output": {
+            /**
+             * Accepted Point Count
+             * @default 0
+             */
+            accepted_point_count: number;
+            /** Accepted Point Start */
+            accepted_point_start?: number | null;
+            fragment: components["schemas"]["RunDomainFragmentView-Output"];
+            /**
+             * Inspections
+             * @default []
+             */
+            inspections: components["schemas"]["ReviewInspectionView-Output"][];
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "accepted" | "rejected";
+            /** Proposal Index */
+            proposal_index: number;
+            /** Reason */
+            reason?: string | null;
+            /** Region Ids */
+            region_ids: string[];
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "author" | "optimizer" | "operator";
+        };
+        /** RunDomainQueueEntryView */
+        RunDomainQueueEntryView: {
+            /**
+             * Accepted Point Count
+             * @default 0
+             */
+            accepted_point_count: number;
+            /** Accepted Point Start */
+            accepted_point_start?: number | null;
+            /** Decision Operation Id */
+            decision_operation_id?: string | null;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Queue Index */
+            queue_index: number;
+            /** Reason */
+            reason?: string | null;
+            request: components["schemas"]["OperatorDomainRequestView"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "accepted" | "rejected" | "cancelled";
+        };
+        /** RunDomainQueueView */
+        RunDomainQueueView: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["RunDomainQueueEntryView"][];
+            /** Run Id */
+            run_id: string;
+        };
+        /** RunDomainRangeSourceView */
+        RunDomainRangeSourceView: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "range";
+            /** Points */
+            points: number;
+            /** Start */
+            start: number | components["schemas"]["scopecat__kernel__quantity__Quantity"];
+            /** Stop */
+            stop: number | components["schemas"]["scopecat__kernel__quantity__Quantity"];
+        };
+        /** RunDomainResolveCommand */
+        RunDomainResolveCommand: {
+            /**
+             * Coordinate Mode
+             * @enum {string}
+             */
+            coordinate_mode: "snap" | "free";
+            fragment: components["schemas"]["RunDomainFragmentInput"];
+            /**
+             * Region Ids
+             * @default []
+             */
+            region_ids: string[];
+            region_scope: components["schemas"]["OperatorRegionScope"];
+        };
+        /** RunDomainValuesSourceView */
+        "RunDomainValuesSourceView-Input": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "values";
+            /** Values */
+            values: components["schemas"]["RunPointCoordinateValue-Input"][];
+        };
+        /** RunDomainValuesSourceView */
+        "RunDomainValuesSourceView-Output": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "values";
+            /** Values */
+            values: components["schemas"]["RunPointCoordinateValue-Output"][];
+        };
+        /** RunInspectionView */
+        RunInspectionView: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["RunDomainInspectionEvent-Output"][];
+            /**
+             * Items Truncated
+             * @default false
+             */
+            items_truncated: boolean;
+            /** Run Id */
+            run_id: string;
+            /**
+             * Total Proposal Count
+             * @default 0
+             */
+            total_proposal_count: number;
+        };
         /**
          * RunManifest
          * @description Accepted snapshot plus content and an optional terminal outcome.
@@ -3248,7 +3822,7 @@ export interface components {
              * Contents
              * @default []
              */
-            contents: components["schemas"]["RunContentEntry-Output"][];
+            contents: components["schemas"]["RunContentEntry"][];
             /**
              * Created At
              * Format: date-time
@@ -3264,7 +3838,7 @@ export interface components {
          */
         RunMeasurementDatasetResult: {
             dataset: components["schemas"]["MeasurementDataset"];
-            dataset_entry: components["schemas"]["RunContentEntry-Output"];
+            dataset_entry: components["schemas"]["RunContentEntry"];
         };
         /**
          * RunOutcome
@@ -3300,16 +3874,44 @@ export interface components {
          */
         RunPlanView: {
             /**
-             * Coordinate Ids
+             * Adaptive Coordinate Ids
              * @default []
              */
-            coordinate_ids: string[];
+            adaptive_coordinate_ids: string[];
+            /**
+             * Adaptive Region Count
+             * @default 0
+             */
+            adaptive_region_count: number;
+            /**
+             * Adaptive Regions
+             * @default []
+             */
+            adaptive_regions: components["schemas"]["AdaptiveRegionSpec-Output"][];
+            /**
+             * Adaptive Regions Truncated
+             * @default false
+             */
+            adaptive_regions_truncated: boolean;
+            /** Adaptive Scope */
+            adaptive_scope?: ("per_region" | "global") | null;
+            /**
+             * Coordinates
+             * @default []
+             */
+            coordinates: components["schemas"]["PointCoordinateSpec-Output"][];
             /** Experiment Id */
             experiment_id: string;
             /** Experiment Kind */
             experiment_kind: string;
+            /** Initial Point Count */
+            initial_point_count: number;
+            /** Per Region Point Limit */
+            per_region_point_limit?: number | null;
             /** Point Count */
-            point_count: number;
+            point_count?: number | null;
+            /** Point Limit */
+            point_limit: number;
             /**
              * Record Ids
              * @default []
@@ -3320,14 +3922,52 @@ export interface components {
              * @default []
              */
             run_resource_requirements: components["schemas"]["RunResourceRequirement"][];
+            /**
+             * Sampled Points
+             * @default []
+             */
+            sampled_points: {
+                [key: string]: components["schemas"]["PointCoordinateValue-Output"];
+            }[];
+            /**
+             * Sampled Points Truncated
+             * @default false
+             */
+            sampled_points_truncated: boolean;
+        };
+        "RunPointCoordinateValue-Input": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | null;
+        "RunPointCoordinateValue-Output": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | null;
+        /**
+         * RunPointPlanView
+         * @description Durable adaptive point inventory and domain-decision progress.
+         */
+        RunPointPlanView: {
+            /** Accepted Point Count */
+            accepted_point_count: number;
+            /** Decision Count */
+            decision_count: number;
+            /** Initial Point Count */
+            initial_point_count: number;
+            /** Operator Request Count */
+            operator_request_count: number;
+            /** Optimizer Attempt Count */
+            optimizer_attempt_count: number;
+            /** Plan Closed */
+            plan_closed: boolean;
+            /** Point Limit */
+            point_limit: number;
+            /** Run Id */
+            run_id: string;
+            /** Stop Reason */
+            stop_reason?: string | null;
         };
         /** RunRecordJsonResult */
         RunRecordJsonResult: {
             /** Content */
             content: {
-                [key: string]: components["schemas"]["scopecat__kernel__json_types__JsonValue"];
+                [key: string]: components["schemas"]["scopecat__kernel__json_types__JsonValue-Output"];
             };
-            record: components["schemas"]["RunContentEntry-Output"];
+            record: components["schemas"]["RunContentEntry"];
         };
         /**
          * RunResourceRequirement
@@ -3421,7 +4061,9 @@ export interface components {
             shape: "scalar";
             value: components["schemas"]["ParameterAtomValue-Output"];
         };
-        scopecat__kernel__json_types__JsonValue: unknown;
+        "scopecat__kernel__json_types__JsonValue-Output": string | boolean | number | components["schemas"]["scopecat__kernel__json_types__JsonValue-Output"][] | {
+            [key: string]: components["schemas"]["scopecat__kernel__json_types__JsonValue-Output"];
+        } | null;
         /**
          * Quantity
          * @description A numeric value with an explicit unit.
@@ -3476,10 +4118,10 @@ export interface components {
          * @description Stable system topology and logical parameter definitions.
          */
         "SystemSpec-Input": {
-            domain_target: components["schemas"]["DomainTargetBinding-Input"] | null;
+            domain_target: components["schemas"]["DomainTargetBinding"] | null;
             /** Id */
             id: string;
-            instrument_registry: components["schemas"]["InstrumentRegistry-Input"];
+            instrument_registry: components["schemas"]["InstrumentRegistry"];
             parameter_catalog: components["schemas"]["ParameterCatalog"];
             /** Primary Entity Id */
             primary_entity_id: string;
@@ -3491,10 +4133,10 @@ export interface components {
          * @description Stable system topology and logical parameter definitions.
          */
         "SystemSpec-Output": {
-            domain_target: components["schemas"]["DomainTargetBinding-Output"] | null;
+            domain_target: components["schemas"]["DomainTargetBinding"] | null;
             /** Id */
             id: string;
-            instrument_registry: components["schemas"]["InstrumentRegistry-Output"];
+            instrument_registry: components["schemas"]["InstrumentRegistry"];
             parameter_catalog: components["schemas"]["ParameterCatalog"];
             /** Primary Entity Id */
             primary_entity_id: string;
@@ -3536,28 +4178,7 @@ export interface components {
             shape: "table";
         };
         /** TcpipSocketInstrumentConnection */
-        "TcpipSocketInstrumentConnection-Input": {
-            /** Host */
-            host: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "tcpip_socket";
-            /** Options */
-            options?: {
-                [key: string]: components["schemas"]["JsonValue-Input"];
-            };
-            /** Port */
-            port: number;
-            /**
-             * Timeout Seconds
-             * @default 5
-             */
-            timeout_seconds: number;
-        };
-        /** TcpipSocketInstrumentConnection */
-        "TcpipSocketInstrumentConnection-Output": {
+        TcpipSocketInstrumentConnection: {
             /** Host */
             host: string;
             /**
@@ -3637,19 +4258,7 @@ export interface components {
             type: string;
         };
         /** VirtualInstrumentConnection */
-        "VirtualInstrumentConnection-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "virtual";
-            /** Options */
-            options?: {
-                [key: string]: components["schemas"]["JsonValue-Input"];
-            };
-        };
-        /** VirtualInstrumentConnection */
-        "VirtualInstrumentConnection-Output": {
+        VirtualInstrumentConnection: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -4391,6 +5000,92 @@ export interface operations {
             };
         };
     };
+    list_reviews_api_v1_reviews_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewSessionListView"];
+                };
+            };
+        };
+    };
+    get_review_api_v1_reviews__session_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewSessionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compile_review_point_api_v1_reviews__session_id__compile_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewCompileCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewCompileReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_runs_api_v1_runs_get: {
         parameters: {
             query?: {
@@ -4651,6 +5346,37 @@ export interface operations {
             };
         };
     };
+    get_run_inspections_api_v1_runs__run_id__inspections_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunInspectionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     measurement_live_preview_api_v1_runs__run_id__measurements_live_get: {
         parameters: {
             query?: {
@@ -4670,7 +5396,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MeasurementLivePreview"];
+                    "application/vnd.apache.arrow.file": string;
                 };
             };
             /** @description Validation Error */
@@ -4805,6 +5531,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ParameterProposalListView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_domain_queue_api_v1_runs__run_id__point_plan_queue_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDomainQueueView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enqueue_run_domain_api_v1_runs__run_id__point_plan_queue_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunDomainEnqueueCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDomainQueueEntryView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_run_domain_api_v1_runs__run_id__point_plan_resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunDomainResolveCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolvedRunDomainView"];
                 };
             };
             /** @description Validation Error */
