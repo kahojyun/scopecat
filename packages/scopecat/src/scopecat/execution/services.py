@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-from scopecat.adaptive_domains import OperatorDomainRequest
+from scopecat.adaptive_domains import DomainProposalAttempt, OperatorDomainRequest
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.execution.program import RunPointInspection
 from scopecat.kernel.points import AcceptedRunPoint
@@ -45,6 +45,7 @@ class RunDomainProposalWriter(Protocol):
 
     def append(
         self,
+        proposal: DomainProposalAttempt,
         decision: DomainProposalDecision,
         accepted_points: tuple[AcceptedRunPoint, ...],
         inspections: tuple[RunPointInspection, ...],

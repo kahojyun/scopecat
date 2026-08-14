@@ -54,7 +54,7 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import StateValue
 from scopecat.measurements.recording_arrow import decode_measurement_append
-from scopecat.optimization import DomainProposalDecision
+from scopecat.optimization import DomainProposalDecision, DomainProposalSummary
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import (
     ExecutionTransition,
@@ -357,9 +357,10 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
         logical_id=LogicalPointId(PointDomainId("scratch", "points"), 1),
     )
     domain_proposals.append(
+        proposal,
         DomainProposalDecision(
             proposal_index=0,
-            proposal=proposal,
+            proposal=DomainProposalSummary.from_proposal(proposal),
             outcome="accepted",
             accepted_point_start=accepted_point.ordinal,
             accepted_point_count=1,

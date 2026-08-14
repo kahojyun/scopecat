@@ -37,22 +37,29 @@ from scopecat.records.measurement import (
 )
 
 
-def _options() -> tuple[int, int]:
+def _options() -> tuple[int, int, int]:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--decisions", type=int, default=20_000)
+    parser.add_argument("--domain-points", type=int, default=1)
     parser.add_argument("--waveform-samples", type=int, default=32_768)
     options = parser.parse_args()
-    return cast("int", options.decisions), cast("int", options.waveform_samples)
+    return (
+        cast("int", options.decisions),
+        cast("int", options.domain_points),
+        cast("int", options.waveform_samples),
+    )
 
 
 def main() -> None:
-    decision_count, waveform_samples = _options()
+    decision_count, domain_points, waveform_samples = _options()
     if decision_count <= OPTIMIZER_DECISION_WINDOW:
         raise ValueError(
             f"decisions must exceed the {OPTIMIZER_DECISION_WINDOW}-decision window"
         )
     if waveform_samples <= 0:
         raise ValueError("waveform samples must be positive")
+    if domain_points <= 0:
+        raise ValueError("domain points must be positive")
 
     observations: deque[CompletedPointObservation] = deque(
         maxlen=OPTIMIZER_OBSERVATION_WINDOW
@@ -64,7 +71,12 @@ def main() -> None:
     tracemalloc.start()
     started = time.perf_counter()
     for decision_index in range(decision_count):
-        fragment = ResolvedDomainFragment.points(({"x": float(decision_index)},))
+        fragment = ResolvedDomainFragment.points(
+            tuple(
+                {"x": float(decision_index * domain_points + point_index)}
+                for point_index in range(domain_points)
+            )
+        )
         proposal = DomainProposalAttempt(
             fragment,
             region_ids=("region-0",),
@@ -143,6 +155,10 @@ def main() -> None:
         "retained_decisions": len(context.ledger.entries),
         "retained_observations": len(context.observations),
         "decision_window": OPTIMIZER_DECISION_WINDOW,
+        "proposal_point_count": domain_points,
+        "retained_fragment_payloads": sum(
+            hasattr(entry.proposal, "fragment") for entry in context.ledger.entries
+        ),
         "observation_window": OPTIMIZER_OBSERVATION_WINDOW,
         "waveform_samples": waveform_samples,
         "discarded_waveform_payload_bytes": (

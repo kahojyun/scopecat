@@ -435,12 +435,14 @@ in-process optimizer context.
 Run the long-run memory probe with:
 
 ```console
-uv run python scripts/benchmark_adaptive_optimizer.py --decisions 20000
+uv run python scripts/benchmark_adaptive_optimizer.py --decisions 20000 --domain-points 1024
 ```
 
-The probe feeds a distinct 256 KiB waveform through every retained observation.
+The probe feeds a distinct 256 KiB waveform through every retained observation
+and proposes large point-cloud domains without retaining their coordinate rows.
 The emitted `retained_decisions` and `retained_observations` must stay at their
-fixed windows, `retained_array_observables` must remain zero, and retained
+fixed windows, `retained_array_observables` and `retained_fragment_payloads`
+must remain zero, and retained
 tracemalloc/RSS measurements must not include the reported discarded waveform
 payload.
 The daemon retains the latest received measurement for the live Arrow view plus the

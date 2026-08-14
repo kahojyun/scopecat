@@ -10,10 +10,11 @@ from typing import Literal, Protocol
 from scopecat.adaptive_domains import (
     AdaptiveRegion,
     AdaptiveScope,
+    DomainFragmentLayout,
     DomainProposalAttempt,
     RegionOptimizationComplete,
 )
-from scopecat.kernel.points import AcceptedRunPoint
+from scopecat.kernel.points import AcceptedRunPoint, PointProposalSource
 
 OPTIMIZER_OBSERVATION_WINDOW = 256
 OPTIMIZER_DECISION_WINDOW = 1024
@@ -94,11 +95,37 @@ type DomainProposalOutcome = Literal["accepted", "rejected"]
 
 
 @dataclass(frozen=True, slots=True)
+class DomainProposalSummary:
+    """Bounded proposal identity retained in an optimizer decision ledger."""
+
+    proposal_fingerprint: str
+    fragment_fingerprint: str
+    source: PointProposalSource
+    layout: DomainFragmentLayout
+    coordinate_ids: tuple[str, ...]
+    point_count: int
+    region_count: int
+
+    @classmethod
+    def from_proposal(cls, proposal: DomainProposalAttempt) -> DomainProposalSummary:
+        fragment = proposal.fragment
+        return cls(
+            proposal_fingerprint=proposal.proposal_fingerprint,
+            fragment_fingerprint=fragment.fingerprint,
+            source=proposal.source,
+            layout=fragment.layout,
+            coordinate_ids=fragment.coordinate_ids,
+            point_count=fragment.point_count,
+            region_count=len(proposal.region_ids),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class DomainProposalDecision:
     """One ordered decision about a proposed compatible domain fragment."""
 
     proposal_index: int
-    proposal: DomainProposalAttempt
+    proposal: DomainProposalSummary
     outcome: DomainProposalOutcome
     accepted_point_start: int | None = None
     accepted_point_count: int = 0
@@ -205,7 +232,7 @@ class DomainProposalLedger:
                 *self.entries,
                 DomainProposalDecision(
                     proposal_index=self.decision_count,
-                    proposal=proposal,
+                    proposal=DomainProposalSummary.from_proposal(proposal),
                     outcome="accepted",
                     accepted_point_start=points[0].ordinal,
                     accepted_point_count=len(points),
@@ -229,7 +256,7 @@ class DomainProposalLedger:
                 *self.entries,
                 DomainProposalDecision(
                     proposal_index=self.decision_count,
-                    proposal=proposal,
+                    proposal=DomainProposalSummary.from_proposal(proposal),
                     outcome="rejected",
                     reason=reason,
                 ),
@@ -348,6 +375,7 @@ __all__ = [
     "DomainProposalDecision",
     "DomainProposalLedger",
     "DomainProposalOutcome",
+    "DomainProposalSummary",
     "OptimizationComplete",
     "OptimizerMeasurementObservation",
     "OptimizerObservationValue",

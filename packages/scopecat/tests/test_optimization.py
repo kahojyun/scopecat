@@ -106,7 +106,7 @@ def test_domain_ledger_retains_bounded_decisions_with_exact_totals() -> None:
     assert ledger.optimizer_attempt_count == 40
 
 
-def test_domain_ledger_compacts_large_accepted_domain_to_point_range() -> None:
+def test_domain_ledger_does_not_retain_large_accepted_domain_payload() -> None:
     point_count = 4096
     proposal = DomainProposalAttempt(
         ResolvedDomainFragment.points(
@@ -133,7 +133,9 @@ def test_domain_ledger_compacts_large_accepted_domain_to_point_range() -> None:
 
     assert decision.accepted_point_start == 0
     assert decision.accepted_point_count == point_count
-    assert not hasattr(decision, "accepted_points")
+    assert decision.proposal.point_count == point_count
+    assert decision.proposal.region_count == 1
+    assert not hasattr(decision.proposal, "fragment")
 
 
 def test_optimizer_observation_projection_retains_only_metadata_free_scalars() -> None:

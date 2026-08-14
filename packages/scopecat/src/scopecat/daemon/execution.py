@@ -10,6 +10,7 @@ from typing import Protocol, cast
 
 from pydantic import BaseModel, JsonValue, TypeAdapter
 
+from scopecat.adaptive_domains import DomainProposalAttempt
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.points import (
     AcceptedRunPointView,
@@ -325,6 +326,7 @@ class _DaemonRunDomainProposals:
 
     def append(
         self,
+        proposal: DomainProposalAttempt,
         decision: DomainProposalDecision,
         accepted_points: tuple[AcceptedRunPoint, ...],
         inspections: tuple[RunPointInspection, ...],
@@ -356,7 +358,7 @@ class _DaemonRunDomainProposals:
                     operator_request_id=operator_request_id,
                 ),
                 operator_request_id=operator_request_id,
-                proposal=RunDomainProposalAttemptView.from_proposal(decision.proposal),
+                proposal=RunDomainProposalAttemptView.from_proposal(proposal),
                 outcome=decision.outcome,
                 accepted_points=accepted_point_views,
                 reason=decision.reason,

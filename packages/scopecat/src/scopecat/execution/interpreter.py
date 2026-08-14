@@ -667,6 +667,7 @@ def _execution_coverage(
             decision = coordinator.reject(proposal, reason=str(error))
             if state.proposal_writer is not None:
                 state.proposal_writer.append(
+                    proposal,
                     decision,
                     (),
                     (),
@@ -679,6 +680,7 @@ def _execution_coverage(
         decision = coordinator.accept(bound, accepted_points)
         if state.proposal_writer is not None:
             state.proposal_writer.append(
+                bound.proposal,
                 decision,
                 accepted_points,
                 tuple(item.inspection for item in accepted),

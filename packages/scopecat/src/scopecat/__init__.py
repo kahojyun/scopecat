@@ -129,6 +129,7 @@ if TYPE_CHECKING:
         DomainOptimizerContext,
         DomainProposalDecision,
         DomainProposalLedger,
+        DomainProposalSummary,
         OptimizationComplete,
         OptimizerMeasurementObservation,
         OptimizerScalarObservation,
@@ -309,6 +310,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "DomainProposalLedger": (
         "scopecat.optimization",
         "DomainProposalLedger",
+    ),
+    "DomainProposalSummary": (
+        "scopecat.optimization",
+        "DomainProposalSummary",
     ),
     "open_project": ("scopecat.project", "open_project"),
     "analysis_step": ("scopecat.api.analysis", "analysis_step"),

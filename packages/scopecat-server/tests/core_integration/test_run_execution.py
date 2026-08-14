@@ -158,13 +158,14 @@ class _OperatorQueuePort:
 
     def append(
         self,
+        proposal: DomainProposalAttempt,
         decision: DomainProposalDecision,
         accepted_points: tuple[AcceptedRunPoint, ...],
         inspections: tuple[RunPointInspection, ...],
         *,
         operator_request_id: str | None = None,
     ) -> None:
-        del accepted_points, inspections
+        del proposal, accepted_points, inspections
         if decision.proposal.source == "operator":
             assert operator_request_id == "operator-queue-1"
         else:
