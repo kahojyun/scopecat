@@ -3024,12 +3024,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
                         recording_group_id="readout",
                     ),
                 ],
-                variable_groups=[
-                    MeasurementVariableGroup(
-                        id="readout",
-                        variable_ids=("frequency", "trace"),
-                    )
-                ],
+                variable_groups=[MeasurementVariableGroup(id="readout")],
                 primary_coordinates=["frequency"],
                 primary_observables=["signal", "trace"],
             ),

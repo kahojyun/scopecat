@@ -401,7 +401,7 @@ def split_collect_receipt(
                 request_id=request_id,
                 dtype=value.dtype,
                 unit=value.unit,
-                shape=tuple(value.shape),
+                shape=tuple(cast("int", extent) for extent in value.shape),
                 metadata=cast("JsonMetadata", thaw_json_value(value.metadata)),
             )
         )

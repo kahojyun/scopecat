@@ -12,6 +12,7 @@ from scopecat.execution.program import RunCoverageEffect
 from scopecat.kernel.resource_identity import ResourceRequirement
 from scopecat.planning.compilation import compile_run_program
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
+from scopecat.program.products import RecordSelection
 from scopecat_testkit.instrument_host import compose_test_instruments
 
 from reference_lab.bench_interfaces import (
@@ -44,9 +45,12 @@ def test_awg_output_monitor_uses_entityless_bench_resources() -> None:
     )
     assert source.selector.entity_inputs == ()
     assert monitor.selector.entity_inputs == ()
+    selections = logical.product_record_selections
+    assert all(isinstance(selection, RecordSelection) for selection in selections)
     assert [
         selection.product_id.qualified_name
-        for selection in logical.product_record_selections
+        for selection in selections
+        if isinstance(selection, RecordSelection)
     ] == ["time", "voltage"]
 
 

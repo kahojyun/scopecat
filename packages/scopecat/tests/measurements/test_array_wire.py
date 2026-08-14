@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pytest
 
@@ -22,7 +24,7 @@ def test_numeric_wire_round_trip_reuses_immutable_array_storage() -> None:
         content,
         dtype="float64",
         unit="V",
-        shape=original.shape,
+        shape=cast("tuple[int, ...]", original.shape),
         metadata={},
     )
 
@@ -41,7 +43,7 @@ def test_bool_wire_round_trip_reuses_immutable_array_storage() -> None:
         encode_measurement_array(original),
         dtype="bool",
         unit=None,
-        shape=original.shape,
+        shape=cast("tuple[int, ...]", original.shape),
         metadata={},
     )
 

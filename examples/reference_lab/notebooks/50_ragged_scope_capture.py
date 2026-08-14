@@ -10,7 +10,7 @@ from reference_lab.notebook import show
 from reference_lab.workflows.ragged_scope_capture import RAGGED_SCOPE_CAPTURE
 
 
-def available_shape(value: MeasurementValue) -> list[int]:
+def available_shape(value: MeasurementValue) -> list[int | None]:
     assert isinstance(value, MeasurementArray)
     return list(value.shape)
 
