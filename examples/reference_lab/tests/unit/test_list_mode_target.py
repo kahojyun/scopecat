@@ -104,13 +104,15 @@ class _RecordingInstrumentExecutor:
                 [dimension] = request.dimensions
                 assert dimension.size is not None
                 for value_id in binding.value_ids:
-                    capture_value = float(len(values) + 1)
+                    capture_value: float | complex = float(len(values) + 1)
+                    if request.dtype == "complex128":
+                        capture_value = complex(capture_value)
                     values.append(
                         RunHardwareValue(
                             point_index=action.point_index,
                             value_id=value_id,
                             value=MeasurementArray.create(
-                                dtype="float64",
+                                dtype=request.dtype,
                                 unit="V",
                                 values=(capture_value,) * dimension.size,
                             ),
@@ -324,8 +326,8 @@ def test_list_mode_compiler_projects_calibrated_physical_programs() -> None:
     assert window.demodulator_slot_id.value == "demod0"
     assert window.intent.demodulation_frequency_hz == -300.0e6
     assert window.intent.output_representation == "integrated_iq"
-    assert window.lowering.execution == "target"
-    assert window.lowering.device_result_representation == "raw_trace"
+    assert window.lowering.execution == "device"
+    assert window.lowering.device_result_representation == "integrated_iq"
     assert len(artifact.awg_programs) == 2
     assert len(artifact.digitizer_programs) == 1
     assert artifact.instrument_ids == (
@@ -447,24 +449,26 @@ def test_list_mode_realtime_action_count_does_not_scale_with_repetitions() -> No
 
 def test_list_mode_acquisition_lowering_selects_target_or_device_dsp() -> None:
     target, scheduled, _slot, artifact = _compiled_calibrated_acquisition()
-    [window] = artifact.entries[0].acquisitions
-    device_target = replace(
+    [device_window] = artifact.entries[0].acquisitions
+    assert device_window.lowering.execution == "device"
+    assert device_window.lowering.device_result_representation == "integrated_iq"
+    assert artifact.digitizer_programs[0].result_representation == "integrated_iq"
+
+    target_dsp = replace(
         target,
-        digitizer_result_representation="integrated_iq",
+        digitizer_result_representation="raw_trace",
     )
-    device_compiler, device_request = _request(
-        device_target,
+    target_compiler, target_request = _request(
+        target_dsp,
         (scheduled,),
         repetitions=2,
     )
-    device_artifact = device_compiler.compile(device_request)
-    [device_window] = device_artifact.entries[0].acquisitions
-    assert device_window.intent == window.intent
-    assert device_window.lowering.execution == "device"
-    assert device_window.lowering.device_result_representation == "integrated_iq"
-    assert device_artifact.digitizer_programs[0].result_representation == (
-        "integrated_iq"
-    )
+    target_artifact = target_compiler.compile(target_request)
+    [target_window] = target_artifact.entries[0].acquisitions
+    assert target_window.intent == device_window.intent
+    assert target_window.lowering.execution == "target"
+    assert target_window.lowering.device_result_representation == "raw_trace"
+    assert target_artifact.digitizer_programs[0].result_representation == "raw_trace"
 
 
 def test_indeterminate_awg_program_load_stops_before_realtime() -> None:
