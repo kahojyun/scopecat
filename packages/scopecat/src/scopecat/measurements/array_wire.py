@@ -13,13 +13,14 @@ from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import MeasurementArray
 
 type BinaryBuffer = bytes | bytearray | memoryview
+type EncodedMeasurementArray = bytes | memoryview
 
 
 class MeasurementArrayWireError(ValueError):
     """A binary measurement-array payload violates its declared contract."""
 
 
-def encode_measurement_array(value: MeasurementArray) -> bytes:
+def encode_measurement_array(value: MeasurementArray) -> EncodedMeasurementArray:
     """Encode one canonical measurement array without Python scalar expansion."""
 
     expected_count = math.prod(value.shape)
@@ -33,22 +34,22 @@ def encode_measurement_array(value: MeasurementArray) -> bytes:
             or not np.isfinite(value.values).all()
         ):
             raise MeasurementArrayWireError("float64 measurement array is invalid")
-        return value.values.astype("<f8", copy=False).tobytes(order="C")
+        return _array_bytes(value.values.astype("<f8", copy=False))
     if value.dtype == "int64":
         if value.values.dtype != np.dtype(np.int64):
             raise MeasurementArrayWireError("int64 measurement array is invalid")
-        return value.values.astype("<i8", copy=False).tobytes(order="C")
+        return _array_bytes(value.values.astype("<i8", copy=False))
     if value.dtype == "complex128":
         if (
             value.values.dtype != np.dtype(np.complex128)
             or not np.isfinite(value.values).all()
         ):
             raise MeasurementArrayWireError("complex128 measurement array is invalid")
-        return value.values.astype("<c16", copy=False).tobytes(order="C")
+        return _array_bytes(value.values.astype("<c16", copy=False))
     if value.dtype == "bool":
         if value.values.dtype != np.dtype(np.bool_):
             raise MeasurementArrayWireError("bool measurement array is invalid")
-        return value.values.astype("u1", copy=False).tobytes(order="C")
+        return _array_bytes(value.values.view("u1"))
     if value.values.dtype.kind != "U":
         raise MeasurementArrayWireError("string measurement array is invalid")
     return _encode_strings(cast("NDArray[np.str_]", value.values))
@@ -78,7 +79,7 @@ def decode_measurement_array(
         )
         if np.any(raw_bools > 1):
             raise MeasurementArrayWireError("bool measurement array is invalid")
-        leaves = raw_bools.astype(np.bool_)
+        leaves = raw_bools.view(np.bool_)
     else:
         leaves = np.asarray(_decode_strings(content, count=count), dtype=np.str_)
 
@@ -105,6 +106,12 @@ def _decode_numeric_array(
     if len(content) != count * selected_dtype.itemsize:
         raise MeasurementArrayWireError("measurement array payload has invalid size")
     return np.frombuffer(content, dtype=selected_dtype, count=count)
+
+
+def _array_bytes(values: NDArray[np.generic]) -> memoryview:
+    if values.size == 0:
+        return memoryview(b"")
+    return memoryview(values).cast("B")
 
 
 def _encode_strings(values: NDArray[np.str_]) -> bytes:
@@ -167,6 +174,7 @@ def _decode_strings(content: BinaryBuffer, *, count: int) -> tuple[str, ...]:
 
 
 __all__ = [
+    "EncodedMeasurementArray",
     "MeasurementArrayWireError",
     "decode_measurement_array",
     "encode_measurement_array",

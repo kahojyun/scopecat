@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.problems import Problem
 from scopecat.measurements.array_wire import (
+    EncodedMeasurementArray,
     MeasurementArrayWireError,
     decode_measurement_array,
     encode_measurement_array,
@@ -98,7 +99,7 @@ class _RunHardwareReceiptWire(_WireModel):
 def encode_collect_receipt(receipt: CollectReceipt) -> bytes:
     """Encode a direct collection receipt with binary array attachments."""
 
-    attachments: list[bytes] = []
+    attachments: list[EncodedMeasurementArray] = []
     readback = receipt.readback
     header = _CollectReceiptWire(
         status=receipt.status,
@@ -156,7 +157,7 @@ def decode_collect_receipt(content: bytes) -> CollectReceipt:
 def encode_run_hardware_receipt(receipt: RunHardwareBatchReceipt) -> bytes:
     """Encode one run hardware receipt with binary array attachments."""
 
-    attachments: list[bytes] = []
+    attachments: list[EncodedMeasurementArray] = []
     header = _RunHardwareReceiptWire(
         operation_id=receipt.operation_id,
         values=tuple(
@@ -207,7 +208,7 @@ def decode_run_hardware_receipt(content: bytes) -> RunHardwareBatchReceipt:
 
 def _encode_value(
     value: MeasurementValue,
-    attachments: list[bytes],
+    attachments: list[EncodedMeasurementArray],
 ) -> _WireValue:
     if not isinstance(value, MeasurementArray):
         return value
@@ -249,7 +250,7 @@ def _decode_value(
         ) from error
 
 
-def _pack(header: bytes, attachments: list[bytes]) -> bytes:
+def _pack(header: bytes, attachments: list[EncodedMeasurementArray]) -> bytes:
     if len(header) > _MAX_HEADER_BYTES:
         raise HardwareReceiptWireError("hardware receipt header exceeds its size limit")
     content = bytearray(_PREFIX_SIZE + len(header) + sum(map(len, attachments)))

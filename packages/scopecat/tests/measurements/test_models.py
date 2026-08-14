@@ -103,6 +103,16 @@ def test_measurement_array_owns_a_contiguous_read_only_numpy_copy() -> None:
     assert deepcopy(value) is value
 
 
+def test_measurement_array_reuses_an_immutable_bytes_backed_array() -> None:
+    content = np.arange(6, dtype=np.float64).tobytes()
+    source = np.frombuffer(content, dtype=np.float64).reshape(2, 3)
+
+    value = MeasurementArray.create(values=source)
+
+    assert value.values is source
+    assert not value.values.flags.writeable
+
+
 def test_measurement_snapshots_are_recursively_immutable() -> None:
     source_metadata = {"context": [{"operator": "alice"}]}
     record = MeasurementRecord(

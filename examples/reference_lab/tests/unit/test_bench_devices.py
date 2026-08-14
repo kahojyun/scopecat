@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pytest
 from scopecat.records.config import InstrumentBindingSpec, VirtualInstrumentConnection
 from scopecat.sdk.instruments import (
@@ -73,10 +74,13 @@ def test_virtual_trigger_programs_execute_complete_device_programs() -> None:
 
     assert world.run_program(program) == (1, 1)
     assert world.trigger_count == 2
-    assert world.digitizer_program_segments(
+    segments = world.digitizer_program_segments(
         "digitizer",
         ("inputs", "ch1"),
-    ) == ((0, (0.0, 0.0)), (0, (0.0, 0.0)))
+    )
+    assert tuple(entry_index for entry_index, _trace in segments) == (0, 0)
+    for _entry_index, trace in segments:
+        np.testing.assert_array_equal(trace, np.zeros(2, dtype=np.float64))
 
     world.arm_awg_program("awg", awg_entries)
     world.arm_digitizer_program("digitizer", digitizer)

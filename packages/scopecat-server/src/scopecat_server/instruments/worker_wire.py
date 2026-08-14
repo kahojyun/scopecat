@@ -20,6 +20,7 @@ from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.problems import Problem
 from scopecat.measurements.array_wire import (
+    EncodedMeasurementArray,
     MeasurementArrayWireError,
     decode_measurement_array,
     encode_measurement_array,
@@ -86,7 +87,7 @@ class InvokeFrames:
 @dataclass(frozen=True, slots=True)
 class CollectFrames:
     header: bytes
-    attachments: tuple[bytes, ...]
+    attachments: tuple[EncodedMeasurementArray, ...]
 
 
 class _WireModel(BaseModel):
@@ -389,7 +390,7 @@ def split_collect_receipt(
 
     arrays: list[_CollectArrayDescriptor] = []
     manifests: list[_CollectAttachmentManifest] = []
-    attachments: list[bytes] = []
+    attachments: list[EncodedMeasurementArray] = []
     for index, (request_id, value) in enumerate(selected_arrays):
         try:
             content = encode_measurement_array(value)
@@ -458,7 +459,7 @@ def split_collect_receipt(
 
 def join_collect_receipt(
     header: bytes,
-    attachments: Sequence[bytes],
+    attachments: Sequence[EncodedMeasurementArray],
     *,
     limits: WireLimits = DEFAULT_WIRE_LIMITS,
 ) -> CollectReceipt:
@@ -604,7 +605,7 @@ def _validate_declared_attachment_limits(
 def _validate_actual_attachment_limits(
     *,
     label: str,
-    attachments: Sequence[bytes],
+    attachments: Sequence[EncodedMeasurementArray],
     limits: WireLimits,
 ) -> None:
     if len(attachments) > limits.max_attachments:

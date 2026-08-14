@@ -415,7 +415,8 @@ The present architecture provides a direct end-to-end baseline:
   carry contiguous float64 samples in binary rather than expanding arrays into
   JSON numbers. Direct and run-scoped hardware receipts likewise carry typed
   headers plus binary measurement-array attachments, and target result blocks
-  remain array-native through correlation;
+  remain array-native through correlation. Immutable byte-backed arrays are
+  adopted across typed model and wire-decode boundaries rather than recopied;
 - admission uses the domain compiler's static instrument footprint and all
   structurally compatible local route candidates. Point-local routing narrows
   the operations actually emitted, so a run may conservatively reserve an

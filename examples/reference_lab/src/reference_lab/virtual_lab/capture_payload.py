@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import cast
 
 import numpy as np
+from numpy.typing import NDArray
 from scopecat.sdk.payloads import PayloadCodec
 
 VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID = "reference_lab.virtual_capture_queue.v2"
@@ -17,7 +18,7 @@ VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID = "reference_lab.virtual_capture_queue.v2"
 class DecodedVirtualCaptureTrace:
     instrument_id: str
     component_path: tuple[str, ...]
-    samples: np.ndarray = field(repr=False, compare=False)
+    samples: NDArray[np.float64] = field(repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)

@@ -33,6 +33,7 @@ from pydantic import (
 
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.interface_identity import InterfaceId
+from scopecat.kernel.numpy_storage import freeze_ndarray
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.measurement_types import (
     MeasurementArrayData,
@@ -918,22 +919,19 @@ def _measurement_ndarray(
 
     _validate_array_kind(candidate, dtype=dtype)
     try:
-        selected = np.array(
+        selected = np.asarray(
             candidate,
             dtype=_numpy_dtype(dtype),
-            order="C",
-            copy=True,
         )
     except (OverflowError, TypeError, ValueError) as error:
         raise ValueError(f"measurement array values do not fit {dtype}") from error
 
     if dtype in {"float64", "complex128"} and not np.isfinite(selected).all():
         raise ValueError("measurement values must be finite")
-    immutable_buffer = selected.tobytes(order="C")
-    immutable = np.frombuffer(immutable_buffer, dtype=selected.dtype).reshape(
-        selected.shape
+    return cast(
+        "MeasurementArrayData",
+        freeze_ndarray(selected),
     )
-    return cast("MeasurementArrayData", immutable)
 
 
 def _measurement_scalar_data(

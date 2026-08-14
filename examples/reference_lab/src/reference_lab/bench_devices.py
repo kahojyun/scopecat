@@ -8,6 +8,9 @@ from typing import cast
 
 import numpy as np
 import scopecat as sc
+from numpy.typing import NDArray
+from scopecat.kernel.numpy_storage import freeze_ndarray
+from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementUnavailable,
@@ -107,7 +110,7 @@ from reference_lab.virtual_lab.capture_plant import (
 AWG_OUTPUT_COMPONENT_IDS = tuple(f"ch{index}" for index in range(1, 9))
 DIGITIZER_INPUT_COMPONENT_IDS = ("ch1", "ch2")
 OSCILLOSCOPE_INPUT_COMPONENT_IDS = ("ch1", "ch2", "ch3", "ch4")
-type BenchSamples = tuple[float, ...] | np.ndarray
+type BenchSamples = NDArray[np.float64]
 VIRTUAL_AWG_DRIVER_ID = "reference_lab.virtual.awg"
 VIRTUAL_DIGITIZER_DRIVER_ID = "reference_lab.virtual.digitizer"
 VIRTUAL_OSCILLOSCOPE_DRIVER_ID = "reference_lab.virtual.oscilloscope"
@@ -173,8 +176,8 @@ VIRTUAL_TIMING_CONTROLLER_DRIVER_SPEC = DriverSpec(
 
 @dataclass(frozen=True, slots=True)
 class CapturedBenchTrace:
-    time_s: tuple[float, ...]
-    voltage_v: tuple[float, ...]
+    time_s: NDArray[np.float64] = field(repr=False, compare=False)
+    voltage_v: NDArray[np.float64] = field(repr=False, compare=False)
     source_component_path: tuple[str, ...]
     source_sample_rate_hz: float
     scope_sample_rate_hz: float
@@ -235,9 +238,8 @@ class BenchSignalWorld:
     ) -> bool:
         if not self.scope_armed:
             return False
-        times = tuple(
-            index / self.scope_sample_rate_hz
-            for index in range(self.scope_record_length)
+        times = np.arange(self.scope_record_length, dtype=np.float64) / (
+            self.scope_sample_rate_hz
         )
         normalized = _resample(
             normalized_samples,
@@ -246,13 +248,20 @@ class BenchSignalWorld:
             count=self.scope_record_length,
             repeat=repeat,
         )
-        voltages = tuple(
-            offset_v + amplitude_v * sample if output_enabled else 0.0
-            for sample in normalized
+        voltages = (
+            offset_v + amplitude_v * normalized
+            if output_enabled
+            else np.zeros(self.scope_record_length, dtype=np.float64)
         )
         self.capture = CapturedBenchTrace(
-            time_s=times,
-            voltage_v=voltages,
+            time_s=cast(
+                "NDArray[np.float64]",
+                freeze_ndarray(cast("NDArray[np.generic]", times)),
+            ),
+            voltage_v=cast(
+                "NDArray[np.float64]",
+                freeze_ndarray(cast("NDArray[np.generic]", voltages)),
+            ),
             source_component_path=component_path,
             source_sample_rate_hz=sample_rate_hz,
             scope_sample_rate_hz=self.scope_sample_rate_hz,
@@ -378,7 +387,10 @@ class BenchSignalWorld:
                     for component_path in digitizer_entry.input_component_paths:
                         capture = selected_capture.get((instrument_id, component_path))
                         if capture is None:
-                            capture = (0.0,) * digitizer_entry.sample_count
+                            capture = np.zeros(
+                                digitizer_entry.sample_count,
+                                dtype=np.float64,
+                            )
                         captures.setdefault((instrument_id, component_path), []).append(
                             (
                                 entry_index,
@@ -870,30 +882,39 @@ class VirtualDigitizer:
             request.target.component_path,
         )
         if request.target.acquisition_id == DIGITIZER_FETCH_PROGRAM_IQ.acquisition_id:
-            block: tuple[float, ...] | tuple[complex, ...] = tuple(
-                integrate_rectangular_iq(
-                    trace,
-                    start_sample=window.start_sample,
-                    sample_count=window.sample_count,
-                    sample_rate_hz=sample_rate,
-                    demodulation_frequency_hz=(window.demodulation_frequency_hz),
-                )
-                for entry_index, trace in segments
-                for window in self._loaded_program.entries[entry_index].windows
-                if window.component_path == request.target.component_path
+            block: NDArray[np.float64] | NDArray[np.complex128] = np.fromiter(
+                (
+                    integrate_rectangular_iq(
+                        trace,
+                        start_sample=window.start_sample,
+                        sample_count=window.sample_count,
+                        sample_rate_hz=sample_rate,
+                        demodulation_frequency_hz=(window.demodulation_frequency_hz),
+                    )
+                    for entry_index, trace in segments
+                    for window in self._loaded_program.entries[entry_index].windows
+                    if window.component_path == request.target.component_path
+                ),
+                dtype=np.complex128,
             )
-            dtype = "complex128"
+            dtype: MeasurementDType = "complex128"
         else:
-            block = tuple(
-                sample for _entry_index, trace in segments for sample in trace
+            traces = tuple(trace for _entry_index, trace in segments)
+            block = (
+                np.empty(0, dtype=np.float64)
+                if not traces
+                else traces[0]
+                if len(traces) == 1
+                else np.concatenate(traces)
             )
             dtype = "float64"
-        for result in request.results:
-            values[result] = MeasurementArray.create(
+        if request.results:
+            measurement = MeasurementArray.create(
                 dtype=dtype,
                 unit="V",
                 values=block,
             )
+            values.update(dict.fromkeys(request.results, measurement))
         return DriverSuccess(
             DriverReadback(
                 values=values,
@@ -1243,20 +1264,21 @@ def _resample(
     target_rate_hz: float,
     count: int,
     repeat: bool,
-) -> tuple[float, ...]:
-    selected: list[float] = []
-    for index in range(count):
-        source_position = index * source_rate_hz / target_rate_hz
-        if repeat:
-            source_position %= len(samples)
-        lower = int(source_position)
-        if lower >= len(samples):
-            selected.append(0.0)
-            continue
-        upper = min(lower + 1, len(samples) - 1)
-        fraction = source_position - lower
-        selected.append(samples[lower] * (1.0 - fraction) + samples[upper] * fraction)
-    return tuple(selected)
+) -> NDArray[np.float64]:
+    source = np.asarray(samples, dtype=np.float64)
+    selected = np.zeros(count, dtype=np.float64)
+    if source.size == 0 or count == 0:
+        return selected
+    positions = np.arange(count, dtype=np.float64) * source_rate_hz / target_rate_hz
+    if repeat:
+        positions %= source.size
+    valid = positions < source.size
+    selected_positions = positions[valid]
+    lower = selected_positions.astype(np.int64)
+    upper = np.minimum(lower + 1, source.size - 1)
+    fraction = selected_positions - lower
+    selected[valid] = source[lower] * (1.0 - fraction) + source[upper] * fraction
+    return selected
 
 
 __all__ = [
