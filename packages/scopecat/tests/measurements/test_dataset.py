@@ -839,6 +839,20 @@ def test_entity_alignment_reindexes_values_provenance_and_evidence() -> None:
     assert inner_right_signal.tolist() == [10.0]
 
     outer_left, outer_right = left.align_entities(right, "qubit", join="outer")
+    assert outer_left.entry.content_hash != left.entry.content_hash
+    assert outer_right.entry.content_hash != right.entry.content_hash
+    assert outer_left.entry.metadata["scopecat_derivation"] == {
+        "source_content_hash": left.entry.content_hash,
+        "operation": {
+            "kind": "reindex_entities",
+            "dimension_id": "qubit",
+            "entities": [
+                {"id": "q0", "kind": "qubit", "metadata": {}},
+                {"id": "q1", "kind": "qubit", "metadata": {}},
+                {"id": "q2", "kind": "qubit", "metadata": {}},
+            ],
+        },
+    }
     assert outer_left.to_xarray().coords["qubit"].values.tolist() == [
         "q0",
         "q1",
@@ -888,6 +902,11 @@ def test_entity_alignment_reindexes_values_provenance_and_evidence() -> None:
         outer_left[stale_ref]
 
     expanded_view = left.sel(qubit=q1).reindex_entities("qubit", (q1, q2))
+    repeated = left.sel(qubit=q1).reindex_entities("qubit", (q1, q2))
+    assert expanded_view.entry.content_hash == repeated.entry.content_hash
+    assert expanded_view.to_xarray().attrs["scopecat_content_hash"] == (
+        expanded_view.entry.content_hash
+    )
     view_source = expanded_view["signal"].definition.source_entity_products
     view_evidence = expanded_view.records[0].acquisition_evidence.for_variable("signal")
     assert view_source is not None

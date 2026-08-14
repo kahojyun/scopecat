@@ -20,7 +20,9 @@ import numpy as np
 import pyarrow as pa
 import xarray as xr
 from numpy.typing import NDArray
+from pydantic import JsonValue
 
+from scopecat.kernel.content_identity import model_wire_content_hash
 from scopecat.kernel.entity import EntityRef, entity_identity, entity_identity_key
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.quantity import Quantity
@@ -1517,8 +1519,16 @@ class Dataset:
             records=records,
             metadata=self.metadata,
         )
-        entry = self._entry.model_copy(
-            update={"data_schema": schema.model_dump(mode="json")}
+        entry = _derived_measurement_dataset_entry(
+            self._entry,
+            raw,
+            operation={
+                "kind": "reindex_entities",
+                "dimension_id": dimension_id,
+                "entities": [
+                    entity.model_dump(mode="json") for entity in target_entities
+                ],
+            },
         )
         return type(self)(raw, entry)
 
@@ -3048,6 +3058,31 @@ def _homogeneous_entity_kind(entities: Sequence[EntityRef]) -> str | None:
         return None
     [kind] = kinds
     return kind
+
+
+def _derived_measurement_dataset_entry(
+    source: RunContentEntry,
+    dataset: MeasurementDataset,
+    *,
+    operation: Mapping[str, object],
+) -> RunContentEntry:
+    """Describe one materialized semantic transform without reusing source identity."""
+
+    metadata = deepcopy(source.metadata)
+    metadata["scopecat_derivation"] = cast(
+        "JsonValue",
+        {
+            "source_content_hash": source.content_hash,
+            "operation": operation,
+        },
+    )
+    return source.model_copy(
+        update={
+            "data_schema": dataset.dataset_schema.model_dump(mode="json"),
+            "content_hash": f"sha256:{model_wire_content_hash(dataset)}",
+            "metadata": metadata,
+        }
+    )
 
 
 def _reindex_entity_variable_source(
