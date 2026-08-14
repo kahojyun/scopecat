@@ -30,9 +30,6 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
                 "SELECT name FROM sqlite_schema WHERE type = 'table'"
             )
         }
-        event_columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(durable_events)")
-        }
         instrument_session_columns = {
             row[1]
             for row in connection.execute("PRAGMA table_info(instrument_sessions)")
@@ -49,7 +46,6 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         "config_registry_entries",
         "config_registry_activations",
     } <= tables
-    assert {"run_sequence", "deduplication_key"} <= event_columns
     assert {"renewed_at", "expires_at"} <= instrument_session_columns
     assert "cancellation_requested_at" in scheduler_run_columns
 

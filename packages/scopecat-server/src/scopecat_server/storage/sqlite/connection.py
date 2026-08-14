@@ -169,32 +169,9 @@ def connect(
     return connection
 
 
-@contextmanager
-def immediate_transaction(
-    database: str | Path,
-    *,
-    busy_timeout_seconds: float = DEFAULT_BUSY_TIMEOUT_SECONDS,
-) -> Generator[sqlite3.Connection]:
-    """Own one immediate transaction using the shared connection policy."""
-
-    connection = connect(database, busy_timeout_seconds=busy_timeout_seconds)
-    try:
-        connection.execute("BEGIN IMMEDIATE")
-        try:
-            yield connection
-        except BaseException:
-            connection.rollback()
-            raise
-        else:
-            connection.commit()
-    finally:
-        connection.close()
-
-
 __all__ = [
     "DEFAULT_BUSY_TIMEOUT_SECONDS",
     "SQLiteBusyError",
     "SQLiteDatabase",
     "connect",
-    "immediate_transaction",
 ]

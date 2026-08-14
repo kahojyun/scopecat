@@ -477,13 +477,14 @@ active and is released on seal, terminal commit, lease loss, or daemon shutdown.
 Inline command payloads retain raw bytes in memory and convert to base64 only
 for an actual JSON wire representation; the daemon client uploads those bytes
 to an operation-scoped content-addressed spool before posting a control command
-containing only the blob descriptor. Hardware operation identities and durable
-evidence cover the descriptor rather than serializing the payload body.
+containing only the blob descriptor. Hardware operation identities cover the
+descriptor rather than serializing the payload body.
 
 The spool is deliberately transient: if the daemon restarts after an upload but
 before the command is accepted, the client must submit the command again and
-re-upload its payload. A lost response after execution remains replayable from
-the operation ledger without materializing the released bytes. Permanent
+re-upload its payload. A lost response while the daemon remains alive can be
+replayed from its process-local operation ledger without materializing the
+released bytes. Permanent
 publication remains a separate future capability for payloads that must be
 inspectable after execution.
 
