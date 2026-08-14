@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from contextlib import suppress
 from threading import Lock
 from time import monotonic
 from typing import Protocol, cast
@@ -18,10 +17,6 @@ from scopecat.daemon.points import (
     RunDomainProposalAttemptView,
     RunPointCoordinateValue,
     RunPointPlanCloseCommand,
-)
-from scopecat.daemon.reviews import (
-    RunDomainInspectionEvent,
-    RunInspectionAppendCommand,
 )
 from scopecat.daemon.wire import (
     ExecutorHeartbeat,
@@ -282,7 +277,7 @@ class _DaemonRunCoverage:
 
 
 class _DaemonRunDomainProposals:
-    """Persist domain decisions and publish bounded transient inspections."""
+    """Persist durable domain decisions through the fenced executor API."""
 
     def __init__(self, authority: _LeaseAuthority) -> None:
         self._authority = authority
@@ -342,24 +337,6 @@ class _DaemonRunDomainProposals:
             raise ValueError("daemon recorded a different accepted point start")
         if durable.accepted_point_count != decision.accepted_point_count:
             raise ValueError("daemon recorded a different accepted point count")
-        with suppress(Exception):
-            self._authority.client.append_run_inspection(
-                self._authority.run_id,
-                RunInspectionAppendCommand(
-                    lease_id=self._authority.fence(),
-                    event=RunDomainInspectionEvent(
-                        proposal_index=durable.proposal_index,
-                        occurred_at=durable.occurred_at,
-                        fragment=durable.proposal.fragment,
-                        region_ids=durable.proposal.region_ids,
-                        source=durable.proposal.source,
-                        outcome=durable.outcome,
-                        accepted_point_start=durable.accepted_point_start,
-                        accepted_point_count=durable.accepted_point_count,
-                        reason=durable.reason,
-                    ),
-                ),
-            )
 
     def close(self, *, completed_point_count: int, reason: str) -> None:
         self._authority.client.close_run_point_plan(

@@ -12,7 +12,6 @@ from scopecat.control.models import (
     PointCoordinateSpec,
     PointCoordinateValue,
 )
-from scopecat.daemon.points import RunDomainFragmentView
 from scopecat.inspection import CompiledArtifactInspection
 
 type ReviewCoordinateValue = PointCoordinateValue
@@ -125,55 +124,6 @@ class ReviewSessionCloseReceipt(_ReviewModel):
     closed_at: datetime
 
 
-class RunDomainInspectionEvent(_ReviewModel):
-    """One transient domain decision and all compiled point inspections."""
-
-    proposal_index: int = Field(ge=0)
-    occurred_at: datetime
-    fragment: RunDomainFragmentView
-    region_ids: tuple[str, ...]
-    source: Literal["author", "optimizer", "operator"]
-    outcome: Literal["accepted", "rejected"]
-    accepted_point_start: int | None = Field(default=None, ge=0)
-    accepted_point_count: int = Field(default=0, ge=0)
-    reason: str | None = None
-    inspections: tuple[ReviewInspectionView, ...] = ()
-
-    @model_validator(mode="after")
-    def validate_outcome(self) -> RunDomainInspectionEvent:
-        if self.outcome == "accepted":
-            expected_count = self.fragment.point_count * len(self.region_ids)
-            if (
-                self.accepted_point_start is None
-                or self.accepted_point_count != expected_count
-                or self.reason is not None
-            ):
-                raise ValueError(
-                    "accepted domain proposal requires its accepted point range"
-                )
-        elif (
-            self.accepted_point_start is not None
-            or self.accepted_point_count != 0
-            or not self.reason
-        ):
-            raise ValueError("rejected domain proposal requires a reason")
-        if self.outcome == "rejected" and self.inspections:
-            raise ValueError("rejected run proposal cannot have compiled inspections")
-        return self
-
-
-class RunInspectionAppendCommand(_ReviewModel):
-    lease_id: str = Field(min_length=1)
-    event: RunDomainInspectionEvent
-
-
-class RunInspectionView(_ReviewModel):
-    run_id: str = Field(min_length=1)
-    items: tuple[RunDomainInspectionEvent, ...] = ()
-    total_proposal_count: int = Field(default=0, ge=0)
-    items_truncated: bool = False
-
-
 __all__ = [
     "ReviewCompilationResult",
     "ReviewCompileCommand",
@@ -191,7 +141,4 @@ __all__ = [
     "ReviewSessionListView",
     "ReviewSessionView",
     "ReviewWorkItem",
-    "RunDomainInspectionEvent",
-    "RunInspectionAppendCommand",
-    "RunInspectionView",
 ]

@@ -259,6 +259,14 @@ class RunDomainDecisionView(_DomainModel):
         return self
 
 
+class RunDomainDecisionPage(_DomainModel):
+    """Newest durable domain decisions, ordered by proposal index."""
+
+    run_id: str = Field(min_length=1)
+    items: tuple[RunDomainDecisionView, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=0)
+
+
 class RunPointPlanView(_DomainModel):
     """Durable adaptive point inventory and domain-decision progress."""
 
@@ -434,6 +442,7 @@ __all__ = [
     "RunDomainAxisSourceView",
     "RunDomainAxisView",
     "RunDomainDecisionCommand",
+    "RunDomainDecisionPage",
     "RunDomainDecisionView",
     "RunDomainEnqueueCommand",
     "RunDomainFragmentInput",

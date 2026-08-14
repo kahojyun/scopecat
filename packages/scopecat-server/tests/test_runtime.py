@@ -2554,6 +2554,22 @@ def test_adaptive_domain_ledger_survives_runtime_restart(tmp_path: Path) -> None
                 outcome="accepted",
             ),
         )
+        rejected = runtime.application.executor.append_run_domain_decision(
+            admission.run_id,
+            RunDomainDecisionCommand(
+                lease_id=lease.lease_id,
+                operation_id="decision-2",
+                proposal=RunDomainProposalAttemptView.from_proposal(
+                    DomainProposalAttempt(
+                        fragment,
+                        region_ids=("region-0",),
+                        source="optimizer",
+                    )
+                ),
+                outcome="rejected",
+                reason="proposal used stale observations",
+            ),
+        )
         runtime.application.executor.advance_run_coverage(
             admission.run_id,
             RunCoverageAdvanceCommand(
@@ -2581,10 +2597,23 @@ def test_adaptive_domain_ledger_survives_runtime_restart(tmp_path: Path) -> None
     with LocalDaemonRuntime(tmp_path) as restarted:
         restored = restarted.application.point_plans.read(admission.run_id)
         restored_queue = restarted.application.point_plans.queue(admission.run_id)
+        latest_decisions = restarted.application.point_plans.decisions(
+            admission.run_id,
+            limit=1,
+        )
+        older_decisions = restarted.application.point_plans.decisions(
+            admission.run_id,
+            limit=1,
+            before=latest_decisions.next_cursor,
+        )
 
     assert restored == closed
     assert restored_queue.items[0].status == "accepted"
     assert restored_queue.items[0].accepted_point_start == 1
+    assert latest_decisions.items == (rejected,)
+    assert latest_decisions.next_cursor == 1
+    assert older_decisions.items == (decision,)
+    assert older_decisions.next_cursor is None
 
 
 def test_closed_point_plan_cannot_succeed_before_full_coverage(tmp_path: Path) -> None:

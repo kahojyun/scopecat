@@ -68,7 +68,6 @@ _OPERATIONS = {
     ("/api/v1/runs/{run_id}/artifacts/{selector}/text", "get"),
     ("/api/v1/runs/{run_id}/attention", "post"),
     ("/api/v1/runs/{run_id}/datasets/{selector}", "get"),
-    ("/api/v1/runs/{run_id}/inspections", "get"),
     ("/api/v1/runs/{run_id}/measurements/live", "get"),
     ("/api/v1/runs/{run_id}/measurements/preview", "get"),
     ("/api/v1/runs/{run_id}/measurements/query", "post"),
@@ -76,6 +75,7 @@ _OPERATIONS = {
     ("/api/v1/runs/{run_id}/parameter-proposals", "get"),
     ("/api/v1/runs/{run_id}/point-plan/queue", "get"),
     ("/api/v1/runs/{run_id}/point-plan/queue", "post"),
+    ("/api/v1/runs/{run_id}/point-plan/decisions", "get"),
     ("/api/v1/runs/{run_id}/point-plan/resolve", "post"),
     ("/api/v1/runs/{run_id}/records/{selector}/json", "get"),
 }

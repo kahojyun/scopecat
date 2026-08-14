@@ -16,6 +16,7 @@ from scopecat.adaptive_domains import ResolvedDomainFragment
 from scopecat.daemon.points import (
     AcceptedRunPointView,
     RunDomainDecisionCommand,
+    RunDomainDecisionPage,
     RunDomainDecisionView,
     RunDomainEnqueueCommand,
     RunDomainQueueEntryView,
@@ -193,6 +194,39 @@ class SQLiteRunPointLedger:
             items=tuple(
                 RunDomainQueueEntryView.model_validate_json(_text(row, "entry_json"))
                 for row in rows
+            ),
+        )
+
+    def decisions(
+        self,
+        *,
+        limit: int,
+        before: int | None = None,
+    ) -> RunDomainDecisionPage:
+        with self._runs.sqlite.read_transaction() as connection:
+            rows = _all(
+                connection.execute(
+                    """
+                    SELECT proposal_index, decision_json
+                    FROM execution_domain_decisions
+                    WHERE run_id = ?
+                      AND (? IS NULL OR proposal_index < ?)
+                    ORDER BY proposal_index DESC
+                    LIMIT ?
+                    """,
+                    (self._run_id, before, before, limit + 1),
+                )
+            )
+        selected = rows[:limit]
+        items = tuple(
+            RunDomainDecisionView.model_validate_json(_text(row, "decision_json"))
+            for row in reversed(selected)
+        )
+        return RunDomainDecisionPage(
+            run_id=self._run_id,
+            items=items,
+            next_cursor=(
+                _integer(selected[-1], "proposal_index") if len(rows) > limit else None
             ),
         )
 

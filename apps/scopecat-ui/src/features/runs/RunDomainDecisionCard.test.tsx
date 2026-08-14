@@ -5,14 +5,11 @@ import type { ReactNode } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RunInspectionFeed } from "../../api-contract";
+import type { RunDomainDecisionPage } from "../../api-contract";
 import type { ProjectRun } from "../../types";
 import { enqueueRunDomain, getRunDomainQueue, resolveRunDomain } from "./run-api";
-import { RunInspectionCard } from "./RunInspectionCard";
+import { RunDomainDecisionCard } from "./RunDomainDecisionCard";
 
-vi.mock("../../ui/EChart", () => ({
-  EChart: ({ ariaLabel }: { ariaLabel: string }) => <div role="img" aria-label={ariaLabel} />,
-}));
 vi.mock("./run-api", () => ({
   enqueueRunDomain: vi.fn(),
   getRunDomainQueue: vi.fn(),
@@ -33,27 +30,28 @@ beforeEach(() => {
   });
 });
 
-describe("RunInspectionCard", () => {
-  it("shows compiled and completed optimizer points with side-by-side comparison", () => {
+describe("RunDomainDecisionCard", () => {
+  it("shows durable accepted decisions and their execution progress", () => {
+    const run = projectRun(false);
+    run.pointPlan!.decisionCount = 2;
     renderCard(
-      <RunInspectionCard
-        feed={inspectionFeed()}
+      <RunDomainDecisionCard
+        page={decisionPage()}
         error={null}
         pending={false}
         completedPointCount={4}
-        run={projectRun(false)}
+        run={run}
       />,
     );
 
     expect(screen.getByText("Complete")).toBeVisible();
-    expect(screen.getByText("Compiled")).toBeVisible();
+    expect(screen.getByText("Accepted")).toBeVisible();
     expect(screen.getByText("Run point #5")).toBeVisible();
+    expect(screen.getByText("Optimizer")).toBeVisible();
+    expect(screen.queryByText(/compiled domain inspection/i)).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Compare with"), { target: { value: "0" } });
-
-    expect(screen.getByText("Selected")).toBeVisible();
-    expect(screen.getByText("Comparison")).toBeVisible();
-    expect(screen.getAllByRole("img", { name: "Compiled physical waveforms" })).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: /Decision #1/ }));
+    expect(screen.getByText("Run point #4")).toBeVisible();
   });
 
   it("previews snapping and enqueues the domain without resolving it twice", async () => {
@@ -74,8 +72,8 @@ describe("RunInspectionCard", () => {
       accepted_point_count: 0,
     });
     renderCard(
-      <RunInspectionCard
-        feed={{ run_id: "run-1", items: [], total_proposal_count: 0, items_truncated: false }}
+      <RunDomainDecisionCard
+        page={{ run_id: "run-1", items: [], next_cursor: null }}
         error={null}
         pending={false}
         completedPointCount={1}
@@ -127,8 +125,8 @@ describe("RunInspectionCard", () => {
     run.plan.adaptiveRegionsTruncated = true;
 
     renderCard(
-      <RunInspectionCard
-        feed={{ run_id: "run-1", items: [], total_proposal_count: 0, items_truncated: false }}
+      <RunDomainDecisionCard
+        page={{ run_id: "run-1", items: [], next_cursor: null }}
         error={null}
         pending={false}
         completedPointCount={1}
@@ -207,70 +205,29 @@ function projectRun(active: boolean): ProjectRun {
   };
 }
 
-function inspectionFeed(): RunInspectionFeed {
+function decisionPage(): RunDomainDecisionPage {
   return {
     run_id: "run-1",
-    items: [event(0, 3, 5.2), event(1, 4, 5.3)],
-    total_proposal_count: 2,
-    items_truncated: false,
+    items: [decision(0, 3, 5.2), decision(1, 4, 5.3)],
+    next_cursor: null,
   };
 }
 
-function event(proposalIndex: number, pointIndex: number, frequency: number) {
+function decision(proposalIndex: number, pointIndex: number, frequency: number) {
   return {
+    operation_id: `decision-${proposalIndex}`,
     proposal_index: proposalIndex,
     occurred_at: "2026-08-13T10:00:00Z",
-    fragment: fragment(frequency, `sha256:fragment-${proposalIndex}`),
-    region_ids: ["region-0"],
-    source: "optimizer" as const,
+    proposal: {
+      fragment: fragment(frequency, `sha256:fragment-${proposalIndex}`),
+      region_ids: ["region-0"],
+      source: "optimizer" as const,
+      based_on_region_revisions: {},
+      proposal_fingerprint: `sha256:proposal-${proposalIndex}`,
+    },
     outcome: "accepted" as const,
     accepted_point_start: pointIndex,
     accepted_point_count: 1,
-    inspections: [
-      {
-        operation_id: `capture:batch-${pointIndex}`,
-        point_index: pointIndex,
-        target_id: "reference-lab.list-mode",
-        artifact_id: `artifact-${pointIndex}`,
-        artifact_fingerprint: `sha256:artifact-${pointIndex}`,
-        content: {
-          schema_id: "scopecat.compiled_artifact_inspection.v1" as const,
-          kind: "reference_lab.list_mode.v1",
-          facts: [],
-          point_count: 1,
-          points_truncated: false,
-          bounds: {
-            max_points: 1,
-            max_waveforms_per_point: 12,
-            max_samples_per_waveform: 256,
-          },
-          warnings: [],
-          points: [
-            {
-              realization_fingerprint: `sha256:realization-${pointIndex}`,
-              target_entry_id: `point-${pointIndex}`,
-              facts: [],
-              waveform_count: 1,
-              waveforms_truncated: false,
-              warnings: [],
-              waveforms: [
-                {
-                  channel_id: "awg-1/outputs/i",
-                  instrument_id: "awg-1",
-                  peak_abs: 0.5,
-                  rms: 0.25,
-                  source_sample_count: 4,
-                  samples_sha256: "samples",
-                  sample_indices: [0, 1, 2, 3],
-                  samples: [0, 0.5, -0.5, 0],
-                  downsampling: "none" as const,
-                },
-              ],
-            },
-          ],
-        },
-      },
-    ],
   };
 }
 

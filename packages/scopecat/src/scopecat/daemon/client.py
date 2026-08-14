@@ -19,6 +19,7 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.points import (
     RunDomainDecisionCommand,
+    RunDomainDecisionPage,
     RunDomainDecisionView,
     RunDomainEnqueueCommand,
     RunDomainQueueEntryView,
@@ -36,8 +37,6 @@ from scopecat.daemon.reviews import (
     ReviewSessionListView,
     ReviewSessionView,
     ReviewWorkItem,
-    RunInspectionAppendCommand,
-    RunInspectionView,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -847,6 +846,22 @@ class DaemonClient:
             RunDomainDecisionView,
         )
 
+    def get_run_domain_decisions(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunDomainDecisionPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/decisions",
+            RunDomainDecisionPage,
+            params=params,
+        )
+
     def close_run_point_plan(
         self,
         run_id: str,
@@ -885,23 +900,6 @@ class DaemonClient:
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/point-plan/queue",
             command,
             RunDomainQueueEntryView,
-        )
-
-    def get_run_inspections(self, run_id: str) -> RunInspectionView:
-        return self._get_model(
-            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/inspections",
-            RunInspectionView,
-        )
-
-    def append_run_inspection(
-        self,
-        run_id: str,
-        command: RunInspectionAppendCommand,
-    ) -> RunInspectionView:
-        return self._post_idempotent_model(
-            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/inspections",
-            command,
-            RunInspectionView,
         )
 
     def provision_run_instruments(

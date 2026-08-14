@@ -9,6 +9,7 @@ from scopecat.control.models import ControlRun, DurableEventInput
 from scopecat.daemon.points import (
     ResolvedRunDomainView,
     RunDomainDecisionCommand,
+    RunDomainDecisionPage,
     RunDomainDecisionView,
     RunDomainEnqueueCommand,
     RunDomainFragmentView,
@@ -82,6 +83,16 @@ class RunPointPlanService:
     def queue(self, run_id: str) -> RunDomainQueueView:
         self._require_run(run_id)
         return self._ledger(run_id).queue()
+
+    def decisions(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunDomainDecisionPage:
+        self._require_run(run_id)
+        return self._ledger(run_id).decisions(limit=limit, before=before)
 
     def next_queued(self, run_id: str) -> RunDomainQueueEntryView | None:
         self._require_run(run_id)

@@ -17,7 +17,7 @@ import {
   getOlderRuns,
   getRun,
   getRunAnalyses,
-  getRunInspections,
+  getRunDomainDecisions,
   getRunEvents,
   getRuns,
   resolveAttention,
@@ -118,11 +118,11 @@ export function RunsWorkspace({
     runsQuery.data?.items.find((run) => run.runId === selectedRunId)?.status;
   const selectedRunIsActive =
     selectedRunStatus === undefined || ["accepted", "running"].includes(selectedRunStatus);
-  const runInspectionsQuery = useQuery({
-    queryKey: ["run-inspections", selectedRunId],
-    queryFn: ({ signal }) => getRunInspections(selectedRunId!, signal),
+  const runDomainDecisionsQuery = useQuery({
+    queryKey: ["run-domain-decisions", selectedRunId],
+    queryFn: ({ signal }) => getRunDomainDecisions(selectedRunId!, signal),
     enabled: selectedRunId !== undefined,
-    refetchInterval: selectedRunIsActive ? 250 : false,
+    refetchInterval: selectedRunIsActive ? 1000 : false,
   });
   const liveMeasurementQueryKey = ["measurements", "live", selectedRunId] as const;
   const liveMeasurementsQuery = useQuery({
@@ -437,9 +437,9 @@ export function RunsWorkspace({
               events={selectedEvents}
               eventsError={selectedEventsQuery.error}
               eventsPending={selectedEventsQuery.isPending}
-              inspections={runInspectionsQuery.data}
-              inspectionsError={runInspectionsQuery.error}
-              inspectionsPending={runInspectionsQuery.isPending}
+              domainDecisions={runDomainDecisionsQuery.data}
+              domainDecisionsError={runDomainDecisionsQuery.error}
+              domainDecisionsPending={runDomainDecisionsQuery.isPending}
               measurements={measurements}
               measurementsError={measurementsQuery.error}
               measurementsPending={measurementsQuery.isPending}

@@ -24,10 +24,6 @@ from scopecat.daemon.points import (
     RunPointPlanCloseCommand,
     RunPointPlanView,
 )
-from scopecat.daemon.reviews import (
-    RunInspectionAppendCommand,
-    RunInspectionView,
-)
 from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
@@ -137,7 +133,6 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     hardware_sequences: list[int] = []
     coverage_ranges: list[tuple[int, int]] = []
     measurement_ingest_ranges: list[tuple[int, int]] = []
-    inspection_commands: list[RunInspectionAppendCommand] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
@@ -208,11 +203,6 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                     stop_reason=command.reason,
                 )
             )
-        if path.endswith("/inspections"):
-            command = RunInspectionAppendCommand.model_validate_json(request.content)
-            _remember_fence(fences, "run-1", command)
-            inspection_commands.append(command)
-            return _model(RunInspectionView(run_id="run-1", items=(command.event,)))
         if path.endswith("/hardware/finish"):
             command = RunHardwareFinishCommand.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
@@ -422,8 +412,6 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     ]
     assert hardware_sequences == [0]
     assert coverage_ranges == [(0, 1), (1, 2)]
-    assert inspection_commands[0].event.accepted_point_start == 1
-    assert inspection_commands[0].event.accepted_point_count == 1
 
 
 def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> None:

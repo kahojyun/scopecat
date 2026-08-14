@@ -23,7 +23,6 @@ from scopecat.daemon.points import (
     RunPointPlanCloseCommand,
     RunPointPlanView,
 )
-from scopecat.daemon.reviews import RunInspectionAppendCommand, RunInspectionView
 from scopecat.daemon.wire import (
     ExecutorHeartbeat,
     ExecutorLease,
@@ -67,7 +66,6 @@ from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 from ..errors import BackendConflict, BackendNotFound
 from .active_measurements import ActiveMeasurementConflict, ActiveMeasurementStore
 from .point_plans import RunPointPlanService
-from .reviews import RunInspectionFeedService
 
 if TYPE_CHECKING:
     from ..instruments.service import InstrumentService
@@ -87,7 +85,6 @@ class ExecutorService:
         runs: SQLiteRunRepository,
         instruments: InstrumentService,
         active_measurements: ActiveMeasurementStore,
-        run_inspections: RunInspectionFeedService,
         point_plans: RunPointPlanService,
         lease_ttl: timedelta | None = None,
     ) -> None:
@@ -95,7 +92,6 @@ class ExecutorService:
         self._runs = runs
         self._instruments = instruments
         self._active_measurements = active_measurements
-        self._run_inspections = run_inspections
         self._point_plans = point_plans
         self._lease_ttl = lease_ttl or timedelta(seconds=30)
         self._heartbeat_interval_seconds = self._lease_ttl.total_seconds() / 3
@@ -195,14 +191,6 @@ class ExecutorService:
                 command,
                 completed_point_count=completed,
             )
-
-    def append_run_inspection(
-        self,
-        run_id: str,
-        command: RunInspectionAppendCommand,
-    ) -> RunInspectionView:
-        with self.fenced_write(run_id, token=command.lease_id):
-            return self._run_inspections.append(run_id, command.event)
 
     def cancel_run(self, run_id: str) -> RunCancellationReceipt:
         """Cancel queued work now or request a leased executor checkpoint stop."""
@@ -491,7 +479,6 @@ class ExecutorService:
             self._instruments.release_run(run_id)
             self._measurement_repositories.pop(run_id, None)
             self._active_measurements.clear(run_id)
-            self._run_inspections.mark_inactive(run_id)
             return manifest
         if commit.outcome.result == "succeeded":
             with self._runs.sqlite.read_transaction() as connection:
@@ -520,7 +507,6 @@ class ExecutorService:
         self._instruments.release_run(run_id)
         self._measurement_repositories.pop(run_id, None)
         self._active_measurements.clear(run_id)
-        self._run_inspections.mark_inactive(run_id)
         return manifest
 
     def reconcile_volatile_state(self) -> None:
@@ -544,7 +530,6 @@ class ExecutorService:
     def _discard_measurement_state(self, run_id: str) -> None:
         self._measurement_repositories.pop(run_id, None)
         self._active_measurements.clear(run_id)
-        self._run_inspections.mark_inactive(run_id)
 
     def _start_execution(
         self,

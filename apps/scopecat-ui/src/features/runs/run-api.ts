@@ -9,7 +9,7 @@ import type {
   RunManifest,
   RunResourceView,
   RunSummaryPage,
-  RunInspectionFeed,
+  RunDomainDecisionPage,
   ResolvedRunDomain,
   RunDomainEnqueueCommand,
   RunDomainQueue,
@@ -81,13 +81,13 @@ export async function getRun(runId: string, signal?: AbortSignal): Promise<Proje
   return normalizeRun(response.control, response.manifest, response.resources ?? []);
 }
 
-export async function getRunInspections(
+export async function getRunDomainDecisions(
   runId: string,
   signal?: AbortSignal,
-): Promise<RunInspectionFeed> {
+): Promise<RunDomainDecisionPage> {
   return apiData(
-    apiClient.GET("/api/v1/runs/{run_id}/inspections", {
-      params: { path: { run_id: runId } },
+    apiClient.GET("/api/v1/runs/{run_id}/point-plan/decisions", {
+      params: { path: { run_id: runId }, query: { limit: 64 } },
       signal,
     }),
   );

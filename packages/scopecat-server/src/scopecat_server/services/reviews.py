@@ -20,14 +20,10 @@ from scopecat.daemon.reviews import (
     ReviewSessionListView,
     ReviewSessionView,
     ReviewWorkItem,
-    RunDomainInspectionEvent,
-    RunInspectionView,
 )
 
 from ..errors import BackendConflict, BackendNotFound
 
-_RUN_INSPECTION_EVENT_LIMIT = 64
-_RUN_INSPECTION_INACTIVE_FEED_LIMIT = 32
 _DEFAULT_REVIEW_WORKER_TTL = timedelta(seconds=15)
 _REVIEW_INACTIVE_SESSION_LIMIT = 32
 
@@ -47,14 +43,6 @@ class _ReviewSession:
     pending: deque[ReviewWorkItem] = field(default_factory=deque)
     claimed_request_ids: set[str] = field(default_factory=set)
     latest_result: ReviewCompilationResult | None = None
-
-
-@dataclass(slots=True)
-class _RunInspectionFeed:
-    items: deque[RunDomainInspectionEvent] = field(
-        default_factory=lambda: deque(maxlen=_RUN_INSPECTION_EVENT_LIMIT)
-    )
-    total_proposal_count: int = 0
 
 
 class ReviewService:
@@ -248,76 +236,6 @@ class ReviewService:
         session.updated_at = now
 
 
-class RunInspectionFeedService:
-    """Retain bounded live feeds plus a bounded inactive run history."""
-
-    def __init__(
-        self,
-        *,
-        inactive_feed_limit: int = _RUN_INSPECTION_INACTIVE_FEED_LIMIT,
-    ) -> None:
-        if inactive_feed_limit < 0:
-            raise ValueError("inactive run inspection feed limit must be non-negative")
-        self._lock = Lock()
-        self._feeds: dict[str, _RunInspectionFeed] = {}
-        self._active_run_ids: set[str] = set()
-        self._inactive_feed_limit = inactive_feed_limit
-
-    def append(
-        self,
-        run_id: str,
-        event: RunDomainInspectionEvent,
-    ) -> RunInspectionView:
-        with self._lock:
-            feed = self._feeds.setdefault(run_id, _RunInspectionFeed())
-            self._active_run_ids.add(run_id)
-            if event.proposal_index < feed.total_proposal_count:
-                retained = next(
-                    (
-                        item
-                        for item in feed.items
-                        if item.proposal_index == event.proposal_index
-                    ),
-                    None,
-                )
-                if retained != event:
-                    raise BackendConflict("run proposal already has different content")
-                return _run_inspection_view(run_id, feed)
-            if event.proposal_index > feed.total_proposal_count:
-                raise BackendConflict("run proposal indices must be contiguous")
-            feed.items.append(event)
-            feed.total_proposal_count += 1
-            return _run_inspection_view(run_id, feed)
-
-    def read(self, run_id: str) -> RunInspectionView:
-        with self._lock:
-            feed = self._feeds.get(run_id)
-            if feed is None:
-                feed = _RunInspectionFeed()
-            elif run_id not in self._active_run_ids:
-                self._feeds.pop(run_id)
-                self._feeds[run_id] = feed
-            return _run_inspection_view(run_id, feed)
-
-    def mark_inactive(self, run_id: str) -> None:
-        """Make a terminal or disconnected run feed eligible for retention pruning."""
-
-        with self._lock:
-            feed = self._feeds.pop(run_id, None)
-            self._active_run_ids.discard(run_id)
-            if feed is not None:
-                self._feeds[run_id] = feed
-            self._prune_inactive()
-
-    def _prune_inactive(self) -> None:
-        inactive_run_ids = [
-            run_id for run_id in self._feeds if run_id not in self._active_run_ids
-        ]
-        drop_count = len(inactive_run_ids) - self._inactive_feed_limit
-        for run_id in inactive_run_ids[:drop_count]:
-            self._feeds.pop(run_id, None)
-
-
 def _view(session: _ReviewSession) -> ReviewSessionView:
     latest_result = session.latest_result
     command = session.command
@@ -338,16 +256,4 @@ def _view(session: _ReviewSession) -> ReviewSessionView:
     )
 
 
-def _run_inspection_view(
-    run_id: str,
-    feed: _RunInspectionFeed,
-) -> RunInspectionView:
-    return RunInspectionView(
-        run_id=run_id,
-        items=tuple(feed.items),
-        total_proposal_count=feed.total_proposal_count,
-        items_truncated=feed.total_proposal_count > len(feed.items),
-    )
-
-
-__all__ = ["ReviewService", "RunInspectionFeedService"]
+__all__ = ["ReviewService"]

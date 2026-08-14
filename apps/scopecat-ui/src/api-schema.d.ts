@@ -583,23 +583,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/runs/{run_id}/inspections": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Run Inspections */
-        get: operations["get_run_inspections_api_v1_runs__run_id__inspections_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/runs/{run_id}/measurements/live": {
         parameters: {
             query?: never;
@@ -677,6 +660,23 @@ export interface paths {
         };
         /** List Parameter Proposals */
         get: operations["list_parameter_proposals_api_v1_runs__run_id__parameter_proposals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/point-plan/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run Domain Decisions */
+        get: operations["get_run_domain_decisions_api_v1_runs__run_id__point_plan_decisions_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3136,6 +3136,8 @@ export interface components {
             unit?: string | null;
         };
         "PointCoordinateValue-Output": boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | null;
+        /** @enum {string} */
+        PointProposalSource: "author" | "optimizer" | "operator";
         /**
          * Problem
          * @description One expected, structured finding without presentation policy.
@@ -3532,11 +3534,6 @@ export interface components {
          */
         RunDetail: {
             control: components["schemas"]["RunControlView"];
-            /**
-             * Domain Executions
-             * @default []
-             */
-            domain_executions: components["schemas"]["RunDomainExecutionView"][];
             manifest: components["schemas"]["RunManifest"];
             /**
              * Resources
@@ -3572,6 +3569,50 @@ export interface components {
             axis_id: string;
             source: components["schemas"]["RunDomainAxisSourceView-Output"];
         };
+        /**
+         * RunDomainDecisionPage
+         * @description Newest durable domain decisions, ordered by proposal index.
+         */
+        RunDomainDecisionPage: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["RunDomainDecisionView"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
+            /** Run Id */
+            run_id: string;
+        };
+        /** RunDomainDecisionView */
+        RunDomainDecisionView: {
+            /**
+             * Accepted Point Count
+             * @default 0
+             */
+            accepted_point_count: number;
+            /** Accepted Point Start */
+            accepted_point_start?: number | null;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Operation Id */
+            operation_id: string;
+            /** Operator Request Id */
+            operator_request_id?: string | null;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "accepted" | "rejected";
+            proposal: components["schemas"]["RunDomainProposalAttemptView-Output"];
+            /** Proposal Index */
+            proposal_index: number;
+            /** Reason */
+            reason?: string | null;
+        };
         /** RunDomainEnqueueCommand */
         RunDomainEnqueueCommand: {
             /**
@@ -3588,58 +3629,6 @@ export interface components {
             region_scope: components["schemas"]["OperatorRegionScope"];
             /** Request Id */
             request_id: string;
-        };
-        /**
-         * RunDomainExecutionView
-         * @description Compact target-authored provenance for one domain execution.
-         */
-        RunDomainExecutionView: {
-            /** Artifact Fingerprint */
-            artifact_fingerprint: string;
-            /** Artifact Id */
-            artifact_id: string;
-            /** Compiler Id */
-            compiler_id: string;
-            /** Execution Key */
-            execution_key: string;
-            /** Execution Summary */
-            execution_summary: {
-                [key: string]: components["schemas"]["scopecat__kernel__json_types__JsonValue-Output"];
-            };
-            /** Intent Fingerprint */
-            intent_fingerprint: string;
-            /** Invocation Id */
-            invocation_id: string;
-            /** Logical Compute Node Id */
-            logical_compute_node_id: string;
-            /** Operation Id */
-            operation_id: string;
-            /**
-             * Problems
-             * @default []
-             */
-            problems: components["schemas"]["Problem-Output"][];
-            /** Receipt Status */
-            receipt_status?: ("completed" | "not_executed" | "unknown") | null;
-            /** Result Count */
-            result_count?: number | null;
-            /**
-             * Started At
-             * Format: date-time
-             */
-            started_at: string;
-            /**
-             * State
-             * @enum {string}
-             */
-            state: "started" | "completed" | "failed" | "unknown";
-            /** Target Id */
-            target_id: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
         };
         /** RunDomainFragmentInput */
         RunDomainFragmentInput: {
@@ -3665,45 +3654,21 @@ export interface components {
             /** Point Count */
             point_count: number;
         };
-        /**
-         * RunDomainInspectionEvent
-         * @description One transient domain decision and all compiled point inspections.
-         */
-        "RunDomainInspectionEvent-Output": {
-            /**
-             * Accepted Point Count
-             * @default 0
-             */
-            accepted_point_count: number;
-            /** Accepted Point Start */
-            accepted_point_start?: number | null;
+        /** RunDomainProposalAttemptView */
+        "RunDomainProposalAttemptView-Output": {
+            /** Based On Region Revisions */
+            based_on_region_revisions?: {
+                [key: string]: number;
+            };
             fragment: components["schemas"]["RunDomainFragmentView-Output"];
+            /** Proposal Fingerprint */
+            proposal_fingerprint: string;
             /**
-             * Inspections
+             * Region Ids
              * @default []
              */
-            inspections: components["schemas"]["ReviewInspectionView-Output"][];
-            /**
-             * Occurred At
-             * Format: date-time
-             */
-            occurred_at: string;
-            /**
-             * Outcome
-             * @enum {string}
-             */
-            outcome: "accepted" | "rejected";
-            /** Proposal Index */
-            proposal_index: number;
-            /** Reason */
-            reason?: string | null;
-            /** Region Ids */
             region_ids: string[];
-            /**
-             * Source
-             * @enum {string}
-             */
-            source: "author" | "optimizer" | "operator";
+            source: components["schemas"]["PointProposalSource"];
         };
         /** RunDomainQueueEntryView */
         RunDomainQueueEntryView: {
@@ -3790,26 +3755,6 @@ export interface components {
             kind: "values";
             /** Values */
             values: components["schemas"]["RunPointCoordinateValue-Output"][];
-        };
-        /** RunInspectionView */
-        RunInspectionView: {
-            /**
-             * Items
-             * @default []
-             */
-            items: components["schemas"]["RunDomainInspectionEvent-Output"][];
-            /**
-             * Items Truncated
-             * @default false
-             */
-            items_truncated: boolean;
-            /** Run Id */
-            run_id: string;
-            /**
-             * Total Proposal Count
-             * @default 0
-             */
-            total_proposal_count: number;
         };
         /**
          * RunManifest
@@ -5346,37 +5291,6 @@ export interface operations {
             };
         };
     };
-    get_run_inspections_api_v1_runs__run_id__inspections_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RunInspectionView"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     measurement_live_preview_api_v1_runs__run_id__measurements_live_get: {
         parameters: {
             query?: {
@@ -5531,6 +5445,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ParameterProposalListView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_domain_decisions_api_v1_runs__run_id__point_plan_decisions_get: {
+        parameters: {
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDomainDecisionPage"];
                 };
             };
             /** @description Validation Error */

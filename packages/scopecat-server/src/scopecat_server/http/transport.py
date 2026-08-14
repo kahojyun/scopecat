@@ -24,6 +24,7 @@ from scopecat.daemon.endpoint import (
 from scopecat.daemon.points import (
     ResolvedRunDomainView,
     RunDomainDecisionCommand,
+    RunDomainDecisionPage,
     RunDomainDecisionView,
     RunDomainEnqueueCommand,
     RunDomainQueueEntryView,
@@ -42,8 +43,6 @@ from scopecat.daemon.reviews import (
     ReviewSessionListView,
     ReviewSessionView,
     ReviewWorkItem,
-    RunInspectionAppendCommand,
-    RunInspectionView,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -749,6 +748,18 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> RunDomainDecisionView:
         return application.executor.append_run_domain_decision(run_id, command)
 
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/decisions")
+    def get_run_domain_decisions(
+        run_id: str,
+        limit: Annotated[int, Query(ge=1, le=100)] = 64,
+        before: Annotated[int | None, Query(ge=0)] = None,
+    ) -> RunDomainDecisionPage:
+        return application.point_plans.decisions(
+            run_id,
+            limit=limit,
+            before=before,
+        )
+
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/point-plan/close")
     def close_run_point_plan(
         run_id: str,
@@ -777,17 +788,6 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         command: RunDomainResolveCommand,
     ) -> ResolvedRunDomainView:
         return application.point_plans.resolve(run_id, command)
-
-    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/inspections")
-    def get_run_inspections(run_id: str) -> RunInspectionView:
-        return application.run_inspections.read(run_id)
-
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/inspections")
-    def append_run_inspection(
-        run_id: str,
-        command: RunInspectionAppendCommand,
-    ) -> RunInspectionView:
-        return application.executor.append_run_inspection(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/instruments/provision")
     def provision_run_instruments(
