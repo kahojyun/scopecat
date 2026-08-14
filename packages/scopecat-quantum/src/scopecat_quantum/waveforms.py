@@ -151,7 +151,12 @@ class PhaseParameterizedSampledWaveforms:
 def factor_phase_parameterized_waveforms(
     plans: tuple[SampledWaveformPlan, ...],
 ) -> PhaseParameterizedSampledWaveforms | None:
-    """Factor plans that differ only in resolved output-event phases."""
+    """Factor a complete batch when phase is its only varying render input.
+
+    Return ``None`` unless at least two plans share their grid, shape, timing,
+    bindings, and envelope structure so callers can retain ordinary per-plan
+    rendering.
+    """
 
     if len(plans) < 2:
         return None

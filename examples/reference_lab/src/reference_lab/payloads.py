@@ -110,7 +110,11 @@ type DecodedAwgProgram = (
 def materialize_awg_program(
     program: DecodedAwgProgram,
 ) -> DecodedMaterializedAwgProgram:
-    """Cross the simple-AWG boundary with contiguous physical buffers."""
+    """Produce validated contiguous buffers at the simple-AWG upload boundary.
+
+    Compact phase rows are synthesized here. An already materialized program is
+    returned unchanged after the same amplitude validation.
+    """
 
     if isinstance(program, DecodedPhaseSynthesizedAwgProgram):
         return program.materialize()

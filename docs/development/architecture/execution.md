@@ -125,13 +125,14 @@ overlays, folds pure computation, removes undemanded work, and leaves a residual
 host/domain program. External reads, writes, acquisitions, and invocations occur
 only while interpreting `RunProgram`.
 
-Linking materializes one canonical ordered point sequence. Parameter overlays
-and the durable point catalog consume those rows eagerly. Host lowering, entity
-selection, and domain projection consume the same canonical rows only for the
-current bounded coverage batch. The current eager point representation is
-tracked by the
-[scalability benchmarks](../scalability.md); its stable semantic promise
-is that physical partitioning does not change logical point identity or results.
+Linking preserves one canonical random-access logical point sequence without
+eagerly constructing generated rows. Range and center/span axes retain their
+compact sources; explicit-value axes retain their authored values. Parameter
+overlays, host lowering, entity selection, and domain projection evaluate the
+selected ordinals for the current bounded coverage batch. The
+[scalability benchmarks](../scalability.md) track the remaining point-count
+costs; the stable semantic promise is that physical partitioning does not change
+logical point identity or results.
 
 One `ExperimentSystem` owns one domain compiler. The compiler may internally
 route supported dialects or invoke a lower-level target compiler after resolving

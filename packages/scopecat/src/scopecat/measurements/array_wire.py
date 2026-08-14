@@ -21,7 +21,11 @@ class MeasurementArrayWireError(ValueError):
 
 
 def encode_measurement_array(value: MeasurementArray) -> EncodedMeasurementArray:
-    """Encode one canonical measurement array without Python scalar expansion."""
+    """Encode one canonical array without expanding it into Python scalars.
+
+    Numeric and boolean values use a buffer view when their immutable storage
+    already matches the wire dtype. Variable-width strings use a fresh encoding.
+    """
 
     expected_count = math.prod(value.shape)
     if value.values.size != expected_count or value.values.shape != value.shape:
@@ -63,7 +67,11 @@ def decode_measurement_array(
     shape: tuple[int, ...],
     metadata: Mapping[str, object],
 ) -> MeasurementArray:
-    """Decode one binary payload into the canonical immutable array model."""
+    """Decode one binary payload into the canonical immutable array model.
+
+    Numeric and boolean arrays adopt immutable input storage. Mutable input is
+    copied to immutable bytes by ``MeasurementArray`` before it is returned.
+    """
 
     count = math.prod(shape)
     if dtype == "float64":

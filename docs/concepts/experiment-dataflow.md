@@ -326,19 +326,24 @@ observations, revisions, stop state, and an optional per-region budget;
 `scope="global"` gives it all regions in one context.
 
 An optimizer proposes a compact compatible fragment: explicit values, a
-range, an around-center range, or a point cloud. The runner expands that
-fragment lazily across the selected regions, compiles every member, and accepts
-or rejects the group atomically. Accepted members receive consecutive logical
-point ordinals and execute in the same hardware session. Freshness is checked
-against only the selected region revisions, so progress elsewhere does not
-invalidate the proposal. A one-row fragment is the degenerate point case.
+range, an around-center range, or a point cloud. The fragment stays compact
+while the runner checks its coordinate shape, selected-region revisions, and
+point budgets, then expands it into complete logical rows and accepts or rejects
+the group atomically. Acceptance does not compile every target artifact.
+Accepted members receive consecutive logical point ordinals, and target
+compilation consumes them lazily in bounded batches inside the same hardware
+session, just like the authored static prefix. Freshness is checked against only
+the selected region revisions, so progress elsewhere does not invalidate the
+proposal. A one-row fragment is the degenerate point case.
 
 The live Run view uses the same model for manual extension. An operator can add
-a snapped or free scan to the current, selected, or all admitted regions and
-inspect the resulting compiled waveforms beside optimizer decisions. The total
-point limit, optional per-region limit, and finite proposal retry budget keep
-the run bounded. Durable multi-run adaptation remains a workflow concern rather
-than hidden mutation of an ordinary static plan.
+a snapped or free scan to the current, selected, or all admitted regions. The
+view reports the group decision and completion status; it does not render the
+fragment's waveforms as admission feedback. Use the explicit selected-point
+preview below when compiled waveform details matter. The total point limit,
+optional per-region limit, and finite proposal retry budget keep the run
+bounded. Durable multi-run adaptation remains a workflow concern rather than
+hidden mutation of an ordinary static plan.
 
 ## Compute scalar and array data uniformly
 

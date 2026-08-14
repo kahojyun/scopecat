@@ -413,10 +413,13 @@ The present architecture provides a direct end-to-end baseline:
 - the reference list-mode target combines its device entry capacity with an
   adaptive 8 MiB aggregate waveform target. Its AWG and virtual-capture codecs
   carry contiguous float64 samples in binary rather than expanding arrays into
-  JSON numbers. Direct and run-scoped hardware receipts likewise carry typed
-  headers plus binary measurement-array attachments, and target result blocks
-  remain array-native through correlation. Immutable byte-backed arrays are
-  adopted across typed model and wire-decode boundaries rather than recopied;
+  JSON numbers. Phase-only sweeps share one sampled template plus per-entry
+  phase rows and synthesize contiguous DAC buffers only at the driver-upload
+  boundary; structurally different entries retain ordinary materialized
+  buffers. Direct and run-scoped hardware receipts likewise carry typed headers
+  plus binary measurement-array attachments, and target result blocks remain
+  array-native through correlation. Immutable byte-backed arrays are adopted
+  across typed model and wire-decode boundaries rather than recopied;
 - admission uses the domain compiler's static instrument footprint and all
   structurally compatible local route candidates. Point-local routing narrows
   the operations actually emitted, so a run may conservatively reserve an

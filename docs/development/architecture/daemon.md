@@ -168,9 +168,6 @@ measurement ingest and the live latest-point response use schema-driven Arrow
 IPC, while direct and run-scoped hardware receipts use typed JSON headers with
 binary measurement-array attachments. Numeric acquisition results therefore do
 not expand into JSON lists between the instrument worker, daemon, and executor.
-Decoded arrays retain the immutable received bytes as their NumPy backing, and
-encoders pass read-only buffer views into the next frame instead of making an
-intermediate bytes copy.
 
 Server-sent events replay the same durable globally ordered event log used by
 the API. On initial connection or reconnection, clients refresh canonical
