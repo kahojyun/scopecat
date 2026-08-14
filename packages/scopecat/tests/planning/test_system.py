@@ -60,7 +60,7 @@ from scopecat.execution.program import (
 )
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.point_identity import LogicalPointId
-from scopecat.kernel.points import PointProposalAttempt
+from scopecat.kernel.points import PointProposalAttempt, PointProposalSource
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.product_identity import product_use
 from scopecat.kernel.quantity import Quantity
@@ -1856,9 +1856,12 @@ def test_adaptive_plan_uses_an_open_point_extent_with_a_hard_limit() -> None:
     assert preview.records[0].shape[0] is None
 
 
-def test_adaptive_coverage_accepts_candidates_into_the_canonical_run_domain() -> None:
+@pytest.mark.parametrize("source", ("optimizer", "operator"))
+def test_adaptive_coverage_batches_an_accepted_range_without_inspection(
+    source: PointProposalSource,
+) -> None:
     bound = _bound_program(point_count=2)
-    compiler = _DomainCompiler("tests.adaptive-accept")
+    compiler = _DomainCompiler("tests.adaptive-accept", batch_size=2)
     plan = ExperimentSystem(
         instrument_catalog=_catalog(bound),
         domain_compiler=compiler,
@@ -1871,31 +1874,33 @@ def test_adaptive_coverage_accepts_candidates_into_the_canonical_run_domain() ->
         ),
     )
 
-    accepted = plan.coverage.accept(
-        PointProposalAttempt(
-            {"frequency": Quantity(5.3, "GHz")},
-            source="optimizer",
-        )
-    )
-    next_accepted = plan.coverage.accept(
-        PointProposalAttempt(
-            {"frequency": Quantity(5.5, "GHz")},
-            source="optimizer",
+    accepted = plan.coverage.accept_all(
+        tuple(
+            PointProposalAttempt(
+                {"frequency": Quantity(frequency, "GHz")},
+                source=source,
+            )
+            for frequency in (5.3, 5.5, 5.7)
         )
     )
 
-    assert accepted.point.ordinal == 2
-    assert accepted.point.coordinates == {"frequency": Quantity(5.3, "GHz")}
-    assert accepted.inspection.point_index == 2
-    assert [job.point_ordinals for job in accepted.inspection.jobs] == [(2,)]
-    assert next_accepted.point.ordinal == 3
+    assert [point.ordinal for point in accepted.points] == [2, 3, 4]
+    assert [point.coordinates for point in accepted.points] == [
+        {"frequency": Quantity(5.3, "GHz")},
+        {"frequency": Quantity(5.5, "GHz")},
+        {"frequency": Quantity(5.7, "GHz")},
+    ]
+    assert compiler.compile_requests == []
+    operations = tuple(accepted.operations)
     assert [request.point_ordinals for request in compiler.compile_requests] == [
-        (2,),
-        (3,),
+        (2, 3),
+        (4,),
     ]
     assert [request.batch_ordinal for request in compiler.compile_requests] == [2, 3]
-    assert all(request.inspection_requested for request in compiler.compile_requests)
+    assert not any(
+        request.inspection_requested for request in compiler.compile_requests
+    )
     assert all(
         isinstance(operation, RunCoverageCheckpoint | RunDomainJob)
-        for operation in accepted.operations
+        for operation in operations
     )

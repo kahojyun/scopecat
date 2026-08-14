@@ -8,7 +8,6 @@ from typing import Protocol
 
 from scopecat.adaptive_domains import DomainProposalAttempt, OperatorDomainRequest
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
-from scopecat.execution.program import RunPointInspection
 from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.optimization import DomainProposalDecision
 from scopecat.records.run import RunManifest
@@ -39,7 +38,7 @@ class QueuedOperatorDomainRequest:
 
 
 class RunDomainProposalWriter(Protocol):
-    """Commit point-plan facts and publish bounded live inspections."""
+    """Commit point-plan facts and publish live proposal decisions."""
 
     def next_queued(self) -> QueuedOperatorDomainRequest | None: ...
 
@@ -48,7 +47,6 @@ class RunDomainProposalWriter(Protocol):
         proposal: DomainProposalAttempt,
         decision: DomainProposalDecision,
         accepted_points: tuple[AcceptedRunPoint, ...],
-        inspections: tuple[RunPointInspection, ...],
         *,
         operator_request_id: str | None = None,
     ) -> None: ...

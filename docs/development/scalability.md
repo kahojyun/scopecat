@@ -420,12 +420,14 @@ generated. Cartesian products do not multiply any of those factors into
 retained rows. Local effects, static value evaluation, runtime point projection,
 and live prepared target artifacts are bounded by the current physical batch.
 During active execution the completed point index set and durable scalar results
-still grow with completed point count; neither contains waveform payloads. The
-daemon's live compiled-inspection feed retains only the latest 64 proposal
-events. Active feeds are never pruned, while only the 32 most recently used
-inactive run feeds and 32 most recently updated inactive review sessions remain
-available. Every inspection already enforces point, waveform, and sample budgets.
-It is an operator view, not durable run content.
+still grow with completed point count; neither contains waveform payloads.
+Optimizer and operator fragments append one contiguous point range, then reuse
+the static run's lazy batch compiler without generating per-point inspections.
+The daemon's live proposal feed retains only the latest 64 events. Active feeds
+are never pruned, while only the 32 most recently used inactive run feeds and 32
+most recently updated inactive review sessions remain available. Explicit
+selected-point inspections enforce point, waveform, and sample budgets and are
+operator views, not durable run content.
 Adaptive optimizer calls likewise receive exact counters but only the latest
 1,024 domain decisions and 256 completed-point observations for their scope.
 Durable domain decisions remain queryable through the daemon ledger.

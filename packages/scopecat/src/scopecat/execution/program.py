@@ -80,18 +80,17 @@ class RunPointInspection:
 
 
 @dataclass(frozen=True, slots=True)
-class RunAcceptedPointCoverage:
-    """One accepted candidate and its eagerly validated bounded operations."""
+class RunAcceptedCoverage:
+    """One accepted contiguous point range and its lazy operation stream."""
 
-    point: AcceptedRunPoint
-    operations: tuple[RunCoveredOperation, ...]
-    inspection: RunPointInspection
+    points: tuple[AcceptedRunPoint, ...]
+    operations: Iterator[RunCoveredOperation] = field(repr=False, compare=False)
 
 
 class RunCoverage:
     """A lazy operation stream rebuilt for each planning or execution pass."""
 
-    __slots__ = ("_accept", "_accept_all", "_factory", "_inspect")
+    __slots__ = ("_accept_all", "_factory", "_inspect")
 
     def __init__(
         self,
@@ -99,17 +98,14 @@ class RunCoverage:
         *,
         inspect: Callable[[int | PointProposalAttempt], RunPointInspection]
         | None = None,
-        accept: Callable[[PointProposalAttempt], RunAcceptedPointCoverage]
-        | None = None,
         accept_all: Callable[
             [tuple[PointProposalAttempt, ...]],
-            tuple[RunAcceptedPointCoverage, ...],
+            RunAcceptedCoverage,
         ]
         | None = None,
     ) -> None:
         self._factory = factory
         self._inspect = inspect
-        self._accept = accept
         self._accept_all = accept_all
 
     def __iter__(self) -> Iterator[RunCoveredOperation]:
@@ -122,18 +118,18 @@ class RunCoverage:
             return None
         return self._inspect(point)
 
-    def accept(self, candidate: PointProposalAttempt) -> RunAcceptedPointCoverage:
-        """Compile and atomically append one candidate to the run point domain."""
+    def accept(self, candidate: PointProposalAttempt) -> RunAcceptedCoverage:
+        """Append one candidate and return its lazy execution coverage."""
 
-        if self._accept is None:
+        if self._accept_all is None:
             raise ValueError("run coverage does not accept adaptive points")
-        return self._accept(candidate)
+        return self._accept_all((candidate,))
 
     def accept_all(
         self,
         candidates: tuple[PointProposalAttempt, ...],
-    ) -> tuple[RunAcceptedPointCoverage, ...]:
-        """Compile and atomically append one complete domain fragment."""
+    ) -> RunAcceptedCoverage:
+        """Append one complete domain fragment with lazy batched coverage."""
 
         if self._accept_all is None:
             raise ValueError("run coverage does not accept adaptive domains")

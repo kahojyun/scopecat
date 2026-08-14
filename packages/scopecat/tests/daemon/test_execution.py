@@ -347,7 +347,6 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
             accepted_point_count=1,
         ),
         (accepted_point,),
-        (),
     )
     domain_proposals.close(completed_point_count=2, reason="test complete")
     assert (

@@ -538,10 +538,11 @@ reference list-mode target returns requested/realized timing, channel
 identities, peak and RMS values, content hashes, and a bounded min/max waveform
 preview. Strict coordinate matching and off-grid compilation are separate
 operator choices; neither silently snaps a physical value to an authored axis
-index. The same inspection shape is used by the live Run view for optimizer and
-operator domain fragments before their effects execute. Group acceptance,
-completion status, and bounded waveform comparisons appear beside measurements.
-The full waveform remains transient compiler data; a normal run keeps only
+index. Optimizer and operator domain fragments do not implicitly generate
+waveform inspections: after coordinate and budget acceptance they use the same
+lazy, bounded compilation path as a static scan. The live Run view records group
+acceptance and completion status beside measurements. Detailed waveform
+inspection remains an explicit selected-point preview; a normal run keeps only
 compact execution provenance.
 
 Placement is either `host` (all inputs exist before acquisition) or

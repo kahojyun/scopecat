@@ -20,7 +20,7 @@ from scopecat.execution.local.program import (
     LocalOperation,
 )
 from scopecat.execution.program import (
-    RunAcceptedPointCoverage,
+    RunAcceptedCoverage,
     RunCoverage,
     RunCoverageCheckpoint,
     RunCoverageEffect,
@@ -948,69 +948,48 @@ def _compile_coverage(
             ),
         )
 
-    def accept(candidate: PointProposalAttempt) -> RunAcceptedPointCoverage:
-        return accept_all((candidate,))[0]
-
     def accept_all(
         candidates: tuple[PointProposalAttempt, ...],
-    ) -> tuple[RunAcceptedPointCoverage, ...]:
+    ) -> RunAcceptedCoverage:
         resolved, extended_bound_points = append_candidate_bound_points(
             accepted_bound_points.current,
             candidates,
         )
         start = len(accepted_bound_points.current.point_domain.points)
-        accepted: list[RunAcceptedPointCoverage] = []
-        for offset, candidate in enumerate(resolved):
-            ordinal = start + offset
-            selected_operations = tuple(
-                _validated_coverage(
-                    _coverage_operations(
-                        compiler=compiler,
-                        bound_points=extended_bound_points,
-                        point_ordinals=(ordinal,),
-                        effects=bound.program.program.effects,
-                        domain_calls=domain_calls,
-                        local_target=local_target,
-                        initial_local_probe=None,
-                        initial_batch_ordinal=ordinal,
-                        inspection_requested=True,
-                    ),
-                    validator=_CoverageValidator(
-                        domain_instrument_ids=(
-                            () if compiler is None else compiler.instrument_ids
-                        ),
-                        catalog=catalog,
-                    ),
-                )
-            )
-            point = AcceptedRunPoint.accept(
+        point_ordinals = tuple(range(start, start + len(resolved)))
+        accepted_points = tuple(
+            AcceptedRunPoint.accept(
                 candidate,
-                logical_id=(
-                    extended_bound_points.point_domain.points[ordinal].logical_id
+                logical_id=extended_bound_points.point_domain.points[
+                    ordinal
+                ].logical_id,
+            )
+            for ordinal, candidate in zip(point_ordinals, resolved, strict=True)
+        )
+        operations = _validated_coverage(
+            _coverage_operations(
+                compiler=compiler,
+                bound_points=extended_bound_points,
+                point_ordinals=point_ordinals,
+                effects=bound.program.program.effects,
+                domain_calls=domain_calls,
+                local_target=local_target,
+                initial_local_probe=None,
+                initial_batch_ordinal=start,
+            ),
+            validator=_CoverageValidator(
+                domain_instrument_ids=(
+                    () if compiler is None else compiler.instrument_ids
                 ),
-            )
-            accepted.append(
-                RunAcceptedPointCoverage(
-                    point=point,
-                    operations=selected_operations,
-                    inspection=RunPointInspection(
-                        point_index=ordinal,
-                        candidate=candidate,
-                        jobs=tuple(
-                            operation
-                            for operation in selected_operations
-                            if isinstance(operation, RunDomainJob)
-                        ),
-                    ),
-                )
-            )
+                catalog=catalog,
+            ),
+        )
         accepted_bound_points.current = extended_bound_points
-        return tuple(accepted)
+        return RunAcceptedCoverage(points=accepted_points, operations=operations)
 
     return RunCoverage(
         operations,
         inspect=inspect,
-        accept=accept,
         accept_all=accept_all,
     )
 

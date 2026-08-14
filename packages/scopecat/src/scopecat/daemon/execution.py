@@ -20,7 +20,6 @@ from scopecat.daemon.points import (
     RunPointPlanCloseCommand,
 )
 from scopecat.daemon.reviews import (
-    ReviewInspectionView,
     RunDomainInspectionEvent,
     RunInspectionAppendCommand,
 )
@@ -41,7 +40,6 @@ from scopecat.daemon.wire import (
     TerminalModelWrite,
     TerminalRunCommitCommand,
 )
-from scopecat.execution.program import RunPointInspection
 from scopecat.execution.services import ExecutionSession, QueuedOperatorDomainRequest
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.points import AcceptedRunPoint
@@ -302,7 +300,6 @@ class _DaemonRunDomainProposals:
         proposal: DomainProposalAttempt,
         decision: DomainProposalDecision,
         accepted_points: tuple[AcceptedRunPoint, ...],
-        inspections: tuple[RunPointInspection, ...],
         *,
         operator_request_id: str | None = None,
     ) -> None:
@@ -360,7 +357,6 @@ class _DaemonRunDomainProposals:
                         accepted_point_start=durable.accepted_point_start,
                         accepted_point_count=durable.accepted_point_count,
                         reason=durable.reason,
-                        inspections=_review_inspections(inspections),
                     ),
                 ),
             )
@@ -599,29 +595,6 @@ def _point_plan_close_operation_id(
             }
         )
     )
-
-
-def _review_inspections(
-    inspections: tuple[RunPointInspection, ...],
-) -> tuple[ReviewInspectionView, ...]:
-    projected: list[ReviewInspectionView] = []
-    for inspection in inspections:
-        for job in inspection.jobs:
-            content = job.execution.inspection
-            if content is None:
-                continue
-            intent = job.execution.invocation.intent
-            projected.append(
-                ReviewInspectionView(
-                    operation_id=job.id,
-                    point_index=inspection.point_index,
-                    target_id=intent.target_id,
-                    artifact_id=intent.artifact_id,
-                    artifact_fingerprint=intent.artifact_fingerprint,
-                    content=content,
-                )
-            )
-    return tuple(projected)
 
 
 def _json_document(model: BaseModel) -> dict[str, JsonValue]:

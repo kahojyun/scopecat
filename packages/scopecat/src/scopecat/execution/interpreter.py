@@ -670,27 +670,23 @@ def _execution_coverage(
                     proposal,
                     decision,
                     (),
-                    (),
                     operator_request_id=(
                         None if queued is None else queued.request.request_id
                     ),
                 )
             continue
-        accepted_points = tuple(item.point for item in accepted)
-        decision = coordinator.accept(bound, accepted_points)
+        decision = coordinator.accept(bound, accepted.points)
         if state.proposal_writer is not None:
             state.proposal_writer.append(
                 bound.proposal,
                 decision,
-                accepted_points,
-                tuple(item.inspection for item in accepted),
+                accepted.points,
                 operator_request_id=(
                     None if queued is None else queued.request.request_id
                 ),
             )
-        state.points.extend(item.point for item in accepted)
-        for item in accepted:
-            yield from item.operations
+        state.points.extend(accepted.points)
+        yield from accepted.operations
         durable_progress()
     if state.proposal_writer is not None:
         state.proposal_writer.close(
