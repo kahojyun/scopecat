@@ -3,13 +3,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from numpy.typing import NDArray
-from scopecat_testkit.execution_fakes import FakeExecutionJournal
 
+from scopecat.execution.effects.boundary import EffectBoundary
 from scopecat.execution.effects.compute import (
     ComputeEffectExecutor,
     EffectEvaluationFrame,
 )
-from scopecat.execution.effects.journaled import JournaledEffectBoundary
 from scopecat.execution.local.program import ComputeOperation, OutputInput, PayloadSlot
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
@@ -66,12 +65,11 @@ def _failing_encoder(_value: object) -> bytes:
 def test_payload_codec_resolution_and_encoding_fail_as_compute_operations(
     payload_codecs: PayloadCodecRegistry,
 ) -> None:
-    boundary = JournaledEffectBoundary(
+    boundary = EffectBoundary(
         run_id="payload-codec-failure",
-        journal=FakeExecutionJournal(),
     )
     executor = ComputeEffectExecutor(
-        journal=boundary,
+        boundary=boundary,
         payload_codecs=payload_codecs,
     )
     frame = EffectEvaluationFrame()
@@ -93,12 +91,11 @@ def test_compute_executor_normalizes_and_chains_array_results() -> None:
     )
     trace_id = operation_result_id(OperationId(SymbolId(local_id="trace")))
     peak_id = operation_result_id(OperationId(SymbolId(local_id="peak")))
-    boundary = JournaledEffectBoundary(
+    boundary = EffectBoundary(
         run_id="array-compute",
-        journal=FakeExecutionJournal(),
     )
     executor = ComputeEffectExecutor(
-        journal=boundary,
+        boundary=boundary,
         payload_codecs=PayloadCodecRegistry(),
     )
     frame = EffectEvaluationFrame()

@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from scopecat.kernel.errors import (
     DomainRuntimeFailure,
-    DomainRuntimePersistenceError,
     MeasurementRecordingError,
     OperationFailure,
 )
@@ -27,7 +26,6 @@ from scopecat.sdk.domain.runtime import (
 )
 from scopecat.sdk.instruments.commands import InstrumentStateAssignment
 from scopecat.sdk.instruments.execution import RunHardwareApply, RunHardwareBatch
-from scopecat.sdk.journal import ExecutionJournal
 from scopecat.sdk.runtime_problems import (
     runtime_problem,
 )
@@ -39,7 +37,6 @@ def execute_domain_job_values(
     logical_compute_node_id: str,
     run_id: str,
     instruments: DomainInstrumentExecutor,
-    journal: ExecutionJournal,
 ) -> tuple[MeasurementValueCandidate, ...]:
     """Execute one closed domain job and return canonical logical candidates."""
 
@@ -55,7 +52,6 @@ def execute_domain_job_values(
         invocation,
         execution_id,
         instruments=instruments,
-        journal=journal,
     )
     return prepared.realize(result)
 
@@ -139,7 +135,7 @@ def _reconcile_domain_state_requirements(
 
 
 def domain_runtime_terminal_problem(
-    error: DomainRuntimeFailure | DomainRuntimePersistenceError,
+    error: DomainRuntimeFailure,
     *,
     run_id: str,
 ) -> Problem:

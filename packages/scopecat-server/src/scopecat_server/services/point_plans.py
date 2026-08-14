@@ -29,7 +29,7 @@ from scopecat_server.storage.sqlite.control_plane import (
     SQLiteControlPlane,
 )
 from scopecat_server.storage.sqlite.execution import (
-    ExecutionJournalConflict,
+    ExecutionStateConflict,
     SQLiteRunPointLedger,
 )
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
@@ -132,7 +132,7 @@ class RunPointPlanService:
                 return entry
         except ControlPlaneNotFound as error:
             raise BackendNotFound(str(error)) from error
-        except (ControlPlaneConflict, ExecutionJournalConflict) as error:
+        except (ControlPlaneConflict, ExecutionStateConflict) as error:
             raise BackendConflict(str(error)) from error
 
     def resolve(

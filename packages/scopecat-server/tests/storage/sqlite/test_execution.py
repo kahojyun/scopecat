@@ -41,7 +41,7 @@ from scopecat.records.measurement_recording import (
 
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.execution import (
-    ExecutionJournalConflict,
+    ExecutionStateConflict,
     SQLiteMeasurementDatasetRepository,
     SQLiteRunPointLedger,
 )
@@ -130,7 +130,7 @@ def test_adaptive_domain_ledger_persists_idempotent_decisions_and_closure(
                 reason="stale optimizer state",
             ),
         )
-        with pytest.raises(ExecutionJournalConflict, match="point prefix"):
+        with pytest.raises(ExecutionStateConflict, match="point prefix"):
             ledger.append_decision_in_transaction(
                 connection,
                 _domain_decision_command(
@@ -274,7 +274,7 @@ def test_operator_domain_queue_is_fifo_bounded_and_resolved_by_decisions(
             resolved_fragment=fragment,
             region_count=1,
         )
-        with pytest.raises(ExecutionJournalConflict, match="remaining budget"):
+        with pytest.raises(ExecutionStateConflict, match="remaining budget"):
             ledger.enqueue_in_transaction(
                 connection,
                 enqueue.model_copy(update={"request_id": "queue-3"}),
@@ -567,7 +567,7 @@ def test_two_measurement_connections_replay_and_conflict_by_canonical_slot(
     assert len({receipt for receipt, _created in receipts}) == 1
     assert sorted(created for _receipt, created in receipts) == [False, True]
     assert len(first.measurements()) == 1
-    with pytest.raises(ExecutionJournalConflict):
+    with pytest.raises(ExecutionStateConflict):
         _commit_append(
             runs,
             second,
@@ -747,7 +747,7 @@ def test_measurement_header_rejects_a_changed_live_schema(tmp_path: Path) -> Non
         update={"metadata": {"revision": 2}}
     )
 
-    with pytest.raises(ExecutionJournalConflict, match="different content"):
+    with pytest.raises(ExecutionStateConflict, match="different content"):
         _commit_header(
             runs,
             repository,
@@ -835,7 +835,7 @@ def test_measurement_replay_rejects_mismatched_durable_operation_identity(
             (seal.run_id,),
         )
 
-    with pytest.raises(ExecutionJournalConflict, match="different content"):
+    with pytest.raises(ExecutionStateConflict, match="different content"):
         _commit_append(runs, append_repository, append)
-    with pytest.raises(ExecutionJournalConflict, match="different content"):
+    with pytest.raises(ExecutionStateConflict, match="different content"):
         _commit_seal(runs, seal_repository, seal)

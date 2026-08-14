@@ -2,8 +2,8 @@
 
 Domain compilers consume the target-neutral bound program and close target,
 result, and value decisions before a bounded batch enters domain effects.
-Scopecat retains ownership of runtime execution, correlation, journalling,
-recording, and terminal run evidence.
+Scopecat retains ownership of runtime execution, correlation, recording, and
+terminal run evidence.
 
 The runtime boundary is synchronous: one execute returns the complete result
 while receipts preserve known and indeterminate outcomes.

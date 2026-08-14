@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from scopecat.execution.effects.journaled import JournaledEffectBoundary
+from scopecat.execution.effects.boundary import EffectBoundary
 from scopecat.execution.local.program import (
     BoundInput,
     ComputeOperation,
@@ -38,10 +38,10 @@ class ComputeEffectExecutor:
     def __init__(
         self,
         *,
-        journal: JournaledEffectBoundary,
+        boundary: EffectBoundary,
         payload_codecs: PayloadCodecRegistry,
     ) -> None:
-        self.journal = journal
+        self.boundary = boundary
         self.payload_codecs = payload_codecs
 
     def execute(
@@ -92,7 +92,7 @@ class ComputeEffectExecutor:
                 else:
                     payload = None
             except Exception as error:
-                problem = self.journal.problem_from_exception(
+                problem = self.boundary.problem_from_exception(
                     "compute_operation_failed",
                     f"compute operation {operation.operation_id} failed",
                     error,
@@ -103,7 +103,7 @@ class ComputeEffectExecutor:
                         else None
                     ),
                 )
-                self.journal.problems.append(problem)
+                self.boundary.problems.append(problem)
                 return
             frame.compute_results[operation.result.id] = result
             if payload is not None:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
+from scopecat.execution.effects.boundary import EffectBoundary
 from scopecat.execution.effects.compute import PointEffectState
-from scopecat.execution.effects.journaled import JournaledEffectBoundary
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
@@ -35,7 +35,7 @@ class HardwareEffectExecutor:
         self,
         *,
         instruments: RunInstrumentHost,
-        problems: JournaledEffectBoundary,
+        problems: EffectBoundary,
     ) -> None:
         self.instruments = instruments
         self.problems = problems

@@ -25,7 +25,6 @@ from scopecat.runs.admission import RunSkeleton, build_run_admission
 from scopecat.runs.refs import MANIFEST_REF
 from scopecat.runs.repository import RunRepository
 from scopecat.sdk.instruments.execution import RunInstrumentHost
-from scopecat.sdk.journal import ProcessExecutionJournal
 from scopecat_server.services.active_measurements import ActiveMeasurementStore
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
@@ -154,7 +153,6 @@ class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository)
 class SQLiteExecutionSession(ExecutionSession):
     """Concrete SQLite session exposing read models to test assertions."""
 
-    journal: ProcessExecutionJournal
     measurements: SQLiteTestMeasurementDatasetRepository
 
 
@@ -243,7 +241,6 @@ def sqlite_execution_session(
         accepted=selected_runs.read_manifest(run_id),
         begin=lambda: None,
         commit_terminal=selected_runs.commit_terminal,
-        journal=ProcessExecutionJournal(),
         measurements=SQLiteTestMeasurementDatasetRepository(
             selected_runs,
             run_id=run_id,

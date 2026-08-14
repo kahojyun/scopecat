@@ -1,7 +1,6 @@
 """In-process runtime fixtures shared across workspace tests."""
 
 from scopecat_testkit.execution_fakes import (
-    FakeExecutionJournal,
     FakeMeasurementDatasetRepository,
 )
 from scopecat_testkit.planning import (
@@ -21,7 +20,6 @@ from scopecat_testkit.server.composition import (
 from scopecat_testkit.server.service_run_operations import ServiceRunOperations
 
 __all__ = [
-    "FakeExecutionJournal",
     "FakeMeasurementDatasetRepository",
     "SQLiteTestRunRepository",
     "ServiceRunOperations",

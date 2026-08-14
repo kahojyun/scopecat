@@ -60,7 +60,6 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareBatchReceipt,
     RunHardwareFinalizationReceipt,
 )
-from scopecat.sdk.journal import ProcessExecutionJournal
 
 _JSON_DOCUMENT = TypeAdapter(dict[str, JsonValue])
 _PROVISION_OPERATION_ID = "lifecycle.provide-instruments"
@@ -121,7 +120,6 @@ def daemon_execution_session(
         accepted=admission.manifest,
         begin=begin,
         commit_terminal=authority.commit_terminal,
-        journal=ProcessExecutionJournal(),
         measurements=_DaemonMeasurementRepository(authority),
         instruments=instruments,
         coverage=coverage,

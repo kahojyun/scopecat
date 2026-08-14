@@ -50,7 +50,6 @@ from scopecat.kernel.state import StateValue
 from scopecat.measurements.recording_arrow import decode_measurement_append
 from scopecat.optimization import DomainProposalDecision, DomainProposalSummary
 from scopecat.records.config import config_content_hash
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
@@ -125,7 +124,6 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     header = _measurement_header()
     append = _measurement_append(record, header)
     seal = _measurement_seal(append, header)
-    transition = _transition()
     started_manifest = admission.manifest
     fences: list[tuple[str, str]] = []
     terminal_commands: list[TerminalRunCommitCommand] = []
@@ -273,7 +271,6 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     accepted = session.accepted
     assert session.begin() is None
 
-    journal = session.journal
     measurements = session.measurements
     instruments = session.instruments
     coverage = session.coverage
@@ -344,20 +341,6 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
         == "hardware.finish"
     )
 
-    claimed = journal.claim(transition)
-    assert claimed.sequence == 0
-    assert claimed.model_dump(exclude={"sequence"}) == transition.model_dump(
-        exclude={"sequence"}
-    )
-    assert journal.append(transition) == claimed
-    assert (
-        journal.append(
-            transition.model_copy(
-                update={"timestamp": transition.timestamp + timedelta(seconds=1)}
-            )
-        )
-        == claimed
-    )
     assert measurements.initialize(header) == _header_receipt(header)
     assert measurements.ingest(append) == ()
     second = append.model_copy(
@@ -548,16 +531,6 @@ def _lease() -> ExecutorLease:
         issued_at=_NOW,
         expires_at=_NOW + timedelta(seconds=30),
         heartbeat_interval_seconds=10,
-    )
-
-
-def _transition() -> ExecutionTransition:
-    return ExecutionTransition(
-        run_id="run-1",
-        operation_id="operation-1",
-        stage="domain_execute",
-        effect="read",
-        state="started",
     )
 
 

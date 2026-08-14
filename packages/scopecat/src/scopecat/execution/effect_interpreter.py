@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Sequence
 
 import scopecat.execution.effect_result as effect_result
+from scopecat.execution.effects.boundary import EffectBoundary
 from scopecat.execution.effects.compute import ComputeEffectExecutor, PointEffectState
 from scopecat.execution.effects.domain import execute_domain_job_values
 from scopecat.execution.effects.hardware import HardwareEffectExecutor
-from scopecat.execution.effects.journaled import JournaledEffectBoundary
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
@@ -24,11 +24,9 @@ from scopecat.execution.program import (
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.points import AcceptedRunPoint
-from scopecat.kernel.problems import ProblemPhase
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.execution import RunInstrumentHost
-from scopecat.sdk.journal import ExecutionJournal, ExecutionJournalError
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
 
 
@@ -62,7 +60,6 @@ class RunEffectInterpreter:
         run_id: str,
         coordinate_ids: Sequence[str],
         instruments: RunInstrumentHost,
-        journal: ExecutionJournal,
         coverage_observer: effect_result.CoverageMeasurementObserver | None = None,
         recorded_value_ids: Sequence[ValueId] = (),
         payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
@@ -81,14 +78,14 @@ class RunEffectInterpreter:
         self._active_point_indices: set[int] = set()
         self._terminal_point_indices: set[int] = set()
 
-        self._journal = JournaledEffectBoundary(run_id=run_id, journal=journal)
+        self._boundary = EffectBoundary(run_id=run_id)
         self._compute = ComputeEffectExecutor(
-            journal=self._journal,
+            boundary=self._boundary,
             payload_codecs=payload_codecs,
         )
         self._hardware = HardwareEffectExecutor(
             instruments=instruments,
-            problems=self._journal,
+            problems=self._boundary,
         )
         self._coverage_observer = coverage_observer
         self._recorded_value_ids = tuple(recorded_value_ids)
@@ -106,35 +103,27 @@ class RunEffectInterpreter:
 
         try:
             self._check_cancellation()
-            if not self._journal.problems:
+            if not self._boundary.problems:
                 self.run_points = points
                 self._execute_coverage_operations(coverage)
             if (
-                not bool(self._journal.problems)
+                not bool(self._boundary.problems)
                 and self.domain_failure is None
                 and len(self._terminal_point_indices) != len(self.run_points)
             ):
                 raise AssertionError("run ended without completing every logical point")
             if (
-                not bool(self._journal.problems)
-                and not self._journal.indeterminate
-                and self._journal.interruption is None
+                not bool(self._boundary.problems)
+                and not self._boundary.indeterminate
+                and self._boundary.interruption is None
                 and self.domain_failure is None
                 and self.coverage_failure is None
             ):
                 self._check_cancellation()
                 if self._hardware.execute_success_state(success_state):
                     self._check_cancellation()
-        except ExecutionJournalError as error:
-            self._journal.problems.append(
-                self._journal.problem(
-                    "execution_journal_commit_failed",
-                    str(error),
-                    phase=ProblemPhase.PERSISTENCE,
-                )
-            )
         except CheckFailed as error:
-            self._journal.problems.extend(error.problems)
+            self._boundary.problems.extend(error.problems)
         except _CapturedDomainEffectFailure:
             pass
         except _CapturedCoverageFailure:
@@ -142,15 +131,15 @@ class RunEffectInterpreter:
         except _CancellationRequested:
             pass
         except Exception as error:
-            self._journal.problems.append(
-                self._journal.problem_from_exception(
+            self._boundary.problems.append(
+                self._boundary.problem_from_exception(
                     "run_effect_interpretation_failed",
                     "run effect interpretation failed",
                     error,
                 )
             )
         except BaseException as error:
-            self._journal.record_interruption(error)
+            self._boundary.record_interruption(error)
         finally:
             if self._active_point_indices:
                 self._complete_coverage(
@@ -160,22 +149,22 @@ class RunEffectInterpreter:
                 finished = self._instruments.finish(
                     operation_id="hardware.finish",
                     failed=(
-                        bool(self._journal.problems)
-                        or self._journal.indeterminate
-                        or self._journal.interruption is not None
+                        bool(self._boundary.problems)
+                        or self._boundary.indeterminate
+                        or self._boundary.interruption is not None
                         or self.domain_failure is not None
                         or self.coverage_failure is not None
                     ),
                 )
                 self.final_state = list(finished.final_state)
-                self._journal.problems.extend(finished.problems)
-                self._journal.indeterminate = (
-                    self._journal.indeterminate or finished.indeterminate
+                self._boundary.problems.extend(finished.problems)
+                self._boundary.indeterminate = (
+                    self._boundary.indeterminate or finished.indeterminate
                 )
             except Exception as error:
-                self._journal.indeterminate = True
-                self._journal.problems.append(
-                    self._journal.problem_from_exception(
+                self._boundary.indeterminate = True
+                self._boundary.problems.append(
+                    self._boundary.problem_from_exception(
                         "hardware_finalization_unknown",
                         "daemon hardware finalization outcome is unknown",
                         error,
@@ -211,7 +200,7 @@ class RunEffectInterpreter:
                 self._commit_coverage_checkpoint(operation)
                 continue
             self._execute_covered_operation(operation)
-            if bool(self._journal.problems):
+            if bool(self._boundary.problems):
                 return
             self._check_cancellation()
         if hardware:
@@ -304,7 +293,6 @@ class RunEffectInterpreter:
                 logical_compute_node_id=job.id,
                 run_id=self.run_id,
                 instruments=self._instruments,
-                journal=self._journal.execution_journal,
             )
         except BaseException as error:
             self.domain_failure = (job, error)
@@ -363,8 +351,8 @@ class RunEffectInterpreter:
         if self.cancelled or not self._cancellation_requested():
             return
         self.cancelled = True
-        self._journal.problems.append(
-            self._journal.problem(
+        self._boundary.problems.append(
+            self._boundary.problem(
                 "run_cancellation_requested",
                 "run stopped at a safe checkpoint after cancellation was requested",
             )
@@ -373,15 +361,15 @@ class RunEffectInterpreter:
 
     def _result(self) -> effect_result.RunEffectResult:
         return effect_result.RunEffectResult(
-            problems=tuple(self._journal.problems),
+            problems=tuple(self._boundary.problems),
             observed_state=tuple(self.observed_state),
             baseline_state=tuple(self.baseline_state),
             final_state=tuple(self.final_state),
-            indeterminate=self._journal.indeterminate,
+            indeterminate=self._boundary.indeterminate,
             cancelled=self.cancelled,
             domain_failure=self.domain_failure,
             coverage_failure=self.coverage_failure,
-            interruption=self._journal.interruption,
+            interruption=self._boundary.interruption,
         )
 
 

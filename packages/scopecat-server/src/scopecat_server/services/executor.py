@@ -57,7 +57,7 @@ from scopecat_server.storage.sqlite.control_plane import (
     SQLiteControlPlane,
 )
 from scopecat_server.storage.sqlite.execution import (
-    ExecutionJournalConflict,
+    ExecutionStateConflict,
     SQLiteMeasurementDatasetRepository,
     SQLiteRunCoverage,
 )
@@ -152,7 +152,7 @@ class ExecutorService:
             run = self._control.get_run_in_transaction(connection, run_id)
             end_index = command.start_index + command.point_count
             if end_index > run.admission.plan.point_limit:
-                raise ExecutionJournalConflict(
+                raise ExecutionStateConflict(
                     "coverage range exceeds the admitted point count"
                 )
             completed, _advanced = coverage.advance_in_transaction(
@@ -325,7 +325,7 @@ class ExecutorService:
         repository = self._measurement_repository(run_id)
         try:
             prepared = repository.prepare_header(command.header)
-        except ExecutionJournalConflict as error:
+        except ExecutionStateConflict as error:
             raise BackendConflict(
                 "measurement command conflicts with durable state"
             ) from error
@@ -338,7 +338,7 @@ class ExecutorService:
                 command.header.expected_record_count != run.admission.plan.point_count
                 or command.header.record_count_limit != run.admission.plan.point_limit
             ):
-                raise ExecutionJournalConflict(
+                raise ExecutionStateConflict(
                     "measurement point extent differs from the admitted run plan"
                 )
             receipt, created = repository.header_prepared_in_transaction(
@@ -371,7 +371,7 @@ class ExecutorService:
         repository = self._measurement_repository(run_id)
         try:
             prepared = repository.prepare_seal(command.seal)
-        except ExecutionJournalConflict as error:
+        except ExecutionStateConflict as error:
             raise BackendConflict(
                 "measurement command conflicts with durable state"
             ) from error
@@ -415,7 +415,7 @@ class ExecutorService:
             )
             try:
                 prepared = repository.prepare_append(append)
-            except ExecutionJournalConflict as error:
+            except ExecutionStateConflict as error:
                 raise BackendConflict(
                     "measurement command conflicts with durable state"
                 ) from error
@@ -608,7 +608,7 @@ class ExecutorService:
                 yield connection
         except (
             ControlPlaneConflict,
-            ExecutionJournalConflict,
+            ExecutionStateConflict,
         ) as error:
             raise BackendConflict(
                 "executor command conflicts with durable run state"

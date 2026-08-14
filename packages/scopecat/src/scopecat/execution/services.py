@@ -13,7 +13,6 @@ from scopecat.optimization import DomainProposalDecision
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments.execution import RunInstrumentHost
-from scopecat.sdk.journal import ExecutionJournal
 
 
 def _never_cancel() -> bool:
@@ -38,7 +37,7 @@ class QueuedOperatorDomainRequest:
 
 
 class RunDomainProposalWriter(Protocol):
-    """Commit point-plan facts and publish live proposal decisions."""
+    """Commit point-plan facts and durable proposal decisions."""
 
     def next_queued(self) -> QueuedOperatorDomainRequest | None: ...
 
@@ -61,7 +60,6 @@ class ExecutionSession:
     accepted: RunManifest
     begin: Callable[[], None]
     commit_terminal: Callable[[TerminalRunCommit], RunManifest]
-    journal: ExecutionJournal
     measurements: MeasurementDatasetWriter
     instruments: RunInstrumentHost
     coverage: RunCoverageWriter | None = None
