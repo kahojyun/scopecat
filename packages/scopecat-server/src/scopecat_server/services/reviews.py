@@ -27,7 +27,9 @@ from scopecat.daemon.reviews import (
 from ..errors import BackendConflict, BackendNotFound
 
 _RUN_INSPECTION_EVENT_LIMIT = 64
+_RUN_INSPECTION_INACTIVE_FEED_LIMIT = 32
 _DEFAULT_REVIEW_WORKER_TTL = timedelta(seconds=15)
+_REVIEW_INACTIVE_SESSION_LIMIT = 32
 
 
 def _utc_now() -> datetime:
@@ -62,18 +64,24 @@ class ReviewService:
         self,
         *,
         worker_ttl: timedelta = _DEFAULT_REVIEW_WORKER_TTL,
+        inactive_session_limit: int = _REVIEW_INACTIVE_SESSION_LIMIT,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         if worker_ttl <= timedelta(0):
             raise ValueError("review worker TTL must be positive")
+        if inactive_session_limit < 0:
+            raise ValueError("inactive review session limit must be non-negative")
         self._lock = Lock()
         self._sessions: dict[str, _ReviewSession] = {}
         self._worker_ttl = worker_ttl
+        self._inactive_session_limit = inactive_session_limit
         self._clock = clock or _utc_now
 
     def create(self, command: ReviewSessionCreateCommand) -> ReviewSessionView:
         now = self._clock()
         with self._lock:
+            self._expire_all(now)
+            self._prune_inactive()
             if command.session_id in self._sessions:
                 raise BackendConflict("review session already exists")
             session = _ReviewSession(
@@ -90,8 +98,8 @@ class ReviewService:
     def list(self) -> ReviewSessionListView:
         with self._lock:
             now = self._clock()
-            for session in self._sessions.values():
-                self._expire_stale(session, now)
+            self._expire_all(now)
+            self._prune_inactive()
             sessions = sorted(
                 self._sessions.values(),
                 key=lambda session: session.updated_at,
@@ -103,6 +111,7 @@ class ReviewService:
         with self._lock:
             session = self._require(session_id)
             self._expire_stale(session, self._clock())
+            self._prune_inactive()
             return _view(session)
 
     def enqueue(
@@ -135,6 +144,7 @@ class ReviewService:
             now = self._clock()
             self._expire_stale(session, now)
             if not session.active or not session.pending:
+                self._prune_inactive()
                 return None
             self._renew_worker(session, now)
             item = session.pending.popleft()
@@ -169,21 +179,25 @@ class ReviewService:
             if session.active:
                 self._renew_worker(session, now)
                 session.updated_at = now
-            return ReviewHeartbeatReceipt(
+            receipt = ReviewHeartbeatReceipt(
                 session_id=session_id,
                 active=session.active,
                 updated_at=session.updated_at,
             )
+            self._prune_inactive()
+            return receipt
 
     def close(self, session_id: str, worker_id: str) -> ReviewSessionCloseReceipt:
         with self._lock:
             session = self._require_worker(session_id, worker_id)
             closed_at = self._clock()
             self._deactivate(session, closed_at)
-            return ReviewSessionCloseReceipt(
+            receipt = ReviewSessionCloseReceipt(
                 session_id=session_id,
                 closed_at=closed_at,
             )
+            self._prune_inactive()
+            return receipt
 
     def _require(self, session_id: str) -> _ReviewSession:
         session = self._sessions.get(session_id)
@@ -195,6 +209,7 @@ class ReviewService:
         session = self._require(session_id)
         self._expire_stale(session, now)
         if not session.active:
+            self._prune_inactive()
             raise BackendConflict("review session is closed")
         return session
 
@@ -207,6 +222,19 @@ class ReviewService:
     def _expire_stale(self, session: _ReviewSession, now: datetime) -> None:
         if session.active and now - session.worker_renewed_at >= self._worker_ttl:
             self._deactivate(session, now)
+
+    def _expire_all(self, now: datetime) -> None:
+        for session in self._sessions.values():
+            self._expire_stale(session, now)
+
+    def _prune_inactive(self) -> None:
+        inactive = sorted(
+            (session for session in self._sessions.values() if not session.active),
+            key=lambda session: session.updated_at,
+            reverse=True,
+        )
+        for session in inactive[self._inactive_session_limit :]:
+            self._sessions.pop(session.command.session_id, None)
 
     @staticmethod
     def _renew_worker(session: _ReviewSession, now: datetime) -> None:
@@ -221,11 +249,19 @@ class ReviewService:
 
 
 class RunInspectionFeedService:
-    """Retain the bounded, process-local compiled inspection feed for each run."""
+    """Retain bounded live feeds plus a bounded inactive run history."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        inactive_feed_limit: int = _RUN_INSPECTION_INACTIVE_FEED_LIMIT,
+    ) -> None:
+        if inactive_feed_limit < 0:
+            raise ValueError("inactive run inspection feed limit must be non-negative")
         self._lock = Lock()
         self._feeds: dict[str, _RunInspectionFeed] = {}
+        self._active_run_ids: set[str] = set()
+        self._inactive_feed_limit = inactive_feed_limit
 
     def append(
         self,
@@ -234,6 +270,7 @@ class RunInspectionFeedService:
     ) -> RunInspectionView:
         with self._lock:
             feed = self._feeds.setdefault(run_id, _RunInspectionFeed())
+            self._active_run_ids.add(run_id)
             if event.proposal_index < feed.total_proposal_count:
                 retained = next(
                     (
@@ -254,8 +291,31 @@ class RunInspectionFeedService:
 
     def read(self, run_id: str) -> RunInspectionView:
         with self._lock:
-            feed = self._feeds.get(run_id, _RunInspectionFeed())
+            feed = self._feeds.get(run_id)
+            if feed is None:
+                feed = _RunInspectionFeed()
+            elif run_id not in self._active_run_ids:
+                self._feeds.pop(run_id)
+                self._feeds[run_id] = feed
             return _run_inspection_view(run_id, feed)
+
+    def mark_inactive(self, run_id: str) -> None:
+        """Make a terminal or disconnected run feed eligible for retention pruning."""
+
+        with self._lock:
+            feed = self._feeds.pop(run_id, None)
+            self._active_run_ids.discard(run_id)
+            if feed is not None:
+                self._feeds[run_id] = feed
+            self._prune_inactive()
+
+    def _prune_inactive(self) -> None:
+        inactive_run_ids = [
+            run_id for run_id in self._feeds if run_id not in self._active_run_ids
+        ]
+        drop_count = len(inactive_run_ids) - self._inactive_feed_limit
+        for run_id in inactive_run_ids[:drop_count]:
+            self._feeds.pop(run_id, None)
 
 
 def _view(session: _ReviewSession) -> ReviewSessionView:

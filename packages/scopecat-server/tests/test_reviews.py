@@ -20,8 +20,33 @@ from scopecat.daemon.reviews import (
 )
 from scopecat.kernel.quantity import Quantity
 
-from scopecat_server import BackendConflict, LocalDaemonRuntime
-from scopecat_server.services.reviews import ReviewService
+from scopecat_server import BackendConflict, BackendNotFound, LocalDaemonRuntime
+from scopecat_server.services.reviews import ReviewService, RunInspectionFeedService
+
+
+def _review_command(index: int) -> ReviewSessionCreateCommand:
+    return ReviewSessionCreateCommand(
+        session_id=f"review-{index}",
+        worker_id=f"worker-{index}",
+        title=f"Review {index}",
+        experiment_id=f"experiment-{index}",
+        experiment_kind="experiment",
+        coordinates=(),
+    )
+
+
+def _inspection_event() -> RunDomainInspectionEvent:
+    return RunDomainInspectionEvent(
+        proposal_index=0,
+        occurred_at=datetime.now(UTC),
+        fragment=RunDomainFragmentView.from_fragment(
+            ResolvedDomainFragment.points(({"beta": Quantity(0.137, "ns")},))
+        ),
+        region_ids=("region-0",),
+        source="optimizer",
+        outcome="rejected",
+        reason="proposal used stale observations",
+    )
 
 
 def test_review_worker_lease_expires_without_losing_latest_result() -> None:
@@ -70,6 +95,30 @@ def test_review_worker_lease_expires_without_losing_latest_result() -> None:
             session.session_id,
             ReviewCompileCommand(coordinates={}, coordinate_mode="free"),
         )
+
+
+def test_review_service_retains_only_recent_inactive_sessions() -> None:
+    now = [datetime(2026, 8, 14, tzinfo=UTC)]
+    service = ReviewService(
+        inactive_session_limit=2,
+        clock=lambda: now[0],
+    )
+    for index in range(3):
+        command = _review_command(index)
+        service.create(command)
+        service.close(command.session_id, command.worker_id)
+        now[0] += timedelta(seconds=1)
+
+    assert [item.session_id for item in service.list().items] == [
+        "review-2",
+        "review-1",
+    ]
+    with pytest.raises(BackendNotFound, match="unknown review session"):
+        service.get("review-0")
+
+    active = _review_command(3)
+    service.create(active)
+    assert service.get(active.session_id).active
 
 
 def test_review_session_round_trips_compile_work_without_run_admission(
@@ -145,17 +194,7 @@ def test_run_inspection_feed_exposes_optimizer_decisions(tmp_path: Path) -> None
         TestClient(runtime.app()) as transport,
         _daemon_client(transport) as client,
     ):
-        event = RunDomainInspectionEvent(
-            proposal_index=0,
-            occurred_at=datetime.now(UTC),
-            fragment=RunDomainFragmentView.from_fragment(
-                ResolvedDomainFragment.points(({"beta": Quantity(0.137, "ns")},))
-            ),
-            region_ids=("region-0",),
-            source="optimizer",
-            outcome="rejected",
-            reason="proposal used stale observations",
-        )
+        event = _inspection_event()
         runtime.application.run_inspections.append("run-1", event)
         runtime.application.run_inspections.append("run-1", event)
 
@@ -165,6 +204,27 @@ def test_run_inspection_feed_exposes_optimizer_decisions(tmp_path: Path) -> None
         assert len(feed.items) == 1
         assert feed.items[0].outcome == "rejected"
         assert feed.items[0].reason == "proposal used stale observations"
+
+
+def test_run_inspection_feed_retains_active_and_recent_inactive_runs() -> None:
+    service = RunInspectionFeedService(inactive_feed_limit=2)
+    for index in range(2):
+        run_id = f"run-{index}"
+        service.append(run_id, _inspection_event())
+        service.mark_inactive(run_id)
+
+    assert service.read("run-0").total_proposal_count == 1
+    service.append("run-2", _inspection_event())
+    service.mark_inactive("run-2")
+
+    assert service.read("run-0").total_proposal_count == 1
+    assert service.read("run-1").total_proposal_count == 0
+    assert service.read("run-2").total_proposal_count == 1
+
+    service.append("run-active", _inspection_event())
+    service.append("run-3", _inspection_event())
+    service.mark_inactive("run-3")
+    assert service.read("run-active").total_proposal_count == 1
 
 
 def _daemon_client(transport: TestClient) -> DaemonClient:

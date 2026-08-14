@@ -421,8 +421,10 @@ and live prepared target artifacts are bounded by the current physical batch.
 During active execution the completed point index set and durable scalar results
 still grow with completed point count; neither contains waveform payloads. The
 daemon's live compiled-inspection feed retains only the latest 64 proposal
-events, and every inspection already enforces point, waveform, and sample
-budgets. It is an operator view, not durable run content.
+events. Active feeds are never pruned, while only the 32 most recently used
+inactive run feeds and 32 most recently updated inactive review sessions remain
+available. Every inspection already enforces point, waveform, and sample budgets.
+It is an operator view, not durable run content.
 Adaptive optimizer calls likewise receive exact counters but only the latest
 1,024 domain decisions and 256 completed-point observations for their scope.
 Durable domain decisions remain queryable through the daemon ledger.

@@ -526,6 +526,7 @@ class ExecutorService:
             self._instruments.release_run(run_id)
             self._measurement_repositories.pop(run_id, None)
             self._active_measurements.clear(run_id)
+            self._run_inspections.mark_inactive(run_id)
             return manifest
         if commit.outcome.result == "succeeded":
             with self._runs.sqlite.read_transaction() as connection:
@@ -554,6 +555,7 @@ class ExecutorService:
         self._instruments.release_run(run_id)
         self._measurement_repositories.pop(run_id, None)
         self._active_measurements.clear(run_id)
+        self._run_inspections.mark_inactive(run_id)
         return manifest
 
     def reconcile_volatile_state(self) -> None:
@@ -577,6 +579,7 @@ class ExecutorService:
     def _discard_measurement_state(self, run_id: str) -> None:
         self._measurement_repositories.pop(run_id, None)
         self._active_measurements.clear(run_id)
+        self._run_inspections.mark_inactive(run_id)
 
     def _start_execution(
         self,
