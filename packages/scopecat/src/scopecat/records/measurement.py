@@ -1211,7 +1211,8 @@ class MeasurementAcquisitionEvidenceCatalog(_FrozenMeasurementModel):
         entries: list[MeasurementAcquisitionEvidence] = []
         index_by_hash: dict[str, int] = {}
         variable_refs: dict[str, int] = {}
-        for variable_id, evidence in evidence_by_variable.items():
+        for variable_id in sorted(evidence_by_variable):
+            evidence = evidence_by_variable[variable_id]
             digest = model_wire_content_hash(evidence)
             entry_index = index_by_hash.get(digest)
             if entry_index is None:
