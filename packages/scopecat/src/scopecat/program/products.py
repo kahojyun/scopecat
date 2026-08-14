@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Generic, Literal, Protocol, TypeVar, cast, override
+from typing import Generic, Protocol, TypeVar, cast, override
 
 from scopecat.kernel.entity import EntityRef, entity_identity
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
@@ -330,7 +330,6 @@ class EntityAxisDef:
     id: str
     values: tuple[EntityRef, ...]
     entity_kind: str | None = None
-    membership: Literal["fixed"] = "fixed"
 
     def __post_init__(self) -> None:
         if not self.id:

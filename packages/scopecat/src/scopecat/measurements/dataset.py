@@ -21,7 +21,7 @@ import pyarrow as pa
 import xarray as xr
 from numpy.typing import NDArray
 
-from scopecat.kernel.entity import EntityRef, entity_identity
+from scopecat.kernel.entity import EntityRef, entity_identity, entity_identity_key
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.traces import Trace, measurement_traces
@@ -1117,7 +1117,7 @@ class Dataset:
             variable = self.variables[ref.id]
         except KeyError as error:
             raise KeyError(f"measurement dataset has no variable {ref.id!r}") from error
-        _require_record_ref_matches(ref, variable.definition)
+        _require_record_ref_matches(ref, variable.definition, schema=self.schema)
         return cast("Variable[T]", variable)
 
     def _variable_from_product_ref[T: NativeAvailableValue](
@@ -1677,6 +1677,15 @@ class Dataset:
                         "long_name": f"entity index for {dimension.id}",
                         "scopecat_role": "entity_index",
                         "scopecat_entity_kind": dimension.index.entity_kind or "",
+                        "scopecat_entity_axis_fingerprint": (
+                            dimension.index.fingerprint
+                        ),
+                        "scopecat_entity_labels_json": _stable_json(
+                            tuple(
+                                dimension.index.values[position].id
+                                for position in positions
+                            )
+                        ),
                         "scopecat_entities_json": _stable_json(
                             tuple(
                                 cast(
@@ -2542,6 +2551,8 @@ def _measurement_value_is_unavailable(
 def _require_record_ref_matches(
     ref: RecordRef[NativeAvailableValue],
     definition: MeasurementVariable,
+    *,
+    schema: MeasurementDatasetSchema,
 ) -> None:
     """Validate an authored type promise at the durable-data boundary."""
 
@@ -2568,6 +2579,7 @@ def _require_record_ref_matches(
                 "cohort_id": ref.entity_acquisition.cohort_id,
             }
         ),
+        "entity_axis_fingerprint": ref.entity_axis_fingerprint,
         "source_value_id": ref.source_value_id,
         "recording_group_id": ref.recording_group_id,
     }
@@ -2594,6 +2606,14 @@ def _require_record_ref_matches(
                 "cohort_id": definition.entity_acquisition.cohort_id,
             }
         ),
+        "entity_axis_fingerprint": (
+            None
+            if definition.source_entity_products is None
+            else _entity_dimension_fingerprint(
+                schema,
+                definition.source_entity_products.dimension_id,
+            )
+        ),
         "source_value_id": definition.source_value_id,
         "recording_group_id": definition.recording_group_id,
     }
@@ -2608,6 +2628,20 @@ def _require_record_ref_matches(
     raise TypeError(
         f"record reference {ref.id!r} does not match the dataset schema: {rendered}"
     )
+
+
+def _entity_dimension_fingerprint(
+    schema: MeasurementDatasetSchema,
+    dimension_id: str,
+) -> str:
+    dimension = next(
+        dimension for dimension in schema.dimensions if dimension.id == dimension_id
+    )
+    if dimension.index is None:
+        raise AssertionError(
+            f"entity source dimension {dimension_id!r} has no entity index"
+        )
+    return dimension.index.fingerprint
 
 
 def _require_product_ref_matches(
@@ -3185,9 +3219,9 @@ def _entity_coordinate_label(
     index: MeasurementEntityIndex,
     entity: EntityRef,
 ) -> str:
-    if index.entity_kind is not None or entity.kind is None:
+    if index.entity_kind is not None:
         return entity.id
-    return f"{entity.kind}:{entity.id}"
+    return entity_identity_key(entity)
 
 
 def _entity_selection_positions(

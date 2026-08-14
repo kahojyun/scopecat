@@ -52,7 +52,7 @@ from scopecat.authoring.scans import (
     scan_axis,
 )
 from scopecat.authoring.state_projection import StateProjector
-from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.entity import EntityRef, entity_axis_fingerprint
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.instrument_members import (
     AcquisitionResultRef,
@@ -1827,6 +1827,7 @@ def _record_entity_products_output(
         role=cast("MeasurementVariableRole", selected_role),
         source_product_ids=tuple(products[entity].id for entity in entities),
         entity_axis_id=selected_axis_id,
+        entity_axis_fingerprint=entity_axis_fingerprint(selected_axis.values),
         entity_acquisition=acquisition or EntityAcquisitionSemantics(),
         recording_group_id=selected_recording_group_id,
     )

@@ -380,6 +380,7 @@ def test_homogeneous_per_entity_return_uses_one_entity_indexed_record() -> None:
     assert output.id == "result"
     assert output.dims == ("point", "qubit")
     assert output.source_product_ids == ("q0/readout", "q1/readout")
+    assert output.entity_axis_fingerprint is not None
 
 
 def test_return_annotations_refine_durable_record_policy() -> None:

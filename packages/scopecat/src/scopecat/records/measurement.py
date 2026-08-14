@@ -32,7 +32,7 @@ from pydantic import (
 )
 
 from scopecat.kernel.content_identity import model_wire_content_hash
-from scopecat.kernel.entity import EntityRef, entity_identity
+from scopecat.kernel.entity import EntityRef, entity_axis_fingerprint, entity_identity
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.numpy_storage import freeze_ndarray
@@ -130,6 +130,10 @@ class MeasurementEntityIndex(_FrozenMeasurementModel):
                 "measurement entity index values must match its declared entity kind"
             )
         return self
+
+    @property
+    def fingerprint(self) -> str:
+        return entity_axis_fingerprint(self.values)
 
 
 class MeasurementDimension(_FrozenMeasurementModel):

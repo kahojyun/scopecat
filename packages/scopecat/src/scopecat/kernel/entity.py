@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import hashlib
+import json
+from collections.abc import Mapping, Sequence
 from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
@@ -51,6 +53,23 @@ def entity_identity(value: EntityRef) -> tuple[str | None, str]:
     """Return the durable entity identity; metadata is descriptive only."""
 
     return value.kind, value.id
+
+
+def entity_identity_key(value: EntityRef) -> str:
+    """Return one collision-free canonical string for a durable entity identity."""
+
+    return json.dumps(entity_identity(value), ensure_ascii=False, separators=(",", ":"))
+
+
+def entity_axis_fingerprint(values: Sequence[EntityRef]) -> str:
+    """Fingerprint one ordered entity axis independently of descriptive metadata."""
+
+    encoded = json.dumps(
+        tuple(entity_identity(value) for value in values),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode()
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
 def same_entity_identity(left: EntityRef, right: EntityRef) -> bool:

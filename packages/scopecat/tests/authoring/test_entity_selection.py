@@ -202,6 +202,8 @@ def test_experiment_can_explicitly_stack_entity_products() -> None:
 
     assert record.dims == ("point", "qubit")
     assert record.source_product_ids == ("q1/signal", "q0/signal")
+    assert record.entity_axis_fingerprint is not None
+    assert record.entity_axis_fingerprint.startswith("sha256:")
     assert record.entity_acquisition == sc.EntityAcquisitionSemantics(
         policy="best_effort",
         cohort_id="readout-batch",

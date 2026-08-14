@@ -16,7 +16,7 @@ import pyarrow as pa
 import pytest
 import xarray as xr
 
-from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.entity import EntityRef, entity_identity_key
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.datasets import select_measurement_schema
 from scopecat.measurements.results import (
@@ -672,7 +672,18 @@ def test_entity_dimensions_support_labeled_selection_and_partial_availability() 
     assert not magnitudes[1].flags.writeable
     assert dataset["readout"].is_available()._values == (False, True)
     labeled = dataset.to_xarray()
+    entity_index = schema.dimensions[1].index
+    assert entity_index is not None
     assert labeled.coords["qubit"].values.tolist() == ["q0", "q1", "q2"]
+    assert (
+        labeled.coords["qubit"].attrs["scopecat_entity_axis_fingerprint"]
+        == entity_index.fingerprint
+    )
+    assert json.loads(labeled.coords["qubit"].attrs["scopecat_entity_labels_json"]) == [
+        "q0",
+        "q1",
+        "q2",
+    ]
     assert labeled["readout__valid"].values.tolist() == [
         [True, False, True],
         [True, True, True],
@@ -711,6 +722,63 @@ def test_entity_dimensions_support_labeled_selection_and_partial_availability() 
     ).to_arrow()
     assert observations["readout"].to_pylist() == [1.0, None, 3.0, 4.0, 5.0, 6.0]
     assert observations["readout__unavailable_reason"].to_pylist()[1] == "missing"
+
+
+def test_mixed_entity_kinds_use_collision_free_coordinate_identities() -> None:
+    kindless = EntityRef(id="qubit:q0")
+    qubit = EntityRef(id="q0", kind="qubit")
+    schema = MeasurementDatasetSchema(
+        dataset_id="mixed-entities",
+        point_domain=MeasurementPointCloudPointDomain(columns=()),
+        dimensions=(
+            MeasurementDimension(id="point", kind="point", size=1),
+            MeasurementDimension(
+                id="entity",
+                kind="entity",
+                size=2,
+                index=MeasurementEntityIndex(values=(kindless, qubit)),
+            ),
+        ),
+        variables=(
+            MeasurementVariable(
+                id="signal",
+                role="observable",
+                dtype="float64",
+                dims=("point", "entity"),
+            ),
+        ),
+        primary_observables=("signal",),
+    )
+    raw = MeasurementDataset(
+        dataset_schema=schema,
+        records=(
+            MeasurementRecord(
+                run_id="mixed",
+                point_index=0,
+                coordinates={},
+                observables={
+                    "signal": MeasurementArray.create(
+                        values=np.asarray([1.0, 2.0]),
+                    )
+                },
+            ),
+        ),
+    )
+    dataset = Dataset(
+        raw,
+        RunContentEntry(
+            role="dataset",
+            id="mixed-entities",
+            kind="measurement_dataset",
+            content_hash="unused-mixed-entities",
+            schema=schema.model_dump(mode="json"),
+        ),
+    )
+
+    labels = dataset.to_xarray().coords["entity"].values.tolist()
+    assert labels == [entity_identity_key(kindless), entity_identity_key(qubit)]
+    assert len(set(labels)) == 2
+    assert dataset.sel(entity="q0")["signal"].values[0].tolist() == [2.0]
 
 
 def test_measurement_projection_controls_names_units_and_native_adapters() -> None:

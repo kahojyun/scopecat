@@ -223,7 +223,7 @@ def _encode_value(
         size_bytes=len(content),
         dtype=value.dtype,
         unit=value.unit,
-        shape=value.shape,
+        shape=tuple(cast("int", size) for size in value.shape),
         metadata=cast("JsonMetadata", thaw_json_value(value.metadata)),
     )
     attachments.append(content)
