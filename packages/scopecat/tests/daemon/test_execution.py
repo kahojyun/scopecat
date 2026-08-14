@@ -29,8 +29,6 @@ from scopecat.daemon.reviews import (
     RunInspectionView,
 )
 from scopecat.daemon.wire import (
-    ExecutionTransitionAppend,
-    ExecutionTransitionClaim,
     ExecutorLease,
     ExecutorStartRequest,
     MeasurementFlushCommand,
@@ -56,10 +54,7 @@ from scopecat.kernel.state import StateValue
 from scopecat.measurements.recording_arrow import decode_measurement_append
 from scopecat.optimization import DomainProposalDecision, DomainProposalSummary
 from scopecat.records.config import config_content_hash
-from scopecat.records.execution_journal import (
-    ExecutionTransition,
-    execution_transition_content_hash,
-)
+from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
@@ -135,12 +130,8 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     append = _measurement_append(record, header)
     seal = _measurement_seal(append, header)
     transition = _transition()
-    committed_transition = transition.model_copy(
-        update={"sequence": 0, "timestamp": _NOW + timedelta(seconds=1)}
-    )
     started_manifest = admission.manifest
     fences: list[tuple[str, str]] = []
-    transition_commands: list[ExecutionTransitionAppend | ExecutionTransitionClaim] = []
     terminal_commands: list[TerminalRunCommitCommand] = []
     hardware_operation_ids: list[str] = []
     hardware_sequences: list[int] = []
@@ -231,16 +222,6 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                     operation_id=command.operation_id,
                 )
             )
-        if path.endswith("/transitions/claim"):
-            command = ExecutionTransitionClaim.model_validate_json(request.content)
-            _remember_fence(fences, "run-1", command)
-            transition_commands.append(command)
-            return _model(committed_transition)
-        if path.endswith("/transitions"):
-            command = ExecutionTransitionAppend.model_validate_json(request.content)
-            _remember_fence(fences, "run-1", command)
-            transition_commands.append(command)
-            return _model(committed_transition)
         if path.endswith("/measurements/ingest"):
             assert request.headers["content-type"] == (
                 "application/vnd.apache.arrow.file"
@@ -374,21 +355,20 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
         == "hardware.finish"
     )
 
-    assert journal.claim(transition) == committed_transition
-    assert journal.append(transition) == committed_transition
+    claimed = journal.claim(transition)
+    assert claimed.sequence == 0
+    assert claimed.model_dump(exclude={"sequence"}) == transition.model_dump(
+        exclude={"sequence"}
+    )
+    assert journal.append(transition) == claimed
     assert (
         journal.append(
             transition.model_copy(
                 update={"timestamp": transition.timestamp + timedelta(seconds=1)}
             )
         )
-        == committed_transition
+        == claimed
     )
-    assert len(transition_commands) == 3
-    assert {
-        execution_transition_content_hash(command.transition)
-        for command in transition_commands
-    } == {execution_transition_content_hash(transition)}
     assert measurements.initialize(header) == _header_receipt(header)
     assert measurements.ingest(append) == ()
     second = append.model_copy(
@@ -590,7 +570,7 @@ def _transition() -> ExecutionTransition:
         operation_id="operation-1",
         stage="domain_execute",
         effect="read",
-        state="completed",
+        state="started",
     )
 
 

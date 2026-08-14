@@ -25,8 +25,6 @@ from scopecat.daemon.reviews import (
     RunInspectionAppendCommand,
 )
 from scopecat.daemon.wire import (
-    ExecutionTransitionAppend,
-    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -50,7 +48,6 @@ from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import Problem
 from scopecat.optimization import DomainProposalDecision
 from scopecat.records.config import config_content_hash
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -70,6 +67,7 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareBatchReceipt,
     RunHardwareFinalizationReceipt,
 )
+from scopecat.sdk.journal import ProcessExecutionJournal
 
 _JSON_DOCUMENT = TypeAdapter(dict[str, JsonValue])
 _PROVISION_OPERATION_ID = "lifecycle.provide-instruments"
@@ -130,7 +128,7 @@ def daemon_execution_session(
         accepted=admission.manifest,
         begin=begin,
         commit_terminal=authority.commit_terminal,
-        journal=_DaemonExecutionJournal(authority),
+        journal=ProcessExecutionJournal(),
         measurements=_DaemonMeasurementRepository(authority),
         instruments=instruments,
         coverage=coverage,
@@ -230,31 +228,6 @@ class _LeaseAuthority:
                     )
                     for write in commit.models
                 ),
-            ),
-        )
-
-
-class _DaemonExecutionJournal:
-    def __init__(self, authority: _LeaseAuthority) -> None:
-        self._authority = authority
-
-    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
-        lease_id = self._authority.fence()
-        return self._authority.client.append_transition(
-            self._authority.run_id,
-            ExecutionTransitionAppend(
-                lease_id=lease_id,
-                transition=entry,
-            ),
-        )
-
-    def claim(self, entry: ExecutionTransition) -> ExecutionTransition:
-        lease_id = self._authority.fence()
-        return self._authority.client.claim_transition(
-            self._authority.run_id,
-            ExecutionTransitionClaim(
-                lease_id=lease_id,
-                transition=entry,
             ),
         )
 

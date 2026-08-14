@@ -1,4 +1,4 @@
-"""Fail-closed journal boundary shared by concrete runtime effects."""
+"""In-process journal boundary shared by concrete runtime effects."""
 
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ class JournaledEffectBoundary:
         after_intent: Callable[[], None] | None = None,
         phase: ProblemPhase = ProblemPhase.EXECUTION,
     ) -> ReceiptT | None:
-        """Persist an effect intent, invoke it once, and close unknown outcomes."""
+        """Claim an effect, invoke it once, and record unknown outcomes."""
 
         claim_transition(self.journal, entry)
         if after_intent is not None:

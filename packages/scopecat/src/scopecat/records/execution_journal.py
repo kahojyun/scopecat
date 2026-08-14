@@ -1,10 +1,9 @@
-"""Durable intent and evidence records for externally relevant effects.
+"""Intent and evidence records for externally relevant effects.
 
-The journal records host-controlled effect transitions and the identities and
-hashes needed for crash containment. Pure computation and best-effort progress
-do not become ledger facts merely because they can be observed at runtime.
-Provider payload contents and private configuration are evidence artifacts,
-not fields to copy into journal transitions.
+The executor journal records host-controlled effect transitions for in-process
+sequencing and diagnostics. It is intentionally separate from durable run
+checkpoints: an executor restart abandons the old attempt instead of replaying
+individual hardware effects.
 """
 
 from __future__ import annotations
@@ -40,7 +39,7 @@ type ExecutionStage = Literal[
 
 
 class ExecutionTransition(BaseModel):
-    """Immutable transition committed to the execution journal."""
+    """Immutable transition appended to an execution journal."""
 
     model_config = ConfigDict(
         extra="forbid",

@@ -623,29 +623,7 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
             ).items
             if event.kind.startswith("run_hardware_batch_")
         ]
-        assert [event.kind for event in batch_events] == [
-            "run_hardware_batch_started",
-            "run_hardware_batch_finished",
-            "run_hardware_batch_started",
-            "run_hardware_batch_finished",
-        ]
-        assert [event.payload["sequence"] for event in batch_events] == [0, 0, 1, 1]
-        assert batch_events[0].payload["batch"] == command.batch.model_dump(mode="json")
-        assert batch_events[1].payload["completed_effect_ids"] == [
-            "apply-1",
-            "collect-1",
-        ]
-        assert batch_events[1].payload["effect_receipts"] == [
-            {"effect_id": "apply-1", "status": "applied", "metadata": {}},
-            {
-                "effect_id": "collect-1",
-                "status": "collected",
-                "metadata": {},
-                "readback_metadata": {
-                    "implementation": "tests.signal_driver",
-                },
-            },
-        ]
+        assert batch_events == []
 
 
 def test_run_start_applies_default_state_after_fresh_observation(
@@ -1371,6 +1349,19 @@ def test_unknown_collect_receipt_preserves_driver_diagnostics(
         assert runtime.application.executor._control.get_run(run_id).state == (
             "attention_required"
         )
+        [unknown] = [
+            event
+            for event in runtime.application.runs.list_events(
+                limit=100,
+                after=None,
+                run_id=run_id,
+            ).items
+            if event.kind == "run_hardware_batch_unknown"
+        ]
+        assert unknown.payload["status"] == "unknown"
+        assert unknown.payload["sequence"] == 0
+        assert unknown.payload["completed_effect_ids"] == []
+        assert unknown.payload["problem_codes"] == ["test_collect_receipt_unknown"]
         _assert_run_state_discarded(instruments, run_id)
 
 
