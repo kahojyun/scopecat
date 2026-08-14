@@ -10,7 +10,7 @@ one plan per physical timing domain.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from typing import Literal, cast
 
@@ -138,6 +138,72 @@ class SampledWaveformPlan:
             if timing.event_id == event_id:
                 return timing
         raise KeyError(event_id)
+
+
+@dataclass(frozen=True, slots=True)
+class PhaseParameterizedSampledWaveforms:
+    """One sampled-waveform structure plus a phase row for each entry."""
+
+    template: SampledWaveformPlan
+    phase_rows: tuple[tuple[float, ...], ...]
+
+
+def factor_phase_parameterized_waveforms(
+    plans: tuple[SampledWaveformPlan, ...],
+) -> PhaseParameterizedSampledWaveforms | None:
+    """Factor plans that differ only in resolved output-event phases."""
+
+    if len(plans) < 2:
+        return None
+    reference = plans[0]
+    if not reference.render_events:
+        return None
+    for candidate in plans[1:]:
+        if (
+            candidate.semantics_id != reference.semantics_id
+            or candidate.grid != reference.grid
+            or candidate.sample_count != reference.sample_count
+            or candidate.lane_count != reference.lane_count
+            or not _same_render_structure(
+                reference.render_events,
+                candidate.render_events,
+            )
+        ):
+            return None
+    return PhaseParameterizedSampledWaveforms(
+        template=replace(
+            reference,
+            render_events=tuple(
+                replace(event, effective_phase_radians=0.0)
+                for event in reference.render_events
+            ),
+        ),
+        phase_rows=tuple(
+            tuple(event.effective_phase_radians for event in plan.render_events)
+            for plan in plans
+        ),
+    )
+
+
+def _same_render_structure(
+    reference: tuple[SampledRenderEvent, ...],
+    candidate: tuple[SampledRenderEvent, ...],
+) -> bool:
+    return len(reference) == len(candidate) and all(
+        reference_event.binding == candidate_event.binding
+        and reference_event.timing.start_sample == candidate_event.timing.start_sample
+        and reference_event.timing.sample_count == candidate_event.timing.sample_count
+        and replace(
+            candidate_event.envelope,
+            phase=reference_event.envelope.phase,
+        )
+        == reference_event.envelope
+        for reference_event, candidate_event in zip(
+            reference,
+            candidate,
+            strict=True,
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -445,6 +511,7 @@ __all__ = [
     "SAMPLED_WAVEFORM_SEMANTICS_ID",
     "Float64ReferenceRenderer",
     "IqMatrix",
+    "PhaseParameterizedSampledWaveforms",
     "RealizedEventTiming",
     "RenderedWaveforms",
     "SampleGrid",
@@ -455,5 +522,6 @@ __all__ = [
     "TimingQuantizationPolicy",
     "WaveformPlanningError",
     "WaveformPlanningIssue",
+    "factor_phase_parameterized_waveforms",
     "plan_sampled_waveforms",
 ]
