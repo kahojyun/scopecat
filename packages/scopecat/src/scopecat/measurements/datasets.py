@@ -42,17 +42,12 @@ def select_measurement_schema(
                 variable for variable in schema.variables if variable.id in selected
             ),
             "variable_groups": tuple(
-                group.model_copy(
-                    update={
-                        "variable_ids": tuple(
-                            variable_id
-                            for variable_id in group.variable_ids
-                            if variable_id in selected
-                        )
-                    }
-                )
+                group
                 for group in schema.variable_groups
-                if any(variable_id in selected for variable_id in group.variable_ids)
+                if any(
+                    variable.id in selected and variable.recording_group_id == group.id
+                    for variable in schema.variables
+                )
             ),
             "primary_coordinates": tuple(
                 variable_id

@@ -60,7 +60,7 @@ from scopecat.records.measurement_array_schema import (
 from scopecat.records.metadata import MeasurementMetadata
 
 MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v7"
-MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v13"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v14"
 
 MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
 _MEASUREMENT_ARRAY_CREATE_CONTEXT = object()
@@ -267,23 +267,12 @@ class MeasurementVariable(_FrozenMeasurementModel):
 
 
 class MeasurementVariableGroup(_FrozenMeasurementModel):
-    """One named set of variables recorded as a coherent product group."""
+    """One named recording-group definition referenced by variables."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: _NonEmptyText
-    variable_ids: Sequence[_NonEmptyText] = Field(min_length=1)
     metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
-
-    @field_validator("variable_ids")
-    @classmethod
-    def validate_variable_ids(cls, value: Sequence[str]) -> Sequence[str]:
-        selected = tuple(value)
-        ensure_unique_ids(
-            selected,
-            "measurement variable group members must be unique",
-        )
-        return selected
 
 
 class MeasurementResultField(_FrozenMeasurementModel):
@@ -475,7 +464,7 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    format_version: Literal["scopecat.measurement_dataset_schema.v13"] = (
+    format_version: Literal["scopecat.measurement_dataset_schema.v14"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str = Field(min_length=1)
@@ -607,27 +596,24 @@ def _validate_measurement_variable_groups(
         [group.id for group in groups],
         "measurement dataset variable group ids must be unique",
     )
-    variable_ids = {variable.id for variable in variables}
-    grouped_variables: dict[str, str] = {}
-    for group in groups:
-        missing_group_variables = missing_references(group.variable_ids, variable_ids)
-        if missing_group_variables:
-            raise ValueError(
-                f"measurement variable group {group.id} references unknown "
-                f"variables: {', '.join(missing_group_variables)}"
-            )
-        for variable_id in group.variable_ids:
-            previous = grouped_variables.setdefault(variable_id, group.id)
-            if previous != group.id:
-                raise ValueError(
-                    f"measurement variable {variable_id} belongs to multiple groups"
-                )
-    for variable in variables:
-        if variable.recording_group_id != grouped_variables.get(variable.id):
-            raise ValueError(
-                f"measurement variable {variable.id} group reference does not "
-                "match variable_groups"
-            )
+    group_ids = {group.id for group in groups}
+    referenced_group_ids = {
+        variable.recording_group_id
+        for variable in variables
+        if variable.recording_group_id is not None
+    }
+    missing_groups = referenced_group_ids - group_ids
+    if missing_groups:
+        raise ValueError(
+            "measurement variables reference unknown groups: "
+            + ", ".join(sorted(missing_groups))
+        )
+    unused_groups = group_ids - referenced_group_ids
+    if unused_groups:
+        raise ValueError(
+            "measurement variable groups must be referenced: "
+            + ", ".join(sorted(unused_groups))
+        )
 
 
 def _validate_measurement_variable_source(

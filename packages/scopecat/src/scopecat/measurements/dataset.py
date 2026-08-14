@@ -897,7 +897,9 @@ class Dataset:
         return MappingProxyType(
             {
                 group.id: tuple(
-                    self.variables[variable_id] for variable_id in group.variable_ids
+                    variable
+                    for variable in self.variables.values()
+                    if variable.recording_group_id == group.id
                 )
                 for group in self.schema.variable_groups
             }

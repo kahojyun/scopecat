@@ -481,15 +481,12 @@ def _replace_schema(
 ) -> MeasurementDatasetSchema:
     variables = updates.get("variables")
     if variables is not None and "variable_groups" not in updates:
-        members_by_group: dict[str, list[str]] = {}
+        group_ids: dict[str, None] = {}
         for variable in cast("tuple[MeasurementVariable, ...]", variables):
             if variable.recording_group_id is not None:
-                members_by_group.setdefault(variable.recording_group_id, []).append(
-                    variable.id
-                )
+                group_ids.setdefault(variable.recording_group_id, None)
         updates["variable_groups"] = tuple(
-            MeasurementVariableGroup(id=group_id, variable_ids=variable_ids)
-            for group_id, variable_ids in members_by_group.items()
+            MeasurementVariableGroup(id=group_id) for group_id in group_ids
         )
     return MeasurementDatasetSchema.model_validate(
         {**schema.model_dump(mode="python"), **updates}

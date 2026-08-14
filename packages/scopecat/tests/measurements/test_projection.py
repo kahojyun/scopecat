@@ -801,7 +801,6 @@ def test_recording_group_is_part_of_the_projection_contract_and_schema() -> None
     assert [group.model_dump(mode="python") for group in schema.variable_groups] == [
         {
             "id": "readout/sweep",
-            "variable_ids": tuple(record.id for record in grouped_records),
             "metadata": {},
         }
     ]

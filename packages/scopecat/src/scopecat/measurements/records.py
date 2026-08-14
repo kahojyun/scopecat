@@ -776,16 +776,11 @@ def expected_dataset_schema(
 def _measurement_variable_groups(
     variables: Sequence[MeasurementVariable],
 ) -> tuple[MeasurementVariableGroup, ...]:
-    members_by_group: dict[str, list[str]] = {}
+    group_ids: dict[str, None] = {}
     for variable in variables:
         if variable.recording_group_id is not None:
-            members_by_group.setdefault(variable.recording_group_id, []).append(
-                variable.id
-            )
-    return tuple(
-        MeasurementVariableGroup(id=group_id, variable_ids=variable_ids)
-        for group_id, variable_ids in members_by_group.items()
-    )
+            group_ids.setdefault(variable.recording_group_id, None)
+    return tuple(MeasurementVariableGroup(id=group_id) for group_id in group_ids)
 
 
 def _measurement_point_domain_axis(

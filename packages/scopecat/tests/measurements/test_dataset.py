@@ -1390,7 +1390,6 @@ def test_ungrouped_ragged_unavailable_preserves_unknown_extent_in_xarray() -> No
             "variable_groups": (
                 MeasurementVariableGroup(
                     id="readout",
-                    variable_ids=("frequency",),
                 ),
             ),
         }
@@ -1563,7 +1562,6 @@ def _ragged_dataset() -> Dataset:
             "variable_groups": (
                 MeasurementVariableGroup(
                     id="readout",
-                    variable_ids=("frequency", "signal"),
                 ),
             ),
         }
@@ -1771,9 +1769,7 @@ def _dataset() -> Dataset:
                 recording_group_id="readout",
             ),
         ],
-        variable_groups=[
-            MeasurementVariableGroup(id="readout", variable_ids=("signal",))
-        ],
+        variable_groups=[MeasurementVariableGroup(id="readout")],
         primary_coordinates=["bias", "frequency"],
         primary_observables=["temperature", "signal"],
     )
@@ -1865,7 +1861,6 @@ def _dataset_with_record_sources() -> Dataset:
             "variable_groups": (
                 MeasurementVariableGroup(
                     id="readout",
-                    variable_ids=("frequency", "signal"),
                 ),
             ),
         }
