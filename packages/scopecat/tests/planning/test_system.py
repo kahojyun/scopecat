@@ -60,6 +60,7 @@ from scopecat.execution.program import (
 )
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.point_identity import LogicalPointId
+from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.product_identity import product_use
 from scopecat.kernel.quantity import Quantity
@@ -1866,13 +1867,13 @@ def test_adaptive_coverage_accepts_candidates_into_the_canonical_run_domain() ->
     )
 
     accepted = plan.coverage.accept(
-        sc.PointProposalAttempt(
+        PointProposalAttempt(
             {"frequency": Quantity(5.3, "GHz")},
             source="optimizer",
         )
     )
     next_accepted = plan.coverage.accept(
-        sc.PointProposalAttempt(
+        PointProposalAttempt(
             {"frequency": Quantity(5.5, "GHz")},
             source="optimizer",
         )

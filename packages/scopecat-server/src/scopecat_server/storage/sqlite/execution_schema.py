@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS execution_point_plans (
     )
 );
 
-CREATE TABLE IF NOT EXISTS execution_point_decisions (
+CREATE TABLE IF NOT EXISTS execution_domain_decisions (
     run_id TEXT NOT NULL REFERENCES execution_point_plans(run_id) ON DELETE CASCADE,
     proposal_index INTEGER NOT NULL CHECK (proposal_index >= 0),
     operation_id TEXT NOT NULL,
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS execution_point_decisions (
     UNIQUE (run_id, operation_id)
 );
 
-CREATE TABLE IF NOT EXISTS execution_point_queue (
+CREATE TABLE IF NOT EXISTS execution_domain_queue (
     run_id TEXT NOT NULL REFERENCES execution_point_plans(run_id) ON DELETE CASCADE,
     queue_index INTEGER NOT NULL CHECK (queue_index >= 0),
     request_id TEXT NOT NULL,
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS execution_point_queue (
     PRIMARY KEY (run_id, queue_index),
     UNIQUE (run_id, request_id),
     FOREIGN KEY (run_id, decision_operation_id)
-        REFERENCES execution_point_decisions(run_id, operation_id)
+        REFERENCES execution_domain_decisions(run_id, operation_id)
 );
 
 CREATE TABLE IF NOT EXISTS execution_run_points (
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS execution_run_points (
     point_json TEXT NOT NULL,
     PRIMARY KEY (run_id, point_index),
     FOREIGN KEY (run_id, decision_operation_id)
-        REFERENCES execution_point_decisions(run_id, operation_id)
+        REFERENCES execution_domain_decisions(run_id, operation_id)
 );
 
 CREATE TABLE IF NOT EXISTS execution_measurement_headers (

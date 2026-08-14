@@ -120,7 +120,6 @@ if TYPE_CHECKING:
         EntityRef,
         entity_ref,
     )
-    from scopecat.kernel.points import PointProposalAttempt
     from scopecat.kernel.quantity import Quantity
     from scopecat.optimization import (
         AdaptiveDomainPlan,
@@ -275,10 +274,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "ResolvedDomainFragment": (
         "scopecat.adaptive_domains",
         "ResolvedDomainFragment",
-    ),
-    "PointProposalAttempt": (
-        "scopecat.kernel.points",
-        "PointProposalAttempt",
     ),
     "AdaptiveDomainPlan": ("scopecat.optimization", "AdaptiveDomainPlan"),
     "CompletedPointObservation": (

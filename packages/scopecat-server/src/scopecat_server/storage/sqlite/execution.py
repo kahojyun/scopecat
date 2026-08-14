@@ -135,12 +135,12 @@ class SQLiteRunPointLedger:
                        plan_closed, stop_reason,
                        (
                            SELECT COUNT(*)
-                           FROM execution_point_decisions AS decisions
+                           FROM execution_domain_decisions AS decisions
                            WHERE decisions.run_id = execution_point_plans.run_id
                        ) AS decision_count,
                        (
                            SELECT COUNT(*)
-                           FROM execution_point_decisions AS decisions
+                           FROM execution_domain_decisions AS decisions
                            WHERE decisions.run_id = execution_point_plans.run_id
                              AND json_extract(
                                  decisions.decision_json,
@@ -149,7 +149,7 @@ class SQLiteRunPointLedger:
                        ) AS optimizer_attempt_count,
                        (
                            SELECT COUNT(*)
-                           FROM execution_point_queue AS requests
+                           FROM execution_domain_queue AS requests
                            WHERE requests.run_id = execution_point_plans.run_id
                        ) AS operator_request_count
                 FROM execution_point_plans
@@ -186,7 +186,7 @@ class SQLiteRunPointLedger:
             connection.execute(
                 """
                 SELECT entry_json
-                FROM execution_point_queue
+                FROM execution_domain_queue
                 WHERE run_id = ?
                 ORDER BY queue_index
                 """,
@@ -207,7 +207,7 @@ class SQLiteRunPointLedger:
                 connection.execute(
                     """
                     SELECT entry_json
-                    FROM execution_point_queue
+                    FROM execution_domain_queue
                     WHERE run_id = ? AND status = 'pending'
                     ORDER BY queue_index
                     LIMIT 1
@@ -237,7 +237,7 @@ class SQLiteRunPointLedger:
             connection.execute(
                 """
                 SELECT entry_json
-                FROM execution_point_queue
+                FROM execution_domain_queue
                 WHERE run_id = ? AND request_id = ?
                 """,
                 (self._run_id, command.request_id),
@@ -271,7 +271,7 @@ class SQLiteRunPointLedger:
             connection.execute(
                 """
                 SELECT COUNT(*)
-                FROM execution_point_queue
+                FROM execution_domain_queue
                 WHERE run_id = ?
                 """,
                 (self._run_id,),
@@ -285,7 +285,7 @@ class SQLiteRunPointLedger:
         )
         connection.execute(
             """
-            INSERT INTO execution_point_queue(
+            INSERT INTO execution_domain_queue(
                 run_id, queue_index, request_id, status, entry_json
             )
             VALUES (?, ?, ?, 'pending', ?)
@@ -367,7 +367,7 @@ class SQLiteRunPointLedger:
             connection.execute(
                 """
                 SELECT run_id, decision_json
-                FROM execution_point_decisions
+                FROM execution_domain_decisions
                 WHERE run_id = ? AND operation_id = ?
                 """,
                 (self._run_id, command.operation_id),
@@ -440,7 +440,7 @@ class SQLiteRunPointLedger:
         )
         connection.execute(
             """
-            INSERT INTO execution_point_decisions(
+            INSERT INTO execution_domain_decisions(
                 run_id, proposal_index, operation_id, decision_json
             )
             VALUES (?, ?, ?, ?)
@@ -518,7 +518,7 @@ class SQLiteRunPointLedger:
             connection.execute(
                 """
                 SELECT entry_json
-                FROM execution_point_queue
+                FROM execution_domain_queue
                 WHERE run_id = ? AND request_id = ?
                 """,
                 (self._run_id, command.operator_request_id),
@@ -555,7 +555,7 @@ class SQLiteRunPointLedger:
         )
         connection.execute(
             """
-            UPDATE execution_point_queue
+            UPDATE execution_domain_queue
             SET status = ?, decision_operation_id = ?, entry_json = ?
             WHERE run_id = ? AND request_id = ?
             """,
@@ -672,7 +672,7 @@ class SQLiteRunPointLedger:
             )
             connection.execute(
                 """
-                UPDATE execution_point_queue
+                UPDATE execution_domain_queue
                 SET status = 'cancelled', entry_json = ?
                 WHERE run_id = ? AND request_id = ?
                 """,
