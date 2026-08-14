@@ -1129,6 +1129,45 @@ def test_local_effect_materialization_reuses_the_bounded_initial_probe(
     ) == tuple(range(300))
 
 
+def test_point_invariant_state_reuses_only_the_initial_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    materialized_ordinals: list[tuple[int, ...]] = []
+
+    def record_materialization(
+        bound_points: MaterializedBoundPoints,
+        *,
+        target: LocalTargetPlan,
+        point_ordinals: tuple[int, ...],
+    ) -> MaterializedLocalEffects:
+        materialized_ordinals.append(point_ordinals)
+        return materialize_local_execution(
+            bound_points,
+            target=target,
+            point_ordinals=point_ordinals,
+        )
+
+    monkeypatch.setattr(
+        "scopecat.planning.system.materialize_local_execution",
+        record_materialization,
+    )
+    bound = _bound_program(state_mode="constant", point_count=300)
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound, _TrackingProvider()),
+        domain_compiler=_DomainCompiler("tests.invariant-state"),
+    ).compile(bound)
+
+    assert materialized_ordinals == [(0,)]
+    coverage = tuple(plan.coverage)
+
+    assert materialized_ordinals == [(0,)]
+    assert [
+        operation.point_index
+        for operation in coverage
+        if isinstance(operation, RunCoverageEffect)
+    ] == [0]
+
+
 def test_large_plan_preview_samples_edges_without_hiding_total_point_count() -> None:
     bound = _bound_program(domain_product_count=0, point_count=300)
     plan = ExperimentSystem(

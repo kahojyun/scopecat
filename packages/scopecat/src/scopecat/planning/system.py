@@ -60,6 +60,7 @@ from scopecat.planning.local_effects import (
     local_operation_resource_requirements,
 )
 from scopecat.planning.local_materialization import (
+    local_execution_is_point_invariant,
     materialize_local_execution,
     materialize_local_success_state,
     prepare_local_target,
@@ -289,11 +290,15 @@ def _compile_system_program(
     initial_local_probe = (
         _InitialLocalProbe(
             ordinal=execution_ordinals[0],
+            point_uid=bound_points.point_domain.points[
+                execution_ordinals[0]
+            ].logical_id.value,
             effects=materialize_local_execution(
                 bound_points,
                 target=local_target,
                 point_ordinals=(execution_ordinals[0],),
             ),
+            point_invariant=local_execution_is_point_invariant(local_target),
         )
         if local_target is not None and execution_ordinals
         else None
@@ -554,7 +559,9 @@ class _MaterializedLocalCoverage:
 @dataclass(frozen=True, slots=True)
 class _InitialLocalProbe:
     ordinal: int
+    point_uid: str
     effects: MaterializedLocalEffects
+    point_invariant: bool
 
 
 class _CoverageValidator:
@@ -925,8 +932,13 @@ def _compile_coverage(
                 initial_local_probe=(
                     initial_local_probe
                     if initial_local_probe is not None
-                    and point_index is not None
-                    and initial_local_probe.ordinal == point_index
+                    and (
+                        initial_local_probe.point_invariant
+                        or (
+                            point_index is not None
+                            and initial_local_probe.ordinal == point_index
+                        )
+                    )
                     else None
                 ),
                 inspection_requested=True,
@@ -974,7 +986,12 @@ def _compile_coverage(
                 effects=bound.program.program.effects,
                 domain_calls=domain_calls,
                 local_target=local_target,
-                initial_local_probe=None,
+                initial_local_probe=(
+                    initial_local_probe
+                    if initial_local_probe is not None
+                    and initial_local_probe.point_invariant
+                    else None
+                ),
                 initial_batch_ordinal=start,
             ),
             validator=_CoverageValidator(
@@ -1029,7 +1046,12 @@ def _coverage_operations(
             bound_points,
             target=local_target,
             point_ordinals=coverage_batch,
-            initial_probe=initial_local_probe if offset == 0 else None,
+            initial_probe=(
+                initial_local_probe
+                if initial_local_probe is not None
+                and (offset == 0 or initial_local_probe.point_invariant)
+                else None
+            ),
         )
         if local_effects is not None:
             yield _MaterializedLocalCoverage(local_effects)
@@ -1109,6 +1131,12 @@ def _materialize_local_coverage(
 ) -> MaterializedLocalEffects | None:
     if target is None:
         return None
+    if initial_probe is not None and initial_probe.point_invariant:
+        return _retarget_invariant_local_probe(
+            initial_probe,
+            bound_points,
+            point_ordinals,
+        )
     if initial_probe is None:
         return materialize_local_execution(
             bound_points,
@@ -1137,6 +1165,48 @@ def _materialize_local_coverage(
                 remaining.effect_operations,
                 strict=True,
             )
+        ),
+    )
+
+
+def _retarget_invariant_local_probe(
+    probe: _InitialLocalProbe,
+    bound_points: MaterializedBoundPoints,
+    point_ordinals: tuple[int, ...],
+) -> MaterializedLocalEffects:
+    if probe.effects.compute_operations:
+        raise AssertionError("point-invariant local coverage cannot contain compute")
+    source_uid = probe.point_uid
+
+    def retarget(
+        covered: RunCoverageEffect,
+        ordinal: int,
+    ) -> RunCoverageEffect:
+        operation = covered.operation
+        if not isinstance(operation, ApplyStateOperation):
+            raise AssertionError(
+                "point-invariant local coverage must contain only state operations"
+            )
+        if not operation.operation_id.startswith(source_uid):
+            raise AssertionError("initial local probe operation id has another point")
+        point_uid = bound_points.point_domain.points[ordinal].logical_id.value
+        return RunCoverageEffect(
+            point_index=ordinal,
+            operation=replace(
+                operation,
+                operation_id=point_uid + operation.operation_id[len(source_uid) :],
+            ),
+        )
+
+    return MaterializedLocalEffects(
+        compute_operations=(),
+        effect_operations=tuple(
+            tuple(
+                retarget(covered, ordinal)
+                for ordinal in point_ordinals
+                for covered in group
+            )
+            for group in probe.effects.effect_operations
         ),
     )
 
