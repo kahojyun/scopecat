@@ -260,10 +260,15 @@ traces = many.sweep()
 return traces
 ```
 
+The group still expands to independently routed scalar resources and
+acquisitions, but the homogeneous returned products are recorded field-by-field
+with a `logical_device` entity axis. Dataset schema width therefore follows the
+number of result fields, not the number of selected devices. Per-entity product
+sources and acquisition evidence remain aligned to the durable entity index.
+
 Alignment is an identity join, so mapping order is irrelevant and missing,
 extra, or duplicate identities fail before effects are recorded. Group authoring
-expands to independently routed scalar resources; it does not ask a driver to
-perform an implicit vector operation.
+does not ask a driver to perform an implicit vector operation.
 
 ## Compact rule set
 

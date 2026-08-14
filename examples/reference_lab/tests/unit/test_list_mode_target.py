@@ -76,6 +76,9 @@ from reference_lab.targets.list_mode import (
     configured_list_mode_target,
     inspect_list_mode_artifact,
 )
+from reference_lab.targets.list_mode.circuit_runtime import (
+    _realize_integrated_iq_value,
+)
 from reference_lab.targets.list_mode.device_execution import InstrumentListModeRuntime
 from reference_lab.targets.list_mode.model import IqMixerCalibration
 
@@ -85,6 +88,20 @@ DRIVE_Q0 = DriveSignal(Q0)
 ACQUIRE_Q0 = AcquireSignal(Q0)
 READOUT_Q0 = ReadoutSignal(Q0)
 READOUT_Q1 = ReadoutSignal(Q1)
+
+
+def test_list_mode_logical_result_preserves_partial_shot_availability() -> None:
+    value = _realize_integrated_iq_value(
+        np.asarray([1 + 2j, 0j, 3 + 4j], dtype=np.complex128),
+        np.asarray([True, False, True], dtype=np.bool_),
+    )
+
+    assert isinstance(value, MeasurementArray)
+    assert value.availability is not None
+    assert value.availability.valid.tolist() == [True, False, True]
+    [failure] = value.availability.unavailable
+    assert failure.reason == "missing"
+    assert failure.flat_indices == (1,)
 
 
 class _RecordingInstrumentExecutor:

@@ -15,7 +15,9 @@ from scopecat.authoring import (
     ValueRef,
     ValueType,
 )
+from scopecat.authoring.entity_selection import PerEntity
 from scopecat.domain.program import DomainProgramDef
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_type_compatibility import require_assignable
 from scopecat.kernel.value_validation import coerce_literal
@@ -29,6 +31,7 @@ from scopecat.program.domain import (
 from scopecat.program.identities import DomainCallKey
 from scopecat.program.products import (
     ModuleProductDecl,
+    ProductRef,
     ProductRefs,
     ProductValueSpec,
     shot_axis,
@@ -103,6 +106,38 @@ class QuantumProgramCall:
             shots=self.shots,
             key=self.domain_call.key,
         )
+
+    def entity_results(self) -> PerEntity[ProductRef]:
+        """Return one result per concrete qubit for entity-axis recording.
+
+        This is the common parallel-readout view. Programs that emit multiple
+        results for one qubit must keep their named result structure instead.
+        """
+
+        arguments = dict(self.arguments)
+        selected: list[tuple[EntityRef, ProductRef]] = []
+        for result in self.program.results:
+            bound_qubit = arguments[result.qubit.id]
+            if isinstance(bound_qubit, EntityRef):
+                entity = EntityRef(
+                    id=bound_qubit.id,
+                    kind=bound_qubit.kind or "logical_qubit",
+                    metadata=bound_qubit.metadata,
+                )
+            elif isinstance(bound_qubit, str):
+                entity = EntityRef(id=bound_qubit, kind="logical_qubit")
+            else:
+                raise TypeError(
+                    "entity_results requires concrete string or EntityRef qubit inputs"
+                )
+            selected.append((entity, self.results[result.id]))
+        if len({(entity.kind, entity.id) for entity, _product in selected}) != len(
+            selected
+        ):
+            raise ValueError(
+                "entity_results requires exactly one program result per qubit"
+            )
+        return PerEntity(selected)
 
 
 @dataclass(frozen=True, slots=True, repr=False)

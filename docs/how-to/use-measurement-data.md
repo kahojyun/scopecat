@@ -29,6 +29,41 @@ an arbitrary sentinel. Point-local experiment compute propagates unavailable
 measured inputs without invoking the user kernel; filtering those rows remains
 an explicit analysis decision.
 
+### Entity-indexed results
+
+Homogeneous results returned for several entities are recorded as one variable
+with an entity dimension, rather than as one variable per entity. For example,
+a returned `PerEntity[NetworkSweepProducts]` produces one `frequency` variable
+and one `s_parameter` variable. Their shape begins with
+`(point, logical_device, ...)`, and the durable dimension index stores the
+ordered `(kind, id)` identities and the product source corresponding to each
+position.
+
+The experiment invocation exposes each grouped field as an array-valued
+`RecordRef`, so the authored result and stored Dataset have the same shape.
+`PerEntity` remains the identity-join abstraction used while routing control;
+the experiment return boundary is what turns homogeneous product mappings into
+data axes. Heterogeneous mappings continue to expand as structured result paths.
+When a grouped value is not part of the return tree, select the same layout
+explicitly with
+`experiment.stack_entities(products, record_id="readout", axis="qubit")`.
+
+Select entities by identity rather than position:
+
+```python
+q1 = data.sel(logical_device="q1")
+xds = data.to_xarray()
+assert xds.coords["logical_device"].values.tolist() == ["q0", "q1"]
+```
+
+When only some entity, shot, or sample leaves fail, the value remains a
+`MeasurementArray` with a read-only boolean availability mask. Native Dataset
+access returns a NumPy masked array, Xarray emits `<variable>__valid` and
+`<variable>__unavailable_reason` arrays on the same dimensions, and Arrow uses
+null leaves inside the nested array. A whole-value failure still uses
+`MeasurementUnavailable`; all-success values carry no mask or diagnostic
+sidecar.
+
 ### Variable-length results
 
 An acquisition axis with no fixed extent is ragged:
@@ -151,6 +186,7 @@ The conversion rules are fixed:
 | --- | --- | --- | --- |
 | point scalar | declared scalar type | native scalar column | `point` variable |
 | point-local array | fixed or variable list | NumPy array per row | named local dimensions |
+| partially available array | nested values with null leaves | NumPy masked array | fill values plus element validity/reasons |
 | `complex128` | `{real, imag}` struct | native complex scalar or array | native complex array |
 | unavailable | null plus optional diagnostics | missing value plus optional diagnostics | fill value plus diagnostics |
 

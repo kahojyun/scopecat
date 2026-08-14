@@ -9,6 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scopecat.measurements.results import (
     MeasurementArray,
+    MeasurementArrayAvailability,
     MeasurementUnavailable,
     MeasurementValue,
 )
@@ -95,8 +96,15 @@ def _realize_integrated_iq_value(
             metadata={"source": "virtual-demodulator", "detail": "no lock"},
         )
     if not np.all(available):
-        raise ValueError(
-            "one acquisition result cannot mix available and missing shots"
+        return MeasurementArray.create(
+            dtype="complex128",
+            unit=_RESPONSE_UNIT,
+            values=values,
+            availability=MeasurementArrayAvailability.create(
+                valid=available,
+                reason="missing",
+                metadata={"source": "virtual-demodulator", "detail": "no lock"},
+            ),
         )
     return MeasurementArray.create(
         dtype="complex128",

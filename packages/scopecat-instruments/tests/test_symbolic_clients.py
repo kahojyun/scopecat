@@ -490,6 +490,36 @@ def test_per_entity_symbolic_results_record_as_dataset_fragments() -> None:
     )
 
 
+def test_returned_group_bundle_records_one_variable_per_field() -> None:
+    q0 = EntityRef(id="q0", kind="logical_device")
+    q1 = EntityRef(id="q1", kind="logical_device")
+
+    @experiment(id="test.symbolic.return-each", kind="test")
+    def definition(
+        context: ExperimentContext,
+    ) -> PerEntity[NetworkSweepProducts]:
+        analyzers = network_sweep(context, for_=each(q0, q1))
+        analyzers.ensure(points=5)
+        return analyzers.sweep()
+
+    invocation = definition()
+    selections = _product_records(invocation.definition.record_selections)
+    assert [selection.record_id for selection in selections] == [
+        "frequency",
+        "frequency",
+        "s_parameter",
+        "s_parameter",
+    ]
+    assert all(selection.entity_axis_id == "logical_device" for selection in selections)
+    assert isinstance(invocation.output, RecordedProducts)
+    frequency = invocation.output.frequency
+    signal = invocation.output.s_parameter
+    assert isinstance(frequency, RecordRef)
+    assert isinstance(signal, RecordRef)
+    assert frequency.dims[0:2] == ("point", "logical_device")
+    assert signal.dims[0:2] == ("point", "logical_device")
+
+
 def test_on_success_accepts_a_typed_symbolic_client_and_declared_state() -> None:
     @experiment(id="test.symbolic.typed-success-state", kind="symbolic_root")
     def authored(context: ExperimentContext) -> None:
