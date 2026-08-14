@@ -60,6 +60,19 @@ class DecodedAwgPhaseTemplateUse:
 
 
 @dataclass(frozen=True, slots=True)
+class _PreparedAwgPhaseComponent:
+    component_path: tuple[str, ...]
+    phase_zero: np.ndarray = field(repr=False)
+    phase_quadrature: np.ndarray = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedAwgPhaseTemplate:
+    start_sample: int
+    components: tuple[_PreparedAwgPhaseComponent, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class DecodedPhaseSynthesizedAwgEntry:
     sample_count: int
     template_uses: tuple[DecodedAwgPhaseTemplateUse, ...]
@@ -74,7 +87,10 @@ class DecodedPhaseSynthesizedAwgProgram:
     entries: tuple[DecodedPhaseSynthesizedAwgEntry, ...]
 
     def materialize(self) -> DecodedMaterializedAwgProgram:
-        templates = {template.id: template for template in self.templates}
+        templates = {
+            template.id: _prepare_phase_template(template)
+            for template in self.templates
+        }
         materialized = DecodedMaterializedAwgProgram(
             max_abs_amplitude=self.max_abs_amplitude,
             entries=tuple(
@@ -403,31 +419,26 @@ def _decode_phase_synthesized_awg_program(
 def _materialize_phase_entry(
     entry: DecodedPhaseSynthesizedAwgEntry,
     *,
-    templates: dict[str, DecodedAwgPhaseTemplate],
+    templates: dict[str, _PreparedAwgPhaseTemplate],
 ) -> DecodedAwgEntry:
     buffers: dict[tuple[str, ...], np.ndarray] = {}
     for use in entry.template_uses:
         template = templates[use.template_id]
-        logical_i = template.logical_i
-        logical_q = template.logical_q
-        ii, iq, qi, qq = template.mixer
-        selected = slice(
-            template.start_sample,
-            template.start_sample + logical_i.size,
-        )
         cosine = math.cos(use.phase_radians)
         sine = math.sin(use.phase_radians)
-        for component_path, mixer_i, mixer_q in (
-            (template.i_component_path, ii, iq),
-            (template.q_component_path, qi, qq),
-        ):
-            buffer = buffers.setdefault(
-                component_path,
-                np.zeros(entry.sample_count, dtype=np.float64),
+        for component in template.components:
+            selected = slice(
+                template.start_sample,
+                template.start_sample + component.phase_zero.size,
             )
-            buffer[selected] += cosine * (
-                mixer_i * logical_i + mixer_q * logical_q
-            ) + sine * (-mixer_i * logical_q + mixer_q * logical_i)
+            buffer = buffers.get(component.component_path)
+            if buffer is None:
+                buffer = np.zeros(entry.sample_count, dtype=np.float64)
+                buffers[component.component_path] = buffer
+                np.multiply(component.phase_zero, cosine, out=buffer[selected])
+            else:
+                buffer[selected] += cosine * component.phase_zero
+            buffer[selected] += sine * component.phase_quadrature
     for samples in buffers.values():
         samples.flags.writeable = False
     return DecodedAwgEntry(
@@ -438,6 +449,34 @@ def _materialize_phase_entry(
             )
             for component_path, samples in sorted(buffers.items())
         )
+    )
+
+
+def _prepare_phase_template(
+    template: DecodedAwgPhaseTemplate,
+) -> _PreparedAwgPhaseTemplate:
+    ii, iq, qi, qq = template.mixer
+    components = tuple(
+        _PreparedAwgPhaseComponent(
+            component_path=component_path,
+            phase_zero=np.ascontiguousarray(
+                mixer_i * template.logical_i + mixer_q * template.logical_q
+            ),
+            phase_quadrature=np.ascontiguousarray(
+                -mixer_i * template.logical_q + mixer_q * template.logical_i
+            ),
+        )
+        for component_path, mixer_i, mixer_q in (
+            (template.i_component_path, ii, iq),
+            (template.q_component_path, qi, qq),
+        )
+    )
+    for component in components:
+        component.phase_zero.flags.writeable = False
+        component.phase_quadrature.flags.writeable = False
+    return _PreparedAwgPhaseTemplate(
+        start_sample=template.start_sample,
+        components=components,
     )
 
 
