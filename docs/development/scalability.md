@@ -385,8 +385,9 @@ The present architecture provides a direct end-to-end baseline:
   local-only coverage starts with 32 points and then uses batches of at most 256
   points;
 - domain compilation uses a backend-declared point capacity but prepares only
-  the current batch during execution; preview compiles the initial one-point
-  probe as a fast semantic preflight, and each prepared domain job reports the
+  the current batch during execution. Normal execution does not build target
+  inspection data; preview and review compile only the selected point and ask
+  for target-owned inspection explicitly. Each prepared domain job reports the
   maximum point count for the following batch;
 - the reference list-mode target combines its device entry capacity with an
   adaptive 8 MiB aggregate waveform target. Its AWG and virtual-capture codecs

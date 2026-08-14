@@ -270,7 +270,11 @@ class QuantumLabCompiler:
                 max_list_entries=self._target.max_list_entries,
                 max_program_waveform_bytes=(self._target.max_program_waveform_bytes),
             ),
-            inspection=inspect_list_mode_artifact(artifact.target_artifact),
+            inspection=(
+                inspect_list_mode_artifact(artifact.target_artifact)
+                if request.inspection_requested
+                else None
+            ),
             mapping=mapping,
             invocation=invocation,
             runtime=runtime,

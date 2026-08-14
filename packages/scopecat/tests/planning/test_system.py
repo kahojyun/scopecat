@@ -986,6 +986,9 @@ def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
         (0,),
         (1,),
     ]
+    assert not any(
+        request.inspection_requested for request in compiler.compile_requests
+    )
 
 
 def test_free_preview_compiles_a_canonical_unplanned_point() -> None:
@@ -1019,6 +1022,7 @@ def test_free_preview_compiles_a_canonical_unplanned_point() -> None:
     assert compiler.prepared_inputs == [(Quantity(5.05, "GHz"),)]
     [request] = compiler.compile_requests
     assert request.point_ordinals == (0,)
+    assert request.inspection_requested
     assert cast(
         "LogicalPointId", request.points[0].native
     ).domain_id.domain_id.startswith("root.inspection-")
@@ -1047,6 +1051,7 @@ def test_snap_preview_selects_nearest_planned_point_without_free_compilation() -
     assert compiler.prepared_inputs == []
     [request] = compiler.compile_requests
     assert request.point_ordinals == (1,)
+    assert request.inspection_requested
 
 
 def test_domain_target_initial_batch_must_fit_the_complete_point_space() -> None:
@@ -1889,6 +1894,7 @@ def test_adaptive_coverage_accepts_candidates_into_the_canonical_run_domain() ->
         (3,),
     ]
     assert [request.batch_ordinal for request in compiler.compile_requests] == [2, 3]
+    assert all(request.inspection_requested for request in compiler.compile_requests)
     assert all(
         isinstance(operation, RunCoverageCheckpoint | RunDomainJob)
         for operation in accepted.operations

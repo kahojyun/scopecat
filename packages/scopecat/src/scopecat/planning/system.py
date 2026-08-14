@@ -897,9 +897,6 @@ def _compile_coverage(
             ),
         )
 
-    def preflight() -> None:
-        inspect(point_ordinals[0])
-
     def inspect(point: int | PointProposalAttempt) -> RunPointInspection:
         if isinstance(point, int):
             if point not in point_ordinals:
@@ -932,6 +929,7 @@ def _compile_coverage(
                     and initial_local_probe.ordinal == point_index
                     else None
                 ),
+                inspection_requested=True,
             ),
             validator=_CoverageValidator(
                 domain_instrument_ids=(
@@ -975,6 +973,7 @@ def _compile_coverage(
                         local_target=local_target,
                         initial_local_probe=None,
                         initial_batch_ordinal=ordinal,
+                        inspection_requested=True,
                     ),
                     validator=_CoverageValidator(
                         domain_instrument_ids=(
@@ -1010,7 +1009,6 @@ def _compile_coverage(
 
     return RunCoverage(
         operations,
-        preflight=preflight if domain_calls and point_ordinals else None,
         inspect=inspect,
         accept=accept,
         accept_all=accept_all,
@@ -1027,6 +1025,7 @@ def _coverage_operations(
     local_target: LocalTargetPlan | None,
     initial_local_probe: _InitialLocalProbe | None,
     initial_batch_ordinal: int = 0,
+    inspection_requested: bool = False,
 ) -> Iterator[RunCoveredOperation | _MaterializedLocalCoverage]:
     next_batch_ordinals = {
         effect.id: initial_batch_ordinal
@@ -1096,6 +1095,7 @@ def _coverage_operations(
                         bound_points,
                         region,
                         batch_ordinal=batch_ordinal,
+                        inspection_requested=inspection_requested,
                     )
                     next_domain_capacities.append(job.execution.next_batch_max_points)
                     yield job
@@ -1262,12 +1262,14 @@ def _compile_domain_batch(
     point_ordinals: tuple[int, ...],
     *,
     batch_ordinal: int,
+    inspection_requested: bool,
 ) -> RunDomainJob:
     request = make_domain_batch_request(
         call,
         bound_points,
         point_ordinals,
         batch_ordinal=batch_ordinal,
+        inspection_requested=inspection_requested,
     )
     execution_candidate = cast(
         "object",

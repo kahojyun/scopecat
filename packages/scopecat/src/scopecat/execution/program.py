@@ -91,13 +91,12 @@ class RunAcceptedPointCoverage:
 class RunCoverage:
     """A lazy operation stream rebuilt for each planning or execution pass."""
 
-    __slots__ = ("_accept", "_accept_all", "_factory", "_inspect", "_preflight")
+    __slots__ = ("_accept", "_accept_all", "_factory", "_inspect")
 
     def __init__(
         self,
         factory: Callable[[], Iterator[RunCoveredOperation]],
         *,
-        preflight: Callable[[], None] | None = None,
         inspect: Callable[[int | PointProposalAttempt], RunPointInspection]
         | None = None,
         accept: Callable[[PointProposalAttempt], RunAcceptedPointCoverage]
@@ -109,19 +108,12 @@ class RunCoverage:
         | None = None,
     ) -> None:
         self._factory = factory
-        self._preflight = preflight
         self._inspect = inspect
         self._accept = accept
         self._accept_all = accept_all
 
     def __iter__(self) -> Iterator[RunCoveredOperation]:
         return self._factory()
-
-    def preflight(self) -> None:
-        """Compile and validate only the first domain batch, when present."""
-
-        if self._preflight is not None:
-            self._preflight()
 
     def inspect(self, point: int | PointProposalAttempt) -> RunPointInspection | None:
         """Compile target-owned inspection data for exactly one logical point."""
@@ -155,7 +147,7 @@ class RunProgram:
     Logical point identity and measurement correlation are independent of how
     ``coverage`` partitions physical work. Static resource authority is complete
     before admission; domain preparations are rebuilt one bounded batch at a
-    time during preflight or execution.
+    time during explicit inspection or execution.
     """
 
     config_content_hash: ConfigContentHash
