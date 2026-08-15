@@ -70,6 +70,7 @@ from reference_lab.targets.list_mode.model import (
     ListModeArtifact,
     ListModeBudgetDimension,
     ListModeCompilationBudget,
+    ListModeCompilationCacheInfo,
     ListModeCompilationKey,
     ListModeDeviceSnapshot,
     ListModeEntry,
@@ -126,6 +127,21 @@ class ListModeTargetCompiler:
         repr=False,
         compare=False,
     )
+    _cache_hits: int = field(default=0, init=False, repr=False, compare=False)
+    _cache_misses: int = field(default=0, init=False, repr=False, compare=False)
+    _cache_evictions: int = field(default=0, init=False, repr=False, compare=False)
+
+    @property
+    def cache_info(self) -> ListModeCompilationCacheInfo:
+        """Return deterministic counters for the process-local artifact LRU."""
+
+        return ListModeCompilationCacheInfo(
+            hits=self._cache_hits,
+            misses=self._cache_misses,
+            evictions=self._cache_evictions,
+            size=len(self._artifact_cache),
+            capacity=_ARTIFACT_CACHE_SIZE,
+        )
 
     def compile(self, request: TargetCompileRequest) -> ListModeArtifact:
         """Compile one checked finite request without performing hardware effects."""
@@ -134,8 +150,10 @@ class ListModeTargetCompiler:
         compilation_key = _compilation_key(self.id, device_snapshot, request)
         cached = self._artifact_cache.get(compilation_key.value)
         if cached is not None:
+            object.__setattr__(self, "_cache_hits", self._cache_hits + 1)
             self._artifact_cache.move_to_end(compilation_key.value)
             return cached
+        object.__setattr__(self, "_cache_misses", self._cache_misses + 1)
 
         issues: list[TargetCompilationIssue] = []
         if len(request.entries) > self.target.max_list_entries:
@@ -260,6 +278,7 @@ class ListModeTargetCompiler:
         self._artifact_cache[compilation_key.value] = artifact
         if len(self._artifact_cache) > _ARTIFACT_CACHE_SIZE:
             self._artifact_cache.popitem(last=False)
+            object.__setattr__(self, "_cache_evictions", self._cache_evictions + 1)
         return artifact
 
     def _plan_entry(
@@ -556,21 +575,40 @@ def _compilation_key(
     snapshot: ListModeDeviceSnapshot,
     request: TargetCompileRequest,
 ) -> ListModeCompilationKey:
-    request_fingerprint = canonical_fingerprint(content_fingerprint(request))
-    value = canonical_fingerprint(
+    scheduled_program_fingerprints = tuple(
+        canonical_fingerprint(content_fingerprint(entry.program))
+        for entry in request.entries
+    )
+    semantic_program_fingerprint = canonical_fingerprint(
         {
-            "schema": "reference_lab.list_mode_compilation_key.v1",
-            "compiler_id": compiler_id.value,
+            "schema": "reference_lab.list_mode_semantic_program.v1",
+            "scheduled_program_fingerprints": scheduled_program_fingerprints,
+        }
+    )
+    placement_fingerprint = canonical_fingerprint(
+        {
+            "schema": "reference_lab.list_mode_placement_key.v1",
+            "semantic_program_fingerprint": semantic_program_fingerprint,
             "device_snapshot_fingerprint": snapshot.snapshot_fingerprint,
-            "request_fingerprint": request_fingerprint,
+        }
+    )
+    artifact_layout_fingerprint = canonical_fingerprint(
+        {
+            "schema": "reference_lab.list_mode_artifact_layout_key.v1",
+            "compiler_id": compiler_id.value,
+            "placement_fingerprint": placement_fingerprint,
+            "source_entry_ids": [entry.id.value for entry in request.entries],
+            "repetitions": request.repetitions,
             "waveform_semantics_id": SAMPLED_WAVEFORM_SEMANTICS_ID,
         }
     )
     return ListModeCompilationKey(
         compiler_id=compiler_id,
         device_snapshot_fingerprint=snapshot.snapshot_fingerprint,
-        request_fingerprint=request_fingerprint,
-        value=value,
+        scheduled_program_fingerprints=scheduled_program_fingerprints,
+        semantic_program_fingerprint=semantic_program_fingerprint,
+        placement_fingerprint=placement_fingerprint,
+        artifact_layout_fingerprint=artifact_layout_fingerprint,
     )
 
 

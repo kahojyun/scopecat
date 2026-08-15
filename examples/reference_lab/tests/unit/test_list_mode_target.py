@@ -403,7 +403,11 @@ def test_list_mode_compilation_key_caches_and_explains_batch_capacity() -> None:
 
     artifact = compiler.compile(request)
 
+    assert compiler.cache_info.hits == 0
+    assert compiler.cache_info.misses == 1
     assert compiler.compile(request) is artifact
+    assert compiler.cache_info.hits == 1
+    assert compiler.cache_info.size == 1
     same_artifact = ListModeTargetCompiler(compiler.id, target).compile(request)
     assert same_artifact.compilation_key == artifact.compilation_key
     assert same_artifact.artifact_fingerprint == artifact.artifact_fingerprint
@@ -430,7 +434,27 @@ def test_list_mode_compilation_key_caches_and_explains_batch_capacity() -> None:
     assert budget.next_batch_max_points == 2
 
     changed = compiler.compile(replace(request, repetitions=3))
-    assert changed.compilation_key != artifact.compilation_key
+    assert changed.compilation_key.semantic_program_fingerprint == (
+        artifact.compilation_key.semantic_program_fingerprint
+    )
+    assert changed.compilation_key.placement_fingerprint == (
+        artifact.compilation_key.placement_fingerprint
+    )
+    assert changed.compilation_key.value != artifact.compilation_key.value
+
+    renamed = compiler.compile(
+        replace(
+            request,
+            entries=(replace(request.entries[0], id=TargetCompileEntryId("renamed")),),
+        )
+    )
+    assert renamed.compilation_key.semantic_program_fingerprint == (
+        artifact.compilation_key.semantic_program_fingerprint
+    )
+    assert renamed.compilation_key.placement_fingerprint == (
+        artifact.compilation_key.placement_fingerprint
+    )
+    assert renamed.compilation_key.value != artifact.compilation_key.value
 
 
 def test_list_mode_worker_protocol_is_stable_per_execution_identity() -> None:

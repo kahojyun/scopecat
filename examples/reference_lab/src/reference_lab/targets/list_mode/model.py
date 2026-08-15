@@ -191,12 +191,31 @@ class ListModePhysicalFootprint:
 
 @dataclass(frozen=True, slots=True)
 class ListModeCompilationKey:
-    """Stable cache identity for one target request and device snapshot."""
+    """Layered identities from scheduled semantics through artifact layout."""
 
     compiler_id: TargetCompilerId
     device_snapshot_fingerprint: str
-    request_fingerprint: str
-    value: str
+    scheduled_program_fingerprints: tuple[str, ...]
+    semantic_program_fingerprint: str
+    placement_fingerprint: str
+    artifact_layout_fingerprint: str
+
+    @property
+    def value(self) -> str:
+        """Return the final artifact-layout cache key."""
+
+        return self.artifact_layout_fingerprint
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeCompilationCacheInfo:
+    """Observable in-memory artifact-cache behavior for one compiler."""
+
+    hits: int
+    misses: int
+    evictions: int
+    size: int
+    capacity: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,8 +386,10 @@ def compilation_key_payload(key: ListModeCompilationKey) -> dict[str, object]:
         "schema": "reference_lab.list_mode_compilation_key.v1",
         "compiler_id": key.compiler_id.value,
         "device_snapshot_fingerprint": key.device_snapshot_fingerprint,
-        "request_fingerprint": key.request_fingerprint,
-        "value": key.value,
+        "scheduled_program_fingerprints": list(key.scheduled_program_fingerprints),
+        "semantic_program_fingerprint": key.semantic_program_fingerprint,
+        "placement_fingerprint": key.placement_fingerprint,
+        "artifact_layout_fingerprint": key.artifact_layout_fingerprint,
     }
 
 
@@ -1191,6 +1212,7 @@ __all__ = [
     "ListModeArtifact",
     "ListModeBudgetDimension",
     "ListModeCompilationBudget",
+    "ListModeCompilationCacheInfo",
     "ListModeCompilationKey",
     "ListModeDeviceSnapshot",
     "ListModeEntry",

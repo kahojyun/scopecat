@@ -82,6 +82,14 @@ def inspect_list_mode_artifact(
                 artifact.compilation_key.value,
             ),
             CompiledInspectionFact(
+                "semantic_program_fingerprint",
+                artifact.compilation_key.semantic_program_fingerprint,
+            ),
+            CompiledInspectionFact(
+                "placement_fingerprint",
+                artifact.compilation_key.placement_fingerprint,
+            ),
+            CompiledInspectionFact(
                 "next_batch_max_points",
                 artifact.compilation_budget.next_batch_max_points,
             ),

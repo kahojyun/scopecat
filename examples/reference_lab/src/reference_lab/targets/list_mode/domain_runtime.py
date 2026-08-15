@@ -88,6 +88,12 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
             "schema": "reference_lab.list_mode_execution_summary.v7",
             "compilation": {
                 "key": artifact.compilation_key.value,
+                "semantic_program_fingerprint": (
+                    artifact.compilation_key.semantic_program_fingerprint
+                ),
+                "placement_fingerprint": (
+                    artifact.compilation_key.placement_fingerprint
+                ),
                 "next_batch_max_points": (
                     artifact.compilation_budget.next_batch_max_points
                 ),
