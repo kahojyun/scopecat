@@ -76,9 +76,10 @@ The default `join="exact"` requires the same identities in the same order.
 right-only identities, records `missing` availability for absent fixed-shape
 array leaves, and stores null product-source and acquisition-evidence entries
 for those positions. Use `reindex_entities(dimension, entities)` when one
-explicit target order is already known. Since an absent entity-local ragged
-segment has no shape to infer, outer alignment of such a variable is rejected;
-use an inner join or normalize that local shape first.
+explicit target order is already known. For an absent entity-local ragged
+value, outer alignment inserts a `MeasurementUnavailable` segment with an
+unknown local extent. It contributes no observations while preserving the
+requested entity position and its missing-data reason.
 
 For unit-bearing scalar or array variables, `magnitudes("mV")` performs the
 same linear conversion while preserving array shape and partial-value masks;
@@ -110,6 +111,15 @@ Ragged arrays preserve each point-local shape and are never padded. The native
 Xarray view carries parent-point and local-index coordinates, pandas point
 layout keeps each array in one cell, and an observation projection emits one
 row per local sample.
+
+An entity-indexed ragged variable is represented by
+`MeasurementSegmentedArray`. Its `segments` stay aligned to the entity axis;
+each segment is either one rectangular `MeasurementArray` or a
+`MeasurementUnavailable` value with its own local shape. The aggregate `shape`
+keeps the entity count and reports `None` where segment extents differ or are
+unknown. Flattened `values` and `availability` remain available for native
+observation processing, while `segments` preserve the boundaries needed for
+per-entity inspection and Arrow round trips.
 
 Available `MeasurementArray.values` are read-only, C-contiguous NumPy arrays
 with the declared dtype. Available scalar values are normalized to the declared

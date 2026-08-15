@@ -52,7 +52,7 @@ from scopecat.authoring.scans import (
     scan_axis,
 )
 from scopecat.authoring.state_projection import StateProjector
-from scopecat.kernel.entity import EntityRef, entity_axis_fingerprint
+from scopecat.kernel.entity import EntityRef, entity_axis_fingerprint, entity_identity
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.instrument_members import (
     AcquisitionResultRef,
@@ -1815,10 +1815,17 @@ def _register_entity_axis(
         id=axis_id,
         values=tuple(entities),
     )
-    if selected.values != tuple(entities):
+    selected_identities = tuple(entity_identity(entity) for entity in selected.values)
+    if selected_identities != tuple(entity_identity(entity) for entity in entities):
         raise ValueError("provided entity axis does not match the selected products")
-    existing = context._entity_axes.setdefault(axis_id, selected)
-    if existing != selected:
+    existing = context._entity_axes.get(axis_id)
+    if existing is None:
+        context._entity_axes[axis_id] = selected
+        return selected
+    if (
+        tuple(entity_identity(entity) for entity in existing.values)
+        != selected_identities
+    ):
         raise ValueError(
             f"entity axis {axis_id!r} is already registered with different members"
         )

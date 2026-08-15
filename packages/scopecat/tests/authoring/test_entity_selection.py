@@ -205,6 +205,66 @@ def test_experiment_can_explicitly_stack_entity_products() -> None:
     assert [member.entity for member in selection.members] == [q1, q0]
 
 
+def test_entity_axis_uses_identity_for_membership_and_keeps_first_metadata() -> None:
+    context = sc.ExperimentContext()
+    product_q1 = sc.EntityRef(
+        id="q1",
+        kind="qubit",
+        metadata={"source": "product"},
+    )
+    product_q0 = sc.EntityRef(
+        id="q0",
+        kind="qubit",
+        metadata={"source": "product"},
+    )
+    axis = sc.EntityAxisDef(
+        id="qubit",
+        values=(
+            sc.EntityRef(id="q1", kind="qubit", metadata={"label": "Q1"}),
+            sc.EntityRef(id="q0", kind="qubit", metadata={"label": "Q0"}),
+        ),
+    )
+    context.stack_entities(
+        sc.PerEntity(
+            (
+                (product_q1, context._product("first", scope=("q1",))),
+                (product_q0, context._product("first", scope=("q0",))),
+            )
+        ),
+        record_id="first",
+        axis=axis,
+    )
+    context.stack_entities(
+        sc.PerEntity(
+            (
+                (
+                    product_q1.model_copy(update={"metadata": {"revision": 2}}),
+                    context._product("second", scope=("q1",)),
+                ),
+                (
+                    product_q0.model_copy(update={"metadata": {"revision": 2}}),
+                    context._product("second", scope=("q0",)),
+                ),
+            )
+        ),
+        record_id="second",
+        axis="qubit",
+    )
+
+    definition = context.close_definition_internal(
+        id="test.entity-axis-identity",
+        kind="test",
+        metadata=None,
+        input_defaults={},
+        required_inputs=(),
+    )
+    first, second = definition.record_selections
+    assert isinstance(first, EntityRecordSelection)
+    assert isinstance(second, EntityRecordSelection)
+    assert first.axis == axis
+    assert second.axis == axis
+
+
 def test_record_namespace_is_non_empty_and_exclusive_with_record_id() -> None:
     context = sc.ExperimentContext()
     product = context._product("signal", scope=("readout",))
