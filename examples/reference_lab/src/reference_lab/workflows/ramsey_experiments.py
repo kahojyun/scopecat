@@ -201,8 +201,7 @@ class ParallelRamseyDataset:
 @dataclass(frozen=True, slots=True)
 class ParallelRawRamseyDataset:
     delay: sc.CoordinateRef[sc.Quantity]
-    q0_iq: sc.ProductRef[MeasurementArrayData]
-    q1_iq: sc.ProductRef[MeasurementArrayData]
+    iq_shots: sc.PerEntity[sc.ProductRef[MeasurementArrayData]]
 
 
 @sc.experiment(id="reference_lab.parallel_raw_ramsey")
@@ -221,16 +220,13 @@ def parallel_raw_ramsey(experiment: sc.ExperimentContext) -> ParallelRawRamseyDa
         q1_phase=sc.Quantity(0.4, "rad"),
     ).with_shots(RAMSEY_SHOTS)
     prepare_quantum_hardware(experiment)
-    results = experiment.use(call.with_compiler_inputs(qubits=QUBITS.ref))
+    configured_call = call.with_compiler_inputs(qubits=QUBITS.ref)
+    experiment.use(configured_call)
     return ParallelRawRamseyDataset(
         delay=delay,
-        q0_iq=cast(
-            "sc.ProductRef[MeasurementArrayData]",
-            results.q0_iq_shots,
-        ),
-        q1_iq=cast(
-            "sc.ProductRef[MeasurementArrayData]",
-            results.q1_iq_shots,
+        iq_shots=cast(
+            "sc.PerEntity[sc.ProductRef[MeasurementArrayData]]",
+            configured_call.entity_results(),
         ),
     )
 
