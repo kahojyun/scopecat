@@ -20,7 +20,7 @@ from scopecat.authoring import (
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.measurement_types import MeasurementArrayData
-from scopecat.records.measurement import MeasurementValue
+from scopecat.records.measurement import MeasurementAcquisitionValue
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectReceipt,
@@ -422,8 +422,8 @@ _NETWORK_SWEEP_SWEEP_DECLARATION = ClientAcquisition(
 class TemperatureReadback:
     """Named sample results plus their effect receipt."""
 
-    temperature: MeasurementValue
-    resistance: MeasurementValue
+    temperature: MeasurementAcquisitionValue
+    resistance: MeasurementAcquisitionValue
     receipt: CollectReceipt = field(repr=False)
 
 
@@ -690,8 +690,8 @@ rf_output: InstrumentFamily[
 class DCBiasReadbackReadback:
     """Named readback results plus their effect receipt."""
 
-    actual_voltage: MeasurementValue
-    settled: MeasurementValue
+    actual_voltage: MeasurementAcquisitionValue
+    settled: MeasurementAcquisitionValue
     receipt: CollectReceipt = field(repr=False)
 
 
@@ -1127,7 +1127,7 @@ dc_source: InstrumentFamily[
 class DCMonitorCurrentReadback:
     """Named measure_current results plus their effect receipt."""
 
-    current: MeasurementValue
+    current: MeasurementAcquisitionValue
     receipt: CollectReceipt = field(repr=False)
 
 
@@ -1142,7 +1142,7 @@ class DCMonitorCurrentProducts(ProductBundle):
 class DCMonitorVoltageReadback:
     """Named measure_voltage results plus their effect receipt."""
 
-    voltage: MeasurementValue
+    voltage: MeasurementAcquisitionValue
     receipt: CollectReceipt = field(repr=False)
 
 
@@ -1593,8 +1593,8 @@ dc_source_monitor: InstrumentFamily[
 class NetworkSweepReadback:
     """Named sweep results plus their effect receipt."""
 
-    frequency: MeasurementValue
-    s_parameter: MeasurementValue
+    frequency: MeasurementAcquisitionValue
+    s_parameter: MeasurementAcquisitionValue
     receipt: CollectReceipt = field(repr=False)
 
 

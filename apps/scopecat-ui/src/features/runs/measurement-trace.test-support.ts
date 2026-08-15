@@ -6,9 +6,9 @@ import type {
 
 export function traceSchema(): MeasurementDatasetSchema {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v10",
+    format_version: "scopecat.measurement_dataset_schema.v16",
     dataset_id: "raw-measurements",
-    record_schema: "scopecat.measurement_record.v4",
+    record_schema: "scopecat.measurement_record.v9",
     dimensions: [
       { id: "point", kind: "point", size: 2 },
       { id: "sample", kind: "sample", size: 3 },
@@ -66,27 +66,76 @@ export function realTraceSchema(): MeasurementDatasetSchema {
   };
 }
 
+export function entityTraceSchema(): MeasurementDatasetSchema {
+  const schema = traceSchema();
+  return {
+    ...schema,
+    dimensions: [
+      schema.dimensions[0]!,
+      {
+        id: "qubit",
+        kind: "entity",
+        label: "Qubits",
+        size: 2,
+        index: {
+          kind: "entity",
+          values: [
+            { id: "q0", kind: "qubit", metadata: { label: "Q0" } },
+            { id: "q1", kind: "qubit", metadata: { label: "Q1" } },
+          ],
+        },
+      },
+      schema.dimensions[1]!,
+    ],
+    variables: schema.variables?.map((variable) =>
+      variable.id === "frequency" || variable.id === "response"
+        ? {
+            ...variable,
+            dims: ["point", "qubit", "sample"],
+            source_entity_products: {
+              dimension_id: "qubit",
+              product_ids: ["q0-readout", "q1-readout"],
+            },
+            ...(variable.id === "response"
+              ? {
+                  entity_acquisition: {
+                    policy: "all_or_nothing" as const,
+                    cohort_id: "readout-cohort",
+                  },
+                }
+              : {}),
+          }
+        : variable,
+    ),
+  };
+}
+
 export function tracePreview(
   overrides: Partial<MeasurementTracePreview> = {},
 ): MeasurementTracePreview {
+  const series = overrides.series ?? [traceSeries(0, [4, 5, 6], [5, 2, 1])];
+  const failures = overrides.failures ?? [];
   return {
     coordinate_id: "frequency",
     coordinate_label: "Frequency",
     coordinate_unit: "GHz",
     dimension_id: "sample",
     downsampling: "minmax",
+    layout: "overlay",
     observable_id: "response",
     observable_label: "S21",
     observable_unit: "ratio",
     value_mode: "magnitude",
     value_unit: "ratio",
     selected_series_count: 1,
+    inspected_series_count: series.length + failures.length,
     returned_series_count: 1,
     truncated_series: false,
     source_sample_count: 3,
     returned_sample_count: 3,
     samples_reduced: false,
-    series: [traceSeries(0, [4, 5, 6], [5, 2, 1])],
+    series,
+    failures,
     ...overrides,
   };
 }
@@ -104,6 +153,8 @@ export function traceSeries(
     x,
     y,
     source_sample_count: sourceSampleCount,
+    available_sample_count: sourceSampleCount,
+    unavailable_reasons: [],
   };
 }
 

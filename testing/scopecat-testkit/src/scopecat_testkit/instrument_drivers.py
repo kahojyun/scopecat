@@ -6,7 +6,10 @@ from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.kernel.value_types import Scalar
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.measurement import MeasurementScalar, MeasurementValue
+from scopecat.records.measurement import (
+    MeasurementAcquisitionValue,
+    MeasurementScalar,
+)
 from scopecat.sdk.instruments import (
     AcquisitionResultRef,
     DriverAcquisition,
@@ -127,7 +130,7 @@ class SignalInstrumentDriver:
         }
         if not selected:
             return DriverSuccess(DriverReadback(values={}))
-        values: dict[AcquisitionResultRef, MeasurementValue] = {
+        values: dict[AcquisitionResultRef, MeasurementAcquisitionValue] = {
             result: MeasurementScalar.create(
                 dtype="float64",
                 value=1.0,

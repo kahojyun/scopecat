@@ -62,6 +62,31 @@ describe("run chart ECharts options", () => {
     ]);
   });
 
+  it("keeps full series names while compacting oversized legend labels", () => {
+    const longLabel = `Delay ${"1234567890".repeat(5)} · Q0`;
+    const chart: MeasurementChartPlan = {
+      id: "long-legend",
+      kind: "line",
+      title: "Responses",
+      xLabel: "Shot",
+      yLabel: "Response [ratio]",
+      series: [
+        { id: "first", label: longLabel, points: [{ x: 0, y: 1 }] },
+        { id: "second", label: "Delay 128 ns · Q1", points: [{ x: 0, y: 2 }] },
+      ],
+    };
+
+    const option = measurementChartOption(chart);
+    const legend = option.legend as {
+      formatter: (label: string) => string;
+      tooltip: { show: boolean };
+    };
+
+    expect(legend.formatter(longLabel)).toBe(`${longLabel.slice(0, 32)}…${longLabel.slice(-15)}`);
+    expect(legend.tooltip).toEqual({ show: true });
+    expect(optionSeries(option)[0]?.name).toBe(longLabel);
+  });
+
   it("maps point color through visualMap dimension two for color scatter", () => {
     const chart: MeasurementChartPlan = {
       colorLabel: "Temperature [K]",

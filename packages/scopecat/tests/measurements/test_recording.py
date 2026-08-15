@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import cast, override
 
 import pytest
 from scopecat_testkit.execution_fakes import FakeMeasurementDatasetRepository
+from scopecat_testkit.measurement_arrow_fixture import (
+    ui_measurement_arrow_fixture,
+    ui_measurement_arrow_fixture_schema,
+)
 from scopecat_testkit.measurement_assembly import (
     assembled_measurement_values_for_all_uses,
 )
@@ -12,11 +18,29 @@ from scopecat.execution.measurement_recording import (
     initialize_measurement_dataset,
     seal_measurement_dataset,
 )
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import MeasurementRecordingError
 from scopecat.measurements.projection import (
     ProjectedMeasurementDataset,
     project_measurement_records,
     select_measurement_projection,
+)
+from scopecat.measurements.recording_arrow import (
+    decode_measurement_append,
+    encode_measurement_append,
+)
+from scopecat.records.measurement import (
+    EntityAcquisitionEvidence,
+    InstrumentAcquisitionEvidence,
+    MeasurementAcquisitionEvidenceCatalog,
+    MeasurementArray,
+    MeasurementArrayAvailability,
+    MeasurementDatasetSchema,
+    MeasurementDimension,
+    MeasurementEntityIndex,
+    MeasurementPointCloudPointDomain,
+    MeasurementRecord,
+    MeasurementVariable,
 )
 from scopecat.records.measurement_recording import (
     CANONICAL_MEASUREMENT_DATASET_REF,
@@ -86,6 +110,121 @@ def test_recording_initializes_and_seals_one_canonical_dataset() -> None:
     assert header_receipt.dataset_ref == CANONICAL_MEASUREMENT_DATASET_REF
     assert append_receipt.dataset_ref == CANONICAL_MEASUREMENT_DATASET_REF
     assert seal_receipt.dataset_ref == CANONICAL_MEASUREMENT_DATASET_REF
+
+
+def test_arrow_recording_round_trips_entity_arrays_with_partial_availability() -> None:
+    entities = (
+        EntityRef(id="q0", kind="logical_qubit"),
+        EntityRef(id="q1", kind="logical_qubit"),
+    )
+    schema = MeasurementDatasetSchema(
+        dataset_id="raw-measurements",
+        point_domain=MeasurementPointCloudPointDomain(columns=()),
+        dimensions=(
+            MeasurementDimension(id="point", kind="point", size=1),
+            MeasurementDimension(
+                id="qubit",
+                kind="entity",
+                size=2,
+                index=MeasurementEntityIndex(
+                    values=entities,
+                ),
+            ),
+            MeasurementDimension(id="shot", kind="shot", size=2),
+        ),
+        variables=(
+            MeasurementVariable(
+                id="iq",
+                role="observable",
+                dtype="complex128",
+                unit="ratio",
+                dims=("point", "qubit", "shot"),
+            ),
+        ),
+        primary_observables=("iq",),
+    )
+    availability = MeasurementArrayAvailability.create(
+        valid=[[True, True], [False, True]],
+        reason="missing",
+        metadata={"entity": "q1"},
+    )
+    evidence = InstrumentAcquisitionEvidence(
+        command_id="readout",
+        instrument_id="digitizer",
+        interface_id="test.readout/v1",
+        acquisition_id="iq",
+        result_id="iq",
+        started_at=datetime(2026, 8, 15, 10, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 8, 15, 10, 0, 1, tzinfo=UTC),
+    )
+    record = MeasurementRecord(
+        run_id="entity-run",
+        point_index=0,
+        coordinates={},
+        observables={
+            "iq": MeasurementArray.create(
+                dtype="complex128",
+                unit="ratio",
+                values=[[1 + 2j, 3 + 4j], [0j, 5 + 6j]],
+                availability=availability,
+            )
+        },
+        acquisition_evidence=MeasurementAcquisitionEvidenceCatalog.create(
+            {
+                "iq": EntityAcquisitionEvidence(
+                    dimension_id="qubit",
+                    values=(evidence, None),
+                )
+            }
+        ),
+    )
+    append = MeasurementDatasetAppend(
+        run_id="entity-run",
+        header_content_hash="sha256:header",
+        start_index=0,
+        records=(record,),
+    )
+
+    restored = decode_measurement_append(
+        encode_measurement_append(append, schema),
+        schema,
+    )
+
+    assert restored == append
+    iq = restored.records[0].observables["iq"]
+    assert isinstance(iq, MeasurementArray)
+    assert iq.availability is not None
+    assert iq.availability.valid.tolist() == [[True, True], [False, True]]
+
+
+def test_ui_arrow_fixture_is_generated_by_the_current_python_codec() -> None:
+    content = ui_measurement_arrow_fixture()
+    fixture = (
+        Path(__file__).resolve().parents[4]
+        / "apps"
+        / "scopecat-ui"
+        / "src"
+        / "features"
+        / "runs"
+        / "test-fixtures"
+        / "measurement-append-v9.arrow"
+    )
+
+    restored = decode_measurement_append(
+        content,
+        ui_measurement_arrow_fixture_schema(),
+    )
+
+    assert fixture.read_bytes() == content
+    assert restored.records[0].logical_point_id == "point-7"
+    assert restored.records[0].point_index == 7
+    assert (
+        encode_measurement_append(
+            restored,
+            ui_measurement_arrow_fixture_schema(),
+        )
+        == content
+    )
 
 
 def test_append_identity_is_stable_and_content_detects_conflict() -> None:

@@ -5,7 +5,7 @@ from typing import assert_type
 import pytest
 
 import scopecat as sc
-from scopecat.program.products import RecordSelection
+from scopecat.program.products import EntityRecordSelection, RecordSelection
 from scopecat.program.value_refs import internal_value_ref_point_id
 
 _DEVICE_TYPE = sc.ScalarType(sc.EntityType(entity_kind="logical_device"))
@@ -151,7 +151,7 @@ def test_each_align_requires_an_exact_entity_identity_join() -> None:
         sc.each(q0, q1).align(sc.PerEntity(((q0, 1), (wrong_q1, 2))))
 
 
-def test_experiment_record_expands_per_entity_products_in_declaration_order() -> None:
+def test_experiment_alias_rejects_legacy_per_entity_expansion() -> None:
     context = sc.ExperimentContext()
     q1 = sc.EntityRef(id="q1", kind="logical_device")
     q0 = sc.EntityRef(id="q0", kind="logical_device")
@@ -159,26 +159,110 @@ def test_experiment_record_expands_per_entity_products_in_declaration_order() ->
     second = context._product("second")
     products = sc.PerEntity(((q1, first), (q0, second)))
 
-    context.alias(products)
+    with pytest.raises(TypeError, match=r"use stack_entities\(\)"):
+        context.alias(products)  # pyright: ignore[reportCallIssue, reportArgumentType]
 
+
+def test_experiment_can_explicitly_stack_entity_products() -> None:
+    context = sc.ExperimentContext()
+    q1 = sc.EntityRef(id="q1", kind="qubit")
+    q0 = sc.EntityRef(id="q0", kind="qubit")
+    products = sc.PerEntity(
+        (
+            (q1, context._product("signal", scope=("q1",))),
+            (q0, context._product("signal", scope=("q0",))),
+        )
+    )
+
+    record = context.stack_entities(
+        products,
+        record_id="signal",
+        axis="qubit",
+        acquisition_policy="best_effort",
+        cohort_id="readout-batch",
+    )
+
+    assert record.dims == ("point", "qubit")
+    assert record.entity_axis_id == "qubit"
+    assert record.entity_axis_fingerprint is not None
+    assert record.entity_axis_fingerprint.startswith("sha256:")
     definition = context.close_definition_internal(
-        id="test.per-entity-record",
+        id="test.entity-stack",
         kind="test",
         metadata=None,
         input_defaults={},
         required_inputs=(),
     )
-    selections = tuple(
-        selection
-        for selection in definition.record_selections
-        if isinstance(selection, RecordSelection)
+    [selection] = definition.record_selections
+    assert isinstance(selection, EntityRecordSelection)
+    assert selection.record_id == "signal"
+    assert selection.axis.id == "qubit"
+    assert selection.axis.values == (q1, q0)
+    assert selection.acquisition == sc.EntityAcquisitionSemantics(
+        policy="best_effort",
+        cohort_id="readout-batch",
     )
-    assert len(selections) == len(definition.record_selections)
-    assert [selection.product_id.qualified_name for selection in selections] == [
-        "first",
-        "second",
-    ]
-    assert [selection.role for selection in selections] == ["observable", "observable"]
+    assert [member.entity for member in selection.members] == [q1, q0]
+
+
+def test_entity_axis_uses_identity_for_membership_and_keeps_first_metadata() -> None:
+    context = sc.ExperimentContext()
+    product_q1 = sc.EntityRef(
+        id="q1",
+        kind="qubit",
+        metadata={"source": "product"},
+    )
+    product_q0 = sc.EntityRef(
+        id="q0",
+        kind="qubit",
+        metadata={"source": "product"},
+    )
+    axis = sc.EntityAxisDef(
+        id="qubit",
+        values=(
+            sc.EntityRef(id="q1", kind="qubit", metadata={"label": "Q1"}),
+            sc.EntityRef(id="q0", kind="qubit", metadata={"label": "Q0"}),
+        ),
+    )
+    context.stack_entities(
+        sc.PerEntity(
+            (
+                (product_q1, context._product("first", scope=("q1",))),
+                (product_q0, context._product("first", scope=("q0",))),
+            )
+        ),
+        record_id="first",
+        axis=axis,
+    )
+    context.stack_entities(
+        sc.PerEntity(
+            (
+                (
+                    product_q1.model_copy(update={"metadata": {"revision": 2}}),
+                    context._product("second", scope=("q1",)),
+                ),
+                (
+                    product_q0.model_copy(update={"metadata": {"revision": 2}}),
+                    context._product("second", scope=("q0",)),
+                ),
+            )
+        ),
+        record_id="second",
+        axis="qubit",
+    )
+
+    definition = context.close_definition_internal(
+        id="test.entity-axis-identity",
+        kind="test",
+        metadata=None,
+        input_defaults={},
+        required_inputs=(),
+    )
+    first, second = definition.record_selections
+    assert isinstance(first, EntityRecordSelection)
+    assert isinstance(second, EntityRecordSelection)
+    assert first.axis == axis
+    assert second.axis == axis
 
 
 def test_record_namespace_is_non_empty_and_exclusive_with_record_id() -> None:

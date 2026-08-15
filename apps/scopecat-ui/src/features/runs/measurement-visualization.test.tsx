@@ -10,6 +10,7 @@ import type {
 } from "../../api-contract";
 import { MeasurementDataPreview } from "./MeasurementDataPreview";
 import {
+  measurementEntityAxes,
   measurementSliceAxisValue,
   measurementSlicePlan,
   measurementTable,
@@ -60,6 +61,333 @@ describe("measurement visualization", () => {
     ];
 
     expect(measurementTable(items, scalarSchema()).rows[0]?.cells).toEqual(["0", "0.1", "2"]);
+  });
+
+  it("compares entity scalar values by default and filters them with identity chips", () => {
+    const schema = entityScalarSchema();
+    const items = [0, 1, 2].map((point) =>
+      record(
+        point,
+        { bias: scalar(point * 0.1, "V") },
+        { readout: entityArray([point + 1, point + 11], "ratio") },
+      ),
+    );
+
+    expect(measurementEntityAxes(schema)).toEqual([
+      {
+        id: "qubit",
+        label: "Qubit",
+        size: 2,
+        members: [
+          { id: "q0", identity: '["qubit","q0"]', index: 0, kind: "qubit", label: "Q0" },
+          { id: "q1", identity: '["qubit","q1"]', index: 1, kind: "qubit", label: "Q1" },
+        ],
+      },
+    ]);
+    expect(measurementSlicePlan(schema)?.variableIds).toEqual(["bias", "readout"]);
+    expect(measurementTraceQueryPlans(schema)).toEqual([]);
+    expect(planMeasurementCharts(items, schema)).toEqual([
+      expect.objectContaining({
+        id: "entity-scalar:readout:qubit:bias:value",
+        kind: "line",
+        title: "Readout by Qubit",
+        series: [
+          expect.objectContaining({
+            id: 'readout:["qubit","q0"]',
+            label: "Q0",
+            points: [
+              { x: 0, y: 1 },
+              { x: 0.1, y: 2 },
+              { x: 0.2, y: 3 },
+            ],
+          }),
+          expect.objectContaining({ id: 'readout:["qubit","q1"]', label: "Q1" }),
+        ],
+      }),
+    ]);
+    expect(measurementTable(items, schema).rows[0]?.cells.at(-1)).toBe(
+      "2 entities · ratio · All available",
+    );
+    expect(measurementTable(items, schema, { qubit: [1] }).rows[0]?.cells.at(-1)).toBe(
+      "1/2 entities · ratio · All available",
+    );
+
+    const view = render(
+      <MeasurementDataPreview
+        preview={{ schema, items }}
+        slice={slicePreview(schema, items)}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{}}
+        onFixedAxisIndexChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("measurement-entity-controls")).toBeVisible();
+    expect(screen.getByRole("button", { name: "All 2" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Qubit Q1" }));
+
+    expect(screen.getByRole("button", { name: "Qubit Q1" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getAllByText("1/2 entities · ratio · All available")).toHaveLength(3);
+    expect(
+      screen.getByRole("img", { name: "Readout by Qubit: Readout [ratio] by Bias [V]" }),
+    ).toHaveAccessibleDescription(/Series: Q1/);
+
+    const reorderedSchema: MeasurementDatasetSchema = {
+      ...schema,
+      dimensions: [
+        schema.dimensions[0]!,
+        {
+          ...schema.dimensions[1]!,
+          index: {
+            kind: "entity",
+            values: [
+              schema.dimensions[1]!.index!.values[1]!,
+              schema.dimensions[1]!.index!.values[0]!,
+            ],
+          },
+        },
+      ],
+    };
+    const reorderedItems = items.map((item) => {
+      const values = (item.observables.readout as Extract<MeasurementValue, { kind: "array" }>)
+        .values as number[];
+      return {
+        ...item,
+        observables: { readout: entityArray([values[1]!, values[0]!], "ratio") },
+      };
+    });
+    view.rerender(
+      <MeasurementDataPreview
+        preview={{ schema: reorderedSchema, items: reorderedItems }}
+        slice={slicePreview(reorderedSchema, reorderedItems)}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{}}
+        onFixedAxisIndexChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Qubit Q1" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.getByRole("img", { name: "Readout by Qubit: Readout [ratio] by Bias [V]" }),
+    ).toHaveAccessibleDescription(/Series: Q1/);
+  });
+
+  it("keeps mixed-kind entity labels and selection identities collision-free", () => {
+    const schema: MeasurementDatasetSchema = {
+      ...baseSchema(),
+      dimensions: [
+        { id: "point", kind: "point", size: 1 },
+        {
+          id: "subject",
+          kind: "entity",
+          size: 2,
+          index: {
+            kind: "entity",
+            values: [
+              { id: "q0", kind: "qubit" },
+              { id: "q0", kind: "coupler" },
+            ],
+          },
+        },
+      ],
+    };
+
+    expect(measurementEntityAxes(schema)[0]?.members).toEqual([
+      {
+        id: "q0",
+        identity: '["qubit","q0"]',
+        index: 0,
+        kind: "qubit",
+        label: "qubit:q0",
+      },
+      {
+        id: "q0",
+        identity: '["coupler","q0"]',
+        index: 1,
+        kind: "coupler",
+        label: "coupler:q0",
+      },
+    ]);
+  });
+
+  it("delegates same-shape entity waveforms to bounded server traces", () => {
+    const schema = entityTraceSchema(false);
+    const items = [
+      record(
+        0,
+        {
+          frequency: entityMatrix(
+            [
+              [4, 5, 6],
+              [4, 5, 6],
+            ],
+            "GHz",
+          ),
+        },
+        {
+          trace: entityMatrix(
+            [
+              [1, 2, 3],
+              [4, 0, 6],
+            ],
+            "ratio",
+            [
+              [true, true, true],
+              [true, false, true],
+            ],
+          ),
+        },
+      ),
+    ];
+
+    expect(planMeasurementCharts(items, schema)).toEqual([]);
+    expect(measurementTraceQueryPlans(schema)[0]).toMatchObject({
+      id: "trace:trace:frequency:value",
+      entityAxisId: "qubit",
+    });
+    expect(measurementTable(items, schema).rows[0]?.cells.at(-1)).toBe(
+      "2 entities · 3 samples each · ratio · 1/2 complete · missing",
+    );
+  });
+
+  it("reports dense array failures only for the selected entities", () => {
+    const source = entityTraceSchema(false);
+    const schema = {
+      ...source,
+      variables: source.variables?.map((variable) => ({
+        ...variable,
+        dims: ["point", "sample", "qubit"],
+      })),
+    };
+    const items = [
+      record(
+        0,
+        {
+          frequency: {
+            kind: "array",
+            dtype: "float64",
+            unit: "GHz",
+            shape: [3, 2],
+            values: [
+              [4, 4],
+              [5, 5],
+              [6, 6],
+            ],
+          },
+        },
+        {
+          trace: {
+            kind: "array",
+            dtype: "float64",
+            unit: "ratio",
+            shape: [3, 2],
+            values: [
+              [1, 4],
+              [2, 5],
+              [3, 6],
+            ],
+            availability: {
+              valid: [
+                [false, true],
+                [true, false],
+                [true, true],
+              ],
+              unavailable: [
+                { reason: "missing", flat_indices: [0] },
+                { reason: "overload", flat_indices: [3] },
+              ],
+            },
+          },
+        },
+      ),
+    ];
+
+    expect(measurementTable(items, schema, { qubit: [0] }).rows[0]?.cells.at(-1)).toBe(
+      "1/2 entities · 3 samples each · ratio · 0/1 complete · missing",
+    );
+    expect(measurementTable(items, schema, { qubit: [1] }).rows[0]?.cells.at(-1)).toBe(
+      "1/2 entities · 3 samples each · ratio · 0/1 complete · overload",
+    );
+  });
+
+  it("keeps a persisted multi-selection visible when an entity axis grows", () => {
+    const smallSchema = entityScalarSchemaWithEntityCount(3);
+    const largeSchema = entityScalarSchemaWithEntityCount(13);
+    const common = {
+      sliceError: null,
+      slicePending: false,
+      fixedAxisIndices: {},
+      onFixedAxisIndexChange: vi.fn(),
+    };
+    const view = render(
+      <MeasurementDataPreview {...common} preview={{ schema: smallSchema, items: [] }} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Qubit Q0" }));
+    fireEvent.click(screen.getByRole("button", { name: "Qubit Q1" }));
+    expect(screen.getByText("2 selected")).toBeVisible();
+
+    view.rerender(
+      <MeasurementDataPreview {...common} preview={{ schema: largeSchema, items: [] }} />,
+    );
+
+    const selector = screen.getByRole("combobox", { name: "Qubit entity" });
+    expect(selector).toHaveValue("__multiple_entities__");
+    expect(screen.getByRole("option", { name: "2 selected" })).toBeDisabled();
+    expect(screen.getByText("2 selected", { selector: "span" })).toBeVisible();
+  });
+
+  it("delegates segmented entity arrays to an indexed bounded trace", () => {
+    const schema = entityTraceSchema(true);
+    const items = [
+      record(
+        0,
+        {},
+        {
+          trace: {
+            kind: "segmented_array",
+            dtype: "float64",
+            unit: "V",
+            segments: [
+              {
+                kind: "array",
+                dtype: "float64",
+                unit: "V",
+                shape: [2],
+                values: [1, 2],
+              },
+              {
+                kind: "unavailable",
+                reason: "missing",
+                dtype: "float64",
+                unit: "V",
+                shape: [null],
+                metadata: { entity: "q1" },
+              },
+            ],
+          },
+        },
+      ),
+    ];
+
+    expect(planMeasurementCharts(items, schema)).toEqual([]);
+    const tracePlan = measurementTraceQueryPlans(schema)[0];
+    expect(tracePlan).toMatchObject({
+      id: "trace:trace:sample:value",
+      entityAxisId: "qubit",
+    });
+    expect(tracePlan).not.toHaveProperty("coordinateId");
+    expect(measurementTable(items, schema).rows[0]?.cells.at(-1)).toBe(
+      "2 entities · variable length · V · 1/2 complete · missing",
+    );
   });
 
   it("always uses scatter for a one-dimensional point cloud", () => {
@@ -780,9 +1108,9 @@ describe("measurement visualization", () => {
 
 function baseSchema(): MeasurementDatasetSchema {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v10",
+    format_version: "scopecat.measurement_dataset_schema.v16",
     dataset_id: "raw-measurements",
-    record_schema: "scopecat.measurement_record.v4",
+    record_schema: "scopecat.measurement_record.v9",
     point_domain: { kind: "point_cloud", columns: [] },
     dimensions: [{ id: "point", kind: "point", size: 3 }],
     variables: [],
@@ -1025,6 +1353,127 @@ function traceOnlyRaggedGridSchema(): MeasurementDatasetSchema {
   };
 }
 
+function entityScalarSchema(): MeasurementDatasetSchema {
+  return {
+    ...baseSchema(),
+    point_domain: {
+      kind: "product_grid",
+      axes: [gridAxis("bias", [scalar(0, "V"), scalar(0.1, "V"), scalar(0.2, "V")])],
+    },
+    dimensions: [{ id: "point", kind: "point", size: 3 }, entityDimension()],
+    variables: [
+      {
+        id: "bias",
+        label: "Bias",
+        role: "coordinate",
+        dtype: "float64",
+        unit: "V",
+        dims: ["point"],
+      },
+      entityVariable({
+        id: "readout",
+        label: "Readout",
+        role: "observable",
+        dtype: "float64",
+        unit: "ratio",
+        dims: ["point", "qubit"],
+      }),
+    ],
+    primary_coordinates: ["bias"],
+    primary_observables: ["readout"],
+  };
+}
+
+function entityScalarSchemaWithEntityCount(size: number): MeasurementDatasetSchema {
+  const schema = entityScalarSchema();
+  const values = Array.from({ length: size }, (_value, index) => ({
+    id: `q${index}`,
+    kind: "qubit",
+    metadata: { label: `Q${index}` },
+  }));
+  return {
+    ...schema,
+    dimensions: schema.dimensions.map((dimension) =>
+      dimension.id === "qubit"
+        ? { ...dimension, size, index: { kind: "entity", values } }
+        : dimension,
+    ),
+    variables: schema.variables?.map((variable) =>
+      variable.source_entity_products
+        ? {
+            ...variable,
+            source_entity_products: {
+              ...variable.source_entity_products,
+              product_ids: values.map((entity) => `readout/${entity.id}`),
+            },
+          }
+        : variable,
+    ),
+  };
+}
+
+function entityTraceSchema(ragged: boolean): MeasurementDatasetSchema {
+  const frequency = entityVariable({
+    id: "frequency",
+    label: "Frequency",
+    role: "coordinate",
+    dtype: "float64",
+    unit: "GHz",
+    dims: ["point", "qubit", "sample"],
+    recording_group_id: "readout",
+  });
+  const trace = entityVariable({
+    id: "trace",
+    label: "Trace",
+    role: "observable",
+    dtype: "float64",
+    unit: ragged ? "V" : "ratio",
+    dims: ["point", "qubit", "sample"],
+    recording_group_id: "readout",
+  });
+  return {
+    ...baseSchema(),
+    dimensions: [
+      { id: "point", kind: "point", size: 1 },
+      entityDimension(),
+      { id: "sample", kind: "record_axis", size: ragged ? null : 3 },
+    ],
+    variables: ragged ? [trace] : [frequency, trace],
+    variable_groups: [{ id: "readout" }],
+    primary_coordinates: ragged ? [] : ["frequency"],
+    primary_observables: ["trace"],
+  };
+}
+
+function entityDimension(): MeasurementDatasetSchema["dimensions"][number] {
+  return {
+    id: "qubit",
+    kind: "entity",
+    label: "Qubit",
+    size: 2,
+    index: {
+      kind: "entity",
+      values: [
+        { id: "q0", kind: "qubit", metadata: { label: "Q0" } },
+        { id: "q1", kind: "qubit", metadata: { label: "Q1" } },
+      ],
+    },
+  };
+}
+
+function entityVariable(
+  variable: NonNullable<MeasurementDatasetSchema["variables"]>[number],
+): NonNullable<MeasurementDatasetSchema["variables"]>[number] {
+  return {
+    ...variable,
+    entity_acquisition: { policy: "best_effort", cohort_id: "readout-batch" },
+    source_entity_products: {
+      dimension_id: "qubit",
+      product_ids: ["readout/q0", "readout/q1"],
+    },
+  };
+}
+
 function opaqueOnlyGridSchema(): MeasurementDatasetSchema {
   return {
     ...baseSchema(),
@@ -1207,4 +1656,31 @@ function boolScalar(value: boolean): Extract<MeasurementValue, { kind: "scalar" 
 
 function array(values: number[], unit: string): Extract<MeasurementValue, { kind: "array" }> {
   return { kind: "array", dtype: "float64", unit, shape: [values.length], values };
+}
+
+function entityArray(values: number[], unit: string): Extract<MeasurementValue, { kind: "array" }> {
+  return { kind: "array", dtype: "float64", unit, shape: [values.length], values };
+}
+
+function entityMatrix(
+  values: number[][],
+  unit: string,
+  valid?: boolean[][],
+): Extract<MeasurementValue, { kind: "array" }> {
+  const flatValid = valid?.flat();
+  const invalid = flatValid?.flatMap((available, index) => (available ? [] : [index])) ?? [];
+  return {
+    kind: "array",
+    dtype: "float64",
+    unit,
+    shape: [values.length, values[0]?.length ?? 0],
+    values,
+    availability:
+      valid && invalid.length > 0
+        ? {
+            valid,
+            unavailable: [{ reason: "missing", flat_indices: invalid }],
+          }
+        : undefined,
+  };
 }

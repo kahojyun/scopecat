@@ -11,11 +11,13 @@ from typing import cast
 
 import numpy as np
 import pyarrow as pa
+from numpy.typing import NDArray
 
 from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementScalar,
+    MeasurementSegmentedArray,
     MeasurementUnavailable,
     MeasurementValue,
 )
@@ -146,7 +148,7 @@ def _encode_scalar_column(
 
 
 def _encode_array_row(
-    value: MeasurementArray,
+    value: MeasurementArray | MeasurementSegmentedArray,
     *,
     dtype: MeasurementDType,
     expected_shape: tuple[int | None, ...],
@@ -155,6 +157,12 @@ def _encode_array_row(
 ) -> pa.Array:
     if value.dtype != dtype or not _shape_matches(expected_shape, value.shape):
         raise ValueError("measurement value does not match its Arrow column contract")
+    if isinstance(value, MeasurementSegmentedArray):
+        return _encode_segmented_array_row(
+            value,
+            dtype=dtype,
+            value_type=value_type,
+        )
     shape = value.shape
     if any(
         actual == 0 and expected == 0
@@ -162,6 +170,9 @@ def _encode_array_row(
     ):
         return pa.array([_empty_array_tree(shape)], type=value_type)
     selected = value.values.reshape(-1)
+    invalid = (
+        None if value.availability is None else ~value.availability.valid.reshape(-1)
+    )
     if dtype == "complex128":
         complex_values = cast(
             "np.ndarray[tuple[int], np.dtype[np.complex128]]",
@@ -173,9 +184,14 @@ def _encode_array_row(
                 pa.array(complex_values.imag),
             ],
             fields=list(MEASUREMENT_COMPLEX_ARROW_TYPE),
+            mask=None if invalid is None else pa.array(invalid),
         )
     else:
-        encoded = pa.array(selected, type=measurement_arrow_scalar_type(dtype))
+        encoded = pa.array(
+            selected,
+            mask=invalid,
+            type=measurement_arrow_scalar_type(dtype),
+        )
     for index in reversed(range(len(shape))):
         expected_extent = expected_shape[index]
         actual_extent = shape[index]
@@ -198,21 +214,71 @@ def _encode_array_row(
     return encoded
 
 
+def _encode_segmented_array_row(
+    value: MeasurementSegmentedArray,
+    *,
+    dtype: MeasurementDType,
+    value_type: pa.DataType,
+) -> pa.Array:
+    entities: list[object] = []
+    for segment in value.segments:
+        if isinstance(segment, MeasurementUnavailable):
+            entities.append(None)
+            continue
+        valid = (
+            np.ones(segment.shape, dtype=np.bool_)
+            if segment.availability is None
+            else segment.availability.valid
+        )
+        entities.append(_nullable_array_tree(segment.values, valid, dtype=dtype))
+    encoded = pa.array([entities], type=value_type)
+    if len(encoded) != 1 or not encoded.type.equals(value_type):
+        raise ValueError("entity-ragged array cannot form its Arrow row type")
+    return encoded
+
+
+def _nullable_array_tree(
+    values: NDArray[np.generic],
+    valid: NDArray[np.bool_],
+    *,
+    dtype: MeasurementDType,
+) -> object:
+    if values.ndim:
+        extent = cast("int", values.shape[0])
+        return [
+            _nullable_array_tree(
+                cast("NDArray[np.generic]", values[index]),
+                cast("NDArray[np.bool_]", valid[index]),
+                dtype=dtype,
+            )
+            for index in range(extent)
+        ]
+    if not bool(valid.item()):
+        return None
+    selected = cast("bool | int | float | complex | str", values.item())
+    if dtype == "complex128":
+        complex_value = complex(selected)
+        return {"real": complex_value.real, "imag": complex_value.imag}
+    return selected
+
+
 def _require_scalar(value: MeasurementValue) -> MeasurementScalar:
     if not isinstance(value, MeasurementScalar):
         raise ValueError("measurement Arrow scalar column requires scalar values")
     return value
 
 
-def _require_array(value: MeasurementValue) -> MeasurementArray:
-    if not isinstance(value, MeasurementArray):
+def _require_array(
+    value: MeasurementValue,
+) -> MeasurementArray | MeasurementSegmentedArray:
+    if not isinstance(value, MeasurementArray | MeasurementSegmentedArray):
         raise ValueError("measurement Arrow array column requires array values")
     return value
 
 
 def _shape_matches(
     expected: tuple[int | None, ...],
-    actual: tuple[int, ...],
+    actual: tuple[int | None, ...],
 ) -> bool:
     return len(expected) == len(actual) and all(
         expected_extent is None or expected_extent == actual_extent

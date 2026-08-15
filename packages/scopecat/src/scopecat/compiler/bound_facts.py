@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from scopecat.compiler.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.point_domain import PointDomain
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
@@ -31,7 +32,13 @@ from scopecat.measurements.products import (
     ProductAxisDef,
     ProductDef,
 )
-from scopecat.measurements.records import BoundRecordUse, RecordUse, ValueRecordUse
+from scopecat.measurements.records import (
+    BoundRecordUse,
+    EntityRecordUse,
+    ProductRecordUse,
+    RecordUse,
+    ValueRecordUse,
+)
 from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import (
     MeasurementComputeId,
@@ -140,9 +147,11 @@ class BoundProgramFacts:
         )
 
     @property
-    def product_record_uses(self) -> tuple[RecordUse, ...]:
+    def product_record_uses(self) -> tuple[ProductRecordUse, ...]:
         return tuple(
-            record for record in self.record_uses if isinstance(record, RecordUse)
+            record
+            for record in self.record_uses
+            if isinstance(record, RecordUse | EntityRecordUse)
         )
 
     @property
@@ -160,6 +169,7 @@ def product_axis(
     size: int | None,
     kind: str | None = None,
     unit: str | None = None,
+    entities: tuple[EntityRef, ...] | None = None,
     metadata: Mapping[str, JsonValue] | None = None,
 ) -> ProductAxisDef:
     return ProductAxisDef(
@@ -169,6 +179,7 @@ def product_axis(
         kind=kind or id,
         size=size,
         unit=unit,
+        entities=entities,
         metadata=metadata or {},
     )
 

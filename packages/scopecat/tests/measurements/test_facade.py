@@ -27,7 +27,10 @@ loaded = facade_forbidden.intersection(sys.modules)
 if loaded:
     raise SystemExit(f"result facade imported native runtimes: {sorted(loaded)}")
 
+if "MeasurementSegmentedArray" not in results.__all__:
+    raise SystemExit("result facade does not export MeasurementSegmentedArray")
 results.MeasurementDatasetSchema
+results.MeasurementSegmentedArray
 record_forbidden = {
     "pandas",
     "scopecat.measurements.dataset",

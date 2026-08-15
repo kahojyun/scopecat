@@ -74,6 +74,14 @@ and fixed or ragged sample axes instead of flattening them into control-plane
 logical points. Dense spectroscopy should record planning costs separately from
 execution and measurement costs.
 
+Multi-entity acquisition has an additional schema-width invariant. Homogeneous
+results use one indexed entity dimension and one variable per result field;
+adding entities extends the dimension index and ordered source/evidence vectors,
+but must not add Arrow columns or Dataset variables. The routine 128-entity
+projection test checks this contract. Partial entity or shot failure remains one
+array with null leaves and sparse reason groups, so a common all-success point
+has no per-leaf diagnostic overhead while degraded points remain inspectable.
+
 ## Measurements
 
 Record the repository revision, machine description, workload shape, wall time,

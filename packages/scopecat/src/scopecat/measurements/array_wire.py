@@ -27,8 +27,9 @@ def encode_measurement_array(value: MeasurementArray) -> EncodedMeasurementArray
     already matches the wire dtype. Variable-width strings use a fresh encoding.
     """
 
-    expected_count = math.prod(value.shape)
-    if value.values.size != expected_count or value.values.shape != value.shape:
+    shape = value.shape
+    expected_count = math.prod(shape)
+    if value.values.size != expected_count or value.values.shape != shape:
         raise MeasurementArrayWireError(
             "measurement array shape does not match its values"
         )

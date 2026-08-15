@@ -124,8 +124,9 @@ def test_experiment_authors_root_device_operations_without_a_module() -> None:
         "derived",
     ]
     selected_products = [
-        selection.product_id.qualified_name
+        product_id.qualified_name
         for selection in logical.product_record_selections
+        for product_id in selection.product_ids
     ]
     assert selected_products == [
         "raw",
@@ -173,8 +174,9 @@ def test_experiment_supports_direct_root_authoring() -> None:
         "signal"
     ]
     assert [
-        selection.product_id.qualified_name
+        product_id.qualified_name
         for selection in program.product_record_selections
+        for product_id in selection.product_ids
     ] == ["signal"]
 
 

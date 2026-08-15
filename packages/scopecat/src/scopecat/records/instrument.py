@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.state import StateValue
-from scopecat.records.measurement import MeasurementValue
+from scopecat.records.measurement import MeasurementAcquisitionValue
 from scopecat.records.metadata import JsonMetadata
 
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
@@ -141,5 +141,5 @@ class InstrumentStateSnapshot(BaseModel):
 class InstrumentReadback(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    values: dict[str, MeasurementValue] = Field(default_factory=dict)
+    values: dict[str, MeasurementAcquisitionValue] = Field(default_factory=dict)
     metadata: JsonMetadata = Field(default_factory=dict)

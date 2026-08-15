@@ -17,6 +17,7 @@ from scopecat.records.analysis import (
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.measurement import (
+    InstrumentAcquisitionEvidence,
     MeasurementArray,
     MeasurementScalar,
 )
@@ -206,7 +207,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert all(
         set(record.coordinates) == {"dc_bias", frequency_record_id}
         and set(record.observables) == {s_parameter_record_id, temperature_record_id}
-        and set(record.acquisition_evidence)
+        and set(record.acquisition_evidence.variable_refs)
         == {
             frequency_record_id,
             s_parameter_record_id,
@@ -233,12 +234,18 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
         assert isinstance(temperature, MeasurementScalar)
         assert temperature.unit == "K"
     first_evidence = records[0].acquisition_evidence
-    assert first_evidence[frequency_record_id].instrument_id == "readout-vna"
-    assert first_evidence[frequency_record_id].result_id == "frequency"
-    assert first_evidence[s_parameter_record_id].instrument_id == "readout-vna"
-    assert first_evidence[s_parameter_record_id].result_id == "s_parameter"
-    assert first_evidence[temperature_record_id].instrument_id == "mixing-chamber"
-    assert first_evidence[temperature_record_id].result_id == "temperature"
+    frequency_evidence = first_evidence.for_variable(frequency_record_id)
+    s_parameter_evidence = first_evidence.for_variable(s_parameter_record_id)
+    temperature_evidence = first_evidence.for_variable(temperature_record_id)
+    assert isinstance(frequency_evidence, InstrumentAcquisitionEvidence)
+    assert isinstance(s_parameter_evidence, InstrumentAcquisitionEvidence)
+    assert isinstance(temperature_evidence, InstrumentAcquisitionEvidence)
+    assert frequency_evidence.instrument_id == "readout-vna"
+    assert frequency_evidence.result_id == "frequency"
+    assert s_parameter_evidence.instrument_id == "readout-vna"
+    assert s_parameter_evidence.result_id == "s_parameter"
+    assert temperature_evidence.instrument_id == "mixing-chamber"
+    assert temperature_evidence.result_id == "temperature"
     assert not provider.world.dc_source(
         f"{FLUX_SOURCE_ID}:flux.dac_a.ch1"
     ).output_enabled

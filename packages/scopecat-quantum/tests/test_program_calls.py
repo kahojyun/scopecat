@@ -10,6 +10,7 @@ from scopecat.compiler.bind import bind_program
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
+from scopecat.measurements.records import EntityRecordPlan, plan_records
 from scopecat.program.products import RecordSelection
 
 from scopecat_quantum import authoring
@@ -326,10 +327,11 @@ def test_program_results_share_one_explicit_shot_dimension() -> None:
     call = declaration("q0", "q1").with_shots(16)
 
     @sc.experiment(id="test.quantum.multi-result", kind="quantum")
-    def experiment(context: sc.ExperimentContext) -> None:
+    def experiment(
+        context: sc.ExperimentContext,
+    ) -> sc.PerEntity[sc.ProductRef]:
         context.use(call)
-        context.alias(call.results.first_iq)
-        context.alias(call.results.second_iq)
+        return call.entity_results()
 
     compiled = compile_invocation(experiment())
     bound = bind_program(
@@ -353,6 +355,15 @@ def test_program_results_share_one_explicit_shot_dimension() -> None:
         product.axes[0].dimension_label == "shot"
         for product in bound.bindings.product_defs
     )
+    [record] = plan_records(
+        bound.bindings.product_defs,
+        bound.bindings.product_uses,
+        bound.bindings.product_record_uses,
+    )
+    assert isinstance(record, EntityRecordPlan)
+    assert [axis.kind for axis in record.axes] == ["entity", "shot"]
+    assert record.axes[0].index is not None
+    assert [entity.id for entity in record.axes[0].index.values] == ["q0", "q1"]
 
 
 def test_program_call_binds_compiler_collection_outside_program_arguments() -> None:

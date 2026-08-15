@@ -10,7 +10,7 @@ from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.value_resolution import BoundValueResolver
-from scopecat.execution.local.program import ApplyStateOperation
+from scopecat.execution.local.program import ApplyStateOperation, CollectOperation
 from scopecat.execution.program import RunCoverageEffect
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
@@ -18,6 +18,7 @@ from scopecat.kernel.problems import Problem, model_location
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.value_types import Scalar
+from scopecat.measurements.records import EntityAcquisitionCohortPlan
 from scopecat.planning.local_acquisition import bind_collect
 from scopecat.planning.local_compute import (
     bind_compute_operations as _bind_compute_operations,
@@ -280,6 +281,12 @@ def materialize_local_execution(
             effect_operations[state_end - 1].extend(
                 RunCoverageEffect(ordinal, operation) for operation in ordered
             )
+    _validate_entity_acquisition_cohorts(
+        target.acquisition_cohorts,
+        effect_operations,
+        point_ordinals=ordinals,
+        problems=problems,
+    )
     if bool(problems):
         raise CheckFailed(problems)
     return MaterializedLocalEffects(
@@ -399,6 +406,7 @@ def prepare_local_target(
     *,
     product_use_ids: AbstractSet[ProductUseId],
     instrument_order: Sequence[str] = (),
+    acquisition_cohorts: Sequence[EntityAcquisitionCohortPlan] = (),
 ) -> LocalTargetPlan:
     """Select the complete local target once for all bounded coverage.
 
@@ -437,7 +445,62 @@ def prepare_local_target(
         product_uses=product_uses,
         instrument_order=_validate_instrument_order(instrument_order),
         resource_ports=resource_ports,
+        acquisition_cohorts=tuple(acquisition_cohorts),
     )
+
+
+def _validate_entity_acquisition_cohorts(
+    cohorts: Sequence[EntityAcquisitionCohortPlan],
+    effect_operations: Sequence[Sequence[RunCoverageEffect]],
+    *,
+    point_ordinals: Sequence[int],
+    problems: list[Problem],
+) -> None:
+    """Require every declared cohort to be collected by one hardware command."""
+
+    command_by_use: dict[tuple[int, ProductUseId], str] = {}
+    for group in effect_operations:
+        for effect in group:
+            operation = effect.operation
+            if not isinstance(operation, CollectOperation):
+                continue
+            for binding in operation.result_bindings:
+                for use_id in binding.product_use_ids:
+                    command_by_use[(effect.point_index, use_id)] = (
+                        operation.operation_id
+                    )
+    for cohort in cohorts:
+        use_ids = tuple(
+            use_id for member in cohort.members for use_id in member.product_use_ids
+        )
+        for point_index in point_ordinals:
+            command_ids = {
+                command_by_use.get((point_index, use_id)) for use_id in use_ids
+            }
+            if len(command_ids) == 1 and None not in command_ids:
+                continue
+            problems.append(
+                compiler_problem(
+                    "entity_acquisition_cohort_not_atomic",
+                    f"entity acquisition cohort {cohort.id!r} must be collected "
+                    "by one hardware command",
+                    model_location(
+                        "points",
+                        point_index,
+                        "entity_acquisition_cohorts",
+                        cohort.id,
+                    ),
+                    details={
+                        "cohort_id": cohort.id,
+                        "product_use_ids": [use_id.value for use_id in use_ids],
+                        "command_ids": sorted(
+                            command_id
+                            for command_id in command_ids
+                            if command_id is not None
+                        ),
+                    },
+                )
+            )
 
 
 def _validate_instrument_order(

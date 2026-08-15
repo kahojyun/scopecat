@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from typing import cast
 
 import numpy as np
@@ -21,12 +20,15 @@ from scopecat.measurements.arrow_values import (
 )
 from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import (
-    InstrumentAcquisitionEvidence,
+    MeasurementAcquisitionEvidenceCatalog,
     MeasurementArray,
+    MeasurementArrayAvailability,
+    MeasurementArrayUnavailableGroup,
     MeasurementDatasetSchema,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementScalarData,
+    MeasurementSegmentedArray,
     MeasurementUnavailable,
     MeasurementUnavailableReason,
     MeasurementValue,
@@ -35,7 +37,7 @@ from scopecat.records.measurement import (
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.metadata import JsonMetadata, validate_json_metadata
 
-MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v4"
+MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v9"
 
 _FORMAT_KEY = b"scopecat.format"
 _RUN_ID_KEY = b"scopecat.run_id"
@@ -53,24 +55,10 @@ _VARIABLE_UNIT_KEY = b"scopecat.variable_unit"
 _LOGICAL_POINT_ID_COLUMN = "__scopecat.logical_point_id"
 _POINT_INDEX_COLUMN = "__scopecat.point_index"
 _RECORD_METADATA_COLUMN = "__scopecat.record_metadata"
+_RECORD_EVIDENCE_COLUMN = "__scopecat.acquisition_evidence"
 
-_SHAPE_TYPE = pa.large_list(pa.field("extent", pa.int64()))
-_EVIDENCE_TYPE = pa.struct(
-    [
-        pa.field("command_id", pa.string(), nullable=False),
-        pa.field("instrument_id", pa.string(), nullable=False),
-        pa.field("interface_id", pa.string(), nullable=False),
-        pa.field(
-            "component_path",
-            pa.large_list(pa.field("component", pa.string(), nullable=False)),
-            nullable=False,
-        ),
-        pa.field("acquisition_id", pa.string(), nullable=False),
-        pa.field("result_id", pa.string(), nullable=False),
-        pa.field("started_at", pa.string(), nullable=False),
-        pa.field("completed_at", pa.string(), nullable=False),
-    ]
-)
+_SHAPE_TYPE = pa.large_binary()
+_EVIDENCE_TYPE = pa.large_binary()
 
 
 class MeasurementArrowCodecError(ValueError):
@@ -245,6 +233,7 @@ def _record_schema(dataset_schema: MeasurementDatasetSchema) -> pa.Schema:
         pa.field(_LOGICAL_POINT_ID_COLUMN, pa.string()),
         pa.field(_POINT_INDEX_COLUMN, pa.int64(), nullable=False),
         pa.field(_RECORD_METADATA_COLUMN, pa.large_binary(), nullable=False),
+        pa.field(_RECORD_EVIDENCE_COLUMN, _EVIDENCE_TYPE, nullable=False),
     ]
     dimension_sizes = {
         dimension.id: dimension.size for dimension in dataset_schema.dimensions
@@ -260,18 +249,22 @@ def _record_schema(dataset_schema: MeasurementDatasetSchema) -> pa.Schema:
                             variable,
                             dimension_sizes=dimension_sizes,
                         ),
-                        item_nullable=False,
+                        item_nullable=True,
                     ),
                     metadata=_variable_field_metadata(variable),
                 ),
                 pa.field(_reason_column(variable.id), pa.string()),
                 pa.field(_shape_column(variable.id), _SHAPE_TYPE),
                 pa.field(
+                    _availability_column(variable.id),
+                    pa.large_binary(),
+                    nullable=False,
+                ),
+                pa.field(
                     _metadata_column(variable.id),
                     pa.large_binary(),
                     nullable=False,
                 ),
-                pa.field(_evidence_column(variable.id), _EVIDENCE_TYPE),
             ]
         )
     return pa.schema(fields)
@@ -321,6 +314,13 @@ def _encode_columns(
             [_encode_json(record.metadata) for record in records],
             type=pa.large_binary(),
         ),
+        pa.array(
+            [
+                _encode_json(record.acquisition_evidence.model_dump(mode="json"))
+                for record in records
+            ],
+            type=_EVIDENCE_TYPE,
+        ),
     ]
     dimension_sizes = {
         dimension.id: dimension.size for dimension in dataset_schema.dimensions
@@ -342,7 +342,7 @@ def _encode_columns(
                         variable,
                         dimension_sizes=dimension_sizes,
                     ),
-                    item_nullable=False,
+                    item_nullable=True,
                 ),
                 pa.array(
                     [
@@ -365,15 +365,12 @@ def _encode_columns(
                     type=_SHAPE_TYPE,
                 ),
                 pa.array(
-                    [_encode_json(value.metadata) for value in values],
+                    [_encode_availability(value) for value in values],
                     type=pa.large_binary(),
                 ),
                 pa.array(
-                    [
-                        _encode_evidence(record.acquisition_evidence.get(variable.id))
-                        for record in records
-                    ],
-                    type=_EVIDENCE_TYPE,
+                    [_encode_json(value.metadata) for value in values],
+                    type=pa.large_binary(),
                 ),
             ]
         )
@@ -426,7 +423,10 @@ def _validate_value_contract(
         dimension_sizes=dimension_sizes,
     )
     actual_shape: tuple[int | None, ...]
-    if isinstance(value, MeasurementArray | MeasurementUnavailable):
+    if isinstance(
+        value,
+        MeasurementArray | MeasurementSegmentedArray | MeasurementUnavailable,
+    ):
         actual_shape = tuple(value.shape)
     else:
         actual_shape = ()
@@ -452,31 +452,69 @@ def _encoded_shape(
     *,
     variable: MeasurementVariable,
     dimension_sizes: Mapping[str, int | None],
-) -> list[int | None] | None:
+) -> bytes | None:
     if isinstance(value, MeasurementUnavailable):
-        return list(value.shape)
+        return _encode_json({"shape": value.shape})
+    if isinstance(value, MeasurementSegmentedArray):
+        return _encode_json(
+            {
+                "segments": tuple(
+                    (
+                        {"shape": segment.shape}
+                        if isinstance(segment, MeasurementUnavailable)
+                        or 0 in segment.shape
+                        else None
+                    )
+                    for segment in value.segments
+                )
+            }
+        )
     if isinstance(value, MeasurementArray) and any(
         dimension_sizes[dimension_id] is None for dimension_id in variable.dims[1:]
     ):
-        return list(value.shape)
+        return _encode_json({"shape": value.shape})
     return None
 
 
-def _encode_evidence(
-    evidence: InstrumentAcquisitionEvidence | None,
-) -> dict[str, object] | None:
-    if evidence is None:
-        return None
-    return {
-        "command_id": evidence.command_id,
-        "instrument_id": evidence.instrument_id,
-        "interface_id": evidence.interface_id,
-        "component_path": list(evidence.component_path),
-        "acquisition_id": evidence.acquisition_id,
-        "result_id": evidence.result_id,
-        "started_at": evidence.started_at.isoformat(),
-        "completed_at": evidence.completed_at.isoformat(),
-    }
+def _encode_availability(value: MeasurementValue) -> bytes:
+    if isinstance(value, MeasurementSegmentedArray):
+        return _encode_json(
+            {
+                "segments": tuple(
+                    (
+                        {
+                            "kind": "unavailable",
+                            "reason": segment.reason,
+                            "metadata": segment.metadata,
+                        }
+                        if isinstance(segment, MeasurementUnavailable)
+                        else {
+                            "kind": "array",
+                            "metadata": segment.metadata,
+                            "unavailable": tuple(
+                                group.model_dump(mode="json")
+                                for group in (
+                                    ()
+                                    if segment.availability is None
+                                    else segment.availability.unavailable
+                                )
+                            ),
+                        }
+                    )
+                    for segment in value.segments
+                )
+            }
+        )
+    if not isinstance(value, MeasurementArray) or value.availability is None:
+        return _encode_json({})
+    return _encode_json(
+        {
+            "unavailable": [
+                group.model_dump(mode="json")
+                for group in value.availability.unavailable
+            ]
+        }
+    )
 
 
 def _read_batch(
@@ -576,13 +614,19 @@ def _decode_records(
         logical_point_ids = batch.column(_LOGICAL_POINT_ID_COLUMN)
         point_indices = batch.column(_POINT_INDEX_COLUMN)
         record_metadata = batch.column(_RECORD_METADATA_COLUMN)
+        evidence_catalogs = tuple(
+            MeasurementAcquisitionEvidenceCatalog.model_validate(
+                _decode_json(value.as_py())
+            ).select([variable.id for variable in variables])
+            for value in batch.column(_RECORD_EVIDENCE_COLUMN)
+        )
         variable_columns = {
             variable.id: (
                 batch.column(_value_column(variable.id)),
                 batch.column(_reason_column(variable.id)),
                 batch.column(_shape_column(variable.id)),
+                batch.column(_availability_column(variable.id)),
                 batch.column(_metadata_column(variable.id)),
-                batch.column(_evidence_column(variable.id)),
             )
             for variable in variables
         }
@@ -590,28 +634,25 @@ def _decode_records(
         for row_index in range(batch.num_rows):
             coordinates: dict[str, MeasurementValue] = {}
             observables: dict[str, MeasurementValue] = {}
-            evidence: dict[str, InstrumentAcquisitionEvidence] = {}
             for variable in variables:
                 (
                     value_column,
                     reason_column,
                     shape_column,
+                    availability_column,
                     metadata_column,
-                    evidence_column,
                 ) = variable_columns[variable.id]
                 value = _decode_value(
                     value_column[row_index],
                     reason=reason_column[row_index].as_py(),
                     encoded_shape=shape_column[row_index].as_py(),
+                    encoded_availability=availability_column[row_index].as_py(),
                     encoded_metadata=metadata_column[row_index].as_py(),
                     variable=variable,
                     dataset_schema=dataset_schema,
                 )
                 target = coordinates if variable.role == "coordinate" else observables
                 target[variable.id] = value
-                encoded_evidence = evidence_column[row_index].as_py()
-                if encoded_evidence is not None:
-                    evidence[variable.id] = _decode_evidence(encoded_evidence)
             records.append(
                 MeasurementRecord(
                     run_id=run_id,
@@ -619,7 +660,7 @@ def _decode_records(
                     point_index=point_indices[row_index].as_py(),
                     coordinates=coordinates,
                     observables=observables,
-                    acquisition_evidence=evidence,
+                    acquisition_evidence=evidence_catalogs[row_index],
                     metadata=_decode_json(record_metadata[row_index].as_py()),
                 )
             )
@@ -655,21 +696,35 @@ def _decode_value(
     *,
     reason: object,
     encoded_shape: object,
+    encoded_availability: object,
     encoded_metadata: object,
     variable: MeasurementVariable,
     dataset_schema: MeasurementDatasetSchema,
 ) -> MeasurementValue:
     metadata = _decode_json(encoded_metadata)
+    availability_groups = _decode_availability(encoded_availability)
     if reason is not None:
-        if encoded_value.is_valid or not isinstance(encoded_shape, list):
+        if (
+            encoded_value.is_valid
+            or not isinstance(encoded_shape, bytes)
+            or availability_groups
+        ):
             raise MeasurementArrowCodecError(
                 "measurement Arrow unavailable sidecars are inconsistent"
+            )
+        decoded_shape = _decode_json(encoded_shape).get("shape")
+        if not isinstance(decoded_shape, list) or any(
+            extent is not None and not isinstance(extent, int)
+            for extent in decoded_shape
+        ):
+            raise MeasurementArrowCodecError(
+                "measurement Arrow unavailable shape sidecar is invalid"
             )
         return MeasurementUnavailable.create(
             reason=cast("MeasurementUnavailableReason", reason),
             dtype=variable.dtype,
             unit=variable.unit,
-            shape=cast("list[int | None]", encoded_shape),
+            shape=cast("list[int | None]", decoded_shape),
             metadata=metadata,
         )
     if not encoded_value.is_valid:
@@ -677,7 +732,7 @@ def _decode_value(
             "measurement Arrow available value payload is missing"
         )
     if len(variable.dims) == 1:
-        if encoded_shape is not None:
+        if encoded_shape is not None or availability_groups:
             raise MeasurementArrowCodecError(
                 "measurement Arrow scalar has an unexpected shape sidecar"
             )
@@ -690,18 +745,230 @@ def _decode_value(
             unit=variable.unit,
             metadata=metadata,
         )
+    segment_shape_specs = _decode_segment_shape_specs(encoded_shape)
+    if segment_shape_specs is not None:
+        if availability_groups:
+            raise MeasurementArrowCodecError(
+                "measurement Arrow segmented diagnostics are inconsistent"
+            )
+        return _decode_segmented_array(
+            encoded_value,
+            shape_specs=segment_shape_specs,
+            encoded_availability=encoded_availability,
+            variable=variable,
+            metadata=metadata,
+        )
     shape = _decoded_array_shape(
         encoded_shape,
         variable=variable,
         dataset_schema=dataset_schema,
     )
-    array = _decode_array_values(encoded_value, dtype=variable.dtype).reshape(shape)
+    array, valid = _decode_array_values(encoded_value, dtype=variable.dtype)
+    array = array.reshape(shape)
+    valid = valid.reshape(shape)
+    if availability_groups:
+        availability = MeasurementArrayAvailability(
+            valid=valid,
+            unavailable=availability_groups,
+        )
+    else:
+        if not bool(np.all(valid)):
+            raise MeasurementArrowCodecError(
+                "measurement Arrow partial value diagnostics are missing"
+            )
+        availability = None
     return MeasurementArray.create(
         values=array,
         dtype=variable.dtype,
         unit=variable.unit,
+        availability=availability,
         metadata=metadata,
     )
+
+
+def _decode_availability(
+    value: object,
+) -> tuple[MeasurementArrayUnavailableGroup, ...]:
+    decoded = _decode_json(value)
+    raw_groups = decoded.get("unavailable", ())
+    if not isinstance(raw_groups, list | tuple):
+        raise MeasurementArrowCodecError(
+            "measurement Arrow array availability is invalid"
+        )
+    return tuple(
+        MeasurementArrayUnavailableGroup.model_validate(group) for group in raw_groups
+    )
+
+
+def _decode_segment_shape_specs(
+    encoded_shape: object,
+) -> tuple[tuple[int | None, ...] | None, ...] | None:
+    if not isinstance(encoded_shape, bytes):
+        return None
+    decoded = _decode_json(encoded_shape)
+    raw_segments = decoded.get("segments")
+    if raw_segments is None:
+        return None
+    if not isinstance(raw_segments, list) or not raw_segments:
+        raise MeasurementArrowCodecError(
+            "measurement Arrow segmented shape sidecar is invalid"
+        )
+    selected: list[tuple[int | None, ...] | None] = []
+    for raw_segment in raw_segments:
+        if raw_segment is None:
+            selected.append(None)
+            continue
+        if not isinstance(raw_segment, dict):
+            raise MeasurementArrowCodecError(
+                "measurement Arrow segmented shape sidecar is invalid"
+            )
+        raw_shape = raw_segment.get("shape")
+        if not isinstance(raw_shape, list) or any(
+            extent is not None and not isinstance(extent, int) for extent in raw_shape
+        ):
+            raise MeasurementArrowCodecError(
+                "measurement Arrow segmented shape sidecar is invalid"
+            )
+        selected.append(tuple(cast("list[int | None]", raw_shape)))
+    return tuple(selected)
+
+
+def _decode_segmented_array(
+    encoded_value: pa.Scalar,
+    *,
+    shape_specs: Sequence[tuple[int | None, ...] | None],
+    encoded_availability: object,
+    variable: MeasurementVariable,
+    metadata: Mapping[str, object],
+) -> MeasurementSegmentedArray:
+    decoded = _decode_json(encoded_availability)
+    raw_diagnostics = decoded.get("segments")
+    if not isinstance(raw_diagnostics, list) or len(raw_diagnostics) != len(
+        shape_specs
+    ):
+        raise MeasurementArrowCodecError(
+            "measurement Arrow segmented diagnostics are invalid"
+        )
+    encoded_segments = cast(
+        "pa.ListScalar | pa.FixedSizeListScalar", encoded_value
+    ).values
+    if len(encoded_segments) != len(shape_specs):
+        raise MeasurementArrowCodecError(
+            "measurement Arrow segmented cardinality is invalid"
+        )
+    local_rank = len(variable.dims) - 2
+    segments: list[MeasurementArray | MeasurementUnavailable] = []
+    for index, (shape_spec, raw_diagnostic) in enumerate(
+        zip(shape_specs, raw_diagnostics, strict=True)
+    ):
+        if not isinstance(raw_diagnostic, dict):
+            raise MeasurementArrowCodecError(
+                "measurement Arrow segmented diagnostics are invalid"
+            )
+        segment_value = encoded_segments[index]
+        kind = raw_diagnostic.get("kind")
+        segment_metadata = raw_diagnostic.get("metadata")
+        if not isinstance(segment_metadata, dict):
+            raise MeasurementArrowCodecError(
+                "measurement Arrow segmented metadata is invalid"
+            )
+        if kind == "unavailable":
+            reason = raw_diagnostic.get("reason")
+            if (
+                segment_value.is_valid
+                or shape_spec is None
+                or not isinstance(reason, str)
+            ):
+                raise MeasurementArrowCodecError(
+                    "measurement Arrow unavailable segment is inconsistent"
+                )
+            segments.append(
+                MeasurementUnavailable.create(
+                    reason=cast("MeasurementUnavailableReason", reason),
+                    dtype=variable.dtype,
+                    unit=variable.unit,
+                    shape=shape_spec,
+                    metadata=segment_metadata,
+                )
+            )
+            continue
+        if kind != "array" or not segment_value.is_valid:
+            raise MeasurementArrowCodecError(
+                "measurement Arrow available segment is inconsistent"
+            )
+        shape = (
+            _nested_array_shape(segment_value.as_py(), rank=local_rank)
+            if shape_spec is None
+            else shape_spec
+        )
+        if any(extent is None for extent in shape):
+            raise MeasurementArrowCodecError(
+                "measurement Arrow available segment shape is not concrete"
+            )
+        concrete_shape = cast("tuple[int, ...]", shape)
+        array, valid = _decode_array_values(segment_value, dtype=variable.dtype)
+        try:
+            array = array.reshape(concrete_shape)
+            valid = valid.reshape(concrete_shape)
+        except ValueError as error:
+            raise MeasurementArrowCodecError(
+                "measurement Arrow available segment shape is invalid"
+            ) from error
+        raw_groups = raw_diagnostic.get("unavailable")
+        if not isinstance(raw_groups, list):
+            raise MeasurementArrowCodecError(
+                "measurement Arrow segmented diagnostics are invalid"
+            )
+        groups = tuple(
+            MeasurementArrayUnavailableGroup.model_validate(group)
+            for group in raw_groups
+        )
+        if groups:
+            availability = MeasurementArrayAvailability(
+                valid=valid,
+                unavailable=groups,
+            )
+        else:
+            if not bool(np.all(valid)):
+                raise MeasurementArrowCodecError(
+                    "measurement Arrow partial segment diagnostics are missing"
+                )
+            availability = None
+        segments.append(
+            MeasurementArray.create(
+                values=array,
+                dtype=variable.dtype,
+                unit=variable.unit,
+                availability=availability,
+                metadata=segment_metadata,
+            )
+        )
+    return MeasurementSegmentedArray.create(
+        segments=segments,
+        dtype=variable.dtype,
+        unit=variable.unit,
+        metadata=metadata,
+    )
+
+
+def _nested_array_shape(value: object, *, rank: int) -> tuple[int, ...]:
+    if rank <= 0 or not isinstance(value, list):
+        raise MeasurementArrowCodecError(
+            "measurement Arrow segmented value has invalid local rank"
+        )
+    selected = cast("list[object]", value)
+    if rank == 1:
+        return (len(selected),)
+    if not selected:
+        raise MeasurementArrowCodecError(
+            "measurement Arrow empty segment requires an explicit shape"
+        )
+    child_shapes = {_nested_array_shape(child, rank=rank - 1) for child in selected}
+    if len(child_shapes) != 1:
+        raise MeasurementArrowCodecError(
+            "measurement Arrow segmented value is not rectangular"
+        )
+    return (len(selected), *next(iter(child_shapes)))
 
 
 def _decoded_array_shape(
@@ -717,13 +984,19 @@ def _decoded_array_shape(
         dimension_sizes[dimension_id] for dimension_id in variable.dims[1:]
     )
     if any(extent is None for extent in expected):
-        if not isinstance(encoded_shape, list) or any(
-            not isinstance(extent, int) for extent in encoded_shape
-        ):
+        if not isinstance(encoded_shape, bytes):
             raise MeasurementArrowCodecError(
                 "measurement Arrow ragged value shape sidecar is missing"
             )
-        return tuple(cast("list[int]", encoded_shape))
+        decoded = _decode_json(encoded_shape)
+        shape = decoded.get("shape")
+        if not isinstance(shape, list) or any(
+            not isinstance(extent, int) for extent in shape
+        ):
+            raise MeasurementArrowCodecError(
+                "measurement Arrow ragged value shape sidecar is invalid"
+            )
+        return tuple(cast("list[int]", shape))
     if encoded_shape is not None:
         raise MeasurementArrowCodecError(
             "measurement Arrow fixed value has an unexpected shape sidecar"
@@ -745,7 +1018,10 @@ def _decode_array_values(
     value: pa.Scalar,
     *,
     dtype: MeasurementDType,
-) -> np.ndarray[tuple[int], np.dtype[np.generic]]:
+) -> tuple[
+    np.ndarray[tuple[int], np.dtype[np.generic]],
+    np.ndarray[tuple[int], np.dtype[np.bool_]],
+]:
     selected = cast("pa.ListScalar | pa.FixedSizeListScalar", value).values
     while (
         pa.types.is_list(selected.type)
@@ -760,24 +1036,29 @@ def _decode_array_values(
         complex_values = cast("pa.StructArray", selected)
         real = complex_values.field("real").to_numpy(zero_copy_only=False)
         imag = complex_values.field("imag").to_numpy(zero_copy_only=False)
-        return np.asarray(real + 1j * imag, dtype=np.complex128)
-    return np.asarray(
-        selected.to_numpy(zero_copy_only=False),
-        dtype=_numpy_dtype(dtype),
+        values = np.asarray(real + 1j * imag, dtype=np.complex128)
+    else:
+        fill_value: str | bool | int
+        if dtype == "string":
+            fill_value = ""
+        elif dtype == "bool":
+            fill_value = False
+        else:
+            fill_value = 0
+        values = np.asarray(
+            selected.fill_null(fill_value).to_numpy(zero_copy_only=False),
+            dtype=_numpy_dtype(dtype),
+        )
+    valid = np.asarray(
+        selected.is_valid().to_numpy(zero_copy_only=False),
+        dtype=np.bool_,
     )
-
-
-def _decode_evidence(value: object) -> InstrumentAcquisitionEvidence:
-    encoded = cast("Mapping[str, object]", value)
-    return InstrumentAcquisitionEvidence(
-        command_id=cast("str", encoded["command_id"]),
-        instrument_id=cast("str", encoded["instrument_id"]),
-        interface_id=cast("str", encoded["interface_id"]),
-        component_path=tuple(cast("list[str]", encoded["component_path"])),
-        acquisition_id=cast("str", encoded["acquisition_id"]),
-        result_id=cast("str", encoded["result_id"]),
-        started_at=datetime.fromisoformat(cast("str", encoded["started_at"])),
-        completed_at=datetime.fromisoformat(cast("str", encoded["completed_at"])),
+    if not bool(np.all(valid)):
+        values = values.copy()
+        values[~valid] = 0 if dtype != "string" else ""
+    return (
+        values,
+        valid,
     )
 
 
@@ -804,12 +1085,12 @@ def _shape_column(variable_id: str) -> str:
     return f"value_shape:{variable_id}"
 
 
+def _availability_column(variable_id: str) -> str:
+    return f"availability:{variable_id}"
+
+
 def _metadata_column(variable_id: str) -> str:
     return f"metadata:{variable_id}"
-
-
-def _evidence_column(variable_id: str) -> str:
-    return f"evidence:{variable_id}"
 
 
 def _numpy_dtype(dtype: MeasurementDType) -> np.dtype[np.generic]:

@@ -1,5 +1,5 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Int64, LargeBinary, Schema, Table, Utf8, tableToIPC, vectorFromArray } from "apache-arrow";
 import {
   getMeasurementLivePreview,
   getMeasurementPreview,
@@ -16,6 +16,10 @@ import {
 import type { MeasurementRecord } from "../../api-contract";
 import { requestPath } from "../../test/http";
 import type { ContentEntry } from "../../types";
+
+const liveMeasurementFixture = readFileSync(
+  new URL("./test-fixtures/measurement-append-v9.arrow", import.meta.url),
+);
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -474,20 +478,19 @@ describe("run daemon reads", () => {
   });
 
   it("reads the latest daemon-received measurement without forcing a flush", async () => {
-    const latest = {
-      ...measurementRecord("run/1", 3),
-      acquisition_evidence: {},
-      metadata: {},
-    };
     const fetchMock = vi.fn((_input: RequestInfo | URL) =>
-      Promise.resolve(liveArrowResponse("run/1", 3, 4, 0)),
+      Promise.resolve(liveArrowResponse(8, 0)),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(getMeasurementLivePreview("run/1")).resolves.toEqual({
+    await expect(getMeasurementLivePreview("run/1")).resolves.toMatchObject({
       active: true,
-      latest,
-      receivedRecordCount: 4,
+      latest: {
+        run_id: "run-arrow-v9",
+        logical_point_id: "point-7",
+        point_index: 7,
+      },
+      receivedRecordCount: 8,
       durableRecordCount: 0,
     });
     expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
@@ -530,11 +533,14 @@ describe("run daemon reads", () => {
       coordinate_id: "frequency",
       dimension_id: "sample",
       downsampling: "minmax" as const,
+      layout: "overlay" as const,
       fixed_axis_indices: { bias: 1 },
       observable_id: "signal",
       recording_group_id: "readout",
       returned_sample_count: 2,
       returned_series_count: 1,
+      inspected_series_count: 1,
+      failures: [],
       samples_reduced: true,
       selected_series_count: 6,
       series: [
@@ -542,6 +548,8 @@ describe("run daemon reads", () => {
           label: "Point 3",
           point_index: 3,
           source_sample_count: 100,
+          available_sample_count: 100,
+          unavailable_reasons: [],
           x: [4.9, 5.1],
           y: [0.2, 0.3],
         },
@@ -559,6 +567,7 @@ describe("run daemon reads", () => {
         coordinateId: "frequency",
         fixedAxisIndices: { bias: 1 },
         valueMode: "magnitude",
+        entityIndices: [1, 3],
       }),
     ).resolves.toEqual(response);
     const request = fetchMock.mock.calls[0]?.[0];
@@ -568,6 +577,7 @@ describe("run daemon reads", () => {
       coordinate_id: "frequency",
       downsampling: "minmax",
       fixed_axis_indices: { bias: 1 },
+      entity_indices: [1, 3],
       max_samples: 4096,
       max_series: 32,
       observable_id: "signal",
@@ -578,9 +588,9 @@ describe("run daemon reads", () => {
 
 function measurementSchema() {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v10" as const,
+    format_version: "scopecat.measurement_dataset_schema.v16" as const,
     dataset_id: "raw-measurements",
-    record_schema: "scopecat.measurement_record.v4" as const,
+    record_schema: "scopecat.measurement_record.v9" as const,
     point_domain: { kind: "product_grid" as const, axes: [] },
     dimensions: [{ id: "point", kind: "point", size: 1 }],
     variables: [],
@@ -670,24 +680,12 @@ function jsonResponse(body: unknown): Response {
   });
 }
 
-function liveArrowResponse(
-  runId: string,
-  pointIndex: number,
-  receivedRecordCount: number,
-  durableRecordCount: number,
-): Response {
-  const metadata = new TextEncoder().encode("{}");
-  const base = new Table({
-    "__scopecat.logical_point_id": vectorFromArray([`point-${pointIndex}`], new Utf8()),
-    "__scopecat.point_index": vectorFromArray([BigInt(pointIndex)], new Int64()),
-    "__scopecat.record_metadata": vectorFromArray([metadata], new LargeBinary()),
-  });
-  const table = new Table(
-    new Schema(base.schema.fields, new Map([["scopecat.run_id", runId]])),
-    base.batches,
+function liveArrowResponse(receivedRecordCount: number, durableRecordCount: number): Response {
+  const content = liveMeasurementFixture.buffer.slice(
+    liveMeasurementFixture.byteOffset,
+    liveMeasurementFixture.byteOffset + liveMeasurementFixture.byteLength,
   );
-  const content = tableToIPC(table, "file");
-  return new Response(content.slice().buffer, {
+  return new Response(content, {
     status: 200,
     headers: {
       "Content-Type": "application/vnd.apache.arrow.file",

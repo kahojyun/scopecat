@@ -29,6 +29,70 @@ an arbitrary sentinel. Point-local experiment compute propagates unavailable
 measured inputs without invoking the user kernel; filtering those rows remains
 an explicit analysis decision.
 
+### Entity-indexed results
+
+Homogeneous results returned for several entities are recorded as one variable
+with an entity dimension, rather than as one variable per entity. For example,
+a returned `PerEntity[NetworkSweepProducts]` produces one `frequency` variable
+and one `s_parameter` variable. Their shape begins with
+`(point, logical_device, ...)`, and the durable dimension index stores the
+ordered `(kind, id)` identities and the product source corresponding to each
+position.
+
+`invocation.output` preserves the experiment function's authored return type,
+including `PerEntity` identity mappings. `invocation.result_ref(path)` exposes
+the durable handle for a returned path; use `entity_result_ref(path)` for a
+statically typed array `RecordRef`. This keeps static authoring types honest
+while the recording boundary turns homogeneous product mappings into data axes.
+Heterogeneous mappings continue to expand as structured result paths.
+When a grouped value is not part of the return tree, select the same layout
+explicitly with
+`experiment.stack_entities(products, record_id="readout", axis="qubit")`.
+
+Select entities by identity rather than position:
+
+```python
+q1 = data.sel(logical_device="q1")
+xds = data.to_xarray()
+assert xds.coords["logical_device"].values.tolist() == ["q0", "q1"]
+```
+
+Entity identity is always the complete `(kind, id)` pair. A homogeneous axis
+uses readable ids as its Xarray coordinate labels; a mixed-kind axis uses a
+collision-free canonical identity key and keeps the readable ids separately in
+`scopecat_entity_labels_json`. The ordered axis also has a stable fingerprint.
+Authored entity `RecordRef` handles bind that fingerprint, so a handle cannot be
+silently reused after an entity axis has changed.
+
+Align datasets before comparing entity-indexed variables:
+
+```python
+left, right = left.align_entities(right, "logical_device", join="inner")
+# join="outer" keeps the union in left-first order and masks absent leaves.
+```
+
+The default `join="exact"` requires the same identities in the same order.
+`inner` keeps shared identities in the left dataset's order. `outer` appends
+right-only identities, records `missing` availability for absent fixed-shape
+array leaves, and stores null product-source and acquisition-evidence entries
+for those positions. Use `reindex_entities(dimension, entities)` when one
+explicit target order is already known. For an absent entity-local ragged
+value, outer alignment inserts a `MeasurementUnavailable` segment with an
+unknown local extent. It contributes no observations while preserving the
+requested entity position and its missing-data reason.
+
+For unit-bearing scalar or array variables, `magnitudes("mV")` performs the
+same linear conversion while preserving array shape and partial-value masks;
+`require_magnitudes("mV")` additionally rejects whole unavailable rows.
+
+When only some entity, shot, or sample leaves fail, the value remains a
+`MeasurementArray` with a read-only boolean availability mask. Native Dataset
+access returns a NumPy masked array, Xarray emits `<variable>__valid` and
+`<variable>__unavailable_reason` arrays on the same dimensions, and Arrow uses
+null leaves inside the nested array. A whole-value failure still uses
+`MeasurementUnavailable`; all-success values carry no mask or diagnostic
+sidecar.
+
 ### Variable-length results
 
 An acquisition axis with no fixed extent is ragged:
@@ -47,6 +111,15 @@ Ragged arrays preserve each point-local shape and are never padded. The native
 Xarray view carries parent-point and local-index coordinates, pandas point
 layout keeps each array in one cell, and an observation projection emits one
 row per local sample.
+
+An entity-indexed ragged variable is represented by
+`MeasurementSegmentedArray`. Its `segments` stay aligned to the entity axis;
+each segment is either one rectangular `MeasurementArray` or a
+`MeasurementUnavailable` value with its own local shape. The aggregate `shape`
+keeps the entity count and reports `None` where segment extents differ or are
+unknown. Flattened `values` and `availability` remain available for native
+observation processing, while `segments` preserve the boundaries needed for
+per-entity inspection and Arrow round trips.
 
 Available `MeasurementArray.values` are read-only, C-contiguous NumPy arrays
 with the declared dtype. Available scalar values are normalized to the declared
@@ -107,10 +180,13 @@ complete = result.where_available(result.output.temperature)
 rows = complete.rows(build_fit_row)
 ```
 
-`run.result(authored_output)` binds the original typed handles. `run.result()`
-uses persisted result paths and does not rebuild the experiment. Both expose
-the same dataset as `.dataset`; use `run.measurements()` directly when work
-starts from dataset variables instead of the experiment's return tree.
+`run.result(authored_output)` binds original typed handles when recording keeps
+the same tree shape. If automatic entity stacking transformed the return tree,
+use `invocation.entity_result_ref(path)` for direct dataset access or
+`run.result()` and its persisted result paths. The latter does not rebuild the
+experiment. All variants expose the same dataset as `.dataset`; use
+`run.measurements()` directly when work starts from
+dataset variables instead of the experiment's return tree.
 
 Analysis receives this same facade through `context.measurements()`. Accessing
 it records the exact measurement snapshot dependency. Run artifacts and JSON
@@ -151,6 +227,7 @@ The conversion rules are fixed:
 | --- | --- | --- | --- |
 | point scalar | declared scalar type | native scalar column | `point` variable |
 | point-local array | fixed or variable list | NumPy array per row | named local dimensions |
+| partially available array | nested values with null leaves | NumPy masked array | fill values plus element validity/reasons |
 | `complex128` | `{real, imag}` struct | native complex scalar or array | native complex array |
 | unavailable | null plus optional diagnostics | missing value plus optional diagnostics | fill value plus diagnostics |
 
@@ -221,7 +298,30 @@ the currently durable point count, so later appends belong to a later reader.
 This is a finite snapshot, not a live subscription. Live cursors, checkpoints,
 retries, and finalization belong to a future workflow streaming contract.
 
-### Use the native Xarray view
+### Use native labeled arrays
+
+Each variable exposes values, labels, validity, failure reasons, and units
+through one Scopecat-owned facade:
+
+```python
+temperature = data["temperature"].dense
+assert temperature.layout == "dense"
+valid_temperature = temperature.values[temperature.valid]
+temperature_mk = temperature.to("mK")
+
+waveform = data["waveform"].observations
+assert waveform.layout == "ragged"
+assert waveform.declared_dims == ("point", "sample")
+parent_points = waveform.coords["readout__sample__parent_point_index"]
+```
+
+`Variable.labeled` works for either layout. `Variable.dense` rejects ragged
+data, while `Variable.observations` rejects dense data, so code cannot silently
+confuse a rectangular tensor with a flattened indexed-observation stream.
+`LabeledMeasurementArray.isel(...)` and `.sel(...)` keep labels and diagnostics
+aligned. Its NumPy values, validity mask, reasons, and coordinates are read-only.
+
+### Use the Xarray view
 
 `Dataset.to_xarray()` preserves Scopecat's labeled point-domain and ragged
 layout without crossing the tabular projection boundary:

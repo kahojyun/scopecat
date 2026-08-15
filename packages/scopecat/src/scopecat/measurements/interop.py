@@ -23,6 +23,7 @@ from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementScalar,
+    MeasurementSegmentedArray,
     MeasurementUnavailable,
     MeasurementValue,
 )
@@ -644,6 +645,37 @@ def _projected_values(
             )
         else:
             array = value
+            if isinstance(array, MeasurementSegmentedArray):
+                selected.append(
+                    MeasurementSegmentedArray.create(
+                        segments=tuple(
+                            segment.model_copy(
+                                update={"dtype": field.dtype, "unit": field.unit}
+                            )
+                            if isinstance(segment, MeasurementUnavailable)
+                            else MeasurementArray.create(
+                                values=np.asarray(
+                                    segment.values,
+                                    dtype=(
+                                        np.complex128
+                                        if field.dtype == "complex128"
+                                        else np.float64
+                                    ),
+                                )
+                                * scale,
+                                dtype=field.dtype,
+                                unit=field.unit,
+                                availability=segment.availability,
+                                metadata=segment.metadata,
+                            )
+                            for segment in array.segments
+                        ),
+                        dtype=field.dtype,
+                        unit=field.unit,
+                        metadata=array.metadata,
+                    )
+                )
+                continue
             selected.append(
                 MeasurementArray.create(
                     values=np.asarray(
@@ -655,6 +687,7 @@ def _projected_values(
                     * scale,
                     dtype=field.dtype,
                     unit=field.unit,
+                    availability=array.availability,
                     metadata=array.metadata,
                 )
             )
@@ -670,6 +703,38 @@ def _unavailable_columns(
         if isinstance(value, MeasurementUnavailable):
             reasons.append(value.reason)
             metadata.append(_stable_json(value.metadata))
+        elif isinstance(value, MeasurementArray | MeasurementSegmentedArray) and (
+            value.availability is not None
+            or (
+                isinstance(value, MeasurementSegmentedArray)
+                and value.has_unavailable_segments
+            )
+        ):
+            reasons.append("partial")
+            availability = value.availability
+            metadata.append(
+                _stable_json(
+                    {
+                        "unavailable": [
+                            group.model_dump(mode="json")
+                            for group in (
+                                () if availability is None else availability.unavailable
+                            )
+                        ],
+                        "segments": [
+                            {
+                                "index": index,
+                                "reason": segment.reason,
+                                "metadata": segment.metadata,
+                            }
+                            for index, segment in enumerate(value.segments)
+                            if isinstance(segment, MeasurementUnavailable)
+                        ]
+                        if isinstance(value, MeasurementSegmentedArray)
+                        else [],
+                    }
+                )
+            )
         else:
             reasons.append(None)
             metadata.append(None)
@@ -747,6 +812,17 @@ def _observation_value(
         return value.model_copy(update={"shape": ()})
     if not isinstance(value, MeasurementArray):
         raise TypeError(f"observation field {field.name!r} is not array-valued")
+    if value.availability is not None:
+        flat_index = int(np.ravel_multi_index(local_index, value.values.shape))
+        for group in value.availability.unavailable:
+            if flat_index in group.flat_indices:
+                return MeasurementUnavailable.create(
+                    reason=group.reason,
+                    dtype=field.dtype,
+                    unit=field.unit,
+                    shape=(),
+                    metadata=group.metadata,
+                )
     return MeasurementScalar.create(
         value=cast("object", value.values[local_index]),
         dtype=field.dtype,

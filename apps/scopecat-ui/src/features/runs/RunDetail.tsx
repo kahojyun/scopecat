@@ -11,7 +11,10 @@ import type {
 } from "../../types";
 import { RunProposals } from "../proposals/RunProposals";
 import { RunDomainDecisionCard } from "./RunDomainDecisionCard";
-import type { MeasurementTraceQueryPlan } from "./measurement-visualization";
+import type {
+  MeasurementEntitySelection,
+  MeasurementTraceQueryPlan,
+} from "./measurement-visualization";
 import {
   AnalysisCard,
   DataCard,
@@ -40,6 +43,7 @@ export function RunDetail({
   traceError,
   tracePending,
   onTracePlanChange,
+  onMeasurementEntitySelectionChange,
   measurementFixedAxisIndices,
   onMeasurementFixedAxisIndexChange,
   analyses,
@@ -68,6 +72,7 @@ export function RunDetail({
   traceError: Error | null;
   tracePending: boolean;
   onTracePlanChange: (planId: string) => void;
+  onMeasurementEntitySelectionChange: (selection: MeasurementEntitySelection) => void;
   measurementFixedAxisIndices: Record<string, number>;
   onMeasurementFixedAxisIndexChange: (axisId: string, index: number) => void;
   analyses?: RunAnalysis[];
@@ -207,6 +212,7 @@ export function RunDetail({
           traceError={traceError}
           tracePending={tracePending}
           onTracePlanChange={onTracePlanChange}
+          onMeasurementEntitySelectionChange={onMeasurementEntitySelectionChange}
           measurementFixedAxisIndices={measurementFixedAxisIndices}
           onMeasurementFixedAxisIndexChange={onMeasurementFixedAxisIndexChange}
         />

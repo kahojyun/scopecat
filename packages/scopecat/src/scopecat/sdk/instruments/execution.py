@@ -12,7 +12,7 @@ from scopecat.records.artifact import CommandPayload
 from scopecat.records.instrument import CommandChannelBinding, InstrumentStateSnapshot
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
-    MeasurementValue,
+    MeasurementAcquisitionValue,
 )
 from scopecat.sdk.instruments.commands import (
     CollectCommand,
@@ -127,7 +127,7 @@ class RunHardwareBatch(_HardwareModel):
 class RunHardwareValue(_HardwareModel):
     point_index: int | None = Field(default=None, ge=0)
     value_id: str = Field(min_length=1)
-    value: MeasurementValue
+    value: MeasurementAcquisitionValue
     evidence: InstrumentAcquisitionEvidence
 
 

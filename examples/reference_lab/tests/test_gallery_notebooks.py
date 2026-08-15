@@ -4,6 +4,9 @@ from pathlib import Path
 from runpy import run_path
 from typing import Protocol, cast
 
+from scopecat.daemon.client import DaemonClient
+from scopecat.daemon.views import MeasurementTracePreviewQuery
+
 
 class _ReferenceLabDaemon(Protocol):
     url: str
@@ -278,19 +281,47 @@ def test_channel_conflict_names_the_logical_drive_route(
     assert summary["mentions_drive_q0"] is True
 
 
-def test_one_unavailable_demod_channel_preserves_the_other_channel(
+def test_entity_axis_preserves_the_available_demod_channel(
     reference_lab_daemon: _ReferenceLabDaemon,
 ) -> None:
     assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     namespace = run_path(str(NOTEBOOKS / "29_channel_unavailable.py"))
     summary = cast("dict[str, object]", namespace["channel_unavailable_summary"])
 
-    assert summary == {
-        "records": 2,
-        "q0_unavailable": 0,
-        "q1_unavailable": 1,
-        "q1_available_records": 1,
-    }
+    assert isinstance(summary["run_id"], str)
+    assert summary["status"] == "completed"
+    assert summary["records"] == 2
+    assert summary["variable"] == "iq_shots"
+    assert summary["dims"] == [
+        "point",
+        "logical_qubit",
+        "shared/parallel-two-qubit-ramsey/shot",
+    ]
+    assert summary["shape"] == [2, 2, 64]
+    assert summary["entities"] == ["q0", "q1"]
+    assert summary["available_points"] == {"q0": 2, "q1": 1}
+    assert summary["unavailable_reasons"] == {"q0": [], "q1": ["missing"]}
+    source_results = cast("dict[str, str]", summary["source_results"])
+    assert source_results.keys() == {"q0", "q1"}
+    assert source_results["q0"].endswith("q0_iq_shots")
+    assert source_results["q1"].endswith("q1_iq_shots")
+    assert summary["acquisition_policy"] == "independent"
+    with DaemonClient(reference_lab_daemon.url) as client:
+        trace = client.measurement_trace_preview(
+            summary["run_id"],
+            MeasurementTracePreviewQuery(
+                observable_id="iq_shots",
+                entity_indices=(0, 1),
+                max_series=4,
+                max_samples=256,
+            ),
+        )
+    assert [series.label for series in trace.series] == [
+        "Delay 88 ns · q0",
+        "Delay 88 ns · q1",
+        "Delay 128 ns · q0",
+    ]
+    assert [failure.label for failure in trace.failures] == ["Delay 128 ns · q1"]
 
 
 def test_quantum_program_is_inspectable_without_hardware() -> None:

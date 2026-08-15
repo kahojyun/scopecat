@@ -28,6 +28,7 @@ from scopecat.measurements.array_wire import (
 from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.instrument import CommandChannelBinding, InstrumentReadback
 from scopecat.records.measurement import (
+    MeasurementAcquisitionValue,
     MeasurementArray,
     MeasurementScalar,
     MeasurementUnavailable,
@@ -401,7 +402,7 @@ def split_collect_receipt(
                 request_id=request_id,
                 dtype=value.dtype,
                 unit=value.unit,
-                shape=tuple(value.shape),
+                shape=value.shape,
                 metadata=cast("JsonMetadata", thaw_json_value(value.metadata)),
             )
         )
@@ -507,7 +508,7 @@ def join_collect_receipt(
     receipt = descriptor.receipt
     readback: InstrumentReadback | None = None
     if receipt.readback is not None:
-        values = dict(
+        values: dict[str, MeasurementAcquisitionValue] = dict(
             sorted(
                 (
                     *receipt.readback.values.items(),

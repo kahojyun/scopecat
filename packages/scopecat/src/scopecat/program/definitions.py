@@ -15,11 +15,17 @@ from scopecat.program.bindings import (
     EnsureStateIntent,
 )
 from scopecat.program.input_capture import capture_runtime_inputs, empty_program_mapping
+from scopecat.program.measurement_types import (
+    MeasurementArrayData,
+    MeasurementSegmentedData,
+)
 from scopecat.program.module import (
     ModuleBody,
     ModuleInterface,
     ModulePythonImplementation,
 )
+from scopecat.program.products import ProductRef
+from scopecat.program.record_refs import RecordRef
 from scopecat.program.recording import ExperimentResultField, ProgramRecordSelection
 from scopecat.program.scans import (
     AxisSpec,
@@ -57,6 +63,11 @@ _ExperimentResultT_co = TypeVar(
     covariant=True,
     default=object,
 )
+type ExperimentResultRef = ProductRef | RecordRef | ValueRef
+
+
+def _empty_result_refs() -> Mapping[tuple[str, ...], ExperimentResultRef]:
+    return FrozenMapping()
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +115,8 @@ class ExperimentDef:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ExperimentInvocation(Generic[_ExperimentResultT_co]):
+    """One invocation with typed authored output and its durable record projection."""
+
     definition: ExperimentDef
     input_overrides: Mapping[str, RuntimeInput] = field(
         default_factory=empty_program_mapping
@@ -118,6 +131,42 @@ class ExperimentInvocation(Generic[_ExperimentResultT_co]):
         repr=False,
         compare=False,
     )
+    recorded_result_refs: Mapping[tuple[str, ...], ExperimentResultRef] = field(
+        default_factory=_empty_result_refs,
+        kw_only=True,
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "recorded_result_refs",
+            FrozenMapping(self.recorded_result_refs.items()),
+        )
+
+    def result_ref(self, path: str | Sequence[str], /) -> ExperimentResultRef:
+        """Return one durable result handle by dotted or segmented result path."""
+
+        selected = tuple(path.split(".")) if isinstance(path, str) else tuple(path)
+        try:
+            return self.recorded_result_refs[selected]
+        except KeyError as error:
+            raise KeyError(
+                f"experiment result has no path {'.'.join(selected)!r}"
+            ) from error
+
+    def entity_result_ref(
+        self,
+        path: str | Sequence[str],
+        /,
+    ) -> RecordRef[MeasurementArrayData | MeasurementSegmentedData]:
+        """Return one entity-axis array result with its static array type."""
+
+        ref = self.result_ref(path)
+        if not isinstance(ref, RecordRef) or ref.entity_axis_id is None:
+            raise TypeError(f"experiment result {path!r} is not an entity-axis record")
+        return cast("RecordRef[MeasurementArrayData | MeasurementSegmentedData]", ref)
 
     @property
     def point_plan(self) -> PointPlan:

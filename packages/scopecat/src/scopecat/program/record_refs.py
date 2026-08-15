@@ -28,22 +28,18 @@ class RecordRef(Generic[_RecordT_co]):
     unit: str | None
     dims: tuple[str, ...]
     role: MeasurementVariableRole = "observable"
-    source_product_id: str | None = None
-    source_value_id: str | None = None
-    recording_group_id: str | None = None
+    entity_axis_id: str | None = None
+    entity_axis_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id:
             raise ValueError("record reference id must be non-empty")
         if not self.dims or self.dims[0] != "point":
             raise ValueError("record reference dimensions must begin with point")
-        sources = (self.source_product_id, self.source_value_id)
-        if sum(source is not None for source in sources) != 1:
+        if (self.entity_axis_id is None) != (self.entity_axis_fingerprint is None):
             raise ValueError(
-                "record references require exactly one source product or value"
+                "entity record references require an axis id and fingerprint"
             )
-        if self.recording_group_id is not None and not self.recording_group_id:
-            raise ValueError("record reference group id must be non-empty")
 
 
 __all__ = ["RecordRef"]

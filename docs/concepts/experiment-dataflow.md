@@ -161,8 +161,15 @@ There is no parallel `*Records` dataclass to declare or maintain. Product
 bundles keep their author-facing field names, and returned nested values receive
 hierarchical record names. These paths are the durable names: they do not change
 when an internal product or compute operation is renamed. Repeating one source
-at two return paths creates two aliases over the same product use. `PerEntity`
-paths include both entity kind and identity.
+at two return paths creates two aliases over the same product use. Homogeneous
+`PerEntity` product leaves are stacked into one entity-indexed variable at their
+shared return path; product bundles are transposed field-by-field.
+`invocation.output` retains the authored `PerEntity` tree. Use
+`invocation.result_ref(path)` for a durable result handle, or
+`invocation.entity_result_ref(path)` when the path is known to be an
+entity-indexed array. The durable entity index and ordered product provenance
+describe that stored shape. Heterogeneous `PerEntity` trees retain explicit
+entity-kind and entity-id path segments.
 
 The return tree is the ordinary durability and liveness boundary. Put explicit
 names, namespaces, roles, and metadata beside returned fields rather than

@@ -21,8 +21,13 @@ from scopecat.program.point_domain import (
     is_point_coordinate_type,
 )
 from scopecat.program.products import (
+    EntityAxisDef,
+    EntityRecordMemberSelection,
+    EntityRecordSelection,
     ModuleProductDecl,
     ProductAxis,
+    ProductRecordSelection,
+    RecordSelection,
     product_axis_dimension_id,
 )
 from scopecat.program.recording import LogicalValueRecordSelection
@@ -75,36 +80,37 @@ def verify_product_schema(
     product_uses: dict[ProductUseId, ProductUse] = {}
     conflicting_product_uses: dict[ProductUseId, tuple[ProductUse, ProductUse]] = {}
     for selection in program.product_record_selections:
-        use = selection.product_use
-        existing_use = product_uses.get(use.id)
-        if existing_use is None:
-            product_uses[use.id] = use
-        elif existing_use != use:
-            conflicting_product_uses.setdefault(use.id, (existing_use, use))
-        product = product_by_id.get(selection.product_id)
-        if product is None:
-            problems.append(
-                _problem(
-                    "module_product_unknown",
-                    "experiment selects unknown product "
-                    f"{selection.product_id.qualified_name}",
-                    model_location("record_selections"),
+        for member in _product_selection_members(selection):
+            use = member.product_use
+            existing_use = product_uses.get(use.id)
+            if existing_use is None:
+                product_uses[use.id] = use
+            elif existing_use != use:
+                conflicting_product_uses.setdefault(use.id, (existing_use, use))
+            product = product_by_id.get(member.product_id)
+            if product is None:
+                problems.append(
+                    _problem(
+                        "module_product_unknown",
+                        "experiment selects unknown product "
+                        f"{member.product_id.qualified_name}",
+                        model_location("record_selections"),
+                    )
                 )
-            )
-            continue
-        if (
-            selection.product_origin is not None
-            and selection.product_origin != product.origin
-        ):
-            problems.append(
-                _problem(
-                    "module_product_foreign_instance",
-                    "experiment selects product "
-                    f"{selection.product_id.qualified_name!r} from "
-                    "another module instance",
-                    model_location("record_selections"),
+                continue
+            if (
+                member.product_origin is not None
+                and member.product_origin != product.origin
+            ):
+                problems.append(
+                    _problem(
+                        "module_product_foreign_instance",
+                        "experiment selects product "
+                        f"{member.product_id.qualified_name!r} from "
+                        "another module instance",
+                        model_location("record_selections"),
+                    )
                 )
-            )
     for use_id in sorted(conflicting_product_uses, key=lambda item: item.value):
         existing_use, conflicting_use = conflicting_product_uses[use_id]
         problems.append(
@@ -121,7 +127,7 @@ def verify_product_schema(
         (
             selection.id
             if isinstance(selection, LogicalValueRecordSelection)
-            else selection.record_id or selection.product_id.qualified_name
+            else _product_record_id(selection)
         )
         for selection in program.record_selections
     ]
@@ -154,7 +160,40 @@ def verify_product_schema(
         )
 
     _verify_product_axes(program.product_declarations, problems)
+    _verify_entity_record_axes(program.product_record_selections, problems)
     return product_by_id
+
+
+def _product_selection_members(
+    selection: ProductRecordSelection,
+) -> tuple[RecordSelection | EntityRecordMemberSelection, ...]:
+    return (selection,) if isinstance(selection, RecordSelection) else selection.members
+
+
+def _product_record_id(selection: ProductRecordSelection) -> str:
+    if isinstance(selection, EntityRecordSelection):
+        return selection.record_id
+    return selection.record_id or selection.product_id.qualified_name
+
+
+def _verify_entity_record_axes(
+    selections: Sequence[ProductRecordSelection],
+    problems: list[Problem],
+) -> None:
+    axes_by_id: dict[str, EntityAxisDef] = {}
+    for selection in selections:
+        if not isinstance(selection, EntityRecordSelection):
+            continue
+        existing = axes_by_id.setdefault(selection.axis.id, selection.axis)
+        if existing == selection.axis:
+            continue
+        problems.append(
+            _problem(
+                "entity_record_axis_conflict",
+                f"entity axis {selection.axis.id!r} is reused with different members",
+                model_location("record_selections", selection.record_id, "axis"),
+            )
+        )
 
 
 def verify_product_axis_dependencies(

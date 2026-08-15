@@ -31,6 +31,10 @@ from scopecat.measurements.results import (
     Variable,
 )
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.measurement import (
+    MeasurementArrayAvailability,
+    MeasurementUnavailableReason,
+)
 from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.runs.access import dataset_storage_ref
@@ -317,15 +321,20 @@ def _numeric_observable_values(
     name: str,
     variable: Variable,
     value: object,
-    unavailable_reason: str | None,
+    unavailable_reason: (
+        MeasurementUnavailableReason | MeasurementArrayAvailability | None
+    ),
     problem_ref: str,
 ) -> tuple[list[float], str]:
     if unavailable_reason is not None:
+        reason = (
+            unavailable_reason if isinstance(unavailable_reason, str) else "partial"
+        )
         raise CheckFailed(
             [
                 _problem(
                     "invalid_analysis_input",
-                    f"observable {name} is unavailable ({unavailable_reason})",
+                    f"observable {name} is unavailable ({reason})",
                     problem_ref,
                 )
             ]

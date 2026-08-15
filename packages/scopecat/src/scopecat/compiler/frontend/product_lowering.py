@@ -25,7 +25,12 @@ from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Scalar, ValueType
 from scopecat.measurements.products import ProductAxisDef, ProductDef
-from scopecat.measurements.records import RecordUse
+from scopecat.measurements.records import (
+    EntityRecordUse,
+    EntityRecordUseMember,
+    ProductRecordUse,
+    RecordUse,
+)
 from scopecat.program.expressions import (
     ComputeResultScalarExpr,
     ScalarExpr,
@@ -33,9 +38,10 @@ from scopecat.program.expressions import (
 )
 from scopecat.program.products import (
     AxisSizeInput,
+    EntityRecordSelection,
     ModuleProductDecl,
     ProductAxis,
-    RecordSelection,
+    ProductRecordSelection,
     product_axis_dimension_id,
 )
 from scopecat.program.value_refs import (
@@ -55,13 +61,13 @@ class LoweredProductModel:
 
     product_defs: tuple[ProductDef, ...] = ()
     product_uses: tuple[ProductUse, ...] = ()
-    record_uses: tuple[RecordUse, ...] = ()
+    record_uses: tuple[ProductRecordUse, ...] = ()
 
 
 def lower_products(
     static_evaluator: StaticRelationEvaluator,
     topology: Topology,
-    selections: Sequence[RecordSelection],
+    selections: Sequence[ProductRecordSelection],
     product_declarations_by_id: Mapping[ProductId, ModuleProductDecl],
     inputs: Mapping[str, object],
     *,
@@ -81,8 +87,38 @@ def lower_products(
     )
     uses: list[ProductUse] = []
     uses_by_id: dict[ProductUseId, ProductUse] = {}
-    records: list[RecordUse] = []
+    records: list[ProductRecordUse] = []
     for selection in selections:
+        if isinstance(selection, EntityRecordSelection):
+            members: list[EntityRecordUseMember] = []
+            for member in selection.members:
+                _require_selected_product(
+                    member.product_id,
+                    product_declarations_by_id=product_declarations_by_id,
+                )
+                _append_product_use(
+                    member.product_use,
+                    uses=uses,
+                    uses_by_id=uses_by_id,
+                )
+                members.append(
+                    EntityRecordUseMember(
+                        entity=member.entity,
+                        product_use_id=member.product_use.id,
+                    )
+                )
+            records.append(
+                EntityRecordUse(
+                    id=selection.record_id,
+                    axis=selection.axis,
+                    members=tuple(members),
+                    role=selection.role,
+                    recording_group_id=selection.recording_group_id,
+                    acquisition=selection.acquisition,
+                    metadata=_durable_metadata(selection.metadata),
+                )
+            )
+            continue
         product = product_declarations_by_id.get(selection.product_id)
         if product is None:
             raise AssertionError(
@@ -90,14 +126,7 @@ def lower_products(
                 f"{selection.product_id.qualified_name}"
             )
         use = selection.product_use
-        existing_use = uses_by_id.get(use.id)
-        if existing_use is None:
-            uses_by_id[use.id] = use
-            uses.append(use)
-        elif existing_use != use:
-            raise AssertionError(
-                f"verified product selections disagree for product use {use.id.value!r}"
-            )
+        _append_product_use(use, uses=uses, uses_by_id=uses_by_id)
         records.append(
             RecordUse(
                 id=selection.record_id or product.qualified_id,
@@ -114,6 +143,36 @@ def lower_products(
     )
 
 
+def _require_selected_product(
+    product_id: ProductId,
+    *,
+    product_declarations_by_id: Mapping[ProductId, ModuleProductDecl],
+) -> ModuleProductDecl:
+    product = product_declarations_by_id.get(product_id)
+    if product is None:
+        raise AssertionError(
+            "verified product selection is absent from the product map: "
+            f"{product_id.qualified_name}"
+        )
+    return product
+
+
+def _append_product_use(
+    use: ProductUse,
+    *,
+    uses: list[ProductUse],
+    uses_by_id: dict[ProductUseId, ProductUse],
+) -> None:
+    existing_use = uses_by_id.get(use.id)
+    if existing_use is None:
+        uses_by_id[use.id] = use
+        uses.append(use)
+    elif existing_use != use:
+        raise AssertionError(
+            f"verified product selections disagree for product use {use.id.value!r}"
+        )
+
+
 def _lower_product_axis(
     static_evaluator: StaticRelationEvaluator,
     topology: Topology,
@@ -125,9 +184,9 @@ def _lower_product_axis(
     input_row: InputRow,
 ) -> ProductAxisDef:
     if axis.size is None:
-        size, metadata = None, {}
+        size, metadata, entities = None, {}, None
     else:
-        size, metadata = _static_axis_size(
+        size, metadata, entities = _static_axis_size(
             static_evaluator,
             topology,
             axis.size,
@@ -148,6 +207,7 @@ def _lower_product_axis(
         size=size,
         kind=axis.kind,
         unit=axis.unit,
+        entities=entities,
         metadata=metadata,
     )
 
@@ -241,7 +301,7 @@ def _static_axis_size(
     type_bindings: ExpressionTypeBindings,
     entity_axis: bool = False,
     input_row: InputRow,
-) -> tuple[int, dict[str, JsonValue]]:
+) -> tuple[int, dict[str, JsonValue], tuple[EntityRef, ...] | None]:
     selected_value: object = value
     selected_type: ValueType | None = None
     if isinstance(value, ValueRef):
@@ -256,13 +316,13 @@ def _static_axis_size(
         selected_value, str | bytes
     ):
         if not entity_axis:
-            return len(selected_value), {}
+            return len(selected_value), {}, None
         entities = _axis_entities(
             topology,
             cast("Sequence[object]", selected_value),
             location=location,
         )
-        return len(entities), _entity_axis_metadata(entities)
+        return len(entities), {}, entities
     if entity_axis:
         if not isinstance(selected_value, ScalarExpr):
             raise_frontend_problem(
@@ -289,7 +349,7 @@ def _static_axis_size(
                 path=location.path,
             )
         entities = _axis_entities(topology, [evaluated_entity], location=location)
-        return len(entities), _entity_axis_metadata(entities)
+        return len(entities), {}, entities
     if not isinstance(selected_value, ScalarExpr) and selected_value is not None:
         _validate_axis_size_literal(cast("AxisSizeInput", selected_value))
     positive_value = cast("ScalarExpr | Quantity | float | None", selected_value)
@@ -307,6 +367,7 @@ def _static_axis_size(
             ),
         ),
         {},
+        None,
     )
 
 
@@ -356,16 +417,6 @@ def _axis_entities(
             path=location.path,
         )
     return resolved
-
-
-def _entity_axis_metadata(value: Sequence[EntityRef]) -> dict[str, JsonValue]:
-    entity_kind = value[0].kind if value else None
-    if entity_kind is None or any(entity.kind != entity_kind for entity in value):
-        entity_kind = None
-    return {
-        "entities": [entity.model_dump(mode="json") for entity in value],
-        **({"entity_kind": entity_kind} if entity_kind else {}),
-    }
 
 
 def _durable_metadata(

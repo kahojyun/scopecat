@@ -10,10 +10,10 @@ import pytest
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.instrument import CommandChannelBinding, InstrumentReadback
 from scopecat.records.measurement import (
+    MeasurementAcquisitionValue,
     MeasurementArray,
     MeasurementScalar,
     MeasurementUnavailable,
-    MeasurementValue,
 )
 from scopecat.sdk.instruments.backend import (
     BackendInvokeRequest,
@@ -80,7 +80,7 @@ def _encode_header(document: dict[str, object]) -> bytes:
 
 
 def _collected(
-    values: dict[str, MeasurementValue],
+    values: dict[str, MeasurementAcquisitionValue],
 ) -> CollectReceipt:
     return CollectReceipt(
         readback=InstrumentReadback(

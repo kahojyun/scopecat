@@ -12,9 +12,9 @@ from numpy.typing import NDArray
 from scopecat.kernel.numpy_storage import freeze_ndarray
 from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import (
+    MeasurementAcquisitionValue,
     MeasurementArray,
     MeasurementUnavailable,
-    MeasurementValue,
 )
 from scopecat.sdk.instruments import (
     AcquisitionResultRef,
@@ -875,7 +875,7 @@ class VirtualDigitizer:
 
     def collect(self, request: DriverAcquisition) -> DriverOutcome[DriverReadback]:
         sample_rate = _quantity_value(self._state[DIGITIZER_SAMPLE_RATE], "Hz")
-        values: dict[AcquisitionResultRef, MeasurementValue] = {}
+        values: dict[AcquisitionResultRef, MeasurementAcquisitionValue] = {}
         assert self._loaded_program is not None
         segments = self._world.digitizer_program_segments(
             self.instrument_id,
@@ -1198,7 +1198,7 @@ class VirtualOscilloscope:
     def collect(self, request: DriverAcquisition) -> DriverOutcome[DriverReadback]:
         capture = self._world.capture
         record_length = cast("int", self._state[OSCILLOSCOPE_RECORD_LENGTH])
-        values: dict[AcquisitionResultRef, MeasurementValue] = {}
+        values: dict[AcquisitionResultRef, MeasurementAcquisitionValue] = {}
         for result in request.results:
             unit = "s" if result.result_id == OSCILLOSCOPE_FETCH_TIME.result_id else "V"
             if capture is None:

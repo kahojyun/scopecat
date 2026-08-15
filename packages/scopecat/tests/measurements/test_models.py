@@ -10,16 +10,24 @@ from pydantic import ValidationError
 from scopecat_testkit.measurement_models import signal_point_schema, signal_record
 from scopecat_testkit.records import assert_model_round_trip
 
+from scopecat.kernel.entity import EntityRef
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
+    MeasurementAcquisitionEvidenceCatalog,
     MeasurementArray,
+    MeasurementArrayAvailability,
+    MeasurementArrayUnavailableGroup,
     MeasurementDataset,
     MeasurementDimension,
+    MeasurementEntityIndex,
     MeasurementRecord,
+    MeasurementResultField,
     MeasurementScalar,
+    MeasurementSegmentedArray,
     MeasurementUnavailable,
     MeasurementUnavailableReason,
     MeasurementVariable,
+    measurement_result_contract_version,
 )
 
 
@@ -68,7 +76,9 @@ def test_measurement_values_round_trip_through_one_record() -> None:
                 values=[0.25, 0.75],
             ),
         },
-        acquisition_evidence={"signal": evidence},
+        acquisition_evidence=MeasurementAcquisitionEvidenceCatalog.create(
+            {"signal": evidence}
+        ),
     )
 
     restored = assert_model_round_trip(measurement)
@@ -82,7 +92,7 @@ def test_measurement_values_round_trip_through_one_record() -> None:
     assert isinstance(restored.observables["samples"], MeasurementArray)
     assert isinstance(restored.observables["iq"], MeasurementArray)
     assert isinstance(restored.observables["probability"], MeasurementArray)
-    assert restored.acquisition_evidence == {"signal": evidence}
+    assert restored.acquisition_evidence.for_variable("signal") == evidence
 
 
 def test_measurement_array_owns_a_contiguous_read_only_numpy_copy() -> None:
@@ -111,6 +121,68 @@ def test_measurement_array_reuses_an_immutable_bytes_backed_array() -> None:
 
     assert value.values is source
     assert not value.values.flags.writeable
+
+
+def test_measurement_array_retains_sparse_partial_availability() -> None:
+    availability = MeasurementArrayAvailability(
+        valid=np.asarray([[True, False], [False, True]], dtype=np.bool_),
+        unavailable=(
+            MeasurementArrayUnavailableGroup(
+                reason="missing",
+                flat_indices=(1,),
+                metadata={"channel": "q1"},
+            ),
+            MeasurementArrayUnavailableGroup(
+                reason="invalid",
+                flat_indices=(2,),
+                metadata={"channel": "q0"},
+            ),
+        ),
+    )
+    value = MeasurementArray.create(
+        dtype="complex128",
+        unit="ratio",
+        values=[[1 + 2j, 0j], [0j, 3 + 4j]],
+        availability=availability,
+    )
+
+    restored = assert_model_round_trip(value)
+
+    assert restored == value
+    assert restored.availability is not None
+    assert restored.availability.valid.tolist() == [[True, False], [False, True]]
+    assert not restored.availability.valid.flags.writeable
+    assert [group.reason for group in restored.availability.unavailable] == [
+        "missing",
+        "invalid",
+    ]
+
+
+def test_measurement_array_availability_requires_an_exact_incomplete_partition() -> (
+    None
+):
+    with pytest.raises(ValueError, match="fully available"):
+        MeasurementArrayAvailability.create(valid=[True, True])
+    fully_unavailable = MeasurementArrayAvailability.create(valid=[False, False])
+    assert fully_unavailable.valid.tolist() == [False, False]
+    assert fully_unavailable.unavailable[0].flat_indices == (0, 1)
+    with pytest.raises(ValidationError, match="exactly partition"):
+        MeasurementArrayAvailability(
+            valid=np.asarray([True, False, False], dtype=np.bool_),
+            unavailable=(
+                MeasurementArrayUnavailableGroup(
+                    reason="missing",
+                    flat_indices=(1,),
+                ),
+            ),
+        )
+    with pytest.raises(ValidationError, match="availability shape"):
+        MeasurementArray.create(
+            values=[1.0, 0.0],
+            availability=MeasurementArrayAvailability.create(
+                valid=[[True, False]],
+            ),
+        )
 
 
 def test_measurement_snapshots_are_recursively_immutable() -> None:
@@ -233,8 +305,32 @@ def test_measurement_record_rejects_acquisition_evidence_for_unknown_variable() 
             point_index=0,
             coordinates={},
             observables={},
-            acquisition_evidence={"signal": evidence},
+            acquisition_evidence=MeasurementAcquisitionEvidenceCatalog.create(
+                {"signal": evidence}
+            ),
         )
+
+
+def test_acquisition_catalog_factors_shared_events_and_round_trips() -> None:
+    first = InstrumentAcquisitionEvidence(
+        command_id="collect-iq",
+        instrument_id="readout",
+        interface_id="test.scalar_signal/v1",
+        acquisition_id="sample",
+        result_id="i",
+        started_at=datetime(2026, 7, 29, 10, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 7, 29, 10, 0, 1, tzinfo=UTC),
+    )
+    second = first.model_copy(update={"result_id": "q"})
+
+    catalog = MeasurementAcquisitionEvidenceCatalog.create({"i": first, "q": second})
+    selected = catalog.select(("q",))
+
+    assert len(catalog.events) == 1
+    assert len(catalog.entries) == 2
+    assert selected.events == catalog.events
+    assert selected.for_variable("q") == second
+    assert_model_round_trip(catalog)
 
 
 def test_measurement_record_discriminator_restores_value_models() -> None:
@@ -284,6 +380,7 @@ def test_measurement_record_wire_requires_value_discriminators() -> None:
 
     assert "kind" in schema["$defs"]["MeasurementScalar"]["required"]
     assert "kind" in schema["$defs"]["MeasurementArray"]["required"]
+    assert "kind" in schema["$defs"]["MeasurementSegmentedArray"]["required"]
     assert set(schema["$defs"]["MeasurementUnavailable"]["required"]) == {
         "kind",
         "reason",
@@ -325,6 +422,78 @@ def test_measurement_record_wire_requires_value_discriminators() -> None:
                 },
             }
         )
+
+
+def test_segmented_measurement_arrays_round_trip_explicit_missing_segments() -> None:
+    value = MeasurementSegmentedArray.create(
+        dtype="float64",
+        unit="ratio",
+        segments=(
+            MeasurementArray.create(
+                dtype="float64",
+                unit="ratio",
+                values=[0.1, 0.2],
+            ),
+            MeasurementUnavailable.create(
+                reason="missing",
+                dtype="float64",
+                unit="ratio",
+                shape=(None,),
+                metadata={"entity": "q1"},
+            ),
+        ),
+    )
+
+    restored = assert_model_round_trip(value)
+
+    assert restored.segment_shapes == ((2,), (None,))
+    assert restored.shape == (2, None)
+    assert restored.values.tolist() == [0.1, 0.2]
+    assert restored.has_unavailable_segments
+
+
+def test_result_contract_version_ignores_acquisition_provenance() -> None:
+    dimensions = (MeasurementDimension(id="point", kind="point", size=1),)
+    field = MeasurementResultField(path=("signal",), variable_id="signal")
+    variable = MeasurementVariable(
+        id="signal",
+        role="observable",
+        dtype="float64",
+        unit="ratio",
+        dims=("point",),
+        source_product_id="readout/first",
+        recording_group_id="first-group",
+        metadata={"driver": "first"},
+    )
+    first = measurement_result_contract_version(
+        "test.result",
+        (field,),
+        variables=(variable,),
+        dimensions=dimensions,
+    )
+    second = measurement_result_contract_version(
+        "test.result",
+        (field,),
+        variables=(
+            variable.model_copy(
+                update={
+                    "source_product_id": "readout/second",
+                    "recording_group_id": "second-group",
+                    "metadata": {"driver": "second"},
+                }
+            ),
+        ),
+        dimensions=dimensions,
+    )
+    changed_type = measurement_result_contract_version(
+        "test.result",
+        (field,),
+        variables=(variable.model_copy(update={"dtype": "complex128"}),),
+        dimensions=dimensions,
+    )
+
+    assert second == first
+    assert changed_type != first
 
 
 @pytest.mark.parametrize(
@@ -448,6 +617,35 @@ def test_measurement_dimensions_require_concrete_size() -> None:
         MeasurementDimension.model_validate(
             {"id": "point", "kind": "point", "size": 1, "unit": "count"}
         )
+
+
+def test_measurement_entity_index_is_labeled_and_cardinality_checked() -> None:
+    q0 = EntityRef(id="q0", kind="logical_qubit")
+    q1 = EntityRef(id="q1", kind="logical_qubit")
+    dimension = MeasurementDimension(
+        id="qubit",
+        kind="entity",
+        size=2,
+        index=MeasurementEntityIndex(
+            values=(q0, q1),
+        ),
+    )
+
+    assert assert_model_round_trip(dimension) == dimension
+    assert dimension.index is not None
+    assert dimension.index.values == (q0, q1)
+
+    with pytest.raises(ValidationError, match="cardinality"):
+        dimension.model_copy(update={"size": 1})
+    with pytest.raises(ValidationError, match="must be unique"):
+        MeasurementEntityIndex(values=(q0, q0))
+    assert MeasurementEntityIndex(values=(q0,)).entity_kind == "logical_qubit"
+    assert (
+        MeasurementEntityIndex(
+            values=(q0, EntityRef(id="c0", kind="coupler"))
+        ).entity_kind
+        is None
+    )
 
 
 def test_measurement_dataset_and_schema_round_trip() -> None:

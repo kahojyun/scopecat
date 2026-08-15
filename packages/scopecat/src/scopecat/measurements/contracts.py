@@ -17,9 +17,12 @@ from scopecat.program.measurement_types import (
     MeasurementVariableRole,
 )
 from scopecat.records.measurement import (
+    EntityAcquisitionEvidence,
+    InstrumentAcquisitionEvidence,
     MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementRecord,
+    MeasurementSegmentedArray,
     MeasurementUnavailable,
     MeasurementValue,
     MeasurementVariable,
@@ -129,7 +132,10 @@ def _measurement_value_unit(
 def _measurement_value_shape(
     value: MeasurementValue,
 ) -> tuple[int | None, ...]:
-    if isinstance(value, MeasurementArray | MeasurementUnavailable):
+    if isinstance(
+        value,
+        MeasurementArray | MeasurementSegmentedArray | MeasurementUnavailable,
+    ):
         return tuple(value.shape)
     return ()
 
@@ -188,6 +194,13 @@ def validate_measurement_records_against_schema(
             )
         )
         problems.extend(
+            _validate_record_acquisition_evidence(
+                record=record,
+                variables={**coordinate_variables, **observable_variables},
+                dimension_sizes=dimension_sizes,
+            )
+        )
+        problems.extend(
             _validate_record_variables(
                 record=record,
                 variables=observable_variables,
@@ -216,6 +229,92 @@ def validate_measurement_records_against_schema(
                     ("records", record.point_index, "observables", variable_id),
                 )
             )
+    return problems
+
+
+def _validate_record_acquisition_evidence(
+    *,
+    record: MeasurementRecord,
+    variables: Mapping[str, MeasurementVariable],
+    dimension_sizes: Mapping[str, int | None],
+) -> list[Problem]:
+    problems: list[Problem] = []
+    for variable_id in record.acquisition_evidence.variable_refs:
+        evidence = record.acquisition_evidence.for_variable(variable_id)
+        variable = variables.get(variable_id)
+        if variable is None or evidence is None:
+            continue
+        source = variable.source_entity_products
+        path = (
+            "records",
+            record.point_index,
+            "acquisition_evidence",
+            variable_id,
+        )
+        if source is None:
+            if isinstance(evidence, EntityAcquisitionEvidence):
+                problems.append(
+                    _problem(
+                        "measurement_record_entity_evidence_for_scalar_source",
+                        f"measurement record {record.point_index} variable "
+                        f"{variable_id} has entity evidence for a scalar source",
+                        (*path, "kind"),
+                    )
+                )
+            continue
+        if isinstance(evidence, InstrumentAcquisitionEvidence):
+            problems.append(
+                _problem(
+                    "measurement_record_scalar_evidence_for_entity_source",
+                    f"measurement record {record.point_index} variable "
+                    f"{variable_id} has scalar evidence for an entity source",
+                    (*path, "kind"),
+                )
+            )
+            continue
+        if evidence.dimension_id != source.dimension_id:
+            problems.append(
+                _problem(
+                    "measurement_record_evidence_dimension_mismatch",
+                    f"measurement record {record.point_index} variable "
+                    f"{variable_id} evidence dimension {evidence.dimension_id!r} "
+                    f"does not match {source.dimension_id!r}",
+                    (*path, "dimension_id"),
+                )
+            )
+        expected_size = dimension_sizes[source.dimension_id]
+        if expected_size is not None and len(evidence.values) != expected_size:
+            problems.append(
+                _problem(
+                    "measurement_record_evidence_cardinality_mismatch",
+                    f"measurement record {record.point_index} variable "
+                    f"{variable_id} has {len(evidence.values)} evidence slots, "
+                    f"expected {expected_size}",
+                    (*path, "values"),
+                )
+            )
+        if evidence.acquisition != variable.entity_acquisition:
+            problems.append(
+                _problem(
+                    "measurement_record_evidence_acquisition_mismatch",
+                    f"measurement record {record.point_index} variable "
+                    f"{variable_id} evidence acquisition does not match its schema",
+                    (*path, "acquisition"),
+                )
+            )
+        for entity_index, (product_id, item) in enumerate(
+            zip(source.product_ids, evidence.values, strict=False)
+        ):
+            if product_id is None and item is not None:
+                problems.append(
+                    _problem(
+                        "measurement_record_evidence_without_entity_source",
+                        f"measurement record {record.point_index} variable "
+                        f"{variable_id} has evidence for entity slot "
+                        f"{entity_index} without a source product",
+                        (*path, "values", entity_index),
+                    )
+                )
     return problems
 
 

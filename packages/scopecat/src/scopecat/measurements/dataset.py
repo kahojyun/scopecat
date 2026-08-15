@@ -19,14 +19,18 @@ from typing import TYPE_CHECKING, Literal, Self, cast, overload, override
 import numpy as np
 import pyarrow as pa
 import xarray as xr
+from numpy.typing import NDArray
+from pydantic import JsonValue
 
-from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.content_identity import model_wire_content_hash
+from scopecat.kernel.entity import EntityRef, entity_identity, entity_identity_key
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.traces import Trace, measurement_traces
 from scopecat.program.measurement_types import (
     MeasurementArrayData,
     MeasurementDType,
+    MeasurementSegmentedData,
     NativeMeasurementScalar,
     NativeMeasurementValue,
     measurement_value_spec_from_scalar,
@@ -43,18 +47,29 @@ from scopecat.program.value_types import Array, Payload, Scalar
 from scopecat.program.value_types import Quantity as QuantityType
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
+    EntityAcquisitionEvidence,
+    MeasurementAcquisitionEvidence,
+    MeasurementAcquisitionEvidenceCatalog,
     MeasurementArray,
+    MeasurementArrayAvailability,
+    MeasurementArrayUnavailableGroup,
     MeasurementDataset,
     MeasurementDatasetSchema,
+    MeasurementDimension,
+    MeasurementEntityIndex,
+    MeasurementEntityProductMetadataOverride,
+    MeasurementEntityProductSource,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementResultContract,
     MeasurementScalar,
+    MeasurementSegmentedArray,
     MeasurementUnavailable,
     MeasurementUnavailableReason,
     MeasurementValue,
     MeasurementVariable,
     measurement_point_axis_values,
+    measurement_result_contract_version,
 )
 
 if TYPE_CHECKING:
@@ -68,12 +83,20 @@ if TYPE_CHECKING:
 type NativeScalar = NativeMeasurementScalar
 type NativeAvailableValue = NativeMeasurementValue
 type NativeValue = NativeAvailableValue | None
+type NativeMagnitude = float | complex | MeasurementArrayData | MeasurementSegmentedData
+type MeasurementAvailability = (
+    MeasurementUnavailableReason | MeasurementArrayAvailability | None
+)
 type GroupKey = NativeScalar | None
 type DimensionIndexer = int | slice | Sequence[int] | Sequence[bool]
+type EntityAlignmentJoin = Literal["exact", "inner", "outer"]
 type PointIndexer = DimensionIndexer
 type PointCondition = PointMask | xr.DataArray | Sequence[bool]
 type SelectionMethod = Literal["exact", "nearest"]
 type XarrayLayout = Literal["points", "grid"]
+type XarrayNonNullFill = bool | int | float | complex | str
+type XarrayFill = XarrayNonNullFill | None
+type MeasurementArrayLayout = Literal["dense", "ragged"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +105,7 @@ class _RaggedXarrayLayout:
     row_sizes: tuple[int, ...]
     local_indices: tuple[tuple[int, ...], ...]
     local_extents: tuple[tuple[int | None, ...], ...]
+    explicit_indices: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +207,129 @@ class PointMask(Sequence[bool]):
             raise ValueError("cannot combine point masks from different dataset views")
 
 
+@dataclass(frozen=True, slots=True)
+class LabeledMeasurementArray:
+    """Native labeled values with explicit dense or observation layout."""
+
+    _data: xr.DataArray = field(repr=False)
+    _valid: xr.DataArray = field(repr=False)
+    _unavailable_reasons: xr.DataArray = field(repr=False)
+    layout: MeasurementArrayLayout
+    declared_dims: tuple[str, ...]
+    dtype: MeasurementDType
+    unit: str | None
+
+    @property
+    def id(self) -> str:
+        return cast("str", self._data.name)
+
+    @property
+    def dims(self) -> tuple[str, ...]:
+        return cast("tuple[str, ...]", tuple(self._data.dims))
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return tuple(self._data.shape)
+
+    @property
+    def coords(self) -> Mapping[str, NDArray[np.generic]]:
+        return MappingProxyType(
+            {
+                cast("str", name): _read_only_array(coordinate.values)
+                for name, coordinate in self._data.coords.items()
+            }
+        )
+
+    @property
+    def values(self) -> NDArray[np.generic]:
+        return _read_only_array(self._data.values)
+
+    @property
+    def valid(self) -> NDArray[np.bool_]:
+        return cast("NDArray[np.bool_]", _read_only_array(self._valid.values))
+
+    @property
+    def unavailable_reasons(self) -> NDArray[np.object_]:
+        selected = np.asarray(
+            self._unavailable_reasons.values,
+            dtype=np.object_,
+        ).copy(order="C")
+        for index in np.ndindex(selected.shape):
+            selected_item = cast("object", selected[index])
+            if isinstance(selected_item, float | np.floating) and math.isnan(
+                float(selected_item)
+            ):
+                selected[index] = None
+        selected.flags.writeable = False
+        return selected
+
+    @property
+    def xarray(self) -> xr.DataArray:
+        return self._data.copy(deep=True)
+
+    def isel(self, **indexers: DimensionIndexer) -> LabeledMeasurementArray:
+        """Select by representation dimension without dropping labels."""
+
+        return self._selected("isel", indexers)
+
+    def sel(self, **indexers: object) -> LabeledMeasurementArray:
+        """Select by coordinate label without dropping labels."""
+
+        return self._selected("sel", indexers)
+
+    def to(self, unit: str) -> LabeledMeasurementArray:
+        """Convert one numeric unit-bearing array while preserving diagnostics."""
+
+        if self.unit is None or self.dtype not in {"int64", "float64", "complex128"}:
+            raise TypeError(
+                f"labeled array {self.id!r} must be numeric and unit-bearing"
+            )
+        scale = Quantity(1.0, self.unit).to(unit).value
+        converted = (
+            self._data.astype(
+                np.complex128 if self.dtype == "complex128" else np.float64
+            )
+            * scale
+        )
+        converted.attrs = {**self._data.attrs, "units": unit}
+        return type(self)(
+            _data=converted,
+            _valid=self._valid,
+            _unavailable_reasons=self._unavailable_reasons,
+            layout=self.layout,
+            declared_dims=self.declared_dims,
+            dtype="complex128" if self.dtype == "complex128" else "float64",
+            unit=unit,
+        )
+
+    def _selected(
+        self,
+        method: Literal["isel", "sel"],
+        indexers: Mapping[str, object],
+    ) -> LabeledMeasurementArray:
+        selected_data = cast(
+            "xr.DataArray",
+            getattr(self._data, method)(indexers, drop=False),
+        )
+        selected_valid = cast(
+            "xr.DataArray",
+            getattr(self._valid, method)(indexers, drop=False),
+        )
+        selected_reasons = cast(
+            "xr.DataArray",
+            getattr(self._unavailable_reasons, method)(indexers, drop=False),
+        )
+        return type(self)(
+            _data=selected_data,
+            _valid=selected_valid,
+            _unavailable_reasons=selected_reasons,
+            layout=self.layout,
+            declared_dims=self.declared_dims,
+            dtype=self.dtype,
+            unit=self.unit,
+        )
+
+
 class Variable[T = NativeAvailableValue]:
     """One labeled coordinate or observable aligned to a :class:`Dataset`."""
 
@@ -241,6 +388,34 @@ class Variable[T = NativeAvailableValue]:
         return self._dataset._loaded_xarray[self.id].copy(deep=True)
 
     @property
+    def layout(self) -> MeasurementArrayLayout:
+        return "ragged" if _variable_is_ragged(self) else "dense"
+
+    @property
+    def labeled(self) -> LabeledMeasurementArray:
+        """Return native labels, validity, reasons, and representation layout."""
+
+        return _labeled_measurement_array(self)
+
+    @property
+    def dense(self) -> LabeledMeasurementArray:
+        """Return the dense labeled representation, rejecting ragged variables."""
+
+        if self.layout != "dense":
+            raise ValueError(
+                f"variable {self.id!r} is ragged; use observations instead"
+            )
+        return self.labeled
+
+    @property
+    def observations(self) -> LabeledMeasurementArray:
+        """Return the indexed-observation representation for a ragged variable."""
+
+        if self.layout != "ragged":
+            raise ValueError(f"variable {self.id!r} is dense; use dense instead")
+        return self.labeled
+
+    @property
     def raw_values(self) -> tuple[MeasurementValue, ...]:
         """Return the deeply immutable durable values."""
 
@@ -275,6 +450,94 @@ class Variable[T = NativeAvailableValue]:
                 f"variable {self.id!r} is unavailable at row positions: {rendered}"
             )
         return cast("tuple[T, ...]", values)
+
+    def magnitudes(
+        self,
+        unit: str | None = None,
+    ) -> tuple[NativeMagnitude | None, ...]:
+        """Return numeric scalar or array magnitudes in the requested unit."""
+
+        source_unit = self.unit
+        if source_unit is None or self.dtype not in {"float64", "int64", "complex128"}:
+            raise TypeError(f"variable {self.id!r} must be numeric and unit-bearing")
+        selected_unit = source_unit if unit is None else unit
+        scale = Quantity(1.0, source_unit).to(selected_unit).value
+        selected: list[NativeMagnitude | None] = []
+        for value in self._raw_values:
+            if isinstance(value, MeasurementUnavailable):
+                selected.append(None)
+            elif isinstance(value, MeasurementScalar):
+                scalar = cast("int | float | complex", value.value)
+                selected.append(
+                    complex(scalar) * scale
+                    if self.dtype == "complex128"
+                    else float(cast("int | float", scalar)) * scale
+                )
+            else:
+                dtype: MeasurementDType = (
+                    "complex128" if self.dtype == "complex128" else "float64"
+                )
+                if isinstance(value, MeasurementSegmentedArray):
+                    converted = MeasurementSegmentedArray.create(
+                        segments=tuple(
+                            segment.model_copy(
+                                update={"dtype": dtype, "unit": selected_unit}
+                            )
+                            if isinstance(segment, MeasurementUnavailable)
+                            else MeasurementArray.create(
+                                values=np.asarray(
+                                    segment.values,
+                                    dtype=(
+                                        np.complex128
+                                        if dtype == "complex128"
+                                        else np.float64
+                                    ),
+                                )
+                                * scale,
+                                dtype=dtype,
+                                unit=selected_unit,
+                                availability=segment.availability,
+                                metadata=segment.metadata,
+                            )
+                            for segment in value.segments
+                        ),
+                        dtype=dtype,
+                        unit=selected_unit,
+                        metadata=value.metadata,
+                    )
+                else:
+                    converted = MeasurementArray.create(
+                        values=np.asarray(
+                            value.values,
+                            dtype=(
+                                np.complex128 if dtype == "complex128" else np.float64
+                            ),
+                        )
+                        * scale,
+                        dtype=dtype,
+                        unit=selected_unit,
+                        availability=value.availability,
+                        metadata=value.metadata,
+                    )
+                selected.append(cast("NativeMagnitude", _native_value(converted)))
+        return tuple(selected)
+
+    def require_magnitudes(
+        self,
+        unit: str | None = None,
+    ) -> tuple[NativeMagnitude, ...]:
+        """Return complete scalar or array magnitudes in the requested unit."""
+
+        values = self.magnitudes(unit)
+        unavailable = tuple(
+            index for index, value in enumerate(values) if value is None
+        )
+        if unavailable:
+            rendered = ", ".join(str(index) for index in unavailable)
+            raise ValueError(
+                f"variable {self.id!r} is unavailable at row positions: {rendered}"
+            )
+        return cast("tuple[NativeMagnitude, ...]", values)
 
     def quantities(
         self,
@@ -319,40 +582,43 @@ class Variable[T = NativeAvailableValue]:
     @property
     def availability(
         self,
-    ) -> tuple[MeasurementUnavailableReason | None, ...]:
+    ) -> tuple[MeasurementAvailability, ...]:
         return tuple(
-            value.reason if isinstance(value, MeasurementUnavailable) else None
+            (
+                value.reason
+                if isinstance(value, MeasurementUnavailable)
+                else value.availability
+                if isinstance(value, MeasurementArray)
+                else value.availability
+                or next(
+                    segment.reason
+                    for segment in value.segments
+                    if isinstance(segment, MeasurementUnavailable)
+                )
+                if isinstance(value, MeasurementSegmentedArray)
+                and value.has_unavailable_segments
+                else None
+            )
             for value in self._raw_values
         )
 
     def is_available(self) -> PointMask:
-        source = self._dataset._loaded_xarray
-        reason_name = _unavailable_reason_name(self.id)
-        reason = source.get(reason_name)
-        if reason is None:
-            return PointMask(
-                self._dataset,
-                xr.ones_like(source.coords["point"], dtype=np.bool_),
-            )
-        return PointMask(self._dataset, reason.isnull())
+        return PointMask(
+            self._dataset,
+            tuple(_measurement_value_is_complete(value) for value in self._raw_values),
+        )
 
     def is_unavailable(
         self,
         reason: MeasurementUnavailableReason | None = None,
     ) -> PointMask:
-        source = self._dataset._loaded_xarray
-        reason_name = _unavailable_reason_name(self.id)
-        availability = source.get(reason_name)
-        if availability is None:
-            selected = xr.zeros_like(
-                source.coords["point"],
-                dtype=np.bool_,
-            )
-        elif reason is None:
-            selected = availability.notnull()
-        else:
-            selected = availability == reason
-        return PointMask(self._dataset, selected)
+        return PointMask(
+            self._dataset,
+            tuple(
+                _measurement_value_is_unavailable(value, reason=reason)
+                for value in self._raw_values
+            ),
+        )
 
     @overload
     def __getitem__(self, index: int) -> T | None: ...
@@ -448,6 +714,10 @@ class Dataset:
     )
     _schema_value: MeasurementDatasetSchema = field(repr=False)
     _view_dimensions: Mapping[str, int | None] = field(init=False, repr=False)
+    _view_dimension_positions: Mapping[str, tuple[int, ...]] = field(
+        init=False,
+        repr=False,
+    )
     _variables: Mapping[str, Variable[NativeAvailableValue]] = field(
         init=False,
         repr=False,
@@ -460,6 +730,7 @@ class Dataset:
         entry: RunContentEntry,
         *,
         view_dimensions: Mapping[str, int | None] | None = None,
+        view_dimension_positions: Mapping[str, Sequence[int]] | None = None,
     ) -> None:
         self._initialize(
             raw=raw,
@@ -468,6 +739,7 @@ class Dataset:
             load_raw=None,
             load_projected_batches=None,
             view_dimensions=view_dimensions,
+            view_dimension_positions=view_dimension_positions,
         )
 
     @classmethod
@@ -487,6 +759,7 @@ class Dataset:
             load_raw=load_raw,
             load_projected_batches=load_projected_batches,
             view_dimensions=None,
+            view_dimension_positions=None,
         )
         return dataset
 
@@ -501,6 +774,7 @@ class Dataset:
             Callable[[ProjectionSchema, int], pa.RecordBatchReader] | None
         ),
         view_dimensions: Mapping[str, int | None] | None,
+        view_dimension_positions: Mapping[str, Sequence[int]] | None,
     ) -> None:
         object.__setattr__(self, "_raw", raw)
         object.__setattr__(self, "_entry", entry.model_copy(deep=True))
@@ -522,6 +796,33 @@ class Dataset:
             self,
             "_view_dimensions",
             MappingProxyType(dimensions),
+        )
+        fixed_local_dimensions = {
+            dimension.id: dimension.size
+            for dimension in schema.dimensions
+            if dimension.id != "point" and dimension.size is not None
+        }
+        selected_positions = {
+            dimension_id: tuple(range(cast("int", dimensions[dimension_id])))
+            for dimension_id in fixed_local_dimensions
+        }
+        if view_dimension_positions is not None:
+            unknown = set(view_dimension_positions) - set(fixed_local_dimensions)
+            if unknown:
+                raise ValueError(
+                    "dataset view references unknown fixed dimensions: "
+                    + ", ".join(sorted(unknown))
+                )
+            selected_positions.update(
+                {
+                    dimension_id: tuple(positions)
+                    for dimension_id, positions in view_dimension_positions.items()
+                }
+            )
+        object.__setattr__(
+            self,
+            "_view_dimension_positions",
+            MappingProxyType(selected_positions),
         )
         variables = {
             definition.id: Variable(self, definition) for definition in schema.variables
@@ -551,6 +852,17 @@ class Dataset:
                         for dimension in self._schema_value.dimensions
                     },
                     "point": len(raw.records),
+                }
+            ),
+        )
+        object.__setattr__(
+            self,
+            "_view_dimension_positions",
+            MappingProxyType(
+                {
+                    dimension.id: tuple(range(dimension.size))
+                    for dimension in self._schema_value.dimensions
+                    if dimension.id != "point" and dimension.size is not None
                 }
             ),
         )
@@ -627,6 +939,23 @@ class Dataset:
     @property
     def variables(self) -> Mapping[str, Variable[NativeAvailableValue]]:
         return self._variables
+
+    @property
+    def variable_groups(
+        self,
+    ) -> Mapping[str, tuple[Variable[NativeAvailableValue], ...]]:
+        """Return named recording groups with members in durable schema order."""
+
+        return MappingProxyType(
+            {
+                group.id: tuple(
+                    variable
+                    for variable in self.variables.values()
+                    if variable.recording_group_id == group.id
+                )
+                for group in self.schema.variable_groups
+            }
+        )
 
     @property
     def coords(self) -> Mapping[str, Variable[NativeAvailableValue]]:
@@ -772,7 +1101,7 @@ class Dataset:
             variable = self.variables[ref.id]
         except KeyError as error:
             raise KeyError(f"measurement dataset has no variable {ref.id!r}") from error
-        _require_record_ref_matches(ref, variable.definition)
+        _require_record_ref_matches(ref, variable.definition, schema=self.schema)
         return cast("Variable[T]", variable)
 
     def _variable_from_product_ref[T: NativeAvailableValue](
@@ -893,11 +1222,12 @@ class Dataset:
             else self._select_indices(_point_positions(self, selected_xarray))
         )
         local_indices = {
-            dimension_id: _selected_dimension_positions(
-                selected_xarray,
-                dimension_id,
+            dimension_id: _dimension_indices(
+                indexer,
+                size=cast("int", self.dims[dimension_id]),
+                label=dimension_id,
             )
-            for dimension_id in selected
+            for dimension_id, indexer in selected.items()
             if dimension_id != "point"
         }
         return result._select_fixed_local_dimensions(local_indices)
@@ -994,16 +1324,34 @@ class Dataset:
         tolerance: float | Quantity | None = None,
         **indexer_kwargs: object,
     ) -> Self:
-        """Select point rows through Xarray's coordinate indexes."""
+        """Select point rows or entity dimensions through labeled indexes."""
 
         selected = _merge_indexers(indexers, indexer_kwargs)
         if not selected:
             raise ValueError("sel requires at least one coordinate indexer")
+        dimensions_by_id = {
+            dimension.id: dimension for dimension in self._schema.dimensions
+        }
+        entity_selected = {
+            dimension_id: query
+            for dimension_id, query in selected.items()
+            if (
+                (dimension := dimensions_by_id.get(dimension_id)) is not None
+                and dimension.index is not None
+            )
+        }
+        point_selected = {
+            variable_id: query
+            for variable_id, query in selected.items()
+            if variable_id not in entity_selected
+        }
         selected_method = "exact" if method is None else method
         if selected_method not in {"exact", "nearest"}:
             raise ValueError("sel method must be 'exact' or 'nearest'")
+        if entity_selected and selected_method != "exact":
+            raise ValueError("entity dimension selection only supports exact matching")
         if selected_method == "nearest":
-            if len(selected) != 1 or "point" in selected:
+            if len(point_selected) != 1 or "point" in point_selected:
                 raise ValueError(
                     "nearest selection requires exactly one scalar coordinate"
                 )
@@ -1011,7 +1359,7 @@ class Dataset:
             raise ValueError("sel tolerance is only valid with method='nearest'")
 
         selected_xarray = self._loaded_xarray
-        for variable_id, query in selected.items():
+        for variable_id, query in point_selected.items():
             if variable_id == "point" and isinstance(query, str):
                 coordinate_id = "logical_point_id"
                 normalized = query
@@ -1034,7 +1382,185 @@ class Dataset:
             )
             if "point" not in selected_xarray.dims:
                 selected_xarray = selected_xarray.expand_dims("point")
-        return self._select_indices(_point_positions(self, selected_xarray))
+        result = (
+            self
+            if not point_selected
+            else self._select_indices(_point_positions(self, selected_xarray))
+        )
+        if not entity_selected:
+            return result
+        local_positions = {
+            dimension_id: _entity_selection_positions(
+                cast("MeasurementEntityIndex", dimensions_by_id[dimension_id].index),
+                result._view_dimension_positions[dimension_id],
+                query,
+                dimension_id=dimension_id,
+            )
+            for dimension_id, query in entity_selected.items()
+        }
+        return result.isel(local_positions)
+
+    def reindex_entities(
+        self,
+        dimension_id: str,
+        entities: Sequence[EntityRef],
+        /,
+    ) -> Self:
+        """Return a materialized dataset on one explicit ordered entity index.
+
+        Existing entities are reordered by complete ``(kind, id)`` identity.
+        Entities absent from this dataset receive unavailable array leaves and
+        null product/evidence provenance.
+        """
+
+        target_entities = tuple(entities)
+        if not target_entities:
+            raise ValueError("entity reindexing requires at least one target entity")
+        dimension = _require_entity_dimension(self, dimension_id)
+        source_index = cast("MeasurementEntityIndex", dimension.index)
+        source_schema_positions = self._view_dimension_positions[dimension_id]
+        source_entities = tuple(
+            source_index.values[position] for position in source_schema_positions
+        )
+        source_by_identity = {
+            entity_identity(entity): position
+            for position, entity in enumerate(source_entities)
+        }
+        target_index = MeasurementEntityIndex(
+            values=target_entities,
+        )
+        target_to_source = tuple(
+            source_by_identity.get(entity_identity(entity))
+            for entity in target_entities
+        )
+        target_to_schema = tuple(
+            None
+            if source_position is None
+            else source_schema_positions[source_position]
+            for source_position in target_to_source
+        )
+
+        dimensions = tuple(
+            item.model_copy(
+                update={"size": len(target_entities), "index": target_index}
+            )
+            if item.id == dimension_id
+            else item
+            for item in self.schema.dimensions
+        )
+        variables = tuple(
+            _reindex_entity_variable_source(
+                variable,
+                dimension_id=dimension_id,
+                target_to_schema=target_to_schema,
+            )
+            for variable in self.schema.variables
+        )
+        result = self.schema.result
+        if result is not None:
+            result = result.model_copy(
+                update={
+                    "version": measurement_result_contract_version(
+                        result.id,
+                        result.fields,
+                        variables=variables,
+                        dimensions=dimensions,
+                    )
+                }
+            )
+        schema = self.schema.model_copy(
+            update={
+                "dimensions": dimensions,
+                "variables": variables,
+                "result": result,
+            }
+        )
+        variable_by_id = {variable.id: variable for variable in variables}
+        dimension_sizes = {
+            dimension.id: dimension.size for dimension in schema.dimensions
+        }
+        records = tuple(
+            _reindex_record_entities(
+                record,
+                variables=variable_by_id,
+                dimension_sizes=dimension_sizes,
+                dimension_id=dimension_id,
+                source_count=len(source_entities),
+                target_to_source=target_to_source,
+                target_to_schema=target_to_schema,
+            )
+            for record in self.records
+        )
+        raw = MeasurementDataset(
+            dataset_schema=schema,
+            records=records,
+            metadata=self.metadata,
+        )
+        entry = _derived_measurement_dataset_entry(
+            self._entry,
+            raw,
+            operation={
+                "kind": "reindex_entities",
+                "dimension_id": dimension_id,
+                "entities": [
+                    entity.model_dump(mode="json") for entity in target_entities
+                ],
+            },
+        )
+        return type(self)(raw, entry)
+
+    def align_entities(
+        self,
+        other: Dataset,
+        dimension_id: str,
+        /,
+        *,
+        join: EntityAlignmentJoin = "exact",
+    ) -> tuple[Self, Dataset]:
+        """Align two datasets on complete entity identity.
+
+        ``inner`` preserves this dataset's order. ``outer`` appends identities
+        seen only in ``other`` and marks absent leaves unavailable on each side.
+        """
+
+        if join not in {"exact", "inner", "outer"}:
+            raise ValueError("entity alignment join must be exact, inner, or outer")
+        left = _visible_entity_values(self, dimension_id)
+        right = _visible_entity_values(other, dimension_id)
+        left_identities = tuple(entity_identity(entity) for entity in left)
+        right_identities = tuple(entity_identity(entity) for entity in right)
+        if join == "exact":
+            if left_identities != right_identities:
+                raise ValueError(
+                    f"entity dimension {dimension_id!r} ordered identities differ; "
+                    "use join='inner' or join='outer'"
+                )
+            return self, other
+        right_identity_set = set(right_identities)
+        if join == "inner":
+            target = tuple(
+                entity
+                for entity in left
+                if entity_identity(entity) in right_identity_set
+            )
+            if not target:
+                raise ValueError(
+                    f"entity dimension {dimension_id!r} has no shared identities"
+                )
+        else:
+            left_identity_set = set(left_identities)
+            target = (
+                *left,
+                *(
+                    entity
+                    for entity in right
+                    if entity_identity(entity) not in left_identity_set
+                ),
+            )
+        return (
+            self.reindex_entities(dimension_id, target),
+            other.reindex_entities(dimension_id, target),
+        )
 
     def where(
         self,
@@ -1270,13 +1796,56 @@ class Dataset:
                 and view_size is not None
                 and dimension.id not in self.variables
             ):
-                coords[dimension.id] = (
-                    (dimension.id,),
-                    np.arange(view_size, dtype=np.int64),
-                    {
+                positions = self._view_dimension_positions[dimension.id]
+                if len(positions) != view_size:
+                    raise ValueError(
+                        f"dataset view dimension {dimension.id!r} position count "
+                        "does not match its size"
+                    )
+                if dimension.index is None:
+                    coordinate_values = np.asarray(positions, dtype=np.int64)
+                    coordinate_attrs = {
                         "long_name": f"positional index for {dimension.id}",
                         "scopecat_role": "dimension_index",
-                    },
+                    }
+                else:
+                    coordinate_values = np.asarray(
+                        tuple(
+                            _entity_coordinate_label(
+                                dimension.index,
+                                dimension.index.values[position],
+                            )
+                            for position in positions
+                        ),
+                        dtype=np.object_,
+                    )
+                    coordinate_attrs = {
+                        "long_name": f"entity index for {dimension.id}",
+                        "scopecat_role": "entity_index",
+                        "scopecat_entity_kind": dimension.index.entity_kind or "",
+                        "scopecat_entity_axis_fingerprint": (
+                            dimension.index.fingerprint
+                        ),
+                        "scopecat_entity_labels_json": _stable_json(
+                            tuple(
+                                dimension.index.values[position].id
+                                for position in positions
+                            )
+                        ),
+                        "scopecat_entities_json": _stable_json(
+                            tuple(
+                                cast(
+                                    "Sequence[object]",
+                                    dimension.index.model_dump(mode="json")["values"],
+                                )[position]
+                                for position in positions
+                            )
+                        ),
+                    }
+                coords[dimension.id] = (
+                    (dimension.id,),
+                    coordinate_values,
+                    coordinate_attrs,
                 )
         if "logical_point_id" not in self.variables and any(
             record.logical_point_id is not None for record in self._records
@@ -1445,19 +2014,45 @@ class Dataset:
                     _xarray_values(variable),
                     _variable_attrs(variable),
                 )
-            if any(reason is not None for reason in availability):
+            fixed_availability = (
+                None
+                if _variable_is_ragged(variable)
+                else _xarray_fixed_availability(variable)
+            )
+            if fixed_availability is not None:
+                valid, unavailable_reasons = fixed_availability
+                data_vars[_valid_name(variable.id)] = (
+                    variable.dims,
+                    valid,
+                    {
+                        "long_name": f"valid values for {variable.id}",
+                        "scopecat_role": "value_validity",
+                        "source_variable": variable.id,
+                    },
+                )
                 data_vars[_unavailable_reason_name(variable.id)] = (
-                    ("point",),
-                    np.asarray(
-                        availability,
-                        dtype=np.object_,
-                    ),
+                    variable.dims,
+                    unavailable_reasons,
                     {
                         "long_name": f"unavailable reason for {variable.id}",
                         "scopecat_role": "availability",
                         "source_variable": variable.id,
                     },
                 )
+            elif _variable_is_ragged(variable):
+                point_reasons = tuple(
+                    item if isinstance(item, str) else None for item in availability
+                )
+                if any(reason is not None for reason in point_reasons):
+                    data_vars[_unavailable_reason_name(variable.id)] = (
+                        ("point",),
+                        np.asarray(point_reasons, dtype=np.object_),
+                        {
+                            "long_name": f"unavailable reason for {variable.id}",
+                            "scopecat_role": "availability",
+                            "source_variable": variable.id,
+                        },
+                    )
         return xr.Dataset(
             data_vars=data_vars,
             coords=coords,
@@ -1486,6 +2081,7 @@ class Dataset:
             raw,
             self._entry,
             view_dimensions={**self.dims, "point": len(selected_records)},
+            view_dimension_positions=self._view_dimension_positions,
         )
 
     def _select_fixed_local_dimensions(
@@ -1515,7 +2111,21 @@ class Dataset:
                 for dimension_id, indices in indices_by_dimension.items()
             },
         }
-        return self._copy_with(records=records, view_dimensions=dimensions)
+        positions = {
+            **self._view_dimension_positions,
+            **{
+                dimension_id: tuple(
+                    self._view_dimension_positions[dimension_id][index]
+                    for index in indices
+                )
+                for dimension_id, indices in indices_by_dimension.items()
+            },
+        }
+        return self._copy_with(
+            records=records,
+            view_dimensions=dimensions,
+            view_dimension_positions=positions,
+        )
 
     def _select_ragged_local_dimensions(
         self,
@@ -1567,6 +2177,7 @@ class Dataset:
         return self._copy_with(
             records=records,
             view_dimensions=self.dims,
+            view_dimension_positions=self._view_dimension_positions,
         )
 
     def _copy_with(
@@ -1574,13 +2185,19 @@ class Dataset:
         *,
         records: Sequence[MeasurementRecord],
         view_dimensions: Mapping[str, int | None],
+        view_dimension_positions: Mapping[str, Sequence[int]],
     ) -> Self:
         raw = MeasurementDataset(
             dataset_schema=self._schema,
             records=tuple(records),
             metadata=self._materialize().metadata,
         )
-        return type(self)(raw, self._entry, view_dimensions=view_dimensions)
+        return type(self)(
+            raw,
+            self._entry,
+            view_dimensions=view_dimensions,
+            view_dimension_positions=view_dimension_positions,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -2045,12 +2662,75 @@ def _native_value(value: MeasurementValue) -> NativeValue:
         return None
     if isinstance(value, MeasurementScalar):
         return cast("NativeValue", _native_leaf(value.value))
+    if isinstance(value, MeasurementSegmentedArray):
+        return cast(
+            "NativeValue",
+            tuple(_native_value(segment) for segment in value.segments),
+        )
+    if value.availability is not None:
+        masked = np.ma.MaskedArray(
+            value.values,
+            mask=~value.availability.valid,
+            copy=False,
+        )
+        masked.data.flags.writeable = False
+        masked.mask.flags.writeable = False
+        return cast("NativeValue", masked)
     return value.values
+
+
+def _measurement_value_is_complete(value: MeasurementValue) -> bool:
+    return not isinstance(value, MeasurementUnavailable) and not (
+        isinstance(value, MeasurementArray | MeasurementSegmentedArray)
+        and (
+            value.availability is not None
+            or (
+                isinstance(value, MeasurementSegmentedArray)
+                and value.has_unavailable_segments
+            )
+        )
+    )
+
+
+def _measurement_value_is_unavailable(
+    value: MeasurementValue,
+    *,
+    reason: MeasurementUnavailableReason | None,
+) -> bool:
+    if isinstance(value, MeasurementUnavailable):
+        return reason is None or value.reason == reason
+    if not isinstance(value, MeasurementArray | MeasurementSegmentedArray):
+        return False
+    availability = value.availability
+    return (
+        (
+            reason is None
+            and isinstance(value, MeasurementSegmentedArray)
+            and value.has_unavailable_segments
+        )
+        or (
+            availability is not None
+            and (
+                reason is None
+                or any(group.reason == reason for group in availability.unavailable)
+            )
+        )
+        or (
+            isinstance(value, MeasurementSegmentedArray)
+            and any(
+                isinstance(segment, MeasurementUnavailable)
+                and (reason is None or segment.reason == reason)
+                for segment in value.segments
+            )
+        )
+    )
 
 
 def _require_record_ref_matches(
     ref: RecordRef[NativeAvailableValue],
     definition: MeasurementVariable,
+    *,
+    schema: MeasurementDatasetSchema,
 ) -> None:
     """Validate an authored type promise at the durable-data boundary."""
 
@@ -2060,9 +2740,8 @@ def _require_record_ref_matches(
         "dtype": ref.dtype,
         "unit": ref.unit,
         "dims": ref.dims,
-        "source_product_id": ref.source_product_id,
-        "source_value_id": ref.source_value_id,
-        "recording_group_id": ref.recording_group_id,
+        "entity_axis_id": ref.entity_axis_id,
+        "entity_axis_fingerprint": ref.entity_axis_fingerprint,
     }
     actual = {
         "id": definition.id,
@@ -2070,9 +2749,19 @@ def _require_record_ref_matches(
         "dtype": definition.dtype,
         "unit": definition.unit,
         "dims": tuple(definition.dims),
-        "source_product_id": definition.source_product_id,
-        "source_value_id": definition.source_value_id,
-        "recording_group_id": definition.recording_group_id,
+        "entity_axis_id": (
+            None
+            if definition.source_entity_products is None
+            else definition.source_entity_products.dimension_id
+        ),
+        "entity_axis_fingerprint": (
+            None
+            if definition.source_entity_products is None
+            else _entity_dimension_fingerprint(
+                schema,
+                definition.source_entity_products.dimension_id,
+            )
+        ),
     }
     mismatches = tuple(
         name for name, value in expected.items() if actual[name] != value
@@ -2085,6 +2774,20 @@ def _require_record_ref_matches(
     raise TypeError(
         f"record reference {ref.id!r} does not match the dataset schema: {rendered}"
     )
+
+
+def _entity_dimension_fingerprint(
+    schema: MeasurementDatasetSchema,
+    dimension_id: str,
+) -> str:
+    dimension = next(
+        dimension for dimension in schema.dimensions if dimension.id == dimension_id
+    )
+    if dimension.index is None:
+        raise AssertionError(
+            f"entity source dimension {dimension_id!r} has no entity index"
+        )
+    return dimension.index.fingerprint
 
 
 def _require_product_ref_matches(
@@ -2295,6 +2998,306 @@ def _array_values_equal(left: np.ndarray, right: np.ndarray) -> bool:
         return bool(np.array_equal(left, right))
 
 
+def _require_entity_dimension(
+    dataset: Dataset,
+    dimension_id: str,
+) -> MeasurementDimension:
+    try:
+        dimension = next(
+            item for item in dataset.schema.dimensions if item.id == dimension_id
+        )
+    except StopIteration as error:
+        raise KeyError(
+            f"measurement dataset has no dimension {dimension_id!r}"
+        ) from error
+    if dimension.index is None:
+        raise ValueError(
+            f"measurement dimension {dimension_id!r} is not entity-indexed"
+        )
+    return dimension
+
+
+def _visible_entity_values(
+    dataset: Dataset,
+    dimension_id: str,
+) -> tuple[EntityRef, ...]:
+    dimension = _require_entity_dimension(dataset, dimension_id)
+    index = cast("MeasurementEntityIndex", dimension.index)
+    return tuple(
+        index.values[position]
+        for position in dataset._view_dimension_positions[dimension_id]
+    )
+
+
+def _derived_measurement_dataset_entry(
+    source: RunContentEntry,
+    dataset: MeasurementDataset,
+    *,
+    operation: Mapping[str, object],
+) -> RunContentEntry:
+    """Describe one materialized semantic transform without reusing source identity."""
+
+    metadata = deepcopy(source.metadata)
+    metadata["scopecat_derivation"] = cast(
+        "JsonValue",
+        {
+            "source_content_hash": source.content_hash,
+            "operation": operation,
+        },
+    )
+    return source.model_copy(
+        update={
+            "data_schema": dataset.dataset_schema.model_dump(mode="json"),
+            "content_hash": f"sha256:{model_wire_content_hash(dataset)}",
+            "metadata": metadata,
+        }
+    )
+
+
+def _reindex_entity_variable_source(
+    variable: MeasurementVariable,
+    *,
+    dimension_id: str,
+    target_to_schema: Sequence[int | None],
+) -> MeasurementVariable:
+    source = variable.source_entity_products
+    if source is None or source.dimension_id != dimension_id:
+        return variable
+    override_by_index = {
+        override.entity_index: override for override in source.metadata_overrides
+    }
+    overrides = tuple(
+        MeasurementEntityProductMetadataOverride(
+            entity_index=target_index,
+            metadata=override_by_index[schema_index].metadata,
+        )
+        for target_index, schema_index in enumerate(target_to_schema)
+        if schema_index is not None and schema_index in override_by_index
+    )
+    return variable.model_copy(
+        update={
+            "source_entity_products": MeasurementEntityProductSource(
+                dimension_id=dimension_id,
+                product_ids=tuple(
+                    None if schema_index is None else source.product_ids[schema_index]
+                    for schema_index in target_to_schema
+                ),
+                common_metadata=source.common_metadata,
+                metadata_overrides=overrides,
+            )
+        }
+    )
+
+
+def _reindex_record_entities(
+    record: MeasurementRecord,
+    *,
+    variables: Mapping[str, MeasurementVariable],
+    dimension_sizes: Mapping[str, int | None],
+    dimension_id: str,
+    source_count: int,
+    target_to_source: Sequence[int | None],
+    target_to_schema: Sequence[int | None],
+) -> MeasurementRecord:
+    coordinates = dict(record.coordinates)
+    observables = dict(record.observables)
+    for variable in variables.values():
+        if dimension_id not in variable.dims[1:]:
+            continue
+        values = coordinates if variable.role == "coordinate" else observables
+        values[variable.id] = _reindex_measurement_value_entities(
+            values[variable.id],
+            entity_axis=variable.dims[1:].index(dimension_id),
+            absent_segment_shape=tuple(
+                dimension_sizes[local_dimension_id]
+                for local_dimension_id in variable.dims[2:]
+            ),
+            dimension_id=dimension_id,
+            source_count=source_count,
+            target_to_source=target_to_source,
+        )
+    evidence_by_variable: dict[str, MeasurementAcquisitionEvidence] = {}
+    for variable_id in record.acquisition_evidence.variable_refs:
+        evidence = record.acquisition_evidence.for_variable(variable_id)
+        if (
+            isinstance(evidence, EntityAcquisitionEvidence)
+            and evidence.dimension_id == dimension_id
+        ):
+            evidence = evidence.model_copy(
+                update={
+                    "values": tuple(
+                        None if schema_index is None else evidence.values[schema_index]
+                        for schema_index in target_to_schema
+                    )
+                }
+            )
+        if evidence is not None:
+            evidence_by_variable[variable_id] = evidence
+    return record.model_copy(
+        update={
+            "coordinates": coordinates,
+            "observables": observables,
+            "acquisition_evidence": MeasurementAcquisitionEvidenceCatalog.create(
+                evidence_by_variable
+            ),
+        }
+    )
+
+
+def _reindex_measurement_value_entities(
+    value: MeasurementValue,
+    *,
+    entity_axis: int,
+    absent_segment_shape: tuple[int | None, ...],
+    dimension_id: str,
+    source_count: int,
+    target_to_source: Sequence[int | None],
+) -> MeasurementValue:
+    if isinstance(value, MeasurementScalar):
+        raise ValueError(
+            f"scalar measurement value cannot use entity dimension {dimension_id!r}"
+        )
+    if len(value.shape) <= entity_axis:
+        raise ValueError(
+            f"measurement value has no axis for entity dimension {dimension_id!r}"
+        )
+    if value.shape[entity_axis] != source_count:
+        raise ValueError(
+            f"measurement value entity extent for {dimension_id!r} does not match "
+            "the visible dataset index"
+        )
+    selected_indices = tuple(
+        source_index for source_index in target_to_source if source_index is not None
+    )
+    if len(selected_indices) == len(target_to_source):
+        return _slice_measurement_value(
+            value,
+            local_dimensions=tuple(
+                dimension_id if axis == entity_axis else f"__axis_{axis}"
+                for axis in range(len(value.shape))
+            ),
+            indices_by_dimension={dimension_id: selected_indices},
+        )
+    target_shape = tuple(
+        len(target_to_source) if axis == entity_axis else extent
+        for axis, extent in enumerate(value.shape)
+    )
+    if isinstance(value, MeasurementUnavailable):
+        return value.model_copy(update={"shape": target_shape})
+    if isinstance(value, MeasurementSegmentedArray):
+        if entity_axis != 0:
+            raise ValueError(
+                "segmented measurement values require the entity dimension first"
+            )
+        return MeasurementSegmentedArray.create(
+            segments=tuple(
+                MeasurementUnavailable.create(
+                    reason="missing",
+                    dtype=value.dtype,
+                    unit=value.unit,
+                    shape=absent_segment_shape,
+                    metadata={
+                        "entity_alignment": "absent",
+                        "dimension_id": dimension_id,
+                    },
+                )
+                if source_position is None
+                else value.segments[source_position]
+                for source_position in target_to_source
+            ),
+            dtype=value.dtype,
+            unit=value.unit,
+            metadata=value.metadata,
+        )
+    dense_shape = cast("tuple[int, ...]", target_shape)
+    target_values = np.zeros(dense_shape, dtype=value.values.dtype)
+    target_valid = np.zeros(dense_shape, dtype=np.bool_)
+    target_groups = np.full(dense_shape, -2, dtype=np.int64)
+    source_valid = (
+        np.ones(value.values.shape, dtype=np.bool_)
+        if value.availability is None
+        else value.availability.valid
+    )
+    source_groups = (
+        np.full(value.values.shape, -1, dtype=np.int64)
+        if value.availability is None
+        else _array_unavailable_group_indices(value.availability)
+    )
+    target_positions = tuple(
+        target_position
+        for target_position, source_position in enumerate(target_to_source)
+        if source_position is not None
+    )
+    target_values_by_entity = np.moveaxis(target_values, entity_axis, 0)
+    target_valid_by_entity = np.moveaxis(target_valid, entity_axis, 0)
+    target_groups_by_entity = np.moveaxis(target_groups, entity_axis, 0)
+    target_values_by_entity[list(target_positions)] = np.take(
+        np.moveaxis(value.values, entity_axis, 0),
+        selected_indices,
+        axis=0,
+    )
+    target_valid_by_entity[list(target_positions)] = np.take(
+        np.moveaxis(source_valid, entity_axis, 0),
+        selected_indices,
+        axis=0,
+    )
+    target_groups_by_entity[list(target_positions)] = np.take(
+        np.moveaxis(source_groups, entity_axis, 0),
+        selected_indices,
+        axis=0,
+    )
+    flattened_groups = cast("NDArray[np.int64]", target_groups.reshape(-1))
+    unavailable: list[MeasurementArrayUnavailableGroup] = []
+    if value.availability is not None:
+        for group_index, group in enumerate(value.availability.unavailable):
+            matching = np.flatnonzero(
+                cast(
+                    "NDArray[np.bool_]",
+                    np.equal(flattened_groups, np.int64(group_index)),
+                )
+            )
+            if matching.size:
+                unavailable.append(
+                    MeasurementArrayUnavailableGroup(
+                        reason=group.reason,
+                        flat_indices=tuple(int(index) for index in matching),
+                        metadata=group.metadata,
+                    )
+                )
+    absent = np.flatnonzero(
+        cast(
+            "NDArray[np.bool_]",
+            np.equal(flattened_groups, np.int64(-2)),
+        )
+    )
+    if absent.size:
+        unavailable.append(
+            MeasurementArrayUnavailableGroup(
+                reason="missing",
+                flat_indices=tuple(int(index) for index in absent),
+                metadata={
+                    "entity_alignment": "absent",
+                    "dimension_id": dimension_id,
+                },
+            )
+        )
+    availability = (
+        None
+        if bool(np.all(target_valid))
+        else MeasurementArrayAvailability(
+            valid=target_valid,
+            unavailable=tuple(unavailable),
+        )
+    )
+    return MeasurementArray.create(
+        dtype=value.dtype,
+        unit=value.unit,
+        values=target_values,
+        availability=availability,
+        metadata=value.metadata,
+    )
+
+
 def _slice_record_local_values(
     record: MeasurementRecord,
     *,
@@ -2341,6 +3344,14 @@ def _slice_measurement_value(
 ) -> MeasurementValue:
     if isinstance(value, MeasurementScalar):
         raise ValueError("cannot apply a local dimension indexer to a scalar value")
+    if isinstance(value, MeasurementSegmentedArray):
+        return _slice_segmented_array(
+            value,
+            indices_by_axis={
+                local_dimensions.index(dimension_id): indices
+                for dimension_id, indices in indices_by_dimension.items()
+            },
+        )
     shape = tuple(value.shape)
     indices_by_axis = {
         local_dimensions.index(dimension_id): indices
@@ -2359,14 +3370,146 @@ def _slice_measurement_value(
             metadata=value.metadata,
         )
     selected_values = value.values
+    selected_valid = None if value.availability is None else value.availability.valid
+    selected_groups = (
+        None
+        if value.availability is None
+        else _array_unavailable_group_indices(value.availability)
+    )
     for axis, indices in sorted(indices_by_axis.items()):
         selected_values = np.take(selected_values, indices, axis=axis)
+        if selected_valid is not None and selected_groups is not None:
+            selected_valid = np.take(selected_valid, indices, axis=axis)
+            selected_groups = np.take(selected_groups, indices, axis=axis)
+    selected_availability = (
+        None
+        if selected_valid is None or selected_groups is None
+        else _sliced_array_availability(
+            selected_valid,
+            selected_groups,
+            cast("MeasurementArrayAvailability", value.availability),
+        )
+    )
+    if (
+        selected_availability is None
+        and selected_valid is not None
+        and selected_groups is not None
+        and not bool(np.all(selected_valid))
+    ):
+        group_indices = tuple(
+            dict.fromkeys(
+                int(group_index)
+                for group_index in selected_groups.reshape(-1)
+                if int(group_index) >= 0
+            )
+        )
+        if len(group_indices) != 1:
+            raise AssertionError("all-invalid array selection lost its diagnostics")
+        group = cast("MeasurementArrayAvailability", value.availability).unavailable[
+            group_indices[0]
+        ]
+        return MeasurementUnavailable.create(
+            reason=group.reason,
+            dtype=value.dtype,
+            unit=value.unit,
+            shape=selected_shape,
+            metadata={**value.metadata, **group.metadata},
+        )
     return MeasurementArray.create(
         dtype=value.dtype,
         unit=value.unit,
         values=selected_values,
+        availability=selected_availability,
         metadata=value.metadata,
     )
+
+
+def _slice_segmented_array(
+    value: MeasurementSegmentedArray,
+    *,
+    indices_by_axis: Mapping[int, tuple[int, ...]],
+) -> MeasurementSegmentedArray:
+    entity_indices = indices_by_axis.get(0, tuple(range(len(value.segments))))
+    if not entity_indices:
+        raise ValueError("segmented array selection must retain at least one entity")
+    local_dimensions = tuple(f"__axis_{axis}" for axis in range(len(value.shape) - 1))
+    local_indices = {
+        local_dimensions[axis - 1]: indices
+        for axis, indices in indices_by_axis.items()
+        if axis != 0
+    }
+    segments: list[MeasurementArray | MeasurementUnavailable] = []
+    for entity_index in entity_indices:
+        segment = value.segments[entity_index]
+        selected = (
+            segment
+            if not local_indices
+            else _slice_measurement_value(
+                segment,
+                local_dimensions=local_dimensions,
+                indices_by_dimension=local_indices,
+            )
+        )
+        if isinstance(selected, MeasurementScalar | MeasurementSegmentedArray):
+            raise AssertionError("segmented array slicing produced an invalid segment")
+        segments.append(selected)
+    return MeasurementSegmentedArray.create(
+        segments=segments,
+        dtype=value.dtype,
+        unit=value.unit,
+        metadata=value.metadata,
+    )
+
+
+def _array_unavailable_group_indices(
+    availability: MeasurementArrayAvailability,
+) -> NDArray[np.int64]:
+    selected = np.full(availability.valid.shape, -1, dtype=np.int64)
+    flattened = selected.reshape(-1)
+    for group_index, group in enumerate(availability.unavailable):
+        flattened[list(group.flat_indices)] = group_index
+    return selected
+
+
+def _array_unavailable_reasons(
+    availability: MeasurementArrayAvailability,
+) -> NDArray[np.object_]:
+    selected = np.full(availability.valid.shape, None, dtype=np.object_)
+    flattened = selected.reshape(-1)
+    for group in availability.unavailable:
+        flattened[list(group.flat_indices)] = group.reason
+    return selected
+
+
+def _sliced_array_availability(
+    valid: NDArray[np.bool_],
+    group_indices: NDArray[np.int64],
+    source: MeasurementArrayAvailability,
+    *,
+    collapse_all_unavailable: bool = True,
+) -> MeasurementArrayAvailability | None:
+    if bool(np.all(valid)):
+        return None
+    flattened_groups = group_indices.reshape(-1)
+    unavailable_groups: list[MeasurementArrayUnavailableGroup] = []
+    for group_index, group in enumerate(source.unavailable):
+        matching = cast(
+            "NDArray[np.bool_]",
+            np.equal(flattened_groups, np.int64(group_index)),
+        )
+        if not bool(np.any(matching)):
+            continue
+        unavailable_groups.append(
+            MeasurementArrayUnavailableGroup(
+                reason=group.reason,
+                flat_indices=tuple(int(index) for index in np.flatnonzero(matching)),
+                metadata=group.metadata,
+            )
+        )
+    unavailable = tuple(unavailable_groups)
+    if collapse_all_unavailable and not bool(np.any(valid)) and len(unavailable) == 1:
+        return None
+    return MeasurementArrayAvailability(valid=valid, unavailable=unavailable)
 
 
 def _merge_indexers[T](
@@ -2410,17 +3553,6 @@ def _point_positions(dataset: Dataset, selected: xr.Dataset) -> tuple[int, ...]:
         positions[int(cast("np.int64", point_indices[index]))]
         for index in range(len(point_indices))
     )
-
-
-def _selected_dimension_positions(
-    selected: xr.Dataset,
-    dimension_id: str,
-) -> tuple[int, ...]:
-    values = cast(
-        "np.ndarray[tuple[int], np.dtype[np.int64]]",
-        selected.coords[dimension_id].values,
-    )
-    return tuple(int(cast("np.int64", values[index])) for index in range(len(values)))
 
 
 def _group_positions(
@@ -2493,6 +3625,60 @@ def _selection_value(value: object, variable: Variable[object]) -> object:
     return value
 
 
+def _entity_coordinate_label(
+    index: MeasurementEntityIndex,
+    entity: EntityRef,
+) -> str:
+    if index.entity_kind is not None:
+        return entity.id
+    return entity_identity_key(entity)
+
+
+def _entity_selection_positions(
+    index: MeasurementEntityIndex,
+    current_positions: Sequence[int],
+    query: object,
+    *,
+    dimension_id: str,
+) -> tuple[int, ...]:
+    if isinstance(query, EntityRef | str):
+        requested = (query,)
+    elif isinstance(query, Sequence):
+        requested = tuple(query)
+    else:
+        raise TypeError(
+            f"entity dimension {dimension_id!r} selectors must be an entity, "
+            "string label, or sequence of them"
+        )
+    available = tuple(index.values[position] for position in current_positions)
+    selected: list[int] = []
+    for item in requested:
+        matches = tuple(
+            position
+            for position, entity in enumerate(available)
+            if (
+                entity_identity(entity) == entity_identity(item)
+                if isinstance(item, EntityRef)
+                else isinstance(item, str)
+                and (
+                    _entity_coordinate_label(index, entity) == item
+                    or (
+                        item == entity.id
+                        and sum(candidate.id == item for candidate in available) == 1
+                    )
+                )
+            )
+        )
+        if not matches:
+            raise KeyError(f"entity dimension {dimension_id!r} has no label {item!r}")
+        if len(matches) != 1:
+            raise KeyError(
+                f"entity dimension {dimension_id!r} label {item!r} is ambiguous"
+            )
+        selected.append(matches[0])
+    return tuple(selected)
+
+
 def _selection_tolerance(
     tolerance: float | Quantity | None,
     variable: Variable[object],
@@ -2512,7 +3698,9 @@ def _xarray_values(variable: Variable) -> object:
     fixed_shape = tuple(cast("int", extent) for extent in variable.shape)
     raw_values = variable._raw_values
     has_unavailable = any(
-        isinstance(value, MeasurementUnavailable) for value in raw_values
+        isinstance(value, MeasurementUnavailable)
+        or (isinstance(value, MeasurementArray) and value.availability is not None)
+        for value in raw_values
     )
     dtype = _xarray_dtype(variable.dtype, nullable=has_unavailable)
     if not raw_values:
@@ -2539,12 +3727,103 @@ def _xarray_values(variable: Variable) -> object:
                 )
             )
         else:
-            arrays.append(cast("MeasurementArray", value).values)
+            array = cast("MeasurementArray", value)
+            if array.availability is None:
+                arrays.append(array.values)
+                continue
+            selected = array.values.astype(dtype, copy=True)
+            selected[~array.availability.valid] = np.asarray(
+                _xarray_nullable_fill(variable.dtype),
+                dtype=dtype,
+            )
+            arrays.append(selected)
     return np.stack(arrays, axis=0).astype(dtype, copy=False)
 
 
-def _variable_is_ragged(variable: Variable) -> bool:
+def _xarray_fixed_availability(
+    variable: Variable,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    raw_values = variable._raw_values
+    if not any(
+        isinstance(value, MeasurementUnavailable)
+        or (isinstance(value, MeasurementArray) and value.availability is not None)
+        for value in raw_values
+    ):
+        return None
+    fixed_shape = tuple(cast("int", extent) for extent in variable.shape)
+    local_shape = fixed_shape[1:]
+    valid_chunks: list[np.ndarray] = []
+    reason_chunks: list[np.ndarray] = []
+    for value in raw_values:
+        if isinstance(value, MeasurementUnavailable):
+            valid_chunks.append(np.zeros(local_shape or (), dtype=np.bool_))
+            reason_chunks.append(
+                np.full(local_shape or (), value.reason, dtype=np.object_)
+            )
+        elif isinstance(value, MeasurementArray):
+            if value.availability is None:
+                valid_chunks.append(np.ones(local_shape, dtype=np.bool_))
+                reason_chunks.append(np.full(local_shape, None, dtype=np.object_))
+            else:
+                valid_chunks.append(value.availability.valid)
+                reason_chunks.append(_array_unavailable_reasons(value.availability))
+        else:
+            valid_chunks.append(np.asarray(True, dtype=np.bool_))
+            reason_chunks.append(np.asarray(None, dtype=np.object_))
+    return np.stack(valid_chunks, axis=0), np.stack(reason_chunks, axis=0)
+
+
+def _variable_is_ragged(variable: Variable[object]) -> bool:
     return any(extent is None for extent in variable.shape[1:])
+
+
+def _labeled_measurement_array(variable: Variable[object]) -> LabeledMeasurementArray:
+    dataset = variable._dataset._loaded_xarray
+    data = dataset[variable.id].copy(deep=True)
+    layout: MeasurementArrayLayout = variable.layout
+    valid_name = (
+        _ragged_valid_name(variable.id)
+        if layout == "ragged"
+        else _valid_name(variable.id)
+    )
+    reason_name = (
+        _ragged_unavailable_reason_name(variable.id)
+        if layout == "ragged"
+        else _unavailable_reason_name(variable.id)
+    )
+    valid = (
+        dataset[valid_name].copy(deep=True)
+        if valid_name in dataset
+        else xr.DataArray(
+            np.ones(data.shape, dtype=np.bool_),
+            dims=data.dims,
+            coords=data.coords,
+        )
+    )
+    unavailable_reasons = (
+        dataset[reason_name].copy(deep=True)
+        if reason_name in dataset
+        else xr.DataArray(
+            np.full(data.shape, None, dtype=np.object_),
+            dims=data.dims,
+            coords=data.coords,
+        )
+    )
+    return LabeledMeasurementArray(
+        _data=data,
+        _valid=valid,
+        _unavailable_reasons=unavailable_reasons,
+        layout=layout,
+        declared_dims=variable.dims,
+        dtype=variable.dtype,
+        unit=variable.unit,
+    )
+
+
+def _read_only_array(value: object) -> NDArray[np.generic]:
+    selected = np.asarray(value).copy(order="C")
+    selected.flags.writeable = False
+    return selected
 
 
 def _xarray_ragged_values(
@@ -2579,9 +3858,20 @@ def _xarray_ragged_values(
                     f"ragged variable {variable.id!r} contributes "
                     f"{flattened.size} values to a {row_size}-observation row"
                 )
-            chunks.append(flattened)
-            valid_chunks.append(np.ones(row_size, dtype=np.bool_))
-            reason_chunks.append(np.full(row_size, None, dtype=np.object_))
+            if raw_value.availability is None:
+                chunks.append(flattened)
+                valid_chunks.append(np.ones(row_size, dtype=np.bool_))
+                reason_chunks.append(np.full(row_size, None, dtype=np.object_))
+            else:
+                flattened_valid = raw_value.availability.valid.reshape(-1)
+                flattened_reasons = _array_unavailable_reasons(
+                    raw_value.availability
+                ).reshape(-1)
+                selected = flattened.copy()
+                selected[~flattened_valid] = _xarray_fill(variable.dtype)
+                chunks.append(selected)
+                valid_chunks.append(flattened_valid)
+                reason_chunks.append(flattened_reasons)
 
     values = _concatenate_or_empty(chunks, dtype=dtype)
     valid = _concatenate_or_empty(valid_chunks, dtype=np.dtype(np.bool_))
@@ -2613,7 +3903,7 @@ def _xarray_dtype(
     }[dtype]
 
 
-def _xarray_fill(dtype: MeasurementDType) -> object:
+def _xarray_fill(dtype: MeasurementDType) -> XarrayNonNullFill:
     if dtype == "float64":
         return math.nan
     if dtype == "complex128":
@@ -2625,7 +3915,7 @@ def _xarray_fill(dtype: MeasurementDType) -> object:
     return ""
 
 
-def _xarray_nullable_fill(dtype: MeasurementDType) -> object:
+def _xarray_nullable_fill(dtype: MeasurementDType) -> XarrayFill:
     if dtype in {"int64", "bool", "string"}:
         return None
     return _xarray_fill(dtype)
@@ -2646,6 +3936,10 @@ def _ragged_xarray_layout(
     *,
     records: Sequence[MeasurementRecord],
 ) -> _RaggedXarrayLayout:
+    if any(
+        isinstance(value, MeasurementSegmentedArray) for value in variable._raw_values
+    ):
+        return _entity_ragged_xarray_layout(variable, records=records)
     local_extents: list[list[int | None]] = [[] for _dimension_id in variable.dims[1:]]
     for raw_value in variable._raw_values:
         if isinstance(raw_value, MeasurementScalar):
@@ -2688,7 +3982,91 @@ def _merge_ragged_xarray_layouts(
                 raise ValueError("ragged point-local extents differ")
             merged_axis.append(left_extent if left_extent is not None else right_extent)
         merged_axes.append(tuple(merged_axis))
+    if left.explicit_indices or right.explicit_indices:
+        explicit = left if left.explicit_indices else right
+        other = right if left.explicit_indices else left
+        if (
+            left.explicit_indices
+            and right.explicit_indices
+            and (
+                left.row_sizes != right.row_sizes
+                or left.local_indices != right.local_indices
+            )
+        ):
+            raise ValueError("ragged entity-local indices differ")
+        if any(
+            other_size not in {0, explicit_size}
+            for other_size, explicit_size in zip(
+                other.row_sizes,
+                explicit.row_sizes,
+                strict=True,
+            )
+        ):
+            raise ValueError("ragged point-local extents differ")
+        return _RaggedXarrayLayout(
+            parent_point_indices=explicit.parent_point_indices,
+            row_sizes=explicit.row_sizes,
+            local_indices=explicit.local_indices,
+            local_extents=tuple(merged_axes),
+            explicit_indices=True,
+        )
     return _ragged_layout_from_extents(tuple(merged_axes), records=records)
+
+
+def _entity_ragged_xarray_layout(
+    variable: Variable,
+    *,
+    records: Sequence[MeasurementRecord],
+) -> _RaggedXarrayLayout:
+    local_extents: list[list[int | None]] = [[] for _dimension_id in variable.dims[1:]]
+    parent_points: list[int] = []
+    row_sizes: list[int] = []
+    local_indices: list[list[int]] = [[] for _dimension_id in variable.dims[1:]]
+    for record, raw_value in zip(records, variable._raw_values, strict=True):
+        if isinstance(raw_value, MeasurementScalar):
+            raise ValueError(
+                f"ragged variable {variable.id!r} must contain point-local arrays"
+            )
+        local_shape = tuple(raw_value.shape)
+        if len(local_shape) != len(variable.dims) - 1:
+            raise ValueError(
+                f"ragged variable {variable.id!r} value rank {len(local_shape)} "
+                f"does not match {len(variable.dims) - 1} local dimensions"
+            )
+        for axis, extent in enumerate(local_shape):
+            local_extents[axis].append(extent)
+        if isinstance(raw_value, MeasurementUnavailable):
+            row_sizes.append(0)
+            continue
+        if not isinstance(raw_value, MeasurementSegmentedArray):
+            concrete_shape = cast("tuple[int, ...]", local_shape)
+            indices = cartesian_product(*(range(extent) for extent in concrete_shape))
+        else:
+            indices = (
+                (entity_index, *local_index)
+                for entity_index, segment in enumerate(raw_value.segments)
+                if all(extent is not None for extent in segment.shape)
+                for local_index in cartesian_product(
+                    *(
+                        range(extent)
+                        for extent in cast("tuple[int, ...]", segment.shape)
+                    )
+                )
+            )
+        count = 0
+        for local_index in indices:
+            count += 1
+            parent_points.append(record.point_index)
+            for axis, index in enumerate(local_index):
+                local_indices[axis].append(index)
+        row_sizes.append(count)
+    return _RaggedXarrayLayout(
+        parent_point_indices=tuple(parent_points),
+        row_sizes=tuple(row_sizes),
+        local_indices=tuple(tuple(indices) for indices in local_indices),
+        local_extents=tuple(tuple(extents) for extents in local_extents),
+        explicit_indices=True,
+    )
 
 
 def _ragged_layout_from_extents(
@@ -2819,4 +4197,14 @@ def _unavailable_reason_name(variable_id: str) -> str:
     return f"{variable_id}__unavailable_reason"
 
 
-__all__ = ["Dataset", "NativeAvailableValue", "PointMask", "Variable"]
+def _valid_name(variable_id: str) -> str:
+    return f"{variable_id}__valid"
+
+
+__all__ = [
+    "Dataset",
+    "NativeAvailableValue",
+    "NativeMagnitude",
+    "PointMask",
+    "Variable",
+]

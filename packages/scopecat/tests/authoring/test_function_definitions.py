@@ -16,7 +16,11 @@ from scopecat.api.analysis import AnalysisDefinition, AnalysisInvocation
 from scopecat.authoring._module_results import ProductBundle
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.kernel.errors import CheckFailed
-from scopecat.program.products import ProductAxis, RecordSelection
+from scopecat.program.products import (
+    EntityRecordSelection,
+    ProductAxis,
+    RecordSelection,
+)
 from scopecat.sdk.instruments import InterfaceRef
 
 _COUNT_TYPE = sc.IntType(minimum=0)
@@ -286,7 +290,7 @@ def test_experiment_returns_a_typed_dataset_schema() -> None:
 
     assert output.count is invocation.with_repeat(2).output.count
     assert output.recorded_count.id == "count_copy"
-    assert output.recorded_count.source_value_id == "count"
+    assert output.recorded_count.dims == ("point",)
 
 
 def test_returned_values_are_durable_without_explicit_record_calls() -> None:
@@ -341,6 +345,42 @@ def test_return_paths_name_product_bundles_and_named_values() -> None:
         "capture/reference",
         "score",
     ]
+
+
+def test_homogeneous_per_entity_return_uses_one_entity_indexed_record() -> None:
+    q0 = sc.EntityRef(id="q0", kind="qubit")
+    q1 = sc.EntityRef(id="q1", kind="qubit")
+
+    @sc.experiment(id="test.entity-return", kind="return")
+    def definition(
+        experiment: sc.ExperimentContext,
+    ) -> sc.PerEntity[sc.ProductRef]:
+        return sc.PerEntity(
+            (
+                (q0, experiment._product("readout", scope=("q0",))),
+                (q1, experiment._product("readout", scope=("q1",))),
+            )
+        )
+
+    invocation = definition()
+    selections = invocation.definition.record_selections
+
+    [selection] = selections
+    assert isinstance(selection, EntityRecordSelection)
+    assert selection.record_id == "result"
+    assert selection.axis.id == "qubit"
+    assert selection.axis.values == (q0, q1)
+    assert [member.entity for member in selection.members] == [q0, q1]
+    [result_field] = invocation.definition.result_fields
+    assert result_field.path == ("result",)
+    assert result_field.variable_id == "result"
+    assert isinstance(invocation.output, sc.PerEntity)
+    assert invocation.output[q0].id == "q0/readout"
+    output = invocation.entity_result_ref("result")
+    assert output.id == "result"
+    assert output.dims == ("point", "qubit")
+    assert output.entity_axis_id == "qubit"
+    assert output.entity_axis_fingerprint is not None
 
 
 def test_return_annotations_refine_durable_record_policy() -> None:

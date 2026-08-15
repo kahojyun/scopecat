@@ -8,6 +8,7 @@ import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import assert_type, cast
 
@@ -16,10 +17,20 @@ import pyarrow as pa
 import pytest
 import xarray as xr
 
+from scopecat.kernel.entity import EntityRef, entity_identity_key
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.datasets import select_measurement_schema
-from scopecat.measurements.results import Dataset, PointMask, ProjectionSchema, Variable
-from scopecat.program.measurement_types import MeasurementArrayData, MeasurementDType
+from scopecat.measurements.results import (
+    Dataset,
+    LabeledMeasurementArray,
+    PointMask,
+    ProjectionSchema,
+    Variable,
+)
+from scopecat.program.measurement_types import (
+    MeasurementArrayData,
+    MeasurementDType,
+)
 from scopecat.program.products import ModuleProductDecl, ProductRef, ProductValueSpec
 from scopecat.program.record_refs import RecordRef
 from scopecat.program.value_refs import ValueRef
@@ -28,10 +39,17 @@ from scopecat.program.value_types import Scalar
 from scopecat.program.values import CoordinateRef, compute, coordinate
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
+    EntityAcquisitionEvidence,
+    InstrumentAcquisitionEvidence,
+    MeasurementAcquisitionEvidenceCatalog,
     MeasurementArray,
+    MeasurementArrayAvailability,
     MeasurementDataset,
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementEntityAcquisition,
+    MeasurementEntityIndex,
+    MeasurementEntityProductSource,
     MeasurementPointCloudPointDomain,
     MeasurementPointDomainAxis,
     MeasurementPointDomainColumn,
@@ -45,6 +63,7 @@ from scopecat.records.measurement import (
     MeasurementUnavailable,
     MeasurementValue,
     MeasurementVariable,
+    MeasurementVariableGroup,
 )
 
 
@@ -56,10 +75,28 @@ def test_dataset_exposes_labeled_variables_and_raw_records() -> None:
     assert dataset.dims == {"point": 3, "sample": 2}
     assert tuple(dataset.coords) == ("bias", "frequency")
     assert tuple(dataset.data_vars) == ("temperature", "signal")
+    assert tuple(dataset.variable_groups) == ("readout",)
+    assert tuple(variable.id for variable in dataset.variable_groups["readout"]) == (
+        "signal",
+    )
     assert tuple(dataset) == ("bias", "frequency", "temperature", "signal")
     assert isinstance(dataset["bias"], Variable)
     assert dataset["bias"].values == (0.0, 1.0, 2.0)
     assert dataset["bias"].shape == (3,)
+
+    bias = dataset["bias"].dense
+    assert isinstance(bias, LabeledMeasurementArray)
+    assert bias.layout == "dense"
+    assert bias.declared_dims == ("point",)
+    assert bias.dims == ("point",)
+    assert bias.valid.tolist() == [True, True, True]
+    assert bias.to("mV").values.tolist() == [0.0, 1000.0, 2000.0]
+    assert bias.isel(point=slice(1, None)).values.tolist() == [1.0, 2.0]
+    temperature = dataset["temperature"].dense
+    assert temperature.valid.tolist() == [True, False, True]
+    assert temperature.unavailable_reasons.tolist() == [None, "invalid", None]
+    with pytest.raises(ValueError, match="is dense"):
+        _ = dataset["bias"].observations
     assert dataset["frequency"].shape == (3, 2)
     frequency = dataset["frequency"][1]
     signal = dataset["signal"][0]
@@ -166,15 +203,12 @@ def test_typed_record_lookup_validates_schema_and_narrows_values() -> None:
         unit="V",
         dims=("point",),
         role="coordinate",
-        source_value_id="bias",
     )
     signal_ref: RecordRef[MeasurementArrayData] = RecordRef(
         id="signal",
         dtype="complex128",
         unit="ratio",
         dims=("point", "sample"),
-        source_product_id="readout/signal",
-        recording_group_id="readout",
     )
 
     bias = dataset[bias_ref]
@@ -188,7 +222,14 @@ def test_typed_record_lookup_validates_schema_and_narrows_values() -> None:
         Quantity(1000.0, "mV"),
         Quantity(2000.0, "mV"),
     )
+    assert bias.require_magnitudes("mV") == (0.0, 1000.0, 2000.0)
     assert signal[0] is signal.values[0]
+    signal_magnitudes = signal.require_magnitudes()
+    assert isinstance(signal_magnitudes[0], np.ndarray)
+    np.testing.assert_array_equal(
+        signal_magnitudes[0],
+        np.asarray([1.0 + 0.0j, 0.5 - 0.1j], dtype=np.complex128),
+    )
     traces = dataset.traces(signal_ref)
     assert len(traces) == 3
     assert traces[0].coordinate_id == "frequency"
@@ -377,7 +418,6 @@ def test_variable_require_helpers_reject_unavailable_rows() -> None:
         dtype="float64",
         unit="K",
         dims=("point",),
-        source_product_id="thermometer/temperature",
     )
     temperature = dataset[temperature_ref]
 
@@ -401,7 +441,6 @@ def test_variable_require_helpers_reject_unavailable_rows() -> None:
             unit="V",
             dims=("point",),
             role="coordinate",
-            source_value_id="bias",
         ),
         RecordRef[float](
             id="bias",
@@ -409,7 +448,6 @@ def test_variable_require_helpers_reject_unavailable_rows() -> None:
             unit="A",
             dims=("point",),
             role="coordinate",
-            source_value_id="bias",
         ),
         RecordRef[float](
             id="bias",
@@ -417,22 +455,12 @@ def test_variable_require_helpers_reject_unavailable_rows() -> None:
             unit="V",
             dims=("point", "sample"),
             role="coordinate",
-            source_value_id="bias",
         ),
         RecordRef[float](
             id="bias",
             dtype="float64",
             unit="V",
             dims=("point",),
-            source_value_id="bias",
-        ),
-        RecordRef[float](
-            id="bias",
-            dtype="float64",
-            unit="V",
-            dims=("point",),
-            role="coordinate",
-            source_value_id="other",
         ),
     ],
 )
@@ -557,6 +585,403 @@ def test_dataset_native_xarray_preserves_labels_shapes_and_availability() -> Non
         xarray_dataset["bias"].attrs["scopecat_metadata_json"]
     )
     assert variable_metadata == {"calibration": {"revision": 2, "source": "smu"}}
+
+
+def test_entity_dimensions_support_labeled_selection_and_partial_availability() -> None:
+    q0 = EntityRef(id="q0", kind="qubit")
+    q1 = EntityRef(id="q1", kind="qubit")
+    q2 = EntityRef(id="q2", kind="qubit")
+    availability = MeasurementArrayAvailability.create(
+        valid=np.asarray([True, False, True], dtype=np.bool_),
+        reason="missing",
+        metadata={"source": "q1"},
+    )
+    schema = MeasurementDatasetSchema(
+        dataset_id="entity-readout",
+        point_domain=MeasurementPointCloudPointDomain(columns=()),
+        dimensions=(
+            MeasurementDimension(id="point", kind="point", size=2),
+            MeasurementDimension(
+                id="qubit",
+                kind="entity",
+                size=3,
+                index=MeasurementEntityIndex(
+                    values=(q0, q1, q2),
+                ),
+            ),
+        ),
+        variables=(
+            MeasurementVariable(
+                id="readout",
+                role="observable",
+                dtype="float64",
+                unit="V",
+                dims=("point", "qubit"),
+            ),
+        ),
+        primary_observables=("readout",),
+    )
+    raw = MeasurementDataset(
+        dataset_schema=schema,
+        records=tuple(
+            MeasurementRecord(
+                run_id="run-entity",
+                point_index=point_index,
+                coordinates={},
+                observables={
+                    "readout": MeasurementArray.create(
+                        values=np.asarray(values, dtype=np.float64),
+                        unit="V",
+                        availability=selected_availability,
+                    )
+                },
+            )
+            for point_index, values, selected_availability in (
+                (0, (1.0, 0.0, 3.0), availability),
+                (1, (4.0, 5.0, 6.0), None),
+            )
+        ),
+    )
+    dataset = Dataset(
+        raw,
+        RunContentEntry(
+            role="dataset",
+            id="entity-readout",
+            kind="measurement_dataset",
+            content_hash="unused-entity-readout",
+            schema=schema.model_dump(mode="json"),
+        ),
+    )
+
+    first = dataset["readout"].values[0]
+    assert isinstance(first, np.ma.MaskedArray)
+    assert first.mask.tolist() == [False, True, False]
+    magnitudes = dataset["readout"].require_magnitudes("mV")
+    assert isinstance(magnitudes[0], np.ma.MaskedArray)
+    assert magnitudes[0].tolist(fill_value=None) == [1000.0, None, 3000.0]
+    assert isinstance(magnitudes[1], np.ndarray)
+    np.testing.assert_array_equal(magnitudes[1], np.asarray([4000.0, 5000.0, 6000.0]))
+    assert not magnitudes[1].flags.writeable
+    assert dataset["readout"].is_available()._values == (False, True)
+    labeled = dataset.to_xarray()
+    entity_index = schema.dimensions[1].index
+    assert entity_index is not None
+    assert labeled.coords["qubit"].values.tolist() == ["q0", "q1", "q2"]
+    assert (
+        labeled.coords["qubit"].attrs["scopecat_entity_axis_fingerprint"]
+        == entity_index.fingerprint
+    )
+    assert json.loads(labeled.coords["qubit"].attrs["scopecat_entity_labels_json"]) == [
+        "q0",
+        "q1",
+        "q2",
+    ]
+    assert labeled["readout__valid"].values.tolist() == [
+        [True, False, True],
+        [True, True, True],
+    ]
+    assert labeled["readout__unavailable_reason"].values[0, 1] == "missing"
+    assert math.isnan(float(labeled["readout"].values[0, 1]))
+
+    selected = dataset.sel(qubit=q1)
+    assert selected.dims == {"point": 2, "qubit": 1}
+    assert selected.to_xarray().coords["qubit"].values.tolist() == ["q1"]
+    assert isinstance(
+        selected.records[0].observables["readout"],
+        MeasurementUnavailable,
+    )
+    np.testing.assert_array_equal(
+        selected["readout"].values[1],
+        np.asarray([5.0], dtype=np.float64),
+    )
+
+    points = dataset.project(
+        {"readout": "readout"},
+        diagnostics="reason",
+    ).to_arrow()
+    assert points["readout"].to_pylist() == [
+        [1.0, None, 3.0],
+        [4.0, 5.0, 6.0],
+    ]
+    assert points["readout__unavailable_reason"].to_pylist() == [
+        "partial",
+        None,
+    ]
+    observations = dataset.project(
+        {"readout": "readout"},
+        diagnostics="reason",
+        layout="observations",
+    ).to_arrow()
+    assert observations["readout"].to_pylist() == [1.0, None, 3.0, 4.0, 5.0, 6.0]
+    assert observations["readout__unavailable_reason"].to_pylist()[1] == "missing"
+
+    expanded = dataset.reindex_entities(
+        "qubit",
+        (q2, q1, EntityRef(id="q3", kind="qubit")),
+    )
+    expanded_value = expanded.records[0].observables["readout"]
+    assert isinstance(expanded_value, MeasurementArray)
+    assert expanded_value.values.tolist() == [3.0, 0.0, 0.0]
+    assert expanded_value.availability is not None
+    assert expanded_value.availability.valid.tolist() == [True, False, False]
+    assert [group.metadata for group in expanded_value.availability.unavailable] == [
+        {"source": "q1"},
+        {"entity_alignment": "absent", "dimension_id": "qubit"},
+    ]
+
+
+def test_mixed_entity_kinds_use_collision_free_coordinate_identities() -> None:
+    kindless = EntityRef(id="qubit:q0")
+    qubit = EntityRef(id="q0", kind="qubit")
+    schema = MeasurementDatasetSchema(
+        dataset_id="mixed-entities",
+        point_domain=MeasurementPointCloudPointDomain(columns=()),
+        dimensions=(
+            MeasurementDimension(id="point", kind="point", size=1),
+            MeasurementDimension(
+                id="entity",
+                kind="entity",
+                size=2,
+                index=MeasurementEntityIndex(values=(kindless, qubit)),
+            ),
+        ),
+        variables=(
+            MeasurementVariable(
+                id="signal",
+                role="observable",
+                dtype="float64",
+                dims=("point", "entity"),
+            ),
+        ),
+        primary_observables=("signal",),
+    )
+    raw = MeasurementDataset(
+        dataset_schema=schema,
+        records=(
+            MeasurementRecord(
+                run_id="mixed",
+                point_index=0,
+                coordinates={},
+                observables={
+                    "signal": MeasurementArray.create(
+                        values=np.asarray([1.0, 2.0]),
+                    )
+                },
+            ),
+        ),
+    )
+    dataset = Dataset(
+        raw,
+        RunContentEntry(
+            role="dataset",
+            id="mixed-entities",
+            kind="measurement_dataset",
+            content_hash="unused-mixed-entities",
+            schema=schema.model_dump(mode="json"),
+        ),
+    )
+
+    labels = dataset.to_xarray().coords["entity"].values.tolist()
+    assert labels == [entity_identity_key(kindless), entity_identity_key(qubit)]
+    assert len(set(labels)) == 2
+    selected_signal = dataset.sel(entity="q0")["signal"].values[0]
+    assert isinstance(selected_signal, np.ndarray)
+    assert selected_signal.tolist() == [2.0]
+
+
+def test_entity_alignment_reindexes_values_provenance_and_evidence() -> None:
+    q0 = EntityRef(id="q0", kind="qubit")
+    q1 = EntityRef(id="q1", kind="qubit")
+    q2 = EntityRef(id="q2", kind="qubit")
+    left = _entity_source_dataset("left", (q0, q1), (1.0, 2.0))
+    right = _entity_source_dataset("right", (q1, q2), (10.0, 20.0))
+    left_index = left.schema.dimensions[1].index
+    assert left_index is not None
+    stale_ref: RecordRef[MeasurementArrayData] = RecordRef(
+        id="signal",
+        dtype="float64",
+        unit=None,
+        dims=("point", "qubit"),
+        entity_axis_id="qubit",
+        entity_axis_fingerprint=left_index.fingerprint,
+    )
+
+    with pytest.raises(ValueError, match="ordered identities differ"):
+        left.align_entities(right, "qubit")
+
+    inner_left, inner_right = left.align_entities(right, "qubit", join="inner")
+    assert inner_left.to_xarray().coords["qubit"].values.tolist() == ["q1"]
+    inner_left_signal = inner_left["signal"].values[0]
+    inner_right_signal = inner_right["signal"].values[0]
+    assert isinstance(inner_left_signal, np.ndarray)
+    assert isinstance(inner_right_signal, np.ndarray)
+    assert inner_left_signal.tolist() == [2.0]
+    assert inner_right_signal.tolist() == [10.0]
+
+    outer_left, outer_right = left.align_entities(right, "qubit", join="outer")
+    assert outer_left.entry.content_hash != left.entry.content_hash
+    assert outer_right.entry.content_hash != right.entry.content_hash
+    assert outer_left.entry.metadata["scopecat_derivation"] == {
+        "source_content_hash": left.entry.content_hash,
+        "operation": {
+            "kind": "reindex_entities",
+            "dimension_id": "qubit",
+            "entities": [
+                {"id": "q0", "kind": "qubit", "metadata": {}},
+                {"id": "q1", "kind": "qubit", "metadata": {}},
+                {"id": "q2", "kind": "qubit", "metadata": {}},
+            ],
+        },
+    }
+    assert outer_left.to_xarray().coords["qubit"].values.tolist() == [
+        "q0",
+        "q1",
+        "q2",
+    ]
+    assert outer_right.to_xarray().coords["qubit"].values.tolist() == [
+        "q0",
+        "q1",
+        "q2",
+    ]
+    outer_left_signal = outer_left["signal"].values[0]
+    outer_right_signal = outer_right["signal"].values[0]
+    assert isinstance(outer_left_signal, np.ma.MaskedArray)
+    assert isinstance(outer_right_signal, np.ma.MaskedArray)
+    assert outer_left_signal.tolist(fill_value=None) == [1.0, 2.0, None]
+    assert outer_right_signal.tolist(fill_value=None) == [
+        None,
+        10.0,
+        20.0,
+    ]
+    left_reasons = outer_left.to_xarray()["signal__unavailable_reason"].values
+    assert left_reasons[0, 2] == "missing"
+    left_source = outer_left["signal"].definition.source_entity_products
+    right_source = outer_right["signal"].definition.source_entity_products
+    assert left_source is not None and right_source is not None
+    assert left_source.product_ids == ("left/q0", "left/q1", None)
+    assert right_source.product_ids == (None, "right/q1", "right/q2")
+    left_outer_index = outer_left.schema.dimensions[1].index
+    right_outer_index = outer_right.schema.dimensions[1].index
+    assert left_outer_index is not None and right_outer_index is not None
+    assert left_outer_index.fingerprint == right_outer_index.fingerprint
+    assert outer_left.schema.result is not None and left.schema.result is not None
+    assert outer_left.schema.result.version != left.schema.result.version
+    left_evidence = outer_left.records[0].acquisition_evidence.for_variable("signal")
+    right_evidence = outer_right.records[0].acquisition_evidence.for_variable("signal")
+    assert isinstance(left_evidence, EntityAcquisitionEvidence)
+    assert isinstance(right_evidence, EntityAcquisitionEvidence)
+    left_evidence_ids = tuple(
+        None if item is None else item.result_id for item in left_evidence.values
+    )
+    assert left_evidence_ids == ("q0", "q1", None)
+    assert [
+        None if item is None else item.result_id for item in right_evidence.values
+    ] == [None, "q1", "q2"]
+    assert left.schema.dimensions[1].size == 2
+    with pytest.raises(TypeError, match="does not match the dataset schema"):
+        outer_left[stale_ref]
+
+    expanded_view = left.sel(qubit=q1).reindex_entities("qubit", (q1, q2))
+    repeated = left.sel(qubit=q1).reindex_entities("qubit", (q1, q2))
+    assert expanded_view.entry.content_hash == repeated.entry.content_hash
+    assert expanded_view.to_xarray().attrs["scopecat_content_hash"] == (
+        expanded_view.entry.content_hash
+    )
+    view_source = expanded_view["signal"].definition.source_entity_products
+    view_evidence = expanded_view.records[0].acquisition_evidence.for_variable("signal")
+    assert view_source is not None
+    assert view_source.product_ids == ("left/q1", None)
+    assert isinstance(view_evidence, EntityAcquisitionEvidence)
+    assert [
+        None if item is None else item.result_id for item in view_evidence.values
+    ] == ["q1", None]
+
+
+def _entity_source_dataset(
+    dataset_id: str,
+    entities: tuple[EntityRef, ...],
+    values: tuple[float, ...],
+) -> Dataset:
+    acquisition = MeasurementEntityAcquisition()
+    schema = MeasurementDatasetSchema(
+        dataset_id=dataset_id,
+        point_domain=MeasurementPointCloudPointDomain(columns=()),
+        dimensions=(
+            MeasurementDimension(id="point", kind="point", size=1),
+            MeasurementDimension(
+                id="qubit",
+                kind="entity",
+                size=len(entities),
+                index=MeasurementEntityIndex(values=entities),
+            ),
+        ),
+        variables=(
+            MeasurementVariable(
+                id="signal",
+                role="observable",
+                dtype="float64",
+                dims=("point", "qubit"),
+                source_entity_products=MeasurementEntityProductSource(
+                    dimension_id="qubit",
+                    product_ids=tuple(
+                        f"{dataset_id}/{entity.id}" for entity in entities
+                    ),
+                ),
+                entity_acquisition=acquisition,
+            ),
+        ),
+        primary_observables=("signal",),
+        result=MeasurementResultContract(
+            id=f"{dataset_id}.result",
+            version=f"sha256:{'0' * 64}",
+            fields=(MeasurementResultField(path=("signal",), variable_id="signal"),),
+        ),
+    )
+    started_at = datetime(2026, 8, 15, 10, 0, tzinfo=UTC)
+    evidence = EntityAcquisitionEvidence(
+        dimension_id="qubit",
+        acquisition=acquisition,
+        values=tuple(
+            InstrumentAcquisitionEvidence(
+                command_id=f"{dataset_id}-{entity.id}",
+                instrument_id="readout",
+                interface_id="test.signal/v1",
+                acquisition_id="sample",
+                result_id=entity.id,
+                started_at=started_at,
+                completed_at=started_at,
+            )
+            for entity in entities
+        ),
+    )
+    raw = MeasurementDataset(
+        dataset_schema=schema,
+        records=(
+            MeasurementRecord(
+                run_id=f"run-{dataset_id}",
+                point_index=0,
+                coordinates={},
+                observables={
+                    "signal": MeasurementArray.create(
+                        values=np.asarray(values, dtype=np.float64)
+                    )
+                },
+                acquisition_evidence=MeasurementAcquisitionEvidenceCatalog.create(
+                    {"signal": evidence}
+                ),
+            ),
+        ),
+    )
+    return Dataset(
+        raw,
+        RunContentEntry(
+            role="dataset",
+            id=dataset_id,
+            kind="measurement_dataset",
+            content_hash=f"unused-{dataset_id}",
+            schema=schema.model_dump(mode="json"),
+        ),
+    )
 
 
 def test_measurement_projection_controls_names_units_and_native_adapters() -> None:
@@ -1065,6 +1490,17 @@ def test_ragged_dataset_exports_indexed_xarray_observations() -> None:
         True,
     ]
 
+    signal = dataset["signal"].observations
+    assert signal.layout == "ragged"
+    assert signal.declared_dims == ("point", "sample")
+    assert signal.dims == (observation,)
+    assert signal.shape == (6,)
+    assert signal.valid.tolist() == [True] * 6
+    assert "readout__sample__parent_point_index" in signal.coords
+    assert signal.isel(**{observation: slice(2, 4)}).shape == (2,)
+    with pytest.raises(ValueError, match="is ragged"):
+        _ = dataset["signal"].dense
+
     native_point_subset = xarray_dataset.isel(point=[1])
     assert native_point_subset.sizes[observation] == 6
     facade_point_subset = dataset.isel(point=[1]).to_xarray()
@@ -1221,7 +1657,12 @@ def test_ungrouped_ragged_unavailable_preserves_unknown_extent_in_xarray() -> No
                 if variable.id == "signal"
                 else variable
                 for variable in dataset.schema.variables
-            )
+            ),
+            "variable_groups": (
+                MeasurementVariableGroup(
+                    id="readout",
+                ),
+            ),
         }
     )
     unavailable = MeasurementUnavailable.create(
@@ -1268,7 +1709,8 @@ def test_ungrouped_ragged_variables_keep_independent_xarray_observations() -> No
                 if variable.id in {"frequency", "signal"}
                 else variable
                 for variable in dataset.schema.variables
-            )
+            ),
+            "variable_groups": (),
         }
     )
     raw = _snapshot(dataset).model_copy(update={"dataset_schema": schema})
@@ -1387,6 +1829,11 @@ def _ragged_dataset() -> Dataset:
                 if variable.id == "frequency"
                 else variable
                 for variable in dataset.schema.variables
+            ),
+            "variable_groups": (
+                MeasurementVariableGroup(
+                    id="readout",
+                ),
             ),
         }
     )
@@ -1593,6 +2040,7 @@ def _dataset() -> Dataset:
                 recording_group_id="readout",
             ),
         ],
+        variable_groups=[MeasurementVariableGroup(id="readout")],
         primary_coordinates=["bias", "frequency"],
         primary_observables=["temperature", "signal"],
     )
@@ -1678,7 +2126,16 @@ def _dataset_with_record_sources() -> Dataset:
         variable.model_copy(update=source_fields.get(variable.id, {}))
         for variable in dataset.schema.variables
     )
-    schema = dataset.schema.model_copy(update={"variables": variables})
+    schema = dataset.schema.model_copy(
+        update={
+            "variables": variables,
+            "variable_groups": (
+                MeasurementVariableGroup(
+                    id="readout",
+                ),
+            ),
+        }
+    )
     raw = _snapshot(dataset).model_copy(update={"dataset_schema": schema})
     return Dataset(raw, dataset.entry)
 

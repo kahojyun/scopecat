@@ -28,7 +28,7 @@ from scopecat.measurements.products import ProductDef
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
 )
-from scopecat.records.measurement import MeasurementValue
+from scopecat.records.measurement import MeasurementAcquisitionValue
 from scopecat.sdk.domain.result_mapping import (
     DomainMappedResult,
     DomainResultMapping,
@@ -51,7 +51,7 @@ class DomainOutputValue[ResultAddressT: Hashable]:
     """
 
     result_address: ResultAddressT
-    value: MeasurementValue
+    value: MeasurementAcquisitionValue
 
 
 class DomainInvocationIntent(BaseModel):

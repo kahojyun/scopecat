@@ -1907,6 +1907,23 @@ export interface components {
             run_id?: string | null;
         };
         /**
+         * EntityAcquisitionEvidenceRef
+         * @description Entity-aligned result references within shared acquisition events.
+         */
+        EntityAcquisitionEvidenceRef: {
+            acquisition?: components["schemas"]["MeasurementEntityAcquisition"];
+            dimension_id: components["schemas"]["_NonEmptyText"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "entity";
+            /** Values */
+            values: (components["schemas"]["InstrumentAcquisitionEvidenceRef"] | null)[];
+        };
+        /** @enum {string} */
+        EntityAcquisitionPolicy: "independent" | "best_effort" | "all_or_nothing";
+        /**
          * EntityRef
          * @description Reference to a domain entity without making the domain core vocabulary.
          */
@@ -1998,6 +2015,31 @@ export interface components {
             }[];
         };
         /**
+         * InstrumentAcquisitionEvent
+         * @description Shared physical acquisition interval referenced by result evidence.
+         */
+        InstrumentAcquisitionEvent: {
+            acquisition_id: components["schemas"]["_NonEmptyText"];
+            command_id: components["schemas"]["_NonEmptyText"];
+            /**
+             * Completed At
+             * Format: date-time
+             */
+            completed_at: string;
+            /**
+             * Component Path
+             * @default []
+             */
+            component_path: components["schemas"]["_NonEmptyText"][];
+            instrument_id: components["schemas"]["_NonEmptyText"];
+            interface_id: components["schemas"]["InterfaceId"];
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
+        /**
          * InstrumentAcquisitionEvidence
          * @description Daemon-observed interval and physical target for one collected result.
          */
@@ -2023,8 +2065,19 @@ export interface components {
              */
             started_at: string;
         };
-        InstrumentAcquisitionEvidenceMap: {
-            [key: string]: components["schemas"]["InstrumentAcquisitionEvidence"];
+        /**
+         * InstrumentAcquisitionEvidenceRef
+         * @description One result identifier within a shared acquisition event.
+         */
+        InstrumentAcquisitionEvidenceRef: {
+            /** Event Index */
+            event_index: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "instrument";
+            result_id: components["schemas"]["_NonEmptyText"];
         };
         /**
          * InstrumentBindingSpec
@@ -2166,7 +2219,7 @@ export interface components {
             metadata?: components["schemas"]["JsonMetadata"];
             /** Values */
             values?: {
-                [key: string]: components["schemas"]["MeasurementValue"];
+                [key: string]: components["schemas"]["MeasurementAcquisitionValue"];
             };
         };
         /**
@@ -2450,11 +2503,28 @@ export interface components {
              */
             kind: "manual_parameter_updates";
         };
+        MeasurementAcquisitionEvents: components["schemas"]["InstrumentAcquisitionEvent"][];
+        /**
+         * MeasurementAcquisitionEvidenceCatalog
+         * @description Result evidence factored over shared acquisition events by compact indexes.
+         */
+        MeasurementAcquisitionEvidenceCatalog: {
+            entries?: components["schemas"]["MeasurementAcquisitionEvidenceEntries"];
+            events?: components["schemas"]["MeasurementAcquisitionEvents"];
+            variable_refs?: components["schemas"]["MeasurementAcquisitionEvidenceRefs"];
+        };
+        MeasurementAcquisitionEvidenceEntries: components["schemas"]["MeasurementAcquisitionEvidenceRef"][];
+        MeasurementAcquisitionEvidenceRef: components["schemas"]["InstrumentAcquisitionEvidenceRef"] | components["schemas"]["EntityAcquisitionEvidenceRef"];
+        MeasurementAcquisitionEvidenceRefs: {
+            [key: string]: number;
+        };
+        MeasurementAcquisitionValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementUnavailable"];
         /**
          * MeasurementArray
-         * @description One typed array backed by an immutable, read-only NumPy buffer.
+         * @description One rectangular typed array backed by an immutable NumPy buffer.
          */
         MeasurementArray: {
+            availability?: components["schemas"]["MeasurementArrayAvailability"] | null;
             /** @default float64 */
             dtype: components["schemas"]["MeasurementDType"];
             /**
@@ -2469,9 +2539,34 @@ export interface components {
             unit?: string | null;
             values: components["schemas"]["MeasurementArrayJson"];
         };
+        /**
+         * MeasurementArrayAvailability
+         * @description Array validity with sparse, reason-qualified unavailable leaves.
+         */
+        MeasurementArrayAvailability: {
+            /** Unavailable */
+            unavailable: components["schemas"]["MeasurementArrayUnavailableGroup"][];
+            valid: components["schemas"]["MeasurementBooleanArrayJson"];
+        };
         MeasurementArrayJson: components["schemas"]["MeasurementArrayJsonItem"][];
         MeasurementArrayJsonItem: components["schemas"]["MeasurementArrayJsonLeaf"] | components["schemas"]["MeasurementArrayJsonItem"][];
         MeasurementArrayJsonLeaf: boolean | number | string | components["schemas"]["MeasurementComplexJson"];
+        /**
+         * MeasurementArrayUnavailableGroup
+         * @description One reason shared by a sparse set of unavailable array leaves.
+         */
+        MeasurementArrayUnavailableGroup: {
+            /** Flat Indices */
+            flat_indices: number[];
+            metadata?: components["schemas"]["MeasurementMetadata-Output"];
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "missing" | "invalid" | "overload";
+        };
+        MeasurementBooleanArrayJson: components["schemas"]["MeasurementBooleanArrayJsonItem"][];
+        MeasurementBooleanArrayJsonItem: boolean | components["schemas"]["MeasurementBooleanArrayJsonItem"][];
         MeasurementComplexJson: {
             imag: number;
             real: number;
@@ -2497,10 +2592,10 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension-Output"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v10
+             * @default scopecat.measurement_dataset_schema.v16
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v10";
+            format_version: "scopecat.measurement_dataset_schema.v16";
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
             point_domain: components["schemas"]["MeasurementPointDomain-Output"];
             /** Primary Coordinates */
@@ -2509,11 +2604,13 @@ export interface components {
             primary_observables?: string[];
             /**
              * Record Schema
-             * @default scopecat.measurement_record.v4
+             * @default scopecat.measurement_record.v9
              * @constant
              */
-            record_schema: "scopecat.measurement_record.v4";
+            record_schema: "scopecat.measurement_record.v9";
             result?: components["schemas"]["MeasurementResultContract"] | null;
+            /** Variable Groups */
+            variable_groups?: components["schemas"]["MeasurementVariableGroup-Output"][];
             /** Variables */
             variables?: components["schemas"]["MeasurementVariable-Output"][];
         };
@@ -2524,6 +2621,7 @@ export interface components {
         "MeasurementDimension-Output": {
             /** Id */
             id: string;
+            index?: components["schemas"]["MeasurementEntityIndex-Output"] | null;
             /** Kind */
             kind: string;
             /** Label */
@@ -2534,6 +2632,50 @@ export interface components {
         };
         /** @enum {string} */
         MeasurementDType: "float64" | "int64" | "complex128" | "bool" | "string";
+        /**
+         * MeasurementEntityAcquisition
+         * @description Declared execution semantics for one entity-indexed variable.
+         */
+        MeasurementEntityAcquisition: {
+            cohort_id?: components["schemas"]["_NonEmptyText"] | null;
+            /** @default independent */
+            policy: components["schemas"]["EntityAcquisitionPolicy"];
+        };
+        /**
+         * MeasurementEntityIndex
+         * @description Ordered durable entity labels for one fixed measurement dimension.
+         */
+        "MeasurementEntityIndex-Output": {
+            /**
+             * Kind
+             * @default entity
+             * @constant
+             */
+            kind: "entity";
+            /** Values */
+            values: components["schemas"]["EntityRef-Output"][];
+        };
+        /**
+         * MeasurementEntityProductMetadataOverride
+         * @description Entity-local product metadata beyond one source's common metadata.
+         */
+        "MeasurementEntityProductMetadataOverride-Output": {
+            /** Entity Index */
+            entity_index: number;
+            metadata: components["schemas"]["MeasurementMetadata-Output"];
+        };
+        /**
+         * MeasurementEntityProductSource
+         * @description Ordered product provenance aligned to one entity dimension.
+         */
+        "MeasurementEntityProductSource-Output": {
+            common_metadata?: components["schemas"]["MeasurementMetadata-Output"];
+            dimension_id: components["schemas"]["_NonEmptyText"];
+            /** Metadata Overrides */
+            metadata_overrides?: components["schemas"]["MeasurementEntityProductMetadataOverride-Output"][];
+            /** Product Ids */
+            product_ids: (components["schemas"]["_NonEmptyText"] | null)[];
+        };
         "MeasurementMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
         };
@@ -2645,7 +2787,7 @@ export interface components {
          * @description One durable point row with immutable values, evidence, and metadata.
          */
         MeasurementRecord: {
-            acquisition_evidence?: components["schemas"]["InstrumentAcquisitionEvidenceMap"];
+            acquisition_evidence?: components["schemas"]["MeasurementAcquisitionEvidenceCatalog"];
             coordinates: components["schemas"]["MeasurementValueMap"];
             /** Logical Point Id */
             logical_point_id?: string | null;
@@ -2699,6 +2841,25 @@ export interface components {
                 real: number;
             };
         };
+        MeasurementSegment: components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementUnavailable"];
+        /**
+         * MeasurementSegmentedArray
+         * @description One entity-indexed value with independently shaped local array segments.
+         */
+        MeasurementSegmentedArray: {
+            /** @default float64 */
+            dtype: components["schemas"]["MeasurementDType"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "segmented_array";
+            metadata?: components["schemas"]["MeasurementMetadata-Output"];
+            /** Segments */
+            segments: components["schemas"]["MeasurementSegment"][];
+            /** Unit */
+            unit?: string | null;
+        };
         /**
          * MeasurementSlice
          * @description Records for one semantic product-grid slice.
@@ -2741,8 +2902,26 @@ export interface components {
             variable_ids?: string[] | null;
         };
         /**
+         * MeasurementTraceFailure
+         * @description One bounded point/entity trace selection with no plottable samples.
+         */
+        MeasurementTraceFailure: {
+            entity?: components["schemas"]["EntityRef-Output"] | null;
+            /** Entity Index */
+            entity_index?: number | null;
+            evidence?: components["schemas"]["InstrumentAcquisitionEvidence"] | null;
+            /** Label */
+            label: string;
+            /** Logical Point Id */
+            logical_point_id?: string | null;
+            /** Point Index */
+            point_index: number;
+            /** Reasons */
+            reasons: ("missing" | "invalid" | "overload")[];
+        };
+        /**
          * MeasurementTracePreview
-         * @description Bounded numeric series for one selected point-local observable.
+         * @description Bounded numeric series for one selected point/entity-local observable.
          *
          *     ``selected_series_count`` is the authored domain selection size. It does
          *     not promise that every selected point is durable yet or has an available
@@ -2758,10 +2937,21 @@ export interface components {
             /** Dimension Id */
             dimension_id: string;
             downsampling: components["schemas"]["TraceDownsampling"];
+            entity_acquisition?: components["schemas"]["MeasurementEntityAcquisition"] | null;
+            /** Entity Dimension Id */
+            entity_dimension_id?: string | null;
+            /**
+             * Failures
+             * @default []
+             */
+            failures: components["schemas"]["MeasurementTraceFailure"][];
             /** Fixed Axis Indices */
             fixed_axis_indices?: {
                 [key: string]: number;
             };
+            /** Inspected Series Count */
+            inspected_series_count: number;
+            layout: components["schemas"]["TraceLayout"];
             /** Observable Id */
             observable_id: string;
             /** Observable Label */
@@ -2799,13 +2989,15 @@ export interface components {
         };
         /**
          * MeasurementTracePreviewQuery
-         * @description Select one bounded, response-ready point-local trace preview.
+         * @description Select one bounded, response-ready point/entity-local trace preview.
          */
         MeasurementTracePreviewQuery: {
             /** Coordinate Id */
             coordinate_id?: string | null;
             /** @default minmax */
             downsampling: components["schemas"]["TraceDownsampling"];
+            /** Entity Indices */
+            entity_indices?: number[] | null;
             /** Fixed Axis Indices */
             fixed_axis_indices?: {
                 [key: string]: number;
@@ -2831,6 +3023,12 @@ export interface components {
          * @description One directly plottable numeric trace series.
          */
         MeasurementTraceSeries: {
+            /** Available Sample Count */
+            available_sample_count: number;
+            entity?: components["schemas"]["EntityRef-Output"] | null;
+            /** Entity Index */
+            entity_index?: number | null;
+            evidence?: components["schemas"]["InstrumentAcquisitionEvidence"] | null;
             /** Label */
             label: string;
             /** Logical Point Id */
@@ -2839,6 +3037,11 @@ export interface components {
             point_index: number;
             /** Source Sample Count */
             source_sample_count: number;
+            /**
+             * Unavailable Reasons
+             * @default []
+             */
+            unavailable_reasons: ("missing" | "invalid" | "overload")[];
             /** X */
             x: number[];
             /** Y */
@@ -2869,7 +3072,7 @@ export interface components {
             /** Unit */
             unit: string | null;
         };
-        MeasurementValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementUnavailable"];
+        MeasurementValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementSegmentedArray"] | components["schemas"]["MeasurementUnavailable"];
         MeasurementValueMap: {
             [key: string]: components["schemas"]["MeasurementValue"];
         };
@@ -2881,6 +3084,7 @@ export interface components {
             /** Dims */
             dims: string[];
             dtype: components["schemas"]["MeasurementDType"];
+            entity_acquisition?: components["schemas"]["MeasurementEntityAcquisition"] | null;
             /** Id */
             id: string;
             /** Label */
@@ -2888,10 +3092,19 @@ export interface components {
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
             recording_group_id?: components["schemas"]["_NonEmptyText"] | null;
             role: components["schemas"]["MeasurementVariableRole"];
+            source_entity_products?: components["schemas"]["MeasurementEntityProductSource-Output"] | null;
             source_product_id?: components["schemas"]["_NonEmptyText"] | null;
             source_value_id?: components["schemas"]["_NonEmptyText"] | null;
             /** Unit */
             unit?: string | null;
+        };
+        /**
+         * MeasurementVariableGroup
+         * @description One named recording-group definition referenced by variables.
+         */
+        "MeasurementVariableGroup-Output": {
+            id: components["schemas"]["_NonEmptyText"];
+            metadata?: components["schemas"]["MeasurementMetadata-Output"];
         };
         /** @enum {string} */
         MeasurementVariableRole: "coordinate" | "observable";
@@ -4167,6 +4380,8 @@ export interface components {
         };
         /** @constant */
         TraceDownsampling: "minmax";
+        /** @enum {string} */
+        TraceLayout: "overlay" | "small_multiples";
         /** @enum {string} */
         TraceValueMode: "value" | "magnitude" | "phase" | "real" | "imag";
         /**

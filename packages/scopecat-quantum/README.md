@@ -64,6 +64,13 @@ independent auxiliary-device work; the program call remains one domain effect
 rather than becoming the whole experiment. The
 [reference lab runner](../../examples/reference_lab/README.md) shows that path.
 
+For a parallel program with exactly one result per concrete qubit, return
+`call.entity_results()` from the experiment. It converts the named program
+results to an identity-keyed authoring view; the experiment return boundary then
+records one `(point, logical_qubit, shot)` variable instead of one variable per
+qubit. Programs with multiple result ports for one qubit keep their named result
+structure because a qubit axis alone would not identify those ports.
+
 Compiler-owned defaults can use the pure row maps in
 `scopecat_quantum.pulse_recipes`. The complete supported example is the
 [DRAG-beta workflow](../../examples/reference_lab/README.md), including parameter-axis

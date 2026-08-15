@@ -119,6 +119,7 @@ from scopecat.records.measurement import (
     MeasurementScalar,
     MeasurementUnavailable,
     MeasurementVariable,
+    MeasurementVariableGroup,
 )
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
@@ -3023,6 +3024,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
                         recording_group_id="readout",
                     ),
                 ],
+                variable_groups=[MeasurementVariableGroup(id="readout")],
                 primary_coordinates=["frequency"],
                 primary_observables=["signal", "trace"],
             ),
@@ -3207,17 +3209,23 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert trace_preview.json()["series"][0] == {
             "point_index": 1,
             "logical_point_id": "point-1",
-            "label": "point-1",
+            "label": "X 10 · Bias 1",
             "x": [0.0, 4.0],
             "y": [0.0, 4.0],
             "source_sample_count": 5,
+            "available_sample_count": 5,
+            "unavailable_reasons": [],
+            "entity_index": None,
+            "entity": None,
+            "evidence": None,
         }
         assert invalid_trace_preview.status_code == 409
         assert truncated_trace_preview.status_code == 200
         assert truncated_trace_preview.json()["selected_series_count"] == 4
-        assert truncated_trace_preview.json()["returned_series_count"] == 1
+        assert truncated_trace_preview.json()["returned_series_count"] == 0
         assert truncated_trace_preview.json()["truncated_series"]
-        assert truncated_trace_preview.json()["series"][0]["point_index"] == 1
+        assert truncated_trace_preview.json()["failures"][0]["point_index"] == 0
+        assert truncated_trace_preview.json()["failures"][0]["reasons"] == ["overload"]
         assert exhausted_trace_preview.status_code == 200
         assert exhausted_trace_preview.json()["selected_series_count"] == 2
         assert exhausted_trace_preview.json()["returned_series_count"] == 1

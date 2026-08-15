@@ -57,7 +57,7 @@ The scripts are ordinary Python with `# %%` cells and can be followed in order.
 | `26_parallel_multiplexed_ramsey.py` | Parallel drives, shared readout, and two demodulation results |
 | `27_channel_timing_candidate.py` | Reviewed timing candidate used by a pinned run |
 | `28_channel_conflict_diagnostic.py` | Precise conflict on an overlapping physical drive route |
-| `29_channel_unavailable.py` | Partial structured availability across demodulation channels |
+| `29_channel_unavailable.py` | Entity-axis IQ traces, identity selection, provenance, and one unavailable demodulation channel |
 | `30_drag_calibration.py` | Calibration, analysis, candidate check, acceptance, production use, and undo |
 | `32_quantum_program_inspection.py` | Typed quantum structure without hardware execution |
 | `33_multichannel_dc_bias.py` | Profile/calibration join across two multichannel DC sources |

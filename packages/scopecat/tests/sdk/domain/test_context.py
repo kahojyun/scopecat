@@ -151,7 +151,11 @@ def test_compute_input_remains_a_direct_domain_result_when_not_recorded(
         compute.inputs[0].product_use_id,
     )
     assert compute_output.product_use_ids
-    recorded_use_ids = {record.product_use_id for record in program.product_record_uses}
+    recorded_use_ids = {
+        product_use_id
+        for record in program.product_record_uses
+        for product_use_id in record.product_use_ids
+    }
     assert compute.inputs[0].product_use_id not in recorded_use_ids
     assert set(compute_output.product_use_ids) == recorded_use_ids
 

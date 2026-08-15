@@ -31,11 +31,14 @@ from pydantic import (
     model_validator,
 )
 
+from scopecat.kernel.content_identity import stable_content_hash
+from scopecat.kernel.entity import EntityRef, entity_axis_fingerprint, entity_identity
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.numpy_storage import freeze_ndarray
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.measurement_types import (
+    EntityAcquisitionPolicy,
     MeasurementArrayData,
     MeasurementArrayElement,
     MeasurementDType,
@@ -50,11 +53,14 @@ from scopecat.records._schema_utils import (
     missing_references,
     validate_supported_unit,
 )
-from scopecat.records.measurement_array_schema import MeasurementArrayPayload
+from scopecat.records.measurement_array_schema import (
+    MeasurementArrayPayload,
+    MeasurementBooleanArrayPayload,
+)
 from scopecat.records.metadata import MeasurementMetadata
 
-MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v4"
-MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v10"
+MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v9"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v16"
 
 MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
 _MEASUREMENT_ARRAY_CREATE_CONTEXT = object()
@@ -96,6 +102,35 @@ class _FrozenMeasurementModel(BaseModel):
         return self
 
 
+class MeasurementEntityIndex(_FrozenMeasurementModel):
+    """Ordered durable entity labels for one fixed measurement dimension."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["entity"] = "entity"
+    values: Sequence[EntityRef] = Field(min_length=1)
+
+    @field_validator("values")
+    @classmethod
+    def freeze_values(cls, value: Sequence[EntityRef]) -> Sequence[EntityRef]:
+        selected = tuple(value)
+        identities = tuple(entity_identity(entity) for entity in selected)
+        if len(identities) != len(set(identities)):
+            raise ValueError("measurement entity index values must be unique")
+        return selected
+
+    @property
+    def fingerprint(self) -> str:
+        return entity_axis_fingerprint(self.values)
+
+    @property
+    def entity_kind(self) -> str | None:
+        kinds = {entity.kind for entity in self.values}
+        if len(kinds) != 1:
+            return None
+        return next(iter(kinds))
+
+
 class MeasurementDimension(_FrozenMeasurementModel):
     """One logical extent; ``None`` denotes a point-local ragged extent."""
 
@@ -105,7 +140,91 @@ class MeasurementDimension(_FrozenMeasurementModel):
     kind: str = Field(min_length=1)
     label: str | None = None
     size: Annotated[int, Field(ge=0)] | None
+    index: MeasurementEntityIndex | None = None
     metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
+
+    @model_validator(mode="after")
+    def validate_index(self) -> MeasurementDimension:
+        if self.index is None:
+            return self
+        if self.kind != "entity":
+            raise ValueError("measurement entity indexes require an entity dimension")
+        if self.size != len(self.index.values):
+            raise ValueError(
+                "measurement entity index cardinality must match its dimension size"
+            )
+        return self
+
+
+class MeasurementEntityProductMetadataOverride(_FrozenMeasurementModel):
+    """Entity-local product metadata beyond one source's common metadata."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    entity_index: Annotated[int, Field(ge=0)]
+    metadata: MeasurementMetadata
+
+
+class MeasurementEntityProductSource(_FrozenMeasurementModel):
+    """Ordered product provenance aligned to one entity dimension."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    dimension_id: _NonEmptyText
+    product_ids: Sequence[_NonEmptyText | None] = Field(min_length=1)
+    common_metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
+    metadata_overrides: Sequence[MeasurementEntityProductMetadataOverride] = Field(
+        default_factory=tuple
+    )
+
+    @field_validator("product_ids", "metadata_overrides")
+    @classmethod
+    def freeze_product_ids[T](cls, value: Sequence[T]) -> Sequence[T]:
+        return tuple(value)
+
+    @model_validator(mode="after")
+    def validate_metadata_overrides(self) -> MeasurementEntityProductSource:
+        indices = [override.entity_index for override in self.metadata_overrides]
+        if len(indices) != len(set(indices)):
+            raise ValueError(
+                "measurement entity product metadata override indices must be unique"
+            )
+        if any(index >= len(self.product_ids) for index in indices):
+            raise ValueError(
+                "measurement entity product metadata override is out of range"
+            )
+        return self
+
+    def metadata_for(self, entity_index: int) -> Mapping[str, object]:
+        if self.product_ids[entity_index] is None:
+            return FrozenMapping()
+        override: Mapping[str, object] = next(
+            (
+                item.metadata
+                for item in self.metadata_overrides
+                if item.entity_index == entity_index
+            ),
+            FrozenMapping[str, object](),
+        )
+        return FrozenMapping((*self.common_metadata.items(), *override.items()))
+
+
+class MeasurementEntityAcquisition(_FrozenMeasurementModel):
+    """Declared execution semantics for one entity-indexed variable."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    policy: EntityAcquisitionPolicy = "independent"
+    cohort_id: _NonEmptyText | None = None
+
+    @model_validator(mode="after")
+    def validate_cohort(self) -> MeasurementEntityAcquisition:
+        if self.policy == "independent":
+            if self.cohort_id is not None:
+                raise ValueError("independent entity acquisition has no cohort id")
+        elif self.cohort_id is None:
+            raise ValueError(f"{self.policy} entity acquisition requires a cohort id")
+        return self
 
 
 class MeasurementVariable(_FrozenMeasurementModel):
@@ -120,6 +239,8 @@ class MeasurementVariable(_FrozenMeasurementModel):
     dims: Sequence[str] = Field(min_length=1)
     label: str | None = None
     source_product_id: _NonEmptyText | None = None
+    source_entity_products: MeasurementEntityProductSource | None = None
+    entity_acquisition: MeasurementEntityAcquisition | None = None
     source_value_id: _NonEmptyText | None = None
     recording_group_id: _NonEmptyText | None = None
     metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
@@ -145,6 +266,15 @@ class MeasurementVariable(_FrozenMeasurementModel):
         if self.dtype in {"bool", "string"} and self.unit is not None:
             raise ValueError(f"{self.dtype} measurement variables cannot have a unit")
         return self
+
+
+class MeasurementVariableGroup(_FrozenMeasurementModel):
+    """One named recording-group definition referenced by variables."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: _NonEmptyText
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
 
 class MeasurementResultField(_FrozenMeasurementModel):
@@ -336,16 +466,17 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    format_version: Literal["scopecat.measurement_dataset_schema.v10"] = (
+    format_version: Literal["scopecat.measurement_dataset_schema.v16"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str = Field(min_length=1)
-    record_schema: Literal["scopecat.measurement_record.v4"] = (
+    record_schema: Literal["scopecat.measurement_record.v9"] = (
         MEASUREMENT_RECORD_SCHEMA_VERSION
     )
     point_domain: MeasurementPointDomain
     dimensions: Sequence[MeasurementDimension]
     variables: Sequence[MeasurementVariable] = Field(default_factory=tuple)
+    variable_groups: Sequence[MeasurementVariableGroup] = Field(default_factory=tuple)
     primary_coordinates: Sequence[str] = Field(default_factory=tuple)
     primary_observables: Sequence[str] = Field(default_factory=tuple)
     result: MeasurementResultContract | None = None
@@ -354,6 +485,7 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
     @field_validator(
         "dimensions",
         "variables",
+        "variable_groups",
         "primary_coordinates",
         "primary_observables",
     )
@@ -376,7 +508,9 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
         )
 
         dimension_id_set = set(dimension_ids)
+        dimension_by_id = {dimension.id: dimension for dimension in self.dimensions}
         variable_by_id = {variable.id: variable for variable in self.variables}
+        _validate_measurement_variable_groups(self.variables, self.variable_groups)
         namespace_collisions = dimension_id_set & set(variable_by_id)
         if namespace_collisions:
             raise ValueError(
@@ -411,6 +545,7 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
                     f"dimensions: {', '.join(missing_dims)}"
                 )
                 raise ValueError(msg)
+            _validate_measurement_variable_source(variable, dimension_by_id)
         ensure_unique_ids(
             self.primary_coordinates,
             "measurement dataset primary coordinate ids must be unique",
@@ -453,6 +588,135 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
                 )
 
         return self
+
+
+def measurement_result_contract_version(
+    contract_id: str,
+    fields: Sequence[MeasurementResultField],
+    *,
+    variables: Sequence[MeasurementVariable],
+    dimensions: Sequence[MeasurementDimension],
+) -> str:
+    """Identify a result contract including its local dimension definitions."""
+
+    variable_by_id = {variable.id: variable for variable in variables}
+    dimension_by_id = {dimension.id: dimension for dimension in dimensions}
+    identity = {
+        "id": contract_id,
+        "fields": [
+            {
+                "path": list(field.path),
+                "variable": _measurement_result_variable_identity(
+                    variable_by_id[field.variable_id]
+                ),
+                "dimensions": [
+                    _measurement_result_dimension_identity(
+                        dimension_by_id[dimension_id]
+                    )
+                    for dimension_id in variable_by_id[field.variable_id].dims[1:]
+                ],
+            }
+            for field in fields
+        ],
+    }
+    return f"sha256:{stable_content_hash(identity)}"
+
+
+def _measurement_result_variable_identity(
+    variable: MeasurementVariable,
+) -> Mapping[str, object]:
+    return {
+        "id": variable.id,
+        "role": variable.role,
+        "dtype": variable.dtype,
+        "unit": variable.unit,
+        "dims": list(variable.dims),
+    }
+
+
+def _measurement_result_dimension_identity(
+    dimension: MeasurementDimension,
+) -> Mapping[str, object]:
+    return {
+        "id": dimension.id,
+        "kind": dimension.kind,
+        "size": dimension.size,
+        "entity_axis_fingerprint": (
+            None if dimension.index is None else dimension.index.fingerprint
+        ),
+    }
+
+
+def _validate_measurement_variable_groups(
+    variables: Sequence[MeasurementVariable],
+    groups: Sequence[MeasurementVariableGroup],
+) -> None:
+    ensure_unique_ids(
+        [group.id for group in groups],
+        "measurement dataset variable group ids must be unique",
+    )
+    group_ids = {group.id for group in groups}
+    referenced_group_ids = {
+        variable.recording_group_id
+        for variable in variables
+        if variable.recording_group_id is not None
+    }
+    missing_groups = referenced_group_ids - group_ids
+    if missing_groups:
+        raise ValueError(
+            "measurement variables reference unknown groups: "
+            + ", ".join(sorted(missing_groups))
+        )
+    unused_groups = group_ids - referenced_group_ids
+    if unused_groups:
+        raise ValueError(
+            "measurement variable groups must be referenced: "
+            + ", ".join(sorted(unused_groups))
+        )
+
+
+def _validate_measurement_variable_source(
+    variable: MeasurementVariable,
+    dimension_by_id: Mapping[str, MeasurementDimension],
+) -> None:
+    sources = (
+        variable.source_product_id,
+        variable.source_entity_products,
+        variable.source_value_id,
+    )
+    if sum(source is not None for source in sources) > 1:
+        raise ValueError(
+            f"measurement variable {variable.id} declares multiple sources"
+        )
+    entity_source = variable.source_entity_products
+    if entity_source is None:
+        if variable.entity_acquisition is not None:
+            raise ValueError(
+                f"measurement variable {variable.id} entity acquisition requires "
+                "entity product sources"
+            )
+        return
+    if variable.entity_acquisition is None:
+        raise ValueError(
+            f"measurement variable {variable.id} entity sources require "
+            "acquisition semantics"
+        )
+    dimension = dimension_by_id.get(entity_source.dimension_id)
+    if (
+        dimension is None
+        or dimension.index is None
+        or entity_source.dimension_id not in variable.dims
+    ):
+        raise ValueError(
+            f"measurement variable {variable.id} entity source must reference "
+            "one indexed entity dimension"
+        )
+    entity_count = len(dimension.index.values)
+    if len(entity_source.product_ids) != entity_count:
+        raise ValueError(
+            f"measurement variable {variable.id} entity source cardinality "
+            "must match its entity dimension"
+        )
 
 
 MeasurementScalarData = Annotated[
@@ -595,8 +859,103 @@ def _measurement_scalar_from_generated(
     return template.model_copy(update={"value": native})
 
 
+class MeasurementArrayUnavailableGroup(_FrozenMeasurementModel):
+    """One reason shared by a sparse set of unavailable array leaves."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    reason: MeasurementUnavailableReason
+    flat_indices: Sequence[Annotated[int, Field(ge=0)]] = Field(min_length=1)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
+
+    @field_validator("flat_indices")
+    @classmethod
+    def freeze_flat_indices(cls, value: Sequence[int]) -> Sequence[int]:
+        selected = tuple(value)
+        if len(selected) != len(set(selected)):
+            raise ValueError("unavailable array indices must be unique")
+        return selected
+
+
+class MeasurementArrayAvailability(_FrozenMeasurementModel):
+    """Array validity with sparse, reason-qualified unavailable leaves."""
+
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="forbid",
+        frozen=True,
+    )
+
+    valid: MeasurementBooleanArrayPayload
+    unavailable: Sequence[MeasurementArrayUnavailableGroup] = Field(min_length=1)
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        valid: object,
+        reason: MeasurementUnavailableReason = "missing",
+        metadata: Mapping[str, object] | None = None,
+    ) -> Self:
+        """Create one incomplete validity mask with one shared failure reason."""
+
+        selected = _measurement_validity_array(valid)
+        if bool(np.all(selected)):
+            raise ValueError("fully available arrays must omit availability")
+        invalid = tuple(int(index) for index in np.flatnonzero(~selected.reshape(-1)))
+        return cls(
+            valid=selected,
+            unavailable=(
+                MeasurementArrayUnavailableGroup(
+                    reason=reason,
+                    flat_indices=invalid,
+                    metadata={} if metadata is None else metadata,
+                ),
+            ),
+        )
+
+    @field_validator("valid", mode="before")
+    @classmethod
+    def normalize_valid(cls, value: object) -> NDArray[np.bool_]:
+        return _measurement_validity_array(value)
+
+    @field_serializer("valid")
+    def serialize_valid(self, value: NDArray[np.bool_]) -> object:
+        return cast("object", value.tolist())
+
+    @field_validator("unavailable")
+    @classmethod
+    def freeze_unavailable[T: MeasurementArrayUnavailableGroup](
+        cls, value: Sequence[T]
+    ) -> Sequence[T]:
+        return tuple(value)
+
+    @model_validator(mode="after")
+    def validate_incomplete(self) -> MeasurementArrayAvailability:
+        flattened = self.valid.reshape(-1)
+        if bool(np.all(flattened)):
+            raise ValueError("fully available arrays must omit availability")
+        actual = tuple(
+            sorted(index for group in self.unavailable for index in group.flat_indices)
+        )
+        expected = tuple(int(index) for index in np.flatnonzero(~flattened))
+        if len(actual) != len(set(actual)) or actual != expected:
+            raise ValueError(
+                "array unavailable groups must exactly partition invalid leaves"
+            )
+        return self
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, MeasurementArrayAvailability):
+            return NotImplemented
+        return np.array_equal(self.valid, other.valid) and (
+            self.unavailable == other.unavailable
+        )
+
+
 class MeasurementArray(_FrozenMeasurementModel):
-    """One typed array backed by an immutable, read-only NumPy buffer."""
+    """One rectangular typed array backed by an immutable NumPy buffer."""
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
@@ -609,6 +968,7 @@ class MeasurementArray(_FrozenMeasurementModel):
     unit: str | None = None
     shape: tuple[Annotated[int, Field(ge=0)], ...] = Field(min_length=1)
     values: MeasurementArrayPayload
+    availability: MeasurementArrayAvailability | None = None
     metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @classmethod
@@ -618,6 +978,7 @@ class MeasurementArray(_FrozenMeasurementModel):
         values: object,
         dtype: MeasurementDType = "float64",
         unit: str | None = None,
+        availability: MeasurementArrayAvailability | None = None,
         metadata: Mapping[str, object] | None = None,
     ) -> Self:
         """Construct an immutable array and infer its wire shape from ``values``."""
@@ -627,6 +988,7 @@ class MeasurementArray(_FrozenMeasurementModel):
             "dtype": dtype,
             "unit": unit,
             "values": values,
+            "availability": availability,
             "metadata": {} if metadata is None else metadata,
         }
         return cls.model_validate(
@@ -688,9 +1050,15 @@ class MeasurementArray(_FrozenMeasurementModel):
             else _measurement_ndarray(value, dtype=dtype)
         )
         expected_shape = cast("object", info.data.get("shape"))
+        expected_extents = (
+            cast("tuple[object, ...]", expected_shape)
+            if isinstance(expected_shape, tuple)
+            else ()
+        )
         if (
             selected.size == 0
             and isinstance(expected_shape, tuple)
+            and all(isinstance(extent, int) for extent in expected_extents)
             and math.prod(cast("tuple[int, ...]", expected_shape)) == 0
         ):
             selected = selected.reshape(cast("tuple[int, ...]", expected_shape))
@@ -708,6 +1076,13 @@ class MeasurementArray(_FrozenMeasurementModel):
         if actual_shape != self.shape:
             msg = f"measurement array shape {actual_shape} does not match {self.shape}"
             raise ValueError(msg)
+        if (
+            self.availability is not None
+            and self.availability.valid.shape != self.shape
+        ):
+            raise ValueError(
+                "measurement array availability shape does not match its values"
+            )
         if self.dtype in {"bool", "string"} and self.unit is not None:
             raise ValueError(f"{self.dtype} measurement arrays cannot have a unit")
         return self
@@ -722,6 +1097,7 @@ class MeasurementArray(_FrozenMeasurementModel):
             and self.unit == other.unit
             and self.shape == other.shape
             and self.metadata == other.metadata
+            and self.availability == other.availability
             and np.array_equal(self.values, other.values)
         )
 
@@ -777,8 +1153,167 @@ class MeasurementUnavailable(_FrozenMeasurementModel):
         return self
 
 
-type MeasurementValue = Annotated[
+type MeasurementSegment = Annotated[
+    MeasurementArray | MeasurementUnavailable,
+    Field(discriminator="kind"),
+]
+
+
+class MeasurementSegmentedArray(_FrozenMeasurementModel):
+    """One entity-indexed value with independently shaped local array segments."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["segmented_array"]
+    dtype: MeasurementDType = "float64"
+    unit: str | None = None
+    segments: Sequence[MeasurementSegment] = Field(min_length=1)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        segments: Sequence[MeasurementArray | MeasurementUnavailable],
+        dtype: MeasurementDType = "float64",
+        unit: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> Self:
+        return cls(
+            kind="segmented_array",
+            dtype=dtype,
+            unit=unit,
+            segments=segments,
+            metadata={} if metadata is None else metadata,
+        )
+
+    @field_validator("unit")
+    @classmethod
+    def validate_unit(cls, value: str | None) -> str | None:
+        return validate_supported_unit(value)
+
+    @field_validator("segments")
+    @classmethod
+    def freeze_segments[T: MeasurementSegment](cls, value: Sequence[T]) -> Sequence[T]:
+        return tuple(value)
+
+    @model_validator(mode="after")
+    def validate_segments(self) -> MeasurementSegmentedArray:
+        ranks = {len(segment.shape) for segment in self.segments}
+        if ranks == {0} or len(ranks) != 1:
+            raise ValueError(
+                "measurement segmented arrays require one non-scalar local rank"
+            )
+        if any(
+            (segment.dtype, segment.unit) != (self.dtype, self.unit)
+            for segment in self.segments
+        ):
+            raise ValueError(
+                "measurement segmented array members must match its dtype and unit"
+            )
+        if self.dtype in {"bool", "string"} and self.unit is not None:
+            raise ValueError(
+                f"{self.dtype} measurement segmented arrays cannot have a unit"
+            )
+        return self
+
+    @property
+    def segment_shapes(self) -> tuple[tuple[int | None, ...], ...]:
+        return tuple(tuple(segment.shape) for segment in self.segments)
+
+    @property
+    def shape(self) -> tuple[int | None, ...]:
+        shapes = self.segment_shapes
+        rank = len(shapes[0])
+        extents: list[int | None] = []
+        for axis in range(rank):
+            axis_extents = {shape[axis] for shape in shapes}
+            extent = next(iter(axis_extents)) if len(axis_extents) == 1 else None
+            extents.append(extent)
+        return (len(shapes), *extents)
+
+    @property
+    def values(self) -> MeasurementArrayData:
+        chunks: list[MeasurementArrayData] = []
+        for segment in self.segments:
+            if isinstance(segment, MeasurementArray):
+                chunks.append(segment.values.reshape(-1))
+                continue
+            size = (
+                0
+                if any(extent is None for extent in segment.shape)
+                else math.prod(cast("tuple[int, ...]", segment.shape))
+            )
+            chunks.append(
+                cast(
+                    "MeasurementArrayData",
+                    np.zeros(size, dtype=_numpy_dtype(self.dtype)),
+                )
+            )
+        combined = np.concatenate(chunks)
+        return cast("MeasurementArrayData", freeze_ndarray(combined))
+
+    @property
+    def availability(self) -> MeasurementArrayAvailability | None:
+        valid_chunks: list[NDArray[np.bool_]] = []
+        unavailable: list[MeasurementArrayUnavailableGroup] = []
+        offset = 0
+        for segment in self.segments:
+            if isinstance(segment, MeasurementArray):
+                size = segment.values.size
+                if segment.availability is None:
+                    valid_chunks.append(np.ones(size, dtype=np.bool_))
+                else:
+                    valid_chunks.append(segment.availability.valid.reshape(-1))
+                    unavailable.extend(
+                        MeasurementArrayUnavailableGroup(
+                            reason=group.reason,
+                            flat_indices=tuple(
+                                offset + index for index in group.flat_indices
+                            ),
+                            metadata=group.metadata,
+                        )
+                        for group in segment.availability.unavailable
+                    )
+            else:
+                size = (
+                    0
+                    if any(extent is None for extent in segment.shape)
+                    else math.prod(cast("tuple[int, ...]", segment.shape))
+                )
+                valid_chunks.append(np.zeros(size, dtype=np.bool_))
+                if size:
+                    unavailable.append(
+                        MeasurementArrayUnavailableGroup(
+                            reason=segment.reason,
+                            flat_indices=tuple(range(offset, offset + size)),
+                            metadata=segment.metadata,
+                        )
+                    )
+            offset += size
+        valid = np.concatenate(valid_chunks)
+        if bool(np.all(valid)):
+            return None
+        return MeasurementArrayAvailability(valid=valid, unavailable=unavailable)
+
+    @property
+    def has_unavailable_segments(self) -> bool:
+        return any(
+            isinstance(segment, MeasurementUnavailable) for segment in self.segments
+        )
+
+
+type MeasurementAcquisitionValue = Annotated[
     MeasurementScalar | MeasurementArray | MeasurementUnavailable,
+    Field(discriminator="kind"),
+]
+
+
+type MeasurementValue = Annotated[
+    MeasurementScalar
+    | MeasurementArray
+    | MeasurementSegmentedArray
+    | MeasurementUnavailable,
     Field(discriminator="kind"),
 ]
 
@@ -804,8 +1339,115 @@ class InstrumentAcquisitionEvidence(_FrozenMeasurementModel):
         return self
 
 
-def _empty_acquisition_evidence() -> Mapping[str, InstrumentAcquisitionEvidence]:
+class EntityAcquisitionEvidence(_FrozenMeasurementModel):
+    """Acquisition evidence aligned to one entity-indexed variable."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["entity"] = "entity"
+    dimension_id: _NonEmptyText
+    acquisition: MeasurementEntityAcquisition = Field(
+        default_factory=MeasurementEntityAcquisition
+    )
+    values: Sequence[InstrumentAcquisitionEvidence | None] = Field(min_length=1)
+
+    @field_validator("values")
+    @classmethod
+    def freeze_values[T](cls, value: Sequence[T]) -> Sequence[T]:
+        return tuple(value)
+
+
+type MeasurementAcquisitionEvidence = (
+    InstrumentAcquisitionEvidence | EntityAcquisitionEvidence
+)
+
+
+class InstrumentAcquisitionEvent(_FrozenMeasurementModel):
+    """Shared physical acquisition interval referenced by result evidence."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    command_id: _NonEmptyText
+    instrument_id: _NonEmptyText
+    interface_id: InterfaceId
+    component_path: tuple[_NonEmptyText, ...] = ()
+    acquisition_id: _NonEmptyText
+    started_at: AwareDatetime
+    completed_at: AwareDatetime
+
+    @classmethod
+    def from_result(cls, evidence: InstrumentAcquisitionEvidence) -> Self:
+        return cls(
+            command_id=evidence.command_id,
+            instrument_id=evidence.instrument_id,
+            interface_id=evidence.interface_id,
+            component_path=evidence.component_path,
+            acquisition_id=evidence.acquisition_id,
+            started_at=evidence.started_at,
+            completed_at=evidence.completed_at,
+        )
+
+    def result(self, result_id: str) -> InstrumentAcquisitionEvidence:
+        return InstrumentAcquisitionEvidence(
+            command_id=self.command_id,
+            instrument_id=self.instrument_id,
+            interface_id=self.interface_id,
+            component_path=self.component_path,
+            acquisition_id=self.acquisition_id,
+            result_id=result_id,
+            started_at=self.started_at,
+            completed_at=self.completed_at,
+        )
+
+
+class InstrumentAcquisitionEvidenceRef(_FrozenMeasurementModel):
+    """One result identifier within a shared acquisition event."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["instrument"] = "instrument"
+    event_index: Annotated[int, Field(ge=0)]
+    result_id: _NonEmptyText
+
+
+class EntityAcquisitionEvidenceRef(_FrozenMeasurementModel):
+    """Entity-aligned result references within shared acquisition events."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["entity"] = "entity"
+    dimension_id: _NonEmptyText
+    acquisition: MeasurementEntityAcquisition = Field(
+        default_factory=MeasurementEntityAcquisition
+    )
+    values: Sequence[InstrumentAcquisitionEvidenceRef | None] = Field(min_length=1)
+
+    @field_validator("values")
+    @classmethod
+    def freeze_values[T](cls, value: Sequence[T]) -> Sequence[T]:
+        return tuple(value)
+
+
+type MeasurementAcquisitionEvidenceRef = Annotated[
+    InstrumentAcquisitionEvidenceRef | EntityAcquisitionEvidenceRef,
+    Field(discriminator="kind"),
+]
+
+
+def _empty_evidence_events() -> Sequence[InstrumentAcquisitionEvent]:
+    return ()
+
+
+def _empty_evidence_entries() -> Sequence[MeasurementAcquisitionEvidenceRef]:
+    return ()
+
+
+def _empty_evidence_refs() -> Mapping[str, int]:
     return FrozenMapping()
+
+
+type MeasurementAcquisitionEvents = Sequence[InstrumentAcquisitionEvent]
+type MeasurementAcquisitionEvidenceEntries = Sequence[MeasurementAcquisitionEvidenceRef]
 
 
 def _freeze_measurement_values(
@@ -830,26 +1472,177 @@ type MeasurementValueMap = Annotated[
 ]
 
 
-def _freeze_acquisition_evidence(
-    value: Mapping[str, InstrumentAcquisitionEvidence],
-) -> Mapping[str, InstrumentAcquisitionEvidence]:
+def _freeze_evidence_refs(value: Mapping[str, int]) -> Mapping[str, int]:
     return FrozenMapping(value.items())
 
 
-def _serialize_acquisition_evidence(
-    value: Mapping[str, InstrumentAcquisitionEvidence],
-) -> dict[str, InstrumentAcquisitionEvidence]:
+def _serialize_evidence_refs(value: Mapping[str, int]) -> dict[str, int]:
     return dict(value)
 
 
-type InstrumentAcquisitionEvidenceMap = Annotated[
-    Mapping[str, InstrumentAcquisitionEvidence],
-    AfterValidator(_freeze_acquisition_evidence),
-    PlainSerializer(
-        _serialize_acquisition_evidence,
-        return_type=dict[str, InstrumentAcquisitionEvidence],
-    ),
+type MeasurementAcquisitionEvidenceRefs = Annotated[
+    Mapping[_NonEmptyText, Annotated[int, Field(ge=0)]],
+    AfterValidator(_freeze_evidence_refs),
+    PlainSerializer(_serialize_evidence_refs, return_type=dict[str, int]),
 ]
+
+
+class MeasurementAcquisitionEvidenceCatalog(_FrozenMeasurementModel):
+    """Result evidence factored over shared acquisition events by compact indexes."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    events: MeasurementAcquisitionEvents = Field(default_factory=_empty_evidence_events)
+    entries: MeasurementAcquisitionEvidenceEntries = Field(
+        default_factory=_empty_evidence_entries
+    )
+    variable_refs: MeasurementAcquisitionEvidenceRefs = Field(
+        default_factory=_empty_evidence_refs
+    )
+
+    @field_validator("events", "entries")
+    @classmethod
+    def freeze_catalog_sequences[T](cls, value: Sequence[T]) -> Sequence[T]:
+        return tuple(value)
+
+    @classmethod
+    def create(
+        cls,
+        evidence_by_variable: Mapping[str, MeasurementAcquisitionEvidence],
+    ) -> MeasurementAcquisitionEvidenceCatalog:
+        events: list[InstrumentAcquisitionEvent] = []
+        event_indexes: dict[InstrumentAcquisitionEvent, int] = {}
+        entries: list[MeasurementAcquisitionEvidenceRef] = []
+        entry_indexes: dict[MeasurementAcquisitionEvidenceRef, int] = {}
+        variable_refs: dict[str, int] = {}
+        for variable_id in sorted(evidence_by_variable):
+            entry = _evidence_ref(
+                evidence_by_variable[variable_id],
+                events=events,
+                event_indexes=event_indexes,
+            )
+            entry_index = entry_indexes.get(entry)
+            if entry_index is None:
+                entry_index = len(entries)
+                entries.append(entry)
+                entry_indexes[entry] = entry_index
+            variable_refs[variable_id] = entry_index
+        return cls(events=events, entries=entries, variable_refs=variable_refs)
+
+    @model_validator(mode="after")
+    def validate_refs(self) -> MeasurementAcquisitionEvidenceCatalog:
+        if len(self.events) != len(set(self.events)):
+            raise ValueError("measurement acquisition events must be unique")
+        if len(self.entries) != len(set(self.entries)):
+            raise ValueError("measurement acquisition evidence entries must be unique")
+        referenced_entries = set(self.variable_refs.values())
+        if referenced_entries != set(range(len(self.entries))):
+            raise ValueError(
+                "measurement acquisition evidence entry indexes must be referenced"
+            )
+        referenced_events = {
+            event_index
+            for entry in self.entries
+            for event_index in _evidence_ref_event_indices(entry)
+        }
+        if referenced_events != set(range(len(self.events))):
+            raise ValueError(
+                "measurement acquisition event indexes must be referenced exactly"
+            )
+        return self
+
+    def for_variable(self, variable_id: str) -> MeasurementAcquisitionEvidence | None:
+        entry_index = self.variable_refs.get(variable_id)
+        return (
+            None
+            if entry_index is None
+            else _evidence_from_ref(self.entries[entry_index], events=self.events)
+        )
+
+    def select(
+        self,
+        variable_ids: Sequence[str],
+    ) -> MeasurementAcquisitionEvidenceCatalog:
+        selected = set(variable_ids)
+        return type(self).create(
+            {
+                variable_id: evidence
+                for variable_id in self.variable_refs
+                if variable_id in selected
+                and (evidence := self.for_variable(variable_id)) is not None
+            }
+        )
+
+
+def _evidence_ref(
+    evidence: MeasurementAcquisitionEvidence,
+    *,
+    events: list[InstrumentAcquisitionEvent],
+    event_indexes: dict[InstrumentAcquisitionEvent, int],
+) -> MeasurementAcquisitionEvidenceRef:
+    if isinstance(evidence, InstrumentAcquisitionEvidence):
+        return _instrument_evidence_ref(
+            evidence,
+            events=events,
+            event_indexes=event_indexes,
+        )
+    return EntityAcquisitionEvidenceRef(
+        dimension_id=evidence.dimension_id,
+        acquisition=evidence.acquisition,
+        values=tuple(
+            None
+            if value is None
+            else _instrument_evidence_ref(
+                value,
+                events=events,
+                event_indexes=event_indexes,
+            )
+            for value in evidence.values
+        ),
+    )
+
+
+def _instrument_evidence_ref(
+    evidence: InstrumentAcquisitionEvidence,
+    *,
+    events: list[InstrumentAcquisitionEvent],
+    event_indexes: dict[InstrumentAcquisitionEvent, int],
+) -> InstrumentAcquisitionEvidenceRef:
+    event = InstrumentAcquisitionEvent.from_result(evidence)
+    event_index = event_indexes.get(event)
+    if event_index is None:
+        event_index = len(events)
+        events.append(event)
+        event_indexes[event] = event_index
+    return InstrumentAcquisitionEvidenceRef(
+        event_index=event_index,
+        result_id=evidence.result_id,
+    )
+
+
+def _evidence_ref_event_indices(
+    evidence: MeasurementAcquisitionEvidenceRef,
+) -> tuple[int, ...]:
+    if isinstance(evidence, InstrumentAcquisitionEvidenceRef):
+        return (evidence.event_index,)
+    return tuple(value.event_index for value in evidence.values if value is not None)
+
+
+def _evidence_from_ref(
+    evidence: MeasurementAcquisitionEvidenceRef,
+    *,
+    events: Sequence[InstrumentAcquisitionEvent],
+) -> MeasurementAcquisitionEvidence:
+    if isinstance(evidence, InstrumentAcquisitionEvidenceRef):
+        return events[evidence.event_index].result(evidence.result_id)
+    return EntityAcquisitionEvidence(
+        dimension_id=evidence.dimension_id,
+        acquisition=evidence.acquisition,
+        values=tuple(
+            None if value is None else events[value.event_index].result(value.result_id)
+            for value in evidence.values
+        ),
+    )
 
 
 class MeasurementRecord(_FrozenMeasurementModel):
@@ -862,14 +1655,14 @@ class MeasurementRecord(_FrozenMeasurementModel):
     point_index: int
     coordinates: MeasurementValueMap
     observables: MeasurementValueMap
-    acquisition_evidence: InstrumentAcquisitionEvidenceMap = Field(
-        default_factory=_empty_acquisition_evidence
+    acquisition_evidence: MeasurementAcquisitionEvidenceCatalog = Field(
+        default_factory=MeasurementAcquisitionEvidenceCatalog
     )
     metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @model_validator(mode="after")
     def validate_acquisition_evidence_variables(self) -> MeasurementRecord:
-        unknown = set(self.acquisition_evidence) - (
+        unknown = set(self.acquisition_evidence.variable_refs) - (
             set(self.coordinates) | set(self.observables)
         )
         if unknown:
@@ -932,6 +1725,11 @@ def _measurement_ndarray(
         "MeasurementArrayData",
         freeze_ndarray(selected),
     )
+
+
+def _measurement_validity_array(value: object) -> NDArray[np.bool_]:
+    selected = _measurement_ndarray(value, dtype="bool")
+    return cast("NDArray[np.bool_]", selected)
 
 
 def _measurement_scalar_data(

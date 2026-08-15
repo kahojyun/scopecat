@@ -560,6 +560,37 @@ describe("config provenance navigation", () => {
     );
   });
 
+  it("forwards entity chip selection to the bounded trace query", async () => {
+    window.history.replaceState(null, "", "/?run=run-1");
+    const schema = entityTraceDatasetSchema();
+    vi.mocked(getMeasurementPreview).mockResolvedValue({ schema, items: [] });
+    vi.mocked(getMeasurementSlice).mockResolvedValue({
+      items: [],
+      selectedPointCount: 4,
+      truncated: false,
+    });
+    vi.mocked(getMeasurementTracePreview).mockImplementation(async (_runId, selection) =>
+      tracePreview(selection.valueMode),
+    );
+
+    renderApp();
+
+    const q1 = await screen.findByRole("button", { name: "Qubits Q1" });
+    fireEvent.click(q1);
+
+    await waitFor(() =>
+      expect(getMeasurementTracePreview).toHaveBeenLastCalledWith(
+        "run-1",
+        expect.objectContaining({
+          observableId: "response",
+          coordinateId: "frequency",
+          entityIndices: [1],
+        }),
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
   it("refreshes canonical queries whenever SSE connects", async () => {
     window.history.replaceState(null, "", "/?run=run-1");
     renderApp();
@@ -682,9 +713,9 @@ function measurementRecord(
 
 function traceDatasetSchema(): MeasurementDatasetSchema {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v10",
+    format_version: "scopecat.measurement_dataset_schema.v16",
     dataset_id: "raw-measurements",
-    record_schema: "scopecat.measurement_record.v4",
+    record_schema: "scopecat.measurement_record.v9",
     point_domain: {
       kind: "product_grid",
       axes: [traceAxis("row", [0, 1]), traceAxis("column", [0, 1]), traceAxis("bias", [0, 1])],
@@ -738,6 +769,50 @@ function traceDatasetSchema(): MeasurementDatasetSchema {
   };
 }
 
+function entityTraceDatasetSchema(): MeasurementDatasetSchema {
+  const schema = traceDatasetSchema();
+  return {
+    ...schema,
+    dimensions: [
+      schema.dimensions[0]!,
+      {
+        id: "qubit",
+        kind: "entity",
+        label: "Qubits",
+        size: 2,
+        index: {
+          kind: "entity",
+          values: [
+            { id: "q0", kind: "qubit", metadata: { label: "Q0" } },
+            { id: "q1", kind: "qubit", metadata: { label: "Q1" } },
+          ],
+        },
+      },
+      schema.dimensions[1]!,
+    ],
+    variables: schema.variables?.map((variable) =>
+      variable.id === "frequency" || variable.id === "response"
+        ? {
+            ...variable,
+            dims: ["point", "qubit", "sample"],
+            source_entity_products: {
+              dimension_id: "qubit",
+              product_ids: ["q0-readout", "q1-readout"],
+            },
+            ...(variable.id === "response"
+              ? {
+                  entity_acquisition: {
+                    policy: "all_or_nothing" as const,
+                    cohort_id: "readout-cohort",
+                  },
+                }
+              : {}),
+          }
+        : variable,
+    ),
+  };
+}
+
 function traceAxis(id: string, values: number[]) {
   return {
     id,
@@ -760,6 +835,7 @@ function tracePreview(mode: "imag" | "magnitude" | "phase" | "real" | "value") {
     coordinate_unit: "GHz",
     dimension_id: "sample",
     downsampling: "minmax" as const,
+    layout: "overlay" as const,
     fixed_axis_indices: { bias: 0 },
     observable_id: "response",
     observable_label: "S21",
@@ -767,6 +843,8 @@ function tracePreview(mode: "imag" | "magnitude" | "phase" | "real" | "value") {
     recording_group_id: "readout",
     returned_sample_count: 3,
     returned_series_count: 1,
+    inspected_series_count: 4,
+    failures: [],
     samples_reduced: false,
     selected_series_count: 4,
     series: [
@@ -775,6 +853,8 @@ function tracePreview(mode: "imag" | "magnitude" | "phase" | "real" | "value") {
         logical_point_id: "point-0",
         point_index: 0,
         source_sample_count: 3,
+        available_sample_count: 3,
+        unavailable_reasons: [],
         x: [4.9, 5, 5.1],
         y: [0.1, 0.2, 0.3],
       },

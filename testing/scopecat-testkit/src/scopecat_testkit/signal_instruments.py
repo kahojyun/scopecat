@@ -11,7 +11,10 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.kernel.quantity import Quantity
-from scopecat.records.measurement import MeasurementScalar, MeasurementValue
+from scopecat.records.measurement import (
+    MeasurementAcquisitionValue,
+    MeasurementScalar,
+)
 from scopecat.sdk.instruments import (
     AcquisitionResultRef,
     DriverAcquisition,
@@ -208,7 +211,7 @@ class TestSignalInstrument:
             value=_test_signal(self._frequency_ghz()),
             unit="ratio",
         )
-        values: dict[AcquisitionResultRef, MeasurementValue] = dict.fromkeys(
+        values: dict[AcquisitionResultRef, MeasurementAcquisitionValue] = dict.fromkeys(
             requested_results, value
         )
         return DriverSuccess(

@@ -1,17 +1,25 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Literal
 
 import pytest
 from pydantic import ValidationError
 from scopecat_testkit.measurement_models import signal_record
 
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.problems import model_location
 from scopecat.measurements.results import validate_measurement_records_against_schema
 from scopecat.records.measurement import (
+    EntityAcquisitionEvidence,
+    InstrumentAcquisitionEvidence,
+    MeasurementAcquisitionEvidenceCatalog,
     MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementEntityAcquisition,
+    MeasurementEntityIndex,
+    MeasurementEntityProductSource,
     MeasurementPointCloudPointDomain,
     MeasurementPointDomainAxis,
     MeasurementPointDomainColumn,
@@ -318,6 +326,85 @@ def test_validate_measurement_records_rejects_convertible_but_inexact_units() ->
         "drive_frequency",
         "unit",
     )
+
+
+def test_validate_schema_reports_entity_evidence_contract_errors() -> None:
+    acquisition = MeasurementEntityAcquisition()
+    schema = MeasurementDatasetSchema(
+        dataset_id="raw-measurements",
+        point_domain=_empty_grid(),
+        dimensions=[
+            MeasurementDimension(id="point", kind="point", size=1),
+            MeasurementDimension(
+                id="qubit",
+                kind="entity",
+                size=2,
+                index=MeasurementEntityIndex(
+                    values=(
+                        EntityRef(id="q0", kind="qubit"),
+                        EntityRef(id="q1", kind="qubit"),
+                    )
+                ),
+            ),
+        ],
+        variables=[
+            MeasurementVariable(
+                id="signal",
+                role="observable",
+                dtype="float64",
+                dims=("point", "qubit"),
+                source_entity_products=MeasurementEntityProductSource(
+                    dimension_id="qubit",
+                    product_ids=("readout/q0", None),
+                ),
+                entity_acquisition=acquisition,
+            )
+        ],
+        primary_observables=("signal",),
+    )
+    timestamp = datetime(2026, 8, 15, tzinfo=UTC)
+    instrument_evidence = InstrumentAcquisitionEvidence(
+        command_id="readout",
+        instrument_id="readout",
+        interface_id="test.readout/v1",
+        acquisition_id="sample",
+        result_id="signal",
+        started_at=timestamp,
+        completed_at=timestamp,
+    )
+    record = MeasurementRecord(
+        run_id="run-test",
+        point_index=0,
+        coordinates={},
+        observables={"signal": MeasurementArray.create(values=[1.0, 0.0])},
+        acquisition_evidence=MeasurementAcquisitionEvidenceCatalog.create(
+            {
+                "signal": EntityAcquisitionEvidence(
+                    dimension_id="other",
+                    acquisition=MeasurementEntityAcquisition(
+                        policy="best_effort",
+                        cohort_id="readout",
+                    ),
+                    values=(
+                        instrument_evidence,
+                        instrument_evidence,
+                        instrument_evidence,
+                    ),
+                )
+            }
+        ),
+    )
+
+    problems = validate_measurement_records_against_schema(
+        [record], schema, "raw-measurements"
+    )
+
+    assert [item.code for item in problems] == [
+        "measurement_record_evidence_dimension_mismatch",
+        "measurement_record_evidence_cardinality_mismatch",
+        "measurement_record_evidence_acquisition_mismatch",
+        "measurement_record_evidence_without_entity_source",
+    ]
 
 
 def test_validate_schema_accepts_point_local_arrays() -> None:

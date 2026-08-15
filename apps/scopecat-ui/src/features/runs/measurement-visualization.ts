@@ -23,6 +23,8 @@ interface VariableDescriptor {
   dims: string[];
   label: string;
   recordingGroupId?: string;
+  entityAxisId?: string;
+  entityAxisOffset?: number;
 }
 
 interface NumericPoint {
@@ -39,7 +41,25 @@ export interface MeasurementChartSeries {
   id: string;
   label: string;
   points: NumericPoint[];
+  status?: string;
 }
+
+export interface MeasurementEntityAxisMember {
+  id: string;
+  identity: string;
+  index: number;
+  kind?: string;
+  label: string;
+}
+
+export interface MeasurementEntityAxis {
+  id: string;
+  label: string;
+  members: MeasurementEntityAxisMember[];
+  size: number;
+}
+
+export type MeasurementEntitySelection = Readonly<Record<string, readonly number[]>>;
 
 export interface MeasurementChartGrid {
   xValues: number[];
@@ -81,8 +101,9 @@ export interface MeasurementTraceQueryPlan {
   id: string;
   label: string;
   observableId: string;
-  coordinateId: string;
+  coordinateId?: string;
   valueMode: NumericValueMode;
+  entityAxisId?: string;
 }
 
 interface MeasurementChartPlanBase {
@@ -93,6 +114,7 @@ interface MeasurementChartPlanBase {
   colorLabel?: string;
   note?: string;
   series: MeasurementChartSeries[];
+  layout?: "overlay" | "small-multiples";
 }
 
 export type MeasurementChartPlan = MeasurementChartPlanBase &
@@ -130,16 +152,28 @@ export function planMeasurementCharts(
   records: MeasurementRecord[],
   schema?: MeasurementDatasetSchema,
   fixedAxisIndices?: Readonly<Record<string, number>>,
+  entitySelection: MeasurementEntitySelection = {},
 ): MeasurementChartPlan[] {
   if (records.length === 0 || schema === undefined) return [];
   const variables = variableDescriptors(schema);
   const observables = orderObservables(variables, schema);
+  const entityAxes = measurementEntityAxes(schema);
+  const entityAxisById = new Map(entityAxes.map((axis) => [axis.id, axis]));
   const gridPlans = productGridHeatmaps(records, variables, observables, schema, fixedAxisIndices);
   const colorPlans = pointCloudColorCharts(records, variables, observables, schema);
+  const entityPlans = observables.flatMap((observable) => {
+    const axis = observable.entityAxisId ? entityAxisById.get(observable.entityAxisId) : undefined;
+    if (!axis || !isNumericVariable(observable)) return [];
+    const selected = selectedEntityIndices(axis, entitySelection);
+    if (observable.dims.length === 2) {
+      return entityScalarCharts(records, variables, observable, axis, selected, schema);
+    }
+    return [];
+  });
   const scalarPlans = observables
     .filter((variable) => variable.dims.length === 1)
     .flatMap((observable) => scalarChart(records, variables, observable, schema));
-  return [...gridPlans, ...colorPlans, ...scalarPlans];
+  return [...gridPlans, ...colorPlans, ...entityPlans, ...scalarPlans];
 }
 
 /** Choose bounded server projection axes for one product-grid slice. */
@@ -167,6 +201,13 @@ export function measurementSlicePlan(
     (variable) =>
       variable.role === "observable" && variable.dims.length === 1 && isNumericVariable(variable),
   );
+  // Entity-local traces remain on bounded/live record paths instead of inflating a 4,096-point slice.
+  const entitySliceVariables = variables.filter(
+    (variable) =>
+      variable.entityAxisId !== undefined &&
+      variable.dims.length === 2 &&
+      isNumericVariable(variable),
+  );
   const heatmapAxes = numericAxes.slice(0, 2);
   const heatmap =
     heatmapAxes.length === 2 && observables.length > 0
@@ -180,10 +221,13 @@ export function measurementSlicePlan(
     varyingAxes: varyingAxes.map(sliceAxisDescriptor),
     fixedAxes: axes.filter(({ axis }) => !varyingAxisIds.has(axis.id)).map(sliceAxisDescriptor),
     variableIds: [
-      ...varyingAxes.flatMap(({ variable }) =>
-        variable && isNumericVariable(variable) ? [variable.id] : [],
-      ),
-      ...observables.map((observable) => observable.id),
+      ...new Set([
+        ...varyingAxes.flatMap(({ variable }) =>
+          variable && isNumericVariable(variable) ? [variable.id] : [],
+        ),
+        ...observables.map((observable) => observable.id),
+        ...entitySliceVariables.map((variable) => variable.id),
+      ]),
     ],
     heatmap,
   };
@@ -197,36 +241,53 @@ export function measurementTraceQueryPlans(
   const variables = variableDescriptors(schema);
   const coordinates = variables.filter(
     (variable) =>
-      variable.role === "coordinate" &&
-      variable.dims.length === 2 &&
-      isRealNumericVariable(variable),
+      variable.role === "coordinate" && hasTraceShape(variable) && isRealNumericVariable(variable),
   );
   const observables = orderObservables(
     variables.filter(
       (variable) =>
-        variable.role === "observable" && variable.dims.length === 2 && isNumericVariable(variable),
+        variable.role === "observable" && hasTraceShape(variable) && isNumericVariable(variable),
     ),
     schema,
   );
   return observables.flatMap((observable) => {
-    const compatibleCoordinates = coordinates.filter(
+    const alignedCoordinates = coordinates.filter(
       (coordinate) =>
         coordinate.dims.every((dimension, index) => dimension === observable.dims[index]) &&
-        coordinate.recordingGroupId === observable.recordingGroupId,
+        coordinate.entityAxisId === observable.entityAxisId,
     );
-    return compatibleCoordinates.flatMap((coordinate) =>
+    const compatibleCoordinates = alignedCoordinates.filter(
+      (coordinate) => coordinate.recordingGroupId === observable.recordingGroupId,
+    );
+    const selectedCoordinates: Array<VariableDescriptor | undefined> =
+      compatibleCoordinates.length > 0
+        ? compatibleCoordinates
+        : alignedCoordinates.length === 0
+          ? [undefined]
+          : [];
+    const sampleDimensionId = observable.dims
+      .slice(1)
+      .find((dimension) => dimension !== observable.entityAxisId)!;
+    return selectedCoordinates.flatMap((coordinate) =>
       valueModes(observable).map((valueMode) => ({
-        id: `trace:${observable.id}:${coordinate.id}:${valueMode}`,
+        id: `trace:${observable.id}:${coordinate?.id ?? sampleDimensionId}:${valueMode}`,
         label:
-          compatibleCoordinates.length === 1
+          compatibleCoordinates.length <= 1
             ? chartTitle(observable, valueMode)
-            : `${chartTitle(observable, valueMode)} by ${coordinate.label}`,
+            : `${chartTitle(observable, valueMode)} by ${coordinate!.label}`,
         observableId: observable.id,
-        coordinateId: coordinate.id,
+        ...(coordinate ? { coordinateId: coordinate.id } : {}),
         valueMode,
+        ...(observable.entityAxisId ? { entityAxisId: observable.entityAxisId } : {}),
       })),
     );
   });
+}
+
+function hasTraceShape(variable: VariableDescriptor): boolean {
+  const localDimensions = variable.dims.slice(1);
+  if (variable.entityAxisId === undefined) return localDimensions.length === 1;
+  return localDimensions.length === 2 && localDimensions.includes(variable.entityAxisId);
 }
 
 export function measurementTraceChart(
@@ -242,16 +303,21 @@ export function measurementTraceChart(
     label: preview.observable_label ?? dimensionLabel(preview.observable_id),
   };
   const series = preview.series.map((candidate) => ({
-    id: candidate.logical_point_id
-      ? `${candidate.logical_point_id}:${candidate.point_index}`
-      : `point-${candidate.point_index}`,
+    id: [candidate.logical_point_id ?? "point", candidate.point_index, candidate.entity_index].join(
+      ":",
+    ),
     label: candidate.label,
     points: candidate.x.map((x, index) => ({ x, y: candidate.y[index]! })),
+    status:
+      candidate.available_sample_count < candidate.source_sample_count
+        ? `${candidate.available_sample_count}/${candidate.source_sample_count} available${candidate.unavailable_reasons.length > 0 ? ` · ${candidate.unavailable_reasons.join(", ")}` : ""}`
+        : undefined,
   }));
   const monotonic = preview.series.every((candidate) => strictlyMonotonicValues(candidate.x));
   return {
     id: `trace:${preview.observable_id}:${preview.coordinate_id}:${preview.value_mode}`,
     kind: monotonic ? "line" : "scatter",
+    layout: preview.layout === "small_multiples" ? "small-multiples" : "overlay",
     title: chartTitle(observable, preview.value_mode),
     xLabel: labelWithUnit(
       preview.coordinate_label ?? dimensionLabel(preview.coordinate_id),
@@ -264,12 +330,22 @@ export function measurementTraceChart(
 }
 
 export function measurementTraceStatus(preview: MeasurementTracePreview): string {
-  const series = `${preview.returned_series_count.toLocaleString()} of ${preview.selected_series_count.toLocaleString()} selected series returned`;
+  const series = `${preview.returned_series_count.toLocaleString()} plotted`;
+  const failures =
+    preview.failures.length > 0
+      ? `${preview.failures.length.toLocaleString()} unavailable`
+      : undefined;
+  const pending =
+    preview.inspected_series_count - preview.returned_series_count - preview.failures.length;
+  const pendingStatus = pending > 0 ? `${pending.toLocaleString()} not durable` : undefined;
+  const selection = `${preview.inspected_series_count.toLocaleString()} of ${preview.selected_series_count.toLocaleString()} selected examined`;
   const truncation = preview.truncated_series ? "series limit applied" : undefined;
   const samples = preview.samples_reduced
-    ? `${preview.returned_sample_count.toLocaleString()} of ${preview.source_sample_count.toLocaleString()} source samples plotted · evenly downsampled`
+    ? `${preview.returned_sample_count.toLocaleString()} of ${preview.source_sample_count.toLocaleString()} source samples plotted · unavailable samples omitted or min/max downsampling applied`
     : `${preview.returned_sample_count.toLocaleString()} source samples plotted`;
-  return [series, truncation, samples].filter((item) => item !== undefined).join(" · ");
+  return [series, failures, pendingStatus, selection, truncation, samples]
+    .filter((item) => item !== undefined)
+    .join(" · ");
 }
 
 function sliceAxisDescriptor({ axis, variable }: ProductGridAxis): MeasurementSliceAxis {
@@ -350,8 +426,10 @@ function interpolatedValue(start: number, stop: number, size: number, index: num
 export function measurementTable(
   records: MeasurementRecord[],
   schema?: MeasurementDatasetSchema,
+  entitySelection: MeasurementEntitySelection = {},
 ): MeasurementTableModel {
   const variables = schema ? variableDescriptors(schema) : [];
+  const entityAxisById = new Map(measurementEntityAxes(schema).map((axis) => [axis.id, axis]));
   const columns: MeasurementTableColumn[] = [
     { id: "point", label: "Point", role: "point" },
     ...variables.map((variable) => ({
@@ -366,7 +444,17 @@ export function measurementTable(
       id: `${record.logical_point_id ?? record.point_index}:${index}`,
       cells: [
         String(record.point_index),
-        ...variables.map((variable) => formatMeasurementValue(valueFor(record, variable))),
+        ...variables.map((variable) => {
+          const axis = variable.entityAxisId
+            ? entityAxisById.get(variable.entityAxisId)
+            : undefined;
+          return formatMeasurementValue(
+            valueFor(record, variable),
+            variable,
+            axis,
+            axis ? selectedEntityIndices(axis, entitySelection) : [],
+          );
+        }),
       ],
     })),
   };
@@ -406,6 +494,116 @@ function scalarChart(
       },
     ];
   });
+}
+
+function entityScalarCharts(
+  records: MeasurementRecord[],
+  variables: VariableDescriptor[],
+  observable: VariableDescriptor,
+  axis: MeasurementEntityAxis,
+  selected: number[],
+  schema: MeasurementDatasetSchema,
+): MeasurementChartPlan[] {
+  const coordinate = orderCoordinates(
+    variables.filter((variable) => variable.role === "coordinate" && variable.dims.length === 1),
+    schema,
+  ).find((candidate) =>
+    records.some((record) => numericScalar(valueFor(record, candidate)) !== undefined),
+  );
+  return valueModes(observable).flatMap((mode) => {
+    const series = selected.map((entityIndex) => {
+      const member = axis.members[entityIndex]!;
+      const points = records.flatMap((record) => {
+        const value = numericEntityScalar(
+          valueFor(record, observable),
+          observable,
+          entityIndex,
+          mode,
+        );
+        const x = coordinate ? numericScalar(valueFor(record, coordinate)) : record.point_index;
+        return x === undefined || value === undefined ? [] : [{ x, y: value }];
+      });
+      return {
+        id: `${observable.id}:${member.identity}`,
+        label: member.label,
+        points,
+      };
+    });
+    const available = series.reduce((count, candidate) => count + candidate.points.length, 0);
+    if (available === 0) return [];
+    const expected = records.length * selected.length;
+    const monotonic = series
+      .filter((candidate) => candidate.points.length > 0)
+      .every((candidate) => strictlyMonotonic(candidate.points));
+    const availabilityNote =
+      available === expected
+        ? `${selected.length} entity ${selected.length === 1 ? "series is" : "series are"} complete.`
+        : `${expected - available} unavailable entity values are omitted.`;
+    return [
+      {
+        id: `entity-scalar:${observable.id}:${axis.id}:${coordinate?.id ?? "point"}:${mode}`,
+        kind: schema.point_domain.kind === "product_grid" && monotonic ? "line" : "scatter",
+        title: `${chartTitle(observable, mode)} by ${axis.label}`,
+        xLabel: coordinate ? valueLabel(coordinate) : "Point index",
+        yLabel: chartValueLabel(observable, mode),
+        note: [chartNote(mode), availabilityNote].filter(Boolean).join(" "),
+        series,
+      },
+    ];
+  });
+}
+
+interface EntityValuePart {
+  shape: number[];
+  valid: unknown;
+  values: unknown;
+}
+
+function entityValuePart(
+  value: MeasurementValue | undefined,
+  variable: VariableDescriptor,
+  entityIndex: number,
+): EntityValuePart | undefined {
+  const offset = variable.entityAxisOffset;
+  if (offset === undefined || value === undefined || value.kind === "unavailable") return undefined;
+  if (value.kind === "segmented_array") {
+    if (offset !== 0) return undefined;
+    const segment = value.segments[entityIndex];
+    if (!segment || segment.kind === "unavailable") return undefined;
+    return {
+      shape: [...segment.shape],
+      valid: segment.availability?.valid ?? true,
+      values: segment.values,
+    };
+  }
+  if (value.kind !== "array") return undefined;
+  const values = treeAtAxis(value.values, offset, entityIndex);
+  if (values === undefined) return undefined;
+  return {
+    shape: value.shape.filter((_extent, index) => index !== offset),
+    valid:
+      value.availability === null || value.availability === undefined
+        ? true
+        : treeAtAxis(value.availability.valid, offset, entityIndex),
+    values,
+  };
+}
+
+function numericEntityScalar(
+  value: MeasurementValue | undefined,
+  variable: VariableDescriptor,
+  entityIndex: number,
+  mode: NumericValueMode,
+): number | undefined {
+  const part = entityValuePart(value, variable, entityIndex);
+  if (!part || part.shape.length !== 0 || part.valid !== true) return undefined;
+  return numericLeaf(part.values, mode);
+}
+
+function treeAtAxis(value: unknown, axis: number, index: number): unknown {
+  if (!Array.isArray(value)) return undefined;
+  if (axis === 0) return value[index];
+  return value.map((child) => treeAtAxis(child, axis - 1, index));
 }
 
 function productGridHeatmaps(
@@ -624,11 +822,49 @@ function pointCloudColorCharts(
     );
 }
 
-function variableDescriptors(schema: MeasurementDatasetSchema): VariableDescriptor[] {
-  return (schema.variables ?? []).map(schemaVariable);
+export function measurementEntityAxes(schema?: MeasurementDatasetSchema): MeasurementEntityAxis[] {
+  if (!schema) return [];
+  return schema.dimensions.flatMap((dimension) => {
+    if (dimension.kind !== "entity" || !dimension.index) return [];
+    const values = dimension.index.values;
+    const kinds = new Set(values.map((entity) => entity.kind ?? null));
+    const mixedKinds = kinds.size > 1;
+    return [
+      {
+        id: dimension.id,
+        label: dimension.label ?? dimensionLabel(dimension.id),
+        members: values.map((entity, index) => {
+          const kind = entity.kind ?? undefined;
+          const identity = JSON.stringify([kind ?? null, entity.id]);
+          const metadataLabel = entityMetadataLabel(entity.metadata);
+          return {
+            id: entity.id,
+            identity,
+            index,
+            kind,
+            label: mixedKinds ? `${kind ?? "∅"}:${entity.id}` : (metadataLabel ?? entity.id),
+          };
+        }),
+        size: values.length,
+      },
+    ];
+  });
 }
 
-function schemaVariable(variable: SchemaVariable): VariableDescriptor {
+function variableDescriptors(schema: MeasurementDatasetSchema): VariableDescriptor[] {
+  const entityDimensionIds = new Set(measurementEntityAxes(schema).map((axis) => axis.id));
+  return (schema.variables ?? []).map((variable) => schemaVariable(variable, entityDimensionIds));
+}
+
+function schemaVariable(
+  variable: SchemaVariable,
+  entityDimensionIds: ReadonlySet<string>,
+): VariableDescriptor {
+  const entityAxisId =
+    variable.source_entity_products?.dimension_id ??
+    variable.dims.find((dimension) => entityDimensionIds.has(dimension));
+  const entityAxisOffset =
+    entityAxisId === undefined ? undefined : variable.dims.slice(1).indexOf(entityAxisId);
   return {
     id: variable.id,
     role: variable.role,
@@ -637,7 +873,30 @@ function schemaVariable(variable: SchemaVariable): VariableDescriptor {
     dims: [...variable.dims],
     label: variable.label ?? dimensionLabel(variable.id),
     recordingGroupId: variable.recording_group_id ?? undefined,
+    entityAxisId,
+    entityAxisOffset:
+      entityAxisOffset === undefined || entityAxisOffset < 0 ? undefined : entityAxisOffset,
   };
+}
+
+function selectedEntityIndices(
+  axis: MeasurementEntityAxis,
+  selection: MeasurementEntitySelection,
+): number[] {
+  const requested = selection[axis.id];
+  if (!requested || requested.length === 0) {
+    return axis.members.map((member) => member.index);
+  }
+  const selected = [...new Set(requested)].filter(
+    (index) => Number.isSafeInteger(index) && index >= 0 && index < axis.size,
+  );
+  return selected.length > 0 ? selected : axis.members.map((member) => member.index);
+}
+
+function entityMetadataLabel(metadata: unknown): string | undefined {
+  if (!isObject(metadata)) return undefined;
+  const label = metadata.label;
+  return typeof label === "string" && label.length > 0 ? label : undefined;
 }
 
 function orderObservables(
@@ -730,14 +989,131 @@ function complexComponents(value: unknown): ComplexComponents | undefined {
   return { real: value.real, imag: value.imag };
 }
 
-function formatMeasurementValue(value: MeasurementValue | undefined): string {
+function formatMeasurementValue(
+  value: MeasurementValue | undefined,
+  variable: VariableDescriptor,
+  entityAxis: MeasurementEntityAxis | undefined,
+  selectedEntities: number[],
+): string {
   if (!value) return "—";
+  if (entityAxis && variable.entityAxisOffset !== undefined) {
+    return formatEntityMeasurementValue(value, variable, entityAxis, selectedEntities);
+  }
   if (value.kind === "unavailable") return `Unavailable · ${value.reason}`;
   if (value.kind === "array") {
     const size = value.shape.length > 0 ? value.shape.join(" × ") : "?";
     return `${size} samples${unitSuffix(value.unit)}`;
   }
+  if (value.kind === "segmented_array") {
+    return `${value.segments.length} entity segments${unitSuffix(value.unit)}`;
+  }
   return `${formatScalar(value.value)}${unitSuffix(value.unit)}`;
+}
+
+function formatEntityMeasurementValue(
+  value: MeasurementValue,
+  variable: VariableDescriptor,
+  axis: MeasurementEntityAxis,
+  selected: number[],
+): string {
+  const count =
+    selected.length === axis.size ? String(axis.size) : `${selected.length}/${axis.size}`;
+  const complete = selected.filter((entityIndex) => {
+    const part = entityValuePart(value, variable, entityIndex);
+    return part !== undefined && treeIsAllTrue(part.valid);
+  }).length;
+  const shapes = entityLocalShapes(value, variable, selected);
+  const shape = commonEntityShape(shapes);
+  const shapeSummary =
+    shape === undefined
+      ? "variable length"
+      : shape.length === 0
+        ? undefined
+        : `${shape.map((extent) => extent ?? "?").join(" × ")} samples each`;
+  const availability =
+    complete === selected.length ? "All available" : `${complete}/${selected.length} complete`;
+  const reasons = entityFailureReasons(value, variable.entityAxisOffset!, selected);
+  return [
+    `${count} entities`,
+    shapeSummary,
+    value.unit ?? undefined,
+    availability,
+    complete < selected.length && reasons.length > 0 ? reasons.join(", ") : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function entityFailureReasons(
+  value: MeasurementValue,
+  entityAxisOffset: number,
+  selected: number[],
+): string[] {
+  if (value.kind === "unavailable") return [value.reason];
+  if (value.kind === "array") {
+    if (!value.availability) return [];
+    const selectedSet = new Set(selected);
+    const entityStride = value.shape
+      .slice(entityAxisOffset + 1)
+      .reduce((product, extent) => product * extent, 1);
+    const entityExtent = value.shape[entityAxisOffset]!;
+    return distinctReasons(
+      value.availability.unavailable.filter((group) =>
+        group.flat_indices.some((flatIndex) =>
+          selectedSet.has(Math.floor(flatIndex / entityStride) % entityExtent),
+        ),
+      ),
+    );
+  }
+  if (value.kind !== "segmented_array") return [];
+  return [
+    ...new Set(
+      selected.flatMap((index) => {
+        const segment = value.segments[index];
+        if (!segment) return ["missing"];
+        if (segment.kind === "unavailable") return [segment.reason];
+        return segment.availability ? distinctReasons(segment.availability.unavailable) : [];
+      }),
+    ),
+  ];
+}
+
+function distinctReasons(groups: { reason: "invalid" | "missing" | "overload" }[]): string[] {
+  return [...new Set(groups.map((group) => group.reason))];
+}
+
+function entityLocalShapes(
+  value: MeasurementValue,
+  variable: VariableDescriptor,
+  selected: number[],
+): (number | null)[][] {
+  const offset = variable.entityAxisOffset;
+  if (offset === undefined || value.kind === "scalar") return [];
+  if (value.kind === "segmented_array") {
+    return selected.flatMap((index) => {
+      const segment = value.segments[index];
+      return segment ? [[...segment.shape]] : [];
+    });
+  }
+  const shape = [...value.shape];
+  shape.splice(offset, 1);
+  return selected.map(() => shape);
+}
+
+function commonEntityShape(shapes: (number | null)[][]): (number | null)[] | undefined {
+  const first = shapes[0];
+  if (!first) return undefined;
+  return shapes.every(
+    (shape) =>
+      shape.length === first.length && shape.every((extent, index) => extent === first[index]),
+  )
+    ? first
+    : undefined;
+}
+
+function treeIsAllTrue(value: unknown): boolean {
+  if (value === true) return true;
+  return Array.isArray(value) && value.every(treeIsAllTrue);
 }
 
 function formatScalar(value: unknown): string {

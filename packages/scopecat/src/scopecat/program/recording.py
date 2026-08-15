@@ -11,7 +11,7 @@ from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.value_types import DataType
 from scopecat.program.input_capture import empty_program_mapping
 from scopecat.program.measurement_types import MeasurementVariableRole
-from scopecat.program.products import RecordSelection
+from scopecat.program.products import ProductRecordSelection
 from scopecat.program.value_refs import ValueRef
 
 
@@ -70,8 +70,8 @@ class LogicalValueRecordSelection:
         object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
 
 
-type ProgramRecordSelection = RecordSelection | ValueRecordSelection
-type LogicalRecordSelection = RecordSelection | LogicalValueRecordSelection
+type ProgramRecordSelection = ProductRecordSelection | ValueRecordSelection
+type LogicalRecordSelection = ProductRecordSelection | LogicalValueRecordSelection
 
 
 __all__ = [

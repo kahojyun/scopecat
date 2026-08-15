@@ -11,7 +11,7 @@ from typing import Literal, cast
 
 from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
-from scopecat.records.measurement import MeasurementValue
+from scopecat.records.measurement import MeasurementAcquisitionValue
 from scopecat.sdk.instruments import (
     AcquisitionResultRef,
     DriverAcquisition,
@@ -72,14 +72,14 @@ def _unsupported_driver_request(
 
 @dataclass(frozen=True, slots=True)
 class DriverFixedAcquisitionAcquireDriverReadback:
-    response: MeasurementValue
+    response: MeasurementAcquisitionValue
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class DriverMonitorMonitorDriverReadback:
-    left: MeasurementValue
-    right: MeasurementValue
+    left: MeasurementAcquisitionValue
+    right: MeasurementAcquisitionValue
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
 
@@ -277,7 +277,7 @@ class DriverFixedAcquisitionDriverAdapter(ABC):
             if not isinstance(outcome_acquire, DriverSuccess):
                 return outcome_acquire
             readback_acquire = outcome_acquire.value
-            values_acquire: dict[AcquisitionResultRef, MeasurementValue] = {}
+            values_acquire: dict[AcquisitionResultRef, MeasurementAcquisitionValue] = {}
             if DRIVER_FIXED_ACQUISITION_RESPONSE_RESULT in request.results:
                 values_acquire[DRIVER_FIXED_ACQUISITION_RESPONSE_RESULT] = (
                     readback_acquire.response
@@ -446,7 +446,7 @@ class MonitorCompositeDriverAdapter(ABC):
             if not isinstance(outcome_monitor, DriverSuccess):
                 return outcome_monitor
             readback_monitor = outcome_monitor.value
-            values_monitor: dict[AcquisitionResultRef, MeasurementValue] = {}
+            values_monitor: dict[AcquisitionResultRef, MeasurementAcquisitionValue] = {}
             if DRIVER_MONITOR_LEFT_RESULT in request.results:
                 values_monitor[DRIVER_MONITOR_LEFT_RESULT] = readback_monitor.left
             if DRIVER_MONITOR_RIGHT_RESULT in request.results:

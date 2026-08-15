@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Generic, Protocol, TypeVar, cast, override
 
-from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.entity import EntityRef, entity_identity
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.product_identity import (
     ProductId,
@@ -19,6 +19,7 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Scalar
 from scopecat.program.input_capture import capture_runtime_input, empty_program_mapping
 from scopecat.program.measurement_types import (
+    EntityAcquisitionSemantics,
     MeasurementDType,
     MeasurementVariableRole,
     NativeMeasurementScalar,
@@ -247,8 +248,6 @@ def record_ref_from_product[ValueT: ProductNativeValue](
             ),
         ),
         role=selection.role,
-        source_product_id=product.id,
-        recording_group_id=selection.recording_group_id,
     )
 
 
@@ -316,6 +315,90 @@ class RecordSelection:
     @property
     def product_id(self) -> ProductId:
         return self.product_use.product_id
+
+    @property
+    def product_ids(self) -> tuple[ProductId, ...]:
+        return (self.product_id,)
+
+
+@dataclass(frozen=True, slots=True)
+class EntityAxisDef:
+    """One fixed, ordered entity axis shared by grouped record selections."""
+
+    id: str
+    values: tuple[EntityRef, ...]
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("entity axis id must be non-empty")
+        if not self.values:
+            raise ValueError("entity axes require at least one member")
+        values = tuple(self.values)
+        identities = tuple(entity_identity(value) for value in values)
+        if len(identities) != len(set(identities)):
+            raise ValueError("entity axes require unique members")
+        object.__setattr__(self, "values", values)
+
+    @property
+    def entity_kind(self) -> str | None:
+        kinds = {entity.kind for entity in self.values}
+        if len(kinds) != 1:
+            return None
+        return next(iter(kinds))
+
+
+@dataclass(frozen=True, slots=True)
+class EntityRecordMemberSelection:
+    """One entity/product member of a grouped durable record selection."""
+
+    entity: EntityRef
+    product_use: ProductUse
+    product_origin: tuple[object, ...] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+
+    @property
+    def product_id(self) -> ProductId:
+        return self.product_use.product_id
+
+
+@dataclass(frozen=True, slots=True)
+class EntityRecordSelection:
+    """Select homogeneous per-entity product uses as one durable variable."""
+
+    record_id: str
+    axis: EntityAxisDef
+    members: tuple[EntityRecordMemberSelection, ...]
+    role: MeasurementVariableRole = "observable"
+    recording_group_id: str | None = None
+    acquisition: EntityAcquisitionSemantics = field(
+        default_factory=EntityAcquisitionSemantics
+    )
+    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
+
+    def __post_init__(self) -> None:
+        if not self.record_id:
+            raise ValueError("entity record id must be non-empty")
+        if self.recording_group_id is not None and not self.recording_group_id:
+            raise ValueError("recording group id must be non-empty when provided")
+        members = tuple(self.members)
+        if not members:
+            raise ValueError("entity record selections require at least one member")
+        if tuple(entity_identity(member.entity) for member in members) != tuple(
+            entity_identity(value) for value in self.axis.values
+        ):
+            raise ValueError("entity record members must align exactly to their axis")
+        object.__setattr__(self, "members", members)
+        object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
+
+    @property
+    def product_ids(self) -> tuple[ProductId, ...]:
+        return tuple(member.product_id for member in self.members)
+
+
+type ProductRecordSelection = RecordSelection | EntityRecordSelection
 
 
 def product_axis(

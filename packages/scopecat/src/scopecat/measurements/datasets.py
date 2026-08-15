@@ -11,7 +11,7 @@ from scopecat.records.measurement import (
 )
 
 MEASUREMENT_DATASET_KIND = "measurement_dataset"
-MEASUREMENT_DATASET_CODEC = "scopecat.measurement-dataset.v9"
+MEASUREMENT_DATASET_CODEC = "scopecat.measurement-dataset.v12"
 RAW_MEASUREMENTS_DATASET_ID = "raw-measurements"
 MAX_MEASUREMENT_PAGE_SIZE = 500
 MAX_MEASUREMENT_SLICE_SIZE = 4096
@@ -40,6 +40,14 @@ def select_measurement_schema(
             **schema.model_dump(mode="python"),
             "variables": tuple(
                 variable for variable in schema.variables if variable.id in selected
+            ),
+            "variable_groups": tuple(
+                group
+                for group in schema.variable_groups
+                if any(
+                    variable.id in selected and variable.recording_group_id == group.id
+                    for variable in schema.variables
+                )
             ),
             "primary_coordinates": tuple(
                 variable_id

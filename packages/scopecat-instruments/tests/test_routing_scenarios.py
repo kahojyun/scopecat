@@ -48,18 +48,20 @@ def test_typed_each_resources_route_to_different_instruments() -> None:
         )
         analyzers.ensure(NetworkSweepGroupTarget(points=points))
         traces = analyzers.sweep()
-        context.alias(traces)
+        context.stack_entities(
+            traces.map(lambda result: result.frequency),
+            record_id="frequency",
+        )
+        context.stack_entities(
+            traces.map(lambda result: result.s_parameter),
+            record_id="s_parameter",
+        )
 
     record_ids = tuple(
         selection.record_id
         for selection in experiment.bind().definition.record_selections
     )
-    assert len(record_ids) == 4
-    assert len(set(record_ids)) == 4
-    assert all(
-        record_id is not None and record_id.endswith(("/frequency", "/s_parameter"))
-        for record_id in record_ids
-    )
+    assert record_ids == ("frequency", "s_parameter")
 
     bound = bind_invocation(experiment(points=3), config_profile=config)
     preview = materialized_effects_contract(

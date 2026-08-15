@@ -23,6 +23,7 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.health import DaemonHealth
 from scopecat.daemon.points import RunPointPlanView
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.problems import Problem
 from scopecat.measurements.datasets import (
     MAX_MEASUREMENT_PAGE_SIZE,
@@ -32,6 +33,7 @@ from scopecat.measurements.datasets import (
 )
 from scopecat.measurements.traces import (
     TraceDownsampling,
+    TraceLayout,
     TraceValueMode,
 )
 from scopecat.records.analysis import AnalysisRecord
@@ -41,7 +43,13 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
     config_content_hash,
 )
-from scopecat.records.measurement import MeasurementDatasetSchema, MeasurementRecord
+from scopecat.records.measurement import (
+    InstrumentAcquisitionEvidence,
+    MeasurementDatasetSchema,
+    MeasurementEntityAcquisition,
+    MeasurementRecord,
+    MeasurementUnavailableReason,
+)
 from scopecat.records.parameter_change import (
     ParameterChangeApprovalRecord,
     ParameterChangeProposal,
@@ -421,13 +429,17 @@ class MeasurementSlice(_ViewModel):
 
 
 class MeasurementTracePreviewQuery(_ViewModel):
-    """Select one bounded, response-ready point-local trace preview."""
+    """Select one bounded, response-ready point/entity-local trace preview."""
 
     recording_group_id: Annotated[str, Field(min_length=1)] | None = None
     observable_id: Annotated[str, Field(min_length=1)] | None = None
     coordinate_id: Annotated[str, Field(min_length=1)] | None = None
     fixed_axis_indices: dict[str, Annotated[int, Field(ge=0)]] = Field(
         default_factory=dict
+    )
+    entity_indices: tuple[Annotated[int, Field(ge=0)], ...] | None = Field(
+        default=None,
+        min_length=1,
     )
     max_series: Annotated[
         int,
@@ -448,6 +460,10 @@ class MeasurementTracePreviewQuery(_ViewModel):
             )
         if any(not axis_id for axis_id in self.fixed_axis_indices):
             raise ValueError("trace preview axis ids must be non-empty")
+        if self.entity_indices is not None and len(self.entity_indices) != len(
+            set(self.entity_indices)
+        ):
+            raise ValueError("trace preview entity indices must be unique")
         return self
 
 
@@ -457,9 +473,14 @@ class MeasurementTraceSeries(_ViewModel):
     point_index: Annotated[int, Field(ge=0)]
     logical_point_id: str | None = None
     label: str = Field(min_length=1)
+    entity_index: Annotated[int, Field(ge=0)] | None = None
+    entity: EntityRef | None = None
     x: tuple[float, ...] = Field(min_length=1)
     y: tuple[float, ...] = Field(min_length=1)
     source_sample_count: Annotated[int, Field(ge=1)]
+    available_sample_count: Annotated[int, Field(ge=1)]
+    unavailable_reasons: tuple[MeasurementUnavailableReason, ...] = ()
+    evidence: InstrumentAcquisitionEvidence | None = None
 
     @model_validator(mode="after")
     def validate_samples(self) -> MeasurementTraceSeries:
@@ -467,11 +488,29 @@ class MeasurementTraceSeries(_ViewModel):
             raise ValueError("trace preview x and y lengths must match")
         if len(self.y) > self.source_sample_count:
             raise ValueError("trace preview exceeds its source sample count")
+        if len(self.y) > self.available_sample_count:
+            raise ValueError("trace preview exceeds its available sample count")
+        if self.available_sample_count > self.source_sample_count:
+            raise ValueError(
+                "trace preview availability exceeds its source sample count"
+            )
         return self
 
 
+class MeasurementTraceFailure(_ViewModel):
+    """One bounded point/entity trace selection with no plottable samples."""
+
+    point_index: Annotated[int, Field(ge=0)]
+    logical_point_id: str | None = None
+    label: str = Field(min_length=1)
+    entity_index: Annotated[int, Field(ge=0)] | None = None
+    entity: EntityRef | None = None
+    reasons: tuple[MeasurementUnavailableReason, ...] = Field(min_length=1)
+    evidence: InstrumentAcquisitionEvidence | None = None
+
+
 class MeasurementTracePreview(_ViewModel):
-    """Bounded numeric series for one selected point-local observable.
+    """Bounded numeric series for one selected point/entity-local observable.
 
     ``selected_series_count`` is the authored domain selection size. It does
     not promise that every selected point is durable yet or has an available
@@ -489,11 +528,16 @@ class MeasurementTracePreview(_ViewModel):
     observable_label: str | None = None
     coordinate_unit: str | None = None
     observable_unit: str | None = None
+    entity_dimension_id: str | None = Field(default=None, min_length=1)
+    entity_acquisition: MeasurementEntityAcquisition | None = None
+    layout: TraceLayout
     value_mode: TraceValueMode
     value_unit: str | None = None
     downsampling: TraceDownsampling
     series: tuple[MeasurementTraceSeries, ...] = ()
+    failures: tuple[MeasurementTraceFailure, ...] = ()
     selected_series_count: Annotated[int, Field(ge=0)]
+    inspected_series_count: Annotated[int, Field(ge=0)]
     returned_series_count: Annotated[int, Field(ge=0)]
     truncated_series: bool = False
     source_sample_count: Annotated[int, Field(ge=0)]
@@ -504,8 +548,14 @@ class MeasurementTracePreview(_ViewModel):
     def validate_counts(self) -> MeasurementTracePreview:
         if self.returned_series_count != len(self.series):
             raise ValueError("trace preview returned series count is inconsistent")
-        if self.returned_series_count > self.selected_series_count:
-            raise ValueError("trace preview returns more than its domain selection")
+        if len(self.series) + len(self.failures) > self.inspected_series_count:
+            raise ValueError("trace preview results exceed its inspected series count")
+        if self.inspected_series_count > self.selected_series_count:
+            raise ValueError("trace preview inspects more than its domain selection")
+        if self.truncated_series != (
+            self.inspected_series_count < self.selected_series_count
+        ):
+            raise ValueError("trace preview truncation flag is inconsistent")
         if self.source_sample_count != sum(
             item.source_sample_count for item in self.series
         ):

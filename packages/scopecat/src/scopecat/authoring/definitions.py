@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass, replace
 from types import UnionType
 from typing import (
@@ -52,7 +52,7 @@ from scopecat.authoring.scans import (
     scan_axis,
 )
 from scopecat.authoring.state_projection import StateProjector
-from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.entity import EntityRef, entity_axis_fingerprint, entity_identity
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.instrument_members import (
     AcquisitionResultRef,
@@ -74,18 +74,26 @@ from scopecat.program.definitions import (
 from scopecat.program.domain import DomainCall
 from scopecat.program.measurement_contracts import SingleMeasurementComputeKernel
 from scopecat.program.measurement_types import (
+    EntityAcquisitionPolicy,
+    EntityAcquisitionSemantics,
+    MeasurementArrayData,
     MeasurementDType,
+    MeasurementSegmentedData,
     MeasurementVariableRole,
     NativeMeasurementValue,
     measurement_value_spec_from_scalar,
 )
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.products import (
+    EntityAxisDef,
+    EntityRecordMemberSelection,
+    EntityRecordSelection,
     ProductAxis,
     ProductRecording,
     ProductRef,
     ProductRefs,
     RecordSelection,
+    _product_axis_dimension_id,
     record_alias,
     record_coordinate,
     record_product,
@@ -248,6 +256,7 @@ class ExperimentContext:
     """Explicit recorder injected into one complete experiment definition."""
 
     __slots__ = (
+        "_entity_axes",
         "_point_domain_mode",
         "_point_plan",
         "_program",
@@ -260,6 +269,7 @@ class ExperimentContext:
         self._program = ModuleContext()
         self._point_plan = PointPlan()
         self._point_domain_mode = "none"
+        self._entity_axes: dict[str, EntityAxisDef] = {}
         self._record_selections: list[ProgramRecordSelection] = []
         self._result_fields: list[ExperimentResultField] = []
         self._success_state_bindings: list[BindingIntent] = []
@@ -788,28 +798,6 @@ class ExperimentContext:
     ) -> RecordedProducts: ...
 
     @overload
-    def alias[T: NativeMeasurementValue](
-        self,
-        value: PerEntity[ProductRef[T]],
-        /,
-        *,
-        record_id: None = None,
-        namespace: str | None = None,
-        metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> PerEntity[RecordRef[T]]: ...
-
-    @overload
-    def alias(
-        self,
-        value: PerEntity[ProductBundle],
-        /,
-        *,
-        record_id: None = None,
-        namespace: str | None = None,
-        metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> PerEntity[RecordedProducts]: ...
-
-    @overload
     def alias(
         self,
         value: ValueRef[QuantityValue],
@@ -859,7 +847,7 @@ class ExperimentContext:
 
     def alias(
         self,
-        value: ProductRef | ProductBundle | PerEntity[object] | ValueRef,
+        value: ProductRef | ProductBundle | ValueRef,
         /,
         *,
         record_id: str | None = None,
@@ -878,21 +866,10 @@ class ExperimentContext:
         if role is not None and not isinstance(value, ValueRef):
             raise TypeError("record role can only be selected for symbolic values")
         if isinstance(value, PerEntity):
-            if record_id is not None:
-                raise ValueError("record_id cannot name a PerEntity record set")
-
-            def record_entity(item: object) -> object:
-                if not isinstance(item, ProductRef | ProductBundle):
-                    raise TypeError(
-                        "PerEntity records must contain products or product bundles"
-                    )
-                return self.alias(
-                    item,
-                    namespace=namespace,
-                    metadata=metadata,
-                )
-
-            return value.map(record_entity)
+            raise TypeError(
+                "alias() does not expand PerEntity values; use stack_entities() "
+                "for homogeneous products"
+            )
         if isinstance(value, ProductBundle):
             if record_id is not None:
                 raise ValueError("record_id cannot name a product bundle")
@@ -922,6 +899,37 @@ class ExperimentContext:
             record_id=record_id,
             namespace=namespace,
             role="observable" if role is None else role,
+            metadata=metadata,
+        )
+
+    def stack_entities(
+        self,
+        value: PerEntity[ProductRef],
+        /,
+        *,
+        record_id: str,
+        axis: str | EntityAxisDef | None = None,
+        role: MeasurementVariableRole | None = None,
+        acquisition_policy: EntityAcquisitionPolicy = "independent",
+        cohort_id: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> RecordRef[MeasurementArrayData | MeasurementSegmentedData]:
+        """Record homogeneous entity products as one indexed array variable."""
+
+        if not record_id:
+            raise ValueError("entity record id must be non-empty")
+        if isinstance(axis, str) and not axis:
+            raise ValueError("entity record axis must be non-empty")
+        return _record_entity_products_output(
+            self,
+            value,
+            record_id=record_id,
+            axis=axis,
+            role=role,
+            acquisition=EntityAcquisitionSemantics(
+                policy=acquisition_policy,
+                cohort_id=cohort_id,
+            ),
             metadata=metadata,
         )
 
@@ -1015,7 +1023,6 @@ class ExperimentContext:
             dtype=dtype,
             unit=unit,
             dims=dims,
-            source_value_id=source_value_id,
         )
 
     def on_success[StateT](
@@ -1275,7 +1282,14 @@ def _experiment_from_function[ResultT, **P](
     selected_metadata = dict(freeze_json_mapping(selected_metadata))
     selected_id = id or source.__name__
     selected_kind = kind or source.__name__
-    cached_build: tuple[ExperimentDef, ResultT] | None = None
+    cached_build: (
+        tuple[
+            ExperimentDef,
+            ResultT,
+            Mapping[tuple[str, ...], ProductRef | RecordRef | ValueRef],
+        ]
+        | None
+    ) = None
 
     def build(arguments: Mapping[str, object]) -> ExperimentInvocation[ResultT]:
         nonlocal cached_build
@@ -1301,7 +1315,8 @@ def _experiment_from_function[ResultT, **P](
         if built is None:
             context = ExperimentContext()
             output = cast("ResultT", source(context, **values))
-            _record_experiment_output(context, output)
+            recorded_tree = _record_experiment_output(context, output)
+            recorded_result_refs = dict(_recorded_result_ref_items(recorded_tree))
             definition = context.close_definition_internal(
                 id=selected_id,
                 kind=selected_kind,
@@ -1313,10 +1328,16 @@ def _experiment_from_function[ResultT, **P](
                 input_defaults=input_defaults,
                 required_inputs=tuple(required_inputs),
             )
+            if set(recorded_result_refs) != {
+                field.path for field in definition.result_fields
+            }:
+                raise AssertionError(
+                    "recorded result handles do not match the durable result contract"
+                )
             if not contract.structural_names:
-                cached_build = (definition, output)
+                cached_build = (definition, output, recorded_result_refs)
         else:
-            definition, output = built
+            definition, output, recorded_result_refs = built
         captured_inputs = capture_experiment_inputs(runtime_inputs)
         validate_experiment_inputs(
             definitions=definition.inputs,
@@ -1327,6 +1348,7 @@ def _experiment_from_function[ResultT, **P](
             input_overrides=captured_inputs,
             point_plan_override=None,
             output=output,
+            recorded_result_refs=recorded_result_refs,
         )
 
     authored = Experiment(
@@ -1434,30 +1456,32 @@ def _record_experiment_output(
     path: tuple[str, ...] = (),
     policy: Result | None = None,
     explicit_sources: frozenset[tuple[object, ...]] | None = None,
-) -> None:
+    recording_group_id: str | None = None,
+) -> object:
     """Treat returned data as the experiment's durable output selection."""
 
     if explicit_sources is None:
         explicit_sources = frozenset(
             _record_selection_source_key(selection)
             for selection in context._record_selections
+            if not isinstance(selection, EntityRecordSelection)
         )
     if value is None:
-        return
+        return None
     selected_policy = policy or Result()
     result_path = path or ("result",)
     if isinstance(value, RecordRef):
         context._result_fields.append(
             ExperimentResultField(path=result_path, variable_id=value.id)
         )
-        return
+        return value
     if isinstance(value, ValueRef):
         point_id = internal_value_ref_point_id(value)
         if point_id is not None:
             context._result_fields.append(
                 ExperimentResultField(path=result_path, variable_id=point_id)
             )
-            return
+            return value
         if _value_record_source_key(value) in explicit_sources:
             context._result_fields.append(
                 ExperimentResultField(
@@ -1465,7 +1489,7 @@ def _record_experiment_output(
                     variable_id=_existing_record_id(context, value),
                 )
             )
-            return
+            return value
         record_id = _result_record_id(path, selected_policy)
         context._result_fields.append(
             ExperimentResultField(path=result_path, variable_id=record_id)
@@ -1476,7 +1500,7 @@ def _record_experiment_output(
             role=selected_policy.role or "observable",
             metadata=selected_policy.metadata,
         )
-        return
+        return value
     if isinstance(value, ProductRef):
         if _product_record_source_key(value) in explicit_sources:
             context._result_fields.append(
@@ -1485,7 +1509,7 @@ def _record_experiment_output(
                     variable_id=_existing_record_id(context, value),
                 )
             )
-            return
+            return value
         record_id = _result_record_id(path, selected_policy)
         context._result_fields.append(
             ExperimentResultField(path=result_path, variable_id=record_id)
@@ -1497,7 +1521,7 @@ def _record_experiment_output(
             role=selected_policy.role,
             metadata=selected_policy.metadata,
         )
-        return
+        return value
     if isinstance(value, ProductBundle):
         _reject_structured_result_id(selected_policy)
         if not is_dataclass(value):
@@ -1509,32 +1533,90 @@ def _record_experiment_output(
             "Mapping[str, object]",
             get_type_hints(type(value), include_extras=True),
         )
-        for member in members:
-            _record_experiment_output(
-                context,
-                cast("object", getattr(value, member.name)),
-                path=(*path, member.name),
-                policy=_merge_result_policy(
-                    selected_policy,
-                    _result_policy(hints.get(member.name)),
-                ),
-                explicit_sources=explicit_sources,
-            )
-        return
+        return replace(
+            value,
+            **{
+                member.name: _record_experiment_output(
+                    context,
+                    cast("object", getattr(value, member.name)),
+                    path=(*path, member.name),
+                    policy=_merge_result_policy(
+                        selected_policy,
+                        _result_policy(hints.get(member.name)),
+                    ),
+                    explicit_sources=explicit_sources,
+                )
+                for member in members
+            },
+        )
     if isinstance(value, PerEntity):
         _reject_structured_result_id(selected_policy)
-        for entity, item in value.items():
-            _record_experiment_output(
-                context,
-                item,
-                path=(*path, entity.kind or "entity", entity.id),
-                policy=selected_policy,
-                explicit_sources=explicit_sources,
+        items = tuple(value.items())
+        if items and all(isinstance(item, ProductRef) for _entity, item in items):
+            record_id = _result_record_id(path, selected_policy)
+            context._result_fields.append(
+                ExperimentResultField(path=result_path, variable_id=record_id)
             )
-        return
+            return _record_entity_products_output(
+                context,
+                cast("PerEntity[ProductRef]", value),
+                record_id=record_id,
+                axis=None,
+                role=selected_policy.role,
+                recording_group_id=recording_group_id,
+                metadata=selected_policy.metadata,
+            )
+        if items and all(isinstance(item, ProductBundle) for _entity, item in items):
+            bundle_types = {type(item) for _entity, item in items}
+            if len(bundle_types) != 1:
+                raise TypeError(
+                    "PerEntity product bundles must share one dataclass type"
+                )
+            first_bundle = cast("ProductBundle", items[0][1])
+            if not is_dataclass(first_bundle):
+                raise TypeError("experiment output product bundles must be dataclasses")
+            hints = cast(
+                "Mapping[str, object]",
+                get_type_hints(type(first_bundle), include_extras=True),
+            )
+            return RecordedProducts(
+                {
+                    member.name: _record_experiment_output(
+                        context,
+                        PerEntity(
+                            (
+                                entity,
+                                cast("object", getattr(item, member.name)),
+                            )
+                            for entity, item in items
+                        ),
+                        path=(*path, member.name),
+                        policy=_merge_result_policy(
+                            selected_policy,
+                            _result_policy(hints.get(member.name)),
+                        ),
+                        explicit_sources=explicit_sources,
+                        recording_group_id=_result_record_id(path, selected_policy),
+                    )
+                    for member in fields(first_bundle)
+                }
+            )
+        return PerEntity(
+            (
+                entity,
+                _record_experiment_output(
+                    context,
+                    item,
+                    path=(*path, entity.kind or "entity", entity.id),
+                    policy=selected_policy,
+                    explicit_sources=explicit_sources,
+                ),
+            )
+            for entity, item in value.items()
+        )
     if isinstance(value, tuple):
         _reject_structured_result_id(selected_policy)
-        for index, item in enumerate(cast("tuple[object, ...]", value)):
+        return tuple(
             _record_experiment_output(
                 context,
                 item,
@@ -1542,7 +1624,8 @@ def _record_experiment_output(
                 policy=selected_policy,
                 explicit_sources=explicit_sources,
             )
-        return
+            for index, item in enumerate(cast("tuple[object, ...]", value))
+        )
     if is_dataclass(value) and not isinstance(value, type):
         _reject_structured_result_id(selected_policy)
         members = fields(value)
@@ -1552,22 +1635,201 @@ def _record_experiment_output(
             "Mapping[str, object]",
             get_type_hints(type(value), include_extras=True),
         )
-        for member in members:
-            _record_experiment_output(
-                context,
-                cast("object", getattr(value, member.name)),
-                path=(*path, member.name),
-                policy=_merge_result_policy(
-                    selected_policy,
-                    _result_policy(hints.get(member.name)),
-                ),
-                explicit_sources=explicit_sources,
-            )
-        return
+        return replace(
+            value,
+            **{
+                member.name: _record_experiment_output(
+                    context,
+                    cast("object", getattr(value, member.name)),
+                    path=(*path, member.name),
+                    policy=_merge_result_policy(
+                        selected_policy,
+                        _result_policy(hints.get(member.name)),
+                    ),
+                    explicit_sources=explicit_sources,
+                )
+                for member in members
+            },
+        )
     raise TypeError(
         "experiment functions must return None or a tuple/dataclass/PerEntity "
         "tree of data references"
     )
+
+
+def _recorded_result_ref_items(
+    value: object,
+    path: tuple[str, ...] = (),
+) -> Iterator[tuple[tuple[str, ...], ProductRef | RecordRef | ValueRef]]:
+    if isinstance(value, ProductRef | RecordRef | ValueRef):
+        yield path or ("result",), value
+        return
+    if value is None:
+        return
+    if isinstance(value, RecordedProducts):
+        for name, item in value.items():
+            yield from _recorded_result_ref_items(item, (*path, name))
+        return
+    if isinstance(value, PerEntity):
+        for entity, item in value.items():
+            yield from _recorded_result_ref_items(
+                item,
+                (*path, entity.kind or "entity", entity.id),
+            )
+        return
+    if isinstance(value, tuple):
+        for index, item in enumerate(cast("tuple[object, ...]", value)):
+            yield from _recorded_result_ref_items(item, (*path, str(index)))
+        return
+    if is_dataclass(value) and not isinstance(value, type):
+        for member in fields(value):
+            yield from _recorded_result_ref_items(
+                cast("object", getattr(value, member.name)),
+                (*path, member.name),
+            )
+        return
+    raise TypeError(
+        "recorded result handles must form a tuple/dataclass/PerEntity tree"
+    )
+
+
+def _record_entity_products_output(
+    context: ExperimentContext,
+    products: PerEntity[ProductRef],
+    *,
+    record_id: str,
+    axis: str | EntityAxisDef | None,
+    role: MeasurementVariableRole | None,
+    acquisition: EntityAcquisitionSemantics | None = None,
+    recording_group_id: str | None = None,
+    metadata: Mapping[str, MetadataValue] | None,
+) -> RecordRef[MeasurementArrayData | MeasurementSegmentedData]:
+    entities = tuple(products)
+    if not entities:
+        raise ValueError("entity records require at least one product")
+    selected_axis_id = (
+        axis.id
+        if isinstance(axis, EntityAxisDef)
+        else axis or _entity_record_axis_id(entities)
+    )
+    selected_axis = _register_entity_axis(
+        context,
+        selected_axis_id,
+        entities,
+        provided=axis if isinstance(axis, EntityAxisDef) else None,
+    )
+    selected_role = role
+    if selected_role is None:
+        roles = {products[entity]._recording_role for entity in entities}
+        if len(roles) != 1:
+            raise TypeError(
+                f"entity record {record_id!r} products must share one recording role"
+            )
+        selected_role = roles.pop()
+    selections = tuple(
+        (
+            record_coordinate(
+                products[entity],
+                record_id=record_id,
+                metadata=metadata,
+            )
+            if selected_role == "coordinate"
+            else record_product(
+                products[entity],
+                record_id=record_id,
+                metadata=metadata,
+            )
+        )
+        for entity in entities
+    )
+    recording_group_ids = {selection.recording_group_id for selection in selections}
+    selected_recording_group_id = (
+        recording_group_id
+        if recording_group_id is not None
+        else next(iter(recording_group_ids))
+        if len(recording_group_ids) == 1
+        else None
+    )
+    context._record_selections.append(
+        EntityRecordSelection(
+            record_id=record_id,
+            axis=selected_axis,
+            members=tuple(
+                EntityRecordMemberSelection(
+                    entity=entity,
+                    product_use=selection.product_use,
+                    product_origin=selection.product_origin,
+                )
+                for entity, selection in zip(entities, selections, strict=True)
+            ),
+            role=cast("MeasurementVariableRole", selected_role),
+            recording_group_id=selected_recording_group_id,
+            acquisition=acquisition or EntityAcquisitionSemantics(),
+            metadata=freeze_json_mapping(metadata or {}),
+        )
+    )
+    first = products[entities[0]]
+    local_dimensions = tuple(
+        (
+            next(iter(dimension_ids))
+            if len(dimension_ids) == 1
+            else f"{record_id}/{axis.id}"
+        )
+        for axis_index, axis in enumerate(first.value_spec.axes)
+        if (
+            dimension_ids := {
+                _product_axis_dimension_id(
+                    products[entity].product_id,
+                    products[entity].value_spec.axes[axis_index],
+                )
+                for entity in entities
+            }
+        )
+    )
+    return RecordRef[MeasurementArrayData | MeasurementSegmentedData](
+        id=record_id,
+        dtype=first.value_spec.dtype,
+        unit=first.value_spec.unit,
+        dims=("point", selected_axis_id, *local_dimensions),
+        role=cast("MeasurementVariableRole", selected_role),
+        entity_axis_id=selected_axis_id,
+        entity_axis_fingerprint=entity_axis_fingerprint(selected_axis.values),
+    )
+
+
+def _entity_record_axis_id(entities: Sequence[EntityRef]) -> str:
+    kinds = {entity.kind for entity in entities}
+    return (
+        cast("str", kinds.pop()) if len(kinds) == 1 and None not in kinds else "entity"
+    )
+
+
+def _register_entity_axis(
+    context: ExperimentContext,
+    axis_id: str,
+    entities: Sequence[EntityRef],
+    *,
+    provided: EntityAxisDef | None,
+) -> EntityAxisDef:
+    selected = provided or EntityAxisDef(
+        id=axis_id,
+        values=tuple(entities),
+    )
+    selected_identities = tuple(entity_identity(entity) for entity in selected.values)
+    if selected_identities != tuple(entity_identity(entity) for entity in entities):
+        raise ValueError("provided entity axis does not match the selected products")
+    existing = context._entity_axes.get(axis_id)
+    if existing is None:
+        context._entity_axes[axis_id] = selected
+        return selected
+    if (
+        tuple(entity_identity(entity) for entity in existing.values)
+        != selected_identities
+    ):
+        raise ValueError(
+            f"entity axis {axis_id!r} is already registered with different members"
+        )
+    return existing
 
 
 def _existing_record_id(
@@ -1582,6 +1844,7 @@ def _existing_record_id(
     matches = tuple(
         selection
         for selection in context._record_selections
+        if not isinstance(selection, EntityRecordSelection)
         if _record_selection_source_key(selection) == source_key
     )
     if len(matches) != 1:
@@ -1598,6 +1861,8 @@ def _existing_record_id(
             .prefixed(*selection.namespace)
             .qualified_name
         )
+    if isinstance(selection, EntityRecordSelection):
+        raise AssertionError("entity records cannot match one scalar product source")
     return selection.record_id or selection.product_id.qualified_name
 
 
@@ -1682,6 +1947,8 @@ def _record_selection_source_key(
 ) -> tuple[object, ...]:
     if isinstance(selection, ValueRecordSelection):
         return _value_record_source_key(selection.value)
+    if isinstance(selection, EntityRecordSelection):
+        return "entity-record", selection.record_id
     return (
         "product",
         selection.product_id,

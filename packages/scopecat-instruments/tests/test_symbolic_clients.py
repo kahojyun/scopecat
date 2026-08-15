@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import assert_type
+from typing import assert_type, cast
 
 import pytest
 from scopecat.authoring import (
@@ -24,7 +24,7 @@ from scopecat.program.bindings import EnsureStateIntent, InvocationIntent
 from scopecat.program.expressions import LiteralScalarExpr
 from scopecat.program.measurement_types import MeasurementArrayData
 from scopecat.program.module import ModuleAcquireEffect
-from scopecat.program.products import RecordSelection
+from scopecat.program.products import EntityRecordSelection, RecordSelection
 from scopecat.program.recording import ProgramRecordSelection
 
 from scopecat_instruments import (
@@ -445,7 +445,7 @@ def test_typed_result_recording_semantics_survive_a_module_boundary() -> None:
     ]
 
 
-def test_per_entity_symbolic_results_record_as_dataset_fragments() -> None:
+def test_per_entity_symbolic_results_explicitly_stack_as_entity_variables() -> None:
     context = ExperimentContext()
     q0 = EntityRef(id="q0", kind="logical_device")
     q1 = EntityRef(id="q1", kind="logical_device")
@@ -454,7 +454,14 @@ def test_per_entity_symbolic_results_record_as_dataset_fragments() -> None:
 
     traces = analyzers.sweep()
     assert_type(traces, PerEntity[NetworkSweepProducts])
-    context.alias(traces, namespace="calibration")
+    context.stack_entities(
+        traces.map(lambda result: result.frequency),
+        record_id="calibration/frequency",
+    )
+    context.stack_entities(
+        traces.map(lambda result: result.s_parameter),
+        record_id="calibration/s_parameter",
+    )
 
     definition = context.close_definition_internal(
         id="test.symbolic.record-each",
@@ -463,31 +470,49 @@ def test_per_entity_symbolic_results_record_as_dataset_fragments() -> None:
         input_defaults={},
         required_inputs=(),
     )
-    selections = _product_records(definition.record_selections)
-    assert [selection.role for selection in selections] == [
-        "coordinate",
-        "observable",
-        "coordinate",
-        "observable",
+    selections = definition.record_selections
+    assert all(isinstance(selection, EntityRecordSelection) for selection in selections)
+    grouped = tuple(
+        cast("EntityRecordSelection", selection) for selection in selections
+    )
+    assert [selection.role for selection in grouped] == ["coordinate", "observable"]
+    assert [selection.record_id for selection in grouped] == [
+        "calibration/frequency",
+        "calibration/s_parameter",
     ]
-    record_ids = [selection.record_id for selection in selections]
-    assert len(set(record_ids)) == 4
-    assert all(
-        record_id is not None and record_id.startswith("calibration/network_sweep.")
-        for record_id in record_ids
+    assert all(selection.axis.values == (q0, q1) for selection in grouped)
+
+
+def test_returned_group_bundle_records_one_variable_per_field() -> None:
+    q0 = EntityRef(id="q0", kind="logical_device")
+    q1 = EntityRef(id="q1", kind="logical_device")
+
+    @experiment(id="test.symbolic.return-each", kind="test")
+    def definition(
+        context: ExperimentContext,
+    ) -> PerEntity[NetworkSweepProducts]:
+        analyzers = network_sweep(context, for_=each(q0, q1))
+        analyzers.ensure(points=5)
+        return analyzers.sweep()
+
+    invocation = definition()
+    selections = invocation.definition.record_selections
+    assert all(isinstance(selection, EntityRecordSelection) for selection in selections)
+    grouped = tuple(
+        cast("EntityRecordSelection", selection) for selection in selections
     )
-    assert record_ids[0] is not None and record_ids[0].endswith("/frequency")
-    assert record_ids[1] is not None and record_ids[1].endswith("/s_parameter")
-    assert record_ids[2] is not None and record_ids[2].endswith("/frequency")
-    assert record_ids[3] is not None and record_ids[3].endswith("/s_parameter")
-    recording_group_ids = [selection.recording_group_id for selection in selections]
-    assert len(set(recording_group_ids)) == 2
-    assert recording_group_ids[0] == recording_group_ids[1]
-    assert recording_group_ids[2] == recording_group_ids[3]
-    assert all(
-        group_id is not None and group_id.startswith("calibration/network_sweep.")
-        for group_id in recording_group_ids
-    )
+    assert [selection.record_id for selection in grouped] == [
+        "frequency",
+        "s_parameter",
+    ]
+    assert all(selection.axis.id == "logical_device" for selection in grouped)
+    assert all(selection.axis.values == (q0, q1) for selection in grouped)
+    assert {selection.recording_group_id for selection in grouped} == {"result"}
+    assert isinstance(invocation.output, PerEntity)
+    frequency = invocation.entity_result_ref("frequency")
+    signal = invocation.entity_result_ref("s_parameter")
+    assert frequency.dims[0:2] == ("point", "logical_device")
+    assert signal.dims[0:2] == ("point", "logical_device")
 
 
 def test_on_success_accepts_a_typed_symbolic_client_and_declared_state() -> None:

@@ -27,7 +27,10 @@ import type {
 import { AnalysisMetadataView, AnalysisOutputView } from "./AnalysisOutputView";
 import { MeasurementDataPreview } from "./MeasurementDataPreview";
 import { canPreviewRunContent, getRunContent } from "./run-api";
-import type { MeasurementTraceQueryPlan } from "./measurement-visualization";
+import type {
+  MeasurementEntitySelection,
+  MeasurementTraceQueryPlan,
+} from "./measurement-visualization";
 
 export function ProgressCard({
   run,
@@ -404,6 +407,7 @@ export function DataCard({
   traceError,
   tracePending,
   onTracePlanChange,
+  onMeasurementEntitySelectionChange,
   measurementFixedAxisIndices,
   onMeasurementFixedAxisIndexChange,
 }: {
@@ -420,6 +424,7 @@ export function DataCard({
   traceError: Error | null;
   tracePending: boolean;
   onTracePlanChange: (planId: string) => void;
+  onMeasurementEntitySelectionChange: (selection: MeasurementEntitySelection) => void;
   measurementFixedAxisIndices: Record<string, number>;
   onMeasurementFixedAxisIndexChange: (axisId: string, index: number) => void;
 }) {
@@ -536,6 +541,7 @@ export function DataCard({
         />
       )}
       <MeasurementRecords
+        key={run.runId}
         preview={measurements}
         error={error}
         pending={pending}
@@ -548,6 +554,7 @@ export function DataCard({
         traceError={traceError}
         tracePending={tracePending}
         onTracePlanChange={onTracePlanChange}
+        onMeasurementEntitySelectionChange={onMeasurementEntitySelectionChange}
         fixedAxisIndices={measurementFixedAxisIndices}
         onFixedAxisIndexChange={onMeasurementFixedAxisIndexChange}
       />
@@ -622,6 +629,7 @@ function MeasurementRecords({
   traceError,
   tracePending,
   onTracePlanChange,
+  onMeasurementEntitySelectionChange,
   fixedAxisIndices,
   onFixedAxisIndexChange,
   error,
@@ -637,6 +645,7 @@ function MeasurementRecords({
   traceError: Error | null;
   tracePending: boolean;
   onTracePlanChange: (planId: string) => void;
+  onMeasurementEntitySelectionChange: (selection: MeasurementEntitySelection) => void;
   fixedAxisIndices: Record<string, number>;
   onFixedAxisIndexChange: (axisId: string, index: number) => void;
   error: Error | null;
@@ -675,6 +684,7 @@ function MeasurementRecords({
       traceError={traceError}
       tracePending={tracePending}
       onTracePlanChange={onTracePlanChange}
+      onEntitySelectionChange={onMeasurementEntitySelectionChange}
       fixedAxisIndices={fixedAxisIndices}
       onFixedAxisIndexChange={onFixedAxisIndexChange}
     />
