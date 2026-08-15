@@ -283,19 +283,17 @@ function TableValueView({
   const keyedRows = diff.table?.mode === "keyed" ? diff.table.rows : undefined;
   const rows =
     keyedRows ??
-    (value.rows ?? []).map(
-      (row, index): TableRowDiff => ({
-        identity: String(index),
+    (value.rows ?? []).map((row, index): TableRowDiff => ({
+      identity: String(index),
+      status: "unchanged",
+      key: {},
+      after: row,
+      cells: valueType.columns.map(({ id }) => ({
+        columnId: id,
         status: "unchanged",
-        key: {},
-        after: row,
-        cells: valueType.columns.map(({ id }) => ({
-          columnId: id,
-          status: "unchanged",
-          after: row[id],
-        })),
-      }),
-    );
+        after: row[id],
+      })),
+    }));
   return (
     <div>
       {diff.status === "changed" && diff.table?.mode === "complete-replacement" && (
