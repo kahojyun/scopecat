@@ -159,7 +159,7 @@ def test_module_rejects_a_table_shaped_plan_state_binding() -> None:
             )
 
 
-def test_product_axes_reject_table_values_at_authoring_boundary() -> None:
+def test_product_axes_reject_invalid_table_values_at_authoring_boundary() -> None:
     rows = program_input(
         "rows",
         sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
@@ -167,8 +167,27 @@ def test_product_axes_reject_table_values_at_authoring_boundary() -> None:
 
     with pytest.raises(TypeError, match="axis values must be scalar"):
         product_axis("sample", size=rows)
-    with pytest.raises(TypeError, match="axis values must be scalar"):
+    with pytest.raises(TypeError, match="exactly one entity column"):
         entity_axis("entity", rows)
+
+
+def test_entity_axes_accept_one_column_entity_tables() -> None:
+    rows = program_input(
+        "rows",
+        sc.TableType(
+            columns=(
+                sc.TableColumn(
+                    "qubit",
+                    sc.ScalarType(sc.EntityType(entity_kind="logical_qubit")),
+                ),
+            )
+        ),
+    )
+
+    axis = entity_axis("entity", rows)
+
+    assert axis.size is rows
+    assert axis.kind == "entity"
 
 
 def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
