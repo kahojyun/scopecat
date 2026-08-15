@@ -16,6 +16,7 @@ from scopecat.authoring import Axis, Experiment, ExperimentInvocation
 from scopecat.config.candidates import CandidateConfig
 from scopecat.config.changes import prepare_parameter_change_approval
 from scopecat.execution.interpreter import execute_admitted_run
+from scopecat.inspection import CompiledProgramInspectionQuery
 from scopecat.kernel.errors import CheckFailed
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.check_results import ExperimentCheckResult
@@ -80,6 +81,7 @@ class InProcessPreparedExperiment:
         point: int | Literal["first", "middle", "last"] = "first",
         coordinates: Mapping[str, object] | None = None,
         coordinate_mode: PreviewCoordinateMode = "exact",
+        inspection_query: CompiledProgramInspectionQuery | None = None,
     ) -> ExperimentPreview:
         result = check_experiment(
             self.invocation,
@@ -90,6 +92,7 @@ class InProcessPreparedExperiment:
             preview_point=point,
             preview_coordinates=coordinates,
             preview_coordinate_mode=coordinate_mode,
+            preview_inspection_query=inspection_query,
         )
         if result.preview is None:
             raise CheckFailed(result.problems)

@@ -4,6 +4,7 @@ from typing import Annotated
 
 import scopecat as sc
 from scopecat import Quantity
+from scopecat.inspection import CompiledProgramInspectionQuery
 
 from scopecat_quantum import authoring
 from scopecat_quantum.inspection import QuantumInspectionBounds, inspect_quantum_program
@@ -105,3 +106,24 @@ program inspection.example
     assert facts["expanded_operation_count"] == 5
     assert facts["selected_entity_count"] == 1
     assert facts["max_parallel_width"] == 2
+
+    filtered = inspect_quantum_program(
+        inspected_program,
+        bound=bound,
+        bounds=QuantumInspectionBounds(max_nodes_per_layer=64),
+        query=CompiledProgramInspectionQuery(
+            layer_id="authored",
+            kind="pulse",
+            offset=1,
+            limit=1,
+        ),
+    )
+    authored = filtered.layers[0]
+    assert filtered.schema_id == "scopecat.compiled_program_inspection.v2"
+    assert authored.node_count > authored.page.matching_node_count
+    assert authored.page.matching_node_count == 2
+    assert authored.page.offset == 1
+    assert authored.page.returned_node_count == 1
+    assert authored.page.next_offset is None
+    assert [node.kind for node in authored.nodes] == ["pulse"]
+    assert filtered.layers[1].nodes == ()

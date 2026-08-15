@@ -15,6 +15,7 @@ from scopecat.daemon.reviews import (
     ReviewPointView,
     ReviewSessionCreateCommand,
 )
+from scopecat.inspection import CompiledProgramInspectionQuery
 from scopecat.kernel.quantity import Quantity
 
 from scopecat_server import BackendConflict, BackendNotFound, LocalDaemonRuntime
@@ -59,11 +60,23 @@ def test_review_worker_lease_expires_without_losing_latest_result() -> None:
     now[0] += timedelta(seconds=10)
     receipt = service.enqueue(
         session.session_id,
-        ReviewCompileCommand(coordinates={}, coordinate_mode="free"),
+        ReviewCompileCommand(
+            coordinates={},
+            coordinate_mode="free",
+            inspection_query=CompiledProgramInspectionQuery(
+                layer_id="scheduled",
+                entity_id="q17",
+                offset=128,
+                limit=128,
+            ),
+        ),
     )
     claimed = service.claim(session.session_id, "worker-lease")
     assert claimed is not None
     assert claimed.request_id == receipt.request_id
+    assert claimed.inspection_query is not None
+    assert claimed.inspection_query.entity_id == "q17"
+    assert claimed.inspection_query.offset == 128
     assert service.get(session.session_id).pending_request_count == 1
 
     now[0] += timedelta(seconds=16)

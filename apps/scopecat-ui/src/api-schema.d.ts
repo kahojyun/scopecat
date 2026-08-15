@@ -1551,12 +1551,13 @@ export interface components {
             links: components["schemas"]["CompiledProgramInspectionLink"][];
             /** Program Id */
             program_id: string;
+            query?: components["schemas"]["CompiledProgramInspectionQuery"] | null;
             /**
              * Schema Id
-             * @default scopecat.compiled_program_inspection.v1
+             * @default scopecat.compiled_program_inspection.v2
              * @constant
              */
-            schema_id: "scopecat.compiled_program_inspection.v1";
+            schema_id: "scopecat.compiled_program_inspection.v2";
             /**
              * Warnings
              * @default []
@@ -1585,6 +1586,7 @@ export interface components {
             nodes: components["schemas"]["CompiledProgramInspectionNode-Output"][];
             /** Nodes Truncated */
             nodes_truncated: boolean;
+            page: components["schemas"]["CompiledProgramInspectionPage"];
             /** Root Ids */
             root_ids: string[];
         };
@@ -1617,10 +1619,20 @@ export interface components {
             /** Duration Seconds */
             duration_seconds?: string | null;
             /**
+             * Entity Count
+             * @default 0
+             */
+            entity_count: number;
+            /**
              * Entity Ids
              * @default []
              */
             entity_ids: string[];
+            /**
+             * Entity Ids Truncated
+             * @default false
+             */
+            entity_ids_truncated: boolean;
             /**
              * Facts
              * @default []
@@ -1635,15 +1647,35 @@ export interface components {
             /** Parent Id */
             parent_id?: string | null;
             /**
+             * Resource Count
+             * @default 0
+             */
+            resource_count: number;
+            /**
              * Resource Ids
              * @default []
              */
             resource_ids: string[];
             /**
+             * Resource Ids Truncated
+             * @default false
+             */
+            resource_ids_truncated: boolean;
+            /**
+             * Result Count
+             * @default 0
+             */
+            result_count: number;
+            /**
              * Result Ids
              * @default []
              */
             result_ids: string[];
+            /**
+             * Result Ids Truncated
+             * @default false
+             */
+            result_ids_truncated: boolean;
             /** Start Seconds */
             start_seconds?: string | null;
             /**
@@ -1651,6 +1683,50 @@ export interface components {
              * @default []
              */
             warnings: string[];
+        };
+        /**
+         * CompiledProgramInspectionPage
+         * @description Page metadata for one layer after server-side filtering.
+         */
+        CompiledProgramInspectionPage: {
+            /** Limit */
+            limit: number;
+            /** Matching Node Count */
+            matching_node_count: number;
+            /** Next Offset */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /** Returned Node Count */
+            returned_node_count: number;
+        };
+        /**
+         * CompiledProgramInspectionQuery
+         * @description One bounded server-side node query for a program layer.
+         */
+        CompiledProgramInspectionQuery: {
+            /** Entity Id */
+            entity_id?: string | null;
+            /** Kind */
+            kind?: string | null;
+            /** Layer Id */
+            layer_id: string;
+            /**
+             * Limit
+             * @default 128
+             */
+            limit: number;
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
+            /** Parent Id */
+            parent_id?: string | null;
+            /** Resource Id */
+            resource_id?: string | null;
+            /** Text */
+            text?: string | null;
         };
         /**
          * CompiledWaveformInspection
@@ -3606,6 +3682,7 @@ export interface components {
             coordinates?: {
                 [key: string]: components["schemas"]["ReviewCoordinateValue-Input"];
             } | null;
+            inspection_query?: components["schemas"]["CompiledProgramInspectionQuery"] | null;
             /** Point Index */
             point_index?: number | null;
         };

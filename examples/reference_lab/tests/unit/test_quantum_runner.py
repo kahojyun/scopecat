@@ -11,6 +11,7 @@ from scopecat.config.environment import build_config_environment
 from scopecat.execution.evidence import instrument_state_evidence_ref
 from scopecat.execution.local.program import ApplyStateOperation
 from scopecat.execution.program import RunCoverageEffect, RunDomainJob
+from scopecat.inspection import CompiledProgramInspectionQuery
 from scopecat.kernel.errors import CheckFailed
 from scopecat.planning.compilation import compile_run_program
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
@@ -410,6 +411,27 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
         coordinates=preview.selected_point.coordinates
     )
     assert selected_again.selected_point == preview.selected_point
+
+    queried = lab.prepare(invocation).preview(
+        point="last",
+        inspection_query=CompiledProgramInspectionQuery(
+            layer_id="scheduled",
+            kind="play",
+            limit=1,
+        ),
+    )
+    [queried_inspection] = queried.domain_inspections
+    assert queried_inspection.content.program is not None
+    queried_layers = {
+        layer.id: layer for layer in queried_inspection.content.program.layers
+    }
+    assert all(
+        not layer.nodes
+        for layer_id, layer in queried_layers.items()
+        if layer_id != "scheduled"
+    )
+    assert [node.kind for node in queried_layers["scheduled"].nodes] == ["play"]
+    assert queried_layers["scheduled"].page.returned_node_count == 1
 
     free = lab.prepare(invocation).preview(
         coordinates={

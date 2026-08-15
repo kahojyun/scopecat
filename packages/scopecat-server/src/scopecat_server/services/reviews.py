@@ -118,6 +118,7 @@ class ReviewService:
                     point_index=command.point_index,
                     coordinates=command.coordinates,
                     coordinate_mode=command.coordinate_mode,
+                    inspection_query=command.inspection_query,
                 )
             )
             session.updated_at = now

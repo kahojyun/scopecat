@@ -113,6 +113,7 @@ export type ParameterValueDelta = Omit<
 export type ParameterValueType = components["schemas"]["PersistableValueType"];
 export type Quantity = components["schemas"]["scopecat__kernel__quantity__Quantity"];
 export type ReviewCompileCommand = components["schemas"]["ReviewCompileCommand"];
+export type ProgramInspectionQuery = components["schemas"]["CompiledProgramInspectionQuery"];
 export type PointCoordinateSpec = components["schemas"]["PointCoordinateSpec-Output"];
 export type ReviewSession = GetResponse<"/api/v1/reviews/{session_id}">;
 export type ReviewSessionList = GetResponse<"/api/v1/reviews">;

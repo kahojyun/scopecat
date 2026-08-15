@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleOff, LoaderCircle, Radio, Send, Waves } from "lucide-react";
-import type { PointCoordinateSpec, ReviewCompileCommand, ReviewSession } from "../../api-contract";
+import type {
+  PointCoordinateSpec,
+  ProgramInspectionQuery,
+  ReviewCompileCommand,
+  ReviewSession,
+} from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
 import { classes, primaryButton } from "../../ui/styles";
 import { CompiledInspectionView } from "../inspections/CompiledInspectionView";
@@ -140,7 +145,7 @@ function ReviewDetail({ sessionId }: { sessionId: string }) {
         onCompile={(command) => compile.mutate(command)}
         session={session}
       />
-      <InspectionResult session={session} />
+      <InspectionResult onCompile={(command) => compile.mutate(command)} session={session} />
     </section>
   );
 }
@@ -329,33 +334,63 @@ function CoordinateInput({
   );
 }
 
-function InspectionResult({ session }: { session: ReviewSession }) {
+function InspectionResult({
+  session,
+  onCompile,
+}: {
+  session: ReviewSession;
+  onCompile: (command: ReviewCompileCommand) => void;
+}) {
   const result = session.latest_result;
   if (!result) return <WorkspaceMessage title="No point compiled yet" />;
   if (result.error) return <WorkspaceMessage title="Compilation failed" detail={result.error} />;
   if (!result.point) return <WorkspaceMessage title="No selected point" />;
+  const point = result.point;
   return (
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line bg-panel-soft px-3.5 py-2.5">
         <div>
           <span className="text-[0.59rem] font-bold tracking-[0.06em] text-text-dim uppercase">
-            {result.point.point_index == null
+            {point.point_index == null
               ? "Off-grid candidate"
-              : `Planned point #${result.point.point_index + 1}`}
+              : `Planned point #${point.point_index + 1}`}
           </span>
           <div className="mt-1 text-[0.7rem] font-semibold text-text-soft">
-            {formatCoordinateMapping(result.point.coordinates)}
+            {formatCoordinateMapping(point.coordinates)}
           </div>
         </div>
-        {result.point.proposal_fingerprint && (
+        {point.proposal_fingerprint && (
           <code className="max-w-[350px] truncate text-[0.56rem] text-text-dim">
-            {result.point.proposal_fingerprint}
+            {point.proposal_fingerprint}
           </code>
         )}
       </div>
-      <CompiledInspectionView inspections={result.inspections} />
+      <CompiledInspectionView
+        inspections={result.inspections}
+        onProgramQuery={(inspectionQuery) =>
+          onCompile(inspectionQueryCommand(point, inspectionQuery))
+        }
+      />
     </div>
   );
+}
+
+function inspectionQueryCommand(
+  point: NonNullable<NonNullable<ReviewSession["latest_result"]>["point"]>,
+  inspectionQuery: ProgramInspectionQuery,
+): ReviewCompileCommand {
+  if (point.point_index != null) {
+    return {
+      point_index: point.point_index,
+      coordinate_mode: "exact",
+      inspection_query: inspectionQuery,
+    };
+  }
+  return {
+    coordinates: point.coordinates as NonNullable<ReviewCompileCommand["coordinates"]>,
+    coordinate_mode: "free",
+    inspection_query: inspectionQuery,
+  };
 }
 
 function coordinateDraft(

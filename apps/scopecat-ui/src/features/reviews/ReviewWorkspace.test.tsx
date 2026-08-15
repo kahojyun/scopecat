@@ -50,6 +50,52 @@ describe("ReviewWorkspace", () => {
     expect(screen.getByText("entity q0")).toBeVisible();
   });
 
+  it("queries one bounded program layer without changing the selected point", async () => {
+    renderWorkspace();
+    await screen.findByText("Quantum program");
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Program node search" }), {
+      target: { value: "drive" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Program entity" }), {
+      target: { value: "q0" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Query layer" }));
+
+    await waitFor(() =>
+      expect(compileReviewPoint).toHaveBeenCalledWith("review-1", {
+        point_index: 0,
+        coordinate_mode: "exact",
+        inspection_query: {
+          layer_id: "scheduled",
+          offset: 0,
+          limit: 128,
+          text: "drive",
+          entity_id: "q0",
+        },
+      }),
+    );
+  });
+
+  it("requests the next server page for a large program layer", async () => {
+    renderWorkspace();
+    await screen.findByText("Quantum program");
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    await waitFor(() =>
+      expect(compileReviewPoint).toHaveBeenCalledWith("review-1", {
+        point_index: 0,
+        coordinate_mode: "exact",
+        inspection_query: {
+          layer_id: "scheduled",
+          offset: 128,
+          limit: 128,
+        },
+      }),
+    );
+  });
+
   it("submits off-grid coordinates without snapping to the planned point", async () => {
     renderWorkspace();
     await screen.findByText("Compile point");
@@ -154,7 +200,7 @@ function reviewSession(): ReviewSession {
               max_samples_per_waveform: 256,
             },
             program: {
-              schema_id: "scopecat.compiled_program_inspection.v1",
+              schema_id: "scopecat.compiled_program_inspection.v2",
               dialect_id: "scopecat.quantum.program",
               program_id: "ramsey",
               warnings: [],
@@ -176,6 +222,12 @@ function reviewSession(): ReviewSession {
                   nodes_truncated: false,
                   root_ids: ["authored:program"],
                   facts: [],
+                  page: {
+                    offset: 0,
+                    limit: 128,
+                    matching_node_count: 1,
+                    returned_node_count: 1,
+                  },
                   nodes: [
                     {
                       id: "authored:program",
@@ -183,8 +235,14 @@ function reviewSession(): ReviewSession {
                       label: "program ramsey",
                       child_count: 0,
                       entity_ids: [],
+                      entity_count: 0,
+                      entity_ids_truncated: false,
                       resource_ids: [],
+                      resource_count: 0,
+                      resource_ids_truncated: false,
                       result_ids: ["iq"],
+                      result_count: 1,
+                      result_ids_truncated: false,
                       facts: [],
                       warnings: [],
                     },
@@ -198,6 +256,12 @@ function reviewSession(): ReviewSession {
                   nodes_truncated: false,
                   root_ids: ["logical:operation:body/gate"],
                   facts: [],
+                  page: {
+                    offset: 0,
+                    limit: 128,
+                    matching_node_count: 1,
+                    returned_node_count: 1,
+                  },
                   nodes: [
                     {
                       id: "logical:operation:body/gate",
@@ -205,8 +269,14 @@ function reviewSession(): ReviewSession {
                       label: "x90(q0)",
                       child_count: 0,
                       entity_ids: ["q0"],
+                      entity_count: 1,
+                      entity_ids_truncated: false,
                       resource_ids: [],
+                      resource_count: 0,
+                      resource_ids_truncated: false,
                       result_ids: [],
+                      result_count: 0,
+                      result_ids_truncated: false,
                       facts: [],
                       warnings: [],
                     },
@@ -216,10 +286,17 @@ function reviewSession(): ReviewSession {
                   id: "scheduled",
                   label: "Scheduled pulse events",
                   kind: "scheduled",
-                  node_count: 1,
-                  nodes_truncated: false,
+                  node_count: 129,
+                  nodes_truncated: true,
                   root_ids: ["scheduled:event:drive"],
                   facts: [],
+                  page: {
+                    offset: 0,
+                    limit: 128,
+                    matching_node_count: 129,
+                    returned_node_count: 1,
+                    next_offset: 128,
+                  },
                   nodes: [
                     {
                       id: "scheduled:event:drive",
@@ -227,8 +304,14 @@ function reviewSession(): ReviewSession {
                       label: "play drive(q0)",
                       child_count: 0,
                       entity_ids: ["q0"],
+                      entity_count: 1,
+                      entity_ids_truncated: false,
                       resource_ids: ["awg-1/outputs/i"],
+                      resource_count: 1,
+                      resource_ids_truncated: false,
                       result_ids: [],
+                      result_count: 0,
+                      result_ids_truncated: false,
                       start_seconds: "0",
                       duration_seconds: "1e-8",
                       facts: [],

@@ -278,6 +278,7 @@ class QuantumLabCompiler:
                         artifact.program,
                         bound=artifact.compiled_points[0].bound,
                         scheduled=artifact.entries[0].scheduled,
+                        query=request.inspection_query,
                     ),
                 )
                 if request.inspection_requested

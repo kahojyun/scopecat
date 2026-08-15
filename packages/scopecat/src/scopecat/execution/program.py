@@ -15,6 +15,7 @@ if TYPE_CHECKING:
         ComputeOperation,
         LocalOperation,
     )
+    from scopecat.inspection import CompiledProgramInspectionQuery
     from scopecat.kernel.graph_identity import ValueId
     from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
     from scopecat.kernel.resource_identity import (
@@ -96,7 +97,10 @@ class RunCoverage:
         self,
         factory: Callable[[], Iterator[RunCoveredOperation]],
         *,
-        inspect: Callable[[int | PointProposalAttempt], RunPointInspection]
+        inspect: Callable[
+            [int | PointProposalAttempt, CompiledProgramInspectionQuery | None],
+            RunPointInspection,
+        ]
         | None = None,
         accept_all: Callable[
             [tuple[PointProposalAttempt, ...]],
@@ -111,12 +115,17 @@ class RunCoverage:
     def __iter__(self) -> Iterator[RunCoveredOperation]:
         return self._factory()
 
-    def inspect(self, point: int | PointProposalAttempt) -> RunPointInspection | None:
+    def inspect(
+        self,
+        point: int | PointProposalAttempt,
+        *,
+        query: CompiledProgramInspectionQuery | None = None,
+    ) -> RunPointInspection | None:
         """Compile target-owned inspection data for exactly one logical point."""
 
         if self._inspect is None:
             return None
-        return self._inspect(point)
+        return self._inspect(point, query)
 
     def accept(self, candidate: PointProposalAttempt) -> RunAcceptedCoverage:
         """Append one candidate and return its lazy execution coverage."""

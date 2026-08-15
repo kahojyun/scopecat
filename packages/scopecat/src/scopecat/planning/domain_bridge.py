@@ -6,6 +6,7 @@ from typing import cast
 
 from scopecat.compiler.bind import BoundPlan
 from scopecat.domain.program import DomainProgramDef
+from scopecat.inspection import CompiledProgramInspectionQuery
 from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.measurements.products import ProductDef
 from scopecat.planning.measurement_projection import (
@@ -73,6 +74,7 @@ def make_domain_batch_request(
     *,
     batch_ordinal: int,
     inspection_requested: bool = False,
+    inspection_query: CompiledProgramInspectionQuery | None = None,
 ) -> DomainBatchRequest:
     """Resolve every input and project one complete bounded batch."""
 
@@ -110,6 +112,7 @@ def make_domain_batch_request(
         points=point_refs,
         measurement_catalog=project_measurement_catalog(bound_points),
         inspection_requested=inspection_requested,
+        inspection_query=inspection_query,
     )
 
 

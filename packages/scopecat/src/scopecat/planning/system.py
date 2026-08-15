@@ -30,6 +30,7 @@ from scopecat.execution.program import (
     RunPointInspection,
     RunProgram,
 )
+from scopecat.inspection import CompiledProgramInspectionQuery
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.kernel.problems import (
@@ -911,7 +912,10 @@ def _compile_coverage(
             ),
         )
 
-    def inspect(point: int | PointProposalAttempt) -> RunPointInspection:
+    def inspect(
+        point: int | PointProposalAttempt,
+        inspection_query: CompiledProgramInspectionQuery | None,
+    ) -> RunPointInspection:
         if isinstance(point, int):
             if point not in point_ordinals:
                 raise IndexError(point)
@@ -949,6 +953,7 @@ def _compile_coverage(
                     else None
                 ),
                 inspection_requested=True,
+                inspection_query=inspection_query,
             ),
             validator=_CoverageValidator(
                 domain_instrument_ids=(
@@ -1029,6 +1034,7 @@ def _coverage_operations(
     initial_local_probe: _InitialLocalProbe | None,
     initial_batch_ordinal: int = 0,
     inspection_requested: bool = False,
+    inspection_query: CompiledProgramInspectionQuery | None = None,
 ) -> Iterator[RunCoveredOperation | _MaterializedLocalCoverage]:
     next_batch_ordinals = {
         effect.id: initial_batch_ordinal
@@ -1104,6 +1110,7 @@ def _coverage_operations(
                         region,
                         batch_ordinal=batch_ordinal,
                         inspection_requested=inspection_requested,
+                        inspection_query=inspection_query,
                     )
                     next_domain_capacities.append(job.execution.next_batch_max_points)
                     yield job
@@ -1319,6 +1326,7 @@ def _compile_domain_batch(
     *,
     batch_ordinal: int,
     inspection_requested: bool,
+    inspection_query: CompiledProgramInspectionQuery | None,
 ) -> RunDomainJob:
     request = make_domain_batch_request(
         call,
@@ -1326,6 +1334,7 @@ def _compile_domain_batch(
         point_ordinals,
         batch_ordinal=batch_ordinal,
         inspection_requested=inspection_requested,
+        inspection_query=inspection_query,
     )
     execution_candidate = cast(
         "object",

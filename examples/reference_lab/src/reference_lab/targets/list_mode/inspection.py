@@ -18,6 +18,7 @@ from scopecat.inspection import (
     CompiledProgramInspectionLink,
     CompiledProgramInspectionNode,
     CompiledWaveformInspection,
+    query_compiled_program_nodes,
 )
 
 from reference_lab.targets.list_mode.model import (
@@ -39,7 +40,7 @@ class ArtifactInspectionBounds:
     max_entries: int = 1
     max_channels_per_entry: int = 12
     max_samples_per_waveform: int = 256
-    max_placement_nodes: int = 512
+    max_placement_nodes: int = 128
 
     def __post_init__(self) -> None:
         if (
@@ -215,7 +216,12 @@ def _with_physical_placement_layer(
             for event in placements
         ),
     )
-    selected_nodes = all_nodes[:max_nodes]
+    selected_nodes, page = query_compiled_program_nodes(
+        "physical",
+        all_nodes,
+        query=program.query,
+        default_limit=max_nodes,
+    )
     layer = CompiledProgramInspectionLayer(
         id="physical",
         label="Physical placement",
@@ -224,6 +230,7 @@ def _with_physical_placement_layer(
         nodes_truncated=len(selected_nodes) < len(all_nodes),
         root_ids=(root_id,),
         nodes=selected_nodes,
+        page=page,
         facts=(
             CompiledInspectionFact(
                 "instrument_count",
@@ -254,12 +261,6 @@ def _with_physical_placement_layer(
             ),
         ),
     )
-    scheduled_node_ids = {
-        node.id
-        for candidate in program.layers
-        if candidate.id == "scheduled"
-        for node in candidate.nodes
-    }
     physical_node_ids = {node.id for node in selected_nodes}
     links = tuple(
         CompiledProgramInspectionLink(
@@ -270,8 +271,7 @@ def _with_physical_placement_layer(
             relation="placed_on",
         )
         for event in placements
-        if f"scheduled:event:{event.event_id.value}" in scheduled_node_ids
-        and f"physical:event:{event.event_id.value}" in physical_node_ids
+        if f"physical:event:{event.event_id.value}" in physical_node_ids
     )
     return replace(
         program,

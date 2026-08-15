@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ReviewSession } from "../../api-contract";
+import type { ProgramInspectionQuery, ReviewSession } from "../../api-contract";
 import { EChart, type EChartsCoreOption } from "../../ui/EChart";
 
 type PresentedInspection = NonNullable<ReviewSession["latest_result"]>["inspections"][number];
@@ -12,9 +12,11 @@ type PresentedNode = PresentedLayer["nodes"][number];
 export function CompiledInspectionView({
   inspections,
   emptyTitle = "No target waveform inspection",
+  onProgramQuery,
 }: {
   inspections: readonly PresentedInspection[];
   emptyTitle?: string;
+  onProgramQuery?: (query: ProgramInspectionQuery) => void;
 }) {
   if (inspections.length === 0) {
     return (
@@ -41,7 +43,10 @@ export function CompiledInspectionView({
           </div>
           <div className="grid gap-3 p-3.5">
             {inspection.content.program && (
-              <ProgramInspectionView inspection={inspection.content.program} />
+              <ProgramInspectionView
+                inspection={inspection.content.program}
+                onQuery={onProgramQuery}
+              />
             )}
             <FactGrid facts={inspection.content.facts} />
             {inspection.content.points.map((point) => (
@@ -54,11 +59,21 @@ export function CompiledInspectionView({
   );
 }
 
-function ProgramInspectionView({ inspection }: { inspection: PresentedProgram }) {
+function ProgramInspectionView({
+  inspection,
+  onQuery,
+}: {
+  inspection: PresentedProgram;
+  onQuery?: (query: ProgramInspectionQuery) => void;
+}) {
   const [layerId, setLayerId] = useState(inspection.layers.at(-1)?.id ?? "");
   const layer = inspection.layers.find((candidate) => candidate.id === layerId);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const selectedNode = layer?.nodes.find((node) => node.id === selectedNodeId);
+  const [textFilter, setTextFilter] = useState("");
+  const [kindFilter, setKindFilter] = useState("");
+  const [entityFilter, setEntityFilter] = useState("");
+  const [resourceFilter, setResourceFilter] = useState("");
 
   useEffect(() => {
     const defaultLayer = inspection.layers.at(-1)?.id ?? "";
@@ -66,7 +81,26 @@ function ProgramInspectionView({ inspection }: { inspection: PresentedProgram })
       inspection.layers.some((candidate) => candidate.id === current) ? current : defaultLayer,
     );
     setSelectedNodeId(null);
+    const query = inspection.query;
+    setTextFilter(query?.text ?? "");
+    setKindFilter(query?.kind ?? "");
+    setEntityFilter(query?.entity_id ?? "");
+    setResourceFilter(query?.resource_id ?? "");
   }, [inspection]);
+
+  const submitQuery = (offset = 0) => {
+    if (!layer || !onQuery) return;
+    onQuery({
+      layer_id: layer.id,
+      offset,
+      limit: layer.page.limit,
+      ...(textFilter.trim() && { text: textFilter.trim() }),
+      ...(kindFilter.trim() && { kind: kindFilter.trim() }),
+      ...(entityFilter.trim() && { entity_id: entityFilter.trim() }),
+      ...(resourceFilter.trim() && { resource_id: resourceFilter.trim() }),
+    });
+    setSelectedNodeId(null);
+  };
 
   return (
     <section className="overflow-hidden rounded-md border border-line bg-panel">
@@ -90,6 +124,15 @@ function ProgramInspectionView({ inspection }: { inspection: PresentedProgram })
             onClick={() => {
               setLayerId(candidate.id);
               setSelectedNodeId(null);
+              setTextFilter("");
+              setKindFilter("");
+              setEntityFilter("");
+              setResourceFilter("");
+              onQuery?.({
+                layer_id: candidate.id,
+                offset: 0,
+                limit: candidate.page.limit,
+              });
             }}
             role="tab"
             type="button"
@@ -103,24 +146,115 @@ function ProgramInspectionView({ inspection }: { inspection: PresentedProgram })
         ))}
       </div>
       {layer && (
-        <div className="grid grid-cols-[minmax(230px,0.8fr)_minmax(300px,1.4fr)] max-[760px]:grid-cols-1">
-          <ProgramNodeList
-            layer={layer}
-            selectedNodeId={selectedNodeId}
-            onSelect={setSelectedNodeId}
+        <>
+          <ProgramQueryBar
+            entity={entityFilter}
+            kind={kindFilter}
+            onEntityChange={setEntityFilter}
+            onKindChange={setKindFilter}
+            onResourceChange={setResourceFilter}
+            onSubmit={() => submitQuery()}
+            resource={resourceFilter}
+            text={textFilter}
+            onTextChange={setTextFilter}
           />
-          <div className="min-w-0 border-l border-line p-3 max-[760px]:border-t max-[760px]:border-l-0">
-            {layer.facts.length > 0 && (
-              <div className="mb-3">
-                <FactGrid facts={layer.facts} />
-              </div>
-            )}
-            {layer.id === "scheduled" && <ProgramTimeline layer={layer} />}
-            <ProgramNodeInspector inspection={inspection} layer={layer} node={selectedNode} />
+          <div className="grid grid-cols-[minmax(230px,0.8fr)_minmax(300px,1.4fr)] max-[760px]:grid-cols-1">
+            <ProgramNodeList
+              layer={layer}
+              selectedNodeId={selectedNodeId}
+              onNext={
+                layer.page.next_offset == null
+                  ? undefined
+                  : () => submitQuery(layer.page.next_offset ?? 0)
+              }
+              onPrevious={
+                layer.page.offset === 0
+                  ? undefined
+                  : () => submitQuery(Math.max(0, layer.page.offset - layer.page.limit))
+              }
+              onSelect={setSelectedNodeId}
+            />
+            <div className="min-w-0 border-l border-line p-3 max-[760px]:border-t max-[760px]:border-l-0">
+              {layer.facts.length > 0 && (
+                <div className="mb-3">
+                  <FactGrid facts={layer.facts} />
+                </div>
+              )}
+              {layer.id === "scheduled" && <ProgramTimeline layer={layer} />}
+              <ProgramNodeInspector inspection={inspection} layer={layer} node={selectedNode} />
+            </div>
           </div>
-        </div>
+        </>
       )}
     </section>
+  );
+}
+
+function ProgramQueryBar({
+  text,
+  kind,
+  entity,
+  resource,
+  onTextChange,
+  onKindChange,
+  onEntityChange,
+  onResourceChange,
+  onSubmit,
+}: {
+  text: string;
+  kind: string;
+  entity: string;
+  resource: string;
+  onTextChange: (value: string) => void;
+  onKindChange: (value: string) => void;
+  onEntityChange: (value: string) => void;
+  onResourceChange: (value: string) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <form
+      className="grid grid-cols-[minmax(150px,1.4fr)_repeat(3,minmax(100px,0.7fr))_auto] gap-1.5 border-b border-line bg-panel-soft p-2 max-[900px]:grid-cols-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <input
+        aria-label="Program node search"
+        className="min-w-0 rounded border border-line bg-panel px-2 py-1.5 text-[0.58rem] text-text outline-none focus:border-line-strong"
+        onChange={(event) => onTextChange(event.target.value)}
+        placeholder="Search labels and IDs"
+        type="search"
+        value={text}
+      />
+      <input
+        aria-label="Program node kind"
+        className="min-w-0 rounded border border-line bg-panel px-2 py-1.5 text-[0.58rem] text-text outline-none focus:border-line-strong"
+        onChange={(event) => onKindChange(event.target.value)}
+        placeholder="kind"
+        value={kind}
+      />
+      <input
+        aria-label="Program entity"
+        className="min-w-0 rounded border border-line bg-panel px-2 py-1.5 text-[0.58rem] text-text outline-none focus:border-line-strong"
+        onChange={(event) => onEntityChange(event.target.value)}
+        placeholder="entity"
+        value={entity}
+      />
+      <input
+        aria-label="Program resource"
+        className="min-w-0 rounded border border-line bg-panel px-2 py-1.5 text-[0.58rem] text-text outline-none focus:border-line-strong"
+        onChange={(event) => onResourceChange(event.target.value)}
+        placeholder="resource"
+        value={resource}
+      />
+      <button
+        className="cursor-pointer rounded border border-line bg-panel-strong px-3 py-1.5 text-[0.58rem] font-bold text-text-soft hover:text-text max-[900px]:col-span-2"
+        type="submit"
+      >
+        Query layer
+      </button>
+    </form>
   );
 }
 
@@ -128,10 +262,14 @@ function ProgramNodeList({
   layer,
   selectedNodeId,
   onSelect,
+  onPrevious,
+  onNext,
 }: {
   layer: PresentedLayer;
   selectedNodeId: string | null;
   onSelect: (id: string) => void;
+  onPrevious?: () => void;
+  onNext?: () => void;
 }) {
   const nodes = new Map(layer.nodes.map((node) => [node.id, node]));
   const depth = (node: PresentedNode) => {
@@ -143,30 +281,71 @@ function ProgramNodeList({
     }
     return value;
   };
+  const pageStart = layer.page.returned_node_count === 0 ? 0 : layer.page.offset + 1;
+  const pageEnd = layer.page.offset + layer.page.returned_node_count;
   return (
-    <div className="max-h-[390px] overflow-auto p-2" aria-label={`${layer.label} nodes`}>
-      {layer.nodes.map((node) => (
-        <button
-          aria-pressed={selectedNodeId === node.id}
-          className={`flex w-full cursor-pointer items-center gap-2 rounded border-0 px-2 py-1.5 text-left ${
-            selectedNodeId === node.id
-              ? "bg-panel-strong text-text"
-              : "bg-transparent text-text-soft hover:bg-panel-soft"
-          }`}
-          key={node.id}
-          onClick={() => onSelect(node.id)}
-          style={{ paddingLeft: `${8 + depth(node) * 13}px` }}
-          type="button"
-        >
-          <span className="min-w-0 flex-1 truncate text-[0.61rem] font-semibold">{node.label}</span>
-          {node.child_count > 0 && (
-            <span className="text-[0.52rem] text-text-dim">{node.child_count}</span>
-          )}
-        </button>
-      ))}
-      {layer.nodes_truncated && (
-        <div className="p-2 text-center text-[0.56rem] text-text-dim">
-          Showing {layer.nodes.length.toLocaleString()} of {layer.node_count.toLocaleString()} nodes
+    <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]">
+      <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2 text-[0.54rem] text-text-dim">
+        <span>
+          {layer.page.matching_node_count.toLocaleString()} matching ·{" "}
+          {layer.node_count.toLocaleString()} total
+        </span>
+        <span>
+          {pageStart.toLocaleString()}–{pageEnd.toLocaleString()}
+        </span>
+      </div>
+      <div className="max-h-[390px] overflow-auto p-2" aria-label={`${layer.label} nodes`}>
+        {layer.nodes.map((node) => (
+          <button
+            aria-pressed={selectedNodeId === node.id}
+            className={`flex w-full cursor-pointer items-center gap-2 rounded border-0 px-2 py-1.5 text-left ${
+              selectedNodeId === node.id
+                ? "bg-panel-strong text-text"
+                : "bg-transparent text-text-soft hover:bg-panel-soft"
+            }`}
+            key={node.id}
+            onClick={() => onSelect(node.id)}
+            style={{ paddingLeft: `${8 + depth(node) * 13}px` }}
+            type="button"
+          >
+            <span className="w-16 shrink-0 truncate font-mono text-[0.49rem] text-text-dim">
+              {node.kind}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[0.61rem] font-semibold">
+              {node.label}
+            </span>
+            {node.child_count > 0 && (
+              <span className="text-[0.52rem] text-text-dim">{node.child_count}</span>
+            )}
+          </button>
+        ))}
+        {layer.nodes.length === 0 && (
+          <div className="p-4 text-center text-[0.56rem] text-text-dim">
+            No nodes match this layer query.
+          </div>
+        )}
+      </div>
+      {(onPrevious || onNext) && (
+        <div className="flex items-center justify-between gap-2 border-t border-line p-2">
+          <button
+            className="cursor-pointer rounded border border-line bg-panel-soft px-2.5 py-1.5 text-[0.56rem] font-bold text-text-dim disabled:cursor-default disabled:opacity-35"
+            disabled={!onPrevious}
+            onClick={onPrevious}
+            type="button"
+          >
+            Previous
+          </button>
+          <span className="text-[0.53rem] text-text-dim">
+            Server-paged · {layer.page.limit.toLocaleString()} per page
+          </span>
+          <button
+            className="cursor-pointer rounded border border-line bg-panel-soft px-2.5 py-1.5 text-[0.56rem] font-bold text-text-dim disabled:cursor-default disabled:opacity-35"
+            disabled={!onNext}
+            onClick={onNext}
+            type="button"
+          >
+            Next
+          </button>
         </div>
       )}
     </div>
@@ -237,9 +416,21 @@ function ProgramNodeInspector({
   const outgoing = inspection.links.filter(
     (link) => link.source_layer_id === layer.id && link.source_node_id === node.id,
   );
+  const loadedNodes = new Map(layer.nodes.map((candidate) => [candidate.id, candidate]));
+  const ancestors: PresentedNode[] = [];
+  let parent = node.parent_id ? loadedNodes.get(node.parent_id) : undefined;
+  while (parent && ancestors.length < 8) {
+    ancestors.unshift(parent);
+    parent = parent.parent_id ? loadedNodes.get(parent.parent_id) : undefined;
+  }
   return (
     <div className="grid gap-2.5">
       <div>
+        {ancestors.length > 0 && (
+          <div className="mb-1 truncate text-[0.51rem] text-text-dim">
+            {ancestors.map((ancestor) => ancestor.label).join(" / ")}
+          </div>
+        )}
         <span className="text-[0.53rem] font-bold tracking-[0.06em] text-text-dim uppercase">
           {node.kind}
         </span>
@@ -248,21 +439,9 @@ function ProgramNodeInspector({
       </div>
       {node.facts.length > 0 && <FactGrid facts={node.facts} />}
       <div className="flex flex-wrap gap-1.5">
-        {node.entity_ids.map((id) => (
-          <span className="rounded bg-panel-strong px-2 py-1 text-[0.55rem]" key={`e:${id}`}>
-            entity {id}
-          </span>
-        ))}
-        {node.resource_ids.map((id) => (
-          <span className="rounded bg-panel-strong px-2 py-1 text-[0.55rem]" key={`r:${id}`}>
-            resource {id}
-          </span>
-        ))}
-        {node.result_ids.map((id) => (
-          <span className="rounded bg-panel-strong px-2 py-1 text-[0.55rem]" key={`o:${id}`}>
-            result {id}
-          </span>
-        ))}
+        <ReferenceChips ids={node.entity_ids} label="entity" total={node.entity_count} />
+        <ReferenceChips ids={node.resource_ids} label="resource" total={node.resource_count} />
+        <ReferenceChips ids={node.result_ids} label="result" total={node.result_count} />
       </div>
       {(node.start_seconds != null || node.duration_seconds != null) && (
         <div className="text-[0.57rem] text-text-dim">
@@ -276,6 +455,32 @@ function ProgramNodeInspector({
         </div>
       )}
     </div>
+  );
+}
+
+function ReferenceChips({
+  ids,
+  label,
+  total,
+}: {
+  ids: string[];
+  label: "entity" | "resource" | "result";
+  total: number;
+}) {
+  const visible = ids.slice(0, 12);
+  return (
+    <>
+      {visible.map((id) => (
+        <span className="rounded bg-panel-strong px-2 py-1 text-[0.55rem]" key={`${label}:${id}`}>
+          {label} {id}
+        </span>
+      ))}
+      {total > visible.length && (
+        <span className="rounded border border-line px-2 py-1 text-[0.55rem] text-text-dim">
+          +{(total - visible.length).toLocaleString()} {label}s
+        </span>
+      )}
+    </>
   );
 }
 
