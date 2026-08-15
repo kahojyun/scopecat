@@ -505,6 +505,7 @@ class ListModeTarget:
     max_list_entries: int
     max_samples_per_entry: int
     max_program_waveform_bytes: int
+    max_result_chunk_bytes: int
     max_repetitions: int
     max_abs_amplitude: float
     acquisition_dsp_policy: Literal["target", "device", "prefer_device"]
@@ -628,13 +629,14 @@ class ListModeTarget:
 
     def _capability_payload(self) -> dict[str, object]:
         return {
-            "schema": "reference_lab.list_mode_target.capabilities.v7",
+            "schema": "reference_lab.list_mode_target.capabilities.v8",
             "target_id": self.id.value,
             "sample_rate_hz": self.sample_rate_hz,
             "timing_quantization": self.timing_quantization,
             "max_list_entries": self.max_list_entries,
             "max_samples_per_entry": self.max_samples_per_entry,
             "max_program_waveform_bytes": self.max_program_waveform_bytes,
+            "max_result_chunk_bytes": self.max_result_chunk_bytes,
             "max_repetitions": self.max_repetitions,
             "max_abs_amplitude": float(self.max_abs_amplitude).hex(),
             "digitizer_result_representation": (self.digitizer_result_representation),
@@ -942,6 +944,7 @@ class ListModeArtifact:
     sample_rate_hz: int
     waveform_semantics_id: str
     max_abs_amplitude: float
+    max_result_chunk_bytes: int
     timing_quantization: TimingQuantizationMode
     compilation_key: ListModeCompilationKey
     compilation_budget: ListModeCompilationBudget

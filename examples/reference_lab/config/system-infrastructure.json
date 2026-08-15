@@ -341,7 +341,7 @@
     "kind": "reference_lab.list-mode",
     "configuration": {
       "sample_rate_hz": 1000000000,
-      "capabilities": {"max_list_entries": 256, "max_samples_per_entry": 1000000, "max_program_waveform_bytes": 50331648, "max_repetitions": 100000, "max_abs_amplitude": 1.0, "acquisition_dsp_policy": "prefer_device"},
+      "capabilities": {"max_list_entries": 256, "max_samples_per_entry": 1000000, "max_program_waveform_bytes": 50331648, "max_result_chunk_bytes": 8388608, "max_repetitions": 100000, "max_abs_amplitude": 1.0, "acquisition_dsp_policy": "prefer_device"},
       "reference_clock": {"source": "external", "frequency_hz": 10000000},
       "timing": {
         "domain_id": "control",

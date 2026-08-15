@@ -29,6 +29,7 @@ from reference_lab.targets.list_mode.domain_runtime import ListModeDomainRuntime
 from reference_lab.targets.list_mode.execution_model import (
     AcquisitionResponse,
     DigitizerResultBatch,
+    DigitizerResultChunk,
     DigitizerValueBlock,
     ListModeRun,
     digitizer_addresses,
@@ -102,8 +103,18 @@ class VirtualListModeDomainRuntime(ListModeDomainRuntime):
         )
         results = DigitizerResultBatch(
             addresses=target_run.results.addresses,
-            values=target_run.results.values,
-            available=target_run.results.available & plant.available,
+            shot_count=target_run.results.shot_count,
+            chunks=tuple(
+                DigitizerResultChunk(
+                    shot_start=chunk.shot_start,
+                    values=chunk.values,
+                    available=(
+                        chunk.available
+                        & plant.available[:, chunk.shot_start : chunk.shot_stop]
+                    ),
+                )
+                for chunk in target_run.results.chunks
+            ),
         )
         return ListModeRun(
             results=results,

@@ -77,7 +77,7 @@ from reference_lab.targets.list_mode import (
     inspect_list_mode_artifact,
 )
 from reference_lab.targets.list_mode.circuit_runtime import (
-    _realize_integrated_iq_value,
+    realize_integrated_iq_value,
 )
 from reference_lab.targets.list_mode.device_execution import InstrumentListModeRuntime
 from reference_lab.targets.list_mode.model import IqMixerCalibration
@@ -91,7 +91,7 @@ READOUT_Q1 = ReadoutSignal(Q1)
 
 
 def test_list_mode_logical_result_preserves_partial_shot_availability() -> None:
-    value = _realize_integrated_iq_value(
+    value = realize_integrated_iq_value(
         np.asarray([1 + 2j, 0j, 3 + 4j], dtype=np.complex128),
         np.asarray([True, False, True], dtype=np.bool_),
     )
@@ -105,7 +105,7 @@ def test_list_mode_logical_result_preserves_partial_shot_availability() -> None:
 
 
 def test_list_mode_logical_result_preserves_entity_by_shot_shape() -> None:
-    value = _realize_integrated_iq_value(
+    value = realize_integrated_iq_value(
         np.asarray(
             [[1 + 2j, 3 + 4j], [5 + 6j, 0j]],
             dtype=np.complex128,
@@ -518,6 +518,31 @@ def test_list_mode_worker_protocol_is_stable_per_execution_identity() -> None:
     assert [batch.operation_id for batch in retry.batches] == [
         batch.operation_id for batch in instruments.batches
     ]
+
+
+def test_list_mode_worker_retains_bounded_shot_chunks() -> None:
+    scheduled, _slot = _calibrated_acquisition()
+    target = replace(_target(), max_result_chunk_bytes=34)
+    compiler, request = _request(target, (scheduled,), repetitions=5)
+    artifact = compiler.compile(request)
+    instruments = _RecordingInstrumentExecutor()
+    runtime = InstrumentListModeRuntime()
+    runtime.prepare(artifact, execution_id="test.chunked", instruments=instruments)
+
+    run = runtime.execute(
+        artifact,
+        execution_id="test.chunked",
+        instruments=instruments,
+    )
+
+    assert [chunk.shot_start for chunk in run.results.chunks] == [0, 2, 4]
+    assert [chunk.shot_count for chunk in run.results.chunks] == [2, 2, 1]
+    assert all(
+        chunk.values.nbytes + chunk.available.nbytes <= artifact.max_result_chunk_bytes
+        for chunk in run.results.chunks
+    )
+    assert run.results.values.shape == (1, 5)
+    assert np.all(run.results.available)
 
 
 def test_list_mode_realtime_action_count_does_not_scale_with_repetitions() -> None:

@@ -51,7 +51,7 @@ def correlate_list_mode_run(
         raise ValueError(
             "list-mode result rows must exactly cover every mapped acquisition"
         )
-    if target_run.results.values.shape[1] != artifact.repetitions:
+    if target_run.results.shot_count != artifact.repetitions:
         raise ValueError("list-mode result shot count does not match the artifact")
     return CorrelatedListModeRun(
         mapped_target=mapped_target,
@@ -74,9 +74,15 @@ def realize_measurements(
         realized.append(
             DomainResultValue(
                 result.result_address,
-                _realize_integrated_iq_value(
-                    correlated_run.results.values[row_selection],
-                    correlated_run.results.available[row_selection],
+                _realize_integrated_iq_chunks(
+                    tuple(
+                        chunk.values[row_selection]
+                        for chunk in correlated_run.results.chunks
+                    ),
+                    tuple(
+                        chunk.available[row_selection]
+                        for chunk in correlated_run.results.chunks
+                    ),
                 ),
             )
         )
@@ -84,10 +90,20 @@ def realize_measurements(
     return tuple(realized)
 
 
-def _realize_integrated_iq_value(
-    values: NDArray[np.complex128],
-    available: NDArray[np.bool_],
+def _realize_integrated_iq_chunks(
+    value_chunks: tuple[NDArray[np.complex128], ...],
+    availability_chunks: tuple[NDArray[np.bool_], ...],
 ) -> MeasurementAcquisitionValue:
+    values = (
+        value_chunks[0]
+        if len(value_chunks) == 1
+        else np.concatenate(value_chunks, axis=-1)
+    )
+    available = (
+        availability_chunks[0]
+        if len(availability_chunks) == 1
+        else np.concatenate(availability_chunks, axis=-1)
+    )
     if not np.any(available):
         return MeasurementUnavailable.create(
             dtype="complex128",
@@ -114,8 +130,18 @@ def _realize_integrated_iq_value(
     )
 
 
+def realize_integrated_iq_value(
+    values: NDArray[np.complex128],
+    available: NDArray[np.bool_],
+) -> MeasurementAcquisitionValue:
+    """Realize one already contiguous value block."""
+
+    return _realize_integrated_iq_chunks((values,), (available,))
+
+
 __all__ = [
     "CorrelatedListModeRun",
     "correlate_list_mode_run",
+    "realize_integrated_iq_value",
     "realize_measurements",
 ]

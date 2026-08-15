@@ -73,6 +73,7 @@ from reference_lab.payloads import (
 )
 from reference_lab.targets.list_mode.execution_model import (
     DigitizerResultBatch,
+    DigitizerResultChunk,
     ListModeRun,
     digitizer_addresses,
     run_fingerprint,
@@ -142,23 +143,40 @@ class InstrumentListModeRuntime:
         row_by_address = {
             address: row_index for row_index, address in enumerate(addresses)
         }
-        values = np.zeros(
-            (len(addresses), artifact.repetitions),
-            dtype=np.complex128,
+        result_bytes_per_shot = max(1, len(addresses)) * (
+            np.dtype(np.complex128).itemsize + np.dtype(np.bool_).itemsize
         )
-        available = np.ones(values.shape, dtype=np.bool_)
-        for shot_index in range(artifact.repetitions):
-            for entry in artifact.entries:
-                _write_digitizer_results(
-                    artifact,
-                    entry,
-                    shot_index=shot_index,
-                    blocks=blocks,
-                    block_offsets=block_offsets,
-                    row_by_address=row_by_address,
+        shots_per_chunk = max(
+            1,
+            artifact.max_result_chunk_bytes // result_bytes_per_shot,
+        )
+        chunks: list[DigitizerResultChunk] = []
+        for shot_start in range(0, artifact.repetitions, shots_per_chunk):
+            shot_stop = min(artifact.repetitions, shot_start + shots_per_chunk)
+            values = np.zeros(
+                (len(addresses), shot_stop - shot_start),
+                dtype=np.complex128,
+            )
+            available = np.ones(values.shape, dtype=np.bool_)
+            for shot_index in range(shot_start, shot_stop):
+                for entry in artifact.entries:
+                    _write_digitizer_results(
+                        artifact,
+                        entry,
+                        shot_column=shot_index - shot_start,
+                        blocks=blocks,
+                        block_offsets=block_offsets,
+                        row_by_address=row_by_address,
+                        values=values,
+                        available=available,
+                    )
+            chunks.append(
+                DigitizerResultChunk(
+                    shot_start=shot_start,
                     values=values,
                     available=available,
                 )
+            )
         if any(
             block_offsets[input_id] != block.result_count
             for input_id, block in blocks.items()
@@ -166,8 +184,8 @@ class InstrumentListModeRuntime:
             raise RuntimeError("digitizer result block contains unclaimed values")
         results = DigitizerResultBatch(
             addresses=addresses,
-            values=values,
-            available=available,
+            shot_count=artifact.repetitions,
+            chunks=tuple(chunks),
         )
         return ListModeRun(
             results=results,
@@ -791,7 +809,7 @@ def _write_digitizer_results(
     artifact: ListModeArtifact,
     entry: ListModeEntry,
     *,
-    shot_index: int,
+    shot_column: int,
     blocks: dict[DigitizerInputId, _ResultBlock],
     block_offsets: dict[DigitizerInputId, int],
     row_by_address: dict[TargetAcquisitionAddress, int],
@@ -849,9 +867,9 @@ def _write_digitizer_results(
         )
         row_index = row_by_address[address]
         if value is None:
-            available[row_index, shot_index] = False
+            available[row_index, shot_column] = False
         else:
-            values[row_index, shot_index] = value
+            values[row_index, shot_column] = value
 
 
 def _raw_value_id(input_id: DigitizerInputId) -> str:
