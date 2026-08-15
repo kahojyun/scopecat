@@ -207,7 +207,7 @@ def test_parallel_qubit_set_compiles_to_one_entity_axis_result_group() -> None:
     assert len(result.result_address.acquisitions) == 2
     assert [
         address.slot_id.scope for address in result.result_address.acquisitions
-    ] == [("targets[0]",), ("targets[1]",)]
+    ] == [("targets", "q0"), ("targets", "q1")]
     artifact = mapped.artifact
     assert artifact.placement.logical_qubit_ids == ("q0", "q1")
     assert (

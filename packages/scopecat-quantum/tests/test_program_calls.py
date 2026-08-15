@@ -23,6 +23,7 @@ from scopecat_quantum.measurement_computes import (
     binary_iq_probabilities,
 )
 from scopecat_quantum.programs import ParallelEach as QuantumParallelEach
+from scopecat_quantum.programs import estimate_quantum_program_workload
 
 _REPO_ROOT = Path(__file__).parents[3]
 
@@ -399,6 +400,10 @@ def test_qubit_set_retains_parallel_authoring_and_owns_entity_axis_result() -> N
         "q0",
         "q1",
     ]
+    assert not hasattr(bound_program.program.body, "branches")
+    workload = estimate_quantum_program_workload(bound_program.verified)
+    assert workload.structural_operation_count == 2
+    assert workload.expanded_operation_count == 4
     measurements = tuple(
         operation
         for operation in bound_program.verified.operations
@@ -410,6 +415,16 @@ def test_qubit_set_retains_parallel_authoring_and_owns_entity_axis_result() -> N
         "iq_shots",
     ]
     assert len({operation.acquisition_slot_id for operation in measurements}) == 2
+
+    reversed_bound = authoring.bind(
+        declaration,
+        {"qubits": ("q1", "q0")},
+    )
+    assert {
+        operation.qubit: operation.acquisition_slot_id
+        for operation in reversed_bound.verified.operations
+        if isinstance(operation, Measure)
+    } == {operation.qubit: operation.acquisition_slot_id for operation in measurements}
 
     call = declaration(("q0", "q1")).with_shots(16)
 

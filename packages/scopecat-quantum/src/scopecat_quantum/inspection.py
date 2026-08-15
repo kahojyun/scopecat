@@ -29,6 +29,8 @@ from scopecat_quantum.programs import (
     QuantumNode,
     Repeat,
     estimate_quantum_program_workload,
+    instantiate_parallel_each_operation,
+    iter_quantum_operations,
 )
 from scopecat_quantum.programs import (
     Sequence as QuantumSequence,
@@ -221,7 +223,7 @@ def _logical_layer(
                     f"parallel_each ${node.entity_set_id} "
                     f"({len(node.entity_ids)} entities)"
                 ),
-                node.branches,
+                (node.operation,),
             )
             entity_ids = tuple(entity.value for entity in node.entity_ids)
             facts = (
@@ -284,6 +286,22 @@ def _logical_layer(
         )
         for index, child in enumerate(children):
             visit(child, parent_id=structural_id, path=(*path, index))
+        if isinstance(node, ParallelEach):
+            template_operations = tuple(iter_quantum_operations(node.operation))
+            for entity_id in node.entity_ids:
+                expanded_operations = tuple(
+                    iter_quantum_operations(
+                        instantiate_parallel_each_operation(node, entity_id)
+                    )
+                )
+                for template, expanded in zip(
+                    template_operations,
+                    expanded_operations,
+                    strict=True,
+                ):
+                    operation_nodes[expanded.id.value] = (
+                        f"logical:operation:{template.id.value}"
+                    )
 
     visit(bound.program.body, parent_id=root_id, path=(0,))
     layer = _bounded_layer(

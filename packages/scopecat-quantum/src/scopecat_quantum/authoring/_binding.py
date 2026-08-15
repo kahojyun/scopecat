@@ -427,22 +427,17 @@ def _bind_quantum_fragment(
         entity_refs = cast("tuple[EntityRef, ...]", entities)
         return IrQuantumParallelEach(
             entity_set_id=fragment.entity_set.id,
+            item_id=fragment.entity_set.item.ir_id,
             entity_ids=tuple(QubitId(entity.id) for entity in entity_refs),
-            branches=tuple(
-                _bind_quantum_fragment(
-                    fragment.operation,
-                    bindings,
-                    element_bindings={
-                        **element_bindings,
-                        fragment.entity_set.item.ir_id: QubitId(entity.id),
-                    },
-                    path=(*path, f"parallel_each[{index}]"),
-                    acquisition_scope=(
-                        *acquisition_scope,
-                        f"{fragment.entity_set.id}[{index}]",
-                    ),
-                )
-                for index, entity in enumerate(entity_refs)
+            operation=_bind_quantum_fragment(
+                fragment.operation,
+                bindings,
+                element_bindings={
+                    **element_bindings,
+                    fragment.entity_set.item.ir_id: fragment.entity_set.item.ir_id,
+                },
+                path=(*path, "parallel_each-body"),
+                acquisition_scope=acquisition_scope,
             ),
         )
     if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment):
