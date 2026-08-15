@@ -79,6 +79,30 @@ describe("measurement trace visualization", () => {
     expect(measurementTraceQueryPlans(schema)).toEqual([]);
   });
 
+  it("synthesizes sample indices when only unrelated trace coordinates exist", () => {
+    const source = traceSchema();
+    const schema = {
+      ...source,
+      dimensions: [...source.dimensions, { id: "monitor_sample", kind: "sample", size: 2 }],
+      variables: source.variables?.map((variable) =>
+        variable.id === "frequency"
+          ? {
+              ...variable,
+              dims: ["point", "monitor_sample"],
+              recording_group_id: "monitor",
+            }
+          : variable,
+      ),
+    };
+
+    expect(measurementTraceQueryPlans(schema)[0]).toEqual({
+      id: "trace:response:sample:magnitude",
+      label: "S21 magnitude",
+      observableId: "response",
+      valueMode: "magnitude",
+    });
+  });
+
   it("lists each explicit trace coordinate when several pairs are safe", () => {
     const source = traceSchema();
     const coordinate = source.variables?.find((variable) => variable.id === "frequency");
@@ -230,6 +254,19 @@ describe("measurement trace visualization", () => {
   it("shows bounded trace pending and error states without stale charts", () => {
     const schema = traceSchema();
     const plans = measurementTraceQueryPlans(schema);
+    const stalePreview = tracePreview({
+      entity_acquisition: { policy: "all_or_nothing", cohort_id: "stale-cohort" },
+      failures: [
+        {
+          point_index: 0,
+          logical_point_id: "point-0",
+          label: "stale Q1",
+          reasons: ["overload"],
+        },
+      ],
+      selected_series_count: 2,
+      inspected_series_count: 2,
+    });
     const common = {
       preview: { schema, items: [] },
       slice: { items: [], schema, selectedPointCount: 0, truncated: false },
@@ -246,7 +283,7 @@ describe("measurement trace visualization", () => {
     const view = render(
       <MeasurementDataPreview
         {...common}
-        tracePreview={tracePreview()}
+        tracePreview={stalePreview}
         tracePending
         traceError={null}
       />,
@@ -254,17 +291,21 @@ describe("measurement trace visualization", () => {
 
     expect(screen.getByText("Reading bounded trace preview…")).toBeVisible();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.queryByText("Unavailable · overload")).not.toBeInTheDocument();
+    expect(screen.queryByText(/stale-cohort/)).not.toBeInTheDocument();
 
     view.rerender(
       <MeasurementDataPreview
         {...common}
-        tracePreview={tracePreview()}
+        tracePreview={stalePreview}
         tracePending={false}
         traceError={new Error("offline")}
       />,
     );
     expect(screen.getByRole("alert")).toHaveTextContent("Trace unavailable: offline");
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.queryByText("Unavailable · overload")).not.toBeInTheDocument();
+    expect(screen.queryByText(/stale-cohort/)).not.toBeInTheDocument();
   });
 
   it("formats trace status without claiming an absent reduction", () => {

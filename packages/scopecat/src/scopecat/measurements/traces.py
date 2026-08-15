@@ -846,9 +846,19 @@ def _select_trace_variables(
         synthetic_observables = tuple(
             variable for variable in observables if _is_trace_observable(variable)
         )
+        aligned_coordinates = (
+            ()
+            if len(synthetic_observables) != 1
+            else tuple(
+                variable
+                for variable in coordinates
+                if _is_trace_coordinate(variable)
+                and variable.dims == synthetic_observables[0].dims
+            )
+        )
         if (
             coordinate is None
-            and len(coordinates) == 0
+            and len(aligned_coordinates) == 0
             and len(synthetic_observables) == 1
         ):
             return None, synthetic_observables[0]

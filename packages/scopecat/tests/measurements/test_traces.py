@@ -565,6 +565,57 @@ def test_entity_trace_preview_synthesizes_sample_indices_without_coordinate() ->
     assert series.y == (1.0, 2.0, 3.0)
 
 
+def test_trace_preview_synthesizes_indices_with_an_unrelated_coordinate() -> None:
+    dataset = _entity_trace_dataset(segmented=True, coordinate=False)
+    dataset = _replace_dataset(
+        dataset,
+        dataset_schema=_replace_schema(
+            dataset.dataset_schema,
+            dimensions=(
+                *dataset.dataset_schema.dimensions,
+                MeasurementDimension(id="monitor_sample", kind="sample", size=2),
+            ),
+            variables=(
+                *dataset.dataset_schema.variables,
+                MeasurementVariable(
+                    id="monitor_time",
+                    role="coordinate",
+                    dtype="float64",
+                    unit="s",
+                    dims=("point", "monitor_sample"),
+                    recording_group_id="monitor",
+                ),
+            ),
+        ),
+        records=tuple(
+            _replace_record_values(
+                record,
+                coordinates={
+                    "monitor_time": MeasurementArray.create(
+                        dtype="float64",
+                        unit="s",
+                        values=(0.0, 1.0),
+                    )
+                },
+            )
+            for record in dataset.records
+        ),
+    )
+
+    projection = project_measurement_trace_preview(
+        dataset,
+        "response",
+        entity_indices=(0,),
+        max_series=1,
+        max_samples=8,
+        value_mode="value",
+    )
+
+    assert projection.coordinate_id == "sample"
+    assert projection.source_coordinate_id is None
+    assert projection.series[0].x == (0, 1, 2)
+
+
 def _replace_schema(
     schema: MeasurementDatasetSchema,
     **updates: object,

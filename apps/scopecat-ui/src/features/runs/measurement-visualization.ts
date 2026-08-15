@@ -257,21 +257,26 @@ export function measurementTraceQueryPlans(
     schema,
   );
   return observables.flatMap((observable) => {
-    const compatibleCoordinates = coordinates.filter(
+    const alignedCoordinates = coordinates.filter(
       (coordinate) =>
         coordinate.dims.every((dimension, index) => dimension === observable.dims[index]) &&
-        coordinate.recordingGroupId === observable.recordingGroupId &&
         coordinate.entityAxisId === observable.entityAxisId,
+    );
+    const compatibleCoordinates = alignedCoordinates.filter(
+      (coordinate) => coordinate.recordingGroupId === observable.recordingGroupId,
     );
     const selectedCoordinates: Array<VariableDescriptor | undefined> =
       compatibleCoordinates.length > 0
         ? compatibleCoordinates
-        : coordinates.length === 0
+        : alignedCoordinates.length === 0
           ? [undefined]
           : [];
+    const sampleDimensionId = observable.dims
+      .slice(1)
+      .find((dimension) => dimension !== observable.entityAxisId)!;
     return selectedCoordinates.flatMap((coordinate) =>
       valueModes(observable).map((valueMode) => ({
-        id: `trace:${observable.id}:${coordinate?.id ?? observable.dims.at(-1)}:${valueMode}`,
+        id: `trace:${observable.id}:${coordinate?.id ?? sampleDimensionId}:${valueMode}`,
         label:
           compatibleCoordinates.length <= 1
             ? chartTitle(observable, valueMode)
@@ -1027,7 +1032,7 @@ function formatEntityMeasurementValue(
         : `${shape.map((extent) => extent ?? "?").join(" × ")} samples each`;
   const availability =
     complete === selected.length ? "All available" : `${complete}/${selected.length} complete`;
-  const reasons = entityFailureReasons(value, selected);
+  const reasons = entityFailureReasons(value, variable.entityAxisOffset!, selected);
   return [
     `${count} entities`,
     shapeSummary,
@@ -1039,10 +1044,26 @@ function formatEntityMeasurementValue(
     .join(" · ");
 }
 
-function entityFailureReasons(value: MeasurementValue, selected: number[]): string[] {
+function entityFailureReasons(
+  value: MeasurementValue,
+  entityAxisOffset: number,
+  selected: number[],
+): string[] {
   if (value.kind === "unavailable") return [value.reason];
   if (value.kind === "array") {
-    return value.availability ? distinctReasons(value.availability.unavailable) : [];
+    if (!value.availability) return [];
+    const selectedSet = new Set(selected);
+    const entityStride = value.shape
+      .slice(entityAxisOffset + 1)
+      .reduce((product, extent) => product * extent, 1);
+    const entityExtent = value.shape[entityAxisOffset]!;
+    return distinctReasons(
+      value.availability.unavailable.filter((group) =>
+        group.flat_indices.some((flatIndex) =>
+          selectedSet.has(Math.floor(flatIndex / entityStride) % entityExtent),
+        ),
+      ),
+    );
   }
   if (value.kind !== "segmented_array") return [];
   return [

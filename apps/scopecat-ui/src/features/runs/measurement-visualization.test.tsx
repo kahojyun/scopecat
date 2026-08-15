@@ -257,6 +257,93 @@ describe("measurement visualization", () => {
     );
   });
 
+  it("reports dense array failures only for the selected entities", () => {
+    const source = entityTraceSchema(false);
+    const schema = {
+      ...source,
+      variables: source.variables?.map((variable) => ({
+        ...variable,
+        dims: ["point", "sample", "qubit"],
+      })),
+    };
+    const items = [
+      record(
+        0,
+        {
+          frequency: {
+            kind: "array",
+            dtype: "float64",
+            unit: "GHz",
+            shape: [3, 2],
+            values: [
+              [4, 4],
+              [5, 5],
+              [6, 6],
+            ],
+          },
+        },
+        {
+          trace: {
+            kind: "array",
+            dtype: "float64",
+            unit: "ratio",
+            shape: [3, 2],
+            values: [
+              [1, 4],
+              [2, 5],
+              [3, 6],
+            ],
+            availability: {
+              valid: [
+                [false, true],
+                [true, false],
+                [true, true],
+              ],
+              unavailable: [
+                { reason: "missing", flat_indices: [0] },
+                { reason: "overload", flat_indices: [3] },
+              ],
+            },
+          },
+        },
+      ),
+    ];
+
+    expect(measurementTable(items, schema, { qubit: [0] }).rows[0]?.cells.at(-1)).toBe(
+      "1/2 entities · 3 samples each · ratio · 0/1 complete · missing",
+    );
+    expect(measurementTable(items, schema, { qubit: [1] }).rows[0]?.cells.at(-1)).toBe(
+      "1/2 entities · 3 samples each · ratio · 0/1 complete · overload",
+    );
+  });
+
+  it("keeps a persisted multi-selection visible when an entity axis grows", () => {
+    const smallSchema = entityScalarSchemaWithEntityCount(3);
+    const largeSchema = entityScalarSchemaWithEntityCount(13);
+    const common = {
+      sliceError: null,
+      slicePending: false,
+      fixedAxisIndices: {},
+      onFixedAxisIndexChange: vi.fn(),
+    };
+    const view = render(
+      <MeasurementDataPreview {...common} preview={{ schema: smallSchema, items: [] }} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Qubit Q0" }));
+    fireEvent.click(screen.getByRole("button", { name: "Qubit Q1" }));
+    expect(screen.getByText("2 selected")).toBeVisible();
+
+    view.rerender(
+      <MeasurementDataPreview {...common} preview={{ schema: largeSchema, items: [] }} />,
+    );
+
+    const selector = screen.getByRole("combobox", { name: "Qubit entity" });
+    expect(selector).toHaveValue("__multiple_entities__");
+    expect(screen.getByRole("option", { name: "2 selected" })).toBeDisabled();
+    expect(screen.getByText("2 selected", { selector: "span" })).toBeVisible();
+  });
+
   it("delegates segmented entity arrays to an indexed bounded trace", () => {
     const schema = entityTraceSchema(true);
     const items = [
@@ -1293,6 +1380,34 @@ function entityScalarSchema(): MeasurementDatasetSchema {
     ],
     primary_coordinates: ["bias"],
     primary_observables: ["readout"],
+  };
+}
+
+function entityScalarSchemaWithEntityCount(size: number): MeasurementDatasetSchema {
+  const schema = entityScalarSchema();
+  const values = Array.from({ length: size }, (_value, index) => ({
+    id: `q${index}`,
+    kind: "qubit",
+    metadata: { label: `Q${index}` },
+  }));
+  return {
+    ...schema,
+    dimensions: schema.dimensions.map((dimension) =>
+      dimension.id === "qubit"
+        ? { ...dimension, size, index: { kind: "entity", values } }
+        : dimension,
+    ),
+    variables: schema.variables?.map((variable) =>
+      variable.source_entity_products
+        ? {
+            ...variable,
+            source_entity_products: {
+              ...variable.source_entity_products,
+              product_ids: values.map((entity) => `readout/${entity.id}`),
+            },
+          }
+        : variable,
+    ),
   };
 }
 

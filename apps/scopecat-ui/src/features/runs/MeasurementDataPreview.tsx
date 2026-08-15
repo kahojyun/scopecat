@@ -24,6 +24,7 @@ import {
 
 const MAX_SLICE_SELECT_OPTIONS = 256;
 const MAX_ENTITY_CHIPS = 12;
+const MULTIPLE_ENTITY_SELECTION = "__multiple_entities__";
 
 export function MeasurementDataPreview({
   preview,
@@ -262,11 +263,24 @@ export function MeasurementDataPreview({
                     className="max-w-52 rounded border border-line bg-panel px-2 py-1 text-[0.6rem] text-text-soft"
                     onChange={(event) => {
                       if (event.target.value === "all") selectAllEntities(axis.id);
-                      else selectOneEntity(axis.id, event.target.value);
+                      else if (event.target.value !== MULTIPLE_ENTITY_SELECTION) {
+                        selectOneEntity(axis.id, event.target.value);
+                      }
                     }}
-                    value={selected?.length === 1 ? selected[0] : "all"}
+                    value={
+                      selected === undefined
+                        ? "all"
+                        : selected.length === 1
+                          ? selected[0]
+                          : MULTIPLE_ENTITY_SELECTION
+                    }
                   >
                     <option value="all">All {axis.size}</option>
+                    {selected && selected.length > 1 && (
+                      <option disabled value={MULTIPLE_ENTITY_SELECTION}>
+                        {selected.length} selected
+                      </option>
+                    )}
                     {axis.members.map((member) => (
                       <option key={member.identity} value={member.identity}>
                         {member.label}
@@ -312,7 +326,9 @@ export function MeasurementDataPreview({
             </span>
           </div>
           {traceChart && <MeasurementChart chart={traceChart} />}
-          {tracePreview && <TraceAvailabilityDetails preview={tracePreview} />}
+          {!tracePending && !traceError && tracePreview && (
+            <TraceAvailabilityDetails preview={tracePreview} />
+          )}
           {!tracePending && !traceError && tracePreview && !traceChart && (
             <p className="m-0 text-[0.62rem] text-text-dim">
               No durable or available series were returned for this bounded selection.
