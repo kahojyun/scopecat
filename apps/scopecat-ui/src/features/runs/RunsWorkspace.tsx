@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronRight,
@@ -33,7 +33,11 @@ import type {
 import { useConfirmationDialog, type ConfirmationRequest } from "../../ui/ConfirmationDialog";
 import { classes, eyebrow, secondaryButton } from "../../ui/styles";
 import { RunDetail } from "./RunDetail";
-import { measurementSlicePlan, measurementTraceQueryPlans } from "./measurement-visualization";
+import {
+  measurementSlicePlan,
+  measurementTraceQueryPlans,
+  type MeasurementEntitySelection,
+} from "./measurement-visualization";
 
 type FilterKey = "all" | "active" | "attention" | "complete";
 interface OlderRunHistory {
@@ -80,6 +84,25 @@ export function RunsWorkspace({
     runId: string;
     planId: string;
   }>();
+  const [requestedMeasurementEntities, setRequestedMeasurementEntities] = useState<{
+    runId: string;
+    selection: MeasurementEntitySelection;
+  }>();
+  const handleMeasurementEntitySelectionChange = useCallback(
+    (selection: MeasurementEntitySelection) => {
+      if (!selectedRunId) return;
+      setRequestedMeasurementEntities((current) => {
+        if (
+          current?.runId === selectedRunId &&
+          JSON.stringify(current.selection) === JSON.stringify(selection)
+        ) {
+          return current;
+        }
+        return { runId: selectedRunId, selection };
+      });
+    },
+    [selectedRunId],
+  );
   const latestRunHeadCursor = useRef<number | undefined>(undefined);
   const runsQuery = useQuery({
     queryKey: ["runs"],
@@ -207,6 +230,15 @@ export function RunsWorkspace({
     [requestedMeasurementSlice, selectedRunId, slicePlan],
   );
   const measurementSliceKey = JSON.stringify(measurementFixedAxisIndices);
+  const currentMeasurementEntitySelection =
+    requestedMeasurementEntities !== undefined &&
+    requestedMeasurementEntities.runId === selectedRunId
+      ? requestedMeasurementEntities.selection
+      : {};
+  const selectedTraceEntityIndices = selectedTracePlan?.entityAxisId
+    ? currentMeasurementEntitySelection[selectedTracePlan.entityAxisId]
+    : undefined;
+  const measurementTraceEntityKey = JSON.stringify(selectedTraceEntityIndices ?? null);
   const measurementSliceQuery = useQuery({
     queryKey: ["measurement-slice", selectedRunId, measurementSliceKey],
     queryFn: ({ signal }) =>
@@ -219,15 +251,24 @@ export function RunsWorkspace({
     enabled: selectedRunId !== undefined && slicePlan !== undefined,
   });
   const measurementTraceQuery = useQuery({
-    queryKey: ["measurement-trace", selectedRunId, selectedTracePlan?.id, measurementSliceKey],
+    queryKey: [
+      "measurement-trace",
+      selectedRunId,
+      selectedTracePlan?.id,
+      measurementSliceKey,
+      measurementTraceEntityKey,
+    ],
     queryFn: ({ signal }) =>
       getMeasurementTracePreview(
         selectedRunId!,
         {
           observableId: selectedTracePlan!.observableId,
-          coordinateId: selectedTracePlan!.coordinateId,
+          ...(selectedTracePlan!.coordinateId
+            ? { coordinateId: selectedTracePlan!.coordinateId }
+            : {}),
           fixedAxisIndices: measurementFixedAxisIndices,
           valueMode: selectedTracePlan!.valueMode,
+          ...(selectedTraceEntityIndices ? { entityIndices: selectedTraceEntityIndices } : {}),
         },
         signal,
       ),
@@ -457,6 +498,7 @@ export function RunsWorkspace({
                   planId,
                 });
               }}
+              onMeasurementEntitySelectionChange={handleMeasurementEntitySelectionChange}
               measurementFixedAxisIndices={measurementFixedAxisIndices}
               onMeasurementFixedAxisIndexChange={(axisId, index) => {
                 setRequestedMeasurementSlice({

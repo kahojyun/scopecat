@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import type { MeasurementTracePreview } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
@@ -17,6 +17,7 @@ import {
   type MeasurementChartPlan,
   type MeasurementChartSeries,
   type MeasurementEntityAxis,
+  type MeasurementEntitySelection,
   type MeasurementSliceAxis,
   type MeasurementTraceQueryPlan,
 } from "./measurement-visualization";
@@ -37,6 +38,7 @@ export function MeasurementDataPreview({
   tracePending = false,
   traceError = null,
   onTracePlanChange,
+  onEntitySelectionChange,
 }: {
   preview: MeasurementPreview;
   slice?: MeasurementSlicePreview;
@@ -50,6 +52,7 @@ export function MeasurementDataPreview({
   tracePending?: boolean;
   traceError?: Error | null;
   onTracePlanChange?: (planId: string) => void;
+  onEntitySelectionChange?: (selection: MeasurementEntitySelection) => void;
 }) {
   const slicePlan = useMemo(() => measurementSlicePlan(preview.schema), [preview.schema]);
   const chartSchema = slice?.schema ?? preview.schema;
@@ -72,6 +75,9 @@ export function MeasurementDataPreview({
       ),
     [entityAxes, selectedEntityIdentities],
   );
+  useEffect(() => {
+    onEntitySelectionChange?.(entitySelection);
+  }, [entitySelection, onEntitySelectionChange]);
   const charts = useMemo(() => {
     if (!slicePlan) {
       return planMeasurementCharts(preview.items, preview.schema, undefined, entitySelection);
@@ -306,6 +312,7 @@ export function MeasurementDataPreview({
             </span>
           </div>
           {traceChart && <MeasurementChart chart={traceChart} />}
+          {tracePreview && <TraceAvailabilityDetails preview={tracePreview} />}
           {!tracePending && !traceError && tracePreview && !traceChart && (
             <p className="m-0 text-[0.62rem] text-text-dim">
               No durable or available series were returned for this bounded selection.
@@ -355,8 +362,8 @@ export function MeasurementDataPreview({
       {(slicePlan || tracePlans.length > 0 || entityAxes.length > 0) && (
         <p className="m-0 border-b border-line bg-panel-soft px-3 py-1.5 text-[0.56rem] text-text-dim">
           Heatmaps and point-scalar plots use the selected durable slice when available. Trace
-          previews are bounded by the server for the selected authored domain. Entity selection
-          filters comparison plots and table summaries; raw records remain run-wide.
+          previews are bounded by the server for the selected authored domain and entities. Entity
+          selection also filters comparison plots and table summaries; raw records remain run-wide.
         </p>
       )}
 
@@ -430,6 +437,108 @@ function tracePreviewStatus(
   if (pending) return "Reading bounded trace preview…";
   if (!preview) return "Waiting for bounded trace preview";
   return measurementTraceStatus(preview);
+}
+
+function TraceAvailabilityDetails({ preview }: { preview: MeasurementTracePreview }) {
+  const incomplete = preview.series.filter(
+    (series) => series.available_sample_count < series.source_sample_count,
+  );
+  if (preview.failures.length === 0 && incomplete.length === 0 && !preview.entity_acquisition) {
+    return null;
+  }
+  const acquisition = preview.entity_acquisition;
+  return (
+    <div
+      className="mt-2 grid gap-1.5 rounded border border-line bg-panel-soft p-2 text-[0.59rem] text-text-dim"
+      data-testid="measurement-trace-availability"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <strong className="text-text-soft">
+          {[
+            preview.failures.length > 0
+              ? `${preview.failures.length.toLocaleString()} unavailable`
+              : undefined,
+            incomplete.length > 0 ? `${incomplete.length.toLocaleString()} incomplete` : undefined,
+          ]
+            .filter(Boolean)
+            .join(" · ") || "Entity acquisition"}
+        </strong>
+        {acquisition && (
+          <span>
+            {acquisition.policy.replaceAll("_", " ")}
+            {acquisition.cohort_id ? ` · cohort ${acquisition.cohort_id}` : ""}
+          </span>
+        )}
+      </div>
+      {preview.failures.map((failure, index) => (
+        <details
+          className="rounded border border-line bg-panel px-2 py-1.5"
+          key={`${failure.point_index}:${failure.entity_index ?? "point"}:${index}`}
+        >
+          <summary className="cursor-pointer text-text-soft">
+            <strong>{failure.label}</strong>
+            <span className="ml-1.5 text-red">Unavailable · {failure.reasons.join(", ")}</span>
+          </summary>
+          {failure.evidence ? (
+            <TraceEvidence evidence={failure.evidence} />
+          ) : (
+            <p className="mt-1.5 mb-0">No acquisition evidence was recorded.</p>
+          )}
+        </details>
+      ))}
+      {incomplete.map((series, index) => (
+        <details
+          className="rounded border border-line bg-panel px-2 py-1.5"
+          key={`${series.point_index}:${series.entity_index ?? "point"}:partial:${index}`}
+        >
+          <summary className="cursor-pointer text-text-soft">
+            <strong>{series.label}</strong>
+            <span className="ml-1.5 text-yellow">
+              {series.available_sample_count}/{series.source_sample_count} samples available
+              {series.unavailable_reasons.length > 0
+                ? ` · ${series.unavailable_reasons.join(", ")}`
+                : ""}
+            </span>
+          </summary>
+          {series.evidence ? (
+            <TraceEvidence evidence={series.evidence} />
+          ) : (
+            <p className="mt-1.5 mb-0">No acquisition evidence was recorded.</p>
+          )}
+        </details>
+      ))}
+    </div>
+  );
+}
+
+function TraceEvidence({
+  evidence,
+}: {
+  evidence: NonNullable<MeasurementTracePreview["failures"][number]["evidence"]>;
+}) {
+  return (
+    <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1">
+      <dt>Result</dt>
+      <dd className="m-0 font-mono text-text-soft">
+        {evidence.instrument_id} · {evidence.acquisition_id} → {evidence.result_id}
+      </dd>
+      <dt>Command</dt>
+      <dd className="m-0 font-mono text-text-soft">{evidence.command_id}</dd>
+      <dt>Interface</dt>
+      <dd className="m-0 font-mono text-text-soft">{evidence.interface_id}</dd>
+      {evidence.component_path.length > 0 && (
+        <>
+          <dt>Component</dt>
+          <dd className="m-0 font-mono text-text-soft">{evidence.component_path.join(" / ")}</dd>
+        </>
+      )}
+      <dt>Interval</dt>
+      <dd className="m-0 font-mono text-text-soft">
+        <time dateTime={evidence.started_at}>{evidence.started_at}</time> →{" "}
+        <time dateTime={evidence.completed_at}>{evidence.completed_at}</time>
+      </dd>
+    </dl>
+  );
 }
 
 function sliceStatus(

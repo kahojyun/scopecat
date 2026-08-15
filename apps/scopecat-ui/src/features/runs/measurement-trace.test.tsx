@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MeasurementDataPreview } from "./MeasurementDataPreview";
 import {
@@ -10,6 +10,7 @@ import {
   measurementTraceStatus,
 } from "./measurement-visualization";
 import {
+  entityTraceSchema,
   realTraceSchema,
   tracePreview,
   traceSchema,
@@ -55,6 +56,15 @@ describe("measurement trace visualization", () => {
         valueMode: "value",
       },
     ]);
+  });
+
+  it("derives one server trace plan over an indexed entity axis", () => {
+    expect(measurementTraceQueryPlans(entityTraceSchema())[0]).toMatchObject({
+      id: "trace:response:frequency:magnitude",
+      entityAxisId: "qubit",
+      observableId: "response",
+      coordinateId: "frequency",
+    });
   });
 
   it("omits a trace pair when only one variable has a recording group", () => {
@@ -212,7 +222,7 @@ describe("measurement trace visualization", () => {
     ).toBeVisible();
     expect(
       screen.getByText(
-        "2 of 8 selected series returned · series limit applied · 5 of 100 source samples plotted · evenly downsampled",
+        "2 plotted · 2 of 8 selected examined · series limit applied · 5 of 100 source samples plotted · unavailable samples omitted or min/max downsampling applied",
       ),
     ).toBeVisible();
   });
@@ -259,7 +269,80 @@ describe("measurement trace visualization", () => {
 
   it("formats trace status without claiming an absent reduction", () => {
     expect(measurementTraceStatus(tracePreview())).toBe(
-      "1 of 1 selected series returned · 3 source samples plotted",
+      "1 plotted · 1 of 1 selected examined · 3 source samples plotted",
     );
+  });
+
+  it("filters entity trace queries and exposes failure acquisition evidence", async () => {
+    const schema = entityTraceSchema();
+    const plans = measurementTraceQueryPlans(schema);
+    const onEntitySelectionChange = vi.fn();
+    const evidence = {
+      command_id: "collect-q1",
+      instrument_id: "readout",
+      interface_id: "test.readout/v1",
+      component_path: ["channel-b"],
+      acquisition_id: "sample",
+      result_id: "q1-response",
+      started_at: "2026-08-15T10:00:00Z",
+      completed_at: "2026-08-15T10:00:00.002Z",
+    };
+    const preview = tracePreview({
+      entity_dimension_id: "qubit",
+      entity_acquisition: { policy: "all_or_nothing", cohort_id: "readout-cohort" },
+      layout: "small_multiples",
+      series: [
+        {
+          ...traceSeries(0, [4, 6], [1, 3], 3),
+          label: "point-0 · Q0",
+          entity_index: 0,
+          entity: { id: "q0", kind: "qubit", metadata: { label: "Q0" } },
+          available_sample_count: 2,
+          unavailable_reasons: ["overload"],
+        },
+      ],
+      failures: [
+        {
+          point_index: 0,
+          logical_point_id: "point-0",
+          label: "point-0 · Q1",
+          entity_index: 1,
+          entity: { id: "q1", kind: "qubit", metadata: { label: "Q1" } },
+          reasons: ["overload"],
+          evidence,
+        },
+      ],
+      selected_series_count: 2,
+      inspected_series_count: 2,
+      returned_series_count: 1,
+      source_sample_count: 3,
+      returned_sample_count: 2,
+      samples_reduced: true,
+    });
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items: [] }}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{}}
+        onFixedAxisIndexChange={vi.fn()}
+        tracePlans={plans}
+        selectedTracePlanId={plans[0]!.id}
+        tracePreview={preview}
+        onEntitySelectionChange={onEntitySelectionChange}
+      />,
+    );
+
+    expect(screen.getByText("all or nothing · cohort readout-cohort")).toBeVisible();
+    expect(screen.getByText("small multiples")).toBeVisible();
+    expect(screen.getByText("Unavailable · overload")).toBeVisible();
+    expect(screen.getByText("2/3 samples available · overload")).toBeVisible();
+    fireEvent.click(screen.getByText("point-0 · Q1"));
+    expect(screen.getByText("readout · sample → q1-response")).toBeVisible();
+    expect(screen.getByText("channel-b")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Qubits Q1" }));
+    await waitFor(() => expect(onEntitySelectionChange).toHaveBeenLastCalledWith({ qubit: [1] }));
   });
 });

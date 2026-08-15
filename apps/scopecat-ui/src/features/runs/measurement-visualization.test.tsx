@@ -217,7 +217,7 @@ describe("measurement visualization", () => {
     ]);
   });
 
-  it("overlays same-shape entity waveforms and summarizes incomplete members", () => {
+  it("delegates same-shape entity waveforms to bounded server traces", () => {
     const schema = entityTraceSchema(false);
     const items = [
       record(
@@ -247,36 +247,17 @@ describe("measurement visualization", () => {
       ),
     ];
 
-    expect(planMeasurementCharts(items, schema)).toEqual([
-      expect.objectContaining({
-        id: "entity-trace:trace:qubit:frequency:value",
-        kind: "line",
-        layout: "overlay",
-        series: [
-          expect.objectContaining({
-            label: "Q0",
-            points: [
-              { x: 4, y: 1 },
-              { x: 5, y: 2 },
-              { x: 6, y: 3 },
-            ],
-          }),
-          expect.objectContaining({
-            label: "Q1",
-            points: [
-              { x: 4, y: 4 },
-              { x: 6, y: 6 },
-            ],
-          }),
-        ],
-      }),
-    ]);
+    expect(planMeasurementCharts(items, schema)).toEqual([]);
+    expect(measurementTraceQueryPlans(schema)[0]).toMatchObject({
+      id: "trace:trace:frequency:value",
+      entityAxisId: "qubit",
+    });
     expect(measurementTable(items, schema).rows[0]?.cells.at(-1)).toBe(
       "2 entities · 3 samples each · ratio · 1/2 complete · missing",
     );
   });
 
-  it("uses small multiples for segmented arrays and keeps unavailable entities visible", () => {
+  it("delegates segmented entity arrays to an indexed bounded trace", () => {
     const schema = entityTraceSchema(true);
     const items = [
       record(
@@ -309,39 +290,16 @@ describe("measurement visualization", () => {
       ),
     ];
 
-    expect(planMeasurementCharts(items, schema)).toEqual([
-      expect.objectContaining({
-        layout: "small-multiples",
-        note: expect.stringContaining("1 selected entity segments are unavailable"),
-        series: [
-          expect.objectContaining({
-            label: "Q0",
-            points: [
-              { x: 0, y: 1 },
-              { x: 1, y: 2 },
-            ],
-          }),
-          expect.objectContaining({ label: "Q1", points: [] }),
-        ],
-      }),
-    ]);
+    expect(planMeasurementCharts(items, schema)).toEqual([]);
+    const tracePlan = measurementTraceQueryPlans(schema)[0];
+    expect(tracePlan).toMatchObject({
+      id: "trace:trace:sample:value",
+      entityAxisId: "qubit",
+    });
+    expect(tracePlan).not.toHaveProperty("coordinateId");
     expect(measurementTable(items, schema).rows[0]?.cells.at(-1)).toBe(
       "2 entities · variable length · V · 1/2 complete · missing",
     );
-
-    render(
-      <MeasurementDataPreview
-        preview={{ schema, items }}
-        sliceError={null}
-        slicePending={false}
-        fixedAxisIndices={{}}
-        onFixedAxisIndexChange={vi.fn()}
-      />,
-    );
-    expect(
-      screen.getByRole("img", { name: "Trace by Qubit · Point 1 · Q0: Trace [V] by Sample" }),
-    ).toBeVisible();
-    expect(screen.getByText("Unavailable · missing")).toBeVisible();
   });
 
   it("always uses scatter for a one-dimensional point cloud", () => {
