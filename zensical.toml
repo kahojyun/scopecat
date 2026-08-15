@@ -2,9 +2,9 @@
 site_name = "Scopecat"
 site_description = "User and contributor documentation for Scopecat."
 site_author = "Scopecat contributors"
-site_url = "https://kahojyun.github.io/scopecat/"
-repo_url = "https://github.com/kahojyun/scopecat"
-repo_name = "kahojyun/scopecat"
+site_url = "https://scopecat-project.github.io/scopecat/"
+repo_url = "https://github.com/scopecat-project/scopecat"
+repo_name = "scopecat-project/scopecat"
 edit_uri = "edit/main/docs/"
 copyright = "Copyright &copy; 2026 Scopecat contributors"
 

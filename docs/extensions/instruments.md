@@ -60,10 +60,10 @@ An operation that disturbs persistent state lists the affected property refs in
 
 Use the package's source-adjacent guides for the exact extension workflow:
 
-- [driver authoring](https://github.com/kahojyun/scopecat/blob/main/packages/scopecat-instruments/README.md#driver-authoring)
-- [typed client source generation](https://github.com/kahojyun/scopecat/blob/main/packages/scopecat-instruments/README.md#typed-client-source-generation)
-- [configuration](https://github.com/kahojyun/scopecat/blob/main/packages/scopecat-instruments/README.md#configuration)
-- [testing](https://github.com/kahojyun/scopecat/blob/main/packages/scopecat-instruments/README.md#testing)
+- [driver authoring](https://github.com/scopecat-project/scopecat/blob/main/packages/scopecat-instruments/README.md#driver-authoring)
+- [typed client source generation](https://github.com/scopecat-project/scopecat/blob/main/packages/scopecat-instruments/README.md#typed-client-source-generation)
+- [configuration](https://github.com/scopecat-project/scopecat/blob/main/packages/scopecat-instruments/README.md#configuration)
+- [testing](https://github.com/scopecat-project/scopecat/blob/main/packages/scopecat-instruments/README.md#testing)
 
 The [instrument control guide](../how-to/control-instruments.md) shows the
 resulting live and symbolic user experience. Keep driver-specific command and

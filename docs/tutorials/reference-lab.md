@@ -75,7 +75,7 @@ than an explanation to add to the tutorial.
 
 ## Continue through the gallery
 
-The [complete reference-lab gallery](https://github.com/kahojyun/scopecat/blob/main/examples/reference_lab/README.md#gallery)
+The [complete reference-lab gallery](https://github.com/scopecat-project/scopecat/blob/main/examples/reference_lab/README.md#gallery)
 maps each tested script to its intended scenario. Useful next steps include:
 
 - `20_flux_spectroscopy.py` for scan data, fitting, and parameter proposals;

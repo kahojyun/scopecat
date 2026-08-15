@@ -10,7 +10,7 @@ Daemon ownership and failure handling live in the
 Execution ordering and physical authority live in the
 [execution semantics](../development/architecture/execution.md). Provider registration,
 generation, configuration, and driver tests live in the
-[instrument provider README](https://github.com/kahojyun/scopecat/blob/main/packages/scopecat-instruments/README.md).
+[instrument provider README](https://github.com/scopecat-project/scopecat/blob/main/packages/scopecat-instruments/README.md).
 
 ## Use a configured device now
 
@@ -218,9 +218,9 @@ return SpectrumResult(rf_frequency=rf)
 ```
 
 The reference lab's
-[`xy_drive` workflow](https://github.com/kahojyun/scopecat/blob/main/examples/reference_lab/src/reference_lab/workflows/xy_drive.py)
+[`xy_drive` workflow](https://github.com/scopecat-project/scopecat/blob/main/examples/reference_lab/src/reference_lab/workflows/xy_drive.py)
 shows this composition, and the
-[`fixed-IF quantum sweep`](https://github.com/kahojyun/scopecat/blob/main/examples/reference_lab/notebooks/36_q0_fixed_if_lo_sweep.py)
+[`fixed-IF quantum sweep`](https://github.com/scopecat-project/scopecat/blob/main/examples/reference_lab/notebooks/36_q0_fixed_if_lo_sweep.py)
 shows an LO host effect bounding domain batches.
 
 Routing determines which source is changed. Equal requests to one resolved LO
