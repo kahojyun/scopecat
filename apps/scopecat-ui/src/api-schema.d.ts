@@ -1476,12 +1476,13 @@ export interface components {
             points: components["schemas"]["CompiledPointInspection-Output"][];
             /** Points Truncated */
             points_truncated: boolean;
+            program?: components["schemas"]["CompiledProgramInspection-Output"] | null;
             /**
              * Schema Id
-             * @default scopecat.compiled_artifact_inspection.v1
+             * @default scopecat.compiled_artifact_inspection.v2
              * @constant
              */
-            schema_id: "scopecat.compiled_artifact_inspection.v1";
+            schema_id: "scopecat.compiled_artifact_inspection.v2";
             /**
              * Warnings
              * @default []
@@ -1533,6 +1534,123 @@ export interface components {
             waveforms: components["schemas"]["CompiledWaveformInspection"][];
             /** Waveforms Truncated */
             waveforms_truncated: boolean;
+        };
+        /**
+         * CompiledProgramInspection
+         * @description Structured multi-layer view of one bounded compiled program variant.
+         */
+        "CompiledProgramInspection-Output": {
+            /** Dialect Id */
+            dialect_id: string;
+            /** Layers */
+            layers: components["schemas"]["CompiledProgramInspectionLayer-Output"][];
+            /**
+             * Links
+             * @default []
+             */
+            links: components["schemas"]["CompiledProgramInspectionLink"][];
+            /** Program Id */
+            program_id: string;
+            /**
+             * Schema Id
+             * @default scopecat.compiled_program_inspection.v1
+             * @constant
+             */
+            schema_id: "scopecat.compiled_program_inspection.v1";
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+        };
+        /**
+         * CompiledProgramInspectionLayer
+         * @description A bounded semantic projection of one program compilation stage.
+         */
+        "CompiledProgramInspectionLayer-Output": {
+            /**
+             * Facts
+             * @default []
+             */
+            facts: components["schemas"]["CompiledInspectionFact-Output"][];
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Node Count */
+            node_count: number;
+            /** Nodes */
+            nodes: components["schemas"]["CompiledProgramInspectionNode-Output"][];
+            /** Nodes Truncated */
+            nodes_truncated: boolean;
+            /** Root Ids */
+            root_ids: string[];
+        };
+        /**
+         * CompiledProgramInspectionLink
+         * @description A stable many-to-many lowering relation between inspection nodes.
+         */
+        CompiledProgramInspectionLink: {
+            /** Relation */
+            relation: string;
+            /** Source Layer Id */
+            source_layer_id: string;
+            /** Source Node Id */
+            source_node_id: string;
+            /** Target Layer Id */
+            target_layer_id: string;
+            /** Target Node Id */
+            target_node_id: string;
+        };
+        /**
+         * CompiledProgramInspectionNode
+         * @description One bounded, identity-bearing node in a compiler inspection layer.
+         */
+        "CompiledProgramInspectionNode-Output": {
+            /**
+             * Child Count
+             * @default 0
+             */
+            child_count: number;
+            /** Duration Seconds */
+            duration_seconds?: string | null;
+            /**
+             * Entity Ids
+             * @default []
+             */
+            entity_ids: string[];
+            /**
+             * Facts
+             * @default []
+             */
+            facts: components["schemas"]["CompiledInspectionFact-Output"][];
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Parent Id */
+            parent_id?: string | null;
+            /**
+             * Resource Ids
+             * @default []
+             */
+            resource_ids: string[];
+            /**
+             * Result Ids
+             * @default []
+             */
+            result_ids: string[];
+            /** Start Seconds */
+            start_seconds?: string | null;
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
         };
         /**
          * CompiledWaveformInspection

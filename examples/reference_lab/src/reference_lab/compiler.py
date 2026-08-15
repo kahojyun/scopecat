@@ -19,6 +19,7 @@ from scopecat_quantum._ids import (
     TargetCompileEntryId,
     TargetCompilerId,
 )
+from scopecat_quantum.inspection import inspect_quantum_program
 from scopecat_quantum.program_results import (
     MappedQuantumTarget,
     QuantumTargetEntryPointBinding,
@@ -73,6 +74,7 @@ class _QuantumLabArtifact:
 
 @dataclass(frozen=True, slots=True)
 class _ListQuantumLabArtifact(_QuantumLabArtifact):
+    compiled_points: tuple[_CompiledQuantumPoint, ...]
     entries: tuple[PreparedQuantumTargetEntry, ...]
     batch: PreparedQuantumTargetBatch
     target_artifact: ListModeArtifact = field(repr=False)
@@ -196,6 +198,7 @@ class QuantumLabCompiler:
         return _ListQuantumLabArtifact(
             program=program,
             points=tuple(point.values for point in points),
+            compiled_points=points,
             entries=entries,
             batch=batch,
             target_artifact=self._target_compiler.compile(batch.request),
@@ -271,7 +274,14 @@ class QuantumLabCompiler:
                 max_program_waveform_bytes=(self._target.max_program_waveform_bytes),
             ),
             inspection=(
-                inspect_list_mode_artifact(artifact.target_artifact)
+                inspect_list_mode_artifact(
+                    artifact.target_artifact,
+                    program=inspect_quantum_program(
+                        artifact.program,
+                        bound=artifact.compiled_points[0].bound,
+                        scheduled=artifact.entries[0].scheduled,
+                    ),
+                )
                 if request.inspection_requested
                 else None
             ),

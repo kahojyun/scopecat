@@ -18,6 +18,63 @@ class CompiledInspectionFact:
 
 
 @dataclass(frozen=True, slots=True)
+class CompiledProgramInspectionNode:
+    """One bounded, identity-bearing node in a compiler inspection layer."""
+
+    id: str
+    kind: str
+    label: str
+    parent_id: str | None = None
+    child_count: int = 0
+    entity_ids: tuple[str, ...] = ()
+    resource_ids: tuple[str, ...] = ()
+    result_ids: tuple[str, ...] = ()
+    start_seconds: str | None = None
+    duration_seconds: str | None = None
+    facts: tuple[CompiledInspectionFact, ...] = ()
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledProgramInspectionLayer:
+    """A bounded semantic projection of one program compilation stage."""
+
+    id: str
+    label: str
+    kind: str
+    node_count: int
+    nodes_truncated: bool
+    root_ids: tuple[str, ...]
+    nodes: tuple[CompiledProgramInspectionNode, ...]
+    facts: tuple[CompiledInspectionFact, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledProgramInspectionLink:
+    """A stable many-to-many lowering relation between inspection nodes."""
+
+    source_layer_id: str
+    source_node_id: str
+    target_layer_id: str
+    target_node_id: str
+    relation: str
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledProgramInspection:
+    """Structured multi-layer view of one bounded compiled program variant."""
+
+    dialect_id: str
+    program_id: str
+    layers: tuple[CompiledProgramInspectionLayer, ...]
+    links: tuple[CompiledProgramInspectionLink, ...] = ()
+    warnings: tuple[str, ...] = ()
+    schema_id: Literal["scopecat.compiled_program_inspection.v1"] = (
+        "scopecat.compiled_program_inspection.v1"
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class CompiledWaveformInspection:
     """Bounded samples and stable identity for one physical waveform."""
 
@@ -67,9 +124,10 @@ class CompiledArtifactInspection:
     points_truncated: bool
     bounds: CompiledInspectionBounds
     points: tuple[CompiledPointInspection, ...]
+    program: CompiledProgramInspection | None = None
     warnings: tuple[str, ...] = ()
-    schema_id: Literal["scopecat.compiled_artifact_inspection.v1"] = (
-        "scopecat.compiled_artifact_inspection.v1"
+    schema_id: Literal["scopecat.compiled_artifact_inspection.v2"] = (
+        "scopecat.compiled_artifact_inspection.v2"
     )
 
     def fact(self, fact_id: str) -> CompiledInspectionFact:
@@ -81,5 +139,9 @@ __all__ = [
     "CompiledInspectionBounds",
     "CompiledInspectionFact",
     "CompiledPointInspection",
+    "CompiledProgramInspection",
+    "CompiledProgramInspectionLayer",
+    "CompiledProgramInspectionLink",
+    "CompiledProgramInspectionNode",
     "CompiledWaveformInspection",
 ]

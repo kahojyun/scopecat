@@ -13,6 +13,7 @@ from scopecat.inspection import (
     CompiledInspectionBounds,
     CompiledInspectionFact,
     CompiledPointInspection,
+    CompiledProgramInspection,
     CompiledWaveformInspection,
 )
 
@@ -49,6 +50,7 @@ def inspect_list_mode_artifact(
     artifact: ListModeArtifact,
     *,
     bounds: ArtifactInspectionBounds | None = None,
+    program: CompiledProgramInspection | None = None,
 ) -> CompiledArtifactInspection:
     """Return deterministic statistics and min/max waveform previews."""
 
@@ -85,6 +87,7 @@ def inspect_list_mode_artifact(
             _inspect_entry(artifact, entry, bounds=selected_bounds)
             for entry in selected_entries
         ),
+        program=program,
     )
 
 

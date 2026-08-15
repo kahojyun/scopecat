@@ -715,7 +715,7 @@ def test_list_mode_artifact_inspection_is_bounded_and_preserves_peaks() -> None:
     [preview] = entry.waveforms
     source = artifact.entry_waveforms(artifact.entries[0])[0].samples
 
-    assert inspection.schema_id == "scopecat.compiled_artifact_inspection.v1"
+    assert inspection.schema_id == "scopecat.compiled_artifact_inspection.v2"
     assert inspection.kind == "reference_lab.list_mode.v1"
     assert inspection.point_count == 2
     assert inspection.points_truncated

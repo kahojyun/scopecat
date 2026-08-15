@@ -304,8 +304,15 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
     assert preview.selected_point.point_index == 14
     [inspection] = preview.domain_inspections
     assert inspection.point_index == 14
-    assert inspection.content.schema_id == ("scopecat.compiled_artifact_inspection.v1")
+    assert inspection.content.schema_id == ("scopecat.compiled_artifact_inspection.v2")
     assert inspection.content.kind == "reference_lab.list_mode.v1"
+    assert inspection.content.program is not None
+    assert tuple(layer.id for layer in inspection.content.program.layers) == (
+        "authored",
+        "logical",
+        "scheduled",
+    )
+    assert inspection.content.program.links
     [entry] = inspection.content.points
     assert entry.target_entry_id.endswith(".point-14")
 

@@ -6,6 +6,7 @@ import scopecat as sc
 from scopecat import Quantity
 
 from scopecat_quantum import authoring
+from scopecat_quantum.inspection import QuantumInspectionBounds, inspect_quantum_program
 
 
 def test_program_describe_and_draw_expose_the_authored_structure() -> None:
@@ -82,3 +83,20 @@ program inspection.example
     )
     assert authoring.describe(inspected_program) == inspected_program.describe()
     assert authoring.draw(inspected_program) == inspected_program.draw()
+
+    bound = authoring.bind(
+        inspected_program,
+        {"qubit": "q7", "rounds": 3},
+    )
+    inspection = inspect_quantum_program(
+        inspected_program,
+        bound=bound,
+        bounds=QuantumInspectionBounds(max_nodes_per_layer=64),
+    )
+    assert tuple(layer.id for layer in inspection.layers) == ("authored", "logical")
+    logical = inspection.layers[1]
+    assert logical.node_count == len(logical.nodes)
+    assert any(
+        node.kind == "repeat" and node.label == "repeat x3" for node in logical.nodes
+    )
+    assert any(node.entity_ids == ("q7",) for node in logical.nodes)

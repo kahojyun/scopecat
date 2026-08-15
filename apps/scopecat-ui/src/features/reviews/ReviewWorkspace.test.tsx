@@ -40,6 +40,14 @@ describe("ReviewWorkspace", () => {
     expect(screen.getByRole("img", { name: "Compiled physical waveforms" })).toBeVisible();
     expect(screen.getByText("awg-1/outputs/i")).toBeVisible();
     expect(screen.getByText("sha256:realization")).toBeVisible();
+    expect(screen.getByText("Quantum program")).toBeVisible();
+    expect(screen.getByRole("tab", { name: /Scheduled pulse events/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByText("play drive(q0)")).toBeVisible();
+    fireEvent.click(screen.getByText("play drive(q0)"));
+    expect(screen.getByText("entity q0")).toBeVisible();
   });
 
   it("submits off-grid coordinates without snapping to the planned point", async () => {
@@ -135,7 +143,7 @@ function reviewSession(): ReviewSession {
           artifact_id: "artifact-1",
           artifact_fingerprint: "sha256:artifact",
           content: {
-            schema_id: "scopecat.compiled_artifact_inspection.v1",
+            schema_id: "scopecat.compiled_artifact_inspection.v2",
             kind: "reference_lab.list_mode.v1",
             facts: [{ id: "sample_rate_hz", value: 1_000_000_000, unit: "Hz" }],
             point_count: 1,
@@ -144,6 +152,91 @@ function reviewSession(): ReviewSession {
               max_points: 1,
               max_waveforms_per_point: 12,
               max_samples_per_waveform: 256,
+            },
+            program: {
+              schema_id: "scopecat.compiled_program_inspection.v1",
+              dialect_id: "scopecat.quantum.program",
+              program_id: "ramsey",
+              warnings: [],
+              links: [
+                {
+                  source_layer_id: "logical",
+                  source_node_id: "logical:operation:body/gate",
+                  target_layer_id: "scheduled",
+                  target_node_id: "scheduled:event:drive",
+                  relation: "lowers_to",
+                },
+              ],
+              layers: [
+                {
+                  id: "authored",
+                  label: "Authored program",
+                  kind: "authored",
+                  node_count: 1,
+                  nodes_truncated: false,
+                  root_ids: ["authored:program"],
+                  facts: [],
+                  nodes: [
+                    {
+                      id: "authored:program",
+                      kind: "program",
+                      label: "program ramsey",
+                      child_count: 0,
+                      entity_ids: [],
+                      resource_ids: [],
+                      result_ids: ["iq"],
+                      facts: [],
+                      warnings: [],
+                    },
+                  ],
+                },
+                {
+                  id: "logical",
+                  label: "Bound logical program",
+                  kind: "logical",
+                  node_count: 1,
+                  nodes_truncated: false,
+                  root_ids: ["logical:operation:body/gate"],
+                  facts: [],
+                  nodes: [
+                    {
+                      id: "logical:operation:body/gate",
+                      kind: "gate",
+                      label: "x90(q0)",
+                      child_count: 0,
+                      entity_ids: ["q0"],
+                      resource_ids: [],
+                      result_ids: [],
+                      facts: [],
+                      warnings: [],
+                    },
+                  ],
+                },
+                {
+                  id: "scheduled",
+                  label: "Scheduled pulse events",
+                  kind: "scheduled",
+                  node_count: 1,
+                  nodes_truncated: false,
+                  root_ids: ["scheduled:event:drive"],
+                  facts: [],
+                  nodes: [
+                    {
+                      id: "scheduled:event:drive",
+                      kind: "play",
+                      label: "play drive(q0)",
+                      child_count: 0,
+                      entity_ids: ["q0"],
+                      resource_ids: ["awg-1/outputs/i"],
+                      result_ids: [],
+                      start_seconds: "0",
+                      duration_seconds: "1e-8",
+                      facts: [],
+                      warnings: [],
+                    },
+                  ],
+                },
+              ],
             },
             warnings: [],
             points: [
