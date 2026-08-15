@@ -48,6 +48,7 @@ from scopecat_quantum.pulses import (
     PulseProgram,
     PulseValidationError,
     iter_pulse_leaves,
+    pulse_leaf_owners,
     schedule,
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
@@ -93,6 +94,21 @@ class Parallel:
 
 
 @dataclass(frozen=True, slots=True)
+class ParallelEach:
+    """Concrete entity-set branches retaining their authored map boundary."""
+
+    entity_set_id: str
+    entity_ids: tuple[QubitId, ...]
+    branches: tuple[QuantumNode, ...]
+
+    def __post_init__(self) -> None:
+        if not self.entity_set_id:
+            raise ValueError("quantum parallel_each entity-set id must be non-empty")
+        if len(self.entity_ids) != len(self.branches):
+            raise ValueError("quantum parallel_each requires one branch per entity")
+
+
+@dataclass(frozen=True, slots=True)
 class Repeat:
     """A finite repeated subtree."""
 
@@ -105,7 +121,7 @@ class Repeat:
 
 
 type QuantumOperation = GateCall | Measure | PulseBlock | ImplementedGate
-type QuantumNode = QuantumOperation | Sequence | Parallel | Repeat
+type QuantumNode = QuantumOperation | Sequence | Parallel | ParallelEach | Repeat
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +181,70 @@ class VerifiedQuantumProgram:
     @property
     def operations(self) -> tuple[QuantumOperation, ...]:
         return tuple(iter_quantum_operations(self.program.body))
+
+
+@dataclass(frozen=True, slots=True)
+class QuantumProgramWorkload:
+    """Logical expansion estimate without lowering pulses or rendering buffers."""
+
+    structural_operation_count: int
+    expanded_operation_count: int
+    selected_entity_count: int
+    max_parallel_width: int
+
+
+def estimate_quantum_program_workload(
+    program: VerifiedQuantumProgram,
+) -> QuantumProgramWorkload:
+    """Summarize retained control flow and its finite logical expansion."""
+
+    selected_entities: set[QubitId] = set()
+
+    def estimate(node: QuantumNode) -> tuple[int, int]:
+        if isinstance(node, GateCall):
+            selected_entities.update(node.qubits)
+            return 1, 1
+        if isinstance(node, Measure):
+            selected_entities.add(node.qubit)
+            return 1, 1
+        if isinstance(node, ImplementedGate):
+            selected_entities.update(node.call.qubits)
+            return 1, 1
+        if isinstance(node, PulseBlock):
+            selected_entities.update(
+                owner
+                for owner in pulse_leaf_owners(node.pulse_template.body)
+                if isinstance(owner, QubitId)
+            )
+            return 1, 1
+        if isinstance(node, Repeat):
+            structural, expanded = estimate(node.operation)
+            return structural, expanded * node.count
+        children = node.operations if isinstance(node, Sequence) else node.branches
+        if isinstance(node, ParallelEach):
+            selected_entities.update(node.entity_ids)
+        estimates = tuple(estimate(child) for child in children)
+        return (
+            sum(item[0] for item in estimates),
+            sum(item[1] for item in estimates),
+        )
+
+    def parallel_width(node: QuantumNode) -> int:
+        if isinstance(node, GateCall | Measure | ImplementedGate | PulseBlock):
+            return 1
+        if isinstance(node, Repeat):
+            return parallel_width(node.operation)
+        children = node.operations if isinstance(node, Sequence) else node.branches
+        own_width = len(children) if isinstance(node, Parallel | ParallelEach) else 1
+        return max((own_width, *(parallel_width(child) for child in children)))
+
+    structural, expanded = estimate(program.program.body)
+    return QuantumProgramWorkload(
+        structural_operation_count=structural,
+        expanded_operation_count=expanded,
+        selected_entity_count=len(selected_entities),
+        max_parallel_width=parallel_width(program.program.body),
+    )
 
 
 def iter_quantum_operations(node: QuantumNode) -> Iterator[QuantumOperation]:
@@ -448,7 +528,7 @@ def _iter_operations_with_paths(
                 (*path, "operations", index),
             )
         return
-    if isinstance(node, Parallel):
+    if isinstance(node, Parallel | ParallelEach):
         for index, branch in enumerate(node.branches):
             yield from _iter_operations_with_paths(
                 branch,
@@ -486,7 +566,7 @@ def _verify_parallel_qubits(
                 )
             )
         return touched
-    if isinstance(node, Parallel):
+    if isinstance(node, Parallel | ParallelEach):
         branch_qubits = tuple(
             _verify_parallel_qubits(
                 branch,
@@ -587,7 +667,7 @@ def _lower_node(
                 for child in node.operations
             )
         )
-    if isinstance(node, Parallel):
+    if isinstance(node, Parallel | ParallelEach):
         return PulseParallel(
             tuple(
                 _lower_node(

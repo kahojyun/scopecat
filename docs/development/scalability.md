@@ -423,6 +423,12 @@ The present architecture provides a direct end-to-end baseline:
   Inspection adds this as a bounded physical layer linked to scheduled events,
   so large programs can be navigated by abstraction level instead of rendered
   as one flat circuit or waveform list;
+- bound quantum IR retains entity-set parallel boundaries and repeat counts,
+  while inspection reports structural versus expanded operation counts. The
+  list-mode compiler keys its bounded artifact cache by compiler, normalized
+  scheduled request, and device snapshot. Its continuation report exposes
+  list-entry, waveform-memory, per-entry sample, and repetition budgets plus the
+  limiting dimension used to choose the next batch size;
 - the reference list-mode target combines its device entry capacity with an
   adaptive 8 MiB aggregate waveform target. Its AWG and virtual-capture codecs
   carry contiguous float64 samples in binary rather than expanding arrays into

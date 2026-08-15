@@ -189,6 +189,47 @@ class ListModePhysicalFootprint:
     acquisition_count: int
 
 
+@dataclass(frozen=True, slots=True)
+class ListModeCompilationKey:
+    """Stable cache identity for one target request and device snapshot."""
+
+    compiler_id: TargetCompilerId
+    device_snapshot_fingerprint: str
+    request_fingerprint: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeBudgetDimension:
+    """Observed use and capacity for one target-owned resource dimension."""
+
+    id: Literal[
+        "list_entries",
+        "waveform_memory_bytes",
+        "samples_per_entry",
+        "repetitions",
+    ]
+    scope: Literal["batch", "entry", "invocation"]
+    usage: int
+    limit: int
+    projected_point_capacity: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeCompilationBudget:
+    """Multi-dimensional admission report for a compiled list-mode batch."""
+
+    dimensions: tuple[ListModeBudgetDimension, ...]
+    next_batch_max_points: int
+    limiting_dimensions: tuple[str, ...]
+
+    def dimension(self, id: str) -> ListModeBudgetDimension:
+        for dimension in self.dimensions:
+            if dimension.id == id:
+                return dimension
+        raise KeyError(id)
+
+
 @dataclass(frozen=True, slots=True, order=True)
 class ClockPreparation:
     """Shared reference-clock preparation for one physical instrument."""
@@ -318,6 +359,35 @@ def physical_footprint_payload(
         "waveform_bytes": footprint.waveform_bytes,
         "event_count": footprint.event_count,
         "acquisition_count": footprint.acquisition_count,
+    }
+
+
+def compilation_key_payload(key: ListModeCompilationKey) -> dict[str, object]:
+    return {
+        "schema": "reference_lab.list_mode_compilation_key.v1",
+        "compiler_id": key.compiler_id.value,
+        "device_snapshot_fingerprint": key.device_snapshot_fingerprint,
+        "request_fingerprint": key.request_fingerprint,
+        "value": key.value,
+    }
+
+
+def compilation_budget_payload(
+    budget: ListModeCompilationBudget,
+) -> dict[str, object]:
+    return {
+        "dimensions": [
+            {
+                "id": dimension.id,
+                "scope": dimension.scope,
+                "usage": dimension.usage,
+                "limit": dimension.limit,
+                "projected_point_capacity": dimension.projected_point_capacity,
+            }
+            for dimension in budget.dimensions
+        ],
+        "next_batch_max_points": budget.next_batch_max_points,
+        "limiting_dimensions": list(budget.limiting_dimensions),
     }
 
 
@@ -873,6 +943,8 @@ class ListModeArtifact:
     waveform_semantics_id: str
     max_abs_amplitude: float
     timing_quantization: TimingQuantizationMode
+    compilation_key: ListModeCompilationKey
+    compilation_budget: ListModeCompilationBudget
     device_snapshot: ListModeDeviceSnapshot
     placement: ListModeProgramPlacement
     physical_footprint: ListModePhysicalFootprint
@@ -1114,6 +1186,9 @@ __all__ = [
     "IqOffsetCouplingPolicy",
     "IqOutputBinding",
     "ListModeArtifact",
+    "ListModeBudgetDimension",
+    "ListModeCompilationBudget",
+    "ListModeCompilationKey",
     "ListModeDeviceSnapshot",
     "ListModeEntry",
     "ListModeEventPlacement",
@@ -1137,6 +1212,8 @@ __all__ = [
     "TriggerParticipants",
     "awg_phase_template_identity_payload",
     "awg_waveform_identity_payload",
+    "compilation_budget_payload",
+    "compilation_key_payload",
     "device_snapshot_payload",
     "host_state_policy_payload",
     "host_state_requirements_payload",

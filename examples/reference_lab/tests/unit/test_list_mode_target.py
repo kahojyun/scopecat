@@ -392,6 +392,47 @@ def test_list_mode_compiler_projects_calibrated_physical_programs() -> None:
     )
 
 
+def test_list_mode_compilation_key_caches_and_explains_batch_capacity() -> None:
+    scheduled, _slot = _calibrated_acquisition()
+    target = replace(
+        _target(),
+        max_list_entries=7,
+        max_program_waveform_bytes=1024,
+    )
+    compiler, request = _request(target, (scheduled,), repetitions=2)
+
+    artifact = compiler.compile(request)
+
+    assert compiler.compile(request) is artifact
+    same_artifact = ListModeTargetCompiler(compiler.id, target).compile(request)
+    assert same_artifact.compilation_key == artifact.compilation_key
+    assert same_artifact.artifact_fingerprint == artifact.artifact_fingerprint
+    assert artifact.compilation_key.device_snapshot_fingerprint == (
+        artifact.device_snapshot.snapshot_fingerprint
+    )
+    assert artifact.compilation_key.value.startswith("sha256:")
+
+    budget = artifact.compilation_budget
+    largest_entry_bytes = max(
+        artifact.materialized_waveform_bytes(entry) for entry in artifact.entries
+    )
+    assert budget.dimension("list_entries").usage == 1
+    assert budget.dimension("list_entries").projected_point_capacity == 7
+    assert budget.dimension("waveform_memory_bytes").usage == (
+        artifact.physical_footprint.waveform_bytes
+    )
+    assert budget.dimension("waveform_memory_bytes").projected_point_capacity == (
+        target.max_program_waveform_bytes // largest_entry_bytes
+    )
+    assert budget.dimension("samples_per_entry").usage == 12
+    assert budget.dimension("repetitions").usage == 2
+    assert budget.limiting_dimensions == ("waveform_memory_bytes",)
+    assert budget.next_batch_max_points == 2
+
+    changed = compiler.compile(replace(request, repetitions=3))
+    assert changed.compilation_key != artifact.compilation_key
+
+
 def test_list_mode_worker_protocol_is_stable_per_execution_identity() -> None:
     _target, _scheduled, slot, artifact = _compiled_calibrated_acquisition()
     instruments = _RecordingInstrumentExecutor()

@@ -25,8 +25,10 @@ from scopecat_quantum.gates import GateCall
 from scopecat_quantum.programs import (
     ImplementedGate,
     Parallel,
+    ParallelEach,
     QuantumNode,
     Repeat,
+    estimate_quantum_program_workload,
 )
 from scopecat_quantum.programs import (
     Sequence as QuantumSequence,
@@ -167,6 +169,7 @@ def _logical_layer(
     bounds: QuantumInspectionBounds,
 ) -> tuple[CompiledProgramInspectionLayer, dict[str, str]]:
     root_id = "logical:program"
+    workload = estimate_quantum_program_workload(bound.verified)
     nodes = [
         CompiledProgramInspectionNode(
             id=root_id,
@@ -182,6 +185,18 @@ def _logical_layer(
                 CompiledInspectionFact(
                     "unresolved_operation_count",
                     len(bound.verified.unresolved.operations),
+                ),
+                CompiledInspectionFact(
+                    "expanded_operation_count",
+                    workload.expanded_operation_count,
+                ),
+                CompiledInspectionFact(
+                    "selected_entity_count",
+                    workload.selected_entity_count,
+                ),
+                CompiledInspectionFact(
+                    "max_parallel_width",
+                    workload.max_parallel_width,
                 ),
             ),
         )
@@ -199,6 +214,20 @@ def _logical_layer(
         elif isinstance(node, Parallel):
             kind, label, children = "parallel", "parallel", node.branches
             entity_ids = ()
+        elif isinstance(node, ParallelEach):
+            kind, label, children = (
+                "parallel_each",
+                (
+                    f"parallel_each ${node.entity_set_id} "
+                    f"({len(node.entity_ids)} entities)"
+                ),
+                node.branches,
+            )
+            entity_ids = tuple(entity.value for entity in node.entity_ids)
+            facts = (
+                CompiledInspectionFact("entity_set_id", node.entity_set_id),
+                CompiledInspectionFact("entity_count", len(node.entity_ids)),
+            )
         elif isinstance(node, Repeat):
             kind, label, children = (
                 "repeat",

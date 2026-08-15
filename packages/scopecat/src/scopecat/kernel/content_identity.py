@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
 from datetime import date, datetime, time
+from decimal import Decimal
 from enum import Enum
 from typing import cast
 
@@ -59,6 +60,9 @@ def content_fingerprint(value: object) -> object:
         return {"kind": "bool", "value": value}
     if isinstance(value, int):
         return {"kind": "int", "value": str(value)}
+    if isinstance(value, Decimal):
+        normalized = Decimal(0) if value == 0 else value.normalize()
+        return {"kind": "decimal", "value": str(normalized)}
     if isinstance(value, float | complex):
         return _numeric_fingerprint(value)
     if isinstance(value, str):

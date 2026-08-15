@@ -110,6 +110,11 @@ function ProgramInspectionView({ inspection }: { inspection: PresentedProgram })
             onSelect={setSelectedNodeId}
           />
           <div className="min-w-0 border-l border-line p-3 max-[760px]:border-t max-[760px]:border-l-0">
+            {layer.facts.length > 0 && (
+              <div className="mb-3">
+                <FactGrid facts={layer.facts} />
+              </div>
+            )}
             {layer.id === "scheduled" && <ProgramTimeline layer={layer} />}
             <ProgramNodeInspector inspection={inspection} layer={layer} node={selectedNode} />
           </div>

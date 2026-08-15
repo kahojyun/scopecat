@@ -219,6 +219,9 @@ def test_parallel_qubit_set_compiles_to_one_entity_axis_result_group() -> None:
     assert len(artifact.physical_footprint.waveform_outputs) == 2
     assert len(artifact.physical_footprint.acquisition_inputs) == 1
     assert artifact.instrument_ids == artifact.physical_footprint.instrument_ids
+    assert job.execution.next_batch_max_points == (
+        artifact.compilation_budget.next_batch_max_points
+    )
 
 
 def _logical_measurement_values(

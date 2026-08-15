@@ -85,7 +85,27 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
     return cast(
         "dict[str, JsonValue]",
         {
-            "schema": "reference_lab.list_mode_execution_summary.v6",
+            "schema": "reference_lab.list_mode_execution_summary.v7",
+            "compilation": {
+                "key": artifact.compilation_key.value,
+                "next_batch_max_points": (
+                    artifact.compilation_budget.next_batch_max_points
+                ),
+                "limiting_dimensions": list(
+                    artifact.compilation_budget.limiting_dimensions
+                ),
+                "dimensions": {
+                    dimension.id: {
+                        "scope": dimension.scope,
+                        "usage": dimension.usage,
+                        "limit": dimension.limit,
+                        "projected_point_capacity": (
+                            dimension.projected_point_capacity
+                        ),
+                    }
+                    for dimension in artifact.compilation_budget.dimensions
+                },
+            },
             "waveform_outputs": {
                 program.instrument_id: sorted(
                     {

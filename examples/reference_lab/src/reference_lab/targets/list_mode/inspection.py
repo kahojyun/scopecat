@@ -78,6 +78,18 @@ def inspect_list_mode_artifact(
                 artifact.device_snapshot.snapshot_fingerprint,
             ),
             CompiledInspectionFact(
+                "compilation_key",
+                artifact.compilation_key.value,
+            ),
+            CompiledInspectionFact(
+                "next_batch_max_points",
+                artifact.compilation_budget.next_batch_max_points,
+            ),
+            CompiledInspectionFact(
+                "limiting_budget_dimensions",
+                list(artifact.compilation_budget.limiting_dimensions),
+            ),
+            CompiledInspectionFact(
                 "logical_qubit_count",
                 len(artifact.placement.logical_qubit_ids),
             ),
@@ -211,6 +223,20 @@ def _with_physical_placement_layer(
             CompiledInspectionFact(
                 "acquisition_input_count",
                 len(artifact.physical_footprint.acquisition_inputs),
+            ),
+            *(
+                CompiledInspectionFact(
+                    f"budget.{dimension.id}",
+                    {
+                        "scope": dimension.scope,
+                        "usage": dimension.usage,
+                        "limit": dimension.limit,
+                        "projected_point_capacity": (
+                            dimension.projected_point_capacity
+                        ),
+                    },
+                )
+                for dimension in artifact.compilation_budget.dimensions
             ),
         ),
     )

@@ -38,6 +38,7 @@ from scopecat_quantum.programs import (
     verify_quantum_program,
 )
 from scopecat_quantum.programs import Parallel as IrQuantumParallel
+from scopecat_quantum.programs import ParallelEach as IrQuantumParallelEach
 from scopecat_quantum.programs import (
     Repeat as IrQuantumRepeat,
 )
@@ -423,8 +424,11 @@ def _bind_quantum_fragment(
         entities = bindings[fragment.entity_set.id]
         if not isinstance(entities, tuple):
             raise AssertionError("verified qubit-set bindings must be tuples")
-        return IrQuantumParallel(
-            tuple(
+        entity_refs = cast("tuple[EntityRef, ...]", entities)
+        return IrQuantumParallelEach(
+            entity_set_id=fragment.entity_set.id,
+            entity_ids=tuple(QubitId(entity.id) for entity in entity_refs),
+            branches=tuple(
                 _bind_quantum_fragment(
                     fragment.operation,
                     bindings,
@@ -438,8 +442,8 @@ def _bind_quantum_fragment(
                         f"{fragment.entity_set.id}[{index}]",
                     ),
                 )
-                for index, entity in enumerate(cast("tuple[EntityRef, ...]", entities))
-            )
+                for index, entity in enumerate(entity_refs)
+            ),
         )
     if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment):
         return IrQuantumSequence(

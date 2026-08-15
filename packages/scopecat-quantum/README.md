@@ -99,6 +99,12 @@ program call. A domain compiler declares its point capacity and receives
 bounded `compile_batch` requests. The target runtime may further group qubits
 and chunk shots or binary results inside its own contract.
 
+Bound programs retain the `parallel_each` entity-set boundary and finite repeat
+nodes even though target lowering eventually produces concrete branches and
+events. Inspection reports both structural and expanded operation counts, the
+selected entity count, and maximum parallel width, so a GUI can show the compact
+intent before drilling into its concrete realization.
+
 Physical batch size and target placement do not enter logical point, program,
 or product identity. This lets an integration tune compilation, upload, and
 acquisition capacity while retaining the same measurement schema and durable

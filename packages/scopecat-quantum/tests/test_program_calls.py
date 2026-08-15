@@ -22,7 +22,7 @@ from scopecat_quantum.measurement_computes import (
     IqCentroid,
     binary_iq_probabilities,
 )
-from scopecat_quantum.programs import Parallel as QuantumParallel
+from scopecat_quantum.programs import ParallelEach as QuantumParallelEach
 
 _REPO_ROOT = Path(__file__).parents[3]
 
@@ -393,7 +393,12 @@ def test_qubit_set_retains_parallel_authoring_and_owns_entity_axis_result() -> N
         declaration,
         {"qubits": ("q0", "q1")},
     )
-    assert isinstance(bound_program.program.body, QuantumParallel)
+    assert isinstance(bound_program.program.body, QuantumParallelEach)
+    assert bound_program.program.body.entity_set_id == "qubits"
+    assert [entity.value for entity in bound_program.program.body.entity_ids] == [
+        "q0",
+        "q1",
+    ]
     measurements = tuple(
         operation
         for operation in bound_program.verified.operations

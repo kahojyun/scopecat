@@ -268,10 +268,8 @@ class QuantumLabCompiler:
                 artifact.target_artifact
             ),
             realtime_state_invalidations=(),
-            next_batch_max_points=_next_batch_max_points(
-                artifact.target_artifact,
-                max_list_entries=self._target.max_list_entries,
-                max_program_waveform_bytes=(self._target.max_program_waveform_bytes),
+            next_batch_max_points=(
+                artifact.target_artifact.compilation_budget.next_batch_max_points
             ),
             inspection=(
                 inspect_list_mode_artifact(
@@ -298,21 +296,6 @@ class QuantumLabCompiler:
         if self._runtime_selector is None:
             return QuantumRuntimeSelection(self._runtime)
         return self._runtime_selector(context)
-
-
-def _next_batch_max_points(
-    artifact: ListModeArtifact,
-    *,
-    max_list_entries: int,
-    max_program_waveform_bytes: int,
-) -> int:
-    largest_entry_bytes = max(
-        artifact.materialized_waveform_bytes(entry) for entry in artifact.entries
-    )
-    return min(
-        max_list_entries,
-        max(1, max_program_waveform_bytes // max(largest_entry_bytes, 1)),
-    )
 
 
 def _quantum_program(call: DomainCallView) -> quantum.Program:

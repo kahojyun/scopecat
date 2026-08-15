@@ -15,9 +15,11 @@ so runtime evidence can be correlated to the exact prepared quantum work.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, replace
+from collections import OrderedDict
+from dataclasses import dataclass, field, replace
 from typing import cast
 
+from scopecat.kernel.content_identity import content_fingerprint
 from scopecat_quantum._ids import (
     TargetArtifactId,
     TargetCompileEntryId,
@@ -66,6 +68,9 @@ from reference_lab.targets.list_mode.model import (
     DigitizerAcquisitionWindow,
     IqMixerCalibration,
     ListModeArtifact,
+    ListModeBudgetDimension,
+    ListModeCompilationBudget,
+    ListModeCompilationKey,
     ListModeDeviceSnapshot,
     ListModeEntry,
     ListModeEventPlacement,
@@ -81,6 +86,8 @@ from reference_lab.targets.list_mode.model import (
     awg_phase_template_identity_payload,
     awg_waveform_identity_payload,
     canonical_fingerprint,
+    compilation_budget_payload,
+    compilation_key_payload,
     device_snapshot_payload,
     host_state_requirements_payload,
     physical_footprint_payload,
@@ -89,6 +96,8 @@ from reference_lab.targets.list_mode.model import (
     pulse_event_identity_payload,
     signal_key,
 )
+
+_ARTIFACT_CACHE_SIZE = 32
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,9 +120,22 @@ class ListModeTargetCompiler:
 
     id: TargetCompilerId
     target: ListModeTarget
+    _artifact_cache: OrderedDict[str, ListModeArtifact] = field(
+        default_factory=OrderedDict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     def compile(self, request: TargetCompileRequest) -> ListModeArtifact:
         """Compile one checked finite request without performing hardware effects."""
+
+        device_snapshot = self.target.device_snapshot
+        compilation_key = _compilation_key(self.id, device_snapshot, request)
+        cached = self._artifact_cache.get(compilation_key.value)
+        if cached is not None:
+            self._artifact_cache.move_to_end(compilation_key.value)
+            return cached
 
         issues: list[TargetCompilationIssue] = []
         if len(request.entries) > self.target.max_list_entries:
@@ -180,7 +202,6 @@ class ListModeTargetCompiler:
             entries,
             phase_templates,
         )
-        device_snapshot = self.target.device_snapshot
         placement = _project_program_placement(request, device_snapshot)
         physical_footprint = _project_physical_footprint(
             entries,
@@ -188,11 +209,20 @@ class ListModeTargetCompiler:
             timing_instrument_id=preparation.timing.trigger_instrument_id,
             waveform_bytes=waveform_bytes,
         )
+        compilation_budget = _project_compilation_budget(
+            self.target,
+            request,
+            entries,
+            phase_templates,
+            waveform_bytes=waveform_bytes,
+        )
         artifact_fingerprint = canonical_fingerprint(
             _artifact_payload(
                 compiler_id=self.id,
                 target=self.target,
                 request=request,
+                compilation_key=compilation_key,
+                compilation_budget=compilation_budget,
                 device_snapshot=device_snapshot,
                 placement=placement,
                 physical_footprint=physical_footprint,
@@ -203,7 +233,7 @@ class ListModeTargetCompiler:
             )
         )
         digest = artifact_fingerprint.removeprefix("sha256:")
-        return ListModeArtifact(
+        artifact = ListModeArtifact(
             id=TargetArtifactId(f"list-mode-artifact-{digest}"),
             target_id=self.target.id,
             compiler_id=self.id,
@@ -216,6 +246,8 @@ class ListModeTargetCompiler:
             waveform_semantics_id=SAMPLED_WAVEFORM_SEMANTICS_ID,
             max_abs_amplitude=self.target.max_abs_amplitude,
             timing_quantization=self.target.timing_quantization,
+            compilation_key=compilation_key,
+            compilation_budget=compilation_budget,
             device_snapshot=device_snapshot,
             placement=placement,
             physical_footprint=physical_footprint,
@@ -224,6 +256,10 @@ class ListModeTargetCompiler:
             entries=entries,
             phase_templates=phase_templates,
         )
+        self._artifact_cache[compilation_key.value] = artifact
+        if len(self._artifact_cache) > _ARTIFACT_CACHE_SIZE:
+            self._artifact_cache.popitem(last=False)
+        return artifact
 
     def _plan_entry(
         self,
@@ -514,6 +550,102 @@ def _materialized_waveform_bytes(
     )
 
 
+def _compilation_key(
+    compiler_id: TargetCompilerId,
+    snapshot: ListModeDeviceSnapshot,
+    request: TargetCompileRequest,
+) -> ListModeCompilationKey:
+    request_fingerprint = canonical_fingerprint(content_fingerprint(request))
+    value = canonical_fingerprint(
+        {
+            "schema": "reference_lab.list_mode_compilation_key.v1",
+            "compiler_id": compiler_id.value,
+            "device_snapshot_fingerprint": snapshot.snapshot_fingerprint,
+            "request_fingerprint": request_fingerprint,
+            "waveform_semantics_id": SAMPLED_WAVEFORM_SEMANTICS_ID,
+        }
+    )
+    return ListModeCompilationKey(
+        compiler_id=compiler_id,
+        device_snapshot_fingerprint=snapshot.snapshot_fingerprint,
+        request_fingerprint=request_fingerprint,
+        value=value,
+    )
+
+
+def _project_compilation_budget(
+    target: ListModeTarget,
+    request: TargetCompileRequest,
+    entries: tuple[ListModeEntry, ...],
+    phase_templates: tuple[AwgPhaseTemplate, ...],
+    *,
+    waveform_bytes: int,
+) -> ListModeCompilationBudget:
+    template_by_id = {template.id: template for template in phase_templates}
+
+    def entry_waveform_bytes(entry: ListModeEntry) -> int:
+        if not entry.phase_template_uses:
+            return sum(waveform.samples.nbytes for waveform in entry.waveforms)
+        return (
+            entry.sample_count
+            * 8
+            * len(
+                {
+                    channel_id
+                    for use in entry.phase_template_uses
+                    for channel_id in template_by_id[use.template_id].channel_ids
+                }
+            )
+        )
+
+    largest_entry_bytes = max(entry_waveform_bytes(entry) for entry in entries)
+    point_capacities = {
+        "list_entries": target.max_list_entries,
+        "waveform_memory_bytes": max(
+            1,
+            target.max_program_waveform_bytes // max(largest_entry_bytes, 1),
+        ),
+    }
+    next_batch_max_points = min(point_capacities.values())
+    dimensions = (
+        ListModeBudgetDimension(
+            id="list_entries",
+            scope="batch",
+            usage=len(entries),
+            limit=target.max_list_entries,
+            projected_point_capacity=point_capacities["list_entries"],
+        ),
+        ListModeBudgetDimension(
+            id="waveform_memory_bytes",
+            scope="batch",
+            usage=waveform_bytes,
+            limit=target.max_program_waveform_bytes,
+            projected_point_capacity=point_capacities["waveform_memory_bytes"],
+        ),
+        ListModeBudgetDimension(
+            id="samples_per_entry",
+            scope="entry",
+            usage=max(entry.sample_count for entry in entries),
+            limit=target.max_samples_per_entry,
+        ),
+        ListModeBudgetDimension(
+            id="repetitions",
+            scope="invocation",
+            usage=request.repetitions,
+            limit=target.max_repetitions,
+        ),
+    )
+    return ListModeCompilationBudget(
+        dimensions=dimensions,
+        next_batch_max_points=next_batch_max_points,
+        limiting_dimensions=tuple(
+            dimension_id
+            for dimension_id, capacity in point_capacities.items()
+            if capacity == next_batch_max_points
+        ),
+    )
+
+
 def _project_program_placement(
     request: TargetCompileRequest,
     snapshot: ListModeDeviceSnapshot,
@@ -782,6 +914,8 @@ def _artifact_payload(
     compiler_id: TargetCompilerId,
     target: ListModeTarget,
     request: TargetCompileRequest,
+    compilation_key: ListModeCompilationKey,
+    compilation_budget: ListModeCompilationBudget,
     device_snapshot: ListModeDeviceSnapshot,
     placement: ListModeProgramPlacement,
     physical_footprint: ListModePhysicalFootprint,
@@ -791,7 +925,7 @@ def _artifact_payload(
     phase_templates: tuple[AwgPhaseTemplate, ...],
 ) -> dict[str, object]:
     return {
-        "schema": "reference_lab.list_mode_artifact.v9",
+        "schema": "reference_lab.list_mode_artifact.v10",
         "target": {
             "id": target.id.value,
             "capability_fingerprint": target.capability_fingerprint,
@@ -803,6 +937,8 @@ def _artifact_payload(
         "waveform_semantics_id": SAMPLED_WAVEFORM_SEMANTICS_ID,
         "timing_quantization": target.timing_quantization,
         "source_entry_ids": [entry.id.value for entry in request.entries],
+        "compilation_key": compilation_key_payload(compilation_key),
+        "compilation_budget": compilation_budget_payload(compilation_budget),
         "device_snapshot": device_snapshot_payload(device_snapshot),
         "placement": program_placement_payload(placement),
         "physical_footprint": physical_footprint_payload(physical_footprint),

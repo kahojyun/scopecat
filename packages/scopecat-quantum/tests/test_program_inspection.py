@@ -100,3 +100,8 @@ program inspection.example
         node.kind == "repeat" and node.label == "repeat x3" for node in logical.nodes
     )
     assert any(node.entity_ids == ("q7",) for node in logical.nodes)
+    facts = {fact.id: fact.value for fact in logical.nodes[0].facts}
+    assert facts["operation_count"] == 3
+    assert facts["expanded_operation_count"] == 5
+    assert facts["selected_entity_count"] == 1
+    assert facts["max_parallel_width"] == 2
