@@ -111,6 +111,11 @@ def inspect_list_mode_artifact(
                 unit="byte",
             ),
             CompiledInspectionFact(
+                "result_bytes",
+                artifact.physical_footprint.result_bytes,
+                unit="byte",
+            ),
+            CompiledInspectionFact(
                 "max_abs_boundary_error_seconds",
                 str(
                     max(
@@ -242,6 +247,7 @@ def _with_physical_placement_layer(
                         "projected_point_capacity": (
                             dimension.projected_point_capacity
                         ),
+                        "projected_shot_capacity": (dimension.projected_shot_capacity),
                     },
                 )
                 for dimension in artifact.compilation_budget.dimensions

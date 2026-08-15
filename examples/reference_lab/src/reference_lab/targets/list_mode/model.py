@@ -185,6 +185,7 @@ class ListModePhysicalFootprint:
     acquisition_inputs: tuple[ListModePhysicalEndpoint, ...]
     timing_instrument_id: str
     waveform_bytes: int
+    result_bytes: int
     event_count: int
     acquisition_count: int
 
@@ -225,6 +226,10 @@ class ListModeBudgetDimension:
     id: Literal[
         "list_entries",
         "waveform_memory_bytes",
+        "event_count",
+        "acquisition_count",
+        "result_bytes",
+        "result_chunk_bytes",
         "samples_per_entry",
         "repetitions",
     ]
@@ -232,6 +237,7 @@ class ListModeBudgetDimension:
     usage: int
     limit: int
     projected_point_capacity: int | None = None
+    projected_shot_capacity: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,6 +382,7 @@ def physical_footprint_payload(
         ],
         "timing_instrument_id": footprint.timing_instrument_id,
         "waveform_bytes": footprint.waveform_bytes,
+        "result_bytes": footprint.result_bytes,
         "event_count": footprint.event_count,
         "acquisition_count": footprint.acquisition_count,
     }
@@ -404,6 +411,7 @@ def compilation_budget_payload(
                 "usage": dimension.usage,
                 "limit": dimension.limit,
                 "projected_point_capacity": dimension.projected_point_capacity,
+                "projected_shot_capacity": dimension.projected_shot_capacity,
             }
             for dimension in budget.dimensions
         ],
@@ -526,6 +534,9 @@ class ListModeTarget:
     max_list_entries: int
     max_samples_per_entry: int
     max_program_waveform_bytes: int
+    max_program_event_count: int
+    max_program_acquisition_count: int
+    max_result_bytes: int
     max_result_chunk_bytes: int
     max_repetitions: int
     max_abs_amplitude: float
@@ -650,13 +661,16 @@ class ListModeTarget:
 
     def _capability_payload(self) -> dict[str, object]:
         return {
-            "schema": "reference_lab.list_mode_target.capabilities.v8",
+            "schema": "reference_lab.list_mode_target.capabilities.v9",
             "target_id": self.id.value,
             "sample_rate_hz": self.sample_rate_hz,
             "timing_quantization": self.timing_quantization,
             "max_list_entries": self.max_list_entries,
             "max_samples_per_entry": self.max_samples_per_entry,
             "max_program_waveform_bytes": self.max_program_waveform_bytes,
+            "max_program_event_count": self.max_program_event_count,
+            "max_program_acquisition_count": self.max_program_acquisition_count,
+            "max_result_bytes": self.max_result_bytes,
             "max_result_chunk_bytes": self.max_result_chunk_bytes,
             "max_repetitions": self.max_repetitions,
             "max_abs_amplitude": float(self.max_abs_amplitude).hex(),

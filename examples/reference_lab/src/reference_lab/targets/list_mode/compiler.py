@@ -99,6 +99,7 @@ from reference_lab.targets.list_mode.model import (
 )
 
 _ARTIFACT_CACHE_SIZE = 32
+_RESULT_BYTES_PER_VALUE = 17
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +177,50 @@ class ListModeTargetCompiler:
                     f"{self.target.max_repetitions}"
                 ),
             )
+        event_count = sum(len(entry.program.events) for entry in request.entries)
+        acquisition_count = len(request.acquisition_addresses)
+        result_bytes = acquisition_count * request.repetitions * _RESULT_BYTES_PER_VALUE
+        result_bytes_per_shot = acquisition_count * _RESULT_BYTES_PER_VALUE
+        if event_count > self.target.max_program_event_count:
+            _issue(
+                issues,
+                dimension=TargetCompilationIssueDimension.CAPABILITY,
+                code="list_mode_program_event_limit_exceeded",
+                message=(
+                    f"request has {event_count} scheduled events; target limit is "
+                    f"{self.target.max_program_event_count}"
+                ),
+            )
+        if acquisition_count > self.target.max_program_acquisition_count:
+            _issue(
+                issues,
+                dimension=TargetCompilationIssueDimension.CAPABILITY,
+                code="list_mode_program_acquisition_limit_exceeded",
+                message=(
+                    f"request has {acquisition_count} acquisitions; target limit is "
+                    f"{self.target.max_program_acquisition_count}"
+                ),
+            )
+        if result_bytes > self.target.max_result_bytes:
+            _issue(
+                issues,
+                dimension=TargetCompilationIssueDimension.CAPABILITY,
+                code="list_mode_result_memory_exceeded",
+                message=(
+                    f"request produces {result_bytes} result bytes; target limit is "
+                    f"{self.target.max_result_bytes}"
+                ),
+            )
+        if result_bytes_per_shot > self.target.max_result_chunk_bytes:
+            _issue(
+                issues,
+                dimension=TargetCompilationIssueDimension.CAPABILITY,
+                code="list_mode_result_chunk_row_exceeded",
+                message=(
+                    f"one result shot requires {result_bytes_per_shot} bytes; "
+                    f"target chunk limit is {self.target.max_result_chunk_bytes}"
+                ),
+            )
 
         plans = tuple(
             plan
@@ -226,6 +271,7 @@ class ListModeTargetCompiler:
             phase_templates,
             timing_instrument_id=preparation.timing.trigger_instrument_id,
             waveform_bytes=waveform_bytes,
+            result_bytes=result_bytes,
         )
         compilation_budget = _project_compilation_budget(
             self.target,
@@ -638,11 +684,44 @@ def _project_compilation_budget(
         )
 
     largest_entry_bytes = max(entry_waveform_bytes(entry) for entry in entries)
+    largest_entry_events = max(len(entry.event_timings) for entry in entries)
+    largest_entry_acquisitions = max(len(entry.acquisitions) for entry in entries)
+    result_bytes = (
+        sum(len(entry.acquisitions) for entry in entries)
+        * request.repetitions
+        * _RESULT_BYTES_PER_VALUE
+    )
+    result_bytes_per_shot = (
+        sum(len(entry.acquisitions) for entry in entries) * _RESULT_BYTES_PER_VALUE
+    )
+    largest_entry_result_bytes = (
+        largest_entry_acquisitions * request.repetitions * _RESULT_BYTES_PER_VALUE
+    )
+    largest_entry_result_bytes_per_shot = (
+        largest_entry_acquisitions * _RESULT_BYTES_PER_VALUE
+    )
     point_capacities = {
         "list_entries": target.max_list_entries,
         "waveform_memory_bytes": max(
             1,
             target.max_program_waveform_bytes // max(largest_entry_bytes, 1),
+        ),
+        "event_count": max(
+            1,
+            target.max_program_event_count // max(largest_entry_events, 1),
+        ),
+        "acquisition_count": max(
+            1,
+            target.max_program_acquisition_count // max(largest_entry_acquisitions, 1),
+        ),
+        "result_bytes": max(
+            1,
+            target.max_result_bytes // max(largest_entry_result_bytes, 1),
+        ),
+        "result_chunk_bytes": max(
+            1,
+            target.max_result_chunk_bytes
+            // max(largest_entry_result_bytes_per_shot, 1),
         ),
     }
     next_batch_max_points = min(point_capacities.values())
@@ -660,6 +739,38 @@ def _project_compilation_budget(
             usage=waveform_bytes,
             limit=target.max_program_waveform_bytes,
             projected_point_capacity=point_capacities["waveform_memory_bytes"],
+        ),
+        ListModeBudgetDimension(
+            id="event_count",
+            scope="batch",
+            usage=sum(len(entry.event_timings) for entry in entries),
+            limit=target.max_program_event_count,
+            projected_point_capacity=point_capacities["event_count"],
+        ),
+        ListModeBudgetDimension(
+            id="acquisition_count",
+            scope="batch",
+            usage=sum(len(entry.acquisitions) for entry in entries),
+            limit=target.max_program_acquisition_count,
+            projected_point_capacity=point_capacities["acquisition_count"],
+        ),
+        ListModeBudgetDimension(
+            id="result_bytes",
+            scope="invocation",
+            usage=result_bytes,
+            limit=target.max_result_bytes,
+            projected_point_capacity=point_capacities["result_bytes"],
+        ),
+        ListModeBudgetDimension(
+            id="result_chunk_bytes",
+            scope="invocation",
+            usage=result_bytes_per_shot,
+            limit=target.max_result_chunk_bytes,
+            projected_point_capacity=point_capacities["result_chunk_bytes"],
+            projected_shot_capacity=max(
+                1,
+                target.max_result_chunk_bytes // max(result_bytes_per_shot, 1),
+            ),
         ),
         ListModeBudgetDimension(
             id="samples_per_entry",
@@ -716,6 +827,7 @@ def _project_physical_footprint(
     *,
     timing_instrument_id: str,
     waveform_bytes: int,
+    result_bytes: int,
 ) -> ListModePhysicalFootprint:
     output_channels = {
         waveform.channel_id for entry in entries for waveform in entry.waveforms
@@ -756,6 +868,7 @@ def _project_physical_footprint(
         acquisition_inputs=selected_acquisition_inputs,
         timing_instrument_id=timing_instrument_id,
         waveform_bytes=waveform_bytes,
+        result_bytes=result_bytes,
         event_count=sum(len(entry.event_timings) for entry in entries),
         acquisition_count=sum(len(entry.acquisitions) for entry in entries),
     )
@@ -964,7 +1077,7 @@ def _artifact_payload(
     phase_templates: tuple[AwgPhaseTemplate, ...],
 ) -> dict[str, object]:
     return {
-        "schema": "reference_lab.list_mode_artifact.v10",
+        "schema": "reference_lab.list_mode_artifact.v11",
         "target": {
             "id": target.id.value,
             "capability_fingerprint": target.capability_fingerprint,

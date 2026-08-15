@@ -332,6 +332,9 @@ def test_list_mode_target_owns_only_real_time_members() -> None:
     )
     assert target.max_list_entries == 256
     assert target.max_program_waveform_bytes == 48 * 1024 * 1024
+    assert target.max_program_event_count == 256 * 1024
+    assert target.max_program_acquisition_count == 64 * 1024
+    assert target.max_result_bytes == 512 * 1024 * 1024
     assert target.max_result_chunk_bytes == 8 * 1024 * 1024
 
 

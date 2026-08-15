@@ -340,6 +340,7 @@ def test_list_mode_compiler_projects_calibrated_physical_programs() -> None:
     assert footprint.instrument_ids == artifact.instrument_ids
     assert footprint.event_count == len(scheduled.events)
     assert footprint.acquisition_count == 1
+    assert footprint.result_bytes == 2 * 17
     assert footprint.waveform_bytes == sum(
         waveform.samples.nbytes
         for entry in artifact.entries
@@ -428,6 +429,13 @@ def test_list_mode_compilation_key_caches_and_explains_batch_capacity() -> None:
     assert budget.dimension("waveform_memory_bytes").projected_point_capacity == (
         target.max_program_waveform_bytes // largest_entry_bytes
     )
+    assert budget.dimension("event_count").usage == len(scheduled.events)
+    assert budget.dimension("acquisition_count").usage == 1
+    assert budget.dimension("result_bytes").usage == 2 * 17
+    assert budget.dimension("result_chunk_bytes").usage == 17
+    assert budget.dimension("result_chunk_bytes").projected_shot_capacity == (
+        target.max_result_chunk_bytes // 17
+    )
     assert budget.dimension("samples_per_entry").usage == 12
     assert budget.dimension("repetitions").usage == 2
     assert budget.limiting_dimensions == ("waveform_memory_bytes",)
@@ -455,6 +463,22 @@ def test_list_mode_compilation_key_caches_and_explains_batch_capacity() -> None:
         artifact.compilation_key.placement_fingerprint
     )
     assert renamed.compilation_key.value != artifact.compilation_key.value
+
+
+def test_list_mode_result_volume_can_limit_the_next_batch() -> None:
+    scheduled, _slot = _calibrated_acquisition()
+    target = replace(
+        _target(),
+        max_list_entries=7,
+        max_result_bytes=68,
+    )
+    compiler, request = _request(target, (scheduled,), repetitions=2)
+
+    budget = compiler.compile(request).compilation_budget
+
+    assert budget.dimension("result_bytes").projected_point_capacity == 2
+    assert budget.next_batch_max_points == 2
+    assert budget.limiting_dimensions == ("result_bytes",)
 
 
 def test_list_mode_worker_protocol_is_stable_per_execution_identity() -> None:
@@ -1089,6 +1113,58 @@ def test_list_mode_rejects_programs_larger_than_awg_memory() -> None:
 
     assert {issue.code for issue in caught.value.issues} == {
         "list_mode_program_waveform_memory_exceeded"
+    }
+
+
+def test_list_mode_rejects_programs_with_too_many_scheduled_events() -> None:
+    scheduled, _slot = _calibrated_acquisition()
+    target = replace(_target(), max_program_event_count=2)
+    compiler, request = _request(target, (scheduled,), repetitions=1)
+
+    with pytest.raises(TargetCompilationError) as caught:
+        compiler.compile(request)
+
+    assert {issue.code for issue in caught.value.issues} == {
+        "list_mode_program_event_limit_exceeded"
+    }
+
+
+def test_list_mode_rejects_programs_with_too_many_acquisitions() -> None:
+    scheduled, _slot = _calibrated_acquisition()
+    target = replace(_target(), max_program_acquisition_count=1)
+    compiler, request = _request(target, (scheduled, scheduled), repetitions=1)
+
+    with pytest.raises(TargetCompilationError) as caught:
+        compiler.compile(request)
+
+    assert {issue.code for issue in caught.value.issues} == {
+        "list_mode_program_acquisition_limit_exceeded"
+    }
+
+
+def test_list_mode_rejects_result_volume_larger_than_memory() -> None:
+    scheduled, _slot = _calibrated_acquisition()
+    target = replace(_target(), max_result_bytes=33)
+    compiler, request = _request(target, (scheduled,), repetitions=2)
+
+    with pytest.raises(TargetCompilationError) as caught:
+        compiler.compile(request)
+
+    assert {issue.code for issue in caught.value.issues} == {
+        "list_mode_result_memory_exceeded"
+    }
+
+
+def test_list_mode_rejects_one_result_row_larger_than_a_chunk() -> None:
+    scheduled, _slot = _calibrated_acquisition()
+    target = replace(_target(), max_result_chunk_bytes=16)
+    compiler, request = _request(target, (scheduled,), repetitions=1)
+
+    with pytest.raises(TargetCompilationError) as caught:
+        compiler.compile(request)
+
+    assert {issue.code for issue in caught.value.issues} == {
+        "list_mode_result_chunk_row_exceeded"
     }
 
 

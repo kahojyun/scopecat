@@ -85,7 +85,7 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
     return cast(
         "dict[str, JsonValue]",
         {
-            "schema": "reference_lab.list_mode_execution_summary.v7",
+            "schema": "reference_lab.list_mode_execution_summary.v8",
             "compilation": {
                 "key": artifact.compilation_key.value,
                 "semantic_program_fingerprint": (
@@ -108,6 +108,7 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
                         "projected_point_capacity": (
                             dimension.projected_point_capacity
                         ),
+                        "projected_shot_capacity": (dimension.projected_shot_capacity),
                     }
                     for dimension in artifact.compilation_budget.dimensions
                 },
@@ -178,6 +179,7 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
                     artifact.physical_footprint.acquisition_inputs
                 ),
                 "waveform_bytes": artifact.physical_footprint.waveform_bytes,
+                "result_bytes": artifact.physical_footprint.result_bytes,
             },
             "host_state_requirements": {
                 "policy_id": artifact.host_state_requirements.policy_id,
