@@ -6,6 +6,7 @@ import type { MeasurementPreview, MeasurementSlicePreview } from "../../types";
 import { EChart } from "../../ui/EChart";
 import { measurementChartOption } from "./chart-options";
 import {
+  measurementEntityAxes,
   measurementTable,
   measurementSlicePlan,
   measurementSliceAxisValue,
@@ -14,11 +15,14 @@ import {
   measurementTraceStatus,
   planMeasurementCharts,
   type MeasurementChartPlan,
+  type MeasurementChartSeries,
+  type MeasurementEntityAxis,
   type MeasurementSliceAxis,
   type MeasurementTraceQueryPlan,
 } from "./measurement-visualization";
 
 const MAX_SLICE_SELECT_OPTIONS = 256;
+const MAX_ENTITY_CHIPS = 12;
 
 export function MeasurementDataPreview({
   preview,
@@ -49,14 +53,44 @@ export function MeasurementDataPreview({
 }) {
   const slicePlan = useMemo(() => measurementSlicePlan(preview.schema), [preview.schema]);
   const chartSchema = slice?.schema ?? preview.schema;
+  const entityAxes = useMemo(() => measurementEntityAxes(preview.schema), [preview.schema]);
+  const [selectedEntityIdentities, setSelectedEntityIdentities] = useState<
+    Record<string, string[]>
+  >({});
+  const entitySelection = useMemo(
+    () =>
+      Object.fromEntries(
+        entityAxes.flatMap((axis) => {
+          const selected = selectedEntityIdentities[axis.id];
+          if (!selected) return [];
+          const selectedSet = new Set(selected);
+          const indices = axis.members.flatMap((member) =>
+            selectedSet.has(member.identity) ? [member.index] : [],
+          );
+          return indices.length > 0 ? [[axis.id, indices] as const] : [];
+        }),
+      ),
+    [entityAxes, selectedEntityIdentities],
+  );
   const charts = useMemo(() => {
-    if (!slicePlan) return planMeasurementCharts(preview.items, preview.schema);
+    if (!slicePlan) {
+      return planMeasurementCharts(preview.items, preview.schema, undefined, entitySelection);
+    }
     return planMeasurementCharts(
       slice?.truncated ? [] : (slice?.items ?? []),
       chartSchema,
       fixedAxisIndices,
+      entitySelection,
     );
-  }, [chartSchema, fixedAxisIndices, preview.items, preview.schema, slice, slicePlan]);
+  }, [
+    chartSchema,
+    entitySelection,
+    fixedAxisIndices,
+    preview.items,
+    preview.schema,
+    slice,
+    slicePlan,
+  ]);
   const [requestedChartId, setRequestedChartId] = useState<string>();
   const selectedChart = charts.find((chart) => chart.id === requestedChartId) ?? charts[0];
   const selectedTracePlan =
@@ -66,9 +100,32 @@ export function MeasurementDataPreview({
     [traceError, tracePending, tracePreview],
   );
   const table = useMemo(
-    () => measurementTable(preview.items, preview.schema),
-    [preview.items, preview.schema],
+    () => measurementTable(preview.items, preview.schema, entitySelection),
+    [entitySelection, preview.items, preview.schema],
   );
+  const selectAllEntities = (axisId: string) => {
+    setSelectedEntityIdentities((current) => {
+      const next = { ...current };
+      delete next[axisId];
+      return next;
+    });
+  };
+  const selectOneEntity = (axisId: string, identity: string) => {
+    setSelectedEntityIdentities((current) => ({ ...current, [axisId]: [identity] }));
+  };
+  const toggleEntity = (axis: MeasurementEntityAxis, identity: string) => {
+    setSelectedEntityIdentities((current) => {
+      const existing = current[axis.id];
+      if (!existing) return { ...current, [axis.id]: [identity] };
+      const selected = existing.includes(identity)
+        ? existing.filter((candidate) => candidate !== identity)
+        : [...existing, identity];
+      const next = { ...current };
+      if (selected.length === 0 || selected.length === axis.size) delete next[axis.id];
+      else next[axis.id] = selected;
+      return next;
+    });
+  };
   return (
     <div className="mt-3 overflow-hidden rounded-md border border-line bg-panel">
       <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-2 text-[0.61rem] font-bold tracking-[0.06em] text-text-dim uppercase">
@@ -143,6 +200,80 @@ export function MeasurementDataPreview({
             {slicePending && <LoaderCircle className="animate-spin" size={12} aria-hidden="true" />}
             {sliceStatus(slice, sliceError, slicePending)}
           </span>
+        </div>
+      )}
+
+      {entityAxes.length > 0 && (
+        <div
+          className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line bg-panel-soft px-3 py-2"
+          data-testid="measurement-entity-controls"
+        >
+          <strong className="text-[0.56rem] tracking-[0.06em] text-text-dim uppercase">
+            Entities
+          </strong>
+          {entityAxes.map((axis) => {
+            const availableIdentities = new Set(axis.members.map((member) => member.identity));
+            const requested = selectedEntityIdentities[axis.id];
+            const validSelection = requested?.filter((identity) =>
+              availableIdentities.has(identity),
+            );
+            const selected =
+              validSelection && validSelection.length > 0 ? validSelection : undefined;
+            const allSelected = selected === undefined;
+            return (
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5" key={axis.id}>
+                <span className="mr-0.5 text-[0.59rem] font-semibold text-text-soft">
+                  {axis.label}
+                </span>
+                <button
+                  aria-pressed={allSelected}
+                  className={entityChipClasses(allSelected)}
+                  onClick={() => selectAllEntities(axis.id)}
+                  type="button"
+                >
+                  All {axis.size}
+                </button>
+                {axis.size <= MAX_ENTITY_CHIPS ? (
+                  axis.members.map((member) => {
+                    const pressed = selected?.includes(member.identity) ?? false;
+                    return (
+                      <button
+                        aria-label={`${axis.label} ${member.label}`}
+                        aria-pressed={pressed}
+                        className={entityChipClasses(pressed)}
+                        key={member.identity}
+                        onClick={() => toggleEntity(axis, member.identity)}
+                        title={member.kind ? `${member.kind}:${member.id}` : member.id}
+                        type="button"
+                      >
+                        {member.label}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <select
+                    aria-label={`${axis.label} entity`}
+                    className="max-w-52 rounded border border-line bg-panel px-2 py-1 text-[0.6rem] text-text-soft"
+                    onChange={(event) => {
+                      if (event.target.value === "all") selectAllEntities(axis.id);
+                      else selectOneEntity(axis.id, event.target.value);
+                    }}
+                    value={selected?.length === 1 ? selected[0] : "all"}
+                  >
+                    <option value="all">All {axis.size}</option>
+                    {axis.members.map((member) => (
+                      <option key={member.identity} value={member.identity}>
+                        {member.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <span className="text-[0.54rem] text-text-dim">
+                  {allSelected ? "Comparing all" : `${selected.length} selected`}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -221,11 +352,11 @@ export function MeasurementDataPreview({
         </p>
       ) : null}
 
-      {(slicePlan || tracePlans.length > 0) && (
+      {(slicePlan || tracePlans.length > 0 || entityAxes.length > 0) && (
         <p className="m-0 border-b border-line bg-panel-soft px-3 py-1.5 text-[0.56rem] text-text-dim">
           Heatmaps and point-scalar plots use the selected durable slice when available. Trace
-          previews are bounded by the server for the selected authored domain; the table and raw
-          view remain run-wide.
+          previews are bounded by the server for the selected authored domain. Entity selection
+          filters comparison plots and table summaries; raw records remain run-wide.
         </p>
       )}
 
@@ -379,29 +510,89 @@ function MeasurementChart({ chart }: { chart: MeasurementChartPlan }) {
           </span>
         </span>
         <span className="rounded border border-line px-1.5 py-1 text-[0.52rem] font-bold tracking-[0.05em] text-text-dim uppercase">
-          {chart.kind.replace("-", " ")}
+          {chart.layout === "small-multiples" ? "small multiples" : chart.kind.replace("-", " ")}
         </span>
       </figcaption>
-      <EChart
-        ariaLabel={accessibleTitle}
-        height={chart.colorLabel ? 270 : 240}
-        option={option}
-        pointCount={points.length}
-        seriesLabels={chart.series.map((series) => series.label)}
-        seriesCount={chart.series.length}
-      />
+      {chart.layout === "small-multiples" && chart.series.length > 1 ? (
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,260px),1fr))] gap-2">
+          {chart.series.map((series) => (
+            <MeasurementSeriesPanel chart={chart} key={series.id} series={series} />
+          ))}
+        </div>
+      ) : (
+        <EChart
+          ariaLabel={accessibleTitle}
+          height={chart.colorLabel ? 270 : 240}
+          option={option}
+          pointCount={points.length}
+          seriesLabels={chart.series.map((series) => series.label)}
+          seriesCount={chart.series.length}
+        />
+      )}
       {chart.note && <p className="mt-1.5 mb-0 text-[0.56rem] text-text-dim">{chart.note}</p>}
     </figure>
   );
 }
 
+function MeasurementSeriesPanel({
+  chart,
+  series,
+}: {
+  chart: MeasurementChartPlan;
+  series: MeasurementChartSeries;
+}) {
+  const option = useMemo(
+    () =>
+      measurementChartOption({
+        ...chart,
+        layout: "overlay",
+        series: [series],
+      }),
+    [chart, series],
+  );
+  return (
+    <section className="min-w-0 rounded border border-line bg-panel p-2">
+      <div className="mb-1 flex items-center justify-between gap-2 text-[0.58rem]">
+        <strong className="text-text-soft">{series.label}</strong>
+        <span className="text-text-dim">
+          {series.points.length} samples{series.status ? ` · ${series.status}` : ""}
+        </span>
+      </div>
+      {series.points.length > 0 ? (
+        <EChart
+          ariaLabel={`${chart.title} · ${series.label}: ${chart.yLabel} by ${chart.xLabel}`}
+          height={170}
+          option={option}
+          pointCount={series.points.length}
+          seriesLabels={[series.label]}
+          seriesCount={1}
+        />
+      ) : (
+        <p className="m-0 grid h-[170px] place-items-center text-[0.6rem] text-text-dim">
+          {series.status ?? "Unavailable for this point"}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function entityChipClasses(selected: boolean): string {
+  return [
+    "rounded-full border px-2 py-1 text-[0.57rem] font-semibold transition-colors",
+    selected
+      ? "border-blue/50 bg-blue-soft text-blue"
+      : "border-line bg-panel text-text-dim hover:text-text-soft",
+  ].join(" ");
+}
+
 function chartOptionLabel(chart: MeasurementChartPlan): string {
   const color = chart.colorLabel ? ` · color: ${chart.colorLabel}` : "";
+  const layout = chart.layout === "small-multiples" ? " · small multiples" : "";
   const fixed =
     chart.kind === "heatmap" && chart.fixedCoordinates.length > 0
       ? ` · fixed: ${fixedCoordinatesLabel(chart.fixedCoordinates)}`
       : "";
-  return `${chart.title} — x: ${chart.xLabel} · y: ${chart.yLabel}${color}${fixed}`;
+  return `${chart.title} — x: ${chart.xLabel} · y: ${chart.yLabel}${color}${layout}${fixed}`;
 }
 
 function fixedCoordinatesLabel(
