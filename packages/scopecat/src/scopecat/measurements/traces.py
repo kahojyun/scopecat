@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import pairwise
+from math import prod
 from typing import Literal, cast
 
 import numpy as np
@@ -19,12 +21,15 @@ from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementEntityAcquisition,
+    MeasurementProductGridPointDomain,
     MeasurementRecord,
+    MeasurementScalar,
     MeasurementSegmentedArray,
     MeasurementUnavailable,
     MeasurementUnavailableReason,
     MeasurementValue,
     MeasurementVariable,
+    measurement_point_axis_values,
 )
 
 type TraceCoordinate = int | float
@@ -41,6 +46,7 @@ class Trace:
 
     point_index: int
     logical_point_id: str | None
+    label: str
     dimension_id: str
     recording_group_id: str | None
     coordinate_id: str
@@ -142,6 +148,7 @@ def measurement_traces(
         group=group,
     )
     traces, failures = _measurement_traces(
+        dataset.dataset_schema,
         dataset.records,
         coordinate_variable,
         observable_variable,
@@ -197,6 +204,7 @@ def project_measurement_trace_preview(
     series_limit = min(max_series, max_samples // 2)
     selected_entity_indices = _selected_entity_indices(entity_dimension, entity_indices)
     traces, failures = _measurement_traces(
+        dataset.dataset_schema,
         dataset.records,
         coordinate_variable,
         observable_variable,
@@ -364,6 +372,7 @@ def _trace_layout(
 
 
 def _measurement_traces(
+    schema: MeasurementDatasetSchema,
     records: Sequence[MeasurementRecord],
     coordinate_variable: MeasurementVariable | None,
     observable_variable: MeasurementVariable,
@@ -381,14 +390,21 @@ def _measurement_traces(
     traces: list[Trace] = []
     failures: list[ProjectedTraceFailure] = []
     inspected = 0
-    for record in records:
+    point_labels = tuple(_trace_point_label(schema, record) for record in records)
+    point_label_counts = Counter(point_labels)
+    for record, base_point_label in zip(records, point_labels, strict=True):
+        point_label = (
+            base_point_label
+            if point_label_counts[base_point_label] == 1
+            else f"{base_point_label} · Point {record.point_index}"
+        )
         y_value = record.observables[observable]
         for entity_index in entity_indices:
             if limit is not None and inspected == limit:
                 return tuple(traces), tuple(failures)
             inspected += 1
             entity = _trace_entity(entity_dimension, entity_index)
-            label = _trace_series_label(record, entity)
+            label = _trace_series_label(point_label, entity)
             evidence = _trace_evidence(record, observable, entity_index)
             y_part = _local_trace_array(
                 y_value,
@@ -456,6 +472,7 @@ def _measurement_traces(
                 Trace(
                     point_index=record.point_index,
                     logical_point_id=record.logical_point_id,
+                    label=label,
                     dimension_id=dimension_id,
                     recording_group_id=coordinate_group,
                     coordinate_id=dimension_id if coordinate is None else coordinate,
@@ -668,23 +685,81 @@ def _readonly_selected(
     return selected
 
 
-def _trace_series_label(record: MeasurementRecord, entity: EntityRef | None) -> str:
-    point_label = record.logical_point_id or f"Point {record.point_index}"
+def _trace_point_label(
+    schema: MeasurementDatasetSchema,
+    record: MeasurementRecord,
+) -> str:
+    variables = {variable.id: variable for variable in schema.variables}
+    domain = schema.point_domain
+    coordinates: list[str] = []
+    if isinstance(domain, MeasurementProductGridPointDomain):
+        for axis_index, axis in enumerate(domain.axes):
+            stride = prod(item.size for item in domain.axes[axis_index + 1 :])
+            value_index = (record.point_index // stride) % axis.size
+            value = measurement_point_axis_values(axis)[value_index]
+            if value is not None:
+                variable = variables.get(axis.id)
+                coordinates.append(
+                    _trace_coordinate_label(
+                        variable.label if variable is not None else None,
+                        axis.id,
+                        value,
+                    )
+                )
+    else:
+        for column in domain.columns:
+            value = record.coordinates.get(column.id)
+            if not isinstance(value, MeasurementScalar):
+                continue
+            variable = variables.get(column.id)
+            coordinates.append(
+                _trace_coordinate_label(
+                    variable.label if variable is not None else None,
+                    column.id,
+                    value,
+                )
+            )
+    return " · ".join(coordinates) if coordinates else f"Point {record.point_index}"
+
+
+def _trace_coordinate_label(
+    label: str | None,
+    coordinate_id: str,
+    value: MeasurementScalar,
+) -> str:
+    name = label or _display_identifier(coordinate_id)
+    rendered = _trace_scalar_label(value)
+    return f"{name} {rendered}"
+
+
+def _trace_scalar_label(value: MeasurementScalar) -> str:
+    scalar = value.value
+    if isinstance(scalar, bool):
+        rendered = "True" if scalar else "False"
+    elif isinstance(scalar, int):
+        rendered = str(scalar)
+    elif isinstance(scalar, float):
+        rendered = format(scalar, ".6g")
+    elif isinstance(scalar, complex):
+        sign = "-" if scalar.imag < 0 else "+"
+        rendered = (
+            f"{format(scalar.real, '.6g')} {sign} {format(abs(scalar.imag), '.6g')}i"
+        )
+    else:
+        rendered = scalar
+    return f"{rendered} {value.unit}" if value.unit is not None else rendered
+
+
+def _display_identifier(identifier: str) -> str:
+    words = identifier.replace("-", " ").replace("_", " ").replace("/", " ").split()
+    return " ".join(f"{word[:1].upper()}{word[1:]}" for word in words)
+
+
+def _trace_series_label(point_label: str, entity: EntityRef | None) -> str:
     if entity is None:
         return point_label
     metadata_label = entity.metadata.get("label")
     entity_label = metadata_label if isinstance(metadata_label, str) else entity.id
-    return f"{point_label} · {entity_label}"
-
-
-def _trace_series_label_from_trace(trace: Trace) -> str:
-    point_label = trace.logical_point_id or f"Point {trace.point_index}"
-    if trace.entity is None:
-        return point_label
-    metadata_label = trace.entity.metadata.get("label")
-    entity_label = (
-        metadata_label if isinstance(metadata_label, str) else trace.entity.id
-    )
     return f"{point_label} · {entity_label}"
 
 
@@ -699,7 +774,7 @@ def _project_trace(
     return ProjectedTraceSeries(
         point_index=trace.point_index,
         logical_point_id=trace.logical_point_id,
-        label=_trace_series_label_from_trace(trace),
+        label=trace.label,
         entity_index=trace.entity_index,
         entity=trace.entity,
         x=tuple(

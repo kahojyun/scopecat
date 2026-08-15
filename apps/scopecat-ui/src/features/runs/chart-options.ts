@@ -245,13 +245,20 @@ function valueAxis(name: string, formatter: (value: number) => string, nameGap: 
 function scrollLegend(labels: string[]) {
   return {
     data: labels,
+    formatter: compactLegendLabel,
     itemHeight: 8,
     itemWidth: 12,
     pageTextStyle: { color: "#818b94" },
     textStyle: { color: "#818b94", fontSize: 10 },
+    tooltip: { show: true },
     top: 0,
     type: "scroll" as const,
   };
+}
+
+function compactLegendLabel(label: string): string {
+  if (label.length <= 48) return label;
+  return `${label.slice(0, 32)}…${label.slice(-15)}`;
 }
 
 function insideDataZoom() {

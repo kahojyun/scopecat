@@ -814,10 +814,23 @@ class RunService:
             (series_read_limit + projection.selected_entity_count - 1)
             // projection.selected_entity_count,
         )
-        trace_variable_ids = (
-            (projection.observable_id,)
-            if projection.source_coordinate_id is None
-            else (projection.source_coordinate_id, projection.observable_id)
+        point_coordinate_ids = tuple(
+            variable.id
+            for variable in schema.variables
+            if variable.role == "coordinate" and tuple(variable.dims) == ("point",)
+        )
+        trace_variable_ids = tuple(
+            dict.fromkeys(
+                (
+                    *point_coordinate_ids,
+                    *(
+                        ()
+                        if projection.source_coordinate_id is None
+                        else (projection.source_coordinate_id,)
+                    ),
+                    projection.observable_id,
+                )
+            )
         )
         try:
             point_indices, selected_point_count = _trace_preview_point_indices(

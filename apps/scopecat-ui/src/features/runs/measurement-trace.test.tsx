@@ -335,7 +335,7 @@ describe("measurement trace visualization", () => {
       series: [
         {
           ...traceSeries(0, [4, 6], [1, 3], 3),
-          label: "point-0 · Q0",
+          label: "Delay 88 ns · Q0",
           entity_index: 0,
           entity: { id: "q0", kind: "qubit", metadata: { label: "Q0" } },
           available_sample_count: 2,
@@ -346,7 +346,7 @@ describe("measurement trace visualization", () => {
         {
           point_index: 0,
           logical_point_id: "point-0",
-          label: "point-0 · Q1",
+          label: "Delay 88 ns · Q1",
           entity_index: 1,
           entity: { id: "q1", kind: "qubit", metadata: { label: "Q1" } },
           reasons: ["overload"],
@@ -379,7 +379,7 @@ describe("measurement trace visualization", () => {
     expect(screen.getByText("small multiples")).toBeVisible();
     expect(screen.getByText("Unavailable · overload")).toBeVisible();
     expect(screen.getByText("2/3 samples available · overload")).toBeVisible();
-    fireEvent.click(screen.getByText("point-0 · Q1"));
+    fireEvent.click(screen.getByText("Delay 88 ns · Q1"));
     expect(screen.getByText("readout · sample → q1-response")).toBeVisible();
     expect(screen.getByText("channel-b")).toBeVisible();
 

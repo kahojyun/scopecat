@@ -28,7 +28,12 @@ from scopecat.records.measurement import (
     MeasurementEntityIndex,
     MeasurementEntityProductSource,
     MeasurementPointCloudPointDomain,
+    MeasurementPointDomainAxis,
+    MeasurementPointDomainColumn,
+    MeasurementPointDomainValuesSource,
+    MeasurementProductGridPointDomain,
     MeasurementRecord,
+    MeasurementScalar,
     MeasurementSegmentedArray,
     MeasurementUnavailable,
     MeasurementValue,
@@ -332,6 +337,92 @@ def test_trace_preview_projects_value_modes_with_minmax_endpoint_sampling(
     assert projection.series[0].y == pytest.approx(expected)
 
 
+def test_trace_preview_labels_series_with_point_coordinates_not_logical_ids() -> None:
+    dataset = _trace_dataset()
+    delay = MeasurementVariable(
+        id="delay",
+        role="coordinate",
+        dtype="float64",
+        unit="ns",
+        dims=("point",),
+        label="Delay",
+    )
+    delays = (64.0, 128.0)
+    dataset = _replace_dataset(
+        dataset,
+        dataset_schema=_replace_schema(
+            dataset.dataset_schema,
+            point_domain=MeasurementPointCloudPointDomain(
+                columns=(MeasurementPointDomainColumn(id="delay"),)
+            ),
+            variables=(delay, *dataset.dataset_schema.variables),
+            primary_coordinates=("delay", "frequency"),
+        ),
+        records=tuple(
+            _replace_record_values(
+                record.model_copy(update={"logical_point_id": "a" * 64}),
+                coordinates={
+                    "delay": MeasurementScalar.create(
+                        dtype="float64",
+                        unit="ns",
+                        value=delays[record.point_index],
+                    )
+                },
+            )
+            for record in dataset.records
+        ),
+    )
+
+    projection = project_measurement_trace_preview(
+        dataset,
+        "s_parameter",
+        max_series=2,
+        max_samples=4,
+    )
+
+    assert [series.logical_point_id for series in projection.series] == ["a" * 64] * 2
+    assert [series.label for series in projection.series] == [
+        "Delay 64 ns",
+        "Delay 128 ns",
+    ]
+
+
+def test_trace_preview_disambiguates_duplicate_point_coordinate_labels() -> None:
+    dataset = _trace_dataset()
+    dataset = _replace_dataset(
+        dataset,
+        dataset_schema=_replace_schema(
+            dataset.dataset_schema,
+            point_domain=MeasurementProductGridPointDomain(
+                axes=(
+                    MeasurementPointDomainAxis(
+                        id="bias",
+                        size=2,
+                        source=MeasurementPointDomainValuesSource(
+                            values=tuple(
+                                MeasurementScalar.create(dtype="int64", value=0)
+                                for _ in range(2)
+                            )
+                        ),
+                    ),
+                )
+            ),
+        ),
+    )
+
+    projection = project_measurement_trace_preview(
+        dataset,
+        "s_parameter",
+        max_series=2,
+        max_samples=4,
+    )
+
+    assert [series.label for series in projection.series] == [
+        "Bias 0 · Point 0",
+        "Bias 0 · Point 1",
+    ]
+
+
 def test_trace_preview_minmax_sampling_preserves_narrow_extrema() -> None:
     dataset = _trace_dataset()
     frequency_variable, parameter_variable = dataset.dataset_schema.variables
@@ -511,7 +602,7 @@ def test_entity_trace_preview_selects_entities_availability_and_evidence() -> No
     [series] = projection.series
     assert series.entity_index == 0
     assert series.entity == EntityRef(id="q0", kind="qubit", metadata={"label": "Q0"})
-    assert series.label == "point-0 · Q0"
+    assert series.label == "Point 0 · Q0"
     assert series.x == (4.0, 6.0)
     assert series.y == (1.0, 3.0)
     assert series.source_sample_count == 3
@@ -522,9 +613,51 @@ def test_entity_trace_preview_selects_entities_availability_and_evidence() -> No
     [failure] = projection.failures
     assert failure.entity_index == 1
     assert failure.entity == EntityRef(id="q1", kind="qubit")
+    assert failure.label == "Point 0 · q1"
     assert failure.reasons == ("overload",)
     assert failure.evidence is not None
     assert failure.evidence.result_id == "q1-response"
+
+
+def test_entity_trace_preview_labels_product_grid_points_and_entities() -> None:
+    dataset = _entity_trace_dataset(segmented=False)
+    dataset = _replace_dataset(
+        dataset,
+        dataset_schema=_replace_schema(
+            dataset.dataset_schema,
+            point_domain=MeasurementProductGridPointDomain(
+                axes=(
+                    MeasurementPointDomainAxis(
+                        id="delay",
+                        size=1,
+                        source=MeasurementPointDomainValuesSource(
+                            values=(
+                                MeasurementScalar.create(
+                                    dtype="float64",
+                                    unit="ns",
+                                    value=64,
+                                ),
+                            )
+                        ),
+                    ),
+                )
+            ),
+        ),
+        records=(dataset.records[0].model_copy(update={"logical_point_id": "a" * 64}),),
+    )
+
+    projection = project_measurement_trace_preview(
+        dataset,
+        "response",
+        coordinate="frequency",
+        entity_indices=(0, 1),
+        max_series=2,
+        max_samples=8,
+        value_mode="value",
+    )
+
+    assert [series.label for series in projection.series] == ["Delay 64 ns · Q0"]
+    assert [failure.label for failure in projection.failures] == ["Delay 64 ns · q1"]
 
 
 def test_entity_trace_preview_supports_segmented_local_lengths() -> None:

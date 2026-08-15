@@ -3209,7 +3209,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert trace_preview.json()["series"][0] == {
             "point_index": 1,
             "logical_point_id": "point-1",
-            "label": "point-1",
+            "label": "X 10 · Bias 1",
             "x": [0.0, 4.0],
             "y": [0.0, 4.0],
             "source_sample_count": 5,
