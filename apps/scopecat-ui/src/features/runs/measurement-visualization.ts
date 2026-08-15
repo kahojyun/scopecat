@@ -737,6 +737,9 @@ function formatMeasurementValue(value: MeasurementValue | undefined): string {
     const size = value.shape.length > 0 ? value.shape.join(" × ") : "?";
     return `${size} samples${unitSuffix(value.unit)}`;
   }
+  if (value.kind === "segmented_array") {
+    return `${value.segments.length} entity segments${unitSuffix(value.unit)}`;
+  }
   return `${formatScalar(value.value)}${unitSuffix(value.unit)}`;
 }
 

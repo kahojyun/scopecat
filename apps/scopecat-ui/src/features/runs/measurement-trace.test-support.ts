@@ -6,9 +6,9 @@ import type {
 
 export function traceSchema(): MeasurementDatasetSchema {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v13",
+    format_version: "scopecat.measurement_dataset_schema.v16",
     dataset_id: "raw-measurements",
-    record_schema: "scopecat.measurement_record.v7",
+    record_schema: "scopecat.measurement_record.v9",
     dimensions: [
       { id: "point", kind: "point", size: 2 },
       { id: "sample", kind: "sample", size: 3 },

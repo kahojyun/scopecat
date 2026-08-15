@@ -1907,20 +1907,19 @@ export interface components {
             run_id?: string | null;
         };
         /**
-         * EntityAcquisitionEvidence
-         * @description Acquisition evidence aligned to one entity-indexed variable.
+         * EntityAcquisitionEvidenceRef
+         * @description Entity-aligned result references within shared acquisition events.
          */
-        EntityAcquisitionEvidence: {
+        EntityAcquisitionEvidenceRef: {
             acquisition?: components["schemas"]["MeasurementEntityAcquisition"];
             dimension_id: components["schemas"]["_NonEmptyText"];
             /**
-             * Kind
-             * @default entity
-             * @constant
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
              */
             kind: "entity";
             /** Values */
-            values: (components["schemas"]["InstrumentAcquisitionEvidence"] | null)[];
+            values: (components["schemas"]["InstrumentAcquisitionEvidenceRef"] | null)[];
         };
         /** @enum {string} */
         EntityAcquisitionPolicy: "independent" | "best_effort" | "all_or_nothing";
@@ -2016,10 +2015,10 @@ export interface components {
             }[];
         };
         /**
-         * InstrumentAcquisitionEvidence
-         * @description Daemon-observed interval and physical target for one collected result.
+         * InstrumentAcquisitionEvent
+         * @description Shared physical acquisition interval referenced by result evidence.
          */
-        InstrumentAcquisitionEvidence: {
+        InstrumentAcquisitionEvent: {
             acquisition_id: components["schemas"]["_NonEmptyText"];
             command_id: components["schemas"]["_NonEmptyText"];
             /**
@@ -2034,12 +2033,25 @@ export interface components {
             component_path: components["schemas"]["_NonEmptyText"][];
             instrument_id: components["schemas"]["_NonEmptyText"];
             interface_id: components["schemas"]["InterfaceId"];
-            result_id: components["schemas"]["_NonEmptyText"];
             /**
              * Started At
              * Format: date-time
              */
             started_at: string;
+        };
+        /**
+         * InstrumentAcquisitionEvidenceRef
+         * @description One result identifier within a shared acquisition event.
+         */
+        InstrumentAcquisitionEvidenceRef: {
+            /** Event Index */
+            event_index: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "instrument";
+            result_id: components["schemas"]["_NonEmptyText"];
         };
         /**
          * InstrumentBindingSpec
@@ -2181,7 +2193,7 @@ export interface components {
             metadata?: components["schemas"]["JsonMetadata"];
             /** Values */
             values?: {
-                [key: string]: components["schemas"]["MeasurementValue"];
+                [key: string]: components["schemas"]["MeasurementAcquisitionValue"];
             };
         };
         /**
@@ -2465,22 +2477,25 @@ export interface components {
              */
             kind: "manual_parameter_updates";
         };
-        MeasurementAcquisitionEvidence: components["schemas"]["InstrumentAcquisitionEvidence"] | components["schemas"]["EntityAcquisitionEvidence"];
+        MeasurementAcquisitionEvents: components["schemas"]["InstrumentAcquisitionEvent"][];
         /**
          * MeasurementAcquisitionEvidenceCatalog
-         * @description Deduplicated evidence entries referenced by measurement variable id.
+         * @description Result evidence factored over shared acquisition events by compact indexes.
          */
         MeasurementAcquisitionEvidenceCatalog: {
-            /** Entries */
-            entries?: components["schemas"]["MeasurementAcquisitionEvidence"][];
+            entries?: components["schemas"]["MeasurementAcquisitionEvidenceEntries"];
+            events?: components["schemas"]["MeasurementAcquisitionEvents"];
             variable_refs?: components["schemas"]["MeasurementAcquisitionEvidenceRefs"];
         };
+        MeasurementAcquisitionEvidenceEntries: components["schemas"]["MeasurementAcquisitionEvidenceRef"][];
+        MeasurementAcquisitionEvidenceRef: components["schemas"]["InstrumentAcquisitionEvidenceRef"] | components["schemas"]["EntityAcquisitionEvidenceRef"];
         MeasurementAcquisitionEvidenceRefs: {
             [key: string]: number;
         };
+        MeasurementAcquisitionValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementUnavailable"];
         /**
          * MeasurementArray
-         * @description One typed array backed by an immutable, read-only NumPy buffer.
+         * @description One rectangular typed array backed by an immutable NumPy buffer.
          */
         MeasurementArray: {
             availability?: components["schemas"]["MeasurementArrayAvailability"] | null;
@@ -2551,10 +2566,10 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension-Output"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v13
+             * @default scopecat.measurement_dataset_schema.v16
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v13";
+            format_version: "scopecat.measurement_dataset_schema.v16";
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
             point_domain: components["schemas"]["MeasurementPointDomain-Output"];
             /** Primary Coordinates */
@@ -2563,10 +2578,10 @@ export interface components {
             primary_observables?: string[];
             /**
              * Record Schema
-             * @default scopecat.measurement_record.v7
+             * @default scopecat.measurement_record.v9
              * @constant
              */
-            record_schema: "scopecat.measurement_record.v7";
+            record_schema: "scopecat.measurement_record.v9";
             result?: components["schemas"]["MeasurementResultContract"] | null;
             /** Variable Groups */
             variable_groups?: components["schemas"]["MeasurementVariableGroup-Output"][];
@@ -2605,7 +2620,6 @@ export interface components {
          * @description Ordered durable entity labels for one fixed measurement dimension.
          */
         "MeasurementEntityIndex-Output": {
-            entity_kind?: components["schemas"]["_NonEmptyText"] | null;
             /**
              * Kind
              * @default entity
@@ -2634,7 +2648,7 @@ export interface components {
             /** Metadata Overrides */
             metadata_overrides?: components["schemas"]["MeasurementEntityProductMetadataOverride-Output"][];
             /** Product Ids */
-            product_ids: components["schemas"]["_NonEmptyText"][];
+            product_ids: (components["schemas"]["_NonEmptyText"] | null)[];
         };
         "MeasurementMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
@@ -2800,6 +2814,25 @@ export interface components {
                 imag: number;
                 real: number;
             };
+        };
+        MeasurementSegment: components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementUnavailable"];
+        /**
+         * MeasurementSegmentedArray
+         * @description One entity-indexed value with independently shaped local array segments.
+         */
+        MeasurementSegmentedArray: {
+            /** @default float64 */
+            dtype: components["schemas"]["MeasurementDType"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "segmented_array";
+            metadata?: components["schemas"]["MeasurementMetadata-Output"];
+            /** Segments */
+            segments: components["schemas"]["MeasurementSegment"][];
+            /** Unit */
+            unit?: string | null;
         };
         /**
          * MeasurementSlice
@@ -2971,7 +3004,7 @@ export interface components {
             /** Unit */
             unit: string | null;
         };
-        MeasurementValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementUnavailable"];
+        MeasurementValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementSegmentedArray"] | components["schemas"]["MeasurementUnavailable"];
         MeasurementValueMap: {
             [key: string]: components["schemas"]["MeasurementValue"];
         };
@@ -2999,13 +3032,11 @@ export interface components {
         };
         /**
          * MeasurementVariableGroup
-         * @description One named set of variables recorded as a coherent product group.
+         * @description One named recording-group definition referenced by variables.
          */
         "MeasurementVariableGroup-Output": {
             id: components["schemas"]["_NonEmptyText"];
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
-            /** Variable Ids */
-            variable_ids: components["schemas"]["_NonEmptyText"][];
         };
         /** @enum {string} */
         MeasurementVariableRole: "coordinate" | "observable";

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import cast, override
 
 import pytest
 from scopecat_testkit.execution_fakes import FakeMeasurementDatasetRepository
+from scopecat_testkit.measurement_arrow_fixture import (
+    ui_measurement_arrow_fixture,
+    ui_measurement_arrow_fixture_schema,
+)
 from scopecat_testkit.measurement_assembly import (
     assembled_measurement_values_for_all_uses,
 )
@@ -190,6 +195,36 @@ def test_arrow_recording_round_trips_entity_arrays_with_partial_availability() -
     assert isinstance(iq, MeasurementArray)
     assert iq.availability is not None
     assert iq.availability.valid.tolist() == [[True, True], [False, True]]
+
+
+def test_ui_arrow_fixture_is_generated_by_the_current_python_codec() -> None:
+    content = ui_measurement_arrow_fixture()
+    fixture = (
+        Path(__file__).resolve().parents[4]
+        / "apps"
+        / "scopecat-ui"
+        / "src"
+        / "features"
+        / "runs"
+        / "test-fixtures"
+        / "measurement-append-v9.arrow"
+    )
+
+    restored = decode_measurement_append(
+        content,
+        ui_measurement_arrow_fixture_schema(),
+    )
+
+    assert fixture.read_bytes() == content
+    assert restored.records[0].logical_point_id == "point-7"
+    assert restored.records[0].point_index == 7
+    assert (
+        encode_measurement_append(
+            restored,
+            ui_measurement_arrow_fixture_schema(),
+        )
+        == content
+    )
 
 
 def test_append_identity_is_stable_and_content_detects_conflict() -> None:

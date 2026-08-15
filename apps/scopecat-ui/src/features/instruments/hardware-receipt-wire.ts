@@ -1,4 +1,4 @@
-import type { InstrumentCollectReceipt, MeasurementValue } from "../../api-contract";
+import type { InstrumentCollectReceipt, MeasurementAcquisitionValue } from "../../api-contract";
 
 export const HARDWARE_RECEIPT_MEDIA_TYPE = "application/vnd.scopecat.hardware-receipt.v1";
 
@@ -8,7 +8,7 @@ const MAX_HEADER_BYTES = 8 * 1024 * 1024;
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
 
 type MeasurementDType = "float64" | "int64" | "complex128" | "bool" | "string";
-type ArrayValue = Extract<MeasurementValue, { kind: "array" }>;
+type ArrayValue = Extract<MeasurementAcquisitionValue, { kind: "array" }>;
 type ArrayLeaf = boolean | number | string | { imag: number; real: number };
 type ArrayTree = ArrayLeaf | ArrayTree[];
 
@@ -196,11 +196,11 @@ function isArrayReference(value: unknown): value is ArrayReference {
   return true;
 }
 
-function measurementValue(value: unknown): MeasurementValue {
+function measurementValue(value: unknown): MeasurementAcquisitionValue {
   if (!isRecord(value) || !["scalar", "unavailable"].includes(String(value.kind))) {
     throw invalidReceipt("measurement value");
   }
-  return value as MeasurementValue;
+  return value as MeasurementAcquisitionValue;
 }
 
 function optionalRecord(value: unknown, field: string): Record<string, unknown> {
