@@ -426,6 +426,19 @@ def test_qubit_set_retains_parallel_authoring_and_owns_entity_axis_result() -> N
         if isinstance(operation, Measure)
     } == {operation.qubit: operation.acquisition_slot_id for operation in measurements}
 
+    large_entity_ids = tuple(f"q{index}" for index in range(1_000))
+    large_bound = authoring.bind(
+        declaration,
+        {"qubits": large_entity_ids},
+    )
+    assert isinstance(large_bound.program.body, QuantumParallelEach)
+    assert not hasattr(large_bound.program.body, "branches")
+    assert large_bound.program.body.operation == bound_program.program.body.operation
+    assert len(large_bound.program.body.entity_ids) == 1_000
+    large_workload = estimate_quantum_program_workload(large_bound.verified)
+    assert large_workload.structural_operation_count == 2
+    assert large_workload.expanded_operation_count == 2_000
+
     call = declaration(("q0", "q1")).with_shots(16)
 
     @sc.experiment(id="test.quantum.qubit-set", kind="quantum")

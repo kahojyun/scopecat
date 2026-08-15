@@ -112,6 +112,43 @@ lineage. Point-level aggregates belong in the canonical measurement stream;
 large shot-level or trace payloads should cross the data boundary as typed
 binary content rather than control-plane records.
 
+Large programs follow three deliberately separate shapes:
+
+1. The authored and bound-logical IR retains `parallel_each` and `repeat` as
+   parameterized nodes. One template is stored regardless of entity-set size.
+2. Target lowering instantiates stable entity-qualified operations only where a
+   concrete schedule or placement requires them. Reordering the selected
+   entities therefore does not change an entity's operation or acquisition
+   identity.
+3. The target artifact owns physical batching, event/acquisition limits,
+   waveform memory, result volume, and result-chunk budgets. Those capacities
+   may change without changing the program or result schema.
+
+Program inspection uses the same separation. A default preview returns bounded
+pages for authored, logical, scheduled, and physical layers. Subsequent queries
+return just one layer page and may filter by node kind, entity, resource, parent,
+or text:
+
+```python
+from scopecat.inspection import CompiledProgramInspectionQuery
+
+preview = lab.prepare(experiment).preview(
+    point="last",
+    inspection_query=CompiledProgramInspectionQuery(
+        layer_id="scheduled",
+        entity_id="q17",
+        kind="play",
+        limit=128,
+    ),
+)
+```
+
+Each layer reports its full structural node count, matching count, returned
+count, and next offset. Node entity/resource/result references are separately
+bounded while retaining their full counts. This lets a GUI present an overview,
+drill into a Map or Repeat aggregate, filter a concrete schedule, and inspect
+physical placement constraints without receiving the complete expanded tree.
+
 The [scalability benchmarks](../../docs/development/scalability.md) cover
 multi-run calibration, shot-heavy acquisition, structured traces, and dense
 spectroscopy.

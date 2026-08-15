@@ -449,9 +449,28 @@ function ProgramNodeInspector({
         </div>
       )}
       {(incoming.length > 0 || outgoing.length > 0) && (
-        <div className="rounded border border-line bg-panel-soft p-2 text-[0.56rem] text-text-dim">
-          {incoming.length} source link{incoming.length === 1 ? "" : "s"} · {outgoing.length}{" "}
-          lowering link{outgoing.length === 1 ? "" : "s"}
+        <div className="grid gap-1 rounded border border-line bg-panel-soft p-2 text-[0.54rem] text-text-dim">
+          <strong className="text-text-soft">Lowering lineage</strong>
+          {[...incoming, ...outgoing].slice(0, 6).map((link) => {
+            const isIncoming = link.target_layer_id === layer.id;
+            return (
+              <div
+                className="grid grid-cols-[auto_minmax(0,1fr)] gap-1.5"
+                key={`${link.source_layer_id}:${link.source_node_id}:${link.target_layer_id}:${link.target_node_id}`}
+              >
+                <span>{isIncoming ? "from" : "to"}</span>
+                <code className="truncate">
+                  {isIncoming
+                    ? `${link.source_layer_id} / ${link.source_node_id}`
+                    : `${link.target_layer_id} / ${link.target_node_id}`}{" "}
+                  ({link.relation})
+                </code>
+              </div>
+            );
+          })}
+          {incoming.length + outgoing.length > 6 && (
+            <span>+{incoming.length + outgoing.length - 6} more links</span>
+          )}
         </div>
       )}
     </div>

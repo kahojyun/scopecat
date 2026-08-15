@@ -162,6 +162,28 @@ class ListModeEventPlacement:
     entry_id: TargetCompileEntryId
     event_id: PulseEventId
     signal: ListModeSignalPlacement
+    constraint_ids: tuple[str, ...]
+
+
+type ListModePlacementConstraintKind = Literal[
+    "configured_route",
+    "shared_endpoint",
+    "shared_local_oscillator",
+    "demodulator_slot",
+    "timing_domain",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ListModePlacementConstraint:
+    """One explainable physical constraint shared by placed program events."""
+
+    id: str
+    kind: ListModePlacementConstraintKind
+    label: str
+    signals: tuple[tuple[str, str, str], ...]
+    entity_ids: tuple[str, ...]
+    resource_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,6 +192,7 @@ class ListModeProgramPlacement:
 
     device_snapshot_fingerprint: str
     events: tuple[ListModeEventPlacement, ...]
+    constraints: tuple[ListModePlacementConstraint, ...]
 
     @property
     def logical_qubit_ids(self) -> tuple[str, ...]:
@@ -361,8 +384,20 @@ def program_placement_payload(placement: ListModeProgramPlacement) -> dict[str, 
                 "entry_id": event.entry_id.value,
                 "event_id": pulse_event_identity_payload(event.event_id),
                 "signal": signal_placement_payload(event.signal),
+                "constraint_ids": list(event.constraint_ids),
             }
             for event in placement.events
+        ],
+        "constraints": [
+            {
+                "id": constraint.id,
+                "kind": constraint.kind,
+                "label": constraint.label,
+                "signals": [list(signal) for signal in constraint.signals],
+                "entity_ids": list(constraint.entity_ids),
+                "resource_ids": list(constraint.resource_ids),
+            }
+            for constraint in placement.constraints
         ],
     }
 
@@ -1234,6 +1269,8 @@ __all__ = [
     "ListModeHostStateRequirements",
     "ListModePhysicalEndpoint",
     "ListModePhysicalFootprint",
+    "ListModePlacementConstraint",
+    "ListModePlacementConstraintKind",
     "ListModePreparation",
     "ListModeProgramPlacement",
     "ListModeSignalPlacement",

@@ -105,6 +105,13 @@ tables, and temporary scan axes belong to experiment invocations.
   lowering, exact event-to-channel placement, and a deduplicated physical
   footprint. Preview joins that physical layer to the authored, logical, and
   scheduled program layers without expanding the complete experiment.
+- Placement also records why each event uses its selected route: configured
+  routes, shared endpoints and LOs, demodulator slots, and the common timing
+  domain are stable constraint nodes linked from each event.
+- Target admission reports list entries, waveform bytes, event and acquisition
+  counts, complete result bytes, and per-shot chunk bytes together. The runtime
+  retains bounded shot chunks, while the GUI requests bounded program-layer
+  pages filtered by entity, resource, kind, or text.
 - The list-mode runtime uses explicit load, prepare, arm, shared-trigger, and
   fetch batches. Their order is auditable; target docstrings define trigger
   session guarantees, setup invalidation, and acquisition placement.

@@ -85,7 +85,7 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
     return cast(
         "dict[str, JsonValue]",
         {
-            "schema": "reference_lab.list_mode_execution_summary.v8",
+            "schema": "reference_lab.list_mode_execution_summary.v9",
             "compilation": {
                 "key": artifact.compilation_key.value,
                 "semantic_program_fingerprint": (
@@ -169,6 +169,10 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
                 ),
                 "logical_qubit_count": len(artifact.placement.logical_qubit_ids),
                 "event_count": len(artifact.placement.events),
+                "constraint_count": len(artifact.placement.constraints),
+                "constraint_kinds": sorted(
+                    {constraint.kind for constraint in artifact.placement.constraints}
+                ),
             },
             "physical_footprint": {
                 "instrument_count": len(artifact.physical_footprint.instrument_ids),

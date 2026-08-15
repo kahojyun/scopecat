@@ -47,6 +47,7 @@ changing the logical workload.
 | Structured trace | 1,000–10,000 outer points; 1,601-sample complex VNA traces plus representative waveforms and per-shot arrays | object throughput, array shape, slicing, and analysis memory |
 | Dense spectroscopy | 100,000 logical points, with a 1,000,000-point stress variant | planning time, peak memory, and compiler partitioning |
 | Historical project | 10,000 retained runs, with a 100,000-run stress variant | pagination, indexing, and GUI/API latency |
+| Large quantum program | 1,000 selected entities and 100,000 scheduled-event stress variant | retained Map/Repeat IR, target budgets, placement, and paged inspection |
 
 The profiles exercise characteristic combinations rather than maximizing every
 dimension at once. Compiler request size remains backend-declared. Shot counts,
@@ -81,6 +82,32 @@ but must not add Arrow columns or Dataset variables. The routine 128-entity
 projection test checks this contract. Partial entity or shot failure remains one
 array with null leaves and sparse reason groups, so a common all-success point
 has no per-leaf diagnostic overhead while degraded points remain inspectable.
+
+Large quantum programs have an additional representation invariant. Entity-set
+maps and finite repeats remain one structural template before target lowering;
+structural IR and inspection size must not grow with the selected entity count.
+Concrete scheduling may grow with physical work, but event, acquisition,
+waveform, total-result, and single-result-chunk limits must reject an unsafe
+request before device preparation. Semantic, placement, and final artifact
+layout fingerprints are recorded separately so entry renaming or repetition
+changes do not discard reusable logical work.
+
+Inspection acceptance is transport-oriented as well as compiler-oriented:
+
+- the initial response contains at most 128 nodes per authored, logical,
+  scheduled, or physical layer;
+- a follow-up query returns nodes for one layer only, with stable offset/limit,
+  matching-count, and next-offset metadata;
+- kind, entity, resource, parent, and text filters execute before pagination;
+- entity, resource, and result references inside one aggregate node are capped
+  independently and retain their full counts;
+- physical placement exposes configured routes plus shared endpoint, local
+  oscillator, demodulator, and timing constraints as inspectable nodes.
+
+The GUI should therefore render layer summaries first, page the node list,
+show Map/Repeat nodes as aggregates, draw timing only for the selected scheduled
+page, and fetch detail by entity or physical resource. Browser memory and DOM
+size must be proportional to the page, not to the expanded program.
 
 ## Measurements
 

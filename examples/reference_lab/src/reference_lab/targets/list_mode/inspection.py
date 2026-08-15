@@ -172,7 +172,7 @@ def _with_physical_placement_layer(
             id=root_id,
             kind="device",
             label=f"device {artifact.target_id.value}",
-            child_count=len(placements),
+            child_count=len(placements) + len(artifact.placement.constraints),
             entity_ids=logical_qubit_ids,
             resource_ids=physical_resource_ids,
             facts=(
@@ -183,6 +183,10 @@ def _with_physical_placement_layer(
                 CompiledInspectionFact(
                     "configured_signal_count",
                     len(artifact.device_snapshot.signal_placements),
+                ),
+                CompiledInspectionFact(
+                    "placement_constraint_count",
+                    len(artifact.placement.constraints),
                 ),
             ),
         ),
@@ -209,11 +213,37 @@ def _with_physical_placement_layer(
                         )
                         if event.signal.demodulator_slot_id is not None
                         else None,
+                        CompiledInspectionFact(
+                            "constraint_ids",
+                            list(event.constraint_ids),
+                        ),
                     )
                     if fact is not None
                 ),
             )
             for event in placements
+        ),
+        *(
+            CompiledProgramInspectionNode(
+                id=f"physical:constraint:{constraint.id}",
+                kind="placement_constraint",
+                label=constraint.label,
+                parent_id=root_id,
+                entity_ids=constraint.entity_ids,
+                resource_ids=constraint.resource_ids,
+                facts=(
+                    CompiledInspectionFact("constraint_kind", constraint.kind),
+                    CompiledInspectionFact(
+                        "signal_count",
+                        len(constraint.signals),
+                    ),
+                    CompiledInspectionFact(
+                        "signals",
+                        [list(signal) for signal in constraint.signals],
+                    ),
+                ),
+            )
+            for constraint in artifact.placement.constraints
         ),
     )
     selected_nodes, page = query_compiled_program_nodes(

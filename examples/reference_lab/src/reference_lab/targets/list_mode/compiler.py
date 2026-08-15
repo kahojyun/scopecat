@@ -78,8 +78,11 @@ from reference_lab.targets.list_mode.model import (
     ListModeHostStateRequirements,
     ListModePhysicalEndpoint,
     ListModePhysicalFootprint,
+    ListModePlacementConstraint,
+    ListModePlacementConstraintKind,
     ListModePreparation,
     ListModeProgramPlacement,
+    ListModeSignalPlacement,
     ListModeTarget,
     OutputSignal,
     TargetAcquisitionLowering,
@@ -800,24 +803,145 @@ def _project_program_placement(
     request: TargetCompileRequest,
     snapshot: ListModeDeviceSnapshot,
 ) -> ListModeProgramPlacement:
+    selected_signals = tuple(
+        sorted(
+            {
+                signal_key(
+                    cast(
+                        "OutputSignal | AcquireSignal",
+                        event.instruction.signal,
+                    )
+                )
+                for entry in request.entries
+                for event in entry.program.events
+            }
+        )
+    )
+    placements = tuple(snapshot.signal_placement(signal) for signal in selected_signals)
+    constraint_ids_by_signal: dict[tuple[str, str, str], list[str]] = {
+        signal: [] for signal in selected_signals
+    }
+    constraints: list[ListModePlacementConstraint] = []
+
+    def add_constraint(
+        *,
+        id: str,
+        kind: ListModePlacementConstraintKind,
+        label: str,
+        selected: tuple[ListModeSignalPlacement, ...],
+        resource_ids: tuple[str, ...],
+    ) -> None:
+        signals = tuple(placement.signal for placement in selected)
+        constraints.append(
+            ListModePlacementConstraint(
+                id=id,
+                kind=kind,
+                label=label,
+                signals=signals,
+                entity_ids=tuple(sorted({signal[2] for signal in signals})),
+                resource_ids=resource_ids,
+            )
+        )
+        for signal in signals:
+            constraint_ids_by_signal[signal].append(id)
+
+    for placement in placements:
+        add_constraint(
+            id=f"route:{':'.join(placement.signal)}",
+            kind="configured_route",
+            label=(f"configured {placement.signal[0]} route for {placement.signal[2]}"),
+            selected=(placement,),
+            resource_ids=tuple(endpoint.id for endpoint in placement.endpoints),
+        )
+
+    for endpoint_id in sorted(
+        {endpoint.id for placement in placements for endpoint in placement.endpoints}
+    ):
+        selected = tuple(
+            placement
+            for placement in placements
+            if endpoint_id in {endpoint.id for endpoint in placement.endpoints}
+        )
+        if len(selected) > 1:
+            add_constraint(
+                id=f"shared-endpoint:{endpoint_id}",
+                kind="shared_endpoint",
+                label=f"{len(selected)} logical signals share {endpoint_id}",
+                selected=selected,
+                resource_ids=(endpoint_id,),
+            )
+
+    for lo_group_id in sorted(
+        {
+            placement.lo_group_id
+            for placement in placements
+            if placement.lo_group_id is not None
+        }
+    ):
+        selected = tuple(
+            placement
+            for placement in placements
+            if placement.lo_group_id == lo_group_id
+        )
+        add_constraint(
+            id=f"shared-lo:{lo_group_id}",
+            kind="shared_local_oscillator",
+            label=f"phase/frequency reference is coupled by LO group {lo_group_id}",
+            selected=selected,
+            resource_ids=(f"lo-group:{lo_group_id}",),
+        )
+
+    for instrument_id, demodulator_slot_id in sorted(
+        {
+            (placement.endpoints[0].instrument_id, placement.demodulator_slot_id)
+            for placement in placements
+            if placement.demodulator_slot_id is not None
+        }
+    ):
+        selected = tuple(
+            placement
+            for placement in placements
+            if placement.endpoints[0].instrument_id == instrument_id
+            and placement.demodulator_slot_id == demodulator_slot_id
+        )
+        add_constraint(
+            id=f"demodulator:{instrument_id}:{demodulator_slot_id}",
+            kind="demodulator_slot",
+            label=f"acquisition is assigned to demodulator {demodulator_slot_id}",
+            selected=selected,
+            resource_ids=(f"{instrument_id}:demodulator:{demodulator_slot_id}",),
+        )
+
+    add_constraint(
+        id=f"timing:{snapshot.timing_instrument_id}",
+        kind="timing_domain",
+        label=f"events share timing controller {snapshot.timing_instrument_id}",
+        selected=placements,
+        resource_ids=(snapshot.timing_instrument_id,),
+    )
+    events: list[ListModeEventPlacement] = []
+    for entry in request.entries:
+        for event in entry.program.events:
+            placement = snapshot.signal_placement(
+                signal_key(
+                    cast(
+                        "OutputSignal | AcquireSignal",
+                        event.instruction.signal,
+                    )
+                )
+            )
+            events.append(
+                ListModeEventPlacement(
+                    entry_id=entry.id,
+                    event_id=event.id,
+                    signal=placement,
+                    constraint_ids=tuple(constraint_ids_by_signal[placement.signal]),
+                )
+            )
     return ListModeProgramPlacement(
         device_snapshot_fingerprint=snapshot.snapshot_fingerprint,
-        events=tuple(
-            ListModeEventPlacement(
-                entry_id=entry.id,
-                event_id=event.id,
-                signal=snapshot.signal_placement(
-                    signal_key(
-                        cast(
-                            "OutputSignal | AcquireSignal",
-                            event.instruction.signal,
-                        )
-                    )
-                ),
-            )
-            for entry in request.entries
-            for event in entry.program.events
-        ),
+        events=tuple(events),
+        constraints=tuple(constraints),
     )
 
 
@@ -1077,7 +1201,7 @@ def _artifact_payload(
     phase_templates: tuple[AwgPhaseTemplate, ...],
 ) -> dict[str, object]:
     return {
-        "schema": "reference_lab.list_mode_artifact.v11",
+        "schema": "reference_lab.list_mode_artifact.v12",
         "target": {
             "id": target.id.value,
             "capability_fingerprint": target.capability_fingerprint,

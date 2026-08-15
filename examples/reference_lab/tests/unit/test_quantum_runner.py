@@ -216,6 +216,18 @@ def test_parallel_qubit_set_compiles_to_one_entity_axis_result_group() -> None:
         == artifact.device_snapshot.snapshot_fingerprint
     )
     assert len(artifact.placement.events) == 4
+    shared_constraints = tuple(
+        constraint
+        for constraint in artifact.placement.constraints
+        if constraint.kind == "shared_endpoint"
+    )
+    assert any(
+        constraint.entity_ids == ("q0", "q1")
+        and any(
+            resource.startswith("readout-awg:") for resource in constraint.resource_ids
+        )
+        for constraint in shared_constraints
+    )
     # q0 and q1 are frequency-multiplexed on one I/Q pair and digitizer input.
     assert len(artifact.physical_footprint.waveform_outputs) == 2
     assert len(artifact.physical_footprint.acquisition_inputs) == 1
@@ -404,6 +416,7 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
     physical_layer = inspection.content.program.layers[-1]
     assert physical_layer.kind == "physical"
     assert physical_layer.nodes[0].resource_ids
+    assert any(node.kind == "placement_constraint" for node in physical_layer.nodes)
     [entry] = inspection.content.points
     assert entry.target_entry_id.endswith(".point-14")
 

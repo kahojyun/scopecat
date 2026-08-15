@@ -336,6 +336,19 @@ def test_list_mode_compiler_projects_calibrated_physical_programs() -> None:
         "drive",
         "readout",
     }
+    assert {constraint.kind for constraint in artifact.placement.constraints} >= {
+        "configured_route",
+        "shared_local_oscillator",
+        "demodulator_slot",
+        "timing_domain",
+    }
+    assert all(event.constraint_ids for event in artifact.placement.events)
+    assert all(
+        any(
+            constraint_id.startswith("route:") for constraint_id in event.constraint_ids
+        )
+        for event in artifact.placement.events
+    )
     footprint = artifact.physical_footprint
     assert footprint.instrument_ids == artifact.instrument_ids
     assert footprint.event_count == len(scheduled.events)

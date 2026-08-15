@@ -32,6 +32,7 @@ from reference_lab.targets.list_mode.model import (
     ListModeCompilationKey,
     ListModeDeviceSnapshot,
     ListModePhysicalFootprint,
+    ListModePlacementConstraint,
     ListModeProgramPlacement,
     ListModeTarget,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "ListModeDeviceSnapshot",
     "ListModeDomainRuntime",
     "ListModePhysicalFootprint",
+    "ListModePlacementConstraint",
     "ListModeProgramPlacement",
     "ListModeRun",
     "ListModeTarget",
