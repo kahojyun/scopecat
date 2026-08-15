@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from types import TracebackType
-from typing import Self, cast
+from typing import Self
 from urllib.parse import quote
 
 import httpx2
@@ -745,13 +745,9 @@ class DaemonClient:
             json=query.model_dump(mode="json"),
         )
         table = pa.ipc.open_stream(response.content).read_all()
-        encoded_next_offset = cast(
-            "str | None", response.headers.get(_NEXT_OFFSET_HEADER)
-        )
+        encoded_next_offset = response.headers.get(_NEXT_OFFSET_HEADER)
         next_offset = None if encoded_next_offset is None else int(encoded_next_offset)
-        encoded_snapshot_size = cast(
-            "str | None", response.headers.get(_SNAPSHOT_SIZE_HEADER)
-        )
+        encoded_snapshot_size = response.headers.get(_SNAPSHOT_SIZE_HEADER)
         if encoded_snapshot_size is None:
             raise ValueError("measurement Arrow response has no snapshot size")
         return table, next_offset, int(encoded_snapshot_size)

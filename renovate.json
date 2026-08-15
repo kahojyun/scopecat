@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "minimumReleaseAge": "14 days",
+  "minimumReleaseAge": "3 days",
   "lockFileMaintenance": {
     "minimumReleaseAge": null
   },
@@ -21,10 +21,10 @@
       "extends": [":pinAllExceptPeerDependencies"]
     },
     {
-      "description": "Override config:best-practices 3-day npm minimum release age with 14 days",
+      "description": "Keep npm dependency updates on the project-wide 3-day minimum release age",
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["major", "minor", "patch"],
-      "minimumReleaseAge": "14 days"
+      "minimumReleaseAge": "3 days"
     }
   ]
 }

@@ -1,2 +1,2 @@
-# Keep dependency resolution aligned with renovate.json's 14-day release age.
-minimumReleaseAge: 20160
+# Keep dependency resolution aligned with renovate.json's 3-day release age.
+minimumReleaseAge: 4320
