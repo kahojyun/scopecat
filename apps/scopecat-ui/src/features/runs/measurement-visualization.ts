@@ -241,18 +241,12 @@ export function measurementTraceQueryPlans(
   const variables = variableDescriptors(schema);
   const coordinates = variables.filter(
     (variable) =>
-      variable.role === "coordinate" &&
-      (variable.dims.length === 2 ||
-        (variable.dims.length === 3 && variable.entityAxisId !== undefined)) &&
-      isRealNumericVariable(variable),
+      variable.role === "coordinate" && hasTraceShape(variable) && isRealNumericVariable(variable),
   );
   const observables = orderObservables(
     variables.filter(
       (variable) =>
-        variable.role === "observable" &&
-        (variable.dims.length === 2 ||
-          (variable.dims.length === 3 && variable.entityAxisId !== undefined)) &&
-        isNumericVariable(variable),
+        variable.role === "observable" && hasTraceShape(variable) && isNumericVariable(variable),
     ),
     schema,
   );
@@ -288,6 +282,12 @@ export function measurementTraceQueryPlans(
       })),
     );
   });
+}
+
+function hasTraceShape(variable: VariableDescriptor): boolean {
+  const localDimensions = variable.dims.slice(1);
+  if (variable.entityAxisId === undefined) return localDimensions.length === 1;
+  return localDimensions.length === 2 && localDimensions.includes(variable.entityAxisId);
 }
 
 export function measurementTraceChart(

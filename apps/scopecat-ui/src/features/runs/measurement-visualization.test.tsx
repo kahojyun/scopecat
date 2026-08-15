@@ -85,6 +85,7 @@ describe("measurement visualization", () => {
       },
     ]);
     expect(measurementSlicePlan(schema)?.variableIds).toEqual(["bias", "readout"]);
+    expect(measurementTraceQueryPlans(schema)).toEqual([]);
     expect(planMeasurementCharts(items, schema)).toEqual([
       expect.objectContaining({
         id: "entity-scalar:readout:qubit:bias:value",
