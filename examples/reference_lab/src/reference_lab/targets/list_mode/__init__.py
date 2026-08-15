@@ -26,6 +26,9 @@ from reference_lab.targets.list_mode.inspection import (
 )
 from reference_lab.targets.list_mode.model import (
     ListModeArtifact,
+    ListModeDeviceSnapshot,
+    ListModePhysicalFootprint,
+    ListModeProgramPlacement,
     ListModeTarget,
 )
 
@@ -33,7 +36,10 @@ __all__ = [
     "AcquisitionResponse",
     "ArtifactInspectionBounds",
     "ListModeArtifact",
+    "ListModeDeviceSnapshot",
     "ListModeDomainRuntime",
+    "ListModePhysicalFootprint",
+    "ListModeProgramPlacement",
     "ListModeRun",
     "ListModeTarget",
     "ListModeTargetCompiler",

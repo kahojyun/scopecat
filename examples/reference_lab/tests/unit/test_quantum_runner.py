@@ -208,6 +208,17 @@ def test_parallel_qubit_set_compiles_to_one_entity_axis_result_group() -> None:
     assert [
         address.slot_id.scope for address in result.result_address.acquisitions
     ] == [("targets[0]",), ("targets[1]",)]
+    artifact = mapped.artifact
+    assert artifact.placement.logical_qubit_ids == ("q0", "q1")
+    assert (
+        artifact.placement.device_snapshot_fingerprint
+        == artifact.device_snapshot.snapshot_fingerprint
+    )
+    assert len(artifact.placement.events) == 4
+    # q0 and q1 are frequency-multiplexed on one I/Q pair and digitizer input.
+    assert len(artifact.physical_footprint.waveform_outputs) == 2
+    assert len(artifact.physical_footprint.acquisition_inputs) == 1
+    assert artifact.instrument_ids == artifact.physical_footprint.instrument_ids
 
 
 def _logical_measurement_values(
@@ -381,8 +392,14 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
         "authored",
         "logical",
         "scheduled",
+        "physical",
     )
-    assert inspection.content.program.links
+    assert any(
+        link.relation == "placed_on" for link in inspection.content.program.links
+    )
+    physical_layer = inspection.content.program.layers[-1]
+    assert physical_layer.kind == "physical"
+    assert physical_layer.nodes[0].resource_ids
     [entry] = inspection.content.points
     assert entry.target_entry_id.endswith(".point-14")
 

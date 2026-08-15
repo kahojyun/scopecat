@@ -136,6 +136,23 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
                 "scope": "invocation",
                 "order": "program_load_then_host_reassert_then_realtime_prepare",
             },
+            "placement": {
+                "device_snapshot_fingerprint": (
+                    artifact.device_snapshot.snapshot_fingerprint
+                ),
+                "logical_qubit_count": len(artifact.placement.logical_qubit_ids),
+                "event_count": len(artifact.placement.events),
+            },
+            "physical_footprint": {
+                "instrument_count": len(artifact.physical_footprint.instrument_ids),
+                "waveform_output_count": len(
+                    artifact.physical_footprint.waveform_outputs
+                ),
+                "acquisition_input_count": len(
+                    artifact.physical_footprint.acquisition_inputs
+                ),
+                "waveform_bytes": artifact.physical_footprint.waveform_bytes,
+            },
             "host_state_requirements": {
                 "policy_id": artifact.host_state_requirements.policy_id,
                 "coupling_group_count": len(

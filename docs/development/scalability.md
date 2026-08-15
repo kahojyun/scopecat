@@ -418,6 +418,11 @@ The present architecture provides a direct end-to-end baseline:
   inspection data; preview and review compile only the selected point and ask
   for target-owned inspection explicitly. Each prepared domain job reports the
   maximum point count for the following batch;
+- quantum target artifacts carry a fingerprinted device snapshot, per-event
+  logical-to-physical placement, and an exact deduplicated resource footprint.
+  Inspection adds this as a bounded physical layer linked to scheduled events,
+  so large programs can be navigated by abstraction level instead of rendered
+  as one flat circuit or waveform list;
 - the reference list-mode target combines its device entry capacity with an
   adaptive 8 MiB aggregate waveform target. Its AWG and virtual-capture codecs
   carry contiguous float64 samples in binary rather than expanding arrays into

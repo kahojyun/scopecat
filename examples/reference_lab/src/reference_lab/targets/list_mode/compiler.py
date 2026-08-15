@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
+from typing import cast
 
 from scopecat_quantum._ids import (
     TargetArtifactId,
@@ -65,9 +66,14 @@ from reference_lab.targets.list_mode.model import (
     DigitizerAcquisitionWindow,
     IqMixerCalibration,
     ListModeArtifact,
+    ListModeDeviceSnapshot,
     ListModeEntry,
+    ListModeEventPlacement,
     ListModeHostStateRequirements,
+    ListModePhysicalEndpoint,
+    ListModePhysicalFootprint,
     ListModePreparation,
+    ListModeProgramPlacement,
     ListModeTarget,
     OutputSignal,
     TargetAcquisitionLowering,
@@ -75,8 +81,11 @@ from reference_lab.targets.list_mode.model import (
     awg_phase_template_identity_payload,
     awg_waveform_identity_payload,
     canonical_fingerprint,
+    device_snapshot_payload,
     host_state_requirements_payload,
+    physical_footprint_payload,
     preparation_payload,
+    program_placement_payload,
     pulse_event_identity_payload,
     signal_key,
 )
@@ -171,11 +180,22 @@ class ListModeTargetCompiler:
             entries,
             phase_templates,
         )
+        device_snapshot = self.target.device_snapshot
+        placement = _project_program_placement(request, device_snapshot)
+        physical_footprint = _project_physical_footprint(
+            entries,
+            phase_templates,
+            timing_instrument_id=preparation.timing.trigger_instrument_id,
+            waveform_bytes=waveform_bytes,
+        )
         artifact_fingerprint = canonical_fingerprint(
             _artifact_payload(
                 compiler_id=self.id,
                 target=self.target,
                 request=request,
+                device_snapshot=device_snapshot,
+                placement=placement,
+                physical_footprint=physical_footprint,
                 preparation=preparation,
                 host_state_requirements=host_state_requirements,
                 entries=entries,
@@ -196,6 +216,9 @@ class ListModeTargetCompiler:
             waveform_semantics_id=SAMPLED_WAVEFORM_SEMANTICS_ID,
             max_abs_amplitude=self.target.max_abs_amplitude,
             timing_quantization=self.target.timing_quantization,
+            device_snapshot=device_snapshot,
+            placement=placement,
+            physical_footprint=physical_footprint,
             preparation=preparation,
             host_state_requirements=host_state_requirements,
             entries=entries,
@@ -491,6 +514,82 @@ def _materialized_waveform_bytes(
     )
 
 
+def _project_program_placement(
+    request: TargetCompileRequest,
+    snapshot: ListModeDeviceSnapshot,
+) -> ListModeProgramPlacement:
+    return ListModeProgramPlacement(
+        device_snapshot_fingerprint=snapshot.snapshot_fingerprint,
+        events=tuple(
+            ListModeEventPlacement(
+                entry_id=entry.id,
+                event_id=event.id,
+                signal=snapshot.signal_placement(
+                    signal_key(
+                        cast(
+                            "OutputSignal | AcquireSignal",
+                            event.instruction.signal,
+                        )
+                    )
+                ),
+            )
+            for entry in request.entries
+            for event in entry.program.events
+        ),
+    )
+
+
+def _project_physical_footprint(
+    entries: tuple[ListModeEntry, ...],
+    phase_templates: tuple[AwgPhaseTemplate, ...],
+    *,
+    timing_instrument_id: str,
+    waveform_bytes: int,
+) -> ListModePhysicalFootprint:
+    output_channels = {
+        waveform.channel_id for entry in entries for waveform in entry.waveforms
+    } | {channel for template in phase_templates for channel in template.channel_ids}
+    acquisition_inputs = {
+        window.input_id for entry in entries for window in entry.acquisitions
+    }
+    waveform_outputs = tuple(
+        ListModePhysicalEndpoint(
+            kind="waveform_output",
+            instrument_id=channel.instrument_id,
+            channel_id=channel.value,
+            component_path=channel.component_path,
+        )
+        for channel in sorted(output_channels)
+    )
+    selected_acquisition_inputs = tuple(
+        ListModePhysicalEndpoint(
+            kind="acquisition_input",
+            instrument_id=input_id.instrument_id,
+            channel_id=input_id.value,
+            component_path=input_id.component_path,
+        )
+        for input_id in sorted(acquisition_inputs)
+    )
+    instrument_ids = tuple(
+        sorted(
+            {
+                *(endpoint.instrument_id for endpoint in waveform_outputs),
+                *(endpoint.instrument_id for endpoint in selected_acquisition_inputs),
+                timing_instrument_id,
+            }
+        )
+    )
+    return ListModePhysicalFootprint(
+        instrument_ids=instrument_ids,
+        waveform_outputs=waveform_outputs,
+        acquisition_inputs=selected_acquisition_inputs,
+        timing_instrument_id=timing_instrument_id,
+        waveform_bytes=waveform_bytes,
+        event_count=sum(len(entry.event_timings) for entry in entries),
+        acquisition_count=sum(len(entry.acquisitions) for entry in entries),
+    )
+
+
 def _sampled_output_projection(
     target: ListModeTarget,
 ) -> tuple[tuple[AwgChannelId, ...], tuple[SampledOutputBinding, ...]]:
@@ -683,13 +782,16 @@ def _artifact_payload(
     compiler_id: TargetCompilerId,
     target: ListModeTarget,
     request: TargetCompileRequest,
+    device_snapshot: ListModeDeviceSnapshot,
+    placement: ListModeProgramPlacement,
+    physical_footprint: ListModePhysicalFootprint,
     preparation: ListModePreparation,
     host_state_requirements: ListModeHostStateRequirements,
     entries: tuple[ListModeEntry, ...],
     phase_templates: tuple[AwgPhaseTemplate, ...],
 ) -> dict[str, object]:
     return {
-        "schema": "reference_lab.list_mode_artifact.v8",
+        "schema": "reference_lab.list_mode_artifact.v9",
         "target": {
             "id": target.id.value,
             "capability_fingerprint": target.capability_fingerprint,
@@ -701,6 +803,9 @@ def _artifact_payload(
         "waveform_semantics_id": SAMPLED_WAVEFORM_SEMANTICS_ID,
         "timing_quantization": target.timing_quantization,
         "source_entry_ids": [entry.id.value for entry in request.entries],
+        "device_snapshot": device_snapshot_payload(device_snapshot),
+        "placement": program_placement_payload(placement),
+        "physical_footprint": physical_footprint_payload(physical_footprint),
         "preparation": preparation_payload(preparation),
         "host_state_requirements": host_state_requirements_payload(
             host_state_requirements

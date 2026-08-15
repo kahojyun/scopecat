@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import cast
 
@@ -14,6 +14,9 @@ from scopecat.inspection import (
     CompiledInspectionFact,
     CompiledPointInspection,
     CompiledProgramInspection,
+    CompiledProgramInspectionLayer,
+    CompiledProgramInspectionLink,
+    CompiledProgramInspectionNode,
     CompiledWaveformInspection,
 )
 
@@ -36,9 +39,14 @@ class ArtifactInspectionBounds:
     max_entries: int = 1
     max_channels_per_entry: int = 12
     max_samples_per_waveform: int = 256
+    max_placement_nodes: int = 512
 
     def __post_init__(self) -> None:
-        if self.max_entries <= 0 or self.max_channels_per_entry <= 0:
+        if (
+            self.max_entries <= 0
+            or self.max_channels_per_entry <= 0
+            or self.max_placement_nodes <= 0
+        ):
             raise ValueError(
                 "artifact inspection entry and channel limits must be positive"
             )
@@ -66,6 +74,23 @@ def inspect_list_mode_artifact(
             CompiledInspectionFact("timing_quantization", artifact.timing_quantization),
             CompiledInspectionFact("repetitions", artifact.repetitions),
             CompiledInspectionFact(
+                "device_snapshot_fingerprint",
+                artifact.device_snapshot.snapshot_fingerprint,
+            ),
+            CompiledInspectionFact(
+                "logical_qubit_count",
+                len(artifact.placement.logical_qubit_ids),
+            ),
+            CompiledInspectionFact(
+                "physical_instrument_count",
+                len(artifact.physical_footprint.instrument_ids),
+            ),
+            CompiledInspectionFact(
+                "waveform_bytes",
+                artifact.physical_footprint.waveform_bytes,
+                unit="byte",
+            ),
+            CompiledInspectionFact(
                 "max_abs_boundary_error_seconds",
                 str(
                     max(
@@ -87,7 +112,131 @@ def inspect_list_mode_artifact(
             _inspect_entry(artifact, entry, bounds=selected_bounds)
             for entry in selected_entries
         ),
-        program=program,
+        program=(
+            _with_physical_placement_layer(
+                program,
+                artifact,
+                max_nodes=selected_bounds.max_placement_nodes,
+            )
+            if program is not None
+            else None
+        ),
+    )
+
+
+def _with_physical_placement_layer(
+    program: CompiledProgramInspection,
+    artifact: ListModeArtifact,
+    *,
+    max_nodes: int,
+) -> CompiledProgramInspection:
+    entry_id = artifact.entries[0].entry_id
+    placements = tuple(
+        event for event in artifact.placement.events if event.entry_id == entry_id
+    )
+    logical_qubit_ids = tuple(sorted({event.signal.signal[2] for event in placements}))
+    physical_resource_ids = tuple(
+        sorted(
+            {endpoint.id for event in placements for endpoint in event.signal.endpoints}
+        )
+    )
+    root_id = "physical:placement"
+    all_nodes = (
+        CompiledProgramInspectionNode(
+            id=root_id,
+            kind="device",
+            label=f"device {artifact.target_id.value}",
+            child_count=len(placements),
+            entity_ids=logical_qubit_ids,
+            resource_ids=physical_resource_ids,
+            facts=(
+                CompiledInspectionFact(
+                    "snapshot_fingerprint",
+                    artifact.device_snapshot.snapshot_fingerprint,
+                ),
+                CompiledInspectionFact(
+                    "configured_signal_count",
+                    len(artifact.device_snapshot.signal_placements),
+                ),
+            ),
+        ),
+        *(
+            CompiledProgramInspectionNode(
+                id=f"physical:event:{event.event_id.value}",
+                kind="placement",
+                label=(
+                    f"{event.signal.signal[0]}({event.signal.signal[2]}) → "
+                    + ", ".join(endpoint.id for endpoint in event.signal.endpoints)
+                ),
+                parent_id=root_id,
+                entity_ids=(event.signal.signal[2],),
+                resource_ids=tuple(endpoint.id for endpoint in event.signal.endpoints),
+                facts=tuple(
+                    fact
+                    for fact in (
+                        CompiledInspectionFact("lo_group_id", event.signal.lo_group_id)
+                        if event.signal.lo_group_id is not None
+                        else None,
+                        CompiledInspectionFact(
+                            "demodulator_slot_id",
+                            event.signal.demodulator_slot_id,
+                        )
+                        if event.signal.demodulator_slot_id is not None
+                        else None,
+                    )
+                    if fact is not None
+                ),
+            )
+            for event in placements
+        ),
+    )
+    selected_nodes = all_nodes[:max_nodes]
+    layer = CompiledProgramInspectionLayer(
+        id="physical",
+        label="Physical placement",
+        kind="physical",
+        node_count=len(all_nodes),
+        nodes_truncated=len(selected_nodes) < len(all_nodes),
+        root_ids=(root_id,),
+        nodes=selected_nodes,
+        facts=(
+            CompiledInspectionFact(
+                "instrument_count",
+                len(artifact.physical_footprint.instrument_ids),
+            ),
+            CompiledInspectionFact(
+                "waveform_output_count",
+                len(artifact.physical_footprint.waveform_outputs),
+            ),
+            CompiledInspectionFact(
+                "acquisition_input_count",
+                len(artifact.physical_footprint.acquisition_inputs),
+            ),
+        ),
+    )
+    scheduled_node_ids = {
+        node.id
+        for candidate in program.layers
+        if candidate.id == "scheduled"
+        for node in candidate.nodes
+    }
+    physical_node_ids = {node.id for node in selected_nodes}
+    links = tuple(
+        CompiledProgramInspectionLink(
+            source_layer_id="scheduled",
+            source_node_id=f"scheduled:event:{event.event_id.value}",
+            target_layer_id="physical",
+            target_node_id=f"physical:event:{event.event_id.value}",
+            relation="placed_on",
+        )
+        for event in placements
+        if f"scheduled:event:{event.event_id.value}" in scheduled_node_ids
+        and f"physical:event:{event.event_id.value}" in physical_node_ids
+    )
+    return replace(
+        program,
+        layers=(*program.layers, layer),
+        links=(*program.links, *links),
     )
 
 

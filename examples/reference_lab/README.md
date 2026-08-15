@@ -101,6 +101,10 @@ tables, and temporary scan axes belong to experiment invocations.
 - The target selects raw capture with target DSP or compatible onboard DSP while
   preserving one versioned integrated-IQ convention. Target and device placement
   are checked against identical known traces.
+- Every compiled artifact embeds the immutable device snapshot used for
+  lowering, exact event-to-channel placement, and a deduplicated physical
+  footprint. Preview joins that physical layer to the authored, logical, and
+  scheduled program layers without expanding the complete experiment.
 - The list-mode runtime uses explicit load, prepare, arm, shared-trigger, and
   fetch batches. Their order is auditable; target docstrings define trigger
   session guarantees, setup invalidation, and acquisition placement.

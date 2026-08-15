@@ -323,6 +323,28 @@ def test_list_mode_compiler_projects_calibrated_physical_programs() -> None:
     assert set(waveforms) < {
         requirement.channel_id for requirement in offset_requirements.output_offsets
     }
+    snapshot = target.device_snapshot
+    assert artifact.device_snapshot == snapshot
+    assert snapshot.configuration_fingerprint == target.configuration_fingerprint
+    assert snapshot.snapshot_fingerprint.startswith("sha256:")
+    assert (
+        artifact.placement.device_snapshot_fingerprint == snapshot.snapshot_fingerprint
+    )
+    assert artifact.placement.logical_qubit_ids == ("q0",)
+    assert {event.signal.signal[0] for event in artifact.placement.events} == {
+        "acquire",
+        "drive",
+        "readout",
+    }
+    footprint = artifact.physical_footprint
+    assert footprint.instrument_ids == artifact.instrument_ids
+    assert footprint.event_count == len(scheduled.events)
+    assert footprint.acquisition_count == 1
+    assert footprint.waveform_bytes == sum(
+        waveform.samples.nbytes
+        for entry in artifact.entries
+        for waveform in entry.waveforms
+    )
 
     assert scheduled.duration_seconds == Decimal("12e-9")
     drive_samples = _modulated_samples(
@@ -735,6 +757,16 @@ def test_list_mode_artifact_inspection_is_bounded_and_preserves_peaks() -> None:
     assert inspection.point_count == 2
     assert inspection.points_truncated
     assert inspection.fact("max_abs_boundary_error_seconds").value == "4E-10"
+    assert inspection.fact("device_snapshot_fingerprint").value == (
+        artifact.device_snapshot.snapshot_fingerprint
+    )
+    assert inspection.fact("logical_qubit_count").value == 1
+    assert inspection.fact("physical_instrument_count").value == len(
+        artifact.physical_footprint.instrument_ids
+    )
+    assert inspection.fact("waveform_bytes").value == (
+        artifact.physical_footprint.waveform_bytes
+    )
     assert entry.waveform_count == 2
     assert entry.waveforms_truncated
     assert preview.source_sample_count == 100
