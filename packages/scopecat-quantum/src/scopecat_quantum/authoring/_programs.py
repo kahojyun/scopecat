@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol, cast
 
@@ -34,8 +34,10 @@ from scopecat.program.products import (
     ProductRef,
     ProductRefs,
     ProductValueSpec,
+    entity_axis,
     shot_axis,
 )
+from scopecat.program.value_refs import internal_literal_value_ref
 
 from scopecat_quantum._ids import (
     QuantumProgramId,
@@ -58,6 +60,7 @@ from ._ir import (
     ProgramResults,
     PulseElement,
     QuantumFragment,
+    QubitSet,
 )
 
 
@@ -72,7 +75,7 @@ class QuantumProgramCall:
 
     program: Program
     domain_call: DomainCall
-    arguments: tuple[tuple[str, ComputeInput], ...]
+    arguments: tuple[tuple[str, object], ...]
     compiler_arguments: tuple[tuple[str, ValueRef], ...]
     shots: ComputeInput
 
@@ -147,6 +150,7 @@ class Program:
     ir_id: QuantumProgramId
     body: QuantumFragment
     elements: tuple[PulseElement, ...]
+    entity_sets: tuple[QubitSet, ...]
     inputs: tuple[ProgramInput, ...]
     results: ProgramResults
     description: str | None = None
@@ -161,7 +165,7 @@ class Program:
     def ports(self) -> tuple[ProgramPort, ...]:
         """Return bindable logical elements followed by scalar inputs."""
 
-        return (*self.elements, *self.inputs)
+        return (*self.elements, *self.entity_sets, *self.inputs)
 
     def describe(self) -> str:
         """Describe the program's typed ports and result contracts as text."""
@@ -192,6 +196,7 @@ class ProgramDefinition(Program):
             ir_id=declaration.ir_id,
             body=declaration.body,
             elements=declaration.elements,
+            entity_sets=declaration.entity_sets,
             inputs=declaration.inputs,
             results=declaration.results,
             description=declaration.description,
@@ -219,8 +224,8 @@ class ProgramDefinition(Program):
 
     def __call__(
         self,
-        *args: ComputeInput,
-        **inputs: ComputeInput,
+        *args: object,
+        **inputs: object,
     ) -> QuantumProgramCall:
         """Bind ports in their declared Python order."""
 
@@ -228,7 +233,7 @@ class ProgramDefinition(Program):
         return _program_call(
             self,
             self.id.rsplit(".", maxsplit=1)[-1],
-            inputs=cast("Mapping[str, ComputeInput]", bound.arguments),
+            inputs=bound.arguments,
             compiler_inputs={},
             shots=1,
         )
@@ -237,8 +242,8 @@ class ProgramDefinition(Program):
         self,
         instance_id: str,
         /,
-        *args: ComputeInput,
-        **inputs: ComputeInput,
+        *args: object,
+        **inputs: object,
     ) -> QuantumProgramCall:
         """Bind an explicitly named call in declared port order."""
 
@@ -246,7 +251,7 @@ class ProgramDefinition(Program):
         return _program_call(
             self,
             instance_id,
-            inputs=cast("Mapping[str, ComputeInput]", bound.arguments),
+            inputs=bound.arguments,
             compiler_inputs={},
             shots=1,
         )
@@ -285,7 +290,7 @@ def _program_call(
     instance_id: str,
     /,
     *,
-    inputs: Mapping[str, ComputeInput],
+    inputs: Mapping[str, object],
     compiler_inputs: Mapping[str, ValueRef],
     shots: ComputeInput,
     key: DomainCallKey | None = None,
@@ -311,13 +316,14 @@ def _program_call(
         },
     )
     normalized_shots = _normalize_shots(shots)
+    normalized_inputs = {
+        port.id: _normalize_program_input(port, inputs[port.id])
+        for port in program.ports
+    }
     call = create_domain_call_internal(
         domain,
         id=instance_id,
-        inputs={
-            port.id: _normalize_program_input(port, inputs[port.id])
-            for port in program.ports
-        },
+        inputs=normalized_inputs,
         compiler_inputs=compiler_inputs,
         result_products={
             result.id: ModuleProductDecl(
@@ -326,6 +332,20 @@ def _program_call(
                     unit=result.contract.unit,
                     dtype=result.contract.dtype,
                     axes=(
+                        *(
+                            (
+                                entity_axis(
+                                    "entity",
+                                    cast(
+                                        "ValueRef",
+                                        normalized_inputs[result.entity_set.id],
+                                    ),
+                                    shared_as=result.entity_set.id,
+                                ),
+                            )
+                            if result.entity_set is not None
+                            else ()
+                        ),
                         shot_axis(
                             cast("ValueRef | Quantity | float", normalized_shots),
                             shared_as="shot",
@@ -348,7 +368,7 @@ def _program_call(
 
 def _normalize_program_input(
     port: ProgramPort,
-    value: ComputeInput,
+    value: object,
 ) -> ComputeInput:
     value_type = program_port_type(port)
     if isinstance(value, ValueRef):
@@ -358,12 +378,33 @@ def _normalize_program_input(
             path=("inputs", port.id),
         )
         return value
+    if isinstance(port, QubitSet):
+        rows = _qubit_set_rows(value, port=port)
+        return internal_literal_value_ref(
+            rows,
+            value_type,
+            path=("inputs", port.id),
+        )
     normalized = coerce_literal(
         value_type,
         value,
         path=("inputs", port.id),
     )
     return cast("ComputeInput", normalized)
+
+
+def _qubit_set_rows(value: object, *, port: QubitSet) -> tuple[dict[str, object], ...]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        raise TypeError(f"inputs.{port.id}: expected a sequence of logical qubits")
+    selected: list[dict[str, object]] = []
+    for item in value:
+        if isinstance(item, Mapping):
+            selected.append(dict(cast("Mapping[str, object]", item)))
+        else:
+            selected.append({"qubit": item})
+    if not selected:
+        raise ValueError(f"inputs.{port.id}: qubit set must not be empty")
+    return tuple(selected)
 
 
 def _normalize_shots(shots: ComputeInput) -> ComputeInput:

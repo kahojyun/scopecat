@@ -18,6 +18,7 @@ from scopecat.program.measurement_types import MeasurementDType
 from scopecat.program.value_types import (
     Entity as EntityAtomType,
 )
+from scopecat.program.value_types import Scalar, Table, TableColumn
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
@@ -65,6 +66,40 @@ class Coupler:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class QubitSet:
+    """A symbolic, variable-size set of logical qubits."""
+
+    _id: str
+    _item: Qubit
+
+    @property
+    def id(self) -> str:
+        """Return the stable set-port identity."""
+
+        return self._id
+
+    @property
+    def item(self) -> Qubit:
+        """Return the symbolic member used inside retained set operations."""
+
+        return self._item
+
+    @property
+    def value_type(self) -> Table:
+        """Return the one-column entity table carried through core planning."""
+
+        return Table(
+            columns=(
+                TableColumn(
+                    "qubit",
+                    Scalar(EntityAtomType(entity_kind="logical_qubit")),
+                ),
+            ),
+            primary_key=("qubit",),
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class ProgramInput:
     """One core-typed scalar input shared by circuit and pulse authoring."""
 
@@ -101,6 +136,7 @@ class MeasurementResult:
     _id: str
     _qubit: Qubit
     contract: QuantumResultContract
+    _entity_set: QubitSet | None = None
 
     @property
     def id(self) -> str:
@@ -113,6 +149,12 @@ class MeasurementResult:
         """Return the logical qubit measured for this result."""
 
         return self._qubit
+
+    @property
+    def entity_set(self) -> QubitSet | None:
+        """Return the retained entity set for an aggregate result, if any."""
+
+        return self._entity_set
 
     @property
     def acquisition_kind(self) -> AcquisitionKind:
@@ -206,7 +248,7 @@ type CircuitArgument = GateArgumentValue | ProgramInput
 type QuantumQuantity = Quantity | ProgramInput
 
 
-type ProgramPort = PulseElement | ProgramInput
+type ProgramPort = PulseElement | QubitSet | ProgramInput
 
 
 type ProgramFunction = Callable[..., QuantumFragment]
@@ -362,6 +404,12 @@ class _QuantumSequenceFragment(QuantumFragment):
 @dataclass(frozen=True, slots=True)
 class _QuantumParallelFragment(QuantumFragment):
     branches: tuple[QuantumFragment, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _ParallelEachFragment(QuantumFragment):
+    entity_set: QubitSet
+    operation: QuantumFragment
 
 
 @dataclass(frozen=True, slots=True)

@@ -249,7 +249,7 @@ def _program_relation_consumers(
             if isinstance(input_value, ComputeResultScalarExpr):
                 continue
             if not isinstance(input_value, ScalarExpr):
-                raise AssertionError("domain execution inputs must be scalar")
+                continue
             yield _consumer(
                 ProgramRelationConsumerKind.DOMAIN_EXECUTION_INPUT,
                 input_value,

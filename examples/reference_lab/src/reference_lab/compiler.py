@@ -23,6 +23,7 @@ from scopecat_quantum.inspection import inspect_quantum_program
 from scopecat_quantum.program_results import (
     MappedQuantumTarget,
     QuantumTargetEntryPointBinding,
+    QuantumTargetResultAddress,
     QuantumTargetResultUseBinding,
     seal_quantum_target_result_mapping,
 )
@@ -36,7 +37,6 @@ from scopecat_quantum.programs import (
     lower_quantum_program_to_pulses,
 )
 from scopecat_quantum.pulse_implementations import ResolvedPulseImplementations
-from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from reference_lab.parameters import QUBITS
 from reference_lab.point_values import QuantumLabPointValues
@@ -351,10 +351,10 @@ def _validate_call(
 def _shot_count(call: DomainCallView) -> int:
     counts: list[int] = []
     for result in call.results:
-        axes = result.product.axes
-        if not axes or axes[0].kind != "shot":
-            raise ValueError("quantum lab result products require a leading shot axis")
-        size = axes[0].size
+        shot_axes = tuple(axis for axis in result.product.axes if axis.kind == "shot")
+        if len(shot_axes) != 1:
+            raise ValueError("quantum lab result products require one shot axis")
+        size = shot_axes[0].size
         if size is None:
             raise ValueError("quantum lab result products require fixed shot counts")
         counts.append(size)
@@ -403,15 +403,18 @@ def _compile_points(
 def _result_address(
     entry: PreparedQuantumTargetEntry,
     result: quantum.MeasurementResult,
-) -> TargetAcquisitionAddress:
+) -> QuantumTargetResultAddress:
     addresses = tuple(
         address
         for address in entry.acquisition_addresses
         if address.slot_id.local_id == result.id
     )
-    if len(addresses) != 1:
-        raise ValueError("quantum lab results must have one acquisition address")
-    return addresses[0]
+    expected_count = 1 if result.entity_set is None else None
+    if not addresses or (
+        expected_count is not None and len(addresses) != expected_count
+    ):
+        raise ValueError("quantum lab results must cover their acquisitions")
+    return QuantumTargetResultAddress(addresses)
 
 
 def _measurement_results(

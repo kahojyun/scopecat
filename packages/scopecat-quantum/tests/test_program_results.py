@@ -45,6 +45,7 @@ from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.program_results import (
     MappedQuantumTarget,
     QuantumTargetEntryPointBinding,
+    QuantumTargetResultAddress,
     QuantumTargetResultUseBinding,
     seal_quantum_target_result_mapping,
 )
@@ -228,7 +229,10 @@ def _valid_inputs():
         QuantumTargetEntryPointBinding(batch.entries[1].id, points[0]),
     )
     result_bindings = tuple(
-        QuantumTargetResultUseBinding(address, product_use)
+        QuantumTargetResultUseBinding(
+            QuantumTargetResultAddress((address,)),
+            product_use,
+        )
         for address in batch.acquisition_addresses
     )
     return preparation, batch, entry_bindings, result_bindings
@@ -290,9 +294,11 @@ def test_mapping_preserves_logical_order_and_acquisition_addresses() -> None:
         batch.entries[1].id,
         batch.entries[0].id,
     )
-    assert {result.result_address for result in mapping.results} == set(
-        batch.acquisition_addresses
-    )
+    assert {
+        address
+        for result in mapping.results
+        for address in result.result_address.acquisitions
+    } == set(batch.acquisition_addresses)
 
 
 @pytest.mark.parametrize("change", ("missing", "duplicate", "foreign"))
@@ -331,9 +337,13 @@ def test_result_mapping_requires_exact_qualified_addresses(change: str) -> None:
             selected[0],
             replace(
                 selected[1],
-                address=TargetAcquisitionAddress(
-                    entry_id=batch.entries[1].id,
-                    slot_id=AcquisitionSlotId("foreign"),
+                address=QuantumTargetResultAddress(
+                    (
+                        TargetAcquisitionAddress(
+                            entry_id=batch.entries[1].id,
+                            slot_id=AcquisitionSlotId("foreign"),
+                        ),
+                    )
                 ),
             ),
         )

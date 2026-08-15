@@ -84,8 +84,10 @@ from ._ir import (
     QuantumQuantity,
     QuantumResultContract,
     Qubit,
+    QubitSet,
     RepeatCount,
     _DelayFragment,
+    _ParallelEachFragment,
     _ParallelFragment,
     _PlayFragment,
     _QuantumParallelFragment,
@@ -474,6 +476,17 @@ def parallel(
     return _QuantumParallelFragment(branches=branches)
 
 
+def parallel_each(
+    entity_set: QubitSet,
+    operation: Callable[[Qubit], QuantumFragment],
+    /,
+) -> QuantumFragment:
+    """Retain one parallel operation over a variable-size qubit set."""
+
+    body = operation(entity_set.item)
+    return _ParallelEachFragment(entity_set=entity_set, operation=body)
+
+
 @overload
 def repeat(
     operation: CircuitFragment,
@@ -646,12 +659,14 @@ def _close_program(
     body: QuantumFragment,
     *,
     elements: SequenceCollection[PulseElement] = (),
+    entity_sets: SequenceCollection[QubitSet] = (),
     formal_inputs: SequenceCollection[ProgramInput] | None = None,
     description: str | None = None,
 ) -> Program:
     ir_id = QuantumProgramId(id)
     facts = _summarize_fragment(body)
     formal_elements = tuple(elements)
+    formal_entity_sets = tuple(entity_sets)
     element_ids = tuple(element.id for element in formal_elements)
     if len(element_ids) != len(set(element_ids)):
         raise ValueError("quantum program element ids must be unique")
@@ -664,6 +679,23 @@ def _close_program(
     if unused_elements:
         rendered = ", ".join(repr(item) for item in unused_elements)
         raise ValueError(f"quantum program has unused formal elements: {rendered}")
+    used_entity_sets = {entity_set.id for entity_set in facts.entity_sets}
+    unused_entity_sets = tuple(
+        entity_set.id
+        for entity_set in formal_entity_sets
+        if entity_set.id not in used_entity_sets
+    )
+    if unused_entity_sets:
+        rendered = ", ".join(repr(item) for item in unused_entity_sets)
+        raise ValueError(f"quantum program has unused entity-set ports: {rendered}")
+    foreign_entity_sets = sorted(
+        used_entity_sets - {entity_set.id for entity_set in formal_entity_sets}
+    )
+    if foreign_entity_sets:
+        rendered = ", ".join(repr(item) for item in foreign_entity_sets)
+        raise ValueError(
+            f"quantum program captures undeclared entity-set ports: {rendered}"
+        )
     if formal_inputs is not None:
         formal_element_keys = {
             (type(element), element.id) for element in formal_elements
@@ -730,12 +762,18 @@ def _close_program(
         selected_inputs = declared_inputs
 
     selected_input_ids = {input_handle.id for input_handle in selected_inputs}
-    conflicting_ports = sorted(set(element_ids) & selected_input_ids)
+    entity_set_ids = {entity_set.id for entity_set in formal_entity_sets}
+    conflicting_ports = sorted(
+        (set(element_ids) & selected_input_ids)
+        | (set(element_ids) & entity_set_ids)
+        | (selected_input_ids & entity_set_ids)
+    )
     if conflicting_ports:
         rendered = ", ".join(repr(item) for item in conflicting_ports)
         raise ValueError(f"quantum program has conflicting port ids: {rendered}")
     reserved_ports = sorted(
-        (set(element_ids) | selected_input_ids) & _RESERVED_PROGRAM_PORT_IDS
+        (set(element_ids) | entity_set_ids | selected_input_ids)
+        & _RESERVED_PROGRAM_PORT_IDS
     )
     if reserved_ports:
         rendered = ", ".join(repr(item) for item in reserved_ports)
@@ -758,6 +796,7 @@ def _close_program(
         ir_id=ir_id,
         body=body,
         elements=formal_elements,
+        entity_sets=formal_entity_sets,
         inputs=selected_inputs,
         results=ProgramResults(results),
         description=description,
@@ -768,6 +807,7 @@ def _quantum_function_contract(
     fn: Callable[..., QuantumFragment],
     *,
     kind: str,
+    allow_entity_sets: bool = False,
 ) -> _QuantumFunctionContract:
     signature = inspect.signature(fn)
     hints = cast("Mapping[str, object]", get_type_hints(fn, include_extras=True))
@@ -785,7 +825,10 @@ def _quantum_function_contract(
             parameter.name,
             cast("object", parameter.annotation),
         )
-        parameters.append(_program_function_argument(parameter.name, annotation))
+        argument = _program_function_argument(parameter.name, annotation)
+        if isinstance(argument, QubitSet) and not allow_entity_sets:
+            raise TypeError(f"{kind} functions cannot declare QubitSet ports")
+        parameters.append(argument)
     return _QuantumFunctionContract(signature, tuple(parameters))
 
 
@@ -899,13 +942,18 @@ def _program_from_function(
     *,
     id: str | None,
 ) -> ProgramDefinition:
-    contract = _quantum_function_contract(fn, kind="quantum program")
+    contract = _quantum_function_contract(
+        fn,
+        kind="quantum program",
+        allow_entity_sets=True,
+    )
     arguments = contract.arguments
     result = fn(**arguments)
     declaration = _close_program(
         id or f"{fn.__module__}.{fn.__qualname__}",
         result,
         elements=contract.elements,
+        entity_sets=contract.entity_sets,
         formal_inputs=contract.inputs,
         description=inspect.getdoc(fn),
     )

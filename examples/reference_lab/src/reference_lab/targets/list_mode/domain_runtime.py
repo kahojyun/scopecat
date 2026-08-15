@@ -12,9 +12,9 @@ from scopecat.sdk.domain import (
     DomainInvocationSpec,
     DomainResultValue,
 )
-from scopecat_quantum.program_results import MappedQuantumTarget
-from scopecat_quantum.targets import (
-    TargetAcquisitionAddress,
+from scopecat_quantum.program_results import (
+    MappedQuantumTarget,
+    QuantumTargetResultAddress,
 )
 
 from reference_lab.targets.list_mode.circuit_runtime import (
@@ -149,10 +149,13 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
     )
 
 
-def _result_address_intent(address: TargetAcquisitionAddress) -> object:
+def _result_address_intent(address: QuantumTargetResultAddress) -> object:
     return {
         "entry_id": address.entry_id.value,
-        "slot_id": acquisition_slot_identity_payload(address.slot_id),
+        "acquisitions": [
+            acquisition_slot_identity_payload(acquisition.slot_id)
+            for acquisition in address.acquisitions
+        ],
     }
 
 
@@ -214,7 +217,7 @@ class ListModeDomainRuntime:
 def realize_executed_measurements(
     mapped_target: MappedListModeTarget,
     executed: DomainExecutionResult[ListModeRun],
-) -> tuple[DomainResultValue[TargetAcquisitionAddress], ...]:
+) -> tuple[DomainResultValue[QuantumTargetResultAddress], ...]:
     """Correlate and decode one complete raw run under selected policies."""
 
     if executed.receipt.result_fingerprint != executed.result.fingerprint:

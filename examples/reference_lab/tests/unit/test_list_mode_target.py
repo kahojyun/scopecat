@@ -104,6 +104,21 @@ def test_list_mode_logical_result_preserves_partial_shot_availability() -> None:
     assert failure.flat_indices == (1,)
 
 
+def test_list_mode_logical_result_preserves_entity_by_shot_shape() -> None:
+    value = _realize_integrated_iq_value(
+        np.asarray(
+            [[1 + 2j, 3 + 4j], [5 + 6j, 0j]],
+            dtype=np.complex128,
+        ),
+        np.asarray([[True, True], [True, False]], dtype=np.bool_),
+    )
+
+    assert isinstance(value, MeasurementArray)
+    assert value.values.shape == (2, 2)
+    assert value.availability is not None
+    assert value.availability.valid.tolist() == [[True, True], [True, False]]
+
+
 class _RecordingInstrumentExecutor:
     def __init__(self) -> None:
         self.batches: list[RunHardwareBatch] = []

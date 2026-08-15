@@ -64,12 +64,27 @@ independent auxiliary-device work; the program call remains one domain effect
 rather than becoming the whole experiment. The
 [reference lab runner](../../examples/reference_lab/README.md) shows that path.
 
-For a parallel program with exactly one result per concrete qubit, return
-`call.entity_results()` from the experiment. It converts the named program
-results to an identity-keyed authoring view; the experiment return boundary then
-records one `(point, logical_qubit, shot)` variable instead of one variable per
-qubit. Programs with multiple result ports for one qubit keep their named result
-structure because a qubit axis alone would not identify those ports.
+Variable-size programs use a retained `QubitSet` port and `parallel_each`:
+
+```python
+@authoring.program(id="parallel-readout")
+def parallel_readout(
+    qubits: authoring.QubitSet,
+) -> authoring.QuantumFragment:
+    return authoring.parallel_each(
+        qubits,
+        lambda qubit: authoring.measure(qubit, result="iq_shots"),
+    )
+
+
+call = parallel_readout(("q0", "q1", "q2")).with_shots(32)
+```
+
+The declaration stays constant as the selected chip region changes. Its named
+`iq_shots` product natively owns `(entity, shot)` axes, and target result mapping
+assembles the per-qubit acquisition addresses into that one logical value.
+`call.entity_results()` remains useful for fixed-arity programs that deliberately
+expose one named product per concrete qubit.
 
 Compiler-owned defaults can use the pure row maps in
 `scopecat_quantum.pulse_recipes`. The complete supported example is the

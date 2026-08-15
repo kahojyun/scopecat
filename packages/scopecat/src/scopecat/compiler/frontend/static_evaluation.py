@@ -6,16 +6,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
-from scopecat.compiler.relations.evaluation import (
-    evaluate_scalar,
-)
+from scopecat.compiler.relations.evaluation import evaluate_scalar, evaluate_table_value
 from scopecat.compiler.relations.verification import (
     ExpressionTypeBindings,
     verify_scalar_expression,
 )
-from scopecat.kernel.value_data import CellValue
-from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_data import CellValue, Row
+from scopecat.kernel.value_types import Scalar, Table
 from scopecat.program.expressions import ScalarExpr
+from scopecat.program.table_values import TableSource
 
 
 def _static_bindings(bindings: ExpressionTypeBindings) -> ExpressionTypeBindings:
@@ -52,4 +51,19 @@ class StaticRelationEvaluator:
             EvalContext(params=self.parameters, inputs=dict(inputs)),
             bindings=selected_bindings,
             expected_type=expected_type,
+        )
+
+    def table(
+        self,
+        source: TableSource,
+        value_type: Table,
+        *,
+        inputs: Mapping[str, object],
+    ) -> list[Row]:
+        """Evaluate a direct table source during configuration binding."""
+
+        return evaluate_table_value(
+            source,
+            value_type,
+            EvalContext(params=self.parameters, inputs=dict(inputs)),
         )

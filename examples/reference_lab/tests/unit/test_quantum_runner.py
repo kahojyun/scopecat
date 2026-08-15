@@ -16,6 +16,7 @@ from scopecat.planning.compilation import compile_run_program
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution import InstrumentStateEvidence
+from scopecat_quantum import authoring as quantum
 from scopecat_quantum.measurement_computes import (
     BinaryIqProbabilityProducts,
 )
@@ -43,9 +44,45 @@ from reference_lab.targets.list_mode import (
     point_realization_fingerprint,
 )
 from reference_lab.virtual_lab.execution import virtual_quantum_runtime
-from reference_lab.workflows.drag_beta_calibration import drag_beta_program
+from reference_lab.workflows.drag_beta_calibration import (
+    drag_beta_program,
+    drag_readout_pulse,
+)
 from reference_lab.workflows.drag_beta_experiment import drag_beta_experiment
 from reference_lab.workflows.ramsey_experiments import q0_fixed_if_lo_sweep
+
+
+@quantum.program(id="reference_lab.test.parallel_set_readout")
+def _parallel_set_readout(
+    targets: quantum.QubitSet,
+) -> quantum.QuantumFragment:
+    def readout(qubit: quantum.Qubit) -> quantum.QuantumFragment:
+        return quantum.parallel(
+            drag_readout_pulse(qubit),
+            quantum.acquire(
+                qubit,
+                duration=sc.Quantity(8, "ns"),
+                result="iq_shots",
+            ),
+        )
+
+    return quantum.parallel_each(
+        targets,
+        readout,
+    )
+
+
+@sc.experiment(id="reference_lab.test.parallel_set_readout")
+def _parallel_set_readout_experiment(
+    experiment: sc.ExperimentContext,
+) -> None:
+    prepare_quantum_hardware(experiment)
+    results = experiment.use(
+        _parallel_set_readout(("q0", "q1"))
+        .with_shots(7)
+        .with_compiler_inputs(qubits=QUBITS.ref)
+    )
+    experiment.alias(results.iq_shots)
 
 
 @sc.experiment
@@ -138,6 +175,39 @@ def test_quantum_compiler_uses_a_one_point_initial_probe() -> None:
     compiler = QuantumLabCompiler(target=_configured_target(config, provider))
 
     assert compiler.initial_batch_size(1000) == 1
+
+
+def test_parallel_qubit_set_compiles_to_one_entity_axis_result_group() -> None:
+    config = bootstrap_config()
+    provider = ReferenceLabProvider(seed=7)
+    composition = compose_test_instruments(
+        config=config,
+        provider=provider,
+        domain_compiler=QuantumLabCompiler(
+            target=_configured_target(config, provider),
+        ),
+        payload_codecs=reference_lab_payload_codecs(),
+    )
+    bound = bind_program(
+        compile_invocation(_parallel_set_readout_experiment()).program,
+        build_config_environment(config),
+    )
+
+    [product] = bound.bindings.product_defs
+    assert [axis.kind for axis in product.axes] == ["entity", "shot"]
+    assert product.axes[0].entities is not None
+    assert [entity.id for entity in product.axes[0].entities] == ["q0", "q1"]
+
+    plan = compile_run_program(composition.system, bound=bound)
+    [job] = tuple(
+        operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
+    )
+    mapped = cast("MappedListModeTarget", job.execution.invocation.payload)
+    [result] = mapped.mapping.results
+    assert len(result.result_address.acquisitions) == 2
+    assert [
+        address.slot_id.scope for address in result.result_address.acquisitions
+    ] == [("targets[0]",), ("targets[1]",)]
 
 
 def _logical_measurement_values(

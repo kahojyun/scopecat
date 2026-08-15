@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -14,8 +13,10 @@ from scopecat.measurements.results import (
     MeasurementUnavailable,
 )
 from scopecat.sdk.domain import DomainResultValue
-from scopecat_quantum.program_results import MappedQuantumTarget
-from scopecat_quantum.targets import TargetAcquisitionAddress
+from scopecat_quantum.program_results import (
+    MappedQuantumTarget,
+    QuantumTargetResultAddress,
+)
 
 from reference_lab.targets.list_mode.execution_model import (
     DigitizerResultBatch,
@@ -45,9 +46,7 @@ def correlate_list_mode_run(
     artifact = mapped_target.artifact
     if target_run.artifact != artifact:
         raise ValueError("list-mode run does not retain the compiled target artifact")
-    expected_addresses = tuple(
-        result.result_address for result in mapped_target.mapping.results
-    )
+    expected_addresses = mapped_target.acquisition_addresses
     if set(target_run.results.addresses) != set(expected_addresses):
         raise ValueError(
             "list-mode result rows must exactly cover every mapped acquisition"
@@ -62,25 +61,27 @@ def correlate_list_mode_run(
 
 def realize_measurements(
     correlated_run: CorrelatedListModeRun,
-) -> tuple[DomainResultValue[TargetAcquisitionAddress], ...]:
+) -> tuple[DomainResultValue[QuantumTargetResultAddress], ...]:
     """Project address rows directly to integrated-IQ measurement arrays."""
 
-    return tuple(
-        DomainResultValue(
-            result.result_address,
-            _realize_integrated_iq_value(
-                cast(
-                    "NDArray[np.complex128]",
-                    correlated_run.results.values[row_index],
-                ),
-                cast(
-                    "NDArray[np.bool_]",
-                    correlated_run.results.available[row_index],
-                ),
-            ),
+    realized: list[DomainResultValue[QuantumTargetResultAddress]] = []
+    row_offset = 0
+    for result in correlated_run.mapped_target.mapping.results:
+        row_count = len(result.result_address.acquisitions)
+        row_selection: int | slice = (
+            row_offset if row_count == 1 else slice(row_offset, row_offset + row_count)
         )
-        for row_index, result in enumerate(correlated_run.mapped_target.mapping.results)
-    )
+        realized.append(
+            DomainResultValue(
+                result.result_address,
+                _realize_integrated_iq_value(
+                    correlated_run.results.values[row_selection],
+                    correlated_run.results.available[row_selection],
+                ),
+            )
+        )
+        row_offset += row_count
+    return tuple(realized)
 
 
 def _realize_integrated_iq_value(
@@ -91,7 +92,7 @@ def _realize_integrated_iq_value(
         return MeasurementUnavailable.create(
             dtype="complex128",
             unit=_RESPONSE_UNIT,
-            shape=(len(values),),
+            shape=values.shape,
             reason="missing",
             metadata={"source": "virtual-demodulator", "detail": "no lock"},
         )

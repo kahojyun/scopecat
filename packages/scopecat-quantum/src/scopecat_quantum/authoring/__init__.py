@@ -29,6 +29,7 @@ from ._construction import (
     input,
     measure,
     parallel,
+    parallel_each,
     play,
     program,
     pulse_template,
@@ -80,6 +81,7 @@ from ._ir import (
     QuantumResultContract,
     Qubit,
     QubitInput,
+    QubitSet,
     RepeatCount,
 )
 from ._programs import (
@@ -120,6 +122,7 @@ __all__ = [
     "QuantumResultContract",
     "Qubit",
     "QubitInput",
+    "QubitSet",
     "RepeatCount",
     "SingleQubitGate",
     "TwoQubitGate",
@@ -140,6 +143,7 @@ __all__ = [
     "input",
     "measure",
     "parallel",
+    "parallel_each",
     "play",
     "program",
     "program_port_type",
