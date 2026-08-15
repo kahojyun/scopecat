@@ -26,7 +26,7 @@ The repository-level `scripts/build_server_distribution.py` assembles the
 server in a temporary directory and verifies that its wheel and source
 distribution contain the same bundle.
 
-`pnpm-workspace.yaml` applies the same 14-day minimum release age as Renovate
+`pnpm-workspace.yaml` applies the same 3-day minimum release age as Renovate
 to direct and transitive dependency resolution.
 
 ## Development checks

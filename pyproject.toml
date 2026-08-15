@@ -401,7 +401,7 @@ select = [
 max-complexity = 20
 
 [tool.uv]
-exclude-newer = "14d"
+exclude-newer = "3d"
 default-groups = ["dev"]
 package = false
 
