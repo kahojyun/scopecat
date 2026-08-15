@@ -2040,6 +2040,32 @@ export interface components {
             started_at: string;
         };
         /**
+         * InstrumentAcquisitionEvidence
+         * @description Daemon-observed interval and physical target for one collected result.
+         */
+        InstrumentAcquisitionEvidence: {
+            acquisition_id: components["schemas"]["_NonEmptyText"];
+            command_id: components["schemas"]["_NonEmptyText"];
+            /**
+             * Completed At
+             * Format: date-time
+             */
+            completed_at: string;
+            /**
+             * Component Path
+             * @default []
+             */
+            component_path: components["schemas"]["_NonEmptyText"][];
+            instrument_id: components["schemas"]["_NonEmptyText"];
+            interface_id: components["schemas"]["InterfaceId"];
+            result_id: components["schemas"]["_NonEmptyText"];
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
+        /**
          * InstrumentAcquisitionEvidenceRef
          * @description One result identifier within a shared acquisition event.
          */
@@ -2876,8 +2902,26 @@ export interface components {
             variable_ids?: string[] | null;
         };
         /**
+         * MeasurementTraceFailure
+         * @description One bounded point/entity trace selection with no plottable samples.
+         */
+        MeasurementTraceFailure: {
+            entity?: components["schemas"]["EntityRef-Output"] | null;
+            /** Entity Index */
+            entity_index?: number | null;
+            evidence?: components["schemas"]["InstrumentAcquisitionEvidence"] | null;
+            /** Label */
+            label: string;
+            /** Logical Point Id */
+            logical_point_id?: string | null;
+            /** Point Index */
+            point_index: number;
+            /** Reasons */
+            reasons: ("missing" | "invalid" | "overload")[];
+        };
+        /**
          * MeasurementTracePreview
-         * @description Bounded numeric series for one selected point-local observable.
+         * @description Bounded numeric series for one selected point/entity-local observable.
          *
          *     ``selected_series_count`` is the authored domain selection size. It does
          *     not promise that every selected point is durable yet or has an available
@@ -2893,10 +2937,21 @@ export interface components {
             /** Dimension Id */
             dimension_id: string;
             downsampling: components["schemas"]["TraceDownsampling"];
+            entity_acquisition?: components["schemas"]["MeasurementEntityAcquisition"] | null;
+            /** Entity Dimension Id */
+            entity_dimension_id?: string | null;
+            /**
+             * Failures
+             * @default []
+             */
+            failures: components["schemas"]["MeasurementTraceFailure"][];
             /** Fixed Axis Indices */
             fixed_axis_indices?: {
                 [key: string]: number;
             };
+            /** Inspected Series Count */
+            inspected_series_count: number;
+            layout: components["schemas"]["TraceLayout"];
             /** Observable Id */
             observable_id: string;
             /** Observable Label */
@@ -2934,13 +2989,15 @@ export interface components {
         };
         /**
          * MeasurementTracePreviewQuery
-         * @description Select one bounded, response-ready point-local trace preview.
+         * @description Select one bounded, response-ready point/entity-local trace preview.
          */
         MeasurementTracePreviewQuery: {
             /** Coordinate Id */
             coordinate_id?: string | null;
             /** @default minmax */
             downsampling: components["schemas"]["TraceDownsampling"];
+            /** Entity Indices */
+            entity_indices?: number[] | null;
             /** Fixed Axis Indices */
             fixed_axis_indices?: {
                 [key: string]: number;
@@ -2966,6 +3023,12 @@ export interface components {
          * @description One directly plottable numeric trace series.
          */
         MeasurementTraceSeries: {
+            /** Available Sample Count */
+            available_sample_count: number;
+            entity?: components["schemas"]["EntityRef-Output"] | null;
+            /** Entity Index */
+            entity_index?: number | null;
+            evidence?: components["schemas"]["InstrumentAcquisitionEvidence"] | null;
             /** Label */
             label: string;
             /** Logical Point Id */
@@ -2974,6 +3037,11 @@ export interface components {
             point_index: number;
             /** Source Sample Count */
             source_sample_count: number;
+            /**
+             * Unavailable Reasons
+             * @default []
+             */
+            unavailable_reasons: ("missing" | "invalid" | "overload")[];
             /** X */
             x: number[];
             /** Y */
@@ -4312,6 +4380,8 @@ export interface components {
         };
         /** @constant */
         TraceDownsampling: "minmax";
+        /** @enum {string} */
+        TraceLayout: "overlay" | "small_multiples";
         /** @enum {string} */
         TraceValueMode: "value" | "magnitude" | "phase" | "real" | "imag";
         /**

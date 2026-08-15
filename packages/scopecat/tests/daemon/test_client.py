@@ -657,6 +657,7 @@ def _trace_preview() -> MeasurementTracePreview:
         x=(0.0, 1.0),
         y=(0.0, 0.5),
         source_sample_count=2,
+        available_sample_count=2,
     )
     return MeasurementTracePreview(
         dimension_id="sample",
@@ -666,8 +667,10 @@ def _trace_preview() -> MeasurementTracePreview:
         value_mode="phase",
         value_unit="rad",
         downsampling="minmax",
+        layout="overlay",
         series=(series,),
         selected_series_count=1,
+        inspected_series_count=1,
         returned_series_count=1,
         source_sample_count=2,
         returned_sample_count=2,

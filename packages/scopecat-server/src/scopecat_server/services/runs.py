@@ -27,6 +27,7 @@ from scopecat.daemon.views import (
     MeasurementPreview,
     MeasurementSlice,
     MeasurementSliceQuery,
+    MeasurementTraceFailure,
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
     MeasurementTraceSeries,
@@ -806,52 +807,69 @@ class RunService:
             raise BackendConflict("measurement dataset has no registered schema")
         with self._config_errors():
             available_point_count = repository.measurement_record_count()
-        series_read_limit = min(query.max_series, query.max_samples // 2)
-        selection_offset = 0
-        selected_series_count = 0
-        records: list[MeasurementRecord] = []
         projection = _project_trace_records(schema, (), query)
-        trace_variable_ids = (projection.coordinate_id, projection.observable_id)
-        while len(records) < series_read_limit:
-            remaining_series = series_read_limit - len(records)
-            try:
-                point_indices, selected_series_count = _trace_preview_point_indices(
-                    schema,
-                    query.fixed_axis_indices,
-                    offset=selection_offset,
-                    limit=remaining_series,
-                    available_point_count=available_point_count,
-                )
-            except ValueError as error:
-                raise BackendConflict(str(error)) from error
-            if not point_indices:
-                break
+        series_read_limit = min(query.max_series, query.max_samples // 2)
+        point_read_limit = max(
+            1,
+            (series_read_limit + projection.selected_entity_count - 1)
+            // projection.selected_entity_count,
+        )
+        trace_variable_ids = (
+            (projection.observable_id,)
+            if projection.source_coordinate_id is None
+            else (projection.source_coordinate_id, projection.observable_id)
+        )
+        try:
+            point_indices, selected_point_count = _trace_preview_point_indices(
+                schema,
+                query.fixed_axis_indices,
+                offset=0,
+                limit=point_read_limit,
+                available_point_count=available_point_count,
+            )
+        except ValueError as error:
+            raise BackendConflict(str(error)) from error
+        records: Sequence[MeasurementRecord] = ()
+        if point_indices:
             with self._config_errors():
-                batch = repository.measurement_records_at(
+                records = repository.measurement_records_at(
                     point_indices,
                     variable_ids=trace_variable_ids,
                 )
-            selection_offset += len(point_indices)
-            batch_projection = _project_trace_records(schema, batch, query)
-            batch_by_point = {record.point_index: record for record in batch}
-            records.extend(
-                batch_by_point[series.point_index] for series in batch_projection.series
-            )
-            if selection_offset == selected_series_count:
-                break
-        if records:
             projection = _project_trace_records(schema, records, query)
         series = tuple(
             MeasurementTraceSeries(
                 point_index=item.point_index,
                 logical_point_id=item.logical_point_id,
                 label=item.label,
+                entity_index=item.entity_index,
+                entity=item.entity,
                 x=tuple(float(value) for value in item.x),
                 y=item.y,
                 source_sample_count=item.source_sample_count,
+                available_sample_count=item.available_sample_count,
+                unavailable_reasons=item.unavailable_reasons,
+                evidence=item.evidence,
             )
             for item in projection.series
         )
+        failures = tuple(
+            MeasurementTraceFailure(
+                point_index=item.point_index,
+                logical_point_id=item.logical_point_id,
+                label=item.label,
+                entity_index=item.entity_index,
+                entity=item.entity,
+                reasons=item.reasons,
+                evidence=item.evidence,
+            )
+            for item in projection.failures
+        )
+        inspected_series_count = min(
+            series_read_limit,
+            len(point_indices) * projection.selected_entity_count,
+        )
+        selected_series_count = selected_point_count * projection.selected_entity_count
         return MeasurementTracePreview(
             fixed_axis_indices=dict(query.fixed_axis_indices),
             dimension_id=projection.dimension_id,
@@ -862,13 +880,18 @@ class RunService:
             observable_label=projection.observable_label,
             coordinate_unit=projection.coordinate_unit,
             observable_unit=projection.observable_unit,
+            entity_dimension_id=projection.entity_dimension_id,
+            entity_acquisition=projection.entity_acquisition,
+            layout=projection.layout,
             value_mode=projection.value_mode,
             value_unit=projection.value_unit,
             downsampling=projection.downsampling,
             series=series,
+            failures=failures,
             selected_series_count=selected_series_count,
+            inspected_series_count=inspected_series_count,
             returned_series_count=len(series),
-            truncated_series=selection_offset < selected_series_count,
+            truncated_series=inspected_series_count < selected_series_count,
             source_sample_count=projection.source_sample_count,
             returned_sample_count=projection.returned_sample_count,
             samples_reduced=projection.samples_reduced,
@@ -946,6 +969,7 @@ def _project_trace_records(
             max_samples=query.max_samples,
             value_mode=query.value_mode,
             downsampling=query.downsampling,
+            entity_indices=query.entity_indices,
         )
     except ValueError as error:
         raise BackendConflict(str(error)) from error

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import numpy as np
 import pytest
 
+from scopecat.kernel.entity import EntityRef
 from scopecat.measurements.results import validate_measurement_records_against_schema
 from scopecat.measurements.traces import (
     TraceValueMode,
@@ -14,12 +16,20 @@ from scopecat.measurements.traces import (
     project_measurement_trace_preview,
 )
 from scopecat.records.measurement import (
+    EntityAcquisitionEvidence,
+    InstrumentAcquisitionEvidence,
+    MeasurementAcquisitionEvidenceCatalog,
     MeasurementArray,
+    MeasurementArrayAvailability,
     MeasurementDataset,
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementEntityAcquisition,
+    MeasurementEntityIndex,
+    MeasurementEntityProductSource,
     MeasurementPointCloudPointDomain,
     MeasurementRecord,
+    MeasurementSegmentedArray,
     MeasurementUnavailable,
     MeasurementValue,
     MeasurementVariable,
@@ -439,7 +449,7 @@ def test_trace_preview_reports_value_mode_for_real_observable() -> None:
         )
 
 
-def test_trace_preview_scans_past_unavailable_series_until_cap() -> None:
+def test_trace_preview_retains_bounded_unavailable_selection() -> None:
     dataset = _trace_dataset()
     unavailable = MeasurementUnavailable.create(
         reason="overload",
@@ -469,10 +479,90 @@ def test_trace_preview_scans_past_unavailable_series_until_cap() -> None:
         max_samples=4,
     )
 
-    assert [series.point_index for series in projection.series] == [1, 2]
-    assert projection.source_sample_count == 6
-    assert projection.returned_sample_count == 4
-    assert projection.samples_reduced
+    assert [series.point_index for series in projection.series] == [1]
+    assert [
+        (failure.point_index, failure.reasons) for failure in projection.failures
+    ] == [(0, ("overload",))]
+    assert projection.source_sample_count == 3
+    assert projection.returned_sample_count == 3
+    assert not projection.samples_reduced
+
+
+def test_entity_trace_preview_selects_entities_availability_and_evidence() -> None:
+    dataset = _entity_trace_dataset(segmented=False)
+
+    projection = project_measurement_trace_preview(
+        dataset,
+        "response",
+        coordinate="frequency",
+        entity_indices=(0, 1),
+        max_series=2,
+        max_samples=8,
+        value_mode="value",
+    )
+
+    assert projection.entity_dimension_id == "qubit"
+    assert projection.layout == "overlay"
+    assert projection.entity_acquisition == MeasurementEntityAcquisition(
+        policy="all_or_nothing",
+        cohort_id="readout-cohort",
+    )
+    assert projection.selected_entity_count == 2
+    [series] = projection.series
+    assert series.entity_index == 0
+    assert series.entity == EntityRef(id="q0", kind="qubit", metadata={"label": "Q0"})
+    assert series.label == "point-0 · Q0"
+    assert series.x == (4.0, 6.0)
+    assert series.y == (1.0, 3.0)
+    assert series.source_sample_count == 3
+    assert series.available_sample_count == 2
+    assert series.unavailable_reasons == ("overload",)
+    assert series.evidence is not None
+    assert series.evidence.result_id == "q0-response"
+    [failure] = projection.failures
+    assert failure.entity_index == 1
+    assert failure.entity == EntityRef(id="q1", kind="qubit")
+    assert failure.reasons == ("overload",)
+    assert failure.evidence is not None
+    assert failure.evidence.result_id == "q1-response"
+
+
+def test_entity_trace_preview_supports_segmented_local_lengths() -> None:
+    projection = project_measurement_trace_preview(
+        _entity_trace_dataset(segmented=True),
+        "response",
+        coordinate="frequency",
+        entity_indices=(0, 1),
+        max_series=2,
+        max_samples=8,
+        value_mode="value",
+    )
+
+    assert projection.layout == "small_multiples"
+    [series] = projection.series
+    assert series.entity_index == 0
+    assert series.x == (4.0, 5.0, 6.0)
+    assert series.y == (1.0, 2.0, 3.0)
+    [failure] = projection.failures
+    assert failure.entity_index == 1
+    assert failure.reasons == ("missing",)
+
+
+def test_entity_trace_preview_synthesizes_sample_indices_without_coordinate() -> None:
+    projection = project_measurement_trace_preview(
+        _entity_trace_dataset(segmented=True, coordinate=False),
+        "response",
+        entity_indices=(0,),
+        max_series=1,
+        max_samples=8,
+        value_mode="value",
+    )
+
+    assert projection.coordinate_id == "sample"
+    assert projection.source_coordinate_id is None
+    [series] = projection.series
+    assert series.x == (0, 1, 2)
+    assert series.y == (1.0, 2.0, 3.0)
 
 
 def _replace_schema(
@@ -586,4 +676,157 @@ def _trace_dataset() -> MeasurementDataset:
             )
             for point_index in range(2)
         ],
+    )
+
+
+def _entity_trace_dataset(
+    *,
+    segmented: bool,
+    coordinate: bool = True,
+) -> MeasurementDataset:
+    entities = (
+        EntityRef(id="q0", kind="qubit", metadata={"label": "Q0"}),
+        EntityRef(id="q1", kind="qubit"),
+    )
+    acquisition = MeasurementEntityAcquisition(
+        policy="all_or_nothing",
+        cohort_id="readout-cohort",
+    )
+    schema = MeasurementDatasetSchema(
+        dataset_id="raw-measurements",
+        point_domain=MeasurementPointCloudPointDomain(columns=[]),
+        dimensions=(
+            MeasurementDimension(id="point", kind="point", size=1),
+            MeasurementDimension(
+                id="qubit",
+                kind="entity",
+                size=2,
+                index=MeasurementEntityIndex(values=entities),
+            ),
+            MeasurementDimension(
+                id="sample",
+                kind="sample",
+                size=None if segmented else 3,
+            ),
+        ),
+        variables=(
+            *(
+                (
+                    MeasurementVariable(
+                        id="frequency",
+                        role="coordinate",
+                        dtype="float64",
+                        unit="GHz",
+                        dims=("point", "qubit", "sample"),
+                        recording_group_id="readout",
+                    ),
+                )
+                if coordinate
+                else ()
+            ),
+            MeasurementVariable(
+                id="response",
+                role="observable",
+                dtype="float64",
+                unit="ratio",
+                dims=("point", "qubit", "sample"),
+                recording_group_id="readout",
+                entity_acquisition=acquisition,
+                source_entity_products=MeasurementEntityProductSource(
+                    dimension_id="qubit",
+                    product_ids=("q0-response", "q1-response"),
+                ),
+            ),
+        ),
+        variable_groups=(MeasurementVariableGroup(id="readout"),),
+        primary_coordinates=("frequency",) if coordinate else (),
+        primary_observables=("response",),
+    )
+    q0_evidence = _trace_evidence("q0-response")
+    q1_evidence = _trace_evidence("q1-response")
+    if segmented:
+        frequency: MeasurementValue = MeasurementSegmentedArray.create(
+            dtype="float64",
+            unit="GHz",
+            segments=(
+                MeasurementArray.create(
+                    dtype="float64",
+                    unit="GHz",
+                    values=(4.0, 5.0, 6.0),
+                ),
+                MeasurementUnavailable.create(
+                    reason="missing",
+                    dtype="float64",
+                    unit="GHz",
+                    shape=(2,),
+                    metadata={},
+                ),
+            ),
+        )
+        response: MeasurementValue = MeasurementSegmentedArray.create(
+            dtype="float64",
+            unit="ratio",
+            segments=(
+                MeasurementArray.create(
+                    dtype="float64",
+                    unit="ratio",
+                    values=(1.0, 2.0, 3.0),
+                ),
+                MeasurementUnavailable.create(
+                    reason="missing",
+                    dtype="float64",
+                    unit="ratio",
+                    shape=(2,),
+                    metadata={},
+                ),
+            ),
+        )
+    else:
+        frequency = MeasurementArray.create(
+            dtype="float64",
+            unit="GHz",
+            values=((4.0, 5.0, 6.0), (4.0, 5.0, 6.0)),
+        )
+        response = MeasurementArray.create(
+            dtype="float64",
+            unit="ratio",
+            values=((1.0, 999.0, 3.0), (999.0, 999.0, 999.0)),
+            availability=MeasurementArrayAvailability.create(
+                valid=((True, False, True), (False, False, False)),
+                reason="overload",
+            ),
+        )
+    return MeasurementDataset(
+        dataset_schema=schema,
+        records=(
+            MeasurementRecord(
+                run_id="entity-trace-run",
+                logical_point_id="point-0",
+                point_index=0,
+                coordinates={"frequency": frequency} if coordinate else {},
+                observables={"response": response},
+                acquisition_evidence=MeasurementAcquisitionEvidenceCatalog.create(
+                    {
+                        "response": EntityAcquisitionEvidence(
+                            dimension_id="qubit",
+                            acquisition=acquisition,
+                            values=(q0_evidence, q1_evidence),
+                        )
+                    }
+                ),
+            ),
+        ),
+    )
+
+
+def _trace_evidence(result_id: str) -> InstrumentAcquisitionEvidence:
+    started_at = datetime(2026, 8, 15, 10, 0, tzinfo=UTC)
+    return InstrumentAcquisitionEvidence(
+        command_id=f"collect-{result_id}",
+        instrument_id="readout",
+        interface_id="test.readout/v1",
+        acquisition_id="sample",
+        result_id=result_id,
+        started_at=started_at,
+        completed_at=started_at + timedelta(milliseconds=2),
     )

@@ -10,12 +10,20 @@ from typing import Literal, cast
 import numpy as np
 from numpy.typing import NDArray
 
+from scopecat.kernel.entity import EntityRef
 from scopecat.records.measurement import (
+    EntityAcquisitionEvidence,
+    InstrumentAcquisitionEvidence,
     MeasurementArray,
     MeasurementDataset,
     MeasurementDatasetSchema,
+    MeasurementDimension,
+    MeasurementEntityAcquisition,
     MeasurementRecord,
+    MeasurementSegmentedArray,
     MeasurementUnavailable,
+    MeasurementUnavailableReason,
+    MeasurementValue,
     MeasurementVariable,
 )
 
@@ -24,6 +32,7 @@ type TraceCoordinateArray = NDArray[np.int64] | NDArray[np.float64]
 type TraceSampleArray = NDArray[np.int64] | NDArray[np.float64] | NDArray[np.complex128]
 type TraceValueMode = Literal["value", "magnitude", "phase", "real", "imag"]
 type TraceDownsampling = Literal["minmax"]
+type TraceLayout = Literal["overlay", "small_multiples"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,8 +49,13 @@ class Trace:
     observable_label: str | None
     coordinate_unit: str | None
     observable_unit: str | None
+    entity_index: int | None
+    entity: EntityRef | None
     x: TraceCoordinateArray
     y: TraceSampleArray
+    source_sample_count: int
+    unavailable_reasons: tuple[MeasurementUnavailableReason, ...]
+    evidence: InstrumentAcquisitionEvidence | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,9 +65,27 @@ class ProjectedTraceSeries:
     point_index: int
     logical_point_id: str | None
     label: str
+    entity_index: int | None
+    entity: EntityRef | None
     x: tuple[TraceCoordinate, ...]
     y: tuple[float, ...]
     source_sample_count: int
+    available_sample_count: int
+    unavailable_reasons: tuple[MeasurementUnavailableReason, ...]
+    evidence: InstrumentAcquisitionEvidence | None
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectedTraceFailure:
+    """One selected point/entity series that has no plottable samples."""
+
+    point_index: int
+    logical_point_id: str | None
+    label: str
+    entity_index: int | None
+    entity: EntityRef | None
+    reasons: tuple[MeasurementUnavailableReason, ...]
+    evidence: InstrumentAcquisitionEvidence | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,15 +95,21 @@ class MeasurementTraceProjection:
     dimension_id: str
     recording_group_id: str | None
     coordinate_id: str
+    source_coordinate_id: str | None
     observable_id: str
     coordinate_label: str | None
     observable_label: str | None
     coordinate_unit: str | None
     observable_unit: str | None
+    entity_dimension_id: str | None
+    entity_acquisition: MeasurementEntityAcquisition | None
+    selected_entity_count: int
+    layout: TraceLayout
     value_mode: TraceValueMode
     value_unit: str | None
     downsampling: TraceDownsampling
     series: tuple[ProjectedTraceSeries, ...]
+    failures: tuple[ProjectedTraceFailure, ...]
     source_sample_count: int
     returned_sample_count: int
     samples_reduced: bool
@@ -83,6 +121,7 @@ def measurement_traces(
     *,
     coordinate: str | None = None,
     group: str | None = None,
+    entity_indices: Sequence[int] | None = None,
 ) -> tuple[Trace, ...]:
     """Read one unambiguous point-local trace from every dataset point.
 
@@ -91,18 +130,31 @@ def measurement_traces(
     ungrouped datasets.
     """
 
-    coordinate_variable, observable_variable = _trace_variables(
+    (
+        coordinate_variable,
+        observable_variable,
+        entity_dimension,
+        sample_dimension,
+    ) = _trace_variables(
         dataset.dataset_schema,
         coordinate=coordinate,
         observable=observable,
         group=group,
     )
-    return _measurement_traces(
+    traces, failures = _measurement_traces(
         dataset.records,
         coordinate_variable,
         observable_variable,
+        entity_dimension=entity_dimension,
+        sample_dimension=sample_dimension,
+        entity_indices=_selected_entity_indices(entity_dimension, entity_indices),
         skip_unusable=False,
     )
+    if failures:
+        failure = failures[0]
+        reasons = ", ".join(failure.reasons)
+        raise ValueError(f"trace {failure.label} is unavailable: {reasons}")
+    return traces
 
 
 def project_measurement_trace_preview(
@@ -115,15 +167,14 @@ def project_measurement_trace_preview(
     max_samples: int = 4096,
     value_mode: TraceValueMode | None = None,
     downsampling: TraceDownsampling = "minmax",
+    entity_indices: Sequence[int] | None = None,
 ) -> MeasurementTraceProjection:
-    """Project a bounded numeric preview from up to ``max_series`` usable records.
+    """Project a bounded numeric preview from up to ``max_series`` selections.
 
     ``max_samples`` is one total response budget shared evenly by the returned
     series. Min/max bucket sampling preserves endpoints and narrow extrema.
-    Unavailable and empty selected points are omitted while later records are
-    considered until the usable-series cap is reached or records are exhausted.
-    Callers can compare the returned count with their separate domain-selection
-    count.
+    Unavailable point/entity selections are retained as bounded failures so the
+    caller can explain absent traces and inspect their acquisition evidence.
     """
 
     if max_series < 1:
@@ -132,17 +183,26 @@ def project_measurement_trace_preview(
         raise ValueError("trace preview max_samples must be at least two")
     if downsampling != "minmax":
         raise ValueError(f"unsupported trace downsampling: {downsampling}")
-    coordinate_variable, observable_variable = _trace_variables(
+    (
+        coordinate_variable,
+        observable_variable,
+        entity_dimension,
+        sample_dimension,
+    ) = _trace_variables(
         dataset.dataset_schema,
         coordinate=coordinate,
         observable=observable,
         group=group,
     )
     series_limit = min(max_series, max_samples // 2)
-    traces = _measurement_traces(
+    selected_entity_indices = _selected_entity_indices(entity_dimension, entity_indices)
+    traces, failures = _measurement_traces(
         dataset.records,
         coordinate_variable,
         observable_variable,
+        entity_dimension=entity_dimension,
+        sample_dimension=sample_dimension,
+        entity_indices=selected_entity_indices,
         skip_unusable=True,
         limit=series_limit,
     )
@@ -166,18 +226,40 @@ def project_measurement_trace_preview(
     source_sample_count = sum(item.source_sample_count for item in projected)
     returned_sample_count = sum(len(item.y) for item in projected)
     return MeasurementTraceProjection(
-        dimension_id=observable_variable.dims[1],
-        recording_group_id=coordinate_variable.recording_group_id,
-        coordinate_id=coordinate_variable.id,
+        dimension_id=sample_dimension.id,
+        recording_group_id=observable_variable.recording_group_id,
+        coordinate_id=(
+            sample_dimension.id
+            if coordinate_variable is None
+            else coordinate_variable.id
+        ),
+        source_coordinate_id=(
+            None if coordinate_variable is None else coordinate_variable.id
+        ),
         observable_id=observable_variable.id,
-        coordinate_label=coordinate_variable.label,
+        coordinate_label=(
+            sample_dimension.label
+            if coordinate_variable is None
+            else coordinate_variable.label
+        ),
         observable_label=observable_variable.label,
-        coordinate_unit=coordinate_variable.unit,
+        coordinate_unit=None
+        if coordinate_variable is None
+        else coordinate_variable.unit,
         observable_unit=observable_variable.unit,
+        entity_dimension_id=None if entity_dimension is None else entity_dimension.id,
+        entity_acquisition=observable_variable.entity_acquisition,
+        selected_entity_count=len(selected_entity_indices),
+        layout=_trace_layout(
+            dataset.dataset_schema,
+            observable_variable,
+            entity_dimension,
+        ),
         value_mode=actual_mode,
         value_unit=("rad" if actual_mode == "phase" else observable_variable.unit),
         downsampling=downsampling,
         series=projected,
+        failures=failures,
         source_sample_count=source_sample_count,
         returned_sample_count=returned_sample_count,
         samples_reduced=returned_sample_count < source_sample_count,
@@ -190,7 +272,12 @@ def _trace_variables(
     coordinate: str | None,
     observable: str | None,
     group: str | None,
-) -> tuple[MeasurementVariable, MeasurementVariable]:
+) -> tuple[
+    MeasurementVariable | None,
+    MeasurementVariable,
+    MeasurementDimension | None,
+    MeasurementDimension,
+]:
     variables = {variable.id: variable for variable in schema.variables}
     coordinate_variable, observable_variable = _select_trace_variables(
         variables,
@@ -198,94 +285,407 @@ def _trace_variables(
         observable=observable,
         group=group,
     )
-    coordinate = coordinate_variable.id
+    coordinate = None if coordinate_variable is None else coordinate_variable.id
     observable = observable_variable.id
-    if coordinate_variable.role != "coordinate":
+    if coordinate_variable is not None and coordinate_variable.role != "coordinate":
         raise ValueError(f"trace coordinate {coordinate!r} is not a coordinate")
     if observable_variable.role != "observable":
         raise ValueError(f"trace observable {observable!r} is not an observable")
-    coordinate_group = coordinate_variable.recording_group_id
     observable_group = observable_variable.recording_group_id
-    if coordinate_group != observable_group:
+    if (
+        coordinate_variable is not None
+        and coordinate_variable.recording_group_id != observable_group
+    ):
         raise ValueError(
             "trace coordinate and observable must belong to one recording group"
         )
     if (
-        len(coordinate_variable.dims) != 2
-        or coordinate_variable.dims != observable_variable.dims
+        coordinate_variable is not None
+        and coordinate_variable.dims != observable_variable.dims
     ):
         raise ValueError(
-            "trace coordinate and observable must share one point-local dimension"
+            "trace coordinate and observable must share point-local dimensions"
         )
-    if coordinate_variable.dtype not in {"float64", "int64"}:
+    local_dimensions = observable_variable.dims[1:]
+    entity_dimensions = tuple(
+        dimension
+        for dimension in schema.dimensions
+        if dimension.kind == "entity" and dimension.id in local_dimensions
+    )
+    if (
+        len(local_dimensions) not in {1, 2}
+        or len(entity_dimensions) != len(local_dimensions) - 1
+    ):
+        raise ValueError(
+            "trace variables must have one sample dimension and at most one "
+            "entity dimension"
+        )
+    entity_dimension = entity_dimensions[0] if entity_dimensions else None
+    if entity_dimension is not None and entity_dimension.index is None:
+        raise ValueError("trace entity dimension requires an indexed entity axis")
+    sample_dimension_id = next(
+        dimension_id
+        for dimension_id in local_dimensions
+        if entity_dimension is None or dimension_id != entity_dimension.id
+    )
+    sample_dimension = next(
+        dimension
+        for dimension in schema.dimensions
+        if dimension.id == sample_dimension_id
+    )
+    if coordinate_variable is not None and coordinate_variable.dtype not in {
+        "float64",
+        "int64",
+    }:
         raise ValueError("trace coordinates must be numeric")
     if observable_variable.dtype not in {"float64", "int64", "complex128"}:
         raise ValueError("trace observables must be numeric")
-    return coordinate_variable, observable_variable
+    return coordinate_variable, observable_variable, entity_dimension, sample_dimension
+
+
+def _trace_layout(
+    schema: MeasurementDatasetSchema,
+    variable: MeasurementVariable,
+    entity_dimension: MeasurementDimension | None,
+) -> TraceLayout:
+    if entity_dimension is None:
+        return "overlay"
+    sample_dimension_id = next(
+        dimension_id
+        for dimension_id in variable.dims[1:]
+        if dimension_id != entity_dimension.id
+    )
+    sample_dimension = next(
+        dimension
+        for dimension in schema.dimensions
+        if dimension.id == sample_dimension_id
+    )
+    return "small_multiples" if sample_dimension.size is None else "overlay"
 
 
 def _measurement_traces(
     records: Sequence[MeasurementRecord],
-    coordinate_variable: MeasurementVariable,
+    coordinate_variable: MeasurementVariable | None,
     observable_variable: MeasurementVariable,
     *,
+    entity_dimension: MeasurementDimension | None,
+    sample_dimension: MeasurementDimension,
+    entity_indices: Sequence[int | None],
     skip_unusable: bool,
     limit: int | None = None,
-) -> tuple[Trace, ...]:
-    coordinate = coordinate_variable.id
+) -> tuple[tuple[Trace, ...], tuple[ProjectedTraceFailure, ...]]:
+    coordinate = None if coordinate_variable is None else coordinate_variable.id
     observable = observable_variable.id
-    coordinate_group = coordinate_variable.recording_group_id
-    dimension_id = coordinate_variable.dims[1]
+    coordinate_group = observable_variable.recording_group_id
+    dimension_id = sample_dimension.id
     traces: list[Trace] = []
+    failures: list[ProjectedTraceFailure] = []
+    inspected = 0
     for record in records:
-        x_value = record.coordinates[coordinate]
         y_value = record.observables[observable]
-        if isinstance(x_value, MeasurementUnavailable):
-            if skip_unusable:
+        for entity_index in entity_indices:
+            if limit is not None and inspected == limit:
+                return tuple(traces), tuple(failures)
+            inspected += 1
+            entity = _trace_entity(entity_dimension, entity_index)
+            label = _trace_series_label(record, entity)
+            evidence = _trace_evidence(record, observable, entity_index)
+            y_part = _local_trace_array(
+                y_value,
+                observable_variable,
+                entity_dimension,
+                entity_index,
+            )
+            x_part = (
+                _synthetic_trace_coordinate(y_part)
+                if coordinate_variable is None
+                else _local_trace_array(
+                    record.coordinates[coordinate_variable.id],
+                    coordinate_variable,
+                    entity_dimension,
+                    entity_index,
+                )
+            )
+            reasons = tuple(dict.fromkeys((*x_part.reasons, *y_part.reasons)))
+            if x_part.values is None or y_part.values is None:
+                if not skip_unusable:
+                    reason = reasons[0] if reasons else "invalid"
+                    raise ValueError(
+                        f"trace observable {observable!r} is unavailable at point "
+                        f"{record.point_index}: {reason}"
+                    )
+                failures.append(
+                    ProjectedTraceFailure(
+                        point_index=record.point_index,
+                        logical_point_id=record.logical_point_id,
+                        label=label,
+                        entity_index=entity_index,
+                        entity=entity,
+                        reasons=reasons or ("invalid",),
+                        evidence=evidence,
+                    )
+                )
                 continue
-            raise ValueError(
-                f"trace coordinate {coordinate!r} is unavailable at point "
-                f"{record.point_index}: {x_value.reason}"
-            )
-        if isinstance(y_value, MeasurementUnavailable):
-            if skip_unusable:
+            if len(x_part.values) != len(y_part.values):
+                raise ValueError(
+                    f"trace arrays differ in length at point {record.point_index}"
+                )
+            valid = np.logical_and(x_part.valid, y_part.valid)
+            if not np.any(valid):
+                if not skip_unusable:
+                    reason = reasons[0] if reasons else "invalid"
+                    raise ValueError(
+                        f"trace observable {observable!r} is unavailable at point "
+                        f"{record.point_index}: {reason}"
+                    )
+                failures.append(
+                    ProjectedTraceFailure(
+                        point_index=record.point_index,
+                        logical_point_id=record.logical_point_id,
+                        label=label,
+                        entity_index=entity_index,
+                        entity=entity,
+                        reasons=reasons or ("invalid",),
+                        evidence=evidence,
+                    )
+                )
                 continue
-            raise ValueError(
-                f"trace observable {observable!r} is unavailable at point "
-                f"{record.point_index}: {y_value.reason}"
+            x = _readonly_selected(x_part.values, valid)
+            y = _readonly_selected(y_part.values, valid)
+            traces.append(
+                Trace(
+                    point_index=record.point_index,
+                    logical_point_id=record.logical_point_id,
+                    dimension_id=dimension_id,
+                    recording_group_id=coordinate_group,
+                    coordinate_id=dimension_id if coordinate is None else coordinate,
+                    observable_id=observable,
+                    coordinate_label=(
+                        sample_dimension.label
+                        if coordinate_variable is None
+                        else coordinate_variable.label
+                    ),
+                    observable_label=observable_variable.label,
+                    coordinate_unit=(
+                        None
+                        if coordinate_variable is None
+                        else coordinate_variable.unit
+                    ),
+                    observable_unit=observable_variable.unit,
+                    entity_index=entity_index,
+                    entity=entity,
+                    x=cast("TraceCoordinateArray", x),
+                    y=y,
+                    source_sample_count=len(y_part.values),
+                    unavailable_reasons=reasons,
+                    evidence=evidence,
+                )
             )
-        if not isinstance(x_value, MeasurementArray) or not isinstance(
-            y_value,
-            MeasurementArray,
-        ):
-            raise ValueError("trace values must be point-local arrays")
-        x = _coordinate_values(x_value)
-        y = _sample_values(y_value)
-        if len(x) != len(y):
-            raise ValueError(
-                f"trace arrays differ in length at point {record.point_index}"
-            )
-        if skip_unusable and y.size == 0:
-            continue
-        traces.append(
-            Trace(
-                point_index=record.point_index,
-                logical_point_id=record.logical_point_id,
-                dimension_id=dimension_id,
-                recording_group_id=coordinate_group,
-                coordinate_id=coordinate,
-                observable_id=observable,
-                coordinate_label=coordinate_variable.label,
-                observable_label=observable_variable.label,
-                coordinate_unit=coordinate_variable.unit,
-                observable_unit=observable_variable.unit,
-                x=x,
-                y=y,
-            )
+    return tuple(traces), tuple(failures)
+
+
+@dataclass(frozen=True, slots=True)
+class _LocalTraceArray:
+    values: TraceSampleArray | None
+    valid: NDArray[np.bool_]
+    reasons: tuple[MeasurementUnavailableReason, ...]
+
+
+def _selected_entity_indices(
+    dimension: MeasurementDimension | None,
+    requested: Sequence[int] | None,
+) -> tuple[int | None, ...]:
+    if dimension is None:
+        if requested is not None:
+            raise ValueError("trace entity indices require an entity trace axis")
+        return (None,)
+    assert dimension.index is not None
+    if requested is None:
+        return tuple(range(len(dimension.index.values)))
+    selected = tuple(requested)
+    if len(selected) != len(set(selected)):
+        raise ValueError("trace entity indices must be unique")
+    if any(index < 0 or index >= len(dimension.index.values) for index in selected):
+        raise ValueError("trace entity index is out of range")
+    return selected
+
+
+def _trace_entity(
+    dimension: MeasurementDimension | None,
+    entity_index: int | None,
+) -> EntityRef | None:
+    if dimension is None:
+        return None
+    assert dimension.index is not None and entity_index is not None
+    return dimension.index.values[entity_index]
+
+
+def _local_trace_array(
+    value: MeasurementValue,
+    variable: MeasurementVariable,
+    entity_dimension: MeasurementDimension | None,
+    entity_index: int | None,
+) -> _LocalTraceArray:
+    if isinstance(value, MeasurementUnavailable):
+        return _LocalTraceArray(
+            values=None,
+            valid=np.asarray((), dtype=np.bool_),
+            reasons=(value.reason,),
         )
-        if limit is not None and len(traces) == limit:
-            break
-    return tuple(traces)
+    if isinstance(value, MeasurementSegmentedArray):
+        if entity_dimension is None or entity_index is None:
+            raise ValueError("segmented trace values require an entity selection")
+        entity_axis = variable.dims[1:].index(entity_dimension.id)
+        if entity_axis != 0:
+            raise ValueError(
+                "segmented trace values require the entity-first local layout"
+            )
+        segment = value.segments[entity_index]
+        return _local_segment_array(segment)
+    if not isinstance(value, MeasurementArray):
+        raise ValueError("trace values must be point-local arrays")
+    entity_axis = (
+        None
+        if entity_dimension is None
+        else variable.dims[1:].index(entity_dimension.id)
+    )
+    raw_values = cast("TraceSampleArray", value.values)
+    if entity_axis is None:
+        values = raw_values
+    else:
+        assert entity_index is not None
+        values = cast(
+            "TraceSampleArray",
+            np.take(raw_values, entity_index, axis=entity_axis),
+        )
+    if value.availability is None:
+        valid = np.ones(values.shape, dtype=np.bool_)
+    elif entity_axis is None:
+        valid = value.availability.valid
+    else:
+        assert entity_index is not None
+        valid = cast(
+            "NDArray[np.bool_]",
+            np.take(
+                value.availability.valid,
+                entity_index,
+                axis=entity_axis,
+            ),
+        )
+    if values.ndim != 1:
+        raise ValueError("one selected trace must be one-dimensional")
+    return _LocalTraceArray(
+        values=values,
+        valid=np.asarray(valid, dtype=np.bool_),
+        reasons=_array_unavailable_reasons(value, entity_axis, entity_index),
+    )
+
+
+def _synthetic_trace_coordinate(value: _LocalTraceArray) -> _LocalTraceArray:
+    if value.values is None:
+        return _LocalTraceArray(
+            values=None,
+            valid=np.asarray((), dtype=np.bool_),
+            reasons=(),
+        )
+    coordinate = np.arange(len(value.values), dtype=np.int64)
+    coordinate.setflags(write=False)
+    return _LocalTraceArray(
+        values=coordinate,
+        valid=np.ones(coordinate.shape, dtype=np.bool_),
+        reasons=(),
+    )
+
+
+def _local_segment_array(
+    value: MeasurementArray | MeasurementUnavailable,
+) -> _LocalTraceArray:
+    if isinstance(value, MeasurementUnavailable):
+        return _LocalTraceArray(
+            values=None,
+            valid=np.asarray((), dtype=np.bool_),
+            reasons=(value.reason,),
+        )
+    if value.values.ndim != 1:
+        raise ValueError("one selected trace segment must be one-dimensional")
+    return _LocalTraceArray(
+        values=cast("TraceSampleArray", value.values),
+        valid=(
+            np.ones(value.shape, dtype=np.bool_)
+            if value.availability is None
+            else value.availability.valid
+        ),
+        reasons=_array_unavailable_reasons(value, None, None),
+    )
+
+
+def _array_unavailable_reasons(
+    value: MeasurementArray,
+    entity_axis: int | None,
+    entity_index: int | None,
+) -> tuple[MeasurementUnavailableReason, ...]:
+    if value.availability is None:
+        return ()
+    if entity_axis is None:
+        return tuple(
+            dict.fromkeys(group.reason for group in value.availability.unavailable)
+        )
+    assert entity_index is not None
+    selected: list[MeasurementUnavailableReason] = []
+    for group in value.availability.unavailable:
+        coordinates = np.unravel_index(
+            np.asarray(group.flat_indices, dtype=np.intp),
+            value.shape,
+        )
+        matches = cast(
+            "NDArray[np.bool_]",
+            coordinates[entity_axis] == entity_index,
+        )
+        if bool(np.any(matches)):
+            selected.append(group.reason)
+    return tuple(dict.fromkeys(selected))
+
+
+def _trace_evidence(
+    record: MeasurementRecord,
+    observable_id: str,
+    entity_index: int | None,
+) -> InstrumentAcquisitionEvidence | None:
+    evidence = record.acquisition_evidence.for_variable(observable_id)
+    if isinstance(evidence, EntityAcquisitionEvidence):
+        return None if entity_index is None else evidence.values[entity_index]
+    return evidence
+
+
+def _readonly_selected(
+    values: TraceSampleArray,
+    valid: NDArray[np.bool_],
+) -> TraceSampleArray:
+    if np.all(valid):
+        return values
+    selected = values[valid]
+    selected.setflags(write=False)
+    return selected
+
+
+def _trace_series_label(record: MeasurementRecord, entity: EntityRef | None) -> str:
+    point_label = record.logical_point_id or f"Point {record.point_index}"
+    if entity is None:
+        return point_label
+    metadata_label = entity.metadata.get("label")
+    entity_label = metadata_label if isinstance(metadata_label, str) else entity.id
+    return f"{point_label} · {entity_label}"
+
+
+def _trace_series_label_from_trace(trace: Trace) -> str:
+    point_label = trace.logical_point_id or f"Point {trace.point_index}"
+    if trace.entity is None:
+        return point_label
+    metadata_label = trace.entity.metadata.get("label")
+    entity_label = (
+        metadata_label if isinstance(metadata_label, str) else trace.entity.id
+    )
+    return f"{point_label} · {entity_label}"
 
 
 def _project_trace(
@@ -299,7 +699,9 @@ def _project_trace(
     return ProjectedTraceSeries(
         point_index=trace.point_index,
         logical_point_id=trace.logical_point_id,
-        label=trace.logical_point_id or f"Point {trace.point_index}",
+        label=_trace_series_label_from_trace(trace),
+        entity_index=trace.entity_index,
+        entity=trace.entity,
         x=tuple(
             _native_coordinate(cast("np.integer | np.floating", trace.x[index]))
             for index in indices
@@ -307,7 +709,10 @@ def _project_trace(
         y=tuple(
             cast("np.float64", projected_values[index]).item() for index in indices
         ),
-        source_sample_count=len(trace.y),
+        source_sample_count=trace.source_sample_count,
+        available_sample_count=len(trace.y),
+        unavailable_reasons=trace.unavailable_reasons,
+        evidence=trace.evidence,
     )
 
 
@@ -385,7 +790,7 @@ def _select_trace_variables(
     coordinate: str | None,
     observable: str | None,
     group: str | None,
-) -> tuple[MeasurementVariable, MeasurementVariable]:
+) -> tuple[MeasurementVariable | None, MeasurementVariable]:
     if group is not None:
         variables = {
             variable_id: variable
@@ -438,6 +843,15 @@ def _select_trace_variables(
     if len(candidates) == 1:
         return candidates[0]
     if not candidates:
+        synthetic_observables = tuple(
+            variable for variable in observables if _is_trace_observable(variable)
+        )
+        if (
+            coordinate is None
+            and len(coordinates) == 0
+            and len(synthetic_observables) == 1
+        ):
+            return None, synthetic_observables[0]
         raise ValueError("measurement dataset has no compatible trace variables")
     rendered = ", ".join(
         f"{coordinate_variable.id!r} + {observable_variable.id!r}"
@@ -458,7 +872,7 @@ def _is_trace_coordinate(variable: MeasurementVariable) -> bool:
     return (
         variable.role == "coordinate"
         and variable.dtype in {"float64", "int64"}
-        and len(variable.dims) == 2
+        and len(variable.dims) in {2, 3}
     )
 
 
@@ -466,7 +880,7 @@ def _is_trace_observable(variable: MeasurementVariable) -> bool:
     return (
         variable.role == "observable"
         and variable.dtype in {"float64", "int64", "complex128"}
-        and len(variable.dims) == 2
+        and len(variable.dims) in {2, 3}
     )
 
 
@@ -480,20 +894,6 @@ def _require_variable(
         raise ValueError(
             f"measurement dataset has no variable {variable_id!r}"
         ) from error
-
-
-def _coordinate_values(value: MeasurementArray) -> TraceCoordinateArray:
-    if value.dtype == "int64":
-        return cast("NDArray[np.int64]", value.values)
-    return cast("NDArray[np.float64]", value.values)
-
-
-def _sample_values(value: MeasurementArray) -> TraceSampleArray:
-    if value.dtype == "complex128":
-        return cast("NDArray[np.complex128]", value.values)
-    if value.dtype == "int64":
-        return cast("NDArray[np.int64]", value.values)
-    return cast("NDArray[np.float64]", value.values)
 
 
 __all__ = ["Trace"]

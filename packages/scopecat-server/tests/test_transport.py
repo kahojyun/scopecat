@@ -124,6 +124,7 @@ class FakeRuns:
             x=(0.0, 1.0),
             y=(1.0, 0.5),
             source_sample_count=2,
+            available_sample_count=2,
         )
         return MeasurementTracePreview(
             dimension_id="sample",
@@ -132,8 +133,10 @@ class FakeRuns:
             observable_id=query.observable_id or "signal",
             value_mode=query.value_mode or "magnitude",
             downsampling=query.downsampling,
+            layout="overlay",
             series=(series,),
             selected_series_count=1,
+            inspected_series_count=1,
             returned_series_count=1,
             source_sample_count=2,
             returned_sample_count=2,
@@ -301,6 +304,7 @@ def test_trace_preview_route_forwards_typed_query_and_validates_selection() -> N
         "observable_id": "signal",
         "coordinate_id": "frequency",
         "fixed_axis_indices": {"bias": 1},
+        "entity_indices": [0, 2],
         "max_series": 4,
         "max_samples": 128,
         "value_mode": "real",
@@ -319,11 +323,16 @@ def test_trace_preview_route_forwards_typed_query_and_validates_selection() -> N
         "/api/v1/runs/run-1/measurements/traces/query",
         json={"observable_id": "signal", "value_mode": "raw"},
     )
+    duplicate_entities = client.post(
+        "/api/v1/runs/run-1/measurements/traces/query",
+        json={"observable_id": "signal", "entity_indices": [0, 0]},
+    )
 
     assert response.status_code == 200
     assert response.json()["series"][0]["x"] == [0.0, 1.0]
     assert invalid.status_code == 422
     assert invalid_value_mode.status_code == 422
+    assert duplicate_entities.status_code == 422
     assert backend.runs.trace_preview_query == (
         "run-1",
         MeasurementTracePreviewQuery.model_validate(payload),
