@@ -62,6 +62,7 @@ from ._ir import (
     QuantumFragment,
     QubitSet,
 )
+from ._selection import QubitSelectionIntent, qubit_selection_value_ref
 
 
 class _ProgramFunctionContract(Protocol):
@@ -379,6 +380,8 @@ def _normalize_program_input(
         )
         return value
     if isinstance(port, QubitSet):
+        if isinstance(value, QubitSelectionIntent):
+            return qubit_selection_value_ref(value, port.value_type)
         rows = _qubit_set_rows(value, port=port)
         return internal_literal_value_ref(
             rows,

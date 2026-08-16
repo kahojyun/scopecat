@@ -11,7 +11,9 @@ from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
 from scopecat.measurements.records import EntityRecordPlan, plan_records
+from scopecat.planning.point_materialization import prepare_bound_points
 from scopecat.program.products import RecordSelection
+from scopecat.records.config import Topology, TopologyConnection
 
 from scopecat_quantum import authoring
 from scopecat_quantum.circuits import Measure
@@ -472,6 +474,67 @@ def test_qubit_set_retains_parallel_authoring_and_owns_entity_axis_result() -> N
     assert product.axes[0].entities is not None
     assert [entity.id for entity in product.axes[0].entities] == ["q0", "q1"]
     assert product.axes[1].size == 16
+
+
+def test_qubit_set_can_resolve_a_topology_selection_intent() -> None:
+    @authoring.program(id="test.quantum.topology-selected-readout")
+    def declaration(qubits: authoring.QubitSet) -> authoring.QuantumFragment:
+        return authoring.parallel_each(
+            qubits,
+            lambda qubit: authoring.measure(qubit, result="iq_shots"),
+        )
+
+    call = declaration(
+        authoring.select_qubits(
+            3,
+            connected=True,
+            anchor="q1",
+            connection_kind="nearest_neighbor",
+        )
+    ).with_shots(8)
+
+    @sc.experiment(id="test.quantum.topology-selection", kind="quantum")
+    def experiment(context: sc.ExperimentContext) -> None:
+        context.alias(context.use(call).iq_shots)
+
+    compiled = compile_invocation(experiment())
+    config = load_config_snapshot_document(
+        _REPO_ROOT / "fixtures" / "core" / "simple_scan" / "config-snapshot.json"
+    )
+    topology = Topology(
+        entities=[
+            sc.EntityRef(id=f"q{index}", kind="logical_qubit") for index in range(4)
+        ],
+        connections=[
+            TopologyConnection(
+                id=f"q{index}-q{index + 1}",
+                kind="nearest_neighbor",
+                endpoints=(f"q{index}", f"q{index + 1}"),
+            )
+            for index in range(3)
+        ],
+    )
+    config = config.model_copy(
+        update={"system": config.system.model_copy(update={"topology": topology})}
+    )
+
+    bound = bind_program(compiled.program, build_config_environment(config))
+
+    [resolution] = bound.bindings.topology_entity_sets.values()
+    assert [entity.id for entity in resolution.entities] == ["q1", "q0", "q2"]
+    [product] = bound.bindings.product_defs
+    assert product.axes[0].entities == resolution.entities
+    prepared = prepare_bound_points(bound)
+    [execution] = bound.program.program.domain_executions
+    [(input_id, values)] = prepared.bind_domain_inputs(
+        execution.id,
+        "program",
+        ("qubits",),
+        (0,),
+    )
+    assert input_id == "qubits"
+    rows = cast("list[dict[str, sc.EntityRef]]", values[0])
+    assert [row["qubit"].id for row in rows] == ["q1", "q0", "q2"]
 
 
 def test_program_call_binds_compiler_collection_outside_program_arguments() -> None:

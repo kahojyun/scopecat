@@ -35,6 +35,7 @@ from scopecat.program.table_values import (
     LiteralTableSource,
     ParameterTableSource,
     TableSource,
+    TopologyEntitySetSource,
 )
 
 
@@ -80,12 +81,16 @@ def evaluate_table_value(
             table_rows=None,
             path=("parameters", source.parameter_id),
         )
-    else:
+    elif not isinstance(source, TopologyEntitySetSource):
         try:
             result = ctx.inputs[source.input_id]
         except KeyError as error:
             msg = f"unknown table input {source.input_id!r}"
             raise KeyError(msg) from error
+    else:
+        raise ValueError(
+            "topology entity-set sources must resolve during configuration binding"
+        )
     return cast(
         "list[Row]",
         _normalize_materialized_result(value_type, result),

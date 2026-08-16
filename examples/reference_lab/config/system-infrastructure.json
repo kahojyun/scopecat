@@ -334,6 +334,11 @@
       {"id": "q2", "kind": "logical_qubit"},
       {"id": "q3", "kind": "logical_qubit"},
       {"id": "cryostat", "kind": "cryostat"}
+    ],
+    "connections": [
+      {"id": "q0-q1", "kind": "nearest_neighbor", "endpoints": ["q0", "q1"]},
+      {"id": "q1-q2", "kind": "nearest_neighbor", "endpoints": ["q1", "q2"]},
+      {"id": "q2-q3", "kind": "nearest_neighbor", "endpoints": ["q2", "q3"]}
     ]
   },
   "domain_target": {

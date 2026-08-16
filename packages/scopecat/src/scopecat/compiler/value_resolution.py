@@ -60,6 +60,9 @@ def resolve_bound_value(
     override = bindings.value_overrides.get(value_id)
     if override is not None:
         return override
+    topology_selection = bindings.topology_entity_sets.get(value_id)
+    if topology_selection is not None:
+        return topology_selection.table
     return logical_program_value(logical, value_id)
 
 

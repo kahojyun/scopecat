@@ -497,7 +497,11 @@ The present architecture provides a direct end-to-end baseline:
   queued or in-flight work;
 - bound quantum IR retains entity-set parallel boundaries and repeat counts,
   while inspection reports structural versus expanded operation counts. The
-  list-mode compiler independently caches semantic analysis, waveform/placement
+  program call may retain a topology-backed qubit-set intent; configuration
+  binding resolves a fixed count or connected component in deterministic
+  topology order and keeps the intent beside its resolved entity table. The
+  authored program therefore does not encode chip size or physical numbering.
+  The list-mode compiler independently caches semantic analysis, waveform/placement
   planning, artifact layout, and final artifacts by their layered fingerprints.
   Artifact eviction therefore does not force target-independent analysis or
   waveform planning to repeat. Its continuation report exposes list-entry,

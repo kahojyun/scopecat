@@ -89,6 +89,7 @@ from ._programs import (
     ProgramDefinition,
     QuantumProgramCall,
 )
+from ._selection import QubitSelectionIntent, select_qubits
 
 __all__ = [
     "INTEGRATED_IQ_RESULT",
@@ -122,6 +123,7 @@ __all__ = [
     "QuantumResultContract",
     "Qubit",
     "QubitInput",
+    "QubitSelectionIntent",
     "QubitSet",
     "RepeatCount",
     "SingleQubitGate",
@@ -152,6 +154,7 @@ __all__ = [
     "readout",
     "repeat",
     "scalar_input",
+    "select_qubits",
     "sequence",
     "shift_phase",
     "single_qubit_gate",

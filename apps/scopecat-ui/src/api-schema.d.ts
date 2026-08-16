@@ -4601,13 +4601,30 @@ export interface components {
         };
         /** Topology */
         "Topology-Input": {
+            /** Connections */
+            connections?: components["schemas"]["TopologyConnection"][];
             /** Entities */
             entities?: components["schemas"]["EntityRef-Input"][];
         };
         /** Topology */
         "Topology-Output": {
+            /** Connections */
+            connections?: components["schemas"]["TopologyConnection"][];
             /** Entities */
             entities?: components["schemas"]["EntityRef-Output"][];
+        };
+        /**
+         * TopologyConnection
+         * @description One typed, undirected connection between two configured entities.
+         */
+        TopologyConnection: {
+            /** Endpoints */
+            endpoints: [
+                components["schemas"]["_NonEmptyId"],
+                components["schemas"]["_NonEmptyId"]
+            ];
+            id: components["schemas"]["_NonEmptyId"];
+            kind: components["schemas"]["_NonEmptyId"];
         };
         /** @constant */
         TraceDownsampling: "minmax";

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from scopecat.compiler.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.point_domain import PointDomain
+from scopecat.compiler.topology_selection import TopologyEntitySetResolution
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
@@ -51,6 +52,10 @@ from scopecat.program.value_graph import OperationId
 
 
 def _empty_value_overrides() -> dict[ValueId, ScalarExpr]:
+    return {}
+
+
+def _empty_topology_entity_sets() -> dict[ValueId, TopologyEntitySetResolution]:
     return {}
 
 
@@ -127,6 +132,9 @@ class BoundProgramFacts:
     value_overrides: Mapping[ValueId, ScalarExpr] = field(
         default_factory=_empty_value_overrides
     )
+    topology_entity_sets: Mapping[ValueId, TopologyEntitySetResolution] = field(
+        default_factory=_empty_topology_entity_sets
+    )
     resource_requirements: tuple[LogicalResourceRequirement, ...] = ()
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
     live_compute_ids: frozenset[OperationId] = frozenset()
@@ -140,6 +148,11 @@ class BoundProgramFacts:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "value_overrides", dict(self.value_overrides))
+        object.__setattr__(
+            self,
+            "topology_entity_sets",
+            dict(self.topology_entity_sets),
+        )
         object.__setattr__(
             self,
             "domain_result_use_ids",

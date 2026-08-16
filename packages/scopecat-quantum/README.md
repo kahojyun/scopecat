@@ -77,14 +77,25 @@ def parallel_readout(
     )
 
 
-call = parallel_readout(("q0", "q1", "q2")).with_shots(32)
+call = parallel_readout(
+    authoring.select_qubits(
+        3,
+        connected=True,
+        anchor="q1",
+        connection_kind="nearest_neighbor",
+    )
+).with_shots(32)
 ```
 
-The declaration stays constant as the selected chip region changes. Its named
-`iq_shots` product natively owns `(entity, shot)` axes, and target result mapping
-assembles the per-qubit acquisition addresses into that one logical value.
-`call.entity_results()` remains useful for fixed-arity programs that deliberately
-expose one named product per concrete qubit.
+The declaration and call stay constant as chip size or numbering changes.
+Configuration binding resolves this intent deterministically against the
+accepted topology and retains both the intent and selected entity table in the
+bound plan. Explicit qubit sequences remain available when identity is itself
+part of the experiment. The named `iq_shots` product natively owns
+`(entity, shot)` axes, and target result mapping assembles the per-qubit
+acquisition addresses into that one logical value. `call.entity_results()`
+remains useful for fixed-arity programs that deliberately expose one named
+product per concrete qubit.
 
 Compiler-owned defaults can use the pure row maps in
 `scopecat_quantum.pulse_recipes`. The complete supported example is the

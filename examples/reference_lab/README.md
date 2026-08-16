@@ -105,6 +105,9 @@ tables, and temporary scan axes belong to experiment invocations.
   lowering, exact event-to-channel placement, and a deduplicated physical
   footprint. Preview joins that physical layer to the authored, logical, and
   scheduled program layers without expanding the complete experiment.
+- Variable-size quantum calls may select a fixed count or connected component
+  from the accepted logical topology. The bound plan retains the selection
+  intent and resolved qubit table, while the program remains chip-size agnostic.
 - Placement also records why each event uses its selected route: configured
   routes, shared endpoints and LOs, demodulator slots, and the common timing
   domain are stable constraint nodes linked from each event.
