@@ -1,4 +1,4 @@
-"""Schedule lowered quantum programs for target compilation."""
+"""Materialize quantum pulse plans for target compilation."""
 
 from __future__ import annotations
 
@@ -6,7 +6,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from scopecat_quantum._ids import TargetCompileEntryId
-from scopecat_quantum.programs import LoweredQuantumPulseProgram
+from scopecat_quantum.programs import (
+    QuantumPulseLoweringPlan,
+    materialize_quantum_pulse_program,
+)
 from scopecat_quantum.pulses import ScheduledPulseProgram, schedule
 from scopecat_quantum.targets import (
     TargetAcquisitionAddress,
@@ -36,11 +39,11 @@ class PreparedQuantumTargetEntry:
 
 def prepare_quantum_target_entry(
     entry_id: TargetCompileEntryId,
-    lowered: LoweredQuantumPulseProgram,
+    plan: QuantumPulseLoweringPlan,
 ) -> PreparedQuantumTargetEntry:
-    """Schedule one lowered quantum program."""
+    """Materialize retained control flow and schedule one pulse plan."""
 
-    scheduled = schedule(lowered.program)
+    scheduled = schedule(materialize_quantum_pulse_program(plan))
     target_entry = TargetCompileEntry(id=entry_id, program=scheduled)
     return PreparedQuantumTargetEntry(target_entry)
 

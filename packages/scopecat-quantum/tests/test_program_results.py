@@ -57,7 +57,7 @@ from scopecat_quantum.program_targets import (
 from scopecat_quantum.programs import (
     PulseBlock,
     QuantumProgramIR,
-    lower_quantum_program_to_pulses,
+    plan_quantum_pulse_lowering,
     verify_quantum_program,
 )
 from scopecat_quantum.pulse_implementations import ResolvedPulseImplementations
@@ -200,12 +200,12 @@ def _prepared(entry_id: str, source_program_id: str):
             pulse_template=template,
         ),
     )
-    lowered = lower_quantum_program_to_pulses(
+    plan = plan_quantum_pulse_lowering(
         verify_quantum_program(source, ()),
         ResolvedPulseImplementations(),
         output_id=PulseProgramId(f"{source_program_id}-pulses"),
     )
-    return prepare_quantum_target_entry(TargetCompileEntryId(entry_id), lowered)
+    return prepare_quantum_target_entry(TargetCompileEntryId(entry_id), plan)
 
 
 def _batch() -> PreparedQuantumTargetBatch:

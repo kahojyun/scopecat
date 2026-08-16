@@ -3,11 +3,13 @@
 The source tree in this module is deliberately heterogeneous: logical gate and
 measurement operations may be composed with authored pulse blocks, while an
 ``ImplementedGate`` retains both a gate's semantic identity and a local pulse
-implementation. Refinement binds only the still-abstract operations to resolved
-pulse implementations, then produces the canonical pulse authoring IR.
+implementation. Pulse planning pairs that retained tree with the exact
+point-effective implementation catalog; target preparation later produces the
+canonical pulse authoring IR.
 
-Pulse refinement expands the finite source tree into one canonical pulse
-program behind the target-owned compile request.
+Pulse resolution retains finite Map/Repeat control flow and an exact
+implementation catalog. Concrete pulse branches are materialized only at the
+target scheduling boundary.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterator
 from collections.abc import Sequence as SequenceCollection
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
@@ -37,9 +39,8 @@ from scopecat_quantum.measurement_implementations import (
 )
 from scopecat_quantum.pulse_implementations import (
     GatePulseImplementationBinding,
-    PulseImplementationBindings,
+    PulseImplementationIndex,
     ResolvedPulseImplementations,
-    bind_pulse_implementations,
 )
 from scopecat_quantum.pulses import (
     Acquire,
@@ -197,23 +198,16 @@ class VerifiedQuantumProgram:
     program: QuantumProgramIR
     logical_operations: tuple[GateCall | Measure, ...]
     unresolved: VerifiedCircuitOperations
-    _expanded_unresolved: VerifiedCircuitOperations | None = field(
-        default=None,
-        init=False,
-        repr=False,
-        compare=False,
-    )
 
     @property
     def operations(self) -> tuple[QuantumOperation, ...]:
         return tuple(iter_quantum_operations(self.program.body))
 
-    def expand_unresolved(
+    def require_expansion_budget(
         self,
-        *,
-        max_expanded_operations: int | None = None,
-    ) -> VerifiedCircuitOperations:
-        """Materialize concrete logical leaves after a constant-memory preflight."""
+        max_expanded_operations: int | None,
+    ) -> QuantumProgramWorkload:
+        """Check finite lowering work without instantiating retained control flow."""
 
         workload = estimate_quantum_program_workload(self)
         if (
@@ -224,18 +218,22 @@ class VerifiedQuantumProgram:
                 expanded_operation_count=workload.expanded_operation_count,
                 limit=max_expanded_operations,
             )
-        expanded = self._expanded_unresolved
-        if expanded is None:
-            expanded = verify_circuit_operations(
-                tuple(
-                    operation
-                    for operation in iter_quantum_operations(self.program.body)
-                    if isinstance(operation, GateCall | Measure)
-                ),
-                self.unresolved.gate_definitions,
-            )
-            object.__setattr__(self, "_expanded_unresolved", expanded)
-        return expanded
+        return workload
+
+    def iter_expanded_unresolved_operations(
+        self,
+        *,
+        max_expanded_operations: int | None = None,
+    ) -> Iterator[GateCall | Measure]:
+        """Stream concrete unresolved leaves after a constant-memory preflight."""
+
+        if max_expanded_operations is not None:
+            self.require_expansion_budget(max_expanded_operations)
+        return (
+            operation
+            for operation in iter_quantum_operations(self.program.body)
+            if isinstance(operation, GateCall | Measure)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -945,10 +943,14 @@ def _verify_parallel_each_gate_substitutions(
 
 
 @dataclass(frozen=True, slots=True)
-class LoweredQuantumPulseProgram:
-    """Canonical pulse program produced by quantum lowering."""
+class QuantumPulseLoweringPlan:
+    """Implementation catalog and Map/Repeat tree awaiting target materialization."""
 
-    program: PulseProgram
+    source_program_id: QuantumProgramId
+    output_id: PulseProgramId
+    body: QuantumNode
+    implementations: ResolvedPulseImplementations
+    expanded_operation_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -957,35 +959,43 @@ class _InstantiatedTemplate:
     acquisition_slots: tuple[AcquisitionSlot, ...]
 
 
-def lower_quantum_program_to_pulses(
+def plan_quantum_pulse_lowering(
     program: VerifiedQuantumProgram,
     implementations: ResolvedPulseImplementations,
     *,
     output_id: PulseProgramId,
     max_expanded_operations: int | None = None,
-) -> LoweredQuantumPulseProgram:
-    """Resolve abstract leaves and lower one mixed program within its budget."""
+) -> QuantumPulseLoweringPlan:
+    """Close retained quantum lowering without expanding Map/Repeat nodes."""
 
-    bindings = bind_pulse_implementations(
-        program.expand_unresolved(
-            max_expanded_operations=max_expanded_operations,
-        ),
-        implementations,
+    workload = program.require_expansion_budget(max_expanded_operations)
+    return QuantumPulseLoweringPlan(
+        source_program_id=program.program.id,
+        output_id=output_id,
+        body=program.program.body,
+        implementations=implementations,
+        expanded_operation_count=workload.expanded_operation_count,
     )
+
+
+def materialize_quantum_pulse_program(
+    plan: QuantumPulseLoweringPlan,
+) -> PulseProgram:
+    """Expand one retained lowering at an explicit target scheduling boundary."""
+
+    bindings = PulseImplementationIndex.from_implementations(plan.implementations)
     acquisition_slots: list[AcquisitionSlot] = []
     body = _lower_node(
-        program.program.body,
-        source_program_id=program.program.id,
+        plan.body,
+        source_program_id=plan.source_program_id,
         bindings=bindings,
         acquisition_slots=acquisition_slots,
         occurrence_scope=(),
     )
-    return LoweredQuantumPulseProgram(
-        program=PulseProgram(
-            id=output_id,
-            body=body,
-            acquisition_slots=tuple(acquisition_slots),
-        ),
+    return PulseProgram(
+        id=plan.output_id,
+        body=body,
+        acquisition_slots=tuple(acquisition_slots),
     )
 
 
@@ -993,7 +1003,7 @@ def _lower_node(
     node: QuantumNode,
     *,
     source_program_id: QuantumProgramId,
-    bindings: PulseImplementationBindings,
+    bindings: PulseImplementationIndex,
     acquisition_slots: list[AcquisitionSlot],
     occurrence_scope: tuple[str, ...],
 ) -> PulseInstruction:
@@ -1062,7 +1072,7 @@ def _lower_leaf(
     node: QuantumOperation,
     *,
     source_program_id: QuantumProgramId,
-    bindings: PulseImplementationBindings,
+    bindings: PulseImplementationIndex,
     acquisition_slots: list[AcquisitionSlot],
     occurrence_scope: tuple[str, ...],
 ) -> PulseInstruction:
@@ -1092,7 +1102,7 @@ def _lower_leaf(
     if isinstance(node, ImplementedGate):
         return _instantiate_template(node.pulse_template, prefix=prefix).body
 
-    binding = bindings.binding_for(node.id)
+    binding = bindings.binding_for(node)
     if isinstance(node, GateCall):
         assert isinstance(binding, GatePulseImplementationBinding)
         return _instantiate_template(binding.pulse_template, prefix=prefix).body

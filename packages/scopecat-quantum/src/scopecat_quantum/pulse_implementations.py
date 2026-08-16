@@ -272,67 +272,89 @@ class PulseImplementationBindings:
         raise KeyError(msg)
 
 
+@dataclass(frozen=True, slots=True)
+class PulseImplementationIndex:
+    """Exact implementation lookup reusable during retained-tree expansion."""
+
+    gates_by_key: dict[GatePulseImplementationKey, GatePulseImplementation]
+    measurements_by_key: dict[
+        MeasurementPulseImplementationKey,
+        MeasurementPulseImplementation,
+    ]
+
+    @classmethod
+    def from_implementations(
+        cls,
+        implementations: ResolvedPulseImplementations,
+    ) -> PulseImplementationIndex:
+        return cls(
+            gates_by_key={entry.key: entry for entry in implementations.gates},
+            measurements_by_key={
+                entry.key: entry for entry in implementations.measurements
+            },
+        )
+
+    def binding_for(
+        self,
+        operation: GateCall | Measure,
+    ) -> PulseImplementationBinding:
+        """Bind one concrete operation without retaining a full expanded circuit."""
+
+        if isinstance(operation, GateCall):
+            gate_key = GatePulseImplementationKey.from_call(operation)
+            gate = self.gates_by_key.get(gate_key)
+            if gate is not None:
+                return GatePulseImplementationBinding(
+                    call_id=operation.id,
+                    key=gate_key,
+                    implementation_id=gate.id,
+                    implementation_fingerprint=gate.fingerprint,
+                    pulse_template=gate.pulse_template,
+                )
+            key: PulseImplementationKey = gate_key
+        else:
+            measurement_key = MeasurementPulseImplementationKey.from_measurement(
+                operation
+            )
+            measurement = self.measurements_by_key.get(measurement_key)
+            if measurement is not None:
+                return MeasurementPulseImplementationBinding(
+                    measurement_id=operation.id,
+                    key=measurement_key,
+                    implementation_id=measurement.id,
+                    implementation_fingerprint=measurement.fingerprint,
+                    pulse_template=measurement.pulse_template,
+                )
+            key = measurement_key
+        raise PulseImplementationBindingError(
+            (
+                PulseImplementationBindingIssue(
+                    code=PulseImplementationBindingIssueCode.MISSING,
+                    operation_id=operation.id,
+                    key=key,
+                    message=(
+                        f"operation {operation.id.value!r} has no exact "
+                        "pulse implementation"
+                    ),
+                ),
+            )
+        )
+
+
 def bind_pulse_implementations(
     operations: VerifiedCircuitOperations,
     implementations: ResolvedPulseImplementations,
 ) -> PulseImplementationBindings:
     """Bind every logical operation to its exact resolved pulse implementation."""
 
-    gates_by_key = {entry.key: entry for entry in implementations.gates}
-    measurements_by_key = {entry.key: entry for entry in implementations.measurements}
-
+    index = PulseImplementationIndex.from_implementations(implementations)
     bindings: list[PulseImplementationBinding] = []
     issues: list[PulseImplementationBindingIssue] = []
     for operation in operations.operations:
-        if isinstance(operation, GateCall):
-            key: PulseImplementationKey = GatePulseImplementationKey.from_call(
-                operation
-            )
-            selected: (
-                GatePulseImplementation | MeasurementPulseImplementation | None
-            ) = gates_by_key.get(key)
-        else:
-            assert isinstance(operation, Measure)
-            key = MeasurementPulseImplementationKey.from_measurement(operation)
-            selected = measurements_by_key.get(key)
-        if selected is not None:
-            if isinstance(operation, GateCall):
-                assert isinstance(key, GatePulseImplementationKey)
-                assert isinstance(selected, GatePulseImplementation)
-                bindings.append(
-                    GatePulseImplementationBinding(
-                        call_id=operation.id,
-                        key=key,
-                        implementation_id=selected.id,
-                        implementation_fingerprint=selected.fingerprint,
-                        pulse_template=selected.pulse_template,
-                    )
-                )
-            else:
-                assert isinstance(key, MeasurementPulseImplementationKey)
-                assert isinstance(selected, MeasurementPulseImplementation)
-                bindings.append(
-                    MeasurementPulseImplementationBinding(
-                        measurement_id=operation.id,
-                        key=key,
-                        implementation_id=selected.id,
-                        implementation_fingerprint=selected.fingerprint,
-                        pulse_template=selected.pulse_template,
-                    )
-                )
-            continue
-
-        issues.append(
-            PulseImplementationBindingIssue(
-                code=PulseImplementationBindingIssueCode.MISSING,
-                operation_id=operation.id,
-                key=key,
-                message=(
-                    f"operation {operation.id.value!r} has no exact "
-                    "pulse implementation"
-                ),
-            )
-        )
+        try:
+            bindings.append(index.binding_for(operation))
+        except PulseImplementationBindingError as error:
+            issues.extend(error.issues)
 
     if issues:
         raise PulseImplementationBindingError(tuple(issues))
@@ -353,6 +375,7 @@ __all__ = [
     "PulseImplementationBindingIssue",
     "PulseImplementationBindingIssueCode",
     "PulseImplementationBindings",
+    "PulseImplementationIndex",
     "PulseImplementationKey",
     "ResolvedPulseImplementations",
     "bind_pulse_implementations",

@@ -5,12 +5,12 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Concatenate, Protocol, cast, get_type_hints
+from typing import TYPE_CHECKING, Concatenate, Protocol, cast, get_type_hints
 from urllib.parse import quote
 
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 
-from scopecat_quantum._ids import CouplerId, PulseImplementationId, QubitId
+from scopecat_quantum._ids import CouplerId, GateId, PulseImplementationId, QubitId
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.authoring import (
     Coupler,
@@ -33,6 +33,9 @@ from scopecat_quantum.pulse_implementations import (
     GatePulseImplementationKey,
     ResolvedPulseImplementations,
 )
+
+if TYPE_CHECKING:
+    from scopecat_quantum.programs import VerifiedQuantumProgram
 
 type _GateRecipeTarget = GateDefinition | Gate
 
@@ -329,6 +332,21 @@ class PulseRecipeMap[ParametersT, RowT]:
     ) -> ResolvedPulseImplementations:
         """Map only operations present in the bound circuit onto matching rows."""
 
+        return self.materialize_operations(
+            parameters,
+            circuit.operations,
+            gate_definition=circuit.gate_definition,
+        )
+
+    def materialize_operations(
+        self,
+        parameters: ParametersT,
+        operations: Iterable[GateCall | Measure],
+        *,
+        gate_definition: Callable[[GateId], GateDefinition],
+    ) -> ResolvedPulseImplementations:
+        """Join a streamed concrete operation sequence without retaining it."""
+
         mapped_rows: dict[
             tuple[QubitId, ...],
             tuple[RowT, tuple[CouplerId, ...]],
@@ -350,7 +368,7 @@ class PulseRecipeMap[ParametersT, RowT]:
         materialized_measurements: set[
             tuple[str, MeasurementPulseImplementationKey]
         ] = set()
-        for operation in circuit.operations:
+        for operation in operations:
             operands = (
                 operation.qubits
                 if isinstance(operation, GateCall)
@@ -364,7 +382,7 @@ class PulseRecipeMap[ParametersT, RowT]:
                 for recipe in self.gates:
                     if recipe.gate.id != operation.gate_id:
                         continue
-                    if circuit.gate_definition(operation.gate_id) != recipe.gate:
+                    if gate_definition(operation.gate_id) != recipe.gate:
                         raise ValueError(
                             f"pulse recipe {recipe.id!r} conflicts with the "
                             "bound circuit gate definition"
@@ -418,6 +436,14 @@ class _PulseRecipeMapping[ParametersT](Protocol):
         circuit: VerifiedCircuitOperations,
     ) -> ResolvedPulseImplementations: ...
 
+    def materialize_operations(
+        self,
+        parameters: ParametersT,
+        operations: Iterable[GateCall | Measure],
+        *,
+        gate_definition: Callable[[GateId], GateDefinition],
+    ) -> ResolvedPulseImplementations: ...
+
 
 @dataclass(frozen=True, slots=True, init=False)
 class PulseRecipeProfile[ParametersT]:
@@ -442,6 +468,37 @@ class PulseRecipeProfile[ParametersT]:
 
         resolved = tuple(
             mapping.materialize(parameters, circuit) for mapping in self._mappings
+        )
+        return ResolvedPulseImplementations(
+            gates=tuple(
+                implementation
+                for mapping in resolved
+                for implementation in mapping.gates
+            ),
+            measurements=tuple(
+                implementation
+                for mapping in resolved
+                for implementation in mapping.measurements
+            ),
+        )
+
+    def materialize_quantum(
+        self,
+        parameters: ParametersT,
+        program: VerifiedQuantumProgram,
+        *,
+        max_expanded_operations: int | None = None,
+    ) -> ResolvedPulseImplementations:
+        """Join recipes to retained Map/Repeat leaves as a stream."""
+
+        program.require_expansion_budget(max_expanded_operations)
+        resolved = tuple(
+            mapping.materialize_operations(
+                parameters,
+                program.iter_expanded_unresolved_operations(),
+                gate_definition=program.unresolved.gate_definition,
+            )
+            for mapping in self._mappings
         )
         return ResolvedPulseImplementations(
             gates=tuple(

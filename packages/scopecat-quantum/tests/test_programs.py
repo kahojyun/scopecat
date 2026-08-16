@@ -28,7 +28,8 @@ from scopecat_quantum.programs import (
     QuantumProgramIR,
     QuantumProgramVerificationError,
     Sequence,
-    lower_quantum_program_to_pulses,
+    materialize_quantum_pulse_program,
+    plan_quantum_pulse_lowering,
     verify_quantum_program,
 )
 from scopecat_quantum.pulse_implementations import (
@@ -120,7 +121,7 @@ def test_parallel_each_verifies_template_before_budgeted_expansion(
     assert calls == 0
     assert len(verified.unresolved.operations) == 1
     with pytest.raises(QuantumProgramExpansionError) as caught:
-        lower_quantum_program_to_pulses(
+        plan_quantum_pulse_lowering(
             verified,
             ResolvedPulseImplementations(),
             output_id=PulseProgramId("large-map-pulses"),
@@ -130,11 +131,82 @@ def test_parallel_each_verifies_template_before_budgeted_expansion(
     assert caught.value.limit == 999
     assert calls == 0
 
-    expanded = verified.expand_unresolved(max_expanded_operations=1_000)
+    plan = plan_quantum_pulse_lowering(
+        verified,
+        ResolvedPulseImplementations(),
+        output_id=PulseProgramId("large-map-pulses"),
+        max_expanded_operations=1_000,
+    )
 
-    assert len(expanded.operations) == 1_000
+    assert plan.body is verified.program.body
+    assert plan.expanded_operation_count == 1_000
+    assert calls == 0
+
+    expanded = tuple(
+        verified.iter_expanded_unresolved_operations(
+            max_expanded_operations=1_000,
+        )
+    )
+
+    assert len(expanded) == 1_000
     assert calls == 1_000
-    assert verified.expand_unresolved(max_expanded_operations=1_000) is expanded
+
+
+def test_parallel_each_pulses_expand_only_at_materialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    item_id = QubitId("$qubit")
+    entity_ids = tuple(QubitId(f"q{index}") for index in range(1_000))
+    verified = verify_quantum_program(
+        QuantumProgramIR(
+            QuantumProgramId("large-pulse-map"),
+            ParallelEach(
+                entity_set_id="qubits",
+                item_id=item_id,
+                entity_ids=entity_ids,
+                operation=PulseBlock(
+                    id=CircuitOperationId("mapped-delay"),
+                    pulse_template=PulseProgram(
+                        id=PulseProgramId("mapped-delay-template"),
+                        body=Delay(
+                            id=PulseEventId("delay"),
+                            signal=DriveSignal(item_id),
+                            duration=Quantity(4, "ns"),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        (),
+    )
+    calls = 0
+    instantiate = program_module.instantiate_parallel_each_operation
+
+    def record_instantiation(node: ParallelEach, entity_id: QubitId):
+        nonlocal calls
+        calls += 1
+        return instantiate(node, entity_id)
+
+    monkeypatch.setattr(
+        program_module,
+        "instantiate_parallel_each_operation",
+        record_instantiation,
+    )
+
+    plan = plan_quantum_pulse_lowering(
+        verified,
+        ResolvedPulseImplementations(),
+        output_id=PulseProgramId("large-pulse-map-output"),
+        max_expanded_operations=1_000,
+    )
+
+    assert isinstance(plan.body, ParallelEach)
+    assert calls == 0
+
+    pulses = materialize_quantum_pulse_program(plan)
+
+    assert isinstance(pulses.body, PulseParallel)
+    assert len(pulses.body.branches) == 1_000
     assert calls == 1_000
 
 
@@ -248,7 +320,7 @@ def test_mixed_program_refines_only_unimplemented_operations() -> None:
     )
 
     verified = verify_quantum_program(source, (X90,))
-    lowered = lower_quantum_program_to_pulses(
+    plan = plan_quantum_pulse_lowering(
         verified,
         _implementations(reference, measurement),
         output_id=PulseProgramId("drag-sweep-point-pulses"),
@@ -259,8 +331,9 @@ def test_mixed_program_refines_only_unimplemented_operations() -> None:
         candidate_call.id,
         measurement.id,
     )
-    assert schedule(lowered.program).duration_seconds == Decimal("40e-9")
-    leaves = tuple(iter_pulse_leaves(lowered.program.body))
+    pulses = materialize_quantum_pulse_program(plan)
+    assert schedule(pulses).duration_seconds == Decimal("40e-9")
+    leaves = tuple(iter_pulse_leaves(pulses.body))
     assert len(leaves) == 4
     assert any(
         leaf.id.scope[:4]
@@ -272,7 +345,7 @@ def test_mixed_program_refines_only_unimplemented_operations() -> None:
         )
         for leaf in leaves
     )
-    assert lowered.program.acquisition_slots[0].id == measurement.acquisition_slot_id
+    assert pulses.acquisition_slots[0].id == measurement.acquisition_slot_id
     assert any(
         leaf.id.scope[:4]
         == (
@@ -296,20 +369,21 @@ def test_authored_pulse_block_can_own_an_acquisition() -> None:
         (),
     )
 
-    lowered = lower_quantum_program_to_pulses(
+    plan = plan_quantum_pulse_lowering(
         verified,
         ResolvedPulseImplementations(),
         output_id=PulseProgramId("inline-pulse-lowered"),
     )
 
-    [slot] = lowered.program.acquisition_slots
+    pulses = materialize_quantum_pulse_program(plan)
+    [slot] = pulses.acquisition_slots
     assert slot.id.scope[:4] == (
         "programs",
         verified.program.id.value,
         "operations",
         block.id.value,
     )
-    assert schedule(lowered.program).duration_seconds == Decimal("8e-9")
+    assert schedule(pulses).duration_seconds == Decimal("8e-9")
 
 
 def test_authored_pulse_block_can_bind_a_template_slot_to_a_public_slot() -> None:
@@ -326,13 +400,14 @@ def test_authored_pulse_block_can_bind_a_template_slot_to_a_public_slot() -> Non
         (),
     )
 
-    lowered = lower_quantum_program_to_pulses(
+    plan = plan_quantum_pulse_lowering(
         verified,
         ResolvedPulseImplementations(),
         output_id=PulseProgramId("explicit-readout-lowered"),
     )
 
-    assert lowered.program.acquisition_slots[0].id == public_slot
+    pulses = materialize_quantum_pulse_program(plan)
+    assert pulses.acquisition_slots[0].id == public_slot
 
 
 def test_pulse_block_rejects_invalid_acquisition_slot_bindings() -> None:

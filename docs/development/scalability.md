@@ -84,15 +84,17 @@ array with null leaves and sparse reason groups, so a common all-success point
 has no per-leaf diagnostic overhead while degraded points remain inspectable.
 
 Large quantum programs have an additional representation invariant. Entity-set
-maps and finite repeats remain one structural template before target lowering;
-structural IR and inspection size must not grow with the selected entity count.
+maps and finite repeats remain one structural template through pulse-lowering
+planning and until target-entry preparation; structural IR and inspection size
+must not grow with the selected entity count.
 Concrete scheduling may grow with physical work, but event, acquisition,
 waveform, total-result, and single-result-chunk limits must reject an unsafe
 request before device preparation. Semantic, placement, and final artifact
 layout fingerprints are recorded separately so entry renaming or repetition
 changes do not discard reusable logical work. Parallel-map verification checks
-the template once, and the target expansion budget is checked from the retained
-workload before any per-entity operation is instantiated.
+the template once, recipe matching streams concrete operations without
+retaining an expanded circuit, and the target expansion budget is checked from
+the retained workload before any per-entity operation is instantiated.
 
 Inspection acceptance is transport-oriented as well as compiler-oriented:
 

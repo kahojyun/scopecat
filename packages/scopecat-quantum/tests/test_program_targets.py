@@ -28,11 +28,11 @@ from scopecat_quantum.program_targets import (
     prepare_quantum_target_entry,
 )
 from scopecat_quantum.programs import (
-    LoweredQuantumPulseProgram,
     PulseBlock,
     QuantumProgramIR,
+    QuantumPulseLoweringPlan,
     Sequence,
-    lower_quantum_program_to_pulses,
+    plan_quantum_pulse_lowering,
     verify_quantum_program,
 )
 from scopecat_quantum.pulse_implementations import (
@@ -109,7 +109,7 @@ def _readout_template(qubit: QubitId, *, program_id: str) -> PulseProgram:
     )
 
 
-def _lowered_mixed_program() -> LoweredQuantumPulseProgram:
+def _pulse_lowering_plan() -> QuantumPulseLoweringPlan:
     gate = _gate_call()
     inline = PulseBlock(
         id=CircuitOperationId("inline-readout"),
@@ -145,7 +145,7 @@ def _lowered_mixed_program() -> LoweredQuantumPulseProgram:
             ),
         ),
     )
-    return lower_quantum_program_to_pulses(
+    return plan_quantum_pulse_lowering(
         verified,
         implementations,
         output_id=PulseProgramId("mixed-program-pulses"),
@@ -155,7 +155,7 @@ def _lowered_mixed_program() -> LoweredQuantumPulseProgram:
 def _prepared(entry_id: str = "point-0") -> PreparedQuantumTargetEntry:
     return prepare_quantum_target_entry(
         TargetCompileEntryId(entry_id),
-        _lowered_mixed_program(),
+        _pulse_lowering_plan(),
     )
 
 

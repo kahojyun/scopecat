@@ -22,7 +22,8 @@ from scopecat_quantum.programs import (
     ImplementedGate,
     PulseBlock,
     Repeat,
-    lower_quantum_program_to_pulses,
+    materialize_quantum_pulse_program,
+    plan_quantum_pulse_lowering,
 )
 from scopecat_quantum.programs import (
     Parallel as QuantumParallel,
@@ -148,12 +149,15 @@ def test_repeat_preserves_one_candidate_call_until_pulse_lowering() -> None:
     assert isinstance(bound.program.body, Repeat)
     assert bound.program.body.count == 3
     [implementation] = implementations
-    lowered = lower_quantum_program_to_pulses(
+    plan = plan_quantum_pulse_lowering(
         bound.verified,
         ResolvedPulseImplementations(),
         output_id=PulseProgramId("repeated-drag-pulses"),
     )
-    assert len(tuple(iter_pulse_leaves(lowered.program.body))) == 3
+    assert isinstance(plan.body, Repeat)
+    assert plan.body.count == 3
+    pulses = materialize_quantum_pulse_program(plan)
+    assert len(tuple(iter_pulse_leaves(pulses.body))) == 3
     assert implementation.candidate_id == "x90.drag"
     [pulse] = tuple(iter_pulse_leaves(implementation.pulse_template.body))
     assert isinstance(pulse, Play)
@@ -206,14 +210,14 @@ def test_gate_and_pulse_can_bind_in_parallel_before_final_signal_check() -> None
         )
     )
 
-    lowered = lower_quantum_program_to_pulses(
+    plan = plan_quantum_pulse_lowering(
         bound.verified,
         implementations,
         output_id=PulseProgramId("parallel-drive-conflict-pulses"),
     )
 
     with pytest.raises(PulseValidationError) as caught:
-        schedule(lowered.program)
+        schedule(materialize_quantum_pulse_program(plan))
 
     assert {issue.code for issue in caught.value.issues} == {"pulse_signal_overlap"}
 
@@ -279,12 +283,12 @@ def test_two_qubit_gate_implementation_authorizes_and_lowers_coupler_pulse() -> 
     assert isinstance(implementation, ImplementedGate)
     assert implementation.call == logical_call
 
-    lowered = lower_quantum_program_to_pulses(
+    plan = plan_quantum_pulse_lowering(
         bound.verified,
         ResolvedPulseImplementations(),
         output_id=PulseProgramId("cz-candidate-pulses"),
     )
-    [leaf] = iter_pulse_leaves(lowered.program.body)
+    [leaf] = iter_pulse_leaves(materialize_quantum_pulse_program(plan).body)
     assert isinstance(leaf, Play)
     assert leaf.signal == FluxSignal(CouplerId("coupler-q0-q1"))
     assert implementation.candidate_id == "cz.conditional-phase"
@@ -453,17 +457,18 @@ def test_explicit_acquire_composes_with_readout_play_and_keeps_public_slot() -> 
     )
 
     bound = authoring.bind(declaration)
-    lowered = lower_quantum_program_to_pulses(
+    plan = plan_quantum_pulse_lowering(
         bound.verified,
         ResolvedPulseImplementations(),
         output_id=PulseProgramId("explicit-readout-pulses"),
     )
-    scheduled = schedule(lowered.program)
+    pulses = materialize_quantum_pulse_program(plan)
+    scheduled = schedule(pulses)
 
     assert tuple(declaration.results) == (capture.result,)
     assert capture.result.qubit is q0
     assert capture.result.acquisition_slot_id == AcquisitionSlotId("iq_shots")
-    assert lowered.program.acquisition_slots[0].id == capture.result.acquisition_slot_id
+    assert pulses.acquisition_slots[0].id == capture.result.acquisition_slot_id
     assert scheduled.duration_seconds == Decimal("1.2e-8")
     assert {type(event.instruction) for event in scheduled.events} == {Play, Acquire}
     assert {event.start_seconds for event in scheduled.events} == {0}
@@ -540,13 +545,14 @@ def test_pulse_template_substitutes_qubit_and_outer_input_hygienically() -> None
     assert {block.pulse_template.id for block in blocks} == {
         PulseProgramId("x90-with-frame")
     }
-    lowered = lower_quantum_program_to_pulses(
+    plan = plan_quantum_pulse_lowering(
         bound.verified,
         ResolvedPulseImplementations(),
         output_id=PulseProgramId("two-template-calls-pulses"),
     )
-    assert len({leaf.id for leaf in iter_pulse_leaves(lowered.program.body)}) == 4
-    scheduled = schedule(lowered.program)
+    pulses = materialize_quantum_pulse_program(plan)
+    assert len({leaf.id for leaf in iter_pulse_leaves(pulses.body)}) == 4
+    scheduled = schedule(pulses)
     shifts = tuple(
         event.instruction
         for event in scheduled.events
@@ -604,12 +610,12 @@ def test_shift_phase_accepts_symbolic_phase() -> None:
         ),
     )
     bound = authoring.bind(declaration, {"phase": Quantity(180, "deg")})
-    lowered = lower_quantum_program_to_pulses(
+    plan = plan_quantum_pulse_lowering(
         bound.verified,
         ResolvedPulseImplementations(),
         output_id=PulseProgramId("virtual-z-pulses"),
     )
-    [shift, _play] = schedule(lowered.program).events
+    [shift, _play] = schedule(materialize_quantum_pulse_program(plan)).events
     assert isinstance(shift.instruction, ShiftPhase)
     assert shift.duration_seconds == 0
     assert shift.instruction.phase == Quantity(180, "deg").to("rad")

@@ -71,9 +71,7 @@ def _benchmark_case(entity_count: int, page_size: int) -> dict[str, object]:
     preflight_started = time.perf_counter()
     expansion_preflight_rejected = False
     try:
-        bound.verified.expand_unresolved(
-            max_expanded_operations=preflight_limit,
-        )
+        bound.verified.require_expansion_budget(preflight_limit)
     except QuantumProgramExpansionError as error:
         expansion_preflight_rejected = (
             error.expanded_operation_count == workload.expanded_operation_count

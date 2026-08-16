@@ -38,7 +38,7 @@ from scopecat_quantum.program_targets import (
     prepare_quantum_target_entry,
 )
 from scopecat_quantum.programs import (
-    lower_quantum_program_to_pulses,
+    plan_quantum_pulse_lowering,
 )
 from scopecat_quantum.pulse_implementations import ResolvedPulseImplementations
 
@@ -201,7 +201,7 @@ class QuantumLabCompiler:
         entries = tuple(
             prepare_quantum_target_entry(
                 TargetCompileEntryId(f"{program.id}.point-{point.values.ordinal}"),
-                lower_quantum_program_to_pulses(
+                plan_quantum_pulse_lowering(
                     point.bound.verified,
                     point.implementations,
                     output_id=PulseProgramId(
@@ -418,11 +418,10 @@ def _compile_points(
             _CompiledQuantumPoint(
                 values=point,
                 bound=bound,
-                implementations=QUANTUM_PULSE_PROFILE.materialize(
+                implementations=QUANTUM_PULSE_PROFILE.materialize_quantum(
                     parameters,
-                    bound.verified.expand_unresolved(
-                        max_expanded_operations=max_expanded_operations,
-                    ),
+                    bound.verified,
+                    max_expanded_operations=max_expanded_operations,
                 ),
             )
         )

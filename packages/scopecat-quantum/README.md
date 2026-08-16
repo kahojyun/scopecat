@@ -110,11 +110,13 @@ program call. A domain compiler declares its point capacity and receives
 bounded `compile_batch` requests. The target runtime may further group qubits
 and chunk shots or binary results inside its own contract.
 
-Bound programs retain the `parallel_each` entity-set boundary and finite repeat
-nodes even though target lowering eventually produces concrete branches and
-events. Inspection reports both structural and expanded operation counts, the
-selected entity count, and maximum parallel width, so a GUI can show the compact
-intent before drilling into its concrete realization.
+Bound programs and pulse lowering plans retain the `parallel_each`
+entity-set boundary and finite repeat nodes. Recipe matching streams concrete
+logical leaves without building an expanded circuit; concrete pulse branches
+and scheduled events are created only when a target entry is prepared.
+Inspection reports both structural and expanded operation counts, the selected
+entity count, and maximum parallel width, so a GUI can show the compact intent
+before drilling into its concrete realization.
 
 Physical batch size, shot partitioning, and target placement do not enter
 logical point, program, product, or measurement-record identity. This lets an
