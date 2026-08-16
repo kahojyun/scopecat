@@ -23,7 +23,6 @@ from reference_lab.targets.list_mode.inspection import (
     ArtifactInspectionBounds,
     ListModeArtifactInspectionSnapshot,
     build_list_mode_artifact_inspection_snapshot,
-    inspect_list_mode_artifact,
     point_realization_fingerprint,
 )
 from reference_lab.targets.list_mode.model import (
@@ -79,7 +78,6 @@ __all__ = [
     "MappedListModeTarget",
     "build_list_mode_artifact_inspection_snapshot",
     "configured_list_mode_target",
-    "inspect_list_mode_artifact",
     "list_mode_measurement_invocation_spec",
     "list_mode_realtime_write_footprint",
     "list_mode_setup_state_invalidations",

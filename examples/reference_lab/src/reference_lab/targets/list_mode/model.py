@@ -789,18 +789,6 @@ class ListModeTarget:
     def supported_envelopes(self) -> tuple[str, ...]:
         return ("constant", "gaussian", "drag")
 
-    def output_binding(self, signal: OutputSignal) -> IqOutputBinding | None:
-        for binding in self.output_bindings:
-            if binding.signal == signal:
-                return binding
-        return None
-
-    def acquisition_binding(self, signal: AcquireSignal) -> AcquisitionBinding | None:
-        for binding in self.acquisition_bindings:
-            if binding.signal == signal:
-                return binding
-        return None
-
     def _capability_payload(self) -> dict[str, object]:
         return {
             "schema": "reference_lab.list_mode_target.capabilities.v9",

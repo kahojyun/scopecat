@@ -280,26 +280,6 @@ class CompiledProgramInspectionLayerIndex:
         )
 
 
-def query_compiled_program_nodes(
-    layer_id: str,
-    nodes: Sequence[CompiledProgramInspectionNode],
-    *,
-    query: CompiledProgramInspectionQuery | None,
-    default_limit: int,
-    snapshot_id: str = "transient",
-) -> tuple[tuple[CompiledProgramInspectionNode, ...], CompiledProgramInspectionPage]:
-    """Filter and page nodes without exposing an unbounded transport payload."""
-
-    selection = query_compiled_program_node_index(
-        layer_id,
-        CompiledProgramInspectionNodeIndex.from_nodes(nodes),
-        query=query,
-        default_limit=default_limit,
-        snapshot_id=snapshot_id,
-    )
-    return selection.nodes, selection.page
-
-
 def query_compiled_program_node_index(
     layer_id: str,
     nodes: CompiledProgramInspectionNodeIndex,
@@ -626,5 +606,4 @@ __all__ = [
     "CompiledProgramInspectionQuery",
     "CompiledWaveformInspection",
     "query_compiled_program_node_index",
-    "query_compiled_program_nodes",
 ]

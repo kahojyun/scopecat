@@ -555,8 +555,10 @@ def test_list_mode_target_resolves_lo_and_mixer_from_reviewed_parameters() -> No
 
     baseline = _configured_target(config)
     target = _configured_target(changed)
-    binding = target.output_binding(DriveSignal(QubitId("q0")))
-    assert binding is not None
+    signal = DriveSignal(QubitId("q0"))
+    binding = next(
+        binding for binding in target.output_bindings if binding.signal == signal
+    )
     assert binding.intermediate_frequency_hz == 0.0
     assert binding.mixer.ii == 0.9
     assert binding.mixer.iq == 0.1

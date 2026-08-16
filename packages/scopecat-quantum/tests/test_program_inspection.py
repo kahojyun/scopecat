@@ -7,7 +7,10 @@ from scopecat import Quantity
 from scopecat.inspection import CompiledProgramInspectionQuery
 
 from scopecat_quantum import authoring
-from scopecat_quantum.inspection import QuantumInspectionBounds, inspect_quantum_program
+from scopecat_quantum.inspection import (
+    QuantumInspectionBounds,
+    build_quantum_program_inspection_snapshot,
+)
 
 
 def test_program_describe_and_draw_expose_the_authored_structure() -> None:
@@ -89,11 +92,12 @@ program inspection.example
         inspected_program,
         {"qubit": "q7", "rounds": 3},
     )
-    inspection = inspect_quantum_program(
+    snapshot = build_quantum_program_inspection_snapshot(
         inspected_program,
         bound=bound,
         bounds=QuantumInspectionBounds(max_nodes_per_layer=64),
     )
+    inspection = snapshot.project()
     assert tuple(layer.id for layer in inspection.layers) == ("authored", "logical")
     logical = inspection.layers[1]
     assert logical.node_count == len(logical.nodes)
@@ -107,11 +111,8 @@ program inspection.example
     assert facts["selected_entity_count"] == 1
     assert facts["max_parallel_width"] == 2
 
-    filtered = inspect_quantum_program(
-        inspected_program,
-        bound=bound,
-        bounds=QuantumInspectionBounds(max_nodes_per_layer=64),
-        query=CompiledProgramInspectionQuery(
+    filtered = snapshot.project(
+        CompiledProgramInspectionQuery(
             layer_id="authored",
             kind="pulse",
             offset=1,

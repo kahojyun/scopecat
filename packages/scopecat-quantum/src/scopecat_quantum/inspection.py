@@ -165,25 +165,6 @@ def _quantum_lineage_index(
     return CompiledProgramInspectionLinkIndex.from_links(links)
 
 
-def inspect_quantum_program(
-    program: Program,
-    *,
-    bound: BoundProgram | None = None,
-    scheduled: ScheduledPulseProgram | None = None,
-    bounds: QuantumInspectionBounds | None = None,
-    query: CompiledProgramInspectionQuery | None = None,
-    snapshot_id: str | None = None,
-) -> CompiledProgramInspection:
-    """Project authored, bound-logical, and scheduled views with stable links."""
-    return build_quantum_program_inspection_snapshot(
-        program,
-        bound=bound,
-        scheduled=scheduled,
-        bounds=bounds,
-        snapshot_id=snapshot_id,
-    ).project(query)
-
-
 def _static_layer_index(
     *,
     id: str,
@@ -526,5 +507,4 @@ __all__ = [
     "QuantumInspectionBounds",
     "QuantumProgramInspectionSnapshot",
     "build_quantum_program_inspection_snapshot",
-    "inspect_quantum_program",
 ]

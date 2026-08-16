@@ -86,47 +86,6 @@ class DigitizerResultBatch:
         object.__setattr__(self, "addresses", tuple(self.addresses))
         object.__setattr__(self, "chunks", chunks)
 
-    @classmethod
-    def from_arrays(
-        cls,
-        *,
-        addresses: tuple[TargetAcquisitionAddress, ...],
-        values: object,
-        available: object,
-    ) -> DigitizerResultBatch:
-        """Adopt one existing complete matrix as a single compatibility chunk."""
-
-        chunk = DigitizerResultChunk(
-            shot_start=0,
-            values=np.asarray(values),
-            available=np.asarray(available),
-        )
-        return cls(
-            addresses=addresses,
-            shot_count=chunk.shot_count,
-            chunks=(chunk,),
-        )
-
-    @property
-    def values(self) -> NDArray[np.complex128]:
-        """Materialize a complete matrix only at a legacy consumer boundary."""
-
-        if len(self.chunks) == 1:
-            return self.chunks[0].values
-        combined = np.concatenate([chunk.values for chunk in self.chunks], axis=1)
-        combined.flags.writeable = False
-        return combined
-
-    @property
-    def available(self) -> NDArray[np.bool_]:
-        """Materialize the complete availability matrix on explicit access."""
-
-        if len(self.chunks) == 1:
-            return self.chunks[0].available
-        combined = np.concatenate([chunk.available for chunk in self.chunks], axis=1)
-        combined.flags.writeable = False
-        return combined
-
     @property
     def result_count(self) -> int:
         """Return the number of address-qualified shot results."""

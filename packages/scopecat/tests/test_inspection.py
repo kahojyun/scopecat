@@ -8,10 +8,28 @@ from scopecat.inspection import (
     CompiledProgramInspectionLinkIndex,
     CompiledProgramInspectionNode,
     CompiledProgramInspectionNodeIndex,
+    CompiledProgramInspectionPage,
     CompiledProgramInspectionQuery,
     query_compiled_program_node_index,
-    query_compiled_program_nodes,
 )
+
+
+def _query_static_nodes(
+    layer_id: str,
+    nodes: tuple[CompiledProgramInspectionNode, ...],
+    *,
+    query: CompiledProgramInspectionQuery | None,
+    default_limit: int,
+    snapshot_id: str = "transient",
+) -> tuple[tuple[CompiledProgramInspectionNode, ...], CompiledProgramInspectionPage]:
+    selection = query_compiled_program_node_index(
+        layer_id,
+        CompiledProgramInspectionNodeIndex.from_nodes(nodes),
+        query=query,
+        default_limit=default_limit,
+        snapshot_id=snapshot_id,
+    )
+    return selection.nodes, selection.page
 
 
 def test_program_lineage_projection_does_not_require_both_endpoints_in_page() -> None:
@@ -89,7 +107,7 @@ def test_program_node_queries_bound_large_reference_sets() -> None:
         entity_ids=tuple(f"q{index}" for index in range(100)),
     )
 
-    selected, page = query_compiled_program_nodes(
+    selected, page = _query_static_nodes(
         "logical",
         (node,),
         query=CompiledProgramInspectionQuery(
@@ -123,7 +141,7 @@ def test_program_node_cursor_is_bound_to_snapshot_and_filters() -> None:
         kind="play",
     )
 
-    first, first_page = query_compiled_program_nodes(
+    first, first_page = _query_static_nodes(
         "scheduled",
         nodes,
         query=query,
@@ -133,7 +151,7 @@ def test_program_node_cursor_is_bound_to_snapshot_and_filters() -> None:
     assert [node.id for node in first] == ["scheduled:0", "scheduled:1"]
     assert first_page.next_cursor is not None
 
-    second, second_page = query_compiled_program_nodes(
+    second, second_page = _query_static_nodes(
         "scheduled",
         nodes,
         query=CompiledProgramInspectionQuery(
@@ -150,7 +168,7 @@ def test_program_node_cursor_is_bound_to_snapshot_and_filters() -> None:
     assert second_page.previous_cursor is not None
 
     with pytest.raises(ValueError, match="cursor does not match"):
-        query_compiled_program_nodes(
+        _query_static_nodes(
             "scheduled",
             nodes,
             query=CompiledProgramInspectionQuery(
@@ -164,7 +182,7 @@ def test_program_node_cursor_is_bound_to_snapshot_and_filters() -> None:
             snapshot_id="artifact-a",
         )
     with pytest.raises(ValueError, match="snapshot does not match"):
-        query_compiled_program_nodes(
+        _query_static_nodes(
             "scheduled",
             nodes,
             query=CompiledProgramInspectionQuery(

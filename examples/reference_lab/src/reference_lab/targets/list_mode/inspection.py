@@ -274,33 +274,6 @@ def build_list_mode_artifact_inspection_snapshot(
     )
 
 
-def inspect_list_mode_artifact(
-    artifact: ListModeArtifact,
-    *,
-    bounds: ArtifactInspectionBounds | None = None,
-    program: CompiledProgramInspection | None = None,
-) -> CompiledArtifactInspection:
-    """Return deterministic statistics and min/max waveform previews."""
-
-    selected_bounds = bounds or ArtifactInspectionBounds()
-    base = _inspect_list_mode_artifact_base(artifact, bounds=selected_bounds)
-    if program is None:
-        return base
-    physical_layer, placements = _physical_placement_layer_index(artifact)
-    return replace(
-        base,
-        program=_with_physical_placement_layer(
-            program,
-            physical_layer=physical_layer,
-            physical_lineage=_physical_lineage_index(
-                placements,
-                artifact.placement.candidates,
-            ),
-            max_nodes=selected_bounds.max_placement_nodes,
-        ),
-    )
-
-
 def _physical_placement_layer_index(
     artifact: ListModeArtifact,
 ) -> tuple[
@@ -822,6 +795,5 @@ __all__ = [
     "ArtifactInspectionBounds",
     "ListModeArtifactInspectionSnapshot",
     "build_list_mode_artifact_inspection_snapshot",
-    "inspect_list_mode_artifact",
     "point_realization_fingerprint",
 ]
