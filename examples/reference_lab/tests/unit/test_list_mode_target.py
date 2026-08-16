@@ -417,11 +417,14 @@ def test_list_mode_compilation_key_caches_and_explains_batch_capacity() -> None:
 
     artifact = compiler.compile(request)
 
-    assert compiler.cache_info.hits == 0
-    assert compiler.cache_info.misses == 1
+    assert compiler.cache_info.artifact.hits == 0
+    assert compiler.cache_info.artifact.misses == 1
+    assert compiler.cache_info.semantic.misses == 1
+    assert compiler.cache_info.placement.misses == 1
+    assert compiler.cache_info.layout.misses == 1
     assert compiler.compile(request) is artifact
-    assert compiler.cache_info.hits == 1
-    assert compiler.cache_info.size == 1
+    assert compiler.cache_info.artifact.hits == 1
+    assert compiler.cache_info.artifact.size == 1
     same_artifact = ListModeTargetCompiler(compiler.id, target).compile(request)
     assert same_artifact.compilation_key == artifact.compilation_key
     assert same_artifact.artifact_fingerprint == artifact.artifact_fingerprint
@@ -462,6 +465,9 @@ def test_list_mode_compilation_key_caches_and_explains_batch_capacity() -> None:
         artifact.compilation_key.placement_fingerprint
     )
     assert changed.compilation_key.value != artifact.compilation_key.value
+    assert compiler.cache_info.semantic.hits == 1
+    assert compiler.cache_info.placement.hits == 1
+    assert compiler.cache_info.layout.misses == 2
 
     renamed = compiler.compile(
         replace(
@@ -476,6 +482,41 @@ def test_list_mode_compilation_key_caches_and_explains_batch_capacity() -> None:
         artifact.compilation_key.placement_fingerprint
     )
     assert renamed.compilation_key.value != artifact.compilation_key.value
+    assert compiler.cache_info.semantic.hits == 2
+    assert compiler.cache_info.placement.hits == 2
+    assert compiler.cache_info.layout.misses == 3
+
+
+def test_list_mode_intermediate_cache_survives_artifact_eviction() -> None:
+    scheduled, _slot = _calibrated_acquisition()
+    compiler, request = _request(_target(), (scheduled,), repetitions=2)
+    first = compiler.compile(request)
+
+    for index in range(1, compiler.cache_info.artifact.capacity + 1):
+        compiler.compile(
+            replace(
+                request,
+                entries=(
+                    replace(
+                        request.entries[0],
+                        id=TargetCompileEntryId(f"entry-{index}"),
+                    ),
+                ),
+            )
+        )
+
+    before = compiler.cache_info
+    assert before.artifact.evictions == 1
+    assert before.layout.evictions == 0
+
+    restored = compiler.compile(request)
+
+    after = compiler.cache_info
+    assert restored.artifact_fingerprint == first.artifact_fingerprint
+    assert after.artifact.misses == before.artifact.misses + 1
+    assert after.semantic.hits == before.semantic.hits + 1
+    assert after.placement.hits == before.placement.hits + 1
+    assert after.layout.hits == before.layout.hits + 1
 
 
 def test_list_mode_result_volume_can_limit_the_next_batch() -> None:

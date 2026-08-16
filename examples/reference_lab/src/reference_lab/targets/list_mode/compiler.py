@@ -72,6 +72,7 @@ from reference_lab.targets.list_mode.model import (
     ListModeCompilationBudget,
     ListModeCompilationCacheInfo,
     ListModeCompilationKey,
+    ListModeCompilationStageCacheInfo,
     ListModeDeviceSnapshot,
     ListModeEntry,
     ListModeEventPlacement,
@@ -102,7 +103,78 @@ from reference_lab.targets.list_mode.model import (
 )
 
 _ARTIFACT_CACHE_SIZE = 32
+_INTERMEDIATE_CACHE_SIZE = 64
 _RESULT_BYTES_PER_VALUE = 17
+
+
+@dataclass(slots=True)
+class _CompilationStageCache[ValueT]:
+    capacity: int
+    values: OrderedDict[str, ValueT] = field(default_factory=OrderedDict)
+    hits: int = 0
+    misses: int = 0
+    evictions: int = 0
+
+    def get(self, key: str) -> ValueT | None:
+        value = self.values.get(key)
+        if value is None:
+            self.misses += 1
+            return None
+        self.hits += 1
+        self.values.move_to_end(key)
+        return value
+
+    def put(self, key: str, value: ValueT) -> None:
+        self.values[key] = value
+        self.values.move_to_end(key)
+        if len(self.values) > self.capacity:
+            self.values.popitem(last=False)
+            self.evictions += 1
+
+    @property
+    def info(self) -> ListModeCompilationStageCacheInfo:
+        return ListModeCompilationStageCacheInfo(
+            hits=self.hits,
+            misses=self.misses,
+            evictions=self.evictions,
+            size=len(self.values),
+            capacity=self.capacity,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _SemanticProgramPlan:
+    event_count: int
+    acquisition_count: int
+    selected_signals: tuple[tuple[str, str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _PlannedProgram:
+    waveform_plan: SampledWaveformPlan
+    lane_channels: tuple[AwgChannelId, ...]
+    active_lanes: tuple[int, ...]
+    acquisitions: tuple[DigitizerAcquisitionWindow, ...]
+
+    @property
+    def sample_count(self) -> int:
+        return self.waveform_plan.sample_count
+
+
+@dataclass(frozen=True, slots=True)
+class _PlacementPlan:
+    device_snapshot_fingerprint: str
+    programs: tuple[_PlannedProgram, ...]
+    placements: tuple[ListModeSignalPlacement, ...]
+    constraints: tuple[ListModePlacementConstraint, ...]
+    constraint_ids_by_signal: tuple[tuple[tuple[str, str, str], tuple[str, ...]], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _LayoutPlan:
+    entries: tuple[ListModeEntry, ...]
+    phase_templates: tuple[AwgPhaseTemplate, ...]
+    waveform_bytes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,26 +197,40 @@ class ListModeTargetCompiler:
 
     id: TargetCompilerId
     target: ListModeTarget
-    _artifact_cache: OrderedDict[str, ListModeArtifact] = field(
-        default_factory=OrderedDict,
+    _semantic_cache: _CompilationStageCache[_SemanticProgramPlan] = field(
+        default_factory=lambda: _CompilationStageCache(_INTERMEDIATE_CACHE_SIZE),
         init=False,
         repr=False,
         compare=False,
     )
-    _cache_hits: int = field(default=0, init=False, repr=False, compare=False)
-    _cache_misses: int = field(default=0, init=False, repr=False, compare=False)
-    _cache_evictions: int = field(default=0, init=False, repr=False, compare=False)
+    _placement_cache: _CompilationStageCache[_PlacementPlan] = field(
+        default_factory=lambda: _CompilationStageCache(_INTERMEDIATE_CACHE_SIZE),
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _layout_cache: _CompilationStageCache[_LayoutPlan] = field(
+        default_factory=lambda: _CompilationStageCache(_INTERMEDIATE_CACHE_SIZE),
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _artifact_cache: _CompilationStageCache[ListModeArtifact] = field(
+        default_factory=lambda: _CompilationStageCache(_ARTIFACT_CACHE_SIZE),
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def cache_info(self) -> ListModeCompilationCacheInfo:
-        """Return deterministic counters for the process-local artifact LRU."""
+        """Return deterministic counters for every process-local stage LRU."""
 
         return ListModeCompilationCacheInfo(
-            hits=self._cache_hits,
-            misses=self._cache_misses,
-            evictions=self._cache_evictions,
-            size=len(self._artifact_cache),
-            capacity=_ARTIFACT_CACHE_SIZE,
+            semantic=self._semantic_cache.info,
+            placement=self._placement_cache.info,
+            layout=self._layout_cache.info,
+            artifact=self._artifact_cache.info,
         )
 
     def compile(self, request: TargetCompileRequest) -> ListModeArtifact:
@@ -154,10 +240,17 @@ class ListModeTargetCompiler:
         compilation_key = _compilation_key(self.id, device_snapshot, request)
         cached = self._artifact_cache.get(compilation_key.value)
         if cached is not None:
-            object.__setattr__(self, "_cache_hits", self._cache_hits + 1)
-            self._artifact_cache.move_to_end(compilation_key.value)
             return cached
-        object.__setattr__(self, "_cache_misses", self._cache_misses + 1)
+
+        semantic = self._semantic_cache.get(
+            compilation_key.semantic_program_fingerprint
+        )
+        if semantic is None:
+            semantic = _semantic_program_plan(request)
+            self._semantic_cache.put(
+                compilation_key.semantic_program_fingerprint,
+                semantic,
+            )
 
         issues: list[TargetCompilationIssue] = []
         if len(request.entries) > self.target.max_list_entries:
@@ -180,8 +273,8 @@ class ListModeTargetCompiler:
                     f"{self.target.max_repetitions}"
                 ),
             )
-        event_count = sum(len(entry.program.events) for entry in request.entries)
-        acquisition_count = len(request.acquisition_addresses)
+        event_count = semantic.event_count
+        acquisition_count = semantic.acquisition_count
         result_bytes = acquisition_count * request.repetitions * _RESULT_BYTES_PER_VALUE
         result_bytes_per_shot = acquisition_count * _RESULT_BYTES_PER_VALUE
         if event_count > self.target.max_program_event_count:
@@ -225,50 +318,86 @@ class ListModeTargetCompiler:
                 ),
             )
 
-        plans = tuple(
-            plan
-            for list_index, entry in enumerate(request.entries)
-            if (
-                plan := self._plan_entry(
-                    entry,
-                    list_index=list_index,
-                    issues=issues,
-                )
-            )
-            is not None
+        placement_plan = self._placement_cache.get(
+            compilation_key.placement_fingerprint
         )
-        if issues:
-            raise TargetCompilationError(tuple(issues))
-
-        compact = _compile_phase_template_sweep(plans)
-        if compact is None:
-            phase_templates: tuple[AwgPhaseTemplate, ...] = ()
-            entries = tuple(self._render_entry(plan, issues=issues) for plan in plans)
-        else:
-            phase_templates, entries = compact
-        if issues:
-            raise TargetCompilationError(tuple(issues))
-        waveform_bytes = _materialized_waveform_bytes(entries, phase_templates)
-        if waveform_bytes > self.target.max_program_waveform_bytes:
-            _issue(
-                issues,
-                dimension=TargetCompilationIssueDimension.CAPABILITY,
-                code="list_mode_program_waveform_memory_exceeded",
-                message=(
-                    f"request requires {waveform_bytes} waveform bytes; target "
-                    "program-memory limit is "
-                    f"{self.target.max_program_waveform_bytes}"
-                ),
+        if placement_plan is None:
+            planned_programs = tuple(
+                plan
+                for entry in request.entries
+                if (
+                    plan := self._plan_program(
+                        entry,
+                        issues=issues,
+                    )
+                )
+                is not None
             )
+            if not issues:
+                placements, constraints, constraint_ids_by_signal = (
+                    _plan_program_placement(semantic, device_snapshot)
+                )
+                placement_plan = _PlacementPlan(
+                    device_snapshot_fingerprint=device_snapshot.snapshot_fingerprint,
+                    programs=planned_programs,
+                    placements=placements,
+                    constraints=constraints,
+                    constraint_ids_by_signal=constraint_ids_by_signal,
+                )
+                self._placement_cache.put(
+                    compilation_key.placement_fingerprint,
+                    placement_plan,
+                )
         if issues:
             raise TargetCompilationError(tuple(issues))
+        assert placement_plan is not None
+        plans = _bind_entry_plans(request, placement_plan.programs)
+
+        layout = self._layout_cache.get(compilation_key.artifact_layout_fingerprint)
+        if layout is None:
+            compact = _compile_phase_template_sweep(plans)
+            if compact is None:
+                phase_templates: tuple[AwgPhaseTemplate, ...] = ()
+                entries = tuple(
+                    self._render_entry(plan, issues=issues) for plan in plans
+                )
+            else:
+                phase_templates, entries = compact
+            if issues:
+                raise TargetCompilationError(tuple(issues))
+            waveform_bytes = _materialized_waveform_bytes(entries, phase_templates)
+            if waveform_bytes > self.target.max_program_waveform_bytes:
+                _issue(
+                    issues,
+                    dimension=TargetCompilationIssueDimension.CAPABILITY,
+                    code="list_mode_program_waveform_memory_exceeded",
+                    message=(
+                        f"request requires {waveform_bytes} waveform bytes; target "
+                        "program-memory limit is "
+                        f"{self.target.max_program_waveform_bytes}"
+                    ),
+                )
+            if issues:
+                raise TargetCompilationError(tuple(issues))
+            layout = _LayoutPlan(
+                entries=entries,
+                phase_templates=phase_templates,
+                waveform_bytes=waveform_bytes,
+            )
+            self._layout_cache.put(
+                compilation_key.artifact_layout_fingerprint,
+                layout,
+            )
+        entries = layout.entries
+        phase_templates = layout.phase_templates
+        waveform_bytes = layout.waveform_bytes
         preparation = _project_preparation(self.target, entries, phase_templates)
         host_state_requirements = _project_host_state_requirements(
             self.target,
             entries,
             phase_templates,
         )
-        placement = _project_program_placement(request, device_snapshot)
+        placement = _project_program_placement(request, placement_plan)
         physical_footprint = _project_physical_footprint(
             entries,
             phase_templates,
@@ -324,19 +453,15 @@ class ListModeTargetCompiler:
             entries=entries,
             phase_templates=phase_templates,
         )
-        self._artifact_cache[compilation_key.value] = artifact
-        if len(self._artifact_cache) > _ARTIFACT_CACHE_SIZE:
-            self._artifact_cache.popitem(last=False)
-            object.__setattr__(self, "_cache_evictions", self._cache_evictions + 1)
+        self._artifact_cache.put(compilation_key.value, artifact)
         return artifact
 
-    def _plan_entry(
+    def _plan_program(
         self,
         entry: TargetCompileEntry,
         *,
-        list_index: int,
         issues: list[TargetCompilationIssue],
-    ) -> _EntryPlan | None:
+    ) -> _PlannedProgram | None:
         program = entry.program
         lane_channels, sampled_bindings = _sampled_output_projection(self.target)
         try:
@@ -477,9 +602,7 @@ class ListModeTargetCompiler:
                 }
             )
         )
-        return _EntryPlan(
-            list_index=list_index,
-            source=entry,
+        return _PlannedProgram(
             waveform_plan=waveform_plan,
             lane_channels=lane_channels,
             active_lanes=active_lanes,
@@ -661,6 +784,48 @@ def _compilation_key(
     )
 
 
+def _semantic_program_plan(request: TargetCompileRequest) -> _SemanticProgramPlan:
+    return _SemanticProgramPlan(
+        event_count=sum(len(entry.program.events) for entry in request.entries),
+        acquisition_count=len(request.acquisition_addresses),
+        selected_signals=tuple(
+            sorted(
+                {
+                    signal_key(
+                        cast(
+                            "OutputSignal | AcquireSignal",
+                            event.instruction.signal,
+                        )
+                    )
+                    for entry in request.entries
+                    for event in entry.program.events
+                }
+            )
+        ),
+    )
+
+
+def _bind_entry_plans(
+    request: TargetCompileRequest,
+    programs: tuple[_PlannedProgram, ...],
+) -> tuple[_EntryPlan, ...]:
+    if len(programs) != len(request.entries):
+        raise AssertionError("placement programs must match target entries")
+    return tuple(
+        _EntryPlan(
+            list_index=list_index,
+            source=entry,
+            waveform_plan=program.waveform_plan,
+            lane_channels=program.lane_channels,
+            active_lanes=program.active_lanes,
+            acquisitions=program.acquisitions,
+        )
+        for list_index, (entry, program) in enumerate(
+            zip(request.entries, programs, strict=True)
+        )
+    )
+
+
 def _project_compilation_budget(
     target: ListModeTarget,
     request: TargetCompileRequest,
@@ -799,24 +964,15 @@ def _project_compilation_budget(
     )
 
 
-def _project_program_placement(
-    request: TargetCompileRequest,
+def _plan_program_placement(
+    semantic: _SemanticProgramPlan,
     snapshot: ListModeDeviceSnapshot,
-) -> ListModeProgramPlacement:
-    selected_signals = tuple(
-        sorted(
-            {
-                signal_key(
-                    cast(
-                        "OutputSignal | AcquireSignal",
-                        event.instruction.signal,
-                    )
-                )
-                for entry in request.entries
-                for event in entry.program.events
-            }
-        )
-    )
+) -> tuple[
+    tuple[ListModeSignalPlacement, ...],
+    tuple[ListModePlacementConstraint, ...],
+    tuple[tuple[tuple[str, str, str], tuple[str, ...]], ...],
+]:
+    selected_signals = semantic.selected_signals
     placements = tuple(snapshot.signal_placement(signal) for signal in selected_signals)
     constraint_ids_by_signal: dict[tuple[str, str, str], list[str]] = {
         signal: [] for signal in selected_signals
@@ -919,17 +1075,32 @@ def _project_program_placement(
         selected=placements,
         resource_ids=(snapshot.timing_instrument_id,),
     )
+    return (
+        placements,
+        tuple(constraints),
+        tuple(
+            (signal, tuple(constraint_ids_by_signal[signal]))
+            for signal in selected_signals
+        ),
+    )
+
+
+def _project_program_placement(
+    request: TargetCompileRequest,
+    plan: _PlacementPlan,
+) -> ListModeProgramPlacement:
+    placements_by_signal = {
+        placement.signal: placement for placement in plan.placements
+    }
+    constraint_ids_by_signal = dict(plan.constraint_ids_by_signal)
     events: list[ListModeEventPlacement] = []
     for entry in request.entries:
         for event in entry.program.events:
-            placement = snapshot.signal_placement(
+            placement = placements_by_signal[
                 signal_key(
-                    cast(
-                        "OutputSignal | AcquireSignal",
-                        event.instruction.signal,
-                    )
+                    cast("OutputSignal | AcquireSignal", event.instruction.signal)
                 )
-            )
+            ]
             events.append(
                 ListModeEventPlacement(
                     entry_id=entry.id,
@@ -939,9 +1110,9 @@ def _project_program_placement(
                 )
             )
     return ListModeProgramPlacement(
-        device_snapshot_fingerprint=snapshot.snapshot_fingerprint,
+        device_snapshot_fingerprint=plan.device_snapshot_fingerprint,
         events=tuple(events),
-        constraints=tuple(constraints),
+        constraints=plan.constraints,
     )
 
 

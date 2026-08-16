@@ -232,14 +232,24 @@ class ListModeCompilationKey:
 
 
 @dataclass(frozen=True, slots=True)
-class ListModeCompilationCacheInfo:
-    """Observable in-memory artifact-cache behavior for one compiler."""
+class ListModeCompilationStageCacheInfo:
+    """Observable behavior of one process-local compilation-stage LRU."""
 
     hits: int
     misses: int
     evictions: int
     size: int
     capacity: int
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeCompilationCacheInfo:
+    """Observable behavior of semantic, placement, layout, and artifact LRUs."""
+
+    semantic: ListModeCompilationStageCacheInfo
+    placement: ListModeCompilationStageCacheInfo
+    layout: ListModeCompilationStageCacheInfo
+    artifact: ListModeCompilationStageCacheInfo
 
 
 @dataclass(frozen=True, slots=True)
@@ -1263,6 +1273,7 @@ __all__ = [
     "ListModeCompilationBudget",
     "ListModeCompilationCacheInfo",
     "ListModeCompilationKey",
+    "ListModeCompilationStageCacheInfo",
     "ListModeDeviceSnapshot",
     "ListModeEntry",
     "ListModeEventPlacement",
