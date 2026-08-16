@@ -1195,9 +1195,23 @@ class SQLiteMeasurementDatasetRepository:
         )
 
         selected = tuple(sorted(set(point_indices)))
+        if not selected:
+            return ()
         try:
             with self._runs.sqlite.read_connection() as connection:
-                rows = _measurement_rows(connection, self._run_id)
+                rows = _all(
+                    connection.execute(
+                        """
+                        SELECT start_index, record_count, ref
+                        FROM execution_measurement_appends
+                        WHERE run_id = ?
+                          AND start_index < ?
+                          AND start_index + record_count > ?
+                        ORDER BY start_index
+                        """,
+                        (self._run_id, selected[-1] + 1, selected[0]),
+                    )
+                )
             schema_assets = self._measurement_schema_assets()
             if schema_assets is None:
                 return ()

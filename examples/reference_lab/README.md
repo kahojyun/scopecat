@@ -121,7 +121,9 @@ tables, and temporary scan axes belong to experiment invocations.
   complete domain mapping before streaming canonical values into the coverage
   sink, and canonical or contiguous acquisition rows reuse the device arrays.
   The GUI requests bounded program-layer pages filtered by entity, resource,
-  kind, result, or text.
+  kind, result, or text. Oversized product-grid results use authored-axis
+  slices plus previous/next logical-point windows instead of stopping at the
+  first preview page.
 - The list-mode runtime uses explicit load, prepare, arm, shared-trigger, and
   fetch batches. Their order is auditable; target docstrings define trigger
   session guarantees, setup invalidation, and acquisition placement.

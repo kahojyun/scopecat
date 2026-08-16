@@ -204,6 +204,7 @@ export async function getMeasurementSlice(
   runId: string,
   fixedAxisIndices: Record<string, number>,
   variableIds: string[],
+  offset = 0,
   signal?: AbortSignal,
 ): Promise<MeasurementSlicePreview> {
   const response = await apiData(
@@ -213,6 +214,7 @@ export async function getMeasurementSlice(
         fixed_axis_indices: fixedAxisIndices,
         include_schema: false,
         limit: 4096,
+        offset,
         variable_ids: variableIds,
       },
       signal,
@@ -222,6 +224,10 @@ export async function getMeasurementSlice(
     items: response.items,
     schema: response.dataset_schema ?? undefined,
     selectedPointCount: response.selected_point_count,
+    offset: response.offset ?? 0,
+    windowPointCount: response.window_point_count ?? response.items.length,
+    nextOffset: response.next_offset ?? undefined,
+    previousOffset: response.previous_offset ?? undefined,
     truncated: response.truncated,
   };
 }

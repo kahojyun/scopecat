@@ -927,6 +927,37 @@ describe("measurement visualization", () => {
     ).toBeVisible();
   });
 
+  it("navigates bounded logical-point windows for oversized slices", () => {
+    const schema = threeDimensionalGridSchema();
+    const items = slicedGridRecords([0]);
+    const onSliceOffsetChange = vi.fn();
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items: [] }}
+        slice={{
+          ...slicePreview(schema, items),
+          selectedPointCount: 10_000,
+          offset: 4096,
+          windowPointCount: items.length,
+          previousOffset: 0,
+          nextOffset: 8192,
+          truncated: true,
+        }}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{ bias: 0 }}
+        onSliceOffsetChange={onSliceOffsetChange}
+        onFixedAxisIndexChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Points 4,097–4,102 of 10,000/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Previous measurement window" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next measurement window" }));
+    expect(onSliceOffsetChange.mock.calls).toEqual([[0], [8192]]);
+  });
+
   it("reports selected-slice read failures instead of blaming variable shapes", () => {
     const schema = threeDimensionalGridSchema();
 
@@ -1055,7 +1086,7 @@ describe("measurement visualization", () => {
       screen.getByRole("img", { name: "Response: Response [ratio] by Bias [V]" }),
     ).toBeVisible();
     expect(screen.getByRole("columnheader", { name: /Bias \[V\]/ })).toBeVisible();
-    expect(screen.getByText("Raw records")).toBeVisible();
+    expect(screen.getByText(/Raw records/)).toBeVisible();
     expect(screen.getByTestId("measurement-preview")).not.toBeVisible();
   });
 
@@ -1634,6 +1665,8 @@ function slicePreview(schema: MeasurementDatasetSchema, items: MeasurementRecord
     items,
     schema,
     selectedPointCount: items.length,
+    offset: 0,
+    windowPointCount: items.length,
     truncated: false,
   };
 }

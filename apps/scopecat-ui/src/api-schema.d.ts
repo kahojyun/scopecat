@@ -3096,7 +3096,7 @@ export interface components {
         };
         /**
          * MeasurementSlice
-         * @description Records for one semantic product-grid slice.
+         * @description One logical-point window within a semantic product-grid slice.
          */
         MeasurementSlice: {
             dataset_schema?: components["schemas"]["MeasurementDatasetSchema-Output"] | null;
@@ -3105,6 +3105,15 @@ export interface components {
              * @default []
              */
             items: components["schemas"]["MeasurementRecord"][];
+            /** Next Offset */
+            next_offset?: number | null;
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
+            /** Previous Offset */
+            previous_offset?: number | null;
             /** Selected Point Count */
             selected_point_count: number;
             /**
@@ -3112,6 +3121,11 @@ export interface components {
              * @default false
              */
             truncated: boolean;
+            /**
+             * Window Point Count
+             * @default 0
+             */
+            window_point_count: number;
         };
         /**
          * MeasurementSliceQuery
@@ -3132,6 +3146,11 @@ export interface components {
              * @default 4096
              */
             limit: number;
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
             /** Variable Ids */
             variable_ids?: string[] | null;
         };

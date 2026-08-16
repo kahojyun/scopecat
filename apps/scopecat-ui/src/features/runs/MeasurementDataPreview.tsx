@@ -32,6 +32,7 @@ export function MeasurementDataPreview({
   sliceError,
   slicePending,
   fixedAxisIndices,
+  onSliceOffsetChange,
   onFixedAxisIndexChange,
   tracePlans = [],
   selectedTracePlanId,
@@ -46,6 +47,7 @@ export function MeasurementDataPreview({
   sliceError: Error | null;
   slicePending: boolean;
   fixedAxisIndices: Record<string, number>;
+  onSliceOffsetChange?: (offset: number) => void;
   onFixedAxisIndexChange: (axisId: string, index: number) => void;
   tracePlans?: MeasurementTraceQueryPlan[];
   selectedTracePlanId?: string;
@@ -107,8 +109,13 @@ export function MeasurementDataPreview({
     [traceError, tracePending, tracePreview],
   );
   const table = useMemo(
-    () => measurementTable(preview.items, preview.schema, entitySelection),
-    [entitySelection, preview.items, preview.schema],
+    () =>
+      measurementTable(
+        slicePlan ? (slice?.items ?? []) : preview.items,
+        slicePlan ? chartSchema : preview.schema,
+        entitySelection,
+      ),
+    [chartSchema, entitySelection, preview.items, preview.schema, slice, slicePlan],
   );
   const selectAllEntities = (axisId: string) => {
     setSelectedEntityIdentities((current) => {
@@ -203,10 +210,36 @@ export function MeasurementDataPreview({
               );
             })}
           </div>
-          <span className="inline-flex items-center gap-1.5 text-[0.58rem] text-text-dim">
-            {slicePending && <LoaderCircle className="animate-spin" size={12} aria-hidden="true" />}
-            {sliceStatus(slice, sliceError, slicePending)}
-          </span>
+          <div className="flex flex-wrap items-center justify-end gap-2 text-[0.58rem] text-text-dim">
+            <span className="inline-flex items-center gap-1.5">
+              {slicePending && (
+                <LoaderCircle className="animate-spin" size={12} aria-hidden="true" />
+              )}
+              {sliceStatus(slice, sliceError, slicePending)}
+            </span>
+            {slice && (slice.previousOffset !== undefined || slice.nextOffset !== undefined) && (
+              <span className="inline-flex items-center gap-1">
+                <button
+                  aria-label="Previous measurement window"
+                  className="rounded border border-line bg-panel px-2 py-1 font-bold text-text-soft disabled:opacity-35"
+                  disabled={slicePending || slice.previousOffset === undefined}
+                  onClick={() => onSliceOffsetChange?.(slice.previousOffset ?? 0)}
+                  type="button"
+                >
+                  Previous
+                </button>
+                <button
+                  aria-label="Next measurement window"
+                  className="rounded border border-line bg-panel px-2 py-1 font-bold text-text-soft disabled:opacity-35"
+                  disabled={slicePending || slice.nextOffset === undefined}
+                  onClick={() => onSliceOffsetChange?.(slice.nextOffset ?? slice.offset)}
+                  type="button"
+                >
+                  Next
+                </button>
+              </span>
+            )}
+          </div>
         </div>
       )}
 
@@ -379,7 +412,8 @@ export function MeasurementDataPreview({
         <p className="m-0 border-b border-line bg-panel-soft px-3 py-1.5 text-[0.56rem] text-text-dim">
           Heatmaps and point-scalar plots use the selected durable slice when available. Trace
           previews are bounded by the server for the selected authored domain and entities. Entity
-          selection also filters comparison plots and table summaries; raw records remain run-wide.
+          selection also filters comparison plots and table summaries. Large slices expose bounded
+          logical-point windows without losing their authored-axis context.
         </p>
       )}
 
@@ -431,13 +465,13 @@ export function MeasurementDataPreview({
 
       <details className="border-t border-line text-[0.64rem] text-text-dim">
         <summary className="cursor-pointer px-3 py-2 font-bold hover:text-text-soft">
-          Raw records
+          Raw records {slicePlan ? "in selected window" : "in preview"}
         </summary>
         <pre
           className="m-0 max-h-[320px] overflow-auto border-t border-line bg-panel-soft p-3 text-[0.63rem] leading-[1.5] text-text-soft"
           data-testid="measurement-preview"
         >
-          {JSON.stringify(preview.items, null, 2)}
+          {JSON.stringify(slicePlan ? (slice?.items ?? []) : preview.items, null, 2)}
         </pre>
       </details>
     </div>
@@ -566,7 +600,9 @@ function sliceStatus(
   if (pending) return "Reading selected slice…";
   if (!slice) return "Waiting for selected slice";
   if (slice.truncated) {
-    return `Slice has ${slice.selectedPointCount.toLocaleString()} points; automatic plots are limited to 4,096`;
+    const firstPoint = slice.windowPointCount > 0 ? slice.offset + 1 : 0;
+    const lastPoint = slice.offset + slice.windowPointCount;
+    return `Points ${firstPoint.toLocaleString()}–${lastPoint.toLocaleString()} of ${slice.selectedPointCount.toLocaleString()} · ${slice.items.length.toLocaleString()} durable`;
   }
   return `${slice.items.length.toLocaleString()} of ${slice.selectedPointCount.toLocaleString()} slice points durable`;
 }

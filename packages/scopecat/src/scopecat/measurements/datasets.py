@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from itertools import islice, product
 
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
@@ -68,9 +67,15 @@ def product_grid_slice_indices(
     domain: MeasurementProductGridPointDomain,
     fixed_axis_indices: Mapping[str, int],
     *,
+    offset: int = 0,
     limit: int = MAX_MEASUREMENT_SLICE_SIZE,
 ) -> tuple[tuple[int, ...], int]:
-    """Return bounded logical ordinals for one product-grid projection."""
+    """Return one random-access window of a product-grid projection."""
+
+    if offset < 0:
+        raise ValueError("product-grid slice offset must be non-negative")
+    if limit <= 0:
+        raise ValueError("product-grid slice limit must be positive")
 
     axes = {axis.id: axis for axis in domain.axes}
     unknown = set(fixed_axis_indices) - set(axes)
@@ -80,31 +85,38 @@ def product_grid_slice_indices(
         if not 0 <= index < axes[axis_id].size:
             raise ValueError(f"product-grid axis index is out of range: {axis_id}")
 
-    selected_ranges = tuple(
-        (fixed_axis_indices[axis.id],)
-        if axis.id in fixed_axis_indices
-        else range(axis.size)
-        for axis in domain.axes
+    selected_sizes = tuple(
+        1 if axis.id in fixed_axis_indices else axis.size for axis in domain.axes
     )
     selected_count = 1
-    for values in selected_ranges:
-        selected_count *= len(values)
-    strides: list[int] = []
-    for axis_index, _axis in enumerate(domain.axes):
-        stride = 1
-        for following in domain.axes[axis_index + 1 :]:
-            stride *= following.size
-        strides.append(stride)
+    for size in selected_sizes:
+        selected_count *= size
+    if offset > selected_count:
+        raise ValueError("product-grid slice offset exceeds its selected point count")
+
+    point_strides = [1] * len(domain.axes)
+    point_stride = 1
+    for axis_index in range(len(domain.axes) - 1, -1, -1):
+        point_strides[axis_index] = point_stride
+        point_stride *= domain.axes[axis_index].size
+
+    selected_strides = [1] * len(domain.axes)
+    selected_stride = 1
+    for axis_index in range(len(domain.axes) - 1, -1, -1):
+        selected_strides[axis_index] = selected_stride
+        if domain.axes[axis_index].id not in fixed_axis_indices:
+            selected_stride *= domain.axes[axis_index].size
+
     point_indices = tuple(
-        islice(
+        sum(
             (
-                sum(
-                    index * stride
-                    for index, stride in zip(indices, strides, strict=True)
-                )
-                for indices in product(*selected_ranges)
-            ),
-            limit,
+                fixed_axis_indices[axis.id]
+                if axis.id in fixed_axis_indices
+                else (selected_ordinal // selected_strides[axis_index]) % axis.size
+            )
+            * point_strides[axis_index]
+            for axis_index, axis in enumerate(domain.axes)
         )
+        for selected_ordinal in range(offset, min(offset + limit, selected_count))
     )
     return point_indices, selected_count

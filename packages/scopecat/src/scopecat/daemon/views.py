@@ -409,6 +409,7 @@ class MeasurementSliceQuery(_ViewModel):
     limit: Annotated[int, Field(ge=1, le=MAX_MEASUREMENT_SLICE_SIZE)] = (
         MAX_MEASUREMENT_SLICE_SIZE
     )
+    offset: Annotated[int, Field(ge=0)] = 0
     variable_ids: list[Annotated[str, Field(min_length=1)]] | None = None
     include_schema: bool = False
 
@@ -420,11 +421,15 @@ class MeasurementSliceQuery(_ViewModel):
 
 
 class MeasurementSlice(_ViewModel):
-    """Records for one semantic product-grid slice."""
+    """One logical-point window within a semantic product-grid slice."""
 
     items: tuple[MeasurementRecord, ...] = ()
     dataset_schema: MeasurementDatasetSchema | None = None
     selected_point_count: Annotated[int, Field(ge=0)]
+    offset: Annotated[int, Field(ge=0)] = 0
+    window_point_count: Annotated[int, Field(ge=0)] = 0
+    next_offset: Annotated[int, Field(ge=1)] | None = None
+    previous_offset: Annotated[int, Field(ge=0)] | None = None
     truncated: bool = False
 
 

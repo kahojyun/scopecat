@@ -505,16 +505,26 @@ describe("run daemon reads", () => {
           items: [measurementRecord("run/1", 3)],
           dataset_schema: measurementSchema(),
           selected_point_count: 6,
+          offset: 4,
+          window_point_count: 1,
+          next_offset: 5,
+          previous_offset: 0,
           truncated: false,
         }),
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(getMeasurementSlice("run/1", { bias: 1 }, ["x", "y", "signal"])).resolves.toEqual({
+    await expect(
+      getMeasurementSlice("run/1", { bias: 1 }, ["x", "y", "signal"], 4),
+    ).resolves.toEqual({
       items: [measurementRecord("run/1", 3)],
       schema: measurementSchema(),
       selectedPointCount: 6,
+      offset: 4,
+      windowPointCount: 1,
+      nextOffset: 5,
+      previousOffset: 0,
       truncated: false,
     });
     const request = fetchMock.mock.calls[0]?.[0];
@@ -524,6 +534,7 @@ describe("run daemon reads", () => {
       fixed_axis_indices: { bias: 1 },
       include_schema: false,
       limit: 4096,
+      offset: 4,
       variable_ids: ["x", "y", "signal"],
     });
   });

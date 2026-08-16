@@ -606,7 +606,10 @@ The present architecture provides a direct end-to-end baseline:
   or replayed operation releases its bytes immediately; owner termination and
   daemon shutdown clear orphaned uploads. Unique waveform programs therefore
   do not accumulate in the permanent object store or with total point count;
-- projected Arrow readers and GUI previews provide bounded read paths.
+- projected Arrow readers and GUI previews provide bounded read paths. The GUI
+  pages oversized product-grid slices by logical offset while retaining their
+  authored-axis selection; mixed-radix index projection jumps directly to a
+  deep window without enumerating its prefix.
 
 Generated axes no longer impose a point-count-sized preparation cost: their
 evaluated generation parameters are fingerprinted and persisted directly, and

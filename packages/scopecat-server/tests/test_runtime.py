@@ -3100,6 +3100,14 @@ def test_effect_is_fenced_and_terminal_updates_control(
                 "include_schema": True,
             },
         )
+        next_measurement_slice = client.post(
+            f"/api/v1/runs/{run_id}/measurements/query",
+            json={
+                "fixed_axis_indices": {"bias": 1},
+                "offset": 1,
+                "limit": 1,
+            },
+        )
         invalid_measurement_slice = client.post(
             f"/api/v1/runs/{run_id}/measurements/query",
             json={"fixed_axis_indices": {"missing": 0}},
@@ -3193,10 +3201,19 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert missing_schema_trace.status_code == 409
         assert measurement_slice.json()["items"][0]["point_index"] == 1
         assert measurement_slice.json()["selected_point_count"] == 2
+        assert measurement_slice.json()["offset"] == 0
+        assert measurement_slice.json()["window_point_count"] == 1
+        assert measurement_slice.json()["next_offset"] == 1
+        assert measurement_slice.json()["previous_offset"] is None
         assert measurement_slice.json()["truncated"]
         assert measurement_slice.json()["dataset_schema"]["dataset_id"] == (
             "raw-measurements"
         )
+        assert next_measurement_slice.status_code == 200
+        assert next_measurement_slice.json()["items"][0]["point_index"] == 3
+        assert next_measurement_slice.json()["offset"] == 1
+        assert next_measurement_slice.json()["next_offset"] is None
+        assert next_measurement_slice.json()["previous_offset"] == 0
         assert invalid_measurement_slice.status_code == 409
         assert trace_preview.status_code == 200
         assert trace_preview.json()["coordinate_id"] == "frequency"

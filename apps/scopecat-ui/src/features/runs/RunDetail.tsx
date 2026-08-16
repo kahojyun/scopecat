@@ -45,6 +45,7 @@ export function RunDetail({
   onTracePlanChange,
   onMeasurementEntitySelectionChange,
   measurementFixedAxisIndices,
+  onMeasurementSliceOffsetChange,
   onMeasurementFixedAxisIndexChange,
   analyses,
   analysesError,
@@ -74,6 +75,7 @@ export function RunDetail({
   onTracePlanChange: (planId: string) => void;
   onMeasurementEntitySelectionChange: (selection: MeasurementEntitySelection) => void;
   measurementFixedAxisIndices: Record<string, number>;
+  onMeasurementSliceOffsetChange: (offset: number) => void;
   onMeasurementFixedAxisIndexChange: (axisId: string, index: number) => void;
   analyses?: RunAnalysis[];
   analysesError: Error | null;
@@ -214,6 +216,7 @@ export function RunDetail({
           onTracePlanChange={onTracePlanChange}
           onMeasurementEntitySelectionChange={onMeasurementEntitySelectionChange}
           measurementFixedAxisIndices={measurementFixedAxisIndices}
+          onMeasurementSliceOffsetChange={onMeasurementSliceOffsetChange}
           onMeasurementFixedAxisIndexChange={onMeasurementFixedAxisIndexChange}
         />
       </div>
