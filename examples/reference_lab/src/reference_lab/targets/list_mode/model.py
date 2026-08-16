@@ -275,6 +275,23 @@ class ListModeCompilationStageCacheInfo:
     evictions: int
     size: int
     capacity: int
+    retained_bytes: int
+    max_retained_bytes: int
+    oversize_skips: int
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeCompilationCachePolicy:
+    """Process-local entry and retained-memory budgets for compiler stages."""
+
+    semantic_max_entries: int = 64
+    semantic_max_bytes: int = 4 * 1024 * 1024
+    placement_max_entries: int = 64
+    placement_max_bytes: int = 16 * 1024 * 1024
+    layout_max_entries: int = 64
+    layout_max_bytes: int = 64 * 1024 * 1024
+    artifact_max_entries: int = 32
+    artifact_max_bytes: int = 64 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,6 +315,11 @@ class ListModeCompilationTrace:
     placement: ListModeCompilationCacheOutcome
     layout: ListModeCompilationCacheOutcome
     artifact: ListModeCompilationCacheOutcome
+    semantic_seconds: float
+    placement_seconds: float
+    layout_seconds: float
+    artifact_seconds: float
+    cache_info: ListModeCompilationCacheInfo
 
     @property
     def artifact_reused(self) -> bool:

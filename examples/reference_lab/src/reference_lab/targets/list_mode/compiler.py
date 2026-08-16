@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 from collections import OrderedDict
 from dataclasses import dataclass, field, replace
+from time import perf_counter
 from typing import cast
 
 from scopecat.kernel.content_identity import content_fingerprint
@@ -75,6 +76,7 @@ from reference_lab.targets.list_mode.model import (
     ListModeCompilationBudget,
     ListModeCompilationCacheInfo,
     ListModeCompilationCacheOutcome,
+    ListModeCompilationCachePolicy,
     ListModeCompilationKey,
     ListModeCompilationStageCacheInfo,
     ListModeCompilationTrace,
@@ -111,20 +113,24 @@ from reference_lab.targets.list_mode.placement import (
     ListModePlacementProvider,
 )
 
-_ARTIFACT_CACHE_SIZE = 32
-_INTERMEDIATE_CACHE_SIZE = 64
 _RESULT_BYTES_PER_VALUE = 17
 
 
 def _compilation_trace(
     before: ListModeCompilationCacheInfo,
     after: ListModeCompilationCacheInfo,
+    timings: _CompilationStageTimings,
 ) -> ListModeCompilationTrace:
     return ListModeCompilationTrace(
         semantic=_stage_cache_outcome(before.semantic, after.semantic),
         placement=_stage_cache_outcome(before.placement, after.placement),
         layout=_stage_cache_outcome(before.layout, after.layout),
         artifact=_stage_cache_outcome(before.artifact, after.artifact),
+        semantic_seconds=timings.semantic,
+        placement_seconds=timings.placement,
+        layout_seconds=timings.layout,
+        artifact_seconds=timings.artifact,
+        cache_info=after,
     )
 
 
@@ -142,25 +148,41 @@ def _stage_cache_outcome(
 @dataclass(slots=True)
 class _CompilationStageCache[ValueT]:
     capacity: int
-    values: OrderedDict[str, ValueT] = field(default_factory=OrderedDict)
+    max_retained_bytes: int
+    values: OrderedDict[str, tuple[ValueT, int]] = field(default_factory=OrderedDict)
+    retained_bytes: int = 0
     hits: int = 0
     misses: int = 0
     evictions: int = 0
+    oversize_skips: int = 0
 
     def get(self, key: str) -> ValueT | None:
-        value = self.values.get(key)
-        if value is None:
+        retained = self.values.get(key)
+        if retained is None:
             self.misses += 1
             return None
         self.hits += 1
         self.values.move_to_end(key)
-        return value
+        return retained[0]
 
-    def put(self, key: str, value: ValueT) -> None:
-        self.values[key] = value
+    def put(self, key: str, value: ValueT, *, retained_bytes: int) -> None:
+        previous = self.values.pop(key, None)
+        if previous is not None:
+            self.retained_bytes -= previous[1]
+        if retained_bytes > self.max_retained_bytes:
+            self.oversize_skips += 1
+            return
+        self.values[key] = (value, retained_bytes)
+        self.retained_bytes += retained_bytes
         self.values.move_to_end(key)
-        if len(self.values) > self.capacity:
-            self.values.popitem(last=False)
+        while (
+            len(self.values) > self.capacity
+            or self.retained_bytes > self.max_retained_bytes
+        ):
+            _evicted_key, (_evicted_value, evicted_bytes) = self.values.popitem(
+                last=False
+            )
+            self.retained_bytes -= evicted_bytes
             self.evictions += 1
 
     @property
@@ -171,7 +193,18 @@ class _CompilationStageCache[ValueT]:
             evictions=self.evictions,
             size=len(self.values),
             capacity=self.capacity,
+            retained_bytes=self.retained_bytes,
+            max_retained_bytes=self.max_retained_bytes,
+            oversize_skips=self.oversize_skips,
         )
+
+
+@dataclass(slots=True)
+class _CompilationStageTimings:
+    semantic: float = 0.0
+    placement: float = 0.0
+    layout: float = 0.0
+    artifact: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,6 +253,65 @@ class _EntryPlan:
         return self.waveform_plan.sample_count
 
 
+def _semantic_plan_retained_bytes(plan: _SemanticProgramPlan) -> int:
+    return 128 + sum(
+        32 + sum(len(part.encode()) for part in signal)
+        for signal in plan.selected_signals
+    )
+
+
+def _placement_plan_retained_bytes(plan: _PlacementPlan) -> int:
+    program_bytes = sum(
+        256
+        + 160 * len(program.waveform_plan.event_timings)
+        + 384 * len(program.waveform_plan.render_events)
+        + 192 * len(program.acquisitions)
+        + 48 * len(program.lane_channels)
+        for program in plan.programs
+    )
+    decision = plan.decision
+    decision_bytes = (
+        256
+        + 256 * len(decision.placements)
+        + 384 * len(decision.candidates)
+        + 256 * len(decision.constraints)
+    )
+    return program_bytes + decision_bytes
+
+
+def _layout_retained_bytes(layout: _LayoutPlan) -> int:
+    return _entries_retained_bytes(layout.entries, layout.phase_templates)
+
+
+def _entries_retained_bytes(
+    entries: tuple[ListModeEntry, ...],
+    phase_templates: tuple[AwgPhaseTemplate, ...],
+) -> int:
+    entry_bytes = sum(
+        256
+        + 128 * len(entry.acquisitions)
+        + 128 * len(entry.event_timings)
+        + 64 * len(entry.phase_template_uses)
+        + sum(128 + waveform.samples.nbytes for waveform in entry.waveforms)
+        for entry in entries
+    )
+    template_bytes = sum(
+        256 + template.logical_i.nbytes + template.logical_q.nbytes
+        for template in phase_templates
+    )
+    return entry_bytes + template_bytes
+
+
+def _artifact_retained_bytes(artifact: ListModeArtifact) -> int:
+    return (
+        2048
+        + _entries_retained_bytes(artifact.entries, artifact.phase_templates)
+        + 256 * len(artifact.placement.events)
+        + 384 * len(artifact.placement.candidates)
+        + 256 * len(artifact.placement.constraints)
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ListModeTargetCompiler:
     """Compile canonical pulse schedules into finite physical list payloads."""
@@ -231,30 +323,66 @@ class ListModeTargetCompiler:
         repr=False,
         compare=False,
     )
+    cache_policy: ListModeCompilationCachePolicy = field(
+        default_factory=ListModeCompilationCachePolicy,
+        repr=False,
+        compare=False,
+    )
     _semantic_cache: _CompilationStageCache[_SemanticProgramPlan] = field(
-        default_factory=lambda: _CompilationStageCache(_INTERMEDIATE_CACHE_SIZE),
         init=False,
         repr=False,
         compare=False,
     )
     _placement_cache: _CompilationStageCache[_PlacementPlan] = field(
-        default_factory=lambda: _CompilationStageCache(_INTERMEDIATE_CACHE_SIZE),
         init=False,
         repr=False,
         compare=False,
     )
     _layout_cache: _CompilationStageCache[_LayoutPlan] = field(
-        default_factory=lambda: _CompilationStageCache(_INTERMEDIATE_CACHE_SIZE),
         init=False,
         repr=False,
         compare=False,
     )
     _artifact_cache: _CompilationStageCache[ListModeArtifact] = field(
-        default_factory=lambda: _CompilationStageCache(_ARTIFACT_CACHE_SIZE),
         init=False,
         repr=False,
         compare=False,
     )
+
+    def __post_init__(self) -> None:
+        policy = self.cache_policy
+        object.__setattr__(
+            self,
+            "_semantic_cache",
+            _CompilationStageCache(
+                policy.semantic_max_entries,
+                policy.semantic_max_bytes,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "_placement_cache",
+            _CompilationStageCache(
+                policy.placement_max_entries,
+                policy.placement_max_bytes,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "_layout_cache",
+            _CompilationStageCache(
+                policy.layout_max_entries,
+                policy.layout_max_bytes,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "_artifact_cache",
+            _CompilationStageCache(
+                policy.artifact_max_entries,
+                policy.artifact_max_bytes,
+            ),
+        )
 
     @property
     def cache_info(self) -> ListModeCompilationCacheInfo:
@@ -280,10 +408,17 @@ class ListModeTargetCompiler:
         """Compile and report which process-local stages supplied the result."""
 
         before = self.cache_info
-        artifact = self._compile(request)
-        return artifact, _compilation_trace(before, self.cache_info)
+        timings = _CompilationStageTimings()
+        artifact = self._compile(request, timings=timings)
+        after = self.cache_info
+        return artifact, _compilation_trace(before, after, timings)
 
-    def _compile(self, request: TargetCompileRequest) -> ListModeArtifact:
+    def _compile(
+        self,
+        request: TargetCompileRequest,
+        *,
+        timings: _CompilationStageTimings,
+    ) -> ListModeArtifact:
         """Execute the layered compilation after trace counters are sampled."""
 
         device_snapshot = self.target.device_snapshot
@@ -293,10 +428,13 @@ class ListModeTargetCompiler:
             device_snapshot,
             request,
         )
+        started = perf_counter()
         cached = self._artifact_cache.get(compilation_key.value)
+        timings.artifact += perf_counter() - started
         if cached is not None:
             return cached
 
+        started = perf_counter()
         semantic = self._semantic_cache.get(
             compilation_key.semantic_program_fingerprint
         )
@@ -305,7 +443,9 @@ class ListModeTargetCompiler:
             self._semantic_cache.put(
                 compilation_key.semantic_program_fingerprint,
                 semantic,
+                retained_bytes=_semantic_plan_retained_bytes(semantic),
             )
+        timings.semantic += perf_counter() - started
 
         issues: list[TargetCompilationIssue] = []
         if len(request.entries) > self.target.max_list_entries:
@@ -373,6 +513,7 @@ class ListModeTargetCompiler:
                 ),
             )
 
+        started = perf_counter()
         placement_plan = self._placement_cache.get(
             compilation_key.placement_fingerprint
         )
@@ -405,12 +546,15 @@ class ListModeTargetCompiler:
                 self._placement_cache.put(
                     compilation_key.placement_fingerprint,
                     placement_plan,
+                    retained_bytes=_placement_plan_retained_bytes(placement_plan),
                 )
+        timings.placement += perf_counter() - started
         if issues:
             raise TargetCompilationError(tuple(issues))
         assert placement_plan is not None
         plans = _bind_entry_plans(request, placement_plan.programs)
 
+        started = perf_counter()
         layout = self._layout_cache.get(compilation_key.artifact_layout_fingerprint)
         if layout is None:
             compact = _compile_phase_template_sweep(plans)
@@ -445,7 +589,10 @@ class ListModeTargetCompiler:
             self._layout_cache.put(
                 compilation_key.artifact_layout_fingerprint,
                 layout,
+                retained_bytes=_layout_retained_bytes(layout),
             )
+        timings.layout += perf_counter() - started
+        started = perf_counter()
         entries = layout.entries
         phase_templates = layout.phase_templates
         waveform_bytes = layout.waveform_bytes
@@ -511,7 +658,12 @@ class ListModeTargetCompiler:
             entries=entries,
             phase_templates=phase_templates,
         )
-        self._artifact_cache.put(compilation_key.value, artifact)
+        self._artifact_cache.put(
+            compilation_key.value,
+            artifact,
+            retained_bytes=_artifact_retained_bytes(artifact),
+        )
+        timings.artifact += perf_counter() - started
         return artifact
 
     def _plan_program(

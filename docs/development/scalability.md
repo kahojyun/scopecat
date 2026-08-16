@@ -123,7 +123,9 @@ Target inspection also reports the cache disposition of the exact compilation
 that produced the preview. Artifact, semantic, placement, and layout stages are
 shown independently as `hit`, `miss`, or `not_checked`; an artifact hit therefore
 does not misleadingly claim that lower stages ran. These facts are transient
-operator diagnostics and do not enter artifact or invocation identity.
+operator diagnostics and do not enter artifact or invocation identity. Every
+stage is bounded by both an entry count and accounted retained bytes. Inspection
+also reports its byte budget, retained bytes, oversize skips, and compile time.
 
 The layer summary is an explicit resolution navigator from authored intent
 through bound structure and timed events to physical placement. Each stage shows
@@ -184,6 +186,32 @@ The test also exercises the indexed table-primary-key path used by entity-set
 binding. Non-quantity scalar keys use their canonical semantic identity, while
 quantity keys retain tolerance-aware comparison. This keeps ordinary entity
 sets linear without changing quantity equality semantics.
+
+## List-Mode Target Compiler Baseline
+
+The target-compiler probe runs the configured reference target rather than a
+synthetic inspection index. It records cold and warm semantic, placement,
+layout, and artifact stages, along with their retained-memory cache snapshots:
+
+```console
+uv run python scripts/benchmark_list_mode_compiler.py \
+  --entries 4 \
+  --repetitions 16
+```
+
+It emits `scopecat.list_mode_compiler_benchmark.v1`. The acceptance test
+requires a complete cold compile, an artifact-level warm hit, every stage to
+remain within its byte budget, byte-pressure eviction before the entry limit,
+and an oversize artifact to bypass the cache instead of violating its memory
+bound:
+
+```console
+uv run pytest -q benchmarks/test_list_mode_compiler_benchmark.py
+```
+
+Stage byte accounting includes retained waveform buffers and explicit metadata
+allowances. It is a deterministic cache budget, not a claim to equal process
+RSS; the probe records `tracemalloc` retained and peak bytes separately.
 
 ## Scan Execution UX Baseline
 

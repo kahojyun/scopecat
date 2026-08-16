@@ -435,10 +435,19 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
     inspection_snapshot_id = inspection.content.program.snapshot_id
     assert inspection_snapshot_id == inspection.artifact_fingerprint
     inspection_facts = {fact.id: fact.value for fact in inspection.content.facts}
-    assert inspection_facts["compile_cache_artifact"] == "miss"
-    assert inspection_facts["compile_cache_semantic"] == "miss"
-    assert inspection_facts["compile_cache_placement"] == "miss"
-    assert inspection_facts["compile_cache_layout"] == "miss"
+    assert inspection_facts["compile_cache.artifact.outcome"] == "miss"
+    assert inspection_facts["compile_cache.semantic.outcome"] == "miss"
+    assert inspection_facts["compile_cache.placement.outcome"] == "miss"
+    assert inspection_facts["compile_cache.layout.outcome"] == "miss"
+    assert cast("float", inspection_facts["compile_seconds.artifact"]) >= 0
+    retained_bytes = cast(
+        "int", inspection_facts["compile_cache.artifact.retained_bytes"]
+    )
+    assert retained_bytes > 0
+    assert retained_bytes <= cast(
+        "int",
+        inspection_facts["compile_cache.artifact.max_retained_bytes"],
+    )
     assert inspection_facts["placement_provider_id"] == placement_provider.id
     assert inspection_facts["placement_provider_fingerprint"] == (
         placement_provider.fingerprint
@@ -478,8 +487,8 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
     selected_again_facts = {
         fact.id: fact.value for fact in selected_again_inspection.content.facts
     }
-    assert selected_again_facts["compile_cache_artifact"] == "hit"
-    assert selected_again_facts["compile_cache_semantic"] == "not_checked"
+    assert selected_again_facts["compile_cache.artifact.outcome"] == "hit"
+    assert selected_again_facts["compile_cache.semantic.outcome"] == "not_checked"
 
     queried = prepared.preview(
         point="last",

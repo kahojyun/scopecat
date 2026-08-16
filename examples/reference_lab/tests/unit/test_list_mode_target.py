@@ -72,6 +72,7 @@ from reference_lab.provider import ReferenceLabProvider
 from reference_lab.targets.list_mode import (
     ArtifactInspectionBounds,
     ListModeArtifact,
+    ListModeCompilationCachePolicy,
     ListModeDeviceSnapshot,
     ListModePlacementDecision,
     ListModeTarget,
@@ -625,6 +626,25 @@ def test_list_mode_compilation_key_caches_and_explains_batch_capacity() -> None:
     assert warm_trace.artifact_reused
     assert compiler.cache_info.artifact.hits == 1
     assert compiler.cache_info.artifact.size == 1
+    assert warm_trace.cache_info == compiler.cache_info
+    assert cold_trace.cache_info.artifact.hits == 0
+    assert all(
+        seconds >= 0
+        for seconds in (
+            cold_trace.semantic_seconds,
+            cold_trace.placement_seconds,
+            cold_trace.layout_seconds,
+            cold_trace.artifact_seconds,
+        )
+    )
+    for stage in (
+        compiler.cache_info.semantic,
+        compiler.cache_info.placement,
+        compiler.cache_info.layout,
+        compiler.cache_info.artifact,
+    ):
+        assert 0 < stage.retained_bytes <= stage.max_retained_bytes
+        assert stage.oversize_skips == 0
     same_artifact = ListModeTargetCompiler(compiler.id, target).compile(request)
     assert same_artifact.compilation_key == artifact.compilation_key
     assert same_artifact.artifact_fingerprint == artifact.artifact_fingerprint
@@ -723,6 +743,52 @@ def test_list_mode_intermediate_cache_survives_artifact_eviction() -> None:
     assert after.semantic.hits == before.semantic.hits + 1
     assert after.placement.hits == before.placement.hits + 1
     assert after.layout.hits == before.layout.hits + 1
+
+
+def test_list_mode_artifact_cache_evicts_by_retained_bytes() -> None:
+    scheduled, _slot = _calibrated_acquisition()
+    target = _target()
+    _default_compiler, request = _request(target, (scheduled,), repetitions=2)
+    probe = ListModeTargetCompiler(TargetCompilerId("cache-probe.v1"), target)
+    probe.compile(request)
+    artifact_bytes = probe.cache_info.artifact.retained_bytes
+    assert artifact_bytes > 1
+
+    policy = replace(
+        ListModeCompilationCachePolicy(),
+        artifact_max_bytes=artifact_bytes,
+    )
+    compiler = ListModeTargetCompiler(
+        TargetCompilerId("byte-bounded-cache.v1"),
+        target,
+        cache_policy=policy,
+    )
+    first = compiler.compile(request)
+    renamed_request = replace(
+        request,
+        entries=(replace(request.entries[0], id=TargetCompileEntryId("renamed")),),
+    )
+    compiler.compile(renamed_request)
+
+    bounded = compiler.cache_info.artifact
+    assert bounded.capacity > bounded.size == 1
+    assert bounded.retained_bytes == artifact_bytes
+    assert bounded.evictions == 1
+    assert compiler.compile(request).artifact_fingerprint == first.artifact_fingerprint
+    assert compiler.cache_info.artifact.evictions == 2
+
+    oversize = ListModeTargetCompiler(
+        TargetCompilerId("oversize-cache.v1"),
+        target,
+        cache_policy=replace(policy, artifact_max_bytes=artifact_bytes - 1),
+    )
+    oversize.compile(request)
+    oversize.compile(request)
+    skipped = oversize.cache_info.artifact
+    assert skipped.size == 0
+    assert skipped.retained_bytes == 0
+    assert skipped.misses == 2
+    assert skipped.oversize_skips == 2
 
 
 def test_list_mode_result_volume_can_limit_the_next_batch() -> None:

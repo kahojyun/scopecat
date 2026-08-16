@@ -133,17 +133,59 @@ def _inspect_list_mode_artifact_base(
                 ()
                 if compilation_trace is None
                 else (
-                    CompiledInspectionFact(
-                        "compile_cache_artifact", compilation_trace.artifact
-                    ),
-                    CompiledInspectionFact(
-                        "compile_cache_semantic", compilation_trace.semantic
-                    ),
-                    CompiledInspectionFact(
-                        "compile_cache_placement", compilation_trace.placement
-                    ),
-                    CompiledInspectionFact(
-                        "compile_cache_layout", compilation_trace.layout
+                    *(
+                        fact
+                        for stage_id, outcome, seconds, cache in (
+                            (
+                                "semantic",
+                                compilation_trace.semantic,
+                                compilation_trace.semantic_seconds,
+                                compilation_trace.cache_info.semantic,
+                            ),
+                            (
+                                "placement",
+                                compilation_trace.placement,
+                                compilation_trace.placement_seconds,
+                                compilation_trace.cache_info.placement,
+                            ),
+                            (
+                                "layout",
+                                compilation_trace.layout,
+                                compilation_trace.layout_seconds,
+                                compilation_trace.cache_info.layout,
+                            ),
+                            (
+                                "artifact",
+                                compilation_trace.artifact,
+                                compilation_trace.artifact_seconds,
+                                compilation_trace.cache_info.artifact,
+                            ),
+                        )
+                        for fact in (
+                            CompiledInspectionFact(
+                                f"compile_seconds.{stage_id}",
+                                seconds,
+                                unit="s",
+                            ),
+                            CompiledInspectionFact(
+                                f"compile_cache.{stage_id}.outcome",
+                                outcome,
+                            ),
+                            CompiledInspectionFact(
+                                f"compile_cache.{stage_id}.retained_bytes",
+                                cache.retained_bytes,
+                                unit="byte",
+                            ),
+                            CompiledInspectionFact(
+                                f"compile_cache.{stage_id}.max_retained_bytes",
+                                cache.max_retained_bytes,
+                                unit="byte",
+                            ),
+                            CompiledInspectionFact(
+                                f"compile_cache.{stage_id}.oversize_skips",
+                                cache.oversize_skips,
+                            ),
+                        )
                     ),
                 )
             ),
