@@ -52,9 +52,11 @@ from reference_lab.targets.configuration import (
     LIST_MODE_TARGET_KIND,
 )
 from reference_lab.targets.list_mode import (
+    ConfiguredRoutePlacementProvider,
     ListModeArtifact,
     ListModeCompilationTrace,
     ListModeDomainRuntime,
+    ListModePlacementProvider,
     ListModeRun,
     ListModeTarget,
     ListModeTargetCompiler,
@@ -130,13 +132,20 @@ class QuantumLabCompiler:
         *,
         target: ListModeTarget,
         runtime_selector: QuantumRuntimeSelector | None = None,
+        placement_provider: ListModePlacementProvider | None = None,
     ) -> None:
         self._target = target
         self._runtime = ListModeDomainRuntime()
         self._runtime_selector = runtime_selector
+        selected_placement_provider = (
+            ConfiguredRoutePlacementProvider()
+            if placement_provider is None
+            else placement_provider
+        )
         self._target_compiler = ListModeTargetCompiler(
             _QUANTUM_LAB_TARGET_COMPILER_ID,
             self._target,
+            placement_provider=selected_placement_provider,
         )
 
     @property

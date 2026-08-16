@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import assert_type, cast
 
@@ -39,7 +40,10 @@ from reference_lab.quantum_runner import (
     run_quantum,
 )
 from reference_lab.targets.list_mode import (
+    ConfiguredRoutePlacementProvider,
+    ListModeDeviceSnapshot,
     ListModeDomainRuntime,
+    ListModePlacementDecision,
     MappedListModeTarget,
     configured_list_mode_target,
     point_realization_fingerprint,
@@ -118,6 +122,27 @@ def _configured_target(
         describe=provider.describe,
     )
     return configured_list_mode_target(config, catalog)
+
+
+class _CompositionPlacementProvider:
+    id = "test.composition-placement.v1"
+    fingerprint = "sha256:test-composition-placement-v1"
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self._configured = ConfiguredRoutePlacementProvider()
+
+    def place(
+        self,
+        selected_signals: tuple[tuple[str, str, str], ...],
+        snapshot: ListModeDeviceSnapshot,
+    ) -> ListModePlacementDecision:
+        self.calls += 1
+        return replace(
+            self._configured.place(selected_signals, snapshot),
+            provider_id=self.id,
+            provider_fingerprint=self.fingerprint,
+        )
 
 
 def _with_dsp_policy(
@@ -377,12 +402,14 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
 ) -> None:
     config = bootstrap_config()
     provider = ReferenceLabProvider(seed=7)
+    placement_provider = _CompositionPlacementProvider()
     composition = compose_test_instruments(
         config=config,
         provider=provider,
         domain_compiler=QuantumLabCompiler(
             target=_configured_target(config, provider),
             runtime_selector=virtual_quantum_runtime,
+            placement_provider=placement_provider,
         ),
         payload_codecs=reference_lab_payload_codecs(),
     )
@@ -412,6 +439,11 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
     assert inspection_facts["compile_cache_semantic"] == "miss"
     assert inspection_facts["compile_cache_placement"] == "miss"
     assert inspection_facts["compile_cache_layout"] == "miss"
+    assert inspection_facts["placement_provider_id"] == placement_provider.id
+    assert inspection_facts["placement_provider_fingerprint"] == (
+        placement_provider.fingerprint
+    )
+    assert placement_provider.calls == 1
     assert tuple(layer.id for layer in inspection.content.program.layers) == (
         "authored",
         "logical",
