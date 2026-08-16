@@ -18,7 +18,8 @@ Benchmark results use three labels:
 - **stress**: a larger profile that reveals the next mechanism to evolve.
 
 Executable cases, their component/end-to-end/micro classification, and the
-single local CLI live in the [benchmark suite](../../benchmarks/README.md).
+single local CLI live in the
+[benchmark suite](https://github.com/scopecat-project/scopecat/blob/main/benchmarks/README.md).
 This document owns workload goals and scalability invariants rather than a
 second benchmark registry.
 
