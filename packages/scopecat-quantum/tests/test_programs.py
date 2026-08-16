@@ -166,6 +166,7 @@ def test_repeat_streams_every_expanded_unresolved_operation() -> None:
     expanded = tuple(verified.iter_expanded_unresolved_operations())
 
     assert workload.expanded_operation_count == 3
+    assert len(verified.operations) == 1
     assert len(expanded) == 3
 
 

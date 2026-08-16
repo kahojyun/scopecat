@@ -231,7 +231,7 @@ class VerifiedQuantumProgram:
             self.require_expansion_budget(max_expanded_operations)
         return (
             operation
-            for operation in iter_quantum_operations(self.program.body)
+            for operation in iter_expanded_quantum_operations(self.program.body)
             if isinstance(operation, GateCall | Measure)
         )
 
@@ -334,7 +334,7 @@ def iter_quantum_operations(node: QuantumNode) -> Iterator[QuantumOperation]:
         yield node
         return
     if isinstance(node, Repeat):
-        for _ in range(node.count):
+        if node.count:
             yield from iter_quantum_operations(node.operation)
         return
     if isinstance(node, ParallelEach):
@@ -346,6 +346,30 @@ def iter_quantum_operations(node: QuantumNode) -> Iterator[QuantumOperation]:
     children = node.operations if isinstance(node, Sequence) else node.branches
     for child in children:
         yield from iter_quantum_operations(child)
+
+
+def iter_expanded_quantum_operations(node: QuantumNode) -> Iterator[QuantumOperation]:
+    """Yield concrete leaves in deterministic occurrence order."""
+
+    if isinstance(
+        node,
+        GateCall | Measure | PulseBlock | ImplementedGate,
+    ):
+        yield node
+        return
+    if isinstance(node, Repeat):
+        for _ in range(node.count):
+            yield from iter_expanded_quantum_operations(node.operation)
+        return
+    if isinstance(node, ParallelEach):
+        for entity_id in node.entity_ids:
+            yield from iter_expanded_quantum_operations(
+                instantiate_parallel_each_operation(node, entity_id)
+            )
+        return
+    children = node.operations if isinstance(node, Sequence) else node.branches
+    for child in children:
+        yield from iter_expanded_quantum_operations(child)
 
 
 def instantiate_parallel_each_operation(
