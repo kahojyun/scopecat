@@ -5,6 +5,7 @@ from decimal import Decimal
 import pytest
 from scopecat import Quantity
 
+from scopecat_quantum import programs as program_module
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
     CircuitOperationId,
@@ -21,7 +22,9 @@ from scopecat_quantum.gates import GateCall, GateDefinition
 from scopecat_quantum.programs import (
     ImplementedGate,
     Parallel,
+    ParallelEach,
     PulseBlock,
+    QuantumProgramExpansionError,
     QuantumProgramIR,
     QuantumProgramVerificationError,
     Sequence,
@@ -78,6 +81,61 @@ def test_parallel_branches_must_have_disjoint_qubits() -> None:
         verify_quantum_program(source, (X90,))
 
     assert [issue.code for issue in error.value.issues] == ["parallel_qubit_conflict"]
+
+
+def test_parallel_each_verifies_template_before_budgeted_expansion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    item_id = QubitId("$qubit")
+    entity_ids = tuple(QubitId(f"q{index}") for index in range(1_000))
+    source = QuantumProgramIR(
+        id=QuantumProgramId("large-map"),
+        body=ParallelEach(
+            entity_set_id="qubits",
+            item_id=item_id,
+            entity_ids=entity_ids,
+            operation=GateCall(
+                id=CircuitOperationId("mapped-x90"),
+                gate_id=X90.id,
+                qubits=(item_id,),
+            ),
+        ),
+    )
+    calls = 0
+    instantiate = program_module.instantiate_parallel_each_operation
+
+    def record_instantiation(node: ParallelEach, entity_id: QubitId):
+        nonlocal calls
+        calls += 1
+        return instantiate(node, entity_id)
+
+    monkeypatch.setattr(
+        program_module,
+        "instantiate_parallel_each_operation",
+        record_instantiation,
+    )
+
+    verified = verify_quantum_program(source, (X90,))
+
+    assert calls == 0
+    assert len(verified.unresolved.operations) == 1
+    with pytest.raises(QuantumProgramExpansionError) as caught:
+        lower_quantum_program_to_pulses(
+            verified,
+            ResolvedPulseImplementations(),
+            output_id=PulseProgramId("large-map-pulses"),
+            max_expanded_operations=999,
+        )
+    assert caught.value.expanded_operation_count == 1_000
+    assert caught.value.limit == 999
+    assert calls == 0
+
+    expanded = verified.expand_unresolved(max_expanded_operations=1_000)
+
+    assert len(expanded.operations) == 1_000
+    assert calls == 1_000
+    assert verified.expand_unresolved(max_expanded_operations=1_000) is expanded
+    assert calls == 1_000
 
 
 def _gate_template(program_id: str = "x90-reference") -> PulseProgram:

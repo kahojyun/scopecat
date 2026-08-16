@@ -177,7 +177,12 @@ class QuantumLabCompiler:
         *,
         shots: int,
     ) -> _ListQuantumLabArtifact:
-        points = _compile_points(program, inputs, point_ordinals)
+        points = _compile_points(
+            program,
+            inputs,
+            point_ordinals,
+            max_expanded_operations=self._target.max_program_event_count,
+        )
         entries = tuple(
             prepare_quantum_target_entry(
                 TargetCompileEntryId(f"{program.id}.point-{point.values.ordinal}"),
@@ -187,6 +192,7 @@ class QuantumLabCompiler:
                     output_id=PulseProgramId(
                         f"{program.id}.point-{point.values.ordinal}.pulses"
                     ),
+                    max_expanded_operations=self._target.max_program_event_count,
                 ),
             )
             for point in points
@@ -351,6 +357,8 @@ def _compile_points(
     program: quantum.Program,
     inputs: DomainBatchInputs,
     point_ordinals: tuple[int, ...],
+    *,
+    max_expanded_operations: int,
 ) -> tuple[_CompiledQuantumPoint, ...]:
     program_inputs = inputs.program
     compiler_parameters = (
@@ -377,7 +385,9 @@ def _compile_points(
                 bound=bound,
                 implementations=QUANTUM_PULSE_PROFILE.materialize(
                     parameters,
-                    bound.verified.unresolved,
+                    bound.verified.expand_unresolved(
+                        max_expanded_operations=max_expanded_operations,
+                    ),
                 ),
             )
         )

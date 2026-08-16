@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterator
 from collections.abc import Sequence as SequenceCollection
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
@@ -177,17 +177,65 @@ class QuantumProgramVerificationError(ValueError):
         )
 
 
+class QuantumProgramExpansionError(ValueError):
+    """A retained program exceeds the concrete lowering budget."""
+
+    def __init__(self, *, expanded_operation_count: int, limit: int) -> None:
+        self.expanded_operation_count = expanded_operation_count
+        self.limit = limit
+        super().__init__(
+            "quantum program requires "
+            f"{expanded_operation_count} expanded operations; lowering budget "
+            f"is {limit}"
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class VerifiedQuantumProgram:
-    """Mixed source plus flat logical operations and its unresolved proof."""
+    """Mixed source plus template-level logical and unresolved proofs."""
 
     program: QuantumProgramIR
     logical_operations: tuple[GateCall | Measure, ...]
     unresolved: VerifiedCircuitOperations
+    _expanded_unresolved: VerifiedCircuitOperations | None = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def operations(self) -> tuple[QuantumOperation, ...]:
         return tuple(iter_quantum_operations(self.program.body))
+
+    def expand_unresolved(
+        self,
+        *,
+        max_expanded_operations: int | None = None,
+    ) -> VerifiedCircuitOperations:
+        """Materialize concrete logical leaves after a constant-memory preflight."""
+
+        workload = estimate_quantum_program_workload(self)
+        if (
+            max_expanded_operations is not None
+            and workload.expanded_operation_count > max_expanded_operations
+        ):
+            raise QuantumProgramExpansionError(
+                expanded_operation_count=workload.expanded_operation_count,
+                limit=max_expanded_operations,
+            )
+        expanded = self._expanded_unresolved
+        if expanded is None:
+            expanded = verify_circuit_operations(
+                tuple(
+                    operation
+                    for operation in iter_quantum_operations(self.program.body)
+                    if isinstance(operation, GateCall | Measure)
+                ),
+                self.unresolved.gate_definitions,
+            )
+            object.__setattr__(self, "_expanded_unresolved", expanded)
+        return expanded
 
 
 @dataclass(frozen=True, slots=True)
@@ -740,11 +788,10 @@ def _iter_operations_with_paths(
             )
         return
     if isinstance(node, ParallelEach):
-        for entity_id in node.entity_ids:
-            yield from _iter_operations_with_paths(
-                instantiate_parallel_each_operation(node, entity_id),
-                (*path, "entities", entity_id.value),
-            )
+        yield from _iter_operations_with_paths(
+            node.operation,
+            (*path, "operation"),
+        )
         return
     if node.count:
         yield from _iter_operations_with_paths(
@@ -807,16 +854,18 @@ def _verify_parallel_qubits(
             parallel_touched.update(branch)
         return parallel_touched
     if isinstance(node, ParallelEach):
-        branch_qubits = tuple(
-            _verify_parallel_qubits(
-                instantiate_parallel_each_operation(node, entity_id),
-                (*path, "entities", entity_id.value),
-                issues,
-            )
-            for entity_id in node.entity_ids
+        template_qubits = _verify_parallel_qubits(
+            node.operation,
+            (*path, "operation"),
+            issues,
         )
+        _verify_parallel_each_gate_substitutions(node, path, issues)
         owners: dict[QubitId, int] = {}
-        for right_index, right_qubits in enumerate(branch_qubits):
+        for right_index, entity_id in enumerate(node.entity_ids):
+            right_qubits = {
+                entity_id if qubit == node.item_id else qubit
+                for qubit in template_qubits
+            }
             for qubit in sorted(right_qubits, key=lambda item: item.value):
                 left_index = owners.get(qubit)
                 if left_index is not None:
@@ -846,6 +895,37 @@ def _verify_parallel_qubits(
     )
 
 
+def _verify_parallel_each_gate_substitutions(
+    node: ParallelEach,
+    path: tuple[QuantumIssuePathItem, ...],
+    issues: list[CircuitIssue],
+) -> None:
+    """Reject entity substitutions that collapse distinct gate operands."""
+
+    for operation, operation_path in _iter_operations_with_paths(
+        node.operation,
+        (*path, "operation"),
+    ):
+        call = operation.call if isinstance(operation, ImplementedGate) else operation
+        if not isinstance(call, GateCall) or node.item_id not in call.qubits:
+            continue
+        fixed_qubits = set(call.qubits) - {node.item_id}
+        for entity_id in node.entity_ids:
+            if entity_id not in fixed_qubits:
+                continue
+            issues.append(
+                CircuitIssue(
+                    code="circuit_gate_qubit_duplicate",
+                    message=(
+                        f"gate call {call.id.value!r} uses qubit "
+                        f"{entity_id.value!r} more than once after parallel_each "
+                        "substitution"
+                    ),
+                    path=(*operation_path, "entities", entity_id.value, "qubits"),
+                )
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class LoweredQuantumPulseProgram:
     """Canonical pulse program produced by quantum lowering."""
@@ -864,11 +944,14 @@ def lower_quantum_program_to_pulses(
     implementations: ResolvedPulseImplementations,
     *,
     output_id: PulseProgramId,
+    max_expanded_operations: int | None = None,
 ) -> LoweredQuantumPulseProgram:
-    """Resolve abstract leaves and lower one mixed program to pulse IR."""
+    """Resolve abstract leaves and lower one mixed program within its budget."""
 
     bindings = bind_pulse_implementations(
-        program.unresolved,
+        program.expand_unresolved(
+            max_expanded_operations=max_expanded_operations,
+        ),
         implementations,
     )
     acquisition_slots: list[AcquisitionSlot] = []
