@@ -17,6 +17,7 @@ from scopecat.inspection import (
     CompiledProgramInspection,
     CompiledProgramInspectionLayerIndex,
     CompiledProgramInspectionLink,
+    CompiledProgramInspectionLinkIndex,
     CompiledProgramInspectionNode,
     CompiledProgramInspectionNodeIndex,
     CompiledProgramInspectionQuery,
@@ -182,8 +183,7 @@ class ListModeArtifactInspectionSnapshot:
         CompiledProgramInspection,
     ]
     physical_layer: CompiledProgramInspectionLayerIndex
-    placements: tuple[ListModeEventPlacement, ...]
-    candidates: tuple[ListModePlacementCandidate, ...]
+    physical_lineage: CompiledProgramInspectionLinkIndex
     max_placement_nodes: int
 
     def project(
@@ -196,8 +196,7 @@ class ListModeArtifactInspectionSnapshot:
             program=_with_physical_placement_layer(
                 program,
                 physical_layer=self.physical_layer,
-                placements=self.placements,
-                candidates=self.candidates,
+                physical_lineage=self.physical_lineage,
                 max_nodes=self.max_placement_nodes,
             ),
         )
@@ -225,8 +224,10 @@ def build_list_mode_artifact_inspection_snapshot(
         ),
         program_projector=program_projector,
         physical_layer=physical_layer,
-        placements=placements,
-        candidates=artifact.placement.candidates,
+        physical_lineage=_physical_lineage_index(
+            placements,
+            artifact.placement.candidates,
+        ),
         max_placement_nodes=selected_bounds.max_placement_nodes,
     )
 
@@ -249,8 +250,10 @@ def inspect_list_mode_artifact(
         program=_with_physical_placement_layer(
             program,
             physical_layer=physical_layer,
-            placements=placements,
-            candidates=artifact.placement.candidates,
+            physical_lineage=_physical_lineage_index(
+                placements,
+                artifact.placement.candidates,
+            ),
             max_nodes=selected_bounds.max_placement_nodes,
         ),
     )
@@ -530,29 +533,37 @@ def _with_physical_placement_layer(
     program: CompiledProgramInspection,
     *,
     physical_layer: CompiledProgramInspectionLayerIndex,
-    placements: tuple[ListModeEventPlacement, ...],
-    candidates: tuple[ListModePlacementCandidate, ...],
+    physical_lineage: CompiledProgramInspectionLinkIndex,
     max_nodes: int,
 ) -> CompiledProgramInspection:
-    layer, selection = physical_layer.project(
+    layer, _selection = physical_layer.project(
         query=program.query,
         default_limit=max_nodes,
         snapshot_id=program.snapshot_id,
     )
-    placement_stop = 1 + len(placements)
-    candidate_stop = placement_stop + len(candidates)
-    selected_events = tuple(
-        placements[ordinal - 1]
-        for ordinal in selection.ordinals
-        if 1 <= ordinal < placement_stop
+    layers = (*program.layers, layer)
+    lineage = physical_lineage.project(layers, max_links=max_nodes)
+    return replace(
+        program,
+        layers=layers,
+        links=(*program.links, *lineage.links),
+        warnings=(
+            *program.warnings,
+            *(
+                ("physical lineage links exceeded the inspection response budget",)
+                if lineage.truncated
+                else ()
+            ),
+        ),
     )
-    selected_candidate_ids = {
-        candidates[ordinal - placement_stop].id
-        for ordinal in selection.ordinals
-        if placement_stop <= ordinal < candidate_stop
-    }
+
+
+def _physical_lineage_index(
+    placements: tuple[ListModeEventPlacement, ...],
+    candidates: tuple[ListModePlacementCandidate, ...],
+) -> CompiledProgramInspectionLinkIndex:
     candidate_by_id = {candidate.id: candidate for candidate in candidates}
-    placement_links = tuple(
+    placement_links = [
         CompiledProgramInspectionLink(
             source_layer_id="scheduled",
             source_node_id=f"scheduled:event:{event.event_id.value}",
@@ -560,9 +571,9 @@ def _with_physical_placement_layer(
             target_node_id=f"physical:event:{event.event_id.value}",
             relation="placed_on",
         )
-        for event in selected_events
-    )
-    candidate_links = tuple(
+        for event in placements
+    ]
+    candidate_links = [
         CompiledProgramInspectionLink(
             source_layer_id="physical",
             source_node_id=f"physical:event:{event.event_id.value}",
@@ -572,15 +583,13 @@ def _with_physical_placement_layer(
                 "selected_route" if candidate.status == "selected" else "rejected_route"
             ),
         )
-        for event in selected_events
+        for event in placements
         for candidate_id in event.candidate_ids
-        if candidate_id in selected_candidate_ids
+        if candidate_id in candidate_by_id
         for candidate in (candidate_by_id[candidate_id],)
-    )
-    return replace(
-        program,
-        layers=(*program.layers, layer),
-        links=(*program.links, *placement_links, *candidate_links),
+    ]
+    return CompiledProgramInspectionLinkIndex.from_links(
+        (*placement_links, *candidate_links)
     )
 
 

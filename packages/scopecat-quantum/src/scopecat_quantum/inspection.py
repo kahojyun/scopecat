@@ -11,6 +11,7 @@ from scopecat.inspection import (
     CompiledProgramInspectionLayer,
     CompiledProgramInspectionLayerIndex,
     CompiledProgramInspectionLink,
+    CompiledProgramInspectionLinkIndex,
     CompiledProgramInspectionNode,
     CompiledProgramInspectionNodeIndex,
     CompiledProgramInspectionQuery,
@@ -67,8 +68,7 @@ class QuantumProgramInspectionSnapshot:
     snapshot_id: str
     bounds: QuantumInspectionBounds
     layers: tuple[CompiledProgramInspectionLayerIndex, ...]
-    scheduled: ScheduledPulseProgram | None
-    logical_operation_nodes: tuple[tuple[str, str], ...]
+    lineage: CompiledProgramInspectionLinkIndex
 
     def project(
         self,
@@ -77,44 +77,29 @@ class QuantumProgramInspectionSnapshot:
         """Project one bounded response without rebuilding layer node sources."""
 
         projected_layers: list[CompiledProgramInspectionLayer] = []
-        links: list[CompiledProgramInspectionLink] = []
-        operation_nodes = dict(self.logical_operation_nodes)
         for layer_index in self.layers:
-            layer, selection = layer_index.project(
+            layer, _selection = layer_index.project(
                 query=query,
                 default_limit=self.bounds.max_nodes_per_layer,
                 snapshot_id=self.snapshot_id,
             )
             projected_layers.append(layer)
-            if layer_index.id != "scheduled" or self.scheduled is None:
-                continue
-            for ordinal in selection.ordinals:
-                if ordinal == 0:
-                    continue
-                event = self.scheduled.events[ordinal - 1]
-                source_operation_id = _source_operation_id(event)
-                source_node_id = (
-                    _logical_operation_node(source_operation_id, operation_nodes)
-                    if source_operation_id is not None
-                    else None
-                )
-                if source_node_id is not None:
-                    links.append(
-                        CompiledProgramInspectionLink(
-                            source_layer_id="logical",
-                            source_node_id=source_node_id,
-                            target_layer_id="scheduled",
-                            target_node_id=f"scheduled:event:{event.id.value}",
-                            relation="lowers_to",
-                        )
-                    )
+        lineage = self.lineage.project(
+            projected_layers,
+            max_links=self.bounds.max_nodes_per_layer,
+        )
         return CompiledProgramInspection(
             dialect_id=QUANTUM_PROGRAM_DIALECT_ID,
             program_id=self.program_id,
             snapshot_id=self.snapshot_id,
             layers=tuple(projected_layers),
-            links=tuple(links),
+            links=lineage.links,
             query=query,
+            warnings=(
+                ("lineage links were truncated to the inspection response budget",)
+                if lineage.truncated
+                else ()
+            ),
         )
 
 
@@ -137,14 +122,47 @@ def build_quantum_program_inspection_snapshot(
         layers.append(logical)
     if scheduled is not None:
         layers.append(_scheduled_layer_index(scheduled))
+    lineage = _quantum_lineage_index(
+        scheduled,
+        logical_operation_nodes=logical_operation_nodes,
+    )
     return QuantumProgramInspectionSnapshot(
         program_id=program.id,
         snapshot_id=selected_snapshot_id,
         bounds=selected_bounds,
         layers=tuple(layers),
-        scheduled=scheduled,
-        logical_operation_nodes=tuple(logical_operation_nodes.items()),
+        lineage=lineage,
     )
+
+
+def _quantum_lineage_index(
+    scheduled: ScheduledPulseProgram | None,
+    *,
+    logical_operation_nodes: dict[str, str],
+) -> CompiledProgramInspectionLinkIndex:
+    links: list[CompiledProgramInspectionLink] = []
+    if scheduled is not None:
+        for event in scheduled.events:
+            source_operation_id = _source_operation_id(event)
+            source_node_id = (
+                _logical_operation_node(
+                    source_operation_id,
+                    logical_operation_nodes,
+                )
+                if source_operation_id is not None
+                else None
+            )
+            if source_node_id is not None:
+                links.append(
+                    CompiledProgramInspectionLink(
+                        source_layer_id="logical",
+                        source_node_id=source_node_id,
+                        target_layer_id="scheduled",
+                        target_node_id=f"scheduled:event:{event.id.value}",
+                        relation="lowers_to",
+                    )
+                )
+    return CompiledProgramInspectionLinkIndex.from_links(links)
 
 
 def inspect_quantum_program(

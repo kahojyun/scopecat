@@ -119,6 +119,72 @@ class CompiledProgramInspectionLink:
 
 
 @dataclass(frozen=True, slots=True)
+class CompiledProgramInspectionLinkSelection:
+    """One bounded projection of links incident to returned layer nodes."""
+
+    links: tuple[CompiledProgramInspectionLink, ...]
+    truncated: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledProgramInspectionLinkIndex:
+    """Artifact-scoped adjacency index independent of projected layer pages."""
+
+    links_for_node: Callable[
+        [str, str],
+        Sequence[CompiledProgramInspectionLink],
+    ]
+
+    @classmethod
+    def from_links(
+        cls,
+        links: Sequence[CompiledProgramInspectionLink],
+    ) -> CompiledProgramInspectionLinkIndex:
+        by_node: dict[
+            tuple[str, str],
+            list[CompiledProgramInspectionLink],
+        ] = {}
+        for link in links:
+            by_node.setdefault(
+                (link.source_layer_id, link.source_node_id),
+                [],
+            ).append(link)
+            by_node.setdefault(
+                (link.target_layer_id, link.target_node_id),
+                [],
+            ).append(link)
+        retained = {key: tuple(values) for key, values in by_node.items()}
+        return cls(lambda layer_id, node_id: retained.get((layer_id, node_id), ()))
+
+    def project(
+        self,
+        layers: Sequence[CompiledProgramInspectionLayer],
+        *,
+        max_links: int,
+    ) -> CompiledProgramInspectionLinkSelection:
+        """Return unique incident links without requiring both endpoints in-page."""
+
+        selected: list[CompiledProgramInspectionLink] = []
+        seen: set[CompiledProgramInspectionLink] = set()
+        for layer in layers:
+            for node in layer.nodes:
+                for link in self.links_for_node(layer.id, node.id):
+                    if link in seen:
+                        continue
+                    if len(selected) == max_links:
+                        return CompiledProgramInspectionLinkSelection(
+                            links=tuple(selected),
+                            truncated=True,
+                        )
+                    seen.add(link)
+                    selected.append(link)
+        return CompiledProgramInspectionLinkSelection(
+            links=tuple(selected),
+            truncated=False,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class CompiledProgramInspection:
     """Structured multi-layer view of one bounded compiled program variant."""
 
@@ -551,6 +617,8 @@ __all__ = [
     "CompiledProgramInspectionLayer",
     "CompiledProgramInspectionLayerIndex",
     "CompiledProgramInspectionLink",
+    "CompiledProgramInspectionLinkIndex",
+    "CompiledProgramInspectionLinkSelection",
     "CompiledProgramInspectionNode",
     "CompiledProgramInspectionNodeIndex",
     "CompiledProgramInspectionNodeSelection",

@@ -472,6 +472,39 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
     assert queried_layers["scheduled"].page.returned_node_count == 1
     assert queried_layers["scheduled"].page.snapshot_id == inspection_snapshot_id
 
+    initial_program = inspection.content.program
+    logical_link = next(
+        link for link in initial_program.links if link.relation == "lowers_to"
+    )
+    placed_link = next(
+        link for link in initial_program.links if link.relation == "placed_on"
+    )
+    candidate_link = next(
+        link for link in initial_program.links if link.relation == "selected_route"
+    )
+    for layer_id, node_id, expected_link in (
+        (logical_link.source_layer_id, logical_link.source_node_id, logical_link),
+        (placed_link.source_layer_id, placed_link.source_node_id, placed_link),
+        (candidate_link.target_layer_id, candidate_link.target_node_id, candidate_link),
+    ):
+        exact = prepared.preview(
+            point="last",
+            inspection_query=CompiledProgramInspectionQuery(
+                layer_id=layer_id,
+                snapshot_id=inspection_snapshot_id,
+                node_id=node_id,
+                limit=1,
+            ),
+        )
+        [exact_inspection] = exact.domain_inspections
+        assert exact_inspection.content.program is not None
+        exact_program = exact_inspection.content.program
+        selected_layer = next(
+            layer for layer in exact_program.layers if layer.id == layer_id
+        )
+        assert [node.id for node in selected_layer.nodes] == [node_id]
+        assert expected_link in exact_program.links
+
     free = lab.prepare(invocation).preview(
         coordinates={
             "beta": sc.Quantity(0.137, "ns"),
