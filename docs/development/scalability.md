@@ -433,7 +433,7 @@ concrete artifact to size the following batch. Cartesian point rows, point
 parameter overlays, runtime point objects, and static value records are now
 random-access views evaluated for the current bounded coverage. Range and
 center/span axes retain compact evaluated sources through planning, catalog
-fingerprinting, and the v9 durable dataset schema. Explicit values axes still
+fingerprinting, and the durable dataset schema. Explicit values axes still
 remain proportional to their declared coordinate count, as their individual
 values are the source rather than generated points.
 
@@ -513,7 +513,10 @@ The present architecture provides a direct end-to-end baseline:
   plus binary measurement-array attachments, and target result blocks remain
   array-native through correlation. Large shot results are collected in bounded
   chunks with explicit shot offsets, then correlated into the original domain
-  and logical measurement axes. Immutable byte-backed arrays are adopted across
+  and logical measurement axes without joining their buffers. The logical
+  rectangular value retains those shot partitions through Arrow persistence and
+  GUI decoding; NumPy-oriented compute, trace, and interop boundaries
+  materialize it explicitly. Immutable byte-backed arrays are adopted across
   typed model and wire-decode boundaries rather than recopied;
 - admission uses the domain compiler's static instrument footprint and all
   structurally compatible local route candidates. Point-local routing narrows

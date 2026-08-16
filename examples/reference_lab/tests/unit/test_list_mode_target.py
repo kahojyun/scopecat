@@ -14,6 +14,7 @@ from scopecat.planning.provider_binding import resolve_instrument_contract_catal
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementArray,
+    MeasurementPartitionedArray,
 )
 from scopecat.sdk.instruments.execution import (
     RunHardwareBatch,
@@ -77,6 +78,7 @@ from reference_lab.targets.list_mode import (
     inspect_list_mode_artifact,
 )
 from reference_lab.targets.list_mode.circuit_runtime import (
+    realize_integrated_iq_chunks,
     realize_integrated_iq_value,
 )
 from reference_lab.targets.list_mode.device_execution import InstrumentListModeRuntime
@@ -117,6 +119,26 @@ def test_list_mode_logical_result_preserves_entity_by_shot_shape() -> None:
     assert value.values.shape == (2, 2)
     assert value.availability is not None
     assert value.availability.valid.tolist() == [[True, True], [True, False]]
+
+
+def test_list_mode_logical_result_preserves_shot_partitions() -> None:
+    value = realize_integrated_iq_chunks(
+        (
+            np.asarray([1 + 2j, 3 + 4j], dtype=np.complex128),
+            np.asarray([0j, 5 + 6j, 7 + 8j], dtype=np.complex128),
+        ),
+        (
+            np.asarray([True, True], dtype=np.bool_),
+            np.asarray([False, True, True], dtype=np.bool_),
+        ),
+    )
+
+    assert isinstance(value, MeasurementPartitionedArray)
+    assert value.axis == 0
+    assert [partition.shape for partition in value.partitions] == [(2,), (3,)]
+    assert value.shape == (5,)
+    assert value.availability is not None
+    assert value.availability.valid.tolist() == [True, True, False, True, True]
 
 
 class _RecordingInstrumentExecutor:

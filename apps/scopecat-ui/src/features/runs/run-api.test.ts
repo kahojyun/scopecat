@@ -18,7 +18,7 @@ import { requestPath } from "../../test/http";
 import type { ContentEntry } from "../../types";
 
 const liveMeasurementFixture = readFileSync(
-  new URL("./test-fixtures/measurement-append-v9.arrow", import.meta.url),
+  new URL("./test-fixtures/measurement-append-v10.arrow", import.meta.url),
 );
 
 afterEach(() => {
@@ -486,7 +486,7 @@ describe("run daemon reads", () => {
     await expect(getMeasurementLivePreview("run/1")).resolves.toMatchObject({
       active: true,
       latest: {
-        run_id: "run-arrow-v9",
+        run_id: "run-arrow-v10",
         logical_point_id: "point-7",
         point_index: 7,
       },
@@ -588,9 +588,9 @@ describe("run daemon reads", () => {
 
 function measurementSchema() {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v16" as const,
+    format_version: "scopecat.measurement_dataset_schema.v17" as const,
     dataset_id: "raw-measurements",
-    record_schema: "scopecat.measurement_record.v9" as const,
+    record_schema: "scopecat.measurement_record.v10" as const,
     point_domain: { kind: "product_grid" as const, axes: [] },
     dimensions: [{ id: "point", kind: "point", size: 1 }],
     variables: [],

@@ -10,6 +10,7 @@ from scopecat.measurements.results import (
     MeasurementAcquisitionValue,
     MeasurementArray,
     MeasurementArrayAvailability,
+    MeasurementPartitionedArray,
     MeasurementUnavailable,
 )
 from scopecat.sdk.domain import DomainResultValue
@@ -74,7 +75,7 @@ def realize_measurements(
         realized.append(
             DomainResultValue(
                 result.result_address,
-                _realize_integrated_iq_chunks(
+                realize_integrated_iq_chunks(
                     tuple(
                         chunk.values[row_selection]
                         for chunk in correlated_run.results.chunks
@@ -90,43 +91,53 @@ def realize_measurements(
     return tuple(realized)
 
 
-def _realize_integrated_iq_chunks(
+def realize_integrated_iq_chunks(
     value_chunks: tuple[NDArray[np.complex128], ...],
     availability_chunks: tuple[NDArray[np.bool_], ...],
 ) -> MeasurementAcquisitionValue:
-    values = (
-        value_chunks[0]
-        if len(value_chunks) == 1
-        else np.concatenate(value_chunks, axis=-1)
-    )
-    available = (
-        availability_chunks[0]
-        if len(availability_chunks) == 1
-        else np.concatenate(availability_chunks, axis=-1)
-    )
-    if not np.any(available):
+    if not any(np.any(available) for available in availability_chunks):
+        first_shape = value_chunks[0].shape
         return MeasurementUnavailable.create(
             dtype="complex128",
             unit=_RESPONSE_UNIT,
-            shape=values.shape,
+            shape=(
+                *first_shape[:-1],
+                sum(values.shape[-1] for values in value_chunks),
+            ),
             reason="missing",
             metadata={"source": "virtual-demodulator", "detail": "no lock"},
         )
-    if not np.all(available):
-        return MeasurementArray.create(
+    partitions = tuple(
+        MeasurementArray.create(
+            values=values,
             dtype="complex128",
             unit=_RESPONSE_UNIT,
-            values=values,
-            availability=MeasurementArrayAvailability.create(
-                valid=available,
-                reason="missing",
-                metadata={"source": "virtual-demodulator", "detail": "no lock"},
+            availability=(
+                None
+                if np.all(available)
+                else MeasurementArrayAvailability.create(
+                    valid=available,
+                    reason="missing",
+                    metadata={
+                        "source": "virtual-demodulator",
+                        "detail": "no lock",
+                    },
+                )
             ),
         )
-    return MeasurementArray.create(
+        for values, available in zip(
+            value_chunks,
+            availability_chunks,
+            strict=True,
+        )
+    )
+    if len(partitions) == 1:
+        return partitions[0]
+    return MeasurementPartitionedArray.create(
+        partitions=partitions,
+        axis=partitions[0].values.ndim - 1,
         dtype="complex128",
         unit=_RESPONSE_UNIT,
-        values=values,
     )
 
 
@@ -136,12 +147,13 @@ def realize_integrated_iq_value(
 ) -> MeasurementAcquisitionValue:
     """Realize one already contiguous value block."""
 
-    return _realize_integrated_iq_chunks((values,), (available,))
+    return realize_integrated_iq_chunks((values,), (available,))
 
 
 __all__ = [
     "CorrelatedListModeRun",
     "correlate_list_mode_run",
+    "realize_integrated_iq_chunks",
     "realize_integrated_iq_value",
     "realize_measurements",
 ]

@@ -105,12 +105,12 @@ events. Inspection reports both structural and expanded operation counts, the
 selected entity count, and maximum parallel width, so a GUI can show the compact
 intent before drilling into its concrete realization.
 
-Physical batch size and target placement do not enter logical point, program,
-or product identity. This lets an integration tune compilation, upload, and
-acquisition capacity while retaining the same measurement schema and durable
-lineage. Point-level aggregates belong in the canonical measurement stream;
-large shot-level or trace payloads should cross the data boundary as typed
-binary content rather than control-plane records.
+Physical batch size, shot partitioning, and target placement do not enter
+logical point, program, product, or measurement-record identity. This lets an
+integration tune compilation, upload, and acquisition capacity while retaining
+the same measurement schema and durable lineage. Point-level aggregates belong
+in the canonical measurement stream; large shot-level or trace payloads cross
+the data boundary as typed binary partitions rather than control-plane records.
 
 Large programs follow three deliberately separate shapes:
 

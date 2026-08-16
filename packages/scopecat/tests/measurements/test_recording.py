@@ -38,6 +38,7 @@ from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementEntityIndex,
+    MeasurementPartitionedArray,
     MeasurementPointCloudPointDomain,
     MeasurementRecord,
     MeasurementVariable,
@@ -197,6 +198,111 @@ def test_arrow_recording_round_trips_entity_arrays_with_partial_availability() -
     assert iq.availability.valid.tolist() == [[True, True], [False, True]]
 
 
+@pytest.mark.parametrize("shot_size", [5, None])
+def test_arrow_recording_preserves_shot_partitions(shot_size: int | None) -> None:
+    schema = MeasurementDatasetSchema(
+        dataset_id="raw-measurements",
+        point_domain=MeasurementPointCloudPointDomain(columns=()),
+        dimensions=(
+            MeasurementDimension(id="point", kind="point", size=1),
+            MeasurementDimension(id="channel", kind="channel", size=2),
+            MeasurementDimension(id="shot", kind="shot", size=shot_size),
+        ),
+        variables=(
+            MeasurementVariable(
+                id="iq",
+                role="observable",
+                dtype="complex128",
+                unit="ratio",
+                dims=("point", "channel", "shot"),
+            ),
+        ),
+        primary_observables=("iq",),
+    )
+    chunks = (
+        MeasurementArray.create(
+            values=[[1 + 1j, 2 + 2j], [6 + 6j, 7 + 7j]],
+            dtype="complex128",
+            unit="ratio",
+        ),
+        MeasurementArray.create(
+            values=[[3 + 3j, 0j, 5 + 5j], [8 + 8j, 9 + 9j, 10 + 10j]],
+            dtype="complex128",
+            unit="ratio",
+            availability=MeasurementArrayAvailability.create(
+                valid=[[True, False, True], [True, True, True]],
+                metadata={"chunk": 1},
+            ),
+        ),
+    )
+    partitioned = MeasurementPartitionedArray.create(
+        partitions=chunks,
+        axis=1,
+        dtype="complex128",
+        unit="ratio",
+    )
+    record = MeasurementRecord(
+        run_id="partitioned-run",
+        point_index=0,
+        coordinates={},
+        observables={"iq": partitioned},
+    )
+    append = MeasurementDatasetAppend(
+        run_id="partitioned-run",
+        header_content_hash="sha256:header",
+        start_index=0,
+        records=(record,),
+    )
+
+    restored = decode_measurement_append(
+        encode_measurement_append(append, schema),
+        schema,
+    )
+
+    assert restored == append
+    iq = restored.records[0].observables["iq"]
+    assert isinstance(iq, MeasurementPartitionedArray)
+    assert [partition.shape for partition in iq.partitions] == [(2, 2), (2, 3)]
+    assert iq.values.tolist() == [
+        [1 + 1j, 2 + 2j, 3 + 3j, 0j, 5 + 5j],
+        [6 + 6j, 7 + 7j, 8 + 8j, 9 + 9j, 10 + 10j],
+    ]
+    assert iq.availability is not None
+    assert iq.availability.valid.tolist() == [
+        [True, True, True, False, True],
+        [True, True, True, True, True],
+    ]
+
+
+def test_measurement_record_identity_is_independent_of_array_partitions() -> None:
+    dense = MeasurementArray.create(
+        values=[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+        dtype="float64",
+    )
+    partitioned = MeasurementPartitionedArray.create(
+        partitions=(
+            MeasurementArray.create(values=[[1.0], [4.0]], dtype="float64"),
+            MeasurementArray.create(values=[[2.0, 3.0], [5.0, 6.0]], dtype="float64"),
+        ),
+        axis=1,
+        dtype="float64",
+    )
+
+    def record(
+        value: MeasurementArray | MeasurementPartitionedArray,
+    ) -> MeasurementRecord:
+        return MeasurementRecord(
+            run_id="partition-neutral",
+            point_index=0,
+            coordinates={},
+            observables={"signal": value},
+        )
+
+    assert measurement_record_content_hash(record(dense)) == (
+        measurement_record_content_hash(record(partitioned))
+    )
+
+
 def test_ui_arrow_fixture_is_generated_by_the_current_python_codec() -> None:
     content = ui_measurement_arrow_fixture()
     fixture = (
@@ -207,7 +313,7 @@ def test_ui_arrow_fixture_is_generated_by_the_current_python_codec() -> None:
         / "features"
         / "runs"
         / "test-fixtures"
-        / "measurement-append-v9.arrow"
+        / "measurement-append-v10.arrow"
     )
 
     restored = decode_measurement_append(

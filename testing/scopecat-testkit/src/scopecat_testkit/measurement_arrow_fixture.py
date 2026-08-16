@@ -17,6 +17,7 @@ from scopecat.records.measurement import (
     MeasurementEntityAcquisition,
     MeasurementEntityIndex,
     MeasurementEntityProductSource,
+    MeasurementPartitionedArray,
     MeasurementPointCloudPointDomain,
     MeasurementRecord,
     MeasurementScalar,
@@ -30,7 +31,7 @@ from scopecat.records.measurement_recording import MeasurementDatasetAppend
 def ui_measurement_arrow_fixture() -> bytes:
     """Encode one representative live record with the production codec."""
 
-    run_id = "run-arrow-v9"
+    run_id = "run-arrow-v10"
     event = InstrumentAcquisitionEvidence(
         command_id="collect-readout",
         instrument_id="scope",
@@ -54,14 +55,26 @@ def ui_measurement_arrow_fixture() -> bytes:
             )
         },
         observables={
-            "trace": MeasurementArray.create(
+            "trace": MeasurementPartitionedArray.create(
                 dtype="float64",
                 unit="V",
-                values=[1.5, 0.0],
-                availability=MeasurementArrayAvailability.create(
-                    valid=[True, False],
-                    reason="invalid",
-                    metadata={"sample": 1},
+                axis=0,
+                partitions=(
+                    MeasurementArray.create(
+                        dtype="float64",
+                        unit="V",
+                        values=[1.5],
+                    ),
+                    MeasurementArray.create(
+                        dtype="float64",
+                        unit="V",
+                        values=[0.0],
+                        availability=MeasurementArrayAvailability.create(
+                            valid=[False],
+                            reason="invalid",
+                            metadata={"sample": 1},
+                        ),
+                    ),
                 ),
                 metadata={"channel": 1},
             ),
@@ -111,7 +124,7 @@ def ui_measurement_arrow_fixture() -> bytes:
                 ),
             }
         ),
-        metadata={"note": "Python Arrow v9 fixture"},
+        metadata={"note": "Python Arrow v10 fixture"},
     )
     append = MeasurementDatasetAppend(
         run_id=run_id,

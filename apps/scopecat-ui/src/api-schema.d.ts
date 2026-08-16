@@ -2724,7 +2724,7 @@ export interface components {
         MeasurementAcquisitionEvidenceRefs: {
             [key: string]: number;
         };
-        MeasurementAcquisitionValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementUnavailable"];
+        MeasurementAcquisitionValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementPartitionedArray"] | components["schemas"]["MeasurementUnavailable"];
         /**
          * MeasurementArray
          * @description One rectangular typed array backed by an immutable NumPy buffer.
@@ -2798,10 +2798,10 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension-Output"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v16
+             * @default scopecat.measurement_dataset_schema.v17
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v16";
+            format_version: "scopecat.measurement_dataset_schema.v17";
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
             point_domain: components["schemas"]["MeasurementPointDomain-Output"];
             /** Primary Coordinates */
@@ -2810,10 +2810,10 @@ export interface components {
             primary_observables?: string[];
             /**
              * Record Schema
-             * @default scopecat.measurement_record.v9
+             * @default scopecat.measurement_record.v10
              * @constant
              */
-            record_schema: "scopecat.measurement_record.v9";
+            record_schema: "scopecat.measurement_record.v10";
             result?: components["schemas"]["MeasurementResultContract"] | null;
             /** Variable Groups */
             variable_groups?: components["schemas"]["MeasurementVariableGroup-Output"][];
@@ -2884,6 +2884,30 @@ export interface components {
         };
         "MeasurementMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
+        };
+        /**
+         * MeasurementPartitionedArray
+         * @description One logical rectangular array retained as contiguous axis partitions.
+         *
+         *     Partitions are a physical transport and storage choice. ``shape``, dtype,
+         *     unit, metadata, and availability remain the logical measurement contract;
+         *     consumers that need a single NumPy buffer may call ``materialize()``.
+         */
+        MeasurementPartitionedArray: {
+            /** Axis */
+            axis: number;
+            /** @default float64 */
+            dtype: components["schemas"]["MeasurementDType"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "partitioned_array";
+            metadata?: components["schemas"]["MeasurementMetadata-Output"];
+            /** Partitions */
+            partitions: components["schemas"]["MeasurementArray"][];
+            /** Unit */
+            unit?: string | null;
         };
         /**
          * MeasurementPointCloudPointDomain
@@ -3278,7 +3302,7 @@ export interface components {
             /** Unit */
             unit: string | null;
         };
-        MeasurementValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementSegmentedArray"] | components["schemas"]["MeasurementUnavailable"];
+        MeasurementValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementPartitionedArray"] | components["schemas"]["MeasurementSegmentedArray"] | components["schemas"]["MeasurementUnavailable"];
         MeasurementValueMap: {
             [key: string]: components["schemas"]["MeasurementValue"];
         };

@@ -128,6 +128,7 @@ from scopecat.program.values import (
 from scopecat.program.values import compute as define_compute
 from scopecat.records.measurement import (
     MeasurementArray,
+    MeasurementPartitionedArray,
     MeasurementScalar,
     MeasurementValue,
 )
@@ -325,7 +326,7 @@ def _measurement_compute_output_spec(
 
 
 def _native_measurement_value(value: MeasurementValue) -> object:
-    if isinstance(value, MeasurementArray):
+    if isinstance(value, MeasurementArray | MeasurementPartitionedArray):
         return value.values
     if isinstance(value, MeasurementScalar):
         return value.value

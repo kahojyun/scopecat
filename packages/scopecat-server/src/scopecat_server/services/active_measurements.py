@@ -6,7 +6,11 @@ from dataclasses import dataclass, field
 from threading import Lock
 
 from scopecat.daemon.views import MeasurementLivePreview
-from scopecat.records.measurement import MeasurementArray, MeasurementRecord
+from scopecat.records.measurement import (
+    MeasurementArray,
+    MeasurementPartitionedArray,
+    MeasurementRecord,
+)
 from scopecat.records.measurement_recording import (
     MeasurementDatasetBatch,
     MeasurementDatasetHeader,
@@ -189,10 +193,14 @@ class ActiveMeasurementStore:
 
 def _measurement_record_value_bytes(record: MeasurementRecord) -> int:
     return sum(
-        value.values.nbytes
+        (
+            value.values.nbytes
+            if isinstance(value, MeasurementArray)
+            else value.value_nbytes
+        )
         for values in (record.coordinates, record.observables)
         for value in values.values()
-        if isinstance(value, MeasurementArray)
+        if isinstance(value, MeasurementArray | MeasurementPartitionedArray)
     )
 
 

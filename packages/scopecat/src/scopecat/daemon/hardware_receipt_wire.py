@@ -21,6 +21,7 @@ from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementAcquisitionValue,
     MeasurementArray,
+    MeasurementPartitionedArray,
     MeasurementScalar,
     MeasurementUnavailable,
 )
@@ -210,6 +211,8 @@ def _encode_value(
     value: MeasurementAcquisitionValue,
     attachments: list[EncodedMeasurementArray],
 ) -> _WireValue:
+    if isinstance(value, MeasurementPartitionedArray):
+        value = value.materialize()
     if not isinstance(value, MeasurementArray):
         return value
     try:

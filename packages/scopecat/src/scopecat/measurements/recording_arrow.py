@@ -25,6 +25,7 @@ from scopecat.records.measurement import (
     MeasurementArrayAvailability,
     MeasurementArrayUnavailableGroup,
     MeasurementDatasetSchema,
+    MeasurementPartitionedArray,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementScalarData,
@@ -37,7 +38,7 @@ from scopecat.records.measurement import (
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.metadata import JsonMetadata, validate_json_metadata
 
-MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v9"
+MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v10"
 
 _FORMAT_KEY = b"scopecat.format"
 _RUN_ID_KEY = b"scopecat.run_id"
@@ -425,7 +426,10 @@ def _validate_value_contract(
     actual_shape: tuple[int | None, ...]
     if isinstance(
         value,
-        MeasurementArray | MeasurementSegmentedArray | MeasurementUnavailable,
+        MeasurementArray
+        | MeasurementPartitionedArray
+        | MeasurementSegmentedArray
+        | MeasurementUnavailable,
     ):
         actual_shape = tuple(value.shape)
     else:
@@ -469,6 +473,16 @@ def _encoded_shape(
                 )
             }
         )
+    if isinstance(value, MeasurementPartitionedArray):
+        return _encode_json(
+            {
+                "shape": value.shape,
+                "partition_axis": value.axis,
+                "partition_sizes": tuple(
+                    partition.shape[value.axis] for partition in value.partitions
+                ),
+            }
+        )
     if isinstance(value, MeasurementArray) and any(
         dimension_sizes[dimension_id] is None for dimension_id in variable.dims[1:]
     ):
@@ -503,6 +517,31 @@ def _encode_availability(value: MeasurementValue) -> bytes:
                     )
                     for segment in value.segments
                 )
+            }
+        )
+    if isinstance(value, MeasurementPartitionedArray):
+        logical_availability = value.availability
+        return _encode_json(
+            {
+                "unavailable": tuple(
+                    group.model_dump(mode="json")
+                    for group in (
+                        ()
+                        if logical_availability is None
+                        else logical_availability.unavailable
+                    )
+                ),
+                "partitions": tuple(
+                    tuple(
+                        group.model_dump(mode="json")
+                        for group in (
+                            ()
+                            if partition.availability is None
+                            else partition.availability.unavailable
+                        )
+                    )
+                    for partition in value.partitions
+                ),
             }
         )
     if not isinstance(value, MeasurementArray) or value.availability is None:
@@ -758,11 +797,21 @@ def _decode_value(
             variable=variable,
             metadata=metadata,
         )
-    shape = _decoded_array_shape(
-        encoded_shape,
-        variable=variable,
-        dataset_schema=dataset_schema,
-    )
+    partition_spec = _decode_partition_spec(encoded_shape)
+    if partition_spec is not None:
+        partition_axis, partition_sizes, partition_shape = partition_spec
+        _validate_explicit_array_shape(
+            partition_shape,
+            variable=variable,
+            dataset_schema=dataset_schema,
+        )
+        shape = partition_shape
+    else:
+        shape = _decoded_array_shape(
+            encoded_shape,
+            variable=variable,
+            dataset_schema=dataset_schema,
+        )
     array, valid = _decode_array_values(encoded_value, dtype=variable.dtype)
     array = array.reshape(shape)
     valid = valid.reshape(shape)
@@ -777,11 +826,50 @@ def _decode_value(
                 "measurement Arrow partial value diagnostics are missing"
             )
         availability = None
-    return MeasurementArray.create(
+    dense = MeasurementArray.create(
         values=array,
         dtype=variable.dtype,
         unit=variable.unit,
         availability=availability,
+        metadata=metadata,
+    )
+    if partition_spec is None:
+        return dense
+    partition_axis, partition_sizes, _partition_shape = partition_spec
+    diagnostics = _decode_partition_availability(
+        encoded_availability,
+        partition_count=len(partition_sizes),
+    )
+    partitions: list[MeasurementArray] = []
+    start = 0
+    for size, unavailable in zip(partition_sizes, diagnostics, strict=True):
+        selection = [slice(None)] * len(shape)
+        selection[partition_axis] = slice(start, start + size)
+        selected = tuple(selection)
+        partition_values = array[selected]
+        partition_valid = valid[selected]
+        partition_availability = (
+            None
+            if bool(np.all(partition_valid))
+            else MeasurementArrayAvailability(
+                valid=partition_valid,
+                unavailable=unavailable,
+            )
+        )
+        partitions.append(
+            MeasurementArray.create(
+                values=partition_values,
+                dtype=variable.dtype,
+                unit=variable.unit,
+                availability=partition_availability,
+            )
+        )
+        start += size
+    return MeasurementPartitionedArray.create(
+        partitions=partitions,
+        axis=partition_axis,
+        dtype=variable.dtype,
+        unit=variable.unit,
         metadata=metadata,
     )
 
@@ -830,6 +918,64 @@ def _decode_segment_shape_specs(
                 "measurement Arrow segmented shape sidecar is invalid"
             )
         selected.append(tuple(cast("list[int | None]", raw_shape)))
+    return tuple(selected)
+
+
+def _decode_partition_spec(
+    encoded_shape: object,
+) -> tuple[int, tuple[int, ...], tuple[int, ...]] | None:
+    if not isinstance(encoded_shape, bytes):
+        return None
+    decoded = _decode_json(encoded_shape)
+    raw_axis = decoded.get("partition_axis")
+    raw_sizes = decoded.get("partition_sizes")
+    if raw_axis is None and raw_sizes is None:
+        return None
+    raw_shape = decoded.get("shape")
+    if (
+        not isinstance(raw_axis, int)
+        or not isinstance(raw_sizes, list)
+        or not raw_sizes
+        or any(not isinstance(size, int) or size <= 0 for size in raw_sizes)
+        or not isinstance(raw_shape, list)
+        or any(not isinstance(extent, int) or extent < 0 for extent in raw_shape)
+        or raw_axis < 0
+        or raw_axis >= len(raw_shape)
+        or sum(cast("list[int]", raw_sizes)) != raw_shape[raw_axis]
+    ):
+        raise MeasurementArrowCodecError(
+            "measurement Arrow partition shape sidecar is invalid"
+        )
+    return (
+        raw_axis,
+        tuple(cast("list[int]", raw_sizes)),
+        tuple(cast("list[int]", raw_shape)),
+    )
+
+
+def _decode_partition_availability(
+    encoded_availability: object,
+    *,
+    partition_count: int,
+) -> tuple[tuple[MeasurementArrayUnavailableGroup, ...], ...]:
+    decoded = _decode_json(encoded_availability)
+    raw_partitions = decoded.get("partitions")
+    if not isinstance(raw_partitions, list) or len(raw_partitions) != partition_count:
+        raise MeasurementArrowCodecError(
+            "measurement Arrow partition diagnostics are invalid"
+        )
+    selected: list[tuple[MeasurementArrayUnavailableGroup, ...]] = []
+    for raw_groups in raw_partitions:
+        if not isinstance(raw_groups, list):
+            raise MeasurementArrowCodecError(
+                "measurement Arrow partition diagnostics are invalid"
+            )
+        selected.append(
+            tuple(
+                MeasurementArrayUnavailableGroup.model_validate(group)
+                for group in raw_groups
+            )
+        )
     return tuple(selected)
 
 
@@ -1002,6 +1148,27 @@ def _decoded_array_shape(
             "measurement Arrow fixed value has an unexpected shape sidecar"
         )
     return tuple(cast("int", extent) for extent in expected)
+
+
+def _validate_explicit_array_shape(
+    shape: tuple[int, ...],
+    *,
+    variable: MeasurementVariable,
+    dataset_schema: MeasurementDatasetSchema,
+) -> None:
+    dimension_sizes = {
+        dimension.id: dimension.size for dimension in dataset_schema.dimensions
+    }
+    expected = tuple(
+        dimension_sizes[dimension_id] for dimension_id in variable.dims[1:]
+    )
+    if len(shape) != len(expected) or any(
+        declared is not None and declared != actual
+        for declared, actual in zip(expected, shape, strict=True)
+    ):
+        raise MeasurementArrowCodecError(
+            "measurement Arrow partition shape does not match its schema"
+        )
 
 
 def _decode_arrow_scalar(value: object, *, dtype: MeasurementDType) -> object:

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
-from typing import Literal, Self, override
+from typing import Literal, Self, cast, override
 
+import numpy as np
+from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from scopecat.kernel.content_identity import (
@@ -12,7 +15,14 @@ from scopecat.kernel.content_identity import (
     model_wire_content_hash,
     stable_content_hash,
 )
-from scopecat.records.measurement import MeasurementDatasetSchema, MeasurementRecord
+from scopecat.records.measurement import (
+    MeasurementArray,
+    MeasurementDatasetSchema,
+    MeasurementPartitionedArray,
+    MeasurementRecord,
+    MeasurementSegmentedArray,
+    MeasurementValue,
+)
 
 type _MeasurementDatasetRef = Literal["data/measurement_dataset/raw-measurements"]
 CANONICAL_MEASUREMENT_DATASET_REF: _MeasurementDatasetRef = (
@@ -252,10 +262,82 @@ def measurement_record_content_hash(record: MeasurementRecord) -> str:
 
     return stable_content_hash(
         {
-            "schema": "scopecat.measurement_record_content.v1",
-            "record": content_fingerprint(record),
+            "schema": "scopecat.measurement_record_content.v2",
+            "record": content_fingerprint(
+                {
+                    "run_id": record.run_id,
+                    "logical_point_id": record.logical_point_id,
+                    "point_index": record.point_index,
+                    "coordinates": {
+                        key: _measurement_value_content_identity(value)
+                        for key, value in record.coordinates.items()
+                    },
+                    "observables": {
+                        key: _measurement_value_content_identity(value)
+                        for key, value in record.observables.items()
+                    },
+                    "acquisition_evidence": record.acquisition_evidence,
+                    "metadata": record.metadata,
+                }
+            ),
         }
     )
+
+
+def _measurement_value_content_identity(value: MeasurementValue) -> object:
+    if isinstance(value, MeasurementArray | MeasurementPartitionedArray):
+        return _rectangular_array_content_identity(value)
+    if isinstance(value, MeasurementSegmentedArray):
+        return {
+            "kind": value.kind,
+            "dtype": value.dtype,
+            "unit": value.unit,
+            "segments": tuple(
+                _measurement_value_content_identity(segment)
+                for segment in value.segments
+            ),
+            "metadata": value.metadata,
+        }
+    return value
+
+
+def _rectangular_array_content_identity(
+    value: MeasurementArray | MeasurementPartitionedArray,
+) -> object:
+    availability = value.availability
+    return {
+        "kind": "rectangular_array",
+        "dtype": value.dtype,
+        "unit": value.unit,
+        "shape": value.shape,
+        "values_sha256": _rectangular_array_sha256(value),
+        "availability": (
+            None
+            if availability is None
+            else {
+                "valid_sha256": hashlib.sha256(
+                    memoryview(availability.valid).cast("B")
+                ).hexdigest(),
+                "unavailable": availability.unavailable,
+            }
+        ),
+        "metadata": value.metadata,
+    }
+
+
+def _rectangular_array_sha256(
+    value: MeasurementArray | MeasurementPartitionedArray,
+) -> str:
+    if isinstance(value, MeasurementArray):
+        return hashlib.sha256(memoryview(value.values).cast("B")).hexdigest()
+    digest = hashlib.sha256()
+    prefix_shape = value.shape[: value.axis]
+    prefixes = np.ndindex(prefix_shape) if prefix_shape else ((),)
+    for prefix in prefixes:
+        for partition in value.partitions:
+            selected = cast("NDArray[np.generic]", partition.values[prefix])
+            digest.update(memoryview(selected).cast("B"))
+    return digest.hexdigest()
 
 
 __all__ = [

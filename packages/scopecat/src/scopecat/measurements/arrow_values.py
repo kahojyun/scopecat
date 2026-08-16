@@ -16,6 +16,7 @@ from numpy.typing import NDArray
 from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import (
     MeasurementArray,
+    MeasurementPartitionedArray,
     MeasurementScalar,
     MeasurementSegmentedArray,
     MeasurementUnavailable,
@@ -148,7 +149,7 @@ def _encode_scalar_column(
 
 
 def _encode_array_row(
-    value: MeasurementArray | MeasurementSegmentedArray,
+    value: MeasurementArray | MeasurementPartitionedArray | MeasurementSegmentedArray,
     *,
     dtype: MeasurementDType,
     expected_shape: tuple[int | None, ...],
@@ -169,10 +170,61 @@ def _encode_array_row(
         for expected, actual in zip(expected_shape, shape, strict=True)
     ):
         return pa.array([_empty_array_tree(shape)], type=value_type)
-    selected = value.values.reshape(-1)
-    invalid = (
-        None if value.availability is None else ~value.availability.valid.reshape(-1)
+    encoded = (
+        _encode_partitioned_array_leaves(value, dtype=dtype)
+        if isinstance(value, MeasurementPartitionedArray)
+        else _encode_array_leaves(
+            value.values.reshape(-1),
+            valid=(
+                None
+                if value.availability is None
+                else value.availability.valid.reshape(-1)
+            ),
+            dtype=dtype,
+        )
     )
+    return _wrap_array_row(
+        encoded,
+        shape=shape,
+        expected_shape=expected_shape,
+        value_type=value_type,
+        item_nullable=item_nullable,
+    )
+
+
+def _encode_partitioned_array_leaves(
+    value: MeasurementPartitionedArray,
+    *,
+    dtype: MeasurementDType,
+) -> pa.Array:
+    encoded_parts: list[pa.Array] = []
+    prefix_shape = value.shape[: value.axis]
+    prefixes = np.ndindex(prefix_shape) if prefix_shape else ((),)
+    for prefix in prefixes:
+        for partition in value.partitions:
+            selected = partition.values[prefix].reshape(-1)
+            valid = (
+                None
+                if partition.availability is None
+                else partition.availability.valid[prefix].reshape(-1)
+            )
+            encoded_parts.append(
+                _encode_array_leaves(selected, valid=valid, dtype=dtype)
+            )
+    if not encoded_parts:
+        return pa.array([], type=measurement_arrow_scalar_type(dtype))
+    if len(encoded_parts) == 1:
+        return encoded_parts[0]
+    return pa.concat_arrays(encoded_parts)
+
+
+def _encode_array_leaves(
+    selected: NDArray[np.generic],
+    *,
+    valid: NDArray[np.bool_] | None,
+    dtype: MeasurementDType,
+) -> pa.Array:
+    invalid = None if valid is None else ~valid
     if dtype == "complex128":
         complex_values = cast(
             "np.ndarray[tuple[int], np.dtype[np.complex128]]",
@@ -192,6 +244,17 @@ def _encode_array_row(
             mask=invalid,
             type=measurement_arrow_scalar_type(dtype),
         )
+    return encoded
+
+
+def _wrap_array_row(
+    encoded: pa.Array,
+    *,
+    shape: tuple[int, ...],
+    expected_shape: tuple[int | None, ...],
+    value_type: pa.DataType,
+    item_nullable: bool,
+) -> pa.Array:
     for index in reversed(range(len(shape))):
         expected_extent = expected_shape[index]
         actual_extent = shape[index]
@@ -270,8 +333,11 @@ def _require_scalar(value: MeasurementValue) -> MeasurementScalar:
 
 def _require_array(
     value: MeasurementValue,
-) -> MeasurementArray | MeasurementSegmentedArray:
-    if not isinstance(value, MeasurementArray | MeasurementSegmentedArray):
+) -> MeasurementArray | MeasurementPartitionedArray | MeasurementSegmentedArray:
+    if not isinstance(
+        value,
+        MeasurementArray | MeasurementPartitionedArray | MeasurementSegmentedArray,
+    ):
         raise ValueError("measurement Arrow array column requires array values")
     return value
 

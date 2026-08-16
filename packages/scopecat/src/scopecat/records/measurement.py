@@ -59,8 +59,8 @@ from scopecat.records.measurement_array_schema import (
 )
 from scopecat.records.metadata import MeasurementMetadata
 
-MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v9"
-MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v16"
+MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v10"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v17"
 
 MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
 _MEASUREMENT_ARRAY_CREATE_CONTEXT = object()
@@ -466,11 +466,11 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    format_version: Literal["scopecat.measurement_dataset_schema.v16"] = (
+    format_version: Literal["scopecat.measurement_dataset_schema.v17"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str = Field(min_length=1)
-    record_schema: Literal["scopecat.measurement_record.v9"] = (
+    record_schema: Literal["scopecat.measurement_record.v10"] = (
         MEASUREMENT_RECORD_SCHEMA_VERSION
     )
     point_domain: MeasurementPointDomain
@@ -1102,6 +1102,194 @@ class MeasurementArray(_FrozenMeasurementModel):
         )
 
 
+class MeasurementPartitionedArray(_FrozenMeasurementModel):
+    """One logical rectangular array retained as contiguous axis partitions.
+
+    Partitions are a physical transport and storage choice. ``shape``, dtype,
+    unit, metadata, and availability remain the logical measurement contract;
+    consumers that need a single NumPy buffer may call ``materialize()``.
+    """
+
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="forbid",
+        frozen=True,
+    )
+
+    kind: Literal["partitioned_array"]
+    dtype: MeasurementDType = "float64"
+    unit: str | None = None
+    axis: Annotated[int, Field(ge=0)]
+    partitions: Sequence[MeasurementArray] = Field(min_length=1)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        partitions: Sequence[MeasurementArray],
+        axis: int,
+        dtype: MeasurementDType = "float64",
+        unit: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> Self:
+        """Construct a logical array without joining its physical buffers."""
+
+        return cls(
+            kind="partitioned_array",
+            dtype=dtype,
+            unit=unit,
+            axis=axis,
+            partitions=partitions,
+            metadata={} if metadata is None else metadata,
+        )
+
+    @field_validator("unit")
+    @classmethod
+    def validate_unit(cls, value: str | None) -> str | None:
+        return validate_supported_unit(value)
+
+    @field_validator("partitions")
+    @classmethod
+    def freeze_partitions[T: MeasurementArray](
+        cls,
+        value: Sequence[T],
+    ) -> Sequence[T]:
+        return tuple(value)
+
+    @model_validator(mode="after")
+    def validate_partitions(self) -> MeasurementPartitionedArray:
+        first = self.partitions[0]
+        rank = len(first.shape)
+        if rank == 0 or self.axis >= rank:
+            raise ValueError(
+                "measurement array partition axis must address a non-scalar rank"
+            )
+        if any(partition.shape[self.axis] == 0 for partition in self.partitions):
+            raise ValueError("measurement array partitions must be non-empty")
+        expected_shape = first.shape[: self.axis] + first.shape[self.axis + 1 :]
+        if any(
+            partition.shape[: self.axis] + partition.shape[self.axis + 1 :]
+            != expected_shape
+            for partition in self.partitions
+        ):
+            raise ValueError(
+                "measurement array partitions must match outside their split axis"
+            )
+        if any(
+            (partition.dtype, partition.unit) != (self.dtype, self.unit)
+            for partition in self.partitions
+        ):
+            raise ValueError(
+                "measurement array partitions must match its dtype and unit"
+            )
+        if any(partition.metadata for partition in self.partitions):
+            raise ValueError(
+                "measurement array partition metadata belongs on the logical value"
+            )
+        if self.dtype in {"bool", "string"} and self.unit is not None:
+            raise ValueError(
+                f"{self.dtype} measurement partitioned arrays cannot have a unit"
+            )
+        return self
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        first = self.partitions[0].shape
+        return (
+            *first[: self.axis],
+            sum(partition.shape[self.axis] for partition in self.partitions),
+            *first[self.axis + 1 :],
+        )
+
+    @property
+    def values(self) -> MeasurementArrayData:
+        """Materialize one immutable NumPy buffer at an explicit consumer boundary."""
+
+        return self.materialize().values
+
+    @property
+    def availability(self) -> MeasurementArrayAvailability | None:
+        """Materialize logical availability while preserving diagnostics."""
+
+        if all(partition.availability is None for partition in self.partitions):
+            return None
+        full_shape = self.shape
+        valid = np.concatenate(
+            [
+                (
+                    np.ones(partition.shape, dtype=np.bool_)
+                    if partition.availability is None
+                    else partition.availability.valid
+                )
+                for partition in self.partitions
+            ],
+            axis=self.axis,
+        )
+        unavailable: list[MeasurementArrayUnavailableGroup] = []
+        axis_offset = 0
+        for partition in self.partitions:
+            availability = partition.availability
+            if availability is not None:
+                for group in availability.unavailable:
+                    coordinates = list(
+                        np.unravel_index(group.flat_indices, partition.shape)
+                    )
+                    coordinates[self.axis] = coordinates[self.axis] + axis_offset
+                    global_indices: NDArray[np.intp] = np.asarray(
+                        np.ravel_multi_index(
+                            tuple(coordinates),
+                            full_shape,
+                        ),
+                        dtype=np.intp,
+                    )
+                    unavailable.append(
+                        MeasurementArrayUnavailableGroup(
+                            reason=group.reason,
+                            flat_indices=tuple(
+                                cast("list[int]", global_indices.tolist())
+                            ),
+                            metadata=group.metadata,
+                        )
+                    )
+            axis_offset += partition.shape[self.axis]
+        return MeasurementArrayAvailability(
+            valid=valid,
+            unavailable=unavailable,
+        )
+
+    def materialize(self) -> MeasurementArray:
+        """Join partitions into the ordinary dense measurement representation."""
+
+        return MeasurementArray.create(
+            values=np.concatenate(
+                [partition.values for partition in self.partitions],
+                axis=self.axis,
+            ),
+            dtype=self.dtype,
+            unit=self.unit,
+            availability=self.availability,
+            metadata=self.metadata,
+        )
+
+    @property
+    def value_nbytes(self) -> int:
+        return sum(partition.values.nbytes for partition in self.partitions)
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, MeasurementPartitionedArray):
+            return NotImplemented
+        return (
+            self.kind == other.kind
+            and self.dtype == other.dtype
+            and self.unit == other.unit
+            and self.axis == other.axis
+            and self.metadata == other.metadata
+            and self.partitions == other.partitions
+        )
+
+
 class MeasurementUnavailable(_FrozenMeasurementModel):
     """A complete scalar or array result with no usable value.
 
@@ -1304,7 +1492,10 @@ class MeasurementSegmentedArray(_FrozenMeasurementModel):
 
 
 type MeasurementAcquisitionValue = Annotated[
-    MeasurementScalar | MeasurementArray | MeasurementUnavailable,
+    MeasurementScalar
+    | MeasurementArray
+    | MeasurementPartitionedArray
+    | MeasurementUnavailable,
     Field(discriminator="kind"),
 ]
 
@@ -1312,6 +1503,7 @@ type MeasurementAcquisitionValue = Annotated[
 type MeasurementValue = Annotated[
     MeasurementScalar
     | MeasurementArray
+    | MeasurementPartitionedArray
     | MeasurementSegmentedArray
     | MeasurementUnavailable,
     Field(discriminator="kind"),

@@ -30,6 +30,7 @@ from scopecat.records.instrument import CommandChannelBinding, InstrumentReadbac
 from scopecat.records.measurement import (
     MeasurementAcquisitionValue,
     MeasurementArray,
+    MeasurementPartitionedArray,
     MeasurementScalar,
     MeasurementUnavailable,
 )
@@ -384,6 +385,8 @@ def split_collect_receipt(
     selected_arrays: list[tuple[str, MeasurementArray]] = []
     if readback is not None:
         for request_id, value in sorted(readback.values.items()):
+            if isinstance(value, MeasurementPartitionedArray):
+                value = value.materialize()
             if isinstance(value, MeasurementArray):
                 selected_arrays.append((request_id, value))
             else:
