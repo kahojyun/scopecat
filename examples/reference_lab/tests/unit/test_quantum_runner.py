@@ -407,6 +407,11 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
     assert inspection.content.program is not None
     inspection_snapshot_id = inspection.content.program.snapshot_id
     assert inspection_snapshot_id == inspection.artifact_fingerprint
+    inspection_facts = {fact.id: fact.value for fact in inspection.content.facts}
+    assert inspection_facts["compile_cache_artifact"] == "miss"
+    assert inspection_facts["compile_cache_semantic"] == "miss"
+    assert inspection_facts["compile_cache_placement"] == "miss"
+    assert inspection_facts["compile_cache_layout"] == "miss"
     assert tuple(layer.id for layer in inspection.content.program.layers) == (
         "authored",
         "logical",
@@ -437,6 +442,12 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
         coordinates=preview.selected_point.coordinates
     )
     assert selected_again.selected_point == preview.selected_point
+    [selected_again_inspection] = selected_again.domain_inspections
+    selected_again_facts = {
+        fact.id: fact.value for fact in selected_again_inspection.content.facts
+    }
+    assert selected_again_facts["compile_cache_artifact"] == "hit"
+    assert selected_again_facts["compile_cache_semantic"] == "not_checked"
 
     queried = prepared.preview(
         point="last",

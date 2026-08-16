@@ -119,6 +119,12 @@ show Map/Repeat nodes as aggregates, draw timing only for the selected scheduled
 page, and fetch detail by entity or physical resource. Browser memory and DOM
 size must be proportional to the page, not to the expanded program.
 
+Target inspection also reports the cache disposition of the exact compilation
+that produced the preview. Artifact, semantic, placement, and layout stages are
+shown independently as `hit`, `miss`, or `not_checked`; an artifact hit therefore
+does not misleadingly claim that lower stages ran. These facts are transient
+operator diagnostics and do not enter artifact or invocation identity.
+
 The layer summary is an explicit resolution navigator from authored intent
 through bound structure and timed events to physical placement. Each stage shows
 its total node count, matching count, and loaded-page size. Timeline marks and
@@ -146,22 +152,27 @@ target lowering:
 
 ```console
 uv run python scripts/benchmark_quantum_program.py \
-  --entities 1000 \
+  --entities 100,1000,10000 \
   --inspection-page-size 128
 ```
 
-It emits `scopecat.quantum_program_benchmark.v1` with structural and expanded
-operation counts, selected-entity count, preflight outcome, inspection size,
-wall times, and retained/peak `tracemalloc` bytes. Wall time and memory are
-recorded observations because machine variance makes them poor routine CI
-gates. The deterministic acceptance test instead runs a 10,000-entity stress
-case and requires:
+It emits `scopecat.quantum_program_benchmark.v2` with one row per requested
+scale. Each row records structural and expanded operation counts,
+selected-entity count, preflight outcome, inspection size, cold snapshot and
+page projection time, warm exact-node projection time, exact-node index build
+and response size, wall times, and retained/peak `tracemalloc` bytes. Wall time
+and memory are recorded observations because machine variance makes them poor
+routine CI gates. The deterministic acceptance test runs 100- and
+10,000-entity cases and requires:
 
 - one retained operation and one unresolved template for the one-operation map;
 - an expansion-budget rejection before concrete expansion;
 - no more than 64 retained entity references on one inspection node;
 - returned nodes bounded by layer count times the requested page size; and
-- a serialized authored/logical inspection no larger than 32 KiB.
+- a serialized authored/logical inspection no larger than 32 KiB;
+- cold and warm exact-node queries returning one matching node from both scales;
+  and
+- an exact-node response no larger than 4 KiB, independent of index size.
 
 Run the acceptance contract with:
 
@@ -536,6 +547,12 @@ The present architecture provides a direct end-to-end baseline:
   GUI decoding; NumPy-oriented compute, trace, and interop boundaries
   materialize it explicitly. Immutable byte-backed arrays are adopted across
   typed model and wire-decode boundaries rather than recopied;
+- cancellation fences every hardware batch submitted from a synchronous domain
+  runtime, including each bounded shot chunk. A request arriving during a
+  driver call is honored before the next batch; the completed receipt is still
+  interpreted first, so cancellation cannot turn known hardware evidence into
+  a fabricated indeterminate failure. The maximum cooperative cancellation
+  delay is therefore one active driver call or one configured result chunk;
 - admission uses the domain compiler's static instrument footprint and all
   structurally compatible local route candidates. Point-local routing narrows
   the operations actually emitted, so a run may conservatively reserve an

@@ -287,6 +287,23 @@ class ListModeCompilationCacheInfo:
     artifact: ListModeCompilationStageCacheInfo
 
 
+type ListModeCompilationCacheOutcome = Literal["hit", "miss", "not_checked"]
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeCompilationTrace:
+    """Cache disposition of the stages consulted for one compile call."""
+
+    semantic: ListModeCompilationCacheOutcome
+    placement: ListModeCompilationCacheOutcome
+    layout: ListModeCompilationCacheOutcome
+    artifact: ListModeCompilationCacheOutcome
+
+    @property
+    def artifact_reused(self) -> bool:
+        return self.artifact == "hit"
+
+
 @dataclass(frozen=True, slots=True)
 class ListModeBudgetDimension:
     """Observed use and capacity for one target-owned resource dimension."""

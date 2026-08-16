@@ -74,8 +74,10 @@ from reference_lab.targets.list_mode.model import (
     ListModeBudgetDimension,
     ListModeCompilationBudget,
     ListModeCompilationCacheInfo,
+    ListModeCompilationCacheOutcome,
     ListModeCompilationKey,
     ListModeCompilationStageCacheInfo,
+    ListModeCompilationTrace,
     ListModeDeviceSnapshot,
     ListModeEntry,
     ListModeEventPlacement,
@@ -112,6 +114,29 @@ from reference_lab.targets.list_mode.placement import (
 _ARTIFACT_CACHE_SIZE = 32
 _INTERMEDIATE_CACHE_SIZE = 64
 _RESULT_BYTES_PER_VALUE = 17
+
+
+def _compilation_trace(
+    before: ListModeCompilationCacheInfo,
+    after: ListModeCompilationCacheInfo,
+) -> ListModeCompilationTrace:
+    return ListModeCompilationTrace(
+        semantic=_stage_cache_outcome(before.semantic, after.semantic),
+        placement=_stage_cache_outcome(before.placement, after.placement),
+        layout=_stage_cache_outcome(before.layout, after.layout),
+        artifact=_stage_cache_outcome(before.artifact, after.artifact),
+    )
+
+
+def _stage_cache_outcome(
+    before: ListModeCompilationStageCacheInfo,
+    after: ListModeCompilationStageCacheInfo,
+) -> ListModeCompilationCacheOutcome:
+    if after.hits == before.hits + 1:
+        return "hit"
+    if after.misses == before.misses + 1:
+        return "miss"
+    return "not_checked"
 
 
 @dataclass(slots=True)
@@ -244,6 +269,22 @@ class ListModeTargetCompiler:
 
     def compile(self, request: TargetCompileRequest) -> ListModeArtifact:
         """Compile one checked finite request without performing hardware effects."""
+
+        artifact, _trace = self.compile_with_trace(request)
+        return artifact
+
+    def compile_with_trace(
+        self,
+        request: TargetCompileRequest,
+    ) -> tuple[ListModeArtifact, ListModeCompilationTrace]:
+        """Compile and report which process-local stages supplied the result."""
+
+        before = self.cache_info
+        artifact = self._compile(request)
+        return artifact, _compilation_trace(before, self.cache_info)
+
+    def _compile(self, request: TargetCompileRequest) -> ListModeArtifact:
+        """Execute the layered compilation after trace counters are sampled."""
 
         device_snapshot = self.target.device_snapshot
         compilation_key = _compilation_key(

@@ -26,6 +26,7 @@ from scopecat.inspection import (
 from reference_lab.targets.list_mode.model import (
     AwgChannelWaveform,
     ListModeArtifact,
+    ListModeCompilationTrace,
     ListModeEntry,
     ListModeEventPlacement,
     ListModePlacementCandidate,
@@ -64,6 +65,7 @@ def _inspect_list_mode_artifact_base(
     artifact: ListModeArtifact,
     *,
     bounds: ArtifactInspectionBounds,
+    compilation_trace: ListModeCompilationTrace | None = None,
 ) -> CompiledArtifactInspection:
     selected_bounds = bounds
     selected_entries = artifact.entries[: selected_bounds.max_entries]
@@ -125,6 +127,24 @@ def _inspect_list_mode_artifact_base(
                 "result_bytes",
                 artifact.physical_footprint.result_bytes,
                 unit="byte",
+            ),
+            *(
+                ()
+                if compilation_trace is None
+                else (
+                    CompiledInspectionFact(
+                        "compile_cache_artifact", compilation_trace.artifact
+                    ),
+                    CompiledInspectionFact(
+                        "compile_cache_semantic", compilation_trace.semantic
+                    ),
+                    CompiledInspectionFact(
+                        "compile_cache_placement", compilation_trace.placement
+                    ),
+                    CompiledInspectionFact(
+                        "compile_cache_layout", compilation_trace.layout
+                    ),
+                )
             ),
             CompiledInspectionFact(
                 "max_abs_boundary_error_seconds",
@@ -191,13 +211,18 @@ def build_list_mode_artifact_inspection_snapshot(
         CompiledProgramInspection,
     ],
     bounds: ArtifactInspectionBounds | None = None,
+    compilation_trace: ListModeCompilationTrace | None = None,
 ) -> ListModeArtifactInspectionSnapshot:
     """Build stable waveform and placement projections once per artifact."""
 
     selected_bounds = bounds or ArtifactInspectionBounds()
     physical_layer, placements = _physical_placement_layer_index(artifact)
     return ListModeArtifactInspectionSnapshot(
-        base=_inspect_list_mode_artifact_base(artifact, bounds=selected_bounds),
+        base=_inspect_list_mode_artifact_base(
+            artifact,
+            bounds=selected_bounds,
+            compilation_trace=compilation_trace,
+        ),
         program_projector=program_projector,
         physical_layer=physical_layer,
         placements=placements,

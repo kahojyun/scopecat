@@ -604,14 +604,25 @@ def test_list_mode_compilation_key_caches_and_explains_batch_capacity() -> None:
     )
     compiler, request = _request(target, (scheduled,), repetitions=2)
 
-    artifact = compiler.compile(request)
+    artifact, cold_trace = compiler.compile_with_trace(request)
 
+    assert cold_trace.artifact == "miss"
+    assert cold_trace.semantic == "miss"
+    assert cold_trace.placement == "miss"
+    assert cold_trace.layout == "miss"
+    assert not cold_trace.artifact_reused
     assert compiler.cache_info.artifact.hits == 0
     assert compiler.cache_info.artifact.misses == 1
     assert compiler.cache_info.semantic.misses == 1
     assert compiler.cache_info.placement.misses == 1
     assert compiler.cache_info.layout.misses == 1
-    assert compiler.compile(request) is artifact
+    reused, warm_trace = compiler.compile_with_trace(request)
+    assert reused is artifact
+    assert warm_trace.artifact == "hit"
+    assert warm_trace.semantic == "not_checked"
+    assert warm_trace.placement == "not_checked"
+    assert warm_trace.layout == "not_checked"
+    assert warm_trace.artifact_reused
     assert compiler.cache_info.artifact.hits == 1
     assert compiler.cache_info.artifact.size == 1
     same_artifact = ListModeTargetCompiler(compiler.id, target).compile(request)
@@ -646,7 +657,13 @@ def test_list_mode_compilation_key_caches_and_explains_batch_capacity() -> None:
     assert budget.limiting_dimensions == ("waveform_memory_bytes",)
     assert budget.next_batch_max_points == 2
 
-    changed = compiler.compile(replace(request, repetitions=3))
+    changed, partial_trace = compiler.compile_with_trace(
+        replace(request, repetitions=3)
+    )
+    assert partial_trace.artifact == "miss"
+    assert partial_trace.semantic == "hit"
+    assert partial_trace.placement == "hit"
+    assert partial_trace.layout == "miss"
     assert changed.compilation_key.semantic_program_fingerprint == (
         artifact.compilation_key.semantic_program_fingerprint
     )

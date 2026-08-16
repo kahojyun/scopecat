@@ -1,4 +1,4 @@
-"""Measure retained-map verification and bounded quantum-program inspection."""
+"""Measure retained-map verification and indexed quantum-program inspection."""
 
 from __future__ import annotations
 
@@ -9,30 +9,50 @@ import tracemalloc
 from dataclasses import asdict
 from typing import cast
 
+from scopecat.inspection import (
+    CompiledProgramInspectionLayerIndex,
+    CompiledProgramInspectionNode,
+    CompiledProgramInspectionNodeIndex,
+    CompiledProgramInspectionQuery,
+)
 from scopecat_quantum import authoring
-from scopecat_quantum.inspection import QuantumInspectionBounds, inspect_quantum_program
+from scopecat_quantum.inspection import (
+    QuantumInspectionBounds,
+    build_quantum_program_inspection_snapshot,
+)
 from scopecat_quantum.programs import (
     QuantumProgramExpansionError,
     estimate_quantum_program_workload,
 )
 
 
-def _options() -> tuple[int, int]:
+def _options() -> tuple[tuple[int, ...], int]:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--entities", type=int, default=1_000)
+    parser.add_argument(
+        "--entities",
+        default="1000",
+        help="comma-separated entity counts, for example 100,1000,10000",
+    )
     parser.add_argument("--inspection-page-size", type=int, default=128)
     options = parser.parse_args()
-    entities = cast("int", options.entities)
+    entities = tuple(
+        int(value.strip())
+        for value in cast("str", options.entities).split(",")
+        if value.strip()
+    )
     page_size = cast("int", options.inspection_page_size)
-    if entities < 2:
-        raise ValueError("entities must be at least two to exercise budget preflight")
+    if not entities or any(count < 2 for count in entities):
+        raise ValueError(
+            "every entity count must be at least two to exercise budget preflight"
+        )
+    if len(entities) != len(set(entities)):
+        raise ValueError("entity counts must be unique")
     if not 1 <= page_size <= 512:
         raise ValueError("inspection page size must be between one and 512")
     return entities, page_size
 
 
-def main() -> None:
-    entity_count, page_size = _options()
+def _benchmark_case(entity_count: int, page_size: int) -> dict[str, object]:
     gate = authoring.single_qubit_gate("benchmark.x90")
 
     @authoring.program(id="benchmark.quantum.large-map")
@@ -60,23 +80,92 @@ def main() -> None:
         )
     preflight_seconds = time.perf_counter() - preflight_started
 
-    inspection_started = time.perf_counter()
-    inspection = inspect_quantum_program(
+    snapshot_started = time.perf_counter()
+    snapshot = build_quantum_program_inspection_snapshot(
         declaration,
         bound=bound,
         bounds=QuantumInspectionBounds(max_nodes_per_layer=page_size),
         snapshot_id="benchmark-large-map",
     )
-    inspection_seconds = time.perf_counter() - inspection_started
+    inspection_snapshot_seconds = time.perf_counter() - snapshot_started
+    inspection_started = time.perf_counter()
+    inspection = snapshot.project()
+    inspection_cold_page_seconds = time.perf_counter() - inspection_started
+    warm_query = CompiledProgramInspectionQuery(
+        layer_id="logical",
+        snapshot_id=snapshot.snapshot_id,
+        node_id="logical:0",
+        limit=1,
+    )
+    warm_started = time.perf_counter()
+    warm_inspection = snapshot.project(warm_query)
+    inspection_warm_exact_seconds = time.perf_counter() - warm_started
+    warm_layer = next(
+        layer for layer in warm_inspection.layers if layer.id == "logical"
+    )
     inspection_bytes = len(
         json.dumps(asdict(inspection), separators=(",", ":"), sort_keys=True).encode()
+    )
+
+    exact_index_started = time.perf_counter()
+    exact_ordinals = {
+        f"physical:event:{ordinal}": ordinal for ordinal in range(entity_count)
+    }
+
+    def exact_node_at(
+        ordinal: int,
+        _query: CompiledProgramInspectionQuery | None,
+    ) -> CompiledProgramInspectionNode:
+        return CompiledProgramInspectionNode(
+            id=f"physical:event:{ordinal}",
+            kind="placement",
+            label=f"physical event {ordinal}",
+            resource_ids=(f"channel-{ordinal % 64}",),
+        )
+
+    exact_layer = CompiledProgramInspectionLayerIndex(
+        id="physical",
+        label="Physical placement",
+        kind="physical",
+        root_ids=(),
+        nodes=CompiledProgramInspectionNodeIndex(
+            node_count=entity_count,
+            node_at=exact_node_at,
+            ordinal_by_id=exact_ordinals.get,
+        ),
+    )
+    exact_index_seconds = time.perf_counter() - exact_index_started
+    exact_node_id = f"physical:event:{entity_count - 1}"
+    exact_query = CompiledProgramInspectionQuery(
+        layer_id="physical",
+        snapshot_id="benchmark-exact-node",
+        node_id=exact_node_id,
+        limit=1,
+    )
+    exact_cold_started = time.perf_counter()
+    _cold_layer, cold_selection = exact_layer.project(
+        query=exact_query,
+        default_limit=page_size,
+        snapshot_id="benchmark-exact-node",
+    )
+    exact_cold_seconds = time.perf_counter() - exact_cold_started
+    exact_warm_started = time.perf_counter()
+    exact_projection, exact_selection = exact_layer.project(
+        query=exact_query,
+        default_limit=page_size,
+        snapshot_id="benchmark-exact-node",
+    )
+    exact_warm_seconds = time.perf_counter() - exact_warm_started
+    exact_response_bytes = len(
+        json.dumps(
+            asdict(exact_projection), separators=(",", ":"), sort_keys=True
+        ).encode()
     )
     retained_bytes, peak_bytes = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
     returned_nodes = tuple(node for layer in inspection.layers for node in layer.nodes)
-    result = {
-        "schema": "scopecat.quantum_program_benchmark.v1",
+    return {
         "entity_count": entity_count,
         "structural_operation_count": workload.structural_operation_count,
         "expanded_operation_count": workload.expanded_operation_count,
@@ -95,10 +184,34 @@ def main() -> None:
         "inspection_bytes": inspection_bytes,
         "bound_seconds": bound_seconds,
         "expansion_preflight_seconds": preflight_seconds,
-        "inspection_seconds": inspection_seconds,
+        "inspection_snapshot_seconds": inspection_snapshot_seconds,
+        "inspection_cold_page_seconds": inspection_cold_page_seconds,
+        "inspection_warm_exact_seconds": inspection_warm_exact_seconds,
+        "inspection_warm_exact_returned_node_count": len(warm_layer.nodes),
+        "exact_node_index_count": entity_count,
+        "exact_node_index_seconds": exact_index_seconds,
+        "exact_node_id": exact_node_id,
+        "exact_node_cold_seconds": exact_cold_seconds,
+        "exact_node_warm_seconds": exact_warm_seconds,
+        "exact_node_matching_count": exact_selection.page.matching_node_count,
+        "exact_node_returned_count": len(exact_selection.nodes),
+        "exact_node_cold_returned_count": len(cold_selection.nodes),
+        "exact_node_response_bytes": exact_response_bytes,
         "elapsed_seconds": time.perf_counter() - started,
         "retained_bytes": retained_bytes,
         "peak_bytes": peak_bytes,
+    }
+
+
+def main() -> None:
+    entity_counts, page_size = _options()
+    result = {
+        "schema": "scopecat.quantum_program_benchmark.v2",
+        "inspection_page_size": page_size,
+        "case_count": len(entity_counts),
+        "cases": [
+            _benchmark_case(entity_count, page_size) for entity_count in entity_counts
+        ],
     }
     print("QUANTUM_PROGRAM_BENCHMARK=" + json.dumps(result, sort_keys=True))
 

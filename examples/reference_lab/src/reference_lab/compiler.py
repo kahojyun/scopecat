@@ -53,6 +53,7 @@ from reference_lab.targets.configuration import (
 )
 from reference_lab.targets.list_mode import (
     ListModeArtifact,
+    ListModeCompilationTrace,
     ListModeDomainRuntime,
     ListModeRun,
     ListModeTarget,
@@ -82,6 +83,7 @@ class _ListQuantumLabArtifact(_QuantumLabArtifact):
     entries: tuple[PreparedQuantumTargetEntry, ...]
     batch: PreparedQuantumTargetBatch
     target_artifact: ListModeArtifact = field(repr=False)
+    compilation_trace: ListModeCompilationTrace
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,13 +207,17 @@ class QuantumLabCompiler:
             entries,
             repetitions=shots,
         )
+        target_artifact, compilation_trace = self._target_compiler.compile_with_trace(
+            batch.request
+        )
         return _ListQuantumLabArtifact(
             program=program,
             points=tuple(point.values for point in points),
             compiled_points=points,
             entries=entries,
             batch=batch,
-            target_artifact=self._target_compiler.compile(batch.request),
+            target_artifact=target_artifact,
+            compilation_trace=compilation_trace,
         )
 
     def compile_batch(
@@ -279,6 +285,7 @@ class QuantumLabCompiler:
             inspection_snapshot = build_list_mode_artifact_inspection_snapshot(
                 artifact.target_artifact,
                 program_projector=program_inspection_snapshot.project,
+                compilation_trace=artifact.compilation_trace,
             )
 
         def project_inspection(
