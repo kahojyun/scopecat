@@ -1,4 +1,4 @@
-"""Compare a direct point-local scan with the reference Scopecat execution path.
+"""Measure the reference scan across the complete Scopecat execution path.
 
 The benchmark treats time from submission to the first physical trigger as
 preparation. It does not require the first point to be a separate hardware
@@ -35,6 +35,11 @@ from fastapi.testclient import TestClient
 from pydantic import JsonValue
 
 import scopecat as sc
+from benchmarks.record import (
+    BENCHMARK_RESULT_PREFIX,
+    BENCHMARK_RESULT_SCHEMA,
+    git_revision,
+)
 from reference_lab.bench_interfaces import (
     AWG_LOAD_PROGRAM,
     AWG_PROGRAM,
@@ -96,7 +101,6 @@ from scopecat_server.instruments.backend import (  # noqa: TID251
 from scopecat_testkit.instrument_host import compose_test_instruments
 from scopecat_testkit.server.in_process_lab import in_process_lab  # noqa: TID251
 
-_RESULT_PREFIX = "SCAN_BENCHMARK_RESULT="
 type RunnerName = Literal["adhoc", "scopecat-core", "scopecat"]
 type ProfileName = Literal[
     "drag_beta_integrated_iq",
@@ -216,7 +220,10 @@ class HostMetadata:
 class BenchmarkResult:
     """One isolated benchmark worker result."""
 
-    schema: Literal["scopecat.scan_execution_benchmark.v7"]
+    schema: Literal["scopecat.benchmark_result.v1"]
+    case_id: Literal["scan-execution"]
+    case_version: Literal[7]
+    kind: Literal["e2e"]
     revision: str
     runner: RunnerName
     scenario: ScanScenario
@@ -572,8 +579,11 @@ def run_ad_hoc(
     durable_bytes, durable_files = _tree_size(root)
     measurement_dataset_bytes = _ad_hoc_measurement_bytes(root)
     return BenchmarkResult(
-        schema="scopecat.scan_execution_benchmark.v7",
-        revision=_git_revision(),
+        schema=BENCHMARK_RESULT_SCHEMA,
+        case_id="scan-execution",
+        case_version=7,
+        kind="e2e",
+        revision=git_revision(),
         runner="adhoc",
         scenario=scenario,
         host=_host_metadata(host_label),
@@ -654,8 +664,11 @@ def run_scopecat_core(
     )
     measurement_dataset_bytes = _scopecat_measurement_bytes(root / ".scopecat-test")
     return BenchmarkResult(
-        schema="scopecat.scan_execution_benchmark.v7",
-        revision=_git_revision(),
+        schema=BENCHMARK_RESULT_SCHEMA,
+        case_id="scan-execution",
+        case_version=7,
+        kind="e2e",
+        revision=git_revision(),
         runner="scopecat-core",
         scenario=scenario,
         host=_host_metadata(host_label),
@@ -751,8 +764,11 @@ def run_scopecat(
     object_store_bytes, object_store_files = _tree_size(root / ".scopecat" / "objects")
     measurement_dataset_bytes = _scopecat_measurement_bytes(root / ".scopecat")
     return BenchmarkResult(
-        schema="scopecat.scan_execution_benchmark.v7",
-        revision=_git_revision(),
+        schema=BENCHMARK_RESULT_SCHEMA,
+        case_id="scan-execution",
+        case_version=7,
+        kind="e2e",
+        revision=git_revision(),
         runner="scopecat",
         scenario=scenario,
         host=_host_metadata(host_label),
@@ -1252,7 +1268,10 @@ def _worker(args: BenchmarkArguments) -> int:
         result = run_scopecat_core(scenario, root, host_label=args.host_label)
     else:
         result = run_scopecat(scenario, root, host_label=args.host_label)
-    print(_RESULT_PREFIX + json.dumps(asdict(result), sort_keys=True), flush=True)
+    print(
+        BENCHMARK_RESULT_PREFIX + json.dumps(asdict(result), sort_keys=True),
+        flush=True,
+    )
     return 0
 
 
@@ -1351,7 +1370,10 @@ def _run_worker_process(
 ) -> dict[str, object]:
     command = [
         sys.executable,
-        str(Path(__file__).resolve()),
+        "-m",
+        "benchmarks",
+        "run",
+        "scan-execution",
         "--worker",
         runner,
         "--point-count",
@@ -1389,10 +1411,10 @@ def _run_worker_process(
             f"{completed.stdout}\n{completed.stderr}"
         )
     for line in reversed(completed.stdout.splitlines()):
-        if line.startswith(_RESULT_PREFIX):
+        if line.startswith(BENCHMARK_RESULT_PREFIX):
             return cast(
                 "dict[str, object]",
-                json.loads(line.removeprefix(_RESULT_PREFIX)),
+                json.loads(line.removeprefix(BENCHMARK_RESULT_PREFIX)),
             )
     raise RuntimeError(
         f"worker returned no result:\n{completed.stdout}\n{completed.stderr}"
@@ -1622,26 +1644,6 @@ def _scopecat_measurement_bytes(state_root: Path) -> int:
 def _tree_size(root: Path) -> tuple[int, int]:
     files = tuple(path for path in root.rglob("*") if path.is_file())
     return sum(path.stat().st_size for path in files), len(files)
-
-
-def _git_revision() -> str:
-    git = shutil.which("git")
-    if git is None:
-        raise RuntimeError("git is required to record the benchmark revision")
-    completed = subprocess.run(  # noqa: S603
-        (git, "rev-parse", "HEAD"),
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    revision = completed.stdout.strip()
-    status = subprocess.run(  # noqa: S603
-        (git, "status", "--porcelain"),
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return f"{revision}-dirty" if status.stdout else revision
 
 
 def _host_metadata(label: str) -> HostMetadata:

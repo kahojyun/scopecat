@@ -3,16 +3,17 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from pathlib import Path
 from typing import cast
 
 
 def test_real_list_mode_compiler_reports_bounded_stage_caches() -> None:
-    script = Path(__file__).parents[1] / "scripts" / "benchmark_list_mode_compiler.py"
-    completed = subprocess.run(  # noqa: S603
+    completed = subprocess.run(
         (
             sys.executable,
-            str(script),
+            "-m",
+            "benchmarks",
+            "run",
+            "list-mode-compiler",
             "--entries",
             "4",
             "--repetitions",
@@ -27,13 +28,16 @@ def test_real_list_mode_compiler_reports_bounded_stage_caches() -> None:
     result_line = next(
         line
         for line in completed.stdout.splitlines()
-        if line.startswith("LIST_MODE_COMPILER_BENCHMARK=")
+        if line.startswith("BENCHMARK_RESULT=")
     )
     result = cast(
         "dict[str, object]",
-        json.loads(result_line.removeprefix("LIST_MODE_COMPILER_BENCHMARK=")),
+        json.loads(result_line.removeprefix("BENCHMARK_RESULT=")),
     )
-    assert result["schema"] == "scopecat.list_mode_compiler_benchmark.v1"
+    assert result["schema"] == "scopecat.benchmark_result.v1"
+    assert result["case_id"] == "list-mode-compiler"
+    assert result["case_version"] == 1
+    assert result["kind"] == "component"
     assert result["entry_count"] == 4
     assert result["repetitions"] == 16
     assert result["artifact_reused"] is True

@@ -17,6 +17,11 @@ Benchmark results use three labels:
 - **target**: the next useful single-lab NISQ envelope;
 - **stress**: a larger profile that reveals the next mechanism to evolve.
 
+Executable cases, their component/end-to-end/micro classification, and the
+single local CLI live in the [benchmark suite](../../benchmarks/README.md).
+This document owns workload goals and scalability invariants rather than a
+second benchmark registry.
+
 Profiles are provisional until a repeatable benchmark records results. Routine
 benchmarks use virtual backends and generated or replayed data so execution
 volume, payload shape, and failure points remain reproducible. Physical-hardware
@@ -157,40 +162,56 @@ preflight, and bounded authored/logical inspection without performing concrete
 target lowering:
 
 ```console
-uv run python scripts/benchmark_quantum_program.py \
+uv run python -m benchmarks run quantum-program \
   --entities 100,1000,10000 \
   --inspection-page-size 128
 ```
 
-It emits `scopecat.quantum_program_benchmark.v3` with one row per requested
-scale. Each row records structural and expanded operation counts,
+It emits `scopecat.benchmark_result.v1` records for the versioned
+`quantum-program` case, with one row per requested scale. Each row records
+structural and expanded operation counts,
 selected-entity count, preflight outcome, inspection size, cold snapshot and
-page projection time, warm exact-node projection time, exact-node index build
-and response size, indexed resource-filter candidates and response size, wall
-times, and retained/peak `tracemalloc` bytes. Wall time and memory are recorded
-observations because machine variance makes them poor routine CI gates. The
-deterministic acceptance test runs 100- and 10,000-entity cases and requires:
+page projection time, warm exact-node projection time, wall times, and
+retained/peak `tracemalloc` bytes. Wall time and memory are recorded observations
+because machine variance makes them poor routine CI gates. The deterministic
+acceptance test runs 100- and 10,000-entity cases and requires:
 
 - one retained operation and one unresolved template for the one-operation map;
 - an expansion-budget rejection before concrete expansion;
 - no more than 64 retained entity references on one inspection node;
 - returned nodes bounded by layer count times the requested page size; and
 - a serialized authored/logical inspection no larger than 32 KiB;
-- cold and warm exact-node queries returning one matching node from both scales;
-- an exact-node response no larger than 4 KiB, independent of index size; and
-- indexed resource filtering materializing only matching candidates, with a
-  response no larger than 32 KiB.
+- a warm exact-node query returning one matching logical node from both scales.
 
 Run the acceptance contract with:
 
 ```console
-uv run pytest -q benchmarks/test_quantum_program_benchmark.py
+uv run pytest -q -n 0 benchmarks/smoke/test_quantum_program.py
 ```
 
 The test also exercises the indexed table-primary-key path used by entity-set
 binding. Non-quantity scalar keys use their canonical semantic identity, while
 quantity keys retain tolerance-aware comparison. This keeps ordinary entity
 sets linear without changing quantity equality semantics.
+
+## Inspection Index Micro Baseline
+
+Exact-node lookup and inverted-index filtering are pure data-structure costs,
+so they run independently from quantum lowering and target configuration:
+
+```console
+uv run python -m benchmarks run inspection-index \
+  --nodes 10000 \
+  --page-size 128
+```
+
+The case verifies that an exact query returns one node, a resource query
+materializes only its indexed matches, and both serialized responses remain
+bounded independently of total index size. Its deterministic smoke contract is:
+
+```console
+uv run pytest -q -n 0 benchmarks/smoke/test_inspection_index.py
+```
 
 ## List-Mode Target Compiler Baseline
 
@@ -199,19 +220,20 @@ synthetic inspection index. It records cold and warm semantic, placement,
 layout, and artifact stages, along with their retained-memory cache snapshots:
 
 ```console
-uv run python scripts/benchmark_list_mode_compiler.py \
+uv run python -m benchmarks run list-mode-compiler \
   --entries 4 \
   --repetitions 16
 ```
 
-It emits `scopecat.list_mode_compiler_benchmark.v1`. The acceptance test
+It emits a versioned `list-mode-compiler` record in the shared benchmark
+schema. The acceptance test
 requires a complete cold compile, an artifact-level warm hit, every stage to
 remain within its byte budget, byte-pressure eviction before the entry limit,
 and an oversize artifact to bypass the cache instead of violating its memory
 bound:
 
 ```console
-uv run pytest -q benchmarks/test_list_mode_compiler_benchmark.py
+uv run pytest -q -n 0 benchmarks/smoke/test_list_mode_compiler.py
 ```
 
 Stage byte accounting includes retained waveform buffers and explicit metadata
@@ -254,7 +276,7 @@ point-count costs.
 Run a short comparison with:
 
 ```console
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --points 1,10,100 \
   --host-label lab-pc-hdd \
   --storage-root /path/on/the/experiment-drive
@@ -266,7 +288,7 @@ startup dominates their cost on Windows. Run them explicitly after changing the
 benchmark harness or its execution boundaries:
 
 ```console
-uv run pytest -q benchmarks/test_scan_execution_benchmark.py
+uv run pytest -q -n 0 benchmarks/smoke/test_scan_execution.py
 ```
 
 `--storage-root` must name an existing directory on the storage device being
@@ -291,7 +313,7 @@ To isolate daemon and object-store overhead after a default comparison, add the
 core diagnostic explicitly:
 
 ```console
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --runners scopecat-core,scopecat \
   --points 1,10,100
 ```
@@ -300,7 +322,7 @@ Run the same staircase again with a representative acquisition duration when
 evaluating total experiment UX:
 
 ```console
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --points 1,10,100 \
   --point-delay-ms 10 \
   --host-label lab-pc-hdd \
@@ -323,11 +345,11 @@ only the latest completed point for a plotting-tool stand-in.
 Run a short staircase with:
 
 ```console
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --profile waveform \
   --points 1,10,100 \
   --waveform-samples 4096 \
-  --qubits 4 \
+  --qubit-counts 1,2,4 \
   --live-waveform \
   --host-label lab-pc
 ```
@@ -344,13 +366,13 @@ trace for every logical point. It deliberately excludes the ad hoc runner,
 whose scalar device facade does not perform equivalent work:
 
 ```console
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --profile waveform \
   --acquisition-dsp target \
   --runners scopecat-core,scopecat \
   --points 10,100 \
   --waveform-samples 100000 \
-  --qubits 4
+  --qubit-counts 4
 ```
 
 Do not use this stress result as the default product comparison on digitizers
@@ -368,25 +390,25 @@ user intent or a target storage layout for Scopecat.
 Run each durable selection independently:
 
 ```console
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --profile results \
   --retention summary \
   --points 10,100 \
-  --qubits 4 \
+  --qubit-counts 1,2,4 \
   --shots 1000
 
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --profile results \
   --retention bit-shots \
   --points 10,100 \
-  --qubits 4 \
+  --qubit-counts 1,2,4 \
   --shots 1000
 
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --profile results \
   --retention iq-and-bits \
   --points 10,100 \
-  --qubits 4 \
+  --qubit-counts 1,2,4 \
   --shots 1000
 ```
 
@@ -404,12 +426,12 @@ the acquisition and constructs the current point's results, then discards them
 without creating metadata or result files:
 
 ```console
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --profile results \
   --retention discard \
   --runners adhoc \
   --points 100 \
-  --qubits 4 \
+  --qubit-counts 4 \
   --shots 1000
 ```
 
@@ -640,7 +662,8 @@ in-process optimizer context.
 Run the long-run memory probe with:
 
 ```console
-uv run python scripts/benchmark_adaptive_optimizer.py --decisions 20000 --domain-points 1024
+uv run python -m benchmarks run adaptive-context \
+  --decisions 20000 --domain-points 1024
 ```
 
 The probe feeds a distinct 256 KiB waveform through every retained observation

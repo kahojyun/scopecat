@@ -12,12 +12,14 @@ def test_scan_execution_benchmark_runs_all_boundaries_with_waveforms(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / "results.jsonl"
-    script = Path(__file__).parents[1] / "scripts" / "benchmark_scan_execution.py"
 
     completed = subprocess.run(  # noqa: S603
         (
             sys.executable,
-            str(script),
+            "-m",
+            "benchmarks",
+            "run",
+            "scan-execution",
             "--points",
             "3",
             "--profile",
@@ -61,9 +63,10 @@ def test_scan_execution_benchmark_runs_all_boundaries_with_waveforms(
         for qubit_count in (1, 2, 4)
     }
     assert all(result["points_completed"] == 3 for result in results)
-    assert all(
-        result["schema"] == "scopecat.scan_execution_benchmark.v7" for result in results
-    )
+    assert all(result["schema"] == "scopecat.benchmark_result.v1" for result in results)
+    assert all(result["case_id"] == "scan-execution" for result in results)
+    assert all(result["case_version"] == 7 for result in results)
+    assert all(result["kind"] == "e2e" for result in results)
     assert all(
         cast("dict[str, object]", result["scenario"])["acquisition_dsp_policy"]
         == "prefer_device"
@@ -97,13 +100,15 @@ def test_scan_execution_benchmark_runs_all_boundaries_with_waveforms(
 
 
 def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
-    script = Path(__file__).parents[1] / "scripts" / "benchmark_scan_execution.py"
     work_dir = tmp_path / "scopecat-worker"
 
     completed = subprocess.run(  # noqa: S603
         (
             sys.executable,
-            str(script),
+            "-m",
+            "benchmarks",
+            "run",
+            "scan-execution",
             "--worker",
             "scopecat",
             "--point-count",
@@ -155,11 +160,11 @@ def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
     result_line = next(
         line
         for line in completed.stdout.splitlines()
-        if line.startswith("SCAN_BENCHMARK_RESULT=")
+        if line.startswith("BENCHMARK_RESULT=")
     )
     result = cast(
         "dict[str, object]",
-        json.loads(result_line.removeprefix("SCAN_BENCHMARK_RESULT=")),
+        json.loads(result_line.removeprefix("BENCHMARK_RESULT=")),
     )
     scenario = cast("dict[str, object]", result["scenario"])
     assert scenario["acquisition_dsp_policy"] == "target"
@@ -171,12 +176,13 @@ def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
 
 
 def test_target_dsp_rejects_the_unmatched_adhoc_runner(tmp_path: Path) -> None:
-    script = Path(__file__).parents[1] / "scripts" / "benchmark_scan_execution.py"
-
     completed = subprocess.run(  # noqa: S603
         (
             sys.executable,
-            str(script),
+            "-m",
+            "benchmarks",
+            "run",
+            "scan-execution",
             "--points",
             "1",
             "--profile",
@@ -259,12 +265,14 @@ def _result_worker(
     retention: str,
     shots: int,
 ) -> dict[str, object]:
-    script = Path(__file__).parents[1] / "scripts" / "benchmark_scan_execution.py"
     work_dir = tmp_path / f"{runner}-{retention}-{shots}"
     completed = subprocess.run(  # noqa: S603
         (
             sys.executable,
-            str(script),
+            "-m",
+            "benchmarks",
+            "run",
+            "scan-execution",
             "--worker",
             runner,
             "--point-count",
@@ -292,9 +300,9 @@ def _result_worker(
     result_line = next(
         line
         for line in completed.stdout.splitlines()
-        if line.startswith("SCAN_BENCHMARK_RESULT=")
+        if line.startswith("BENCHMARK_RESULT=")
     )
     return cast(
         "dict[str, object]",
-        json.loads(result_line.removeprefix("SCAN_BENCHMARK_RESULT=")),
+        json.loads(result_line.removeprefix("BENCHMARK_RESULT=")),
     )

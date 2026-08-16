@@ -1,4 +1,4 @@
-"""Measure real list-mode compiler stages and retained-memory cache bounds."""
+"""Measure list-mode compiler stages and retained-memory cache bounds."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import tracemalloc
 from dataclasses import asdict, replace
 from typing import cast
 
+from benchmarks.record import BENCHMARK_RESULT_PREFIX, benchmark_record_header
 from reference_lab.configuration import bootstrap_config
 from reference_lab.provider import ReferenceLabProvider
 from reference_lab.targets.list_mode import (
@@ -171,7 +172,11 @@ def _benchmark(entry_count: int, repetitions: int) -> dict[str, object]:
     oversize.compile(request)
 
     return {
-        "schema": "scopecat.list_mode_compiler_benchmark.v1",
+        **benchmark_record_header(
+            case_id="list-mode-compiler",
+            case_version=1,
+            kind="component",
+        ),
         "entry_count": entry_count,
         "repetitions": repetitions,
         "event_count": artifact.physical_footprint.event_count,
@@ -192,7 +197,7 @@ def _benchmark(entry_count: int, repetitions: int) -> dict[str, object]:
 def main() -> None:
     entry_count, repetitions = _options()
     print(
-        "LIST_MODE_COMPILER_BENCHMARK="
+        BENCHMARK_RESULT_PREFIX
         + json.dumps(_benchmark(entry_count, repetitions), sort_keys=True)
     )
 

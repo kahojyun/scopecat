@@ -1,4 +1,4 @@
-"""Measure the retained optimizer context for a long adaptive run."""
+"""Measure bounded optimizer context retention during a long adaptive run."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from typing import cast
 import numpy as np
 import psutil
 
+from benchmarks.record import BENCHMARK_RESULT_PREFIX, benchmark_record_header
 from scopecat.adaptive_domains import (
     AdaptiveRegion,
     DomainProposalAttempt,
@@ -148,7 +149,11 @@ def main() -> None:
     tracemalloc.stop()
 
     result = {
-        "schema": "scopecat.adaptive_optimizer_benchmark.v2",
+        **benchmark_record_header(
+            case_id="adaptive-context",
+            case_version=2,
+            kind="component",
+        ),
         "decisions": context.ledger.decision_count,
         "accepted": context.accepted_point_count,
         "rejected": context.ledger.rejected_count,
@@ -181,7 +186,7 @@ def main() -> None:
         "peak_rss_delta_bytes": max(peak_rss - baseline_rss, 0),
         "elapsed_seconds": elapsed_seconds,
     }
-    print("ADAPTIVE_OPTIMIZER_BENCHMARK=" + json.dumps(result, sort_keys=True))
+    print(BENCHMARK_RESULT_PREFIX + json.dumps(result, sort_keys=True))
 
 
 if __name__ == "__main__":
