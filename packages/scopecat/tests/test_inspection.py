@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from scopecat.inspection import (
+    CompiledProgramInspectionInvertedIndexBuilder,
     CompiledProgramInspectionLayerIndex,
     CompiledProgramInspectionLink,
     CompiledProgramInspectionLinkIndex,
@@ -123,6 +124,31 @@ def test_program_node_queries_bound_large_reference_sets() -> None:
     assert bounded.entity_ids_truncated
     assert len(bounded.entity_ids) == 64
     assert bounded.entity_ids[0] == "q99"
+
+
+def test_program_node_queries_preserve_selected_result_in_bounded_references() -> None:
+    node = CompiledProgramInspectionNode(
+        id="scheduled:program",
+        kind="program",
+        label="schedule",
+        result_ids=tuple(f"result-{index}" for index in range(100)),
+    )
+
+    selected, page = _query_static_nodes(
+        "scheduled",
+        (node,),
+        query=CompiledProgramInspectionQuery(
+            layer_id="scheduled",
+            result_id="result-99",
+        ),
+        default_limit=128,
+    )
+
+    assert page.matching_node_count == 1
+    [bounded] = selected
+    assert bounded.result_ids[0] == "result-99"
+    assert bounded.result_count == 100
+    assert bounded.result_ids_truncated
 
 
 def test_program_node_cursor_is_bound_to_snapshot_and_filters() -> None:
@@ -287,3 +313,57 @@ def test_program_node_identity_query_uses_reusable_index() -> None:
     assert selected.ordinals == (99_999,)
     assert selected.page.matching_node_count == 1
     assert loaded == [99_999]
+
+
+def test_indexed_program_filters_do_not_scan_large_lazy_layer() -> None:
+    loaded: list[int] = []
+    inverted_index = CompiledProgramInspectionInvertedIndexBuilder()
+    for ordinal in range(100_000):
+        inverted_index.add(
+            ordinal,
+            parent_id=f"batch:{ordinal // 1_000}",
+            kind="play" if ordinal % 2 else "acquire",
+            entity_ids=(f"q{ordinal % 128}",),
+            resource_ids=(f"channel-{ordinal % 64}",),
+            result_ids=(f"slot-{ordinal % 256}",),
+        )
+
+    def node_at(
+        ordinal: int,
+        _query: CompiledProgramInspectionQuery | None,
+    ) -> CompiledProgramInspectionNode:
+        loaded.append(ordinal)
+        return CompiledProgramInspectionNode(
+            id=f"scheduled:{ordinal}",
+            kind="play" if ordinal % 2 else "acquire",
+            label=f"pulse {ordinal}",
+            parent_id=f"batch:{ordinal // 1_000}",
+            entity_ids=(f"q{ordinal % 128}",),
+            resource_ids=(f"channel-{ordinal % 64}",),
+            result_ids=(f"slot-{ordinal % 256}",),
+        )
+
+    selection = query_compiled_program_node_index(
+        "scheduled",
+        CompiledProgramInspectionNodeIndex(
+            node_count=100_000,
+            node_at=node_at,
+            inverted_index=inverted_index.build(),
+        ),
+        query=CompiledProgramInspectionQuery(
+            layer_id="scheduled",
+            parent_id="batch:99",
+            kind="play",
+            entity_id="q31",
+            resource_id="channel-31",
+            result_id="slot-159",
+            text="99999",
+        ),
+        default_limit=128,
+    )
+
+    assert [node.id for node in selection.nodes] == ["scheduled:99999"]
+    assert selection.page.matching_node_count == 1
+    assert loaded
+    assert len(loaded) < 10
+    assert all(99_000 <= ordinal < 100_000 for ordinal in loaded)

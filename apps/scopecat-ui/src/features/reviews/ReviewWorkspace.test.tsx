@@ -149,6 +149,9 @@ describe("ReviewWorkspace", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Program entity" }), {
       target: { value: "q0" },
     });
+    fireEvent.change(screen.getByRole("textbox", { name: "Program result" }), {
+      target: { value: "readout" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Query layer" }));
 
     await waitFor(() =>
@@ -162,6 +165,7 @@ describe("ReviewWorkspace", () => {
           limit: 128,
           text: "drive",
           entity_id: "q0",
+          result_id: "readout",
         },
       }),
     );

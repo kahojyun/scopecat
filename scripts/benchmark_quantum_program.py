@@ -10,6 +10,7 @@ from dataclasses import asdict
 from typing import cast
 
 from scopecat.inspection import (
+    CompiledProgramInspectionInvertedIndexBuilder,
     CompiledProgramInspectionLayerIndex,
     CompiledProgramInspectionNode,
     CompiledProgramInspectionNodeIndex,
@@ -111,15 +112,28 @@ def _benchmark_case(entity_count: int, page_size: int) -> dict[str, object]:
     exact_ordinals = {
         f"physical:event:{ordinal}": ordinal for ordinal in range(entity_count)
     }
+    filter_index = CompiledProgramInspectionInvertedIndexBuilder()
+    for ordinal in range(entity_count):
+        filter_index.add(
+            ordinal,
+            parent_id=None,
+            kind="placement",
+            entity_ids=(f"q{ordinal}",),
+            resource_ids=(f"channel-{ordinal % 64}",),
+        )
+    materialized_node_count = 0
 
     def exact_node_at(
         ordinal: int,
         _query: CompiledProgramInspectionQuery | None,
     ) -> CompiledProgramInspectionNode:
+        nonlocal materialized_node_count
+        materialized_node_count += 1
         return CompiledProgramInspectionNode(
             id=f"physical:event:{ordinal}",
             kind="placement",
             label=f"physical event {ordinal}",
+            entity_ids=(f"q{ordinal}",),
             resource_ids=(f"channel-{ordinal % 64}",),
         )
 
@@ -132,6 +146,7 @@ def _benchmark_case(entity_count: int, page_size: int) -> dict[str, object]:
             node_count=entity_count,
             node_at=exact_node_at,
             ordinal_by_id=exact_ordinals.get,
+            inverted_index=filter_index.build(),
         ),
     )
     exact_index_seconds = time.perf_counter() - exact_index_started
@@ -159,6 +174,26 @@ def _benchmark_case(entity_count: int, page_size: int) -> dict[str, object]:
     exact_response_bytes = len(
         json.dumps(
             asdict(exact_projection), separators=(",", ":"), sort_keys=True
+        ).encode()
+    )
+    materialized_node_count = 0
+    filter_query = CompiledProgramInspectionQuery(
+        layer_id="physical",
+        snapshot_id="benchmark-exact-node",
+        kind="placement",
+        resource_id="channel-63",
+        limit=page_size,
+    )
+    filter_started = time.perf_counter()
+    filter_projection, filter_selection = exact_layer.project(
+        query=filter_query,
+        default_limit=page_size,
+        snapshot_id="benchmark-exact-node",
+    )
+    filter_seconds = time.perf_counter() - filter_started
+    filter_response_bytes = len(
+        json.dumps(
+            asdict(filter_projection), separators=(",", ":"), sort_keys=True
         ).encode()
     )
     retained_bytes, peak_bytes = tracemalloc.get_traced_memory()
@@ -197,6 +232,11 @@ def _benchmark_case(entity_count: int, page_size: int) -> dict[str, object]:
         "exact_node_returned_count": len(exact_selection.nodes),
         "exact_node_cold_returned_count": len(cold_selection.nodes),
         "exact_node_response_bytes": exact_response_bytes,
+        "filter_query_seconds": filter_seconds,
+        "filter_matching_count": filter_selection.page.matching_node_count,
+        "filter_returned_count": len(filter_selection.nodes),
+        "filter_materialized_node_count": materialized_node_count,
+        "filter_response_bytes": filter_response_bytes,
         "elapsed_seconds": time.perf_counter() - started,
         "retained_bytes": retained_bytes,
         "peak_bytes": peak_bytes,
@@ -206,7 +246,7 @@ def _benchmark_case(entity_count: int, page_size: int) -> dict[str, object]:
 def main() -> None:
     entity_counts, page_size = _options()
     result = {
-        "schema": "scopecat.quantum_program_benchmark.v2",
+        "schema": "scopecat.quantum_program_benchmark.v3",
         "inspection_page_size": page_size,
         "case_count": len(entity_counts),
         "cases": [

@@ -79,6 +79,7 @@ function ProgramInspectionView({
   const [kindFilter, setKindFilter] = useState("");
   const [entityFilter, setEntityFilter] = useState("");
   const [resourceFilter, setResourceFilter] = useState("");
+  const [resultFilter, setResultFilter] = useState("");
   const pendingNavigation = useRef<ProgramNodeLocation | null>(null);
   const [navigationHistory, setNavigationHistory] = useState<ProgramNodeLocation[]>([]);
 
@@ -116,6 +117,7 @@ function ProgramInspectionView({
     setKindFilter(query?.kind ?? "");
     setEntityFilter(query?.entity_id ?? "");
     setResourceFilter(query?.resource_id ?? "");
+    setResultFilter(query?.result_id ?? "");
   }, [inspection]);
 
   const resetFilters = () => {
@@ -123,6 +125,7 @@ function ProgramInspectionView({
     setKindFilter("");
     setEntityFilter("");
     setResourceFilter("");
+    setResultFilter("");
   };
 
   const queryLayer = (targetLayer: PresentedLayer, nodeId?: string) => {
@@ -186,6 +189,7 @@ function ProgramInspectionView({
       ...(kindFilter.trim() && { kind: kindFilter.trim() }),
       ...(entityFilter.trim() && { entity_id: entityFilter.trim() }),
       ...(resourceFilter.trim() && { resource_id: resourceFilter.trim() }),
+      ...(resultFilter.trim() && { result_id: resultFilter.trim() }),
     });
     setSelectedNodeId(null);
     pendingNavigation.current = null;
@@ -214,8 +218,10 @@ function ProgramInspectionView({
             onEntityChange={setEntityFilter}
             onKindChange={setKindFilter}
             onResourceChange={setResourceFilter}
+            onResultChange={setResultFilter}
             onSubmit={() => submitQuery()}
             resource={resourceFilter}
+            result={resultFilter}
             text={textFilter}
             onTextChange={setTextFilter}
           />
@@ -345,25 +351,29 @@ function ProgramQueryBar({
   kind,
   entity,
   resource,
+  result,
   onTextChange,
   onKindChange,
   onEntityChange,
   onResourceChange,
+  onResultChange,
   onSubmit,
 }: {
   text: string;
   kind: string;
   entity: string;
   resource: string;
+  result: string;
   onTextChange: (value: string) => void;
   onKindChange: (value: string) => void;
   onEntityChange: (value: string) => void;
   onResourceChange: (value: string) => void;
+  onResultChange: (value: string) => void;
   onSubmit: () => void;
 }) {
   return (
     <form
-      className="grid grid-cols-[minmax(150px,1.4fr)_repeat(3,minmax(100px,0.7fr))_auto] gap-1.5 border-b border-line bg-panel-soft p-2 max-[900px]:grid-cols-2"
+      className="grid grid-cols-[minmax(150px,1.4fr)_repeat(4,minmax(100px,0.7fr))_auto] gap-1.5 border-b border-line bg-panel-soft p-2 max-[1050px]:grid-cols-2"
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit();
@@ -398,8 +408,15 @@ function ProgramQueryBar({
         placeholder="resource"
         value={resource}
       />
+      <input
+        aria-label="Program result"
+        className="min-w-0 rounded border border-line bg-panel px-2 py-1.5 text-[0.58rem] text-text outline-none focus:border-line-strong"
+        onChange={(event) => onResultChange(event.target.value)}
+        placeholder="result"
+        value={result}
+      />
       <button
-        className="cursor-pointer rounded border border-line bg-panel-strong px-3 py-1.5 text-[0.58rem] font-bold text-text-soft hover:text-text max-[900px]:col-span-2"
+        className="cursor-pointer rounded border border-line bg-panel-strong px-3 py-1.5 text-[0.58rem] font-bold text-text-soft hover:text-text max-[1050px]:col-span-2"
         type="submit"
       >
         Query layer

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from scopecat.inspection import (
     CompiledInspectionFact,
     CompiledProgramInspection,
+    CompiledProgramInspectionInvertedIndexBuilder,
     CompiledProgramInspectionLayer,
     CompiledProgramInspectionLayerIndex,
     CompiledProgramInspectionLink,
@@ -389,6 +390,22 @@ def _scheduled_layer_index(
             for ordinal, event in enumerate(scheduled.events, start=1)
         },
     }
+    inverted_index = CompiledProgramInspectionInvertedIndexBuilder()
+    inverted_index.add(
+        0,
+        parent_id=None,
+        kind=root.kind,
+        result_ids=root.result_ids,
+    )
+    for ordinal, event in enumerate(scheduled.events, start=1):
+        kind, entity_ids, result_ids, _signal_label = _scheduled_event_identity(event)
+        inverted_index.add(
+            ordinal,
+            parent_id=root_id,
+            kind=kind,
+            entity_ids=entity_ids,
+            result_ids=result_ids,
+        )
 
     def node_at(
         ordinal: int,
@@ -410,6 +427,7 @@ def _scheduled_layer_index(
             node_count=1 + len(scheduled.events),
             node_at=node_at,
             ordinal_by_id=ordinal_by_id.get,
+            inverted_index=inverted_index.build(),
         ),
         facts=(
             CompiledInspectionFact(
@@ -443,6 +461,40 @@ def _scheduled_event_node(
     parent_id: str,
 ) -> CompiledProgramInspectionNode:
     instruction = event.instruction
+    kind, entity_ids, result_ids, signal_label = _scheduled_event_identity(event)
+    facts: list[CompiledInspectionFact] = [
+        CompiledInspectionFact("signal", signal_label),
+    ]
+    if isinstance(instruction, Play):
+        facts.append(
+            CompiledInspectionFact(
+                "envelope",
+                type(instruction.envelope).__name__,
+            )
+        )
+    elif isinstance(instruction, ShiftPhase):
+        facts.append(
+            CompiledInspectionFact(
+                "phase", instruction.phase.value, unit=instruction.phase.unit
+            )
+        )
+    return CompiledProgramInspectionNode(
+        id=f"scheduled:event:{event.id.value}",
+        kind=kind,
+        label=f"{kind} {signal_label}",
+        parent_id=parent_id,
+        entity_ids=entity_ids,
+        result_ids=result_ids,
+        start_seconds=str(event.start_seconds),
+        duration_seconds=str(event.duration_seconds),
+        facts=tuple(facts),
+    )
+
+
+def _scheduled_event_identity(
+    event: ScheduledPulseEvent,
+) -> tuple[str, tuple[str, ...], tuple[str, ...], str]:
+    instruction = event.instruction
     signal = instruction.signal
     if isinstance(signal, FluxSignal):
         entity_ids = (signal.owner.value,)
@@ -457,42 +509,18 @@ def _scheduled_event_node(
             else "acquire"
         )
         signal_label = f"{signal_kind}({signal.qubit.value})"
-    result_ids = (
-        (instruction.slot_id.local_id,) if isinstance(instruction, Acquire) else ()
-    )
-    facts: list[CompiledInspectionFact] = [
-        CompiledInspectionFact("signal", signal_label),
-    ]
     if isinstance(instruction, Play):
         kind = "play"
-        facts.append(
-            CompiledInspectionFact(
-                "envelope",
-                type(instruction.envelope).__name__,
-            )
-        )
     elif isinstance(instruction, Acquire):
         kind = "acquire"
     elif isinstance(instruction, ShiftPhase):
         kind = "shift_phase"
-        facts.append(
-            CompiledInspectionFact(
-                "phase", instruction.phase.value, unit=instruction.phase.unit
-            )
-        )
     else:
         kind = "delay"
-    return CompiledProgramInspectionNode(
-        id=f"scheduled:event:{event.id.value}",
-        kind=kind,
-        label=f"{kind} {signal_label}",
-        parent_id=parent_id,
-        entity_ids=entity_ids,
-        result_ids=result_ids,
-        start_seconds=str(event.start_seconds),
-        duration_seconds=str(event.duration_seconds),
-        facts=tuple(facts),
+    result_ids = (
+        (instruction.slot_id.local_id,) if isinstance(instruction, Acquire) else ()
     )
+    return kind, entity_ids, result_ids, signal_label
 
 
 def _source_operation_id(event: ScheduledPulseEvent) -> str | None:

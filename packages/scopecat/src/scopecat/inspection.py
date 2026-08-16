@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from hashlib import sha256
@@ -64,6 +65,7 @@ class CompiledProgramInspectionQuery:
     parent_id: str | None = None
     entity_id: str | None = None
     resource_id: str | None = None
+    result_id: str | None = None
     kind: str | None = None
     text: str | None = None
 
@@ -201,6 +203,161 @@ class CompiledProgramInspection:
 
 
 @dataclass(frozen=True, slots=True)
+class CompiledProgramInspectionInvertedIndex:
+    """Compact filter-to-ordinal lookup for one inspection layer."""
+
+    parent_ordinals: dict[str, tuple[int, ...]]
+    kind_ordinals: dict[str, tuple[int, ...]]
+    entity_ordinals: dict[str, tuple[int, ...]]
+    resource_ordinals: dict[str, tuple[int, ...]]
+    result_ordinals: dict[str, tuple[int, ...]]
+    entity_complete: bool = True
+    resource_complete: bool = True
+    result_complete: bool = True
+
+    def candidates(
+        self,
+        query: CompiledProgramInspectionQuery,
+    ) -> tuple[int, ...] | None:
+        """Return ordered candidates, or ``None`` when no index applies."""
+
+        selections: list[tuple[int, ...]] = []
+        if query.parent_id is not None:
+            selections.append(self.parent_ordinals.get(query.parent_id, ()))
+        if query.kind is not None:
+            selections.append(self.kind_ordinals.get(query.kind, ()))
+        if query.entity_id is not None and self.entity_complete:
+            selections.append(self.entity_ordinals.get(query.entity_id, ()))
+        if query.resource_id is not None and self.resource_complete:
+            selections.append(self.resource_ordinals.get(query.resource_id, ()))
+        if query.result_id is not None and self.result_complete:
+            selections.append(self.result_ordinals.get(query.result_id, ()))
+        if not selections:
+            return None
+        if any(not selection for selection in selections):
+            return ()
+        smallest_index = min(
+            range(len(selections)), key=lambda index: len(selections[index])
+        )
+        smallest = selections[smallest_index]
+        remaining = (
+            selection
+            for index, selection in enumerate(selections)
+            if index != smallest_index
+        )
+        other_selections = tuple(remaining)
+        return tuple(
+            ordinal
+            for ordinal in smallest
+            if all(
+                _contains_ordinal(selection, ordinal) for selection in other_selections
+            )
+        )
+
+
+@dataclass(slots=True)
+class CompiledProgramInspectionInvertedIndexBuilder:
+    """Mutable construction helper for lazy inspection layers."""
+
+    parent_ordinals: dict[str, list[int]]
+    kind_ordinals: dict[str, list[int]]
+    entity_ordinals: dict[str, list[int]]
+    resource_ordinals: dict[str, list[int]]
+    result_ordinals: dict[str, list[int]]
+    entity_complete: bool
+    resource_complete: bool
+    result_complete: bool
+
+    def __init__(self) -> None:
+        self.parent_ordinals = {}
+        self.kind_ordinals = {}
+        self.entity_ordinals = {}
+        self.resource_ordinals = {}
+        self.result_ordinals = {}
+        self.entity_complete = True
+        self.resource_complete = True
+        self.result_complete = True
+
+    def add(
+        self,
+        ordinal: int,
+        *,
+        parent_id: str | None,
+        kind: str,
+        entity_ids: Sequence[str] = (),
+        resource_ids: Sequence[str] = (),
+        result_ids: Sequence[str] = (),
+        max_references_per_dimension: int | None = None,
+    ) -> None:
+        """Index one ordinal without constructing its transport node."""
+
+        if parent_id is not None:
+            _append_ordinal(self.parent_ordinals, parent_id, ordinal)
+        _append_ordinal(self.kind_ordinals, kind, ordinal)
+        if (
+            max_references_per_dimension is not None
+            and len(entity_ids) > max_references_per_dimension
+        ):
+            self.entity_complete = False
+        else:
+            _append_reference_ordinals(self.entity_ordinals, entity_ids, ordinal)
+        if (
+            max_references_per_dimension is not None
+            and len(resource_ids) > max_references_per_dimension
+        ):
+            self.resource_complete = False
+        else:
+            _append_reference_ordinals(self.resource_ordinals, resource_ids, ordinal)
+        if (
+            max_references_per_dimension is not None
+            and len(result_ids) > max_references_per_dimension
+        ):
+            self.result_complete = False
+        else:
+            _append_reference_ordinals(self.result_ordinals, result_ids, ordinal)
+
+    def build(self) -> CompiledProgramInspectionInvertedIndex:
+        return CompiledProgramInspectionInvertedIndex(
+            parent_ordinals=_freeze_ordinal_map(self.parent_ordinals),
+            kind_ordinals=_freeze_ordinal_map(self.kind_ordinals),
+            entity_ordinals=_freeze_ordinal_map(self.entity_ordinals),
+            resource_ordinals=_freeze_ordinal_map(self.resource_ordinals),
+            result_ordinals=_freeze_ordinal_map(self.result_ordinals),
+            entity_complete=self.entity_complete,
+            resource_complete=self.resource_complete,
+            result_complete=self.result_complete,
+        )
+
+
+def _append_ordinal(
+    ordinal_map: dict[str, list[int]],
+    value: str,
+    ordinal: int,
+) -> None:
+    ordinal_map.setdefault(value, []).append(ordinal)
+
+
+def _append_reference_ordinals(
+    ordinal_map: dict[str, list[int]],
+    values: Sequence[str],
+    ordinal: int,
+) -> None:
+    for value in dict.fromkeys(values):
+        _append_ordinal(ordinal_map, value, ordinal)
+
+
+def _freeze_ordinal_map(
+    ordinal_map: dict[str, list[int]],
+) -> dict[str, tuple[int, ...]]:
+    return {value: tuple(ordinals) for value, ordinals in ordinal_map.items()}
+
+
+def _contains_ordinal(ordinals: tuple[int, ...], ordinal: int) -> bool:
+    index = bisect_left(ordinals, ordinal)
+    return index < len(ordinals) and ordinals[index] == ordinal
+
+
+@dataclass(frozen=True, slots=True)
 class CompiledProgramInspectionNodeIndex:
     """Stable random-access node source retained behind paged inspection."""
 
@@ -210,6 +367,7 @@ class CompiledProgramInspectionNodeIndex:
         CompiledProgramInspectionNode,
     ]
     ordinal_by_id: Callable[[str], int | None] | None = None
+    inverted_index: CompiledProgramInspectionInvertedIndex | None = None
 
     @classmethod
     def from_nodes(
@@ -218,10 +376,22 @@ class CompiledProgramInspectionNodeIndex:
     ) -> CompiledProgramInspectionNodeIndex:
         retained = tuple(nodes)
         ordinals = {node.id: ordinal for ordinal, node in enumerate(retained)}
+        inverted_index = CompiledProgramInspectionInvertedIndexBuilder()
+        for ordinal, node in enumerate(retained):
+            inverted_index.add(
+                ordinal,
+                parent_id=node.parent_id,
+                kind=node.kind,
+                entity_ids=node.entity_ids,
+                resource_ids=node.resource_ids,
+                result_ids=node.result_ids,
+                max_references_per_dimension=64,
+            )
         return cls(
             node_count=len(retained),
             node_at=lambda ordinal, _query: retained[ordinal],
             ordinal_by_id=ordinals.get,
+            inverted_index=inverted_index.build(),
         )
 
 
@@ -357,7 +527,15 @@ def query_compiled_program_node_index(
         )
     else:
         matching_node_count = 0
-        for ordinal in range(nodes.node_count):
+        candidates = (
+            None
+            if nodes.inverted_index is None
+            else nodes.inverted_index.candidates(selected_query)
+        )
+        ordinals: Sequence[int] = (
+            range(nodes.node_count) if candidates is None else candidates
+        )
+        for ordinal in ordinals:
             node = nodes.node_at(ordinal, selected_query)
             if not _matches_program_node(node, selected_query):
                 continue
@@ -404,6 +582,7 @@ def _program_query_has_filters(query: CompiledProgramInspectionQuery) -> bool:
             query.node_id,
             query.entity_id,
             query.resource_id,
+            query.result_id,
             query.kind,
             query.text,
         )
@@ -447,6 +626,7 @@ def _inspection_cursor_signature(
         None if query is None else query.parent_id,
         None if query is None else query.entity_id,
         None if query is None else query.resource_id,
+        None if query is None else query.result_id,
         None if query is None else query.kind,
         None if query is None else query.text,
     )
@@ -464,6 +644,8 @@ def _matches_program_node(
     if query.entity_id is not None and query.entity_id not in node.entity_ids:
         return False
     if query.resource_id is not None and query.resource_id not in node.resource_ids:
+        return False
+    if query.result_id is not None and query.result_id not in node.result_ids:
         return False
     if query.kind is not None and node.kind != query.kind:
         return False
@@ -505,7 +687,11 @@ def _bound_program_node_references(
         ),
         resource_count=resource_count,
         resource_ids_truncated=node.resource_ids_truncated or resource_count > limit,
-        result_ids=node.result_ids[:limit],
+        result_ids=_bounded_references(
+            node.result_ids,
+            query.result_id if query else None,
+            limit,
+        ),
         result_count=result_count,
         result_ids_truncated=node.result_ids_truncated or result_count > limit,
     )
@@ -594,6 +780,8 @@ __all__ = [
     "CompiledInspectionFact",
     "CompiledPointInspection",
     "CompiledProgramInspection",
+    "CompiledProgramInspectionInvertedIndex",
+    "CompiledProgramInspectionInvertedIndexBuilder",
     "CompiledProgramInspectionLayer",
     "CompiledProgramInspectionLayerIndex",
     "CompiledProgramInspectionLink",

@@ -100,7 +100,9 @@ Inspection acceptance is transport-oriented as well as compiler-oriented:
   scheduled, or physical layer;
 - a follow-up query returns nodes for one layer only, with stable offset/limit,
   matching-count, and next-offset metadata;
-- kind, entity, resource, parent, and text filters execute before pagination;
+- parent, kind, entity, resource, and result filters use retained ordinal
+  indexes before pagination; text matching runs only across those candidates
+  when an indexed filter is present;
 - entity, resource, and result references inside one aggregate node are capped
   independently and retain their full counts;
 - physical placement exposes configured routes plus shared endpoint, local
@@ -158,14 +160,14 @@ uv run python scripts/benchmark_quantum_program.py \
   --inspection-page-size 128
 ```
 
-It emits `scopecat.quantum_program_benchmark.v2` with one row per requested
+It emits `scopecat.quantum_program_benchmark.v3` with one row per requested
 scale. Each row records structural and expanded operation counts,
 selected-entity count, preflight outcome, inspection size, cold snapshot and
 page projection time, warm exact-node projection time, exact-node index build
-and response size, wall times, and retained/peak `tracemalloc` bytes. Wall time
-and memory are recorded observations because machine variance makes them poor
-routine CI gates. The deterministic acceptance test runs 100- and
-10,000-entity cases and requires:
+and response size, indexed resource-filter candidates and response size, wall
+times, and retained/peak `tracemalloc` bytes. Wall time and memory are recorded
+observations because machine variance makes them poor routine CI gates. The
+deterministic acceptance test runs 100- and 10,000-entity cases and requires:
 
 - one retained operation and one unresolved template for the one-operation map;
 - an expansion-budget rejection before concrete expansion;
@@ -173,8 +175,9 @@ routine CI gates. The deterministic acceptance test runs 100- and
 - returned nodes bounded by layer count times the requested page size; and
 - a serialized authored/logical inspection no larger than 32 KiB;
 - cold and warm exact-node queries returning one matching node from both scales;
-  and
-- an exact-node response no larger than 4 KiB, independent of index size.
+- an exact-node response no larger than 4 KiB, independent of index size; and
+- indexed resource filtering materializing only matching candidates, with a
+  response no larger than 32 KiB.
 
 Run the acceptance contract with:
 

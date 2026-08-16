@@ -1737,6 +1737,8 @@ export interface components {
             parent_id?: string | null;
             /** Resource Id */
             resource_id?: string | null;
+            /** Result Id */
+            result_id?: string | null;
             /** Snapshot Id */
             snapshot_id?: string | null;
             /** Text */

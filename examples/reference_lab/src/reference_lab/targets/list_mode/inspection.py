@@ -15,6 +15,7 @@ from scopecat.inspection import (
     CompiledInspectionFact,
     CompiledPointInspection,
     CompiledProgramInspection,
+    CompiledProgramInspectionInvertedIndexBuilder,
     CompiledProgramInspectionLayerIndex,
     CompiledProgramInspectionLink,
     CompiledProgramInspectionLinkIndex,
@@ -318,6 +319,44 @@ def _physical_placement_layer_index(
             )
         },
     }
+    inverted_index = CompiledProgramInspectionInvertedIndexBuilder()
+    inverted_index.add(
+        0,
+        parent_id=None,
+        kind="device",
+        entity_ids=logical_qubit_ids,
+        resource_ids=physical_resource_ids,
+    )
+    for ordinal, event in enumerate(placements, start=1):
+        inverted_index.add(
+            ordinal,
+            parent_id=root_id,
+            kind="placement",
+            entity_ids=(event.signal.signal[2],),
+            resource_ids=tuple(endpoint.id for endpoint in event.signal.endpoints),
+        )
+    for ordinal, candidate in enumerate(
+        artifact.placement.candidates,
+        start=placement_stop,
+    ):
+        inverted_index.add(
+            ordinal,
+            parent_id=root_id,
+            kind=f"placement_candidate_{candidate.status}",
+            entity_ids=tuple(sorted({candidate.signal[2], candidate.route.signal[2]})),
+            resource_ids=tuple(endpoint.id for endpoint in candidate.route.endpoints),
+        )
+    for ordinal, constraint in enumerate(
+        artifact.placement.constraints,
+        start=candidate_stop,
+    ):
+        inverted_index.add(
+            ordinal,
+            parent_id=root_id,
+            kind="placement_constraint",
+            entity_ids=constraint.entity_ids,
+            resource_ids=constraint.resource_ids,
+        )
 
     def node_at(
         ordinal: int,
@@ -403,6 +442,7 @@ def _physical_placement_layer_index(
                 ),
                 node_at=node_at,
                 ordinal_by_id=ordinal_by_id.get,
+                inverted_index=inverted_index.build(),
             ),
             facts=(
                 CompiledInspectionFact(

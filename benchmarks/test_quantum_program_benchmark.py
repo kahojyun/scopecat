@@ -39,7 +39,7 @@ def test_large_quantum_program_retains_structure_and_bounded_inspection() -> Non
         json.loads(result_line.removeprefix("QUANTUM_PROGRAM_BENCHMARK=")),
     )
 
-    assert result["schema"] == "scopecat.quantum_program_benchmark.v2"
+    assert result["schema"] == "scopecat.quantum_program_benchmark.v3"
     assert result["case_count"] == len(_STRESS_ENTITY_COUNTS)
     assert result["inspection_page_size"] == _INSPECTION_PAGE_SIZE
     cases = cast("list[dict[str, object]]", result["cases"])
@@ -64,3 +64,8 @@ def test_large_quantum_program_retains_structure_and_bounded_inspection() -> Non
         assert case["exact_node_returned_count"] == 1
         assert case["exact_node_cold_returned_count"] == 1
         assert cast("int", case["exact_node_response_bytes"]) <= 4 * 1024
+        assert case["filter_matching_count"] == entity_count // 64
+        assert cast("int", case["filter_returned_count"]) <= _INSPECTION_PAGE_SIZE
+        assert case["filter_materialized_node_count"] == case["filter_matching_count"]
+        assert cast("int", case["filter_materialized_node_count"]) < entity_count
+        assert cast("int", case["filter_response_bytes"]) <= _MAX_INSPECTION_BYTES
