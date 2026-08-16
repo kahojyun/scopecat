@@ -349,6 +349,28 @@ def test_list_mode_compiler_projects_calibrated_physical_programs() -> None:
         )
         for event in artifact.placement.events
     )
+    candidates_by_id = {
+        candidate.id: candidate for candidate in artifact.placement.candidates
+    }
+    assert all(event.candidate_ids for event in artifact.placement.events)
+    for event in artifact.placement.events:
+        candidates = tuple(
+            candidates_by_id[candidate_id] for candidate_id in event.candidate_ids
+        )
+        [selected] = tuple(
+            candidate for candidate in candidates if candidate.status == "selected"
+        )
+        assert selected.route == event.signal
+        assert all(
+            candidate.rejections
+            for candidate in candidates
+            if candidate.status == "rejected"
+        )
+    assert any(
+        rejection.code == "entity_mismatch"
+        for candidate in artifact.placement.candidates
+        for rejection in candidate.rejections
+    )
     footprint = artifact.physical_footprint
     assert footprint.instrument_ids == artifact.instrument_ids
     assert footprint.event_count == len(scheduled.events)
@@ -403,6 +425,44 @@ def test_list_mode_compiler_projects_calibrated_physical_programs() -> None:
         "readout-awg",
         "readout-digitizer",
         "timing-controller",
+    )
+
+
+def test_list_mode_placement_candidates_are_bounded_per_signal() -> None:
+    scheduled, _slot = _calibrated_acquisition()
+    target = _target()
+    drive_binding = target.output_binding(DRIVE_Q0)
+    assert drive_binding is not None
+    target = replace(
+        target,
+        output_bindings=(
+            *target.output_bindings,
+            *(
+                replace(
+                    drive_binding,
+                    signal=DriveSignal(QubitId(f"candidate-{index}")),
+                )
+                for index in range(20)
+            ),
+        ),
+    )
+    compiler, request = _request(target, (scheduled,), repetitions=1)
+
+    placement = compiler.compile(request).placement
+    drive_event = next(
+        event
+        for event in placement.events
+        if event.signal.signal == ("drive", "qubit", "q0")
+    )
+
+    assert drive_event.candidate_count > len(drive_event.candidate_ids)
+    assert len(drive_event.candidate_ids) == 8
+    assert placement.candidates_truncated
+    assert placement.candidate_count > len(placement.candidates)
+    assert any(
+        candidate.status == "selected"
+        for candidate in placement.candidates
+        if candidate.id in drive_event.candidate_ids
     )
 
 

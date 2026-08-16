@@ -298,30 +298,44 @@ function ProgramNodeList({
         </span>
       </div>
       <div className="max-h-[390px] overflow-auto p-2" aria-label={`${layer.label} nodes`}>
-        {layer.nodes.map((node) => (
-          <button
-            aria-pressed={selectedNodeId === node.id}
-            className={`flex w-full cursor-pointer items-center gap-2 rounded border-0 px-2 py-1.5 text-left ${
-              selectedNodeId === node.id
-                ? "bg-panel-strong text-text"
-                : "bg-transparent text-text-soft hover:bg-panel-soft"
-            }`}
-            key={node.id}
-            onClick={() => onSelect(node.id)}
-            style={{ paddingLeft: `${8 + depth(node) * 13}px` }}
-            type="button"
-          >
-            <span className="w-16 shrink-0 truncate font-mono text-[0.49rem] text-text-dim">
-              {node.kind}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-[0.61rem] font-semibold">
-              {node.label}
-            </span>
-            {node.child_count > 0 && (
-              <span className="text-[0.52rem] text-text-dim">{node.child_count}</span>
-            )}
-          </button>
-        ))}
+        {layer.nodes.map((node) => {
+          const candidateStatus = placementCandidateStatus(node);
+          return (
+            <button
+              aria-pressed={selectedNodeId === node.id}
+              className={`flex w-full cursor-pointer items-center gap-2 rounded border-0 px-2 py-1.5 text-left ${
+                selectedNodeId === node.id
+                  ? "bg-panel-strong text-text"
+                  : "bg-transparent text-text-soft hover:bg-panel-soft"
+              }`}
+              key={node.id}
+              onClick={() => onSelect(node.id)}
+              style={{ paddingLeft: `${8 + depth(node) * 13}px` }}
+              type="button"
+            >
+              <span className="w-16 shrink-0 truncate font-mono text-[0.49rem] text-text-dim">
+                {node.kind}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[0.61rem] font-semibold">
+                {node.label}
+              </span>
+              {candidateStatus && (
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[0.48rem] font-bold uppercase ${
+                    candidateStatus === "selected"
+                      ? "bg-accent-soft text-accent"
+                      : "bg-red-soft text-red"
+                  }`}
+                >
+                  {candidateStatus}
+                </span>
+              )}
+              {node.child_count > 0 && (
+                <span className="text-[0.52rem] text-text-dim">{node.child_count}</span>
+              )}
+            </button>
+          );
+        })}
         {layer.nodes.length === 0 && (
           <div className="p-4 text-center text-[0.56rem] text-text-dim">
             No nodes match this layer query.
@@ -426,6 +440,7 @@ function ProgramNodeInspector({
     ancestors.unshift(parent);
     parent = parent.parent_id ? loadedNodes.get(parent.parent_id) : undefined;
   }
+  const candidateStatus = placementCandidateStatus(node);
   return (
     <div className="grid gap-2.5">
       <div>
@@ -440,6 +455,25 @@ function ProgramNodeInspector({
         <strong className="mt-1 block text-[0.68rem]">{node.label}</strong>
         <code className="mt-1 block truncate text-[0.52rem] text-text-dim">{node.id}</code>
       </div>
+      {candidateStatus && (
+        <div
+          className={`rounded border px-2.5 py-2 text-[0.58rem] leading-[1.45] ${
+            candidateStatus === "selected"
+              ? "border-[rgb(128_163_207_/_28%)] bg-accent-soft text-accent"
+              : "border-[rgb(215_126_121_/_25%)] bg-red-soft text-red"
+          }`}
+          role="status"
+        >
+          <strong className="block">
+            {candidateStatus === "selected" ? "Route selected" : "Route rejected"}
+          </strong>
+          <span>
+            {candidateStatus === "selected"
+              ? "This candidate satisfies the requested logical signal and configured device route."
+              : node.warnings.join(" · ")}
+          </span>
+        </div>
+      )}
       {node.facts.length > 0 && <FactGrid facts={node.facts} />}
       <div className="flex flex-wrap gap-1.5">
         <ReferenceChips ids={node.entity_ids} label="entity" total={node.entity_count} />
@@ -478,6 +512,12 @@ function ProgramNodeInspector({
       )}
     </div>
   );
+}
+
+function placementCandidateStatus(node: PresentedNode): "selected" | "rejected" | undefined {
+  if (node.kind === "placement_candidate_selected") return "selected";
+  if (node.kind === "placement_candidate_rejected") return "rejected";
+  return undefined;
 }
 
 function ReferenceChips({

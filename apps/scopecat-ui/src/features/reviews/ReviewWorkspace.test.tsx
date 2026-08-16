@@ -8,6 +8,10 @@ import type { ReviewSession } from "../../api-contract";
 import { ReviewWorkspace } from "./ReviewWorkspace";
 import { compileReviewPoint, getReview, getReviews } from "./review-api";
 
+type ProgramLayer = NonNullable<
+  NonNullable<ReviewSession["latest_result"]>["inspections"][number]["content"]["program"]
+>["layers"][number];
+
 vi.mock("./review-api", () => ({
   compileReviewPoint: vi.fn(),
   getReview: vi.fn(),
@@ -48,6 +52,28 @@ describe("ReviewWorkspace", () => {
     expect(screen.getByText("play drive(q0)")).toBeVisible();
     fireEvent.click(screen.getByText("play drive(q0)"));
     expect(screen.getByText("entity q0")).toBeVisible();
+  });
+
+  it("shows selected placement candidates and structured rejection reasons", async () => {
+    const value = reviewSession();
+    const program = value.latest_result?.inspections[0]?.content.program;
+    expect(program).toBeDefined();
+    program?.layers.splice(-1, 0, placementLayer());
+    vi.mocked(getReviews).mockResolvedValue({ items: [value] });
+    vi.mocked(getReview).mockResolvedValue(value);
+
+    renderWorkspace();
+    await screen.findByText("Quantum program");
+    fireEvent.click(screen.getByRole("tab", { name: /Physical placement/ }));
+
+    expect(screen.getByText("selected", { selector: "span" })).toBeVisible();
+    expect(screen.getByText("rejected", { selector: "span" })).toBeVisible();
+    fireEvent.click(screen.getByText("rejected drive(q0) → awg-2:q0"));
+    expect(screen.getByText("Route rejected")).toBeVisible();
+    expect(screen.getByText("requested q0 but route is configured for q1")).toBeVisible();
+
+    fireEvent.click(screen.getByText("selected drive(q0) → awg-1:q0"));
+    expect(screen.getByText("Route selected")).toBeVisible();
   });
 
   it("queries one bounded program layer without changing the selected point", async () => {
@@ -151,6 +177,83 @@ function renderWorkspace() {
       <ReviewWorkspace daemonUnavailable={false} />
     </QueryClientProvider>,
   );
+}
+
+function placementLayer(): ProgramLayer {
+  return {
+    id: "physical",
+    label: "Physical placement",
+    kind: "physical",
+    node_count: 3,
+    nodes_truncated: false,
+    root_ids: ["physical:placement"],
+    facts: [],
+    page: {
+      offset: 0,
+      limit: 128,
+      matching_node_count: 3,
+      returned_node_count: 3,
+      snapshot_id: "sha256:artifact",
+    },
+    nodes: [
+      {
+        id: "physical:placement",
+        kind: "device",
+        label: "device list-mode",
+        child_count: 2,
+        entity_ids: ["q0"],
+        entity_count: 1,
+        entity_ids_truncated: false,
+        resource_ids: ["awg-1:q0", "awg-2:q0"],
+        resource_count: 2,
+        resource_ids_truncated: false,
+        result_ids: [],
+        result_count: 0,
+        result_ids_truncated: false,
+        facts: [],
+        warnings: [],
+      },
+      {
+        id: "physical:candidate:selected",
+        kind: "placement_candidate_selected",
+        label: "selected drive(q0) → awg-1:q0",
+        parent_id: "physical:placement",
+        child_count: 0,
+        entity_ids: ["q0"],
+        entity_count: 1,
+        entity_ids_truncated: false,
+        resource_ids: ["awg-1:q0"],
+        resource_count: 1,
+        resource_ids_truncated: false,
+        result_ids: [],
+        result_count: 0,
+        result_ids_truncated: false,
+        facts: [{ id: "status", value: "selected" }],
+        warnings: [],
+      },
+      {
+        id: "physical:candidate:rejected",
+        kind: "placement_candidate_rejected",
+        label: "rejected drive(q0) → awg-2:q0",
+        parent_id: "physical:placement",
+        child_count: 0,
+        entity_ids: ["q0", "q1"],
+        entity_count: 2,
+        entity_ids_truncated: false,
+        resource_ids: ["awg-2:q0"],
+        resource_count: 1,
+        resource_ids_truncated: false,
+        result_ids: [],
+        result_count: 0,
+        result_ids_truncated: false,
+        facts: [
+          { id: "status", value: "rejected" },
+          { id: "rejection_codes", value: ["entity_mismatch"] },
+        ],
+        warnings: ["requested q0 but route is configured for q1"],
+      },
+    ],
+  };
 }
 
 function reviewSession(): ReviewSession {

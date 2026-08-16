@@ -163,7 +163,11 @@ def _with_physical_placement_layer(
     logical_qubit_ids = tuple(sorted({event.signal.signal[2] for event in placements}))
     physical_resource_ids = tuple(
         sorted(
-            {endpoint.id for event in placements for endpoint in event.signal.endpoints}
+            {
+                endpoint.id
+                for candidate in artifact.placement.candidates
+                for endpoint in candidate.route.endpoints
+            }
         )
     )
     root_id = "physical:placement"
@@ -172,7 +176,11 @@ def _with_physical_placement_layer(
             id=root_id,
             kind="device",
             label=f"device {artifact.target_id.value}",
-            child_count=len(placements) + len(artifact.placement.constraints),
+            child_count=(
+                len(placements)
+                + len(artifact.placement.candidates)
+                + len(artifact.placement.constraints)
+            ),
             entity_ids=logical_qubit_ids,
             resource_ids=physical_resource_ids,
             facts=(
@@ -187,6 +195,25 @@ def _with_physical_placement_layer(
                 CompiledInspectionFact(
                     "placement_constraint_count",
                     len(artifact.placement.constraints),
+                ),
+                CompiledInspectionFact(
+                    "placement_candidate_count",
+                    artifact.placement.candidate_count,
+                ),
+                CompiledInspectionFact(
+                    "materialized_candidate_count",
+                    len(artifact.placement.candidates),
+                ),
+                CompiledInspectionFact(
+                    "placement_candidates_truncated",
+                    artifact.placement.candidates_truncated,
+                ),
+                CompiledInspectionFact(
+                    "materialized_rejected_candidate_count",
+                    sum(
+                        candidate.status == "rejected"
+                        for candidate in artifact.placement.candidates
+                    ),
                 ),
             ),
         ),
@@ -217,11 +244,58 @@ def _with_physical_placement_layer(
                             "constraint_ids",
                             list(event.constraint_ids),
                         ),
+                        CompiledInspectionFact(
+                            "candidate_ids",
+                            list(event.candidate_ids),
+                        ),
+                        CompiledInspectionFact(
+                            "candidate_count",
+                            event.candidate_count,
+                        ),
                     )
                     if fact is not None
                 ),
             )
             for event in placements
+        ),
+        *(
+            CompiledProgramInspectionNode(
+                id=f"physical:{candidate.id}",
+                kind=f"placement_candidate_{candidate.status}",
+                label=(
+                    f"{candidate.status} {candidate.signal[0]}({candidate.signal[2]}) "
+                    "→ "
+                    + ", ".join(endpoint.id for endpoint in candidate.route.endpoints)
+                ),
+                parent_id=root_id,
+                entity_ids=tuple(
+                    sorted({candidate.signal[2], candidate.route.signal[2]})
+                ),
+                resource_ids=tuple(
+                    endpoint.id for endpoint in candidate.route.endpoints
+                ),
+                facts=(
+                    CompiledInspectionFact("status", candidate.status),
+                    CompiledInspectionFact(
+                        "requested_signal",
+                        list(candidate.signal),
+                    ),
+                    CompiledInspectionFact(
+                        "configured_signal",
+                        list(candidate.route.signal),
+                    ),
+                    CompiledInspectionFact(
+                        "rejection_codes",
+                        [rejection.code for rejection in candidate.rejections],
+                    ),
+                    CompiledInspectionFact(
+                        "rejection_reasons",
+                        [rejection.message for rejection in candidate.rejections],
+                    ),
+                ),
+                warnings=tuple(rejection.message for rejection in candidate.rejections),
+            )
+            for candidate in artifact.placement.candidates
         ),
         *(
             CompiledProgramInspectionNode(
@@ -293,7 +367,7 @@ def _with_physical_placement_layer(
         ),
     )
     physical_node_ids = {node.id for node in selected_nodes}
-    links = tuple(
+    placement_links = tuple(
         CompiledProgramInspectionLink(
             source_layer_id="scheduled",
             source_node_id=f"scheduled:event:{event.event_id.value}",
@@ -304,10 +378,26 @@ def _with_physical_placement_layer(
         for event in placements
         if f"physical:event:{event.event_id.value}" in physical_node_ids
     )
+    candidate_links = tuple(
+        CompiledProgramInspectionLink(
+            source_layer_id="physical",
+            source_node_id=f"physical:event:{event.event_id.value}",
+            target_layer_id="physical",
+            target_node_id=f"physical:{candidate.id}",
+            relation=(
+                "selected_route" if candidate.status == "selected" else "rejected_route"
+            ),
+        )
+        for event in placements
+        for candidate in artifact.placement.candidates
+        if candidate.id in event.candidate_ids
+        and f"physical:event:{event.event_id.value}" in physical_node_ids
+        and f"physical:{candidate.id}" in physical_node_ids
+    )
     return replace(
         program,
         layers=(*program.layers, layer),
-        links=(*program.links, *links),
+        links=(*program.links, *placement_links, *candidate_links),
     )
 
 

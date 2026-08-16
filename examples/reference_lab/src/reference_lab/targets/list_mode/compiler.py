@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 from collections import OrderedDict
 from dataclasses import dataclass, field, replace
+from itertools import chain, islice
 from typing import cast
 
 from scopecat.kernel.content_identity import content_fingerprint
@@ -79,8 +80,10 @@ from reference_lab.targets.list_mode.model import (
     ListModeHostStateRequirements,
     ListModePhysicalEndpoint,
     ListModePhysicalFootprint,
+    ListModePlacementCandidate,
     ListModePlacementConstraint,
     ListModePlacementConstraintKind,
+    ListModePlacementRejection,
     ListModePreparation,
     ListModeProgramPlacement,
     ListModeSignalPlacement,
@@ -104,6 +107,7 @@ from reference_lab.targets.list_mode.model import (
 
 _ARTIFACT_CACHE_SIZE = 32
 _INTERMEDIATE_CACHE_SIZE = 64
+_MAX_PLACEMENT_CANDIDATES_PER_SIGNAL = 8
 _RESULT_BYTES_PER_VALUE = 17
 
 
@@ -166,8 +170,12 @@ class _PlacementPlan:
     device_snapshot_fingerprint: str
     programs: tuple[_PlannedProgram, ...]
     placements: tuple[ListModeSignalPlacement, ...]
+    candidates: tuple[ListModePlacementCandidate, ...]
+    candidate_count: int
     constraints: tuple[ListModePlacementConstraint, ...]
     constraint_ids_by_signal: tuple[tuple[tuple[str, str, str], tuple[str, ...]], ...]
+    candidate_ids_by_signal: tuple[tuple[tuple[str, str, str], tuple[str, ...]], ...]
+    candidate_counts_by_signal: tuple[tuple[tuple[str, str, str], int], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -334,15 +342,25 @@ class ListModeTargetCompiler:
                 is not None
             )
             if not issues:
-                placements, constraints, constraint_ids_by_signal = (
-                    _plan_program_placement(semantic, device_snapshot)
-                )
+                (
+                    placements,
+                    candidates,
+                    constraints,
+                    constraint_ids_by_signal,
+                    candidate_ids_by_signal,
+                    candidate_counts_by_signal,
+                    candidate_count,
+                ) = _plan_program_placement(semantic, device_snapshot)
                 placement_plan = _PlacementPlan(
                     device_snapshot_fingerprint=device_snapshot.snapshot_fingerprint,
                     programs=planned_programs,
                     placements=placements,
+                    candidates=candidates,
+                    candidate_count=candidate_count,
                     constraints=constraints,
                     constraint_ids_by_signal=constraint_ids_by_signal,
+                    candidate_ids_by_signal=candidate_ids_by_signal,
+                    candidate_counts_by_signal=candidate_counts_by_signal,
                 )
                 self._placement_cache.put(
                     compilation_key.placement_fingerprint,
@@ -969,11 +987,24 @@ def _plan_program_placement(
     snapshot: ListModeDeviceSnapshot,
 ) -> tuple[
     tuple[ListModeSignalPlacement, ...],
+    tuple[ListModePlacementCandidate, ...],
     tuple[ListModePlacementConstraint, ...],
     tuple[tuple[tuple[str, str, str], tuple[str, ...]], ...],
+    tuple[tuple[tuple[str, str, str], tuple[str, ...]], ...],
+    tuple[tuple[tuple[str, str, str], int], ...],
+    int,
 ]:
     selected_signals = semantic.selected_signals
     placements = tuple(snapshot.signal_placement(signal) for signal in selected_signals)
+    (
+        candidates,
+        candidate_ids_by_signal,
+        candidate_counts_by_signal,
+        candidate_count,
+    ) = _placement_candidates(
+        selected_signals,
+        snapshot,
+    )
     constraint_ids_by_signal: dict[tuple[str, str, str], list[str]] = {
         signal: [] for signal in selected_signals
     }
@@ -1077,11 +1108,119 @@ def _plan_program_placement(
     )
     return (
         placements,
+        candidates,
         tuple(constraints),
         tuple(
             (signal, tuple(constraint_ids_by_signal[signal]))
             for signal in selected_signals
         ),
+        candidate_ids_by_signal,
+        candidate_counts_by_signal,
+        candidate_count,
+    )
+
+
+def _placement_candidates(
+    selected_signals: tuple[tuple[str, str, str], ...],
+    snapshot: ListModeDeviceSnapshot,
+) -> tuple[
+    tuple[ListModePlacementCandidate, ...],
+    tuple[tuple[tuple[str, str, str], tuple[str, ...]], ...],
+    tuple[tuple[tuple[str, str, str], int], ...],
+    int,
+]:
+    routes_by_role: dict[tuple[str, str], list[ListModeSignalPlacement]] = {}
+    routes_by_entity: dict[tuple[str, str, str], list[ListModeSignalPlacement]] = {}
+    for route in snapshot.signal_placements:
+        if not route.endpoints:
+            continue
+        endpoint_kind = route.endpoints[0].kind
+        routes_by_role.setdefault((endpoint_kind, route.signal[0]), []).append(route)
+        routes_by_entity.setdefault(
+            (endpoint_kind, route.signal[1], route.signal[2]), []
+        ).append(route)
+
+    candidates: list[ListModePlacementCandidate] = []
+    candidate_ids_by_signal: list[tuple[tuple[str, str, str], tuple[str, ...]]] = []
+    candidate_counts_by_signal: list[tuple[tuple[str, str, str], int]] = []
+    total_candidate_count = 0
+    for signal in selected_signals:
+        endpoint_kind = (
+            "acquisition_input" if signal[0] == "acquire" else "waveform_output"
+        )
+        selected = snapshot.signal_placement(signal)
+        same_entity = routes_by_entity.get(
+            (endpoint_kind, signal[1], signal[2]),
+            [],
+        )
+        same_role = routes_by_role.get((endpoint_kind, signal[0]), [])
+        signal_candidate_count = len(same_role) + sum(
+            route.signal[0] != signal[0] for route in same_entity
+        )
+        total_candidate_count += signal_candidate_count
+        candidate_counts_by_signal.append((signal, signal_candidate_count))
+        candidate_routes = tuple(
+            islice(
+                chain(
+                    (selected,),
+                    (route for route in same_entity if route != selected),
+                    (route for route in same_role if route != selected),
+                ),
+                _MAX_PLACEMENT_CANDIDATES_PER_SIGNAL,
+            )
+        )
+        signal_candidate_ids: list[str] = []
+        for route in candidate_routes:
+            rejections: list[ListModePlacementRejection] = []
+            if route.signal[0] != signal[0]:
+                rejections.append(
+                    ListModePlacementRejection(
+                        code="signal_role_mismatch",
+                        message=(
+                            f"requested {signal[0]} but route is configured for "
+                            f"{route.signal[0]}"
+                        ),
+                    )
+                )
+            if route.signal[1] != signal[1]:
+                rejections.append(
+                    ListModePlacementRejection(
+                        code="entity_kind_mismatch",
+                        message=(
+                            f"requested {signal[1]} but route is configured for "
+                            f"{route.signal[1]}"
+                        ),
+                    )
+                )
+            if route.signal[2] != signal[2]:
+                rejections.append(
+                    ListModePlacementRejection(
+                        code="entity_mismatch",
+                        message=(
+                            f"requested {signal[2]} but route is configured for "
+                            f"{route.signal[2]}"
+                        ),
+                    )
+                )
+            candidate_id = (
+                f"candidate:{':'.join(signal)}->configured:{':'.join(route.signal)}"
+            )
+            signal_candidate_ids.append(candidate_id)
+            candidates.append(
+                ListModePlacementCandidate(
+                    id=candidate_id,
+                    signal=signal,
+                    route=route,
+                    status="selected" if not rejections else "rejected",
+                    rejections=tuple(rejections),
+                )
+            )
+        candidate_ids_by_signal.append((signal, tuple(signal_candidate_ids)))
+    return (
+        tuple(candidates),
+        tuple(candidate_ids_by_signal),
+        tuple(candidate_counts_by_signal),
+        total_candidate_count,
     )
 
 
@@ -1093,6 +1232,8 @@ def _project_program_placement(
         placement.signal: placement for placement in plan.placements
     }
     constraint_ids_by_signal = dict(plan.constraint_ids_by_signal)
+    candidate_ids_by_signal = dict(plan.candidate_ids_by_signal)
+    candidate_counts_by_signal = dict(plan.candidate_counts_by_signal)
     events: list[ListModeEventPlacement] = []
     for entry in request.entries:
         for event in entry.program.events:
@@ -1107,11 +1248,16 @@ def _project_program_placement(
                     event_id=event.id,
                     signal=placement,
                     constraint_ids=tuple(constraint_ids_by_signal[placement.signal]),
+                    candidate_ids=tuple(candidate_ids_by_signal[placement.signal]),
+                    candidate_count=candidate_counts_by_signal[placement.signal],
                 )
             )
     return ListModeProgramPlacement(
         device_snapshot_fingerprint=plan.device_snapshot_fingerprint,
         events=tuple(events),
+        candidates=plan.candidates,
+        candidate_count=plan.candidate_count,
+        candidates_truncated=len(plan.candidates) < plan.candidate_count,
         constraints=plan.constraints,
     )
 

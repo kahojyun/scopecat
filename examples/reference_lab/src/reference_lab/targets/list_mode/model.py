@@ -163,6 +163,35 @@ class ListModeEventPlacement:
     event_id: PulseEventId
     signal: ListModeSignalPlacement
     constraint_ids: tuple[str, ...]
+    candidate_ids: tuple[str, ...]
+    candidate_count: int
+
+
+type ListModePlacementCandidateStatus = Literal["selected", "rejected"]
+type ListModePlacementRejectionCode = Literal[
+    "signal_role_mismatch",
+    "entity_kind_mismatch",
+    "entity_mismatch",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ListModePlacementRejection:
+    """One structured reason a physical route was not selected."""
+
+    code: ListModePlacementRejectionCode
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class ListModePlacementCandidate:
+    """One physical route considered for a requested logical signal."""
+
+    id: str
+    signal: tuple[str, str, str]
+    route: ListModeSignalPlacement
+    status: ListModePlacementCandidateStatus
+    rejections: tuple[ListModePlacementRejection, ...]
 
 
 type ListModePlacementConstraintKind = Literal[
@@ -192,6 +221,9 @@ class ListModeProgramPlacement:
 
     device_snapshot_fingerprint: str
     events: tuple[ListModeEventPlacement, ...]
+    candidates: tuple[ListModePlacementCandidate, ...]
+    candidate_count: int
+    candidates_truncated: bool
     constraints: tuple[ListModePlacementConstraint, ...]
 
     @property
@@ -395,9 +427,29 @@ def program_placement_payload(placement: ListModeProgramPlacement) -> dict[str, 
                 "event_id": pulse_event_identity_payload(event.event_id),
                 "signal": signal_placement_payload(event.signal),
                 "constraint_ids": list(event.constraint_ids),
+                "candidate_ids": list(event.candidate_ids),
+                "candidate_count": event.candidate_count,
             }
             for event in placement.events
         ],
+        "candidates": [
+            {
+                "id": candidate.id,
+                "signal": list(candidate.signal),
+                "route": signal_placement_payload(candidate.route),
+                "status": candidate.status,
+                "rejections": [
+                    {
+                        "code": rejection.code,
+                        "message": rejection.message,
+                    }
+                    for rejection in candidate.rejections
+                ],
+            }
+            for candidate in placement.candidates
+        ],
+        "candidate_count": placement.candidate_count,
+        "candidates_truncated": placement.candidates_truncated,
         "constraints": [
             {
                 "id": constraint.id,
@@ -1280,8 +1332,12 @@ __all__ = [
     "ListModeHostStateRequirements",
     "ListModePhysicalEndpoint",
     "ListModePhysicalFootprint",
+    "ListModePlacementCandidate",
+    "ListModePlacementCandidateStatus",
     "ListModePlacementConstraint",
     "ListModePlacementConstraintKind",
+    "ListModePlacementRejection",
+    "ListModePlacementRejectionCode",
     "ListModePreparation",
     "ListModeProgramPlacement",
     "ListModeSignalPlacement",

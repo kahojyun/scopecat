@@ -420,6 +420,16 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
     assert physical_layer.kind == "physical"
     assert physical_layer.nodes[0].resource_ids
     assert any(node.kind == "placement_constraint" for node in physical_layer.nodes)
+    assert any(
+        node.kind == "placement_candidate_selected" for node in physical_layer.nodes
+    )
+    assert any(
+        node.kind == "placement_candidate_rejected" and node.warnings
+        for node in physical_layer.nodes
+    )
+    assert any(
+        link.relation == "selected_route" for link in inspection.content.program.links
+    )
     [entry] = inspection.content.points
     assert entry.target_entry_id.endswith(".point-14")
 
