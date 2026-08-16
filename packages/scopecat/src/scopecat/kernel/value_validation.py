@@ -18,7 +18,7 @@ from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import LocationPathItem
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.units import compatible_units, unit_kind
-from scopecat.kernel.value_identity import scalar_values_equal
+from scopecat.kernel.value_identity import scalar_identity, scalar_values_equal
 from scopecat.kernel.value_types import (
     Array,
     AtomType,
@@ -327,7 +327,8 @@ def _coerce_table(
     rows = _sequence(value, path=path, label="table")
     columns = {column.id: column for column in value_type.columns}
     result: list[dict[str, object]] = []
-    primary_keys: list[tuple[object, ...]] = []
+    primary_key_indexes: dict[tuple[tuple[object, ...], ...], int] = {}
+    quantity_primary_keys: list[tuple[int, tuple[object, ...]]] = []
     for index, raw_row in enumerate(rows):
         row_path = (*path, index)
         row = _string_mapping(raw_row, path=row_path, label="table row")
@@ -353,20 +354,25 @@ def _coerce_table(
         }
         if value_type.primary_key:
             key = tuple(selected[column_id] for column_id in value_type.primary_key)
-            duplicate_index = next(
-                (
-                    existing_index
-                    for existing_index, existing_key in enumerate(primary_keys)
-                    if _scalar_keys_equal(existing_key, key)
-                ),
-                None,
-            )
+            if any(isinstance(value, QuantityValue) for value in key):
+                duplicate_index = next(
+                    (
+                        existing_index
+                        for existing_index, existing_key in quantity_primary_keys
+                        if _scalar_keys_equal(existing_key, key)
+                    ),
+                    None,
+                )
+                quantity_primary_keys.append((index, key))
+            else:
+                identity = tuple(scalar_identity(value) for value in key)
+                duplicate_index = primary_key_indexes.get(identity)
+                primary_key_indexes.setdefault(identity, index)
             if duplicate_index is not None:
                 raise ValueValidationError(
                     row_path,
                     f"table primary key {key!r} duplicates row {duplicate_index}",
                 )
-            primary_keys.append(key)
         result.append(selected)
     return tuple(result)
 

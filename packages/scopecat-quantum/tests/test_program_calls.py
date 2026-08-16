@@ -438,6 +438,7 @@ def test_qubit_set_retains_parallel_authoring_and_owns_entity_axis_result() -> N
     large_workload = estimate_quantum_program_workload(large_bound.verified)
     assert large_workload.structural_operation_count == 2
     assert large_workload.expanded_operation_count == 2_000
+    assert large_workload.selected_entity_count == 1_000
 
     call = declaration(("q0", "q1")).with_shots(16)
 

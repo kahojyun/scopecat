@@ -255,32 +255,50 @@ def estimate_quantum_program_workload(
 
     selected_entities: set[QubitId] = set()
 
-    def estimate(node: QuantumNode) -> tuple[int, int]:
+    def estimate(
+        node: QuantumNode,
+        template_items: frozenset[QubitId] | None = None,
+    ) -> tuple[int, int]:
+        selected_template_items: frozenset[QubitId] = (
+            frozenset() if template_items is None else template_items
+        )
         if isinstance(node, GateCall):
-            selected_entities.update(node.qubits)
+            selected_entities.update(
+                qubit for qubit in node.qubits if qubit not in selected_template_items
+            )
             return 1, 1
         if isinstance(node, Measure):
-            selected_entities.add(node.qubit)
+            if node.qubit not in selected_template_items:
+                selected_entities.add(node.qubit)
             return 1, 1
         if isinstance(node, ImplementedGate):
-            selected_entities.update(node.call.qubits)
+            selected_entities.update(
+                qubit
+                for qubit in node.call.qubits
+                if qubit not in selected_template_items
+            )
             return 1, 1
         if isinstance(node, PulseBlock):
             selected_entities.update(
                 owner
                 for owner in pulse_leaf_owners(node.pulse_template.body)
-                if isinstance(owner, QubitId)
+                if isinstance(owner, QubitId) and owner not in selected_template_items
             )
             return 1, 1
         if isinstance(node, Repeat):
-            structural, expanded = estimate(node.operation)
+            structural, expanded = estimate(node.operation, selected_template_items)
             return structural, expanded * node.count
         if isinstance(node, ParallelEach):
             selected_entities.update(node.entity_ids)
-            structural, expanded = estimate(node.operation)
+            structural, expanded = estimate(
+                node.operation,
+                selected_template_items | {node.item_id},
+            )
             return structural, expanded * len(node.entity_ids)
         children = node.operations if isinstance(node, Sequence) else node.branches
-        estimates = tuple(estimate(child) for child in children)
+        estimates = tuple(
+            estimate(child, selected_template_items) for child in children
+        )
         return (
             sum(item[0] for item in estimates),
             sum(item[1] for item in estimates),

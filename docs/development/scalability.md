@@ -90,7 +90,9 @@ Concrete scheduling may grow with physical work, but event, acquisition,
 waveform, total-result, and single-result-chunk limits must reject an unsafe
 request before device preparation. Semantic, placement, and final artifact
 layout fingerprints are recorded separately so entry renaming or repetition
-changes do not discard reusable logical work.
+changes do not discard reusable logical work. Parallel-map verification checks
+the template once, and the target expansion budget is checked from the retained
+workload before any per-entity operation is instantiated.
 
 Inspection acceptance is transport-oriented as well as compiler-oriented:
 
@@ -102,7 +104,11 @@ Inspection acceptance is transport-oriented as well as compiler-oriented:
 - entity, resource, and result references inside one aggregate node are capped
   independently and retain their full counts;
 - physical placement exposes configured routes plus shared endpoint, local
-  oscillator, demodulator, and timing constraints as inspectable nodes.
+  oscillator, demodulator, and timing constraints as inspectable nodes;
+- placement materializes at most eight relevant route candidates per selected
+  signal, records structured rejection reasons, and retains the full candidate
+  count plus a truncation marker instead of constructing a device-wide
+  signal-by-route product.
 
 The GUI should therefore render layer summaries first, page the node list,
 show Map/Repeat nodes as aggregates, draw timing only for the selected scheduled
@@ -120,6 +126,42 @@ boundary.
 A target becomes demonstrated when the workload, resource budget, and result
 are repeatable. Optimizations should address the first measured limit while
 preserving the shared invariants.
+
+## Quantum Program Structure Baseline
+
+The quantum-program probe measures entity-set binding, template-level budget
+preflight, and bounded authored/logical inspection without performing concrete
+target lowering:
+
+```console
+uv run python scripts/benchmark_quantum_program.py \
+  --entities 1000 \
+  --inspection-page-size 128
+```
+
+It emits `scopecat.quantum_program_benchmark.v1` with structural and expanded
+operation counts, selected-entity count, preflight outcome, inspection size,
+wall times, and retained/peak `tracemalloc` bytes. Wall time and memory are
+recorded observations because machine variance makes them poor routine CI
+gates. The deterministic acceptance test instead runs a 10,000-entity stress
+case and requires:
+
+- one retained operation and one unresolved template for the one-operation map;
+- an expansion-budget rejection before concrete expansion;
+- no more than 64 retained entity references on one inspection node;
+- returned nodes bounded by layer count times the requested page size; and
+- a serialized authored/logical inspection no larger than 32 KiB.
+
+Run the acceptance contract with:
+
+```console
+uv run pytest -q benchmarks/test_quantum_program_benchmark.py
+```
+
+The test also exercises the indexed table-primary-key path used by entity-set
+binding. Non-quantity scalar keys use their canonical semantic identity, while
+quantity keys retain tolerance-aware comparison. This keeps ordinary entity
+sets linear without changing quantity equality semantics.
 
 ## Scan Execution UX Baseline
 
@@ -447,15 +489,20 @@ The present architecture provides a direct end-to-end baseline:
   maximum point count for the following batch;
 - quantum target artifacts carry a fingerprinted device snapshot, per-event
   logical-to-physical placement, and an exact deduplicated resource footprint.
-  Inspection adds this as a bounded physical layer linked to scheduled events,
-  so large programs can be navigated by abstraction level instead of rendered
-  as one flat circuit or waveform list;
+  Placement records a bounded set of selected and rejected route candidates
+  with structured reasons. Inspection adds this as a bounded physical layer
+  linked to scheduled events, so large programs can be navigated by abstraction
+  level instead of rendered as one flat circuit or waveform list. Follow-up
+  pages use artifact-scoped cursors, and a newer review query supersedes stale
+  queued or in-flight work;
 - bound quantum IR retains entity-set parallel boundaries and repeat counts,
   while inspection reports structural versus expanded operation counts. The
-  list-mode compiler keys its bounded artifact cache by compiler, normalized
-  scheduled request, and device snapshot. Its continuation report exposes
-  list-entry, waveform-memory, per-entry sample, and repetition budgets plus the
-  limiting dimension used to choose the next batch size;
+  list-mode compiler independently caches semantic analysis, waveform/placement
+  planning, artifact layout, and final artifacts by their layered fingerprints.
+  Artifact eviction therefore does not force target-independent analysis or
+  waveform planning to repeat. Its continuation report exposes list-entry,
+  waveform-memory, per-entry sample, and repetition budgets plus the limiting
+  dimension used to choose the next batch size;
 - the reference list-mode target combines its device entry capacity with an
   adaptive 8 MiB aggregate waveform target. Its AWG and virtual-capture codecs
   carry contiguous float64 samples in binary rather than expanding arrays into
@@ -464,8 +511,10 @@ The present architecture provides a direct end-to-end baseline:
   boundary; structurally different entries retain ordinary materialized
   buffers. Direct and run-scoped hardware receipts likewise carry typed headers
   plus binary measurement-array attachments, and target result blocks remain
-  array-native through correlation. Immutable byte-backed arrays are adopted
-  across typed model and wire-decode boundaries rather than recopied;
+  array-native through correlation. Large shot results are collected in bounded
+  chunks with explicit shot offsets, then correlated into the original domain
+  and logical measurement axes. Immutable byte-backed arrays are adopted across
+  typed model and wire-decode boundaries rather than recopied;
 - admission uses the domain compiler's static instrument footprint and all
   structurally compatible local route candidates. Point-local routing narrows
   the operations actually emitted, so a run may conservatively reserve an
