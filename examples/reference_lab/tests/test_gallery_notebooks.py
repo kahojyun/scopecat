@@ -324,16 +324,43 @@ def test_entity_axis_preserves_the_available_demod_channel(
     assert [failure.label for failure in trace.failures] == ["Delay 128 ns · q1"]
 
 
-def test_quantum_program_is_inspectable_without_hardware() -> None:
+def test_topology_scaled_ramsey_resolves_one_connected_qubit_set(
+    reference_lab_daemon: _ReferenceLabDaemon,
+) -> None:
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "31_topology_scaled_ramsey.py"))
+    summary = cast("dict[str, object]", namespace["topology_scaled_summary"])
+
+    assert summary == {
+        "points": 3,
+        "records": 3,
+        "variable": "iq_shots",
+        "dims": [
+            "point",
+            "shared/topology-scaled-ramsey/targets",
+            "shared/topology-scaled-ramsey/shot",
+        ],
+        "shape": [3, 3, 64],
+        "entities": ["q1", "q0", "q2"],
+        "tree_has_parallel_each": True,
+        "status": "completed",
+    }
+
+
+def test_quantum_program_exposes_compiled_inspection_layers(
+    reference_lab_daemon: _ReferenceLabDaemon,
+) -> None:
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     namespace = run_path(str(NOTEBOOKS / "32_quantum_program_inspection.py"))
     summary = cast("dict[str, object]", namespace["program_inspection_summary"])
 
-    assert summary == {
-        "program_id": "drag-beta-rough-calibration",
-        "description_has_ports": True,
-        "tree_has_repeat": True,
-        "tree_has_parallel_readout": True,
-    }
+    assert summary["program_id"] == "reference-lab.topology-scaled-ramsey"
+    assert summary["description_has_ports"] is True
+    assert summary["tree_has_parallel_each"] is True
+    assert summary["layers"] == ["authored", "logical", "scheduled", "physical"]
+    assert cast("int", summary["physical_matching_nodes"]) > 8
+    assert summary["physical_returned_nodes"] == 8
+    assert summary["snapshot_matches_artifact"] is True
 
 
 def test_drag_calibration_closes_the_reviewed_config_loop(
