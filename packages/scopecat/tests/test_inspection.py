@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from scopecat.inspection import (
     CompiledProgramInspectionNode,
     CompiledProgramInspectionQuery,
@@ -31,3 +33,73 @@ def test_program_node_queries_bound_large_reference_sets() -> None:
     assert bounded.entity_ids_truncated
     assert len(bounded.entity_ids) == 64
     assert bounded.entity_ids[0] == "q99"
+
+
+def test_program_node_cursor_is_bound_to_snapshot_and_filters() -> None:
+    nodes = tuple(
+        CompiledProgramInspectionNode(
+            id=f"scheduled:{index}",
+            kind="play",
+            label=f"pulse {index}",
+        )
+        for index in range(5)
+    )
+    query = CompiledProgramInspectionQuery(
+        layer_id="scheduled",
+        snapshot_id="artifact-a",
+        limit=2,
+        kind="play",
+    )
+
+    first, first_page = query_compiled_program_nodes(
+        "scheduled",
+        nodes,
+        query=query,
+        default_limit=2,
+        snapshot_id="artifact-a",
+    )
+    assert [node.id for node in first] == ["scheduled:0", "scheduled:1"]
+    assert first_page.next_cursor is not None
+
+    second, second_page = query_compiled_program_nodes(
+        "scheduled",
+        nodes,
+        query=CompiledProgramInspectionQuery(
+            layer_id="scheduled",
+            snapshot_id="artifact-a",
+            cursor=first_page.next_cursor,
+            limit=2,
+            kind="play",
+        ),
+        default_limit=2,
+        snapshot_id="artifact-a",
+    )
+    assert [node.id for node in second] == ["scheduled:2", "scheduled:3"]
+    assert second_page.previous_cursor is not None
+
+    with pytest.raises(ValueError, match="cursor does not match"):
+        query_compiled_program_nodes(
+            "scheduled",
+            nodes,
+            query=CompiledProgramInspectionQuery(
+                layer_id="scheduled",
+                snapshot_id="artifact-a",
+                cursor=first_page.next_cursor,
+                limit=2,
+                kind="acquire",
+            ),
+            default_limit=2,
+            snapshot_id="artifact-a",
+        )
+    with pytest.raises(ValueError, match="snapshot does not match"):
+        query_compiled_program_nodes(
+            "scheduled",
+            nodes,
+            query=CompiledProgramInspectionQuery(
+                layer_id="scheduled",
+                snapshot_id="artifact-b",
+                limit=2,
+            ),
+            default_limit=2,
+            snapshot_id="artifact-a",
+        )

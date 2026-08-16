@@ -1554,10 +1554,12 @@ export interface components {
             query?: components["schemas"]["CompiledProgramInspectionQuery"] | null;
             /**
              * Schema Id
-             * @default scopecat.compiled_program_inspection.v2
+             * @default scopecat.compiled_program_inspection.v3
              * @constant
              */
-            schema_id: "scopecat.compiled_program_inspection.v2";
+            schema_id: "scopecat.compiled_program_inspection.v3";
+            /** Snapshot Id */
+            snapshot_id: string;
             /**
              * Warnings
              * @default []
@@ -1693,18 +1695,26 @@ export interface components {
             limit: number;
             /** Matching Node Count */
             matching_node_count: number;
+            /** Next Cursor */
+            next_cursor?: string | null;
             /** Next Offset */
             next_offset?: number | null;
             /** Offset */
             offset: number;
+            /** Previous Cursor */
+            previous_cursor?: string | null;
             /** Returned Node Count */
             returned_node_count: number;
+            /** Snapshot Id */
+            snapshot_id: string;
         };
         /**
          * CompiledProgramInspectionQuery
          * @description One bounded server-side node query for a program layer.
          */
         CompiledProgramInspectionQuery: {
+            /** Cursor */
+            cursor?: string | null;
             /** Entity Id */
             entity_id?: string | null;
             /** Kind */
@@ -1725,6 +1735,8 @@ export interface components {
             parent_id?: string | null;
             /** Resource Id */
             resource_id?: string | null;
+            /** Snapshot Id */
+            snapshot_id?: string | null;
             /** Text */
             text?: string | null;
         };

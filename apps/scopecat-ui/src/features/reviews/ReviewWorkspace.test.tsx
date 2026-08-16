@@ -68,6 +68,7 @@ describe("ReviewWorkspace", () => {
         coordinate_mode: "exact",
         inspection_query: {
           layer_id: "scheduled",
+          snapshot_id: "sha256:artifact",
           offset: 0,
           limit: 128,
           text: "drive",
@@ -89,7 +90,9 @@ describe("ReviewWorkspace", () => {
         coordinate_mode: "exact",
         inspection_query: {
           layer_id: "scheduled",
-          offset: 128,
+          snapshot_id: "sha256:artifact",
+          cursor: "128.cursor",
+          offset: 0,
           limit: 128,
         },
       }),
@@ -200,9 +203,10 @@ function reviewSession(): ReviewSession {
               max_samples_per_waveform: 256,
             },
             program: {
-              schema_id: "scopecat.compiled_program_inspection.v2",
+              schema_id: "scopecat.compiled_program_inspection.v3",
               dialect_id: "scopecat.quantum.program",
               program_id: "ramsey",
+              snapshot_id: "sha256:artifact",
               warnings: [],
               links: [
                 {
@@ -227,6 +231,7 @@ function reviewSession(): ReviewSession {
                     limit: 128,
                     matching_node_count: 1,
                     returned_node_count: 1,
+                    snapshot_id: "sha256:artifact",
                   },
                   nodes: [
                     {
@@ -261,6 +266,7 @@ function reviewSession(): ReviewSession {
                     limit: 128,
                     matching_node_count: 1,
                     returned_node_count: 1,
+                    snapshot_id: "sha256:artifact",
                   },
                   nodes: [
                     {
@@ -296,6 +302,8 @@ function reviewSession(): ReviewSession {
                     matching_node_count: 129,
                     returned_node_count: 1,
                     next_offset: 128,
+                    next_cursor: "128.cursor",
+                    snapshot_id: "sha256:artifact",
                   },
                   nodes: [
                     {

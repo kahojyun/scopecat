@@ -88,11 +88,13 @@ function ProgramInspectionView({
     setResourceFilter(query?.resource_id ?? "");
   }, [inspection]);
 
-  const submitQuery = (offset = 0) => {
+  const submitQuery = (cursor?: string) => {
     if (!layer || !onQuery) return;
     onQuery({
       layer_id: layer.id,
-      offset,
+      snapshot_id: inspection.snapshot_id,
+      ...(cursor && { cursor }),
+      offset: 0,
       limit: layer.page.limit,
       ...(textFilter.trim() && { text: textFilter.trim() }),
       ...(kindFilter.trim() && { kind: kindFilter.trim() }),
@@ -130,6 +132,7 @@ function ProgramInspectionView({
               setResourceFilter("");
               onQuery?.({
                 layer_id: candidate.id,
+                snapshot_id: inspection.snapshot_id,
                 offset: 0,
                 limit: candidate.page.limit,
               });
@@ -163,14 +166,14 @@ function ProgramInspectionView({
               layer={layer}
               selectedNodeId={selectedNodeId}
               onNext={
-                layer.page.next_offset == null
+                layer.page.next_cursor == null
                   ? undefined
-                  : () => submitQuery(layer.page.next_offset ?? 0)
+                  : () => submitQuery(layer.page.next_cursor ?? undefined)
               }
               onPrevious={
-                layer.page.offset === 0
+                layer.page.previous_cursor == null
                   ? undefined
-                  : () => submitQuery(Math.max(0, layer.page.offset - layer.page.limit))
+                  : () => submitQuery(layer.page.previous_cursor ?? undefined)
               }
               onSelect={setSelectedNodeId}
             />

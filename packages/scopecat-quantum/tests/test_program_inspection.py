@@ -119,7 +119,8 @@ program inspection.example
         ),
     )
     authored = filtered.layers[0]
-    assert filtered.schema_id == "scopecat.compiled_program_inspection.v2"
+    assert filtered.schema_id == "scopecat.compiled_program_inspection.v3"
+    assert authored.page.snapshot_id == filtered.snapshot_id
     assert authored.node_count > authored.page.matching_node_count
     assert authored.page.matching_node_count == 2
     assert authored.page.offset == 1

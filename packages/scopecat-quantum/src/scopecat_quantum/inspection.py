@@ -31,8 +31,6 @@ from scopecat_quantum.programs import (
     QuantumNode,
     Repeat,
     estimate_quantum_program_workload,
-    instantiate_parallel_each_operation,
-    iter_quantum_operations,
 )
 from scopecat_quantum.programs import (
     Sequence as QuantumSequence,
@@ -68,11 +66,18 @@ def inspect_quantum_program(
     scheduled: ScheduledPulseProgram | None = None,
     bounds: QuantumInspectionBounds | None = None,
     query: CompiledProgramInspectionQuery | None = None,
+    snapshot_id: str | None = None,
 ) -> CompiledProgramInspection:
     """Project authored, bound-logical, and scheduled views with stable links."""
 
     selected_bounds = bounds or QuantumInspectionBounds()
-    authored = _authored_layer(program, selected_bounds, query=query)
+    selected_snapshot_id = snapshot_id or f"quantum-program:{program.id}"
+    authored = _authored_layer(
+        program,
+        selected_bounds,
+        query=query,
+        snapshot_id=selected_snapshot_id,
+    )
     layers = [authored]
     links: list[CompiledProgramInspectionLink] = []
     logical_operation_nodes: dict[str, str] = {}
@@ -81,6 +86,7 @@ def inspect_quantum_program(
             bound,
             selected_bounds,
             query=query,
+            snapshot_id=selected_snapshot_id,
         )
         layers.append(logical)
     if scheduled is not None:
@@ -89,12 +95,14 @@ def inspect_quantum_program(
             logical_operation_nodes=logical_operation_nodes,
             bounds=selected_bounds,
             query=query,
+            snapshot_id=selected_snapshot_id,
         )
         layers.append(scheduled_layer)
         links.extend(scheduled_links)
     return CompiledProgramInspection(
         dialect_id=QUANTUM_PROGRAM_DIALECT_ID,
         program_id=program.id,
+        snapshot_id=selected_snapshot_id,
         layers=tuple(layers),
         links=tuple(links),
         query=query,
@@ -110,6 +118,7 @@ def _bounded_layer(
     root_ids: tuple[str, ...],
     bounds: QuantumInspectionBounds,
     query: CompiledProgramInspectionQuery | None,
+    snapshot_id: str,
     facts: tuple[CompiledInspectionFact, ...] = (),
 ) -> CompiledProgramInspectionLayer:
     all_nodes = tuple(nodes)
@@ -118,6 +127,7 @@ def _bounded_layer(
         all_nodes,
         query=query,
         default_limit=bounds.max_nodes_per_layer,
+        snapshot_id=snapshot_id,
     )
     return CompiledProgramInspectionLayer(
         id=id,
@@ -137,6 +147,7 @@ def _authored_layer(
     bounds: QuantumInspectionBounds,
     *,
     query: CompiledProgramInspectionQuery | None,
+    snapshot_id: str,
 ) -> CompiledProgramInspectionLayer:
     root_id = "authored:program"
     tree = _inspection_node(program.body)
@@ -183,6 +194,7 @@ def _authored_layer(
         root_ids=(root_id,),
         bounds=bounds,
         query=query,
+        snapshot_id=snapshot_id,
     )
 
 
@@ -191,6 +203,7 @@ def _logical_layer(
     bounds: QuantumInspectionBounds,
     *,
     query: CompiledProgramInspectionQuery | None,
+    snapshot_id: str,
 ) -> tuple[CompiledProgramInspectionLayer, dict[str, str]]:
     root_id = "logical:program"
     workload = estimate_quantum_program_workload(bound.verified)
@@ -204,7 +217,7 @@ def _logical_layer(
             facts=(
                 CompiledInspectionFact(
                     "operation_count",
-                    len(bound.verified.operations),
+                    workload.structural_operation_count,
                 ),
                 CompiledInspectionFact(
                     "unresolved_operation_count",
@@ -308,22 +321,6 @@ def _logical_layer(
         )
         for index, child in enumerate(children):
             visit(child, parent_id=structural_id, path=(*path, index))
-        if isinstance(node, ParallelEach):
-            template_operations = tuple(iter_quantum_operations(node.operation))
-            for entity_id in node.entity_ids:
-                expanded_operations = tuple(
-                    iter_quantum_operations(
-                        instantiate_parallel_each_operation(node, entity_id)
-                    )
-                )
-                for template, expanded in zip(
-                    template_operations,
-                    expanded_operations,
-                    strict=True,
-                ):
-                    operation_nodes[expanded.id.value] = (
-                        f"logical:operation:{template.id.value}"
-                    )
 
     visit(bound.program.body, parent_id=root_id, path=(0,))
     layer = _bounded_layer(
@@ -334,6 +331,7 @@ def _logical_layer(
         root_ids=(root_id,),
         bounds=bounds,
         query=query,
+        snapshot_id=snapshot_id,
     )
     return layer, operation_nodes
 
@@ -344,6 +342,7 @@ def _scheduled_layer(
     logical_operation_nodes: dict[str, str],
     bounds: QuantumInspectionBounds,
     query: CompiledProgramInspectionQuery | None,
+    snapshot_id: str,
 ) -> tuple[
     CompiledProgramInspectionLayer,
     tuple[CompiledProgramInspectionLink, ...],
@@ -371,7 +370,10 @@ def _scheduled_layer(
         nodes.append(event_node)
         source_operation_id = _source_operation_id(event)
         source_node_id = (
-            logical_operation_nodes.get(source_operation_id)
+            _logical_operation_node(
+                source_operation_id,
+                logical_operation_nodes,
+            )
             if source_operation_id is not None
             else None
         )
@@ -393,6 +395,7 @@ def _scheduled_layer(
         root_ids=(root_id,),
         bounds=bounds,
         query=query,
+        snapshot_id=snapshot_id,
         facts=(
             CompiledInspectionFact(
                 "duration_seconds", str(scheduled.duration_seconds), unit="s"
@@ -403,6 +406,24 @@ def _scheduled_layer(
     return layer, tuple(
         link for link in links if link.target_node_id in returned_node_ids
     )
+
+
+def _logical_operation_node(
+    source_operation_id: str,
+    operation_nodes: dict[str, str],
+) -> str | None:
+    exact = operation_nodes.get(source_operation_id)
+    if exact is not None:
+        return exact
+    template_ids = tuple(
+        operation_id
+        for operation_id in operation_nodes
+        if source_operation_id.endswith(f"/{operation_id}")
+    )
+    if not template_ids:
+        return None
+    template_id = max(template_ids, key=len)
+    return operation_nodes[template_id]
 
 
 def _scheduled_event_node(

@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from scopecat.inspection import (
+    CompiledArtifactInspection,
+    CompiledProgramInspectionQuery,
+)
 from scopecat.sdk.domain import (
     DomainBatchInputs,
     DomainBatchRequest,
@@ -263,6 +267,21 @@ class QuantumLabCompiler:
             ),
             response_intent=selection.response_intent,
         )
+
+        def project_inspection(
+            query: CompiledProgramInspectionQuery | None,
+        ) -> CompiledArtifactInspection:
+            return inspect_list_mode_artifact(
+                artifact.target_artifact,
+                program=inspect_quantum_program(
+                    artifact.program,
+                    bound=artifact.compiled_points[0].bound,
+                    scheduled=artifact.entries[0].scheduled,
+                    query=query,
+                    snapshot_id=artifact.target_artifact.artifact_fingerprint,
+                ),
+            )
+
         return preparation.build(
             instrument_ids=artifact.target_artifact.instrument_ids,
             setup=runtime,
@@ -278,17 +297,12 @@ class QuantumLabCompiler:
                 artifact.target_artifact.compilation_budget.next_batch_max_points
             ),
             inspection=(
-                inspect_list_mode_artifact(
-                    artifact.target_artifact,
-                    program=inspect_quantum_program(
-                        artifact.program,
-                        bound=artifact.compiled_points[0].bound,
-                        scheduled=artifact.entries[0].scheduled,
-                        query=request.inspection_query,
-                    ),
-                )
+                project_inspection(request.inspection_query)
                 if request.inspection_requested
                 else None
+            ),
+            inspection_projector=(
+                project_inspection if request.inspection_requested else None
             ),
             mapping=mapping,
             invocation=invocation,

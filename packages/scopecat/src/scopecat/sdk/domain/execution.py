@@ -14,7 +14,10 @@ from __future__ import annotations
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
 
-from scopecat.inspection import CompiledArtifactInspection
+from scopecat.inspection import (
+    CompiledArtifactInspection,
+    CompiledProgramInspectionQuery,
+)
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.state import StateValue
 from scopecat.measurements.values import MeasurementValueCandidate
@@ -31,6 +34,10 @@ type ErasedDomainSetup = DomainSetup[object]
 type ErasedDomainRealizer = Callable[
     [DomainExecutionResult[object]],
     tuple[MeasurementValueCandidate, ...],
+]
+type CompiledInspectionProjector = Callable[
+    [CompiledProgramInspectionQuery | None],
+    CompiledArtifactInspection,
 ]
 
 
@@ -92,6 +99,11 @@ class PreparedDomainExecution:
     runtime: ErasedDomainRuntime = field(repr=False, compare=False)
     realize: ErasedDomainRealizer = field(repr=False, compare=False)
     inspection: CompiledArtifactInspection | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+    inspection_projector: CompiledInspectionProjector | None = field(
         default=None,
         repr=False,
         compare=False,

@@ -271,6 +271,7 @@ def test_lab_preview_and_run_are_direct_prepare_shortcuts(
                 "point": "first",
                 "coordinates": None,
                 "coordinate_mode": "exact",
+                "inspection_query": None,
                 "name": "preview",
                 "tags": (),
                 "description": None,

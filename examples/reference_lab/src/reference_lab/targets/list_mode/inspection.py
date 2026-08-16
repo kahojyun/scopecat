@@ -251,6 +251,7 @@ def _with_physical_placement_layer(
         all_nodes,
         query=program.query,
         default_limit=max_nodes,
+        snapshot_id=program.snapshot_id,
     )
     layer = CompiledProgramInspectionLayer(
         id="physical",

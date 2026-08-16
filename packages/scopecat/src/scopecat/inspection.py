@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from hashlib import sha256
 from typing import Literal
 
 from scopecat.kernel.json_types import JsonValue
@@ -54,6 +55,8 @@ class CompiledProgramInspectionQuery:
     """One bounded server-side node query for a program layer."""
 
     layer_id: str
+    snapshot_id: str | None = None
+    cursor: str | None = None
     offset: int = 0
     limit: int = 128
     parent_id: str | None = None
@@ -67,6 +70,8 @@ class CompiledProgramInspectionQuery:
             raise ValueError("inspection queries require a layer id")
         if self.offset < 0:
             raise ValueError("inspection query offsets must be non-negative")
+        if self.cursor is not None and self.offset:
+            raise ValueError("inspection queries select a cursor or offset, not both")
         if not 1 <= self.limit <= 512:
             raise ValueError("inspection query limits must be between 1 and 512")
 
@@ -79,7 +84,10 @@ class CompiledProgramInspectionPage:
     limit: int
     matching_node_count: int
     returned_node_count: int
+    snapshot_id: str
     next_offset: int | None = None
+    next_cursor: str | None = None
+    previous_cursor: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,12 +122,13 @@ class CompiledProgramInspection:
 
     dialect_id: str
     program_id: str
+    snapshot_id: str
     layers: tuple[CompiledProgramInspectionLayer, ...]
     links: tuple[CompiledProgramInspectionLink, ...] = ()
     query: CompiledProgramInspectionQuery | None = None
     warnings: tuple[str, ...] = ()
-    schema_id: Literal["scopecat.compiled_program_inspection.v2"] = (
-        "scopecat.compiled_program_inspection.v2"
+    schema_id: Literal["scopecat.compiled_program_inspection.v3"] = (
+        "scopecat.compiled_program_inspection.v3"
     )
 
 
@@ -129,6 +138,7 @@ def query_compiled_program_nodes(
     *,
     query: CompiledProgramInspectionQuery | None,
     default_limit: int,
+    snapshot_id: str = "transient",
 ) -> tuple[tuple[CompiledProgramInspectionNode, ...], CompiledProgramInspectionPage]:
     """Filter and page nodes without exposing an unbounded transport payload."""
 
@@ -138,34 +148,105 @@ def query_compiled_program_nodes(
             limit=default_limit,
             matching_node_count=len(nodes),
             returned_node_count=0,
+            snapshot_id=snapshot_id,
             next_offset=0 if nodes else None,
+            next_cursor=(_inspection_cursor(snapshot_id, query, 0) if nodes else None),
         )
     selected_query = query if query is not None and query.layer_id == layer_id else None
-    matches = tuple(
-        node
-        for node in nodes
-        if selected_query is None or _matches_program_node(node, selected_query)
+    if (
+        selected_query is not None
+        and selected_query.snapshot_id is not None
+        and selected_query.snapshot_id != snapshot_id
+    ):
+        raise ValueError("inspection query snapshot does not match compiled artifact")
+    offset = (
+        0
+        if selected_query is None
+        else _inspection_cursor_offset(snapshot_id, selected_query)
     )
-    offset = 0 if selected_query is None else selected_query.offset
     limit = (
         default_limit
         if selected_query is None
         else min(selected_query.limit, default_limit)
     )
-    selected = tuple(
-        _bound_program_node_references(node, query=selected_query)
-        for node in matches[offset : offset + limit]
-    )
+    selected_nodes: list[CompiledProgramInspectionNode] = []
+    matching_node_count = 0
+    for node in nodes:
+        if selected_query is not None and not _matches_program_node(
+            node,
+            selected_query,
+        ):
+            continue
+        if offset <= matching_node_count < offset + limit:
+            selected_nodes.append(
+                _bound_program_node_references(node, query=selected_query)
+            )
+        matching_node_count += 1
+    selected = tuple(selected_nodes)
     next_offset = offset + len(selected)
-    if next_offset >= len(matches):
+    if next_offset >= matching_node_count:
         next_offset = None
+    previous_offset = None if offset == 0 else max(0, offset - limit)
     return selected, CompiledProgramInspectionPage(
         offset=offset,
         limit=limit,
-        matching_node_count=len(matches),
+        matching_node_count=matching_node_count,
         returned_node_count=len(selected),
+        snapshot_id=snapshot_id,
         next_offset=next_offset,
+        next_cursor=(
+            None
+            if next_offset is None
+            else _inspection_cursor(snapshot_id, selected_query, next_offset)
+        ),
+        previous_cursor=(
+            None
+            if previous_offset is None
+            else _inspection_cursor(snapshot_id, selected_query, previous_offset)
+        ),
     )
+
+
+def _inspection_cursor_offset(
+    snapshot_id: str,
+    query: CompiledProgramInspectionQuery,
+) -> int:
+    if query.cursor is None:
+        return query.offset
+    offset_text, separator, signature = query.cursor.partition(".")
+    if not separator or not offset_text.isdigit():
+        raise ValueError("inspection query cursor is invalid")
+    offset = int(offset_text)
+    if signature != _inspection_cursor_signature(snapshot_id, query):
+        raise ValueError(
+            "inspection query cursor does not match its snapshot or filters"
+        )
+    return offset
+
+
+def _inspection_cursor(
+    snapshot_id: str,
+    query: CompiledProgramInspectionQuery | None,
+    offset: int,
+) -> str:
+    return f"{offset}.{_inspection_cursor_signature(snapshot_id, query)}"
+
+
+def _inspection_cursor_signature(
+    snapshot_id: str,
+    query: CompiledProgramInspectionQuery | None,
+) -> str:
+    identity = (
+        snapshot_id,
+        None if query is None else query.layer_id,
+        None if query is None else query.limit,
+        None if query is None else query.parent_id,
+        None if query is None else query.entity_id,
+        None if query is None else query.resource_id,
+        None if query is None else query.kind,
+        None if query is None else query.text,
+    )
+    return sha256(repr(identity).encode()).hexdigest()[:24]
 
 
 def _matches_program_node(

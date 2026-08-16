@@ -6,7 +6,10 @@ from collections.abc import Callable, Hashable, Sequence
 from types import MappingProxyType
 from typing import cast
 
-from scopecat.inspection import CompiledArtifactInspection
+from scopecat.inspection import (
+    CompiledArtifactInspection,
+    CompiledProgramInspectionQuery,
+)
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.kernel.state import PayloadRef, StateValue
@@ -108,6 +111,13 @@ class DomainPreparationBuilder:
         realtime_state_invalidations: Sequence[DomainStateAddress],
         next_batch_max_points: int,
         inspection: CompiledArtifactInspection | None = None,
+        inspection_projector: (
+            Callable[
+                [CompiledProgramInspectionQuery | None],
+                CompiledArtifactInspection,
+            ]
+            | None
+        ) = None,
         mapping: DomainResultMapping[ResultAddressT],
         invocation: DomainInvocationSpec[PayloadT],
         runtime: DomainRuntime[PayloadT, ResultT],
@@ -172,6 +182,7 @@ class DomainPreparationBuilder:
             ),
             next_batch_max_points=next_batch_max_points,
             inspection=inspection,
+            inspection_projector=inspection_projector,
             invocation=cast("ErasedDomainInvocation", native_invocation),
             setup=cast("ErasedDomainSetup | None", setup),
             runtime=cast("ErasedDomainRuntime", runtime),

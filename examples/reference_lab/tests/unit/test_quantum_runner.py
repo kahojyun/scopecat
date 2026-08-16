@@ -393,8 +393,9 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
         instrument_backend=composition.backend,
     )
     invocation = drag_beta_experiment()
+    prepared = lab.prepare(invocation)
 
-    preview = lab.prepare(invocation).preview(point="last")
+    preview = prepared.preview(point="last")
 
     assert lab.runs() == ()
     assert preview.selected_point is not None
@@ -404,6 +405,8 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
     assert inspection.content.schema_id == ("scopecat.compiled_artifact_inspection.v2")
     assert inspection.content.kind == "reference_lab.list_mode.v1"
     assert inspection.content.program is not None
+    inspection_snapshot_id = inspection.content.program.snapshot_id
+    assert inspection_snapshot_id == inspection.artifact_fingerprint
     assert tuple(layer.id for layer in inspection.content.program.layers) == (
         "authored",
         "logical",
@@ -425,10 +428,11 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
     )
     assert selected_again.selected_point == preview.selected_point
 
-    queried = lab.prepare(invocation).preview(
+    queried = prepared.preview(
         point="last",
         inspection_query=CompiledProgramInspectionQuery(
             layer_id="scheduled",
+            snapshot_id=inspection_snapshot_id,
             kind="play",
             limit=1,
         ),
@@ -445,6 +449,7 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
     )
     assert [node.kind for node in queried_layers["scheduled"].nodes] == ["play"]
     assert queried_layers["scheduled"].page.returned_node_count == 1
+    assert queried_layers["scheduled"].page.snapshot_id == inspection_snapshot_id
 
     free = lab.prepare(invocation).preview(
         coordinates={

@@ -42,6 +42,7 @@ class _ReviewSession:
     active: bool = True
     pending: deque[ReviewWorkItem] = field(default_factory=deque)
     claimed_request_ids: set[str] = field(default_factory=set)
+    superseded_request_ids: set[str] = field(default_factory=set)
     latest_result: ReviewCompilationResult | None = None
 
 
@@ -111,6 +112,8 @@ class ReviewService:
             now = self._clock()
             session = self._require_active(session_id, now)
             request_id = uuid4().hex
+            session.pending.clear()
+            session.superseded_request_ids.update(session.claimed_request_ids)
             session.pending.append(
                 ReviewWorkItem(
                     session_id=session_id,
@@ -155,7 +158,10 @@ class ReviewService:
             if not session.active:
                 raise BackendConflict("review session is closed")
             session.claimed_request_ids.remove(request_id)
-            session.latest_result = command.result
+            if request_id in session.superseded_request_ids:
+                session.superseded_request_ids.remove(request_id)
+            else:
+                session.latest_result = command.result
             self._renew_worker(session, now)
             session.updated_at = now
             return _view(session)
@@ -234,6 +240,7 @@ class ReviewService:
         session.active = False
         session.pending.clear()
         session.claimed_request_ids.clear()
+        session.superseded_request_ids.clear()
         session.updated_at = now
 
 
@@ -252,7 +259,10 @@ def _view(session: _ReviewSession) -> ReviewSessionView:
         coordinates=command.coordinates,
         planned_points=command.planned_points,
         planned_points_truncated=command.planned_points_truncated,
-        pending_request_count=(len(session.pending) + len(session.claimed_request_ids)),
+        pending_request_count=(
+            len(session.pending)
+            + len(session.claimed_request_ids - session.superseded_request_ids)
+        ),
         latest_result=latest_result,
     )
 

@@ -117,6 +117,49 @@ def test_review_service_retains_only_recent_inactive_sessions() -> None:
     assert service.get(active.session_id).active
 
 
+def test_new_review_query_supersedes_queued_and_claimed_results() -> None:
+    now = datetime(2026, 8, 14, tzinfo=UTC)
+    service = ReviewService(clock=lambda: now)
+    session = service.create(_review_command(0))
+    first = service.enqueue(
+        session.session_id,
+        ReviewCompileCommand(point_index=0),
+    )
+    claimed = service.claim(session.session_id, "worker-0")
+    assert claimed is not None
+    assert claimed.request_id == first.request_id
+
+    second = service.enqueue(
+        session.session_id,
+        ReviewCompileCommand(
+            point_index=0,
+            inspection_query=CompiledProgramInspectionQuery(
+                layer_id="scheduled",
+                text="measure",
+            ),
+        ),
+    )
+    assert service.get(session.session_id).pending_request_count == 1
+
+    stale = service.complete(
+        session.session_id,
+        ReviewCompletionCommand(
+            worker_id="worker-0",
+            result=ReviewCompilationResult(
+                request_id=first.request_id,
+                completed_at=now,
+                error="stale",
+            ),
+        ),
+    )
+    assert stale.latest_result is None
+    assert stale.pending_request_count == 1
+
+    latest = service.claim(session.session_id, "worker-0")
+    assert latest is not None
+    assert latest.request_id == second.request_id
+
+
 def test_review_session_round_trips_compile_work_without_run_admission(
     tmp_path: Path,
 ) -> None:
