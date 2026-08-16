@@ -3,17 +3,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 
 from scopecat.inspection import (
     CompiledInspectionFact,
     CompiledProgramInspection,
     CompiledProgramInspectionLayer,
+    CompiledProgramInspectionLayerIndex,
     CompiledProgramInspectionLink,
     CompiledProgramInspectionNode,
+    CompiledProgramInspectionNodeIndex,
     CompiledProgramInspectionQuery,
-    query_compiled_program_nodes,
 )
 
 from scopecat_quantum.authoring import (
@@ -59,6 +59,94 @@ class QuantumInspectionBounds:
             raise ValueError("quantum inspection node limits must be positive")
 
 
+@dataclass(frozen=True, slots=True)
+class QuantumProgramInspectionSnapshot:
+    """Reusable structural indices for one immutable compiled-program variant."""
+
+    program_id: str
+    snapshot_id: str
+    bounds: QuantumInspectionBounds
+    layers: tuple[CompiledProgramInspectionLayerIndex, ...]
+    scheduled: ScheduledPulseProgram | None
+    logical_operation_nodes: tuple[tuple[str, str], ...]
+
+    def project(
+        self,
+        query: CompiledProgramInspectionQuery | None = None,
+    ) -> CompiledProgramInspection:
+        """Project one bounded response without rebuilding layer node sources."""
+
+        projected_layers: list[CompiledProgramInspectionLayer] = []
+        links: list[CompiledProgramInspectionLink] = []
+        operation_nodes = dict(self.logical_operation_nodes)
+        for layer_index in self.layers:
+            layer, selection = layer_index.project(
+                query=query,
+                default_limit=self.bounds.max_nodes_per_layer,
+                snapshot_id=self.snapshot_id,
+            )
+            projected_layers.append(layer)
+            if layer_index.id != "scheduled" or self.scheduled is None:
+                continue
+            for ordinal in selection.ordinals:
+                if ordinal == 0:
+                    continue
+                event = self.scheduled.events[ordinal - 1]
+                source_operation_id = _source_operation_id(event)
+                source_node_id = (
+                    _logical_operation_node(source_operation_id, operation_nodes)
+                    if source_operation_id is not None
+                    else None
+                )
+                if source_node_id is not None:
+                    links.append(
+                        CompiledProgramInspectionLink(
+                            source_layer_id="logical",
+                            source_node_id=source_node_id,
+                            target_layer_id="scheduled",
+                            target_node_id=f"scheduled:event:{event.id.value}",
+                            relation="lowers_to",
+                        )
+                    )
+        return CompiledProgramInspection(
+            dialect_id=QUANTUM_PROGRAM_DIALECT_ID,
+            program_id=self.program_id,
+            snapshot_id=self.snapshot_id,
+            layers=tuple(projected_layers),
+            links=tuple(links),
+            query=query,
+        )
+
+
+def build_quantum_program_inspection_snapshot(
+    program: Program,
+    *,
+    bound: BoundProgram | None = None,
+    scheduled: ScheduledPulseProgram | None = None,
+    bounds: QuantumInspectionBounds | None = None,
+    snapshot_id: str | None = None,
+) -> QuantumProgramInspectionSnapshot:
+    """Build stable layer indices once for repeated artifact-scoped queries."""
+
+    selected_bounds = bounds or QuantumInspectionBounds()
+    selected_snapshot_id = snapshot_id or f"quantum-program:{program.id}"
+    layers = [_authored_layer_index(program)]
+    logical_operation_nodes: dict[str, str] = {}
+    if bound is not None:
+        logical, logical_operation_nodes = _logical_layer_index(bound)
+        layers.append(logical)
+    if scheduled is not None:
+        layers.append(_scheduled_layer_index(scheduled))
+    return QuantumProgramInspectionSnapshot(
+        program_id=program.id,
+        snapshot_id=selected_snapshot_id,
+        bounds=selected_bounds,
+        layers=tuple(layers),
+        scheduled=scheduled,
+        logical_operation_nodes=tuple(logical_operation_nodes.items()),
+    )
+
+
 def inspect_quantum_program(
     program: Program,
     *,
@@ -69,86 +157,37 @@ def inspect_quantum_program(
     snapshot_id: str | None = None,
 ) -> CompiledProgramInspection:
     """Project authored, bound-logical, and scheduled views with stable links."""
-
-    selected_bounds = bounds or QuantumInspectionBounds()
-    selected_snapshot_id = snapshot_id or f"quantum-program:{program.id}"
-    authored = _authored_layer(
+    return build_quantum_program_inspection_snapshot(
         program,
-        selected_bounds,
-        query=query,
-        snapshot_id=selected_snapshot_id,
-    )
-    layers = [authored]
-    links: list[CompiledProgramInspectionLink] = []
-    logical_operation_nodes: dict[str, str] = {}
-    if bound is not None:
-        logical, logical_operation_nodes = _logical_layer(
-            bound,
-            selected_bounds,
-            query=query,
-            snapshot_id=selected_snapshot_id,
-        )
-        layers.append(logical)
-    if scheduled is not None:
-        scheduled_layer, scheduled_links = _scheduled_layer(
-            scheduled,
-            logical_operation_nodes=logical_operation_nodes,
-            bounds=selected_bounds,
-            query=query,
-            snapshot_id=selected_snapshot_id,
-        )
-        layers.append(scheduled_layer)
-        links.extend(scheduled_links)
-    return CompiledProgramInspection(
-        dialect_id=QUANTUM_PROGRAM_DIALECT_ID,
-        program_id=program.id,
-        snapshot_id=selected_snapshot_id,
-        layers=tuple(layers),
-        links=tuple(links),
-        query=query,
-    )
+        bound=bound,
+        scheduled=scheduled,
+        bounds=bounds,
+        snapshot_id=snapshot_id,
+    ).project(query)
 
 
-def _bounded_layer(
+def _static_layer_index(
     *,
     id: str,
     label: str,
     kind: str,
-    nodes: Sequence[CompiledProgramInspectionNode],
+    nodes: tuple[CompiledProgramInspectionNode, ...],
     root_ids: tuple[str, ...],
-    bounds: QuantumInspectionBounds,
-    query: CompiledProgramInspectionQuery | None,
-    snapshot_id: str,
     facts: tuple[CompiledInspectionFact, ...] = (),
-) -> CompiledProgramInspectionLayer:
-    all_nodes = tuple(nodes)
-    selected, page = query_compiled_program_nodes(
-        id,
-        all_nodes,
-        query=query,
-        default_limit=bounds.max_nodes_per_layer,
-        snapshot_id=snapshot_id,
-    )
-    return CompiledProgramInspectionLayer(
+) -> CompiledProgramInspectionLayerIndex:
+    return CompiledProgramInspectionLayerIndex(
         id=id,
         label=label,
         kind=kind,
-        node_count=len(all_nodes),
-        nodes_truncated=len(selected) < len(all_nodes),
         root_ids=root_ids,
-        nodes=selected,
-        page=page,
+        nodes=CompiledProgramInspectionNodeIndex.from_nodes(nodes),
         facts=facts,
     )
 
 
-def _authored_layer(
+def _authored_layer_index(
     program: Program,
-    bounds: QuantumInspectionBounds,
-    *,
-    query: CompiledProgramInspectionQuery | None,
-    snapshot_id: str,
-) -> CompiledProgramInspectionLayer:
+) -> CompiledProgramInspectionLayerIndex:
     root_id = "authored:program"
     tree = _inspection_node(program.body)
     nodes = [
@@ -186,25 +225,18 @@ def _authored_layer(
             visit(child, parent_id=node_id, path=(*path, index))
 
     visit(tree, parent_id=root_id, path=(0,))
-    return _bounded_layer(
+    return _static_layer_index(
         id="authored",
         label="Authored program",
         kind="authored",
-        nodes=nodes,
+        nodes=tuple(nodes),
         root_ids=(root_id,),
-        bounds=bounds,
-        query=query,
-        snapshot_id=snapshot_id,
     )
 
 
-def _logical_layer(
+def _logical_layer_index(
     bound: BoundProgram,
-    bounds: QuantumInspectionBounds,
-    *,
-    query: CompiledProgramInspectionQuery | None,
-    snapshot_id: str,
-) -> tuple[CompiledProgramInspectionLayer, dict[str, str]]:
+) -> tuple[CompiledProgramInspectionLayerIndex, dict[str, str]]:
     root_id = "logical:program"
     workload = estimate_quantum_program_workload(bound.verified)
     nodes = [
@@ -323,88 +355,60 @@ def _logical_layer(
             visit(child, parent_id=structural_id, path=(*path, index))
 
     visit(bound.program.body, parent_id=root_id, path=(0,))
-    layer = _bounded_layer(
+    layer = _static_layer_index(
         id="logical",
         label="Bound logical program",
         kind="logical",
-        nodes=nodes,
+        nodes=tuple(nodes),
         root_ids=(root_id,),
-        bounds=bounds,
-        query=query,
-        snapshot_id=snapshot_id,
     )
     return layer, operation_nodes
 
 
-def _scheduled_layer(
+def _scheduled_layer_index(
     scheduled: ScheduledPulseProgram,
-    *,
-    logical_operation_nodes: dict[str, str],
-    bounds: QuantumInspectionBounds,
-    query: CompiledProgramInspectionQuery | None,
-    snapshot_id: str,
-) -> tuple[
-    CompiledProgramInspectionLayer,
-    tuple[CompiledProgramInspectionLink, ...],
-]:
+) -> CompiledProgramInspectionLayerIndex:
     root_id = "scheduled:program"
-    nodes = [
-        CompiledProgramInspectionNode(
-            id=root_id,
-            kind="program",
-            label=f"schedule {scheduled.id.value}",
-            child_count=len(scheduled.events),
-            duration_seconds=str(scheduled.duration_seconds),
-            result_ids=tuple(slot.id.local_id for slot in scheduled.acquisition_slots),
-            facts=(
-                CompiledInspectionFact("event_count", len(scheduled.events)),
-                CompiledInspectionFact(
-                    "acquisition_count", len(scheduled.acquisition_slots)
-                ),
+    root = CompiledProgramInspectionNode(
+        id=root_id,
+        kind="program",
+        label=f"schedule {scheduled.id.value}",
+        child_count=len(scheduled.events),
+        duration_seconds=str(scheduled.duration_seconds),
+        result_ids=tuple(slot.id.local_id for slot in scheduled.acquisition_slots),
+        facts=(
+            CompiledInspectionFact("event_count", len(scheduled.events)),
+            CompiledInspectionFact(
+                "acquisition_count", len(scheduled.acquisition_slots)
             ),
+        ),
+    )
+
+    def node_at(
+        ordinal: int,
+        _query: CompiledProgramInspectionQuery | None,
+    ) -> CompiledProgramInspectionNode:
+        if ordinal == 0:
+            return root
+        return _scheduled_event_node(
+            scheduled.events[ordinal - 1],
+            parent_id=root_id,
         )
-    ]
-    links: list[CompiledProgramInspectionLink] = []
-    for event in scheduled.events:
-        event_node = _scheduled_event_node(event, parent_id=root_id)
-        nodes.append(event_node)
-        source_operation_id = _source_operation_id(event)
-        source_node_id = (
-            _logical_operation_node(
-                source_operation_id,
-                logical_operation_nodes,
-            )
-            if source_operation_id is not None
-            else None
-        )
-        if source_node_id is not None:
-            links.append(
-                CompiledProgramInspectionLink(
-                    source_layer_id="logical",
-                    source_node_id=source_node_id,
-                    target_layer_id="scheduled",
-                    target_node_id=event_node.id,
-                    relation="lowers_to",
-                )
-            )
-    layer = _bounded_layer(
+
+    return CompiledProgramInspectionLayerIndex(
         id="scheduled",
         label="Scheduled pulse events",
         kind="scheduled",
-        nodes=nodes,
         root_ids=(root_id,),
-        bounds=bounds,
-        query=query,
-        snapshot_id=snapshot_id,
+        nodes=CompiledProgramInspectionNodeIndex(
+            node_count=1 + len(scheduled.events),
+            node_at=node_at,
+        ),
         facts=(
             CompiledInspectionFact(
                 "duration_seconds", str(scheduled.duration_seconds), unit="s"
             ),
         ),
-    )
-    returned_node_ids = {node.id for node in layer.nodes}
-    return layer, tuple(
-        link for link in links if link.target_node_id in returned_node_ids
     )
 
 
@@ -492,4 +496,9 @@ def _source_operation_id(event: ScheduledPulseEvent) -> str | None:
     return None
 
 
-__all__ = ["QuantumInspectionBounds", "inspect_quantum_program"]
+__all__ = [
+    "QuantumInspectionBounds",
+    "QuantumProgramInspectionSnapshot",
+    "build_quantum_program_inspection_snapshot",
+    "inspect_quantum_program",
+]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from hashlib import sha256
 from typing import Literal
@@ -132,9 +133,86 @@ class CompiledProgramInspection:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class CompiledProgramInspectionNodeIndex:
+    """Stable random-access node source retained behind paged inspection."""
+
+    node_count: int
+    node_at: Callable[
+        [int, CompiledProgramInspectionQuery | None],
+        CompiledProgramInspectionNode,
+    ]
+
+    @classmethod
+    def from_nodes(
+        cls,
+        nodes: Sequence[CompiledProgramInspectionNode],
+    ) -> CompiledProgramInspectionNodeIndex:
+        retained = tuple(nodes)
+        return cls(
+            node_count=len(retained),
+            node_at=lambda ordinal, _query: retained[ordinal],
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledProgramInspectionNodeSelection:
+    """One projected node page plus stable source ordinals."""
+
+    nodes: tuple[CompiledProgramInspectionNode, ...]
+    ordinals: tuple[int, ...]
+    page: CompiledProgramInspectionPage
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledProgramInspectionLayerIndex:
+    """Reusable metadata and lazy node source for one inspection layer."""
+
+    id: str
+    label: str
+    kind: str
+    root_ids: tuple[str, ...]
+    nodes: CompiledProgramInspectionNodeIndex
+    facts: tuple[CompiledInspectionFact, ...] = ()
+
+    def project(
+        self,
+        *,
+        query: CompiledProgramInspectionQuery | None,
+        default_limit: int,
+        snapshot_id: str,
+    ) -> tuple[
+        CompiledProgramInspectionLayer,
+        CompiledProgramInspectionNodeSelection,
+    ]:
+        selection = query_compiled_program_node_index(
+            self.id,
+            self.nodes,
+            query=query,
+            default_limit=default_limit,
+            snapshot_id=snapshot_id,
+        )
+        return (
+            CompiledProgramInspectionLayer(
+                id=self.id,
+                label=self.label,
+                kind=self.kind,
+                node_count=self.nodes.node_count,
+                nodes_truncated=(
+                    selection.page.returned_node_count < self.nodes.node_count
+                ),
+                root_ids=self.root_ids,
+                nodes=selection.nodes,
+                page=selection.page,
+                facts=self.facts,
+            ),
+            selection,
+        )
+
+
 def query_compiled_program_nodes(
     layer_id: str,
-    nodes: tuple[CompiledProgramInspectionNode, ...],
+    nodes: Sequence[CompiledProgramInspectionNode],
     *,
     query: CompiledProgramInspectionQuery | None,
     default_limit: int,
@@ -142,15 +220,43 @@ def query_compiled_program_nodes(
 ) -> tuple[tuple[CompiledProgramInspectionNode, ...], CompiledProgramInspectionPage]:
     """Filter and page nodes without exposing an unbounded transport payload."""
 
+    selection = query_compiled_program_node_index(
+        layer_id,
+        CompiledProgramInspectionNodeIndex.from_nodes(nodes),
+        query=query,
+        default_limit=default_limit,
+        snapshot_id=snapshot_id,
+    )
+    return selection.nodes, selection.page
+
+
+def query_compiled_program_node_index(
+    layer_id: str,
+    nodes: CompiledProgramInspectionNodeIndex,
+    *,
+    query: CompiledProgramInspectionQuery | None,
+    default_limit: int,
+    snapshot_id: str = "transient",
+) -> CompiledProgramInspectionNodeSelection:
+    """Project one page without materializing an unfiltered layer."""
+
     if query is not None and query.layer_id != layer_id:
-        return (), CompiledProgramInspectionPage(
-            offset=0,
-            limit=default_limit,
-            matching_node_count=len(nodes),
-            returned_node_count=0,
-            snapshot_id=snapshot_id,
-            next_offset=0 if nodes else None,
-            next_cursor=(_inspection_cursor(snapshot_id, query, 0) if nodes else None),
+        return CompiledProgramInspectionNodeSelection(
+            nodes=(),
+            ordinals=(),
+            page=CompiledProgramInspectionPage(
+                offset=0,
+                limit=default_limit,
+                matching_node_count=nodes.node_count,
+                returned_node_count=0,
+                snapshot_id=snapshot_id,
+                next_offset=0 if nodes.node_count else None,
+                next_cursor=(
+                    _inspection_cursor(snapshot_id, query, 0)
+                    if nodes.node_count
+                    else None
+                ),
+            ),
         )
     selected_query = query if query is not None and query.layer_id == layer_id else None
     if (
@@ -170,40 +276,70 @@ def query_compiled_program_nodes(
         else min(selected_query.limit, default_limit)
     )
     selected_nodes: list[CompiledProgramInspectionNode] = []
-    matching_node_count = 0
-    for node in nodes:
-        if selected_query is not None and not _matches_program_node(
-            node,
-            selected_query,
-        ):
-            continue
-        if offset <= matching_node_count < offset + limit:
-            selected_nodes.append(
-                _bound_program_node_references(node, query=selected_query)
+    selected_ordinals: list[int] = []
+    if selected_query is None or not _program_query_has_filters(selected_query):
+        matching_node_count = nodes.node_count
+        selected_ordinals.extend(
+            range(offset, min(offset + limit, matching_node_count))
+        )
+        selected_nodes.extend(
+            _bound_program_node_references(
+                nodes.node_at(ordinal, selected_query),
+                query=selected_query,
             )
-        matching_node_count += 1
+            for ordinal in selected_ordinals
+        )
+    else:
+        matching_node_count = 0
+        for ordinal in range(nodes.node_count):
+            node = nodes.node_at(ordinal, selected_query)
+            if not _matches_program_node(node, selected_query):
+                continue
+            if offset <= matching_node_count < offset + limit:
+                selected_ordinals.append(ordinal)
+                selected_nodes.append(
+                    _bound_program_node_references(node, query=selected_query)
+                )
+            matching_node_count += 1
     selected = tuple(selected_nodes)
     next_offset = offset + len(selected)
     if next_offset >= matching_node_count:
         next_offset = None
     previous_offset = None if offset == 0 else max(0, offset - limit)
-    return selected, CompiledProgramInspectionPage(
-        offset=offset,
-        limit=limit,
-        matching_node_count=matching_node_count,
-        returned_node_count=len(selected),
-        snapshot_id=snapshot_id,
-        next_offset=next_offset,
-        next_cursor=(
-            None
-            if next_offset is None
-            else _inspection_cursor(snapshot_id, selected_query, next_offset)
+    return CompiledProgramInspectionNodeSelection(
+        nodes=selected,
+        ordinals=tuple(selected_ordinals),
+        page=CompiledProgramInspectionPage(
+            offset=offset,
+            limit=limit,
+            matching_node_count=matching_node_count,
+            returned_node_count=len(selected),
+            snapshot_id=snapshot_id,
+            next_offset=next_offset,
+            next_cursor=(
+                None
+                if next_offset is None
+                else _inspection_cursor(snapshot_id, selected_query, next_offset)
+            ),
+            previous_cursor=(
+                None
+                if previous_offset is None
+                else _inspection_cursor(snapshot_id, selected_query, previous_offset)
+            ),
         ),
-        previous_cursor=(
-            None
-            if previous_offset is None
-            else _inspection_cursor(snapshot_id, selected_query, previous_offset)
-        ),
+    )
+
+
+def _program_query_has_filters(query: CompiledProgramInspectionQuery) -> bool:
+    return any(
+        value is not None
+        for value in (
+            query.parent_id,
+            query.entity_id,
+            query.resource_id,
+            query.kind,
+            query.text,
+        )
     )
 
 
@@ -282,23 +418,26 @@ def _bound_program_node_references(
     query: CompiledProgramInspectionQuery | None,
     limit: int = 64,
 ) -> CompiledProgramInspectionNode:
+    entity_count = max(node.entity_count, len(node.entity_ids))
+    resource_count = max(node.resource_count, len(node.resource_ids))
+    result_count = max(node.result_count, len(node.result_ids))
     return replace(
         node,
         entity_ids=_bounded_references(
             node.entity_ids, query.entity_id if query else None, limit
         ),
-        entity_count=len(node.entity_ids),
-        entity_ids_truncated=len(node.entity_ids) > limit,
+        entity_count=entity_count,
+        entity_ids_truncated=node.entity_ids_truncated or entity_count > limit,
         resource_ids=_bounded_references(
             node.resource_ids,
             query.resource_id if query else None,
             limit,
         ),
-        resource_count=len(node.resource_ids),
-        resource_ids_truncated=len(node.resource_ids) > limit,
+        resource_count=resource_count,
+        resource_ids_truncated=node.resource_ids_truncated or resource_count > limit,
         result_ids=node.result_ids[:limit],
-        result_count=len(node.result_ids),
-        result_ids_truncated=len(node.result_ids) > limit,
+        result_count=result_count,
+        result_ids_truncated=node.result_ids_truncated or result_count > limit,
     )
 
 
@@ -386,10 +525,14 @@ __all__ = [
     "CompiledPointInspection",
     "CompiledProgramInspection",
     "CompiledProgramInspectionLayer",
+    "CompiledProgramInspectionLayerIndex",
     "CompiledProgramInspectionLink",
     "CompiledProgramInspectionNode",
+    "CompiledProgramInspectionNodeIndex",
+    "CompiledProgramInspectionNodeSelection",
     "CompiledProgramInspectionPage",
     "CompiledProgramInspectionQuery",
     "CompiledWaveformInspection",
+    "query_compiled_program_node_index",
     "query_compiled_program_nodes",
 ]

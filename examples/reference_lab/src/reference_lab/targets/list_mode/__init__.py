@@ -21,6 +21,8 @@ from reference_lab.targets.list_mode.execution_model import (
 )
 from reference_lab.targets.list_mode.inspection import (
     ArtifactInspectionBounds,
+    ListModeArtifactInspectionSnapshot,
+    build_list_mode_artifact_inspection_snapshot,
     inspect_list_mode_artifact,
     point_realization_fingerprint,
 )
@@ -44,6 +46,7 @@ __all__ = [
     "AcquisitionResponse",
     "ArtifactInspectionBounds",
     "ListModeArtifact",
+    "ListModeArtifactInspectionSnapshot",
     "ListModeBudgetDimension",
     "ListModeCompilationBudget",
     "ListModeCompilationCacheInfo",
@@ -60,6 +63,7 @@ __all__ = [
     "ListModeTarget",
     "ListModeTargetCompiler",
     "MappedListModeTarget",
+    "build_list_mode_artifact_inspection_snapshot",
     "configured_list_mode_target",
     "inspect_list_mode_artifact",
     "list_mode_measurement_invocation_spec",

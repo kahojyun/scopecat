@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import cast
@@ -14,17 +15,21 @@ from scopecat.inspection import (
     CompiledInspectionFact,
     CompiledPointInspection,
     CompiledProgramInspection,
-    CompiledProgramInspectionLayer,
+    CompiledProgramInspectionLayerIndex,
     CompiledProgramInspectionLink,
     CompiledProgramInspectionNode,
+    CompiledProgramInspectionNodeIndex,
+    CompiledProgramInspectionQuery,
     CompiledWaveformInspection,
-    query_compiled_program_nodes,
 )
 
 from reference_lab.targets.list_mode.model import (
     AwgChannelWaveform,
     ListModeArtifact,
     ListModeEntry,
+    ListModeEventPlacement,
+    ListModePlacementCandidate,
+    ListModePlacementConstraint,
     acquisition_slot_identity_payload,
     awg_waveform_identity_payload,
     canonical_fingerprint,
@@ -55,15 +60,12 @@ class ArtifactInspectionBounds:
             raise ValueError("waveform previews require at least two samples")
 
 
-def inspect_list_mode_artifact(
+def _inspect_list_mode_artifact_base(
     artifact: ListModeArtifact,
     *,
-    bounds: ArtifactInspectionBounds | None = None,
-    program: CompiledProgramInspection | None = None,
+    bounds: ArtifactInspectionBounds,
 ) -> CompiledArtifactInspection:
-    """Return deterministic statistics and min/max waveform previews."""
-
-    selected_bounds = bounds or ArtifactInspectionBounds()
+    selected_bounds = bounds
     selected_entries = artifact.entries[: selected_bounds.max_entries]
     return CompiledArtifactInspection(
         kind="reference_lab.list_mode.v1",
@@ -138,24 +140,95 @@ def inspect_list_mode_artifact(
             _inspect_entry(artifact, entry, bounds=selected_bounds)
             for entry in selected_entries
         ),
-        program=(
-            _with_physical_placement_layer(
+        program=None,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeArtifactInspectionSnapshot:
+    """Reusable waveform summary and physical placement index for one artifact."""
+
+    base: CompiledArtifactInspection
+    program_projector: Callable[
+        [CompiledProgramInspectionQuery | None],
+        CompiledProgramInspection,
+    ]
+    physical_layer: CompiledProgramInspectionLayerIndex
+    placements: tuple[ListModeEventPlacement, ...]
+    candidates: tuple[ListModePlacementCandidate, ...]
+    max_placement_nodes: int
+
+    def project(
+        self,
+        query: CompiledProgramInspectionQuery | None = None,
+    ) -> CompiledArtifactInspection:
+        program = self.program_projector(query)
+        return replace(
+            self.base,
+            program=_with_physical_placement_layer(
                 program,
-                artifact,
-                max_nodes=selected_bounds.max_placement_nodes,
-            )
-            if program is not None
-            else None
+                physical_layer=self.physical_layer,
+                placements=self.placements,
+                candidates=self.candidates,
+                max_nodes=self.max_placement_nodes,
+            ),
+        )
+
+
+def build_list_mode_artifact_inspection_snapshot(
+    artifact: ListModeArtifact,
+    *,
+    program_projector: Callable[
+        [CompiledProgramInspectionQuery | None],
+        CompiledProgramInspection,
+    ],
+    bounds: ArtifactInspectionBounds | None = None,
+) -> ListModeArtifactInspectionSnapshot:
+    """Build stable waveform and placement projections once per artifact."""
+
+    selected_bounds = bounds or ArtifactInspectionBounds()
+    physical_layer, placements = _physical_placement_layer_index(artifact)
+    return ListModeArtifactInspectionSnapshot(
+        base=_inspect_list_mode_artifact_base(artifact, bounds=selected_bounds),
+        program_projector=program_projector,
+        physical_layer=physical_layer,
+        placements=placements,
+        candidates=artifact.placement.candidates,
+        max_placement_nodes=selected_bounds.max_placement_nodes,
+    )
+
+
+def inspect_list_mode_artifact(
+    artifact: ListModeArtifact,
+    *,
+    bounds: ArtifactInspectionBounds | None = None,
+    program: CompiledProgramInspection | None = None,
+) -> CompiledArtifactInspection:
+    """Return deterministic statistics and min/max waveform previews."""
+
+    selected_bounds = bounds or ArtifactInspectionBounds()
+    base = _inspect_list_mode_artifact_base(artifact, bounds=selected_bounds)
+    if program is None:
+        return base
+    physical_layer, placements = _physical_placement_layer_index(artifact)
+    return replace(
+        base,
+        program=_with_physical_placement_layer(
+            program,
+            physical_layer=physical_layer,
+            placements=placements,
+            candidates=artifact.placement.candidates,
+            max_nodes=selected_bounds.max_placement_nodes,
         ),
     )
 
 
-def _with_physical_placement_layer(
-    program: CompiledProgramInspection,
+def _physical_placement_layer_index(
     artifact: ListModeArtifact,
-    *,
-    max_nodes: int,
-) -> CompiledProgramInspection:
+) -> tuple[
+    CompiledProgramInspectionLayerIndex,
+    tuple[ListModeEventPlacement, ...],
+]:
     entry_id = artifact.entries[0].entry_id
     placements = tuple(
         event for event in artifact.placement.events if event.entry_id == entry_id
@@ -171,202 +244,259 @@ def _with_physical_placement_layer(
         )
     )
     root_id = "physical:placement"
-    all_nodes = (
-        CompiledProgramInspectionNode(
-            id=root_id,
-            kind="device",
-            label=f"device {artifact.target_id.value}",
-            child_count=(
-                len(placements)
-                + len(artifact.placement.candidates)
-                + len(artifact.placement.constraints)
+
+    def node_at(
+        ordinal: int,
+        query: CompiledProgramInspectionQuery | None,
+    ) -> CompiledProgramInspectionNode:
+        if ordinal == 0:
+            preferred_entity = query.entity_id if query is not None else None
+            entity_ids = _preferred_references(
+                logical_qubit_ids,
+                preferred_entity,
+            )
+            return CompiledProgramInspectionNode(
+                id=root_id,
+                kind="device",
+                label=f"device {artifact.target_id.value}",
+                child_count=(
+                    len(placements)
+                    + len(artifact.placement.candidates)
+                    + len(artifact.placement.constraints)
+                ),
+                entity_ids=entity_ids,
+                entity_count=len(logical_qubit_ids),
+                entity_ids_truncated=len(entity_ids) < len(logical_qubit_ids),
+                resource_ids=physical_resource_ids,
+                facts=(
+                    CompiledInspectionFact(
+                        "snapshot_fingerprint",
+                        artifact.device_snapshot.snapshot_fingerprint,
+                    ),
+                    CompiledInspectionFact(
+                        "configured_signal_count",
+                        len(artifact.device_snapshot.signal_placements),
+                    ),
+                    CompiledInspectionFact(
+                        "placement_constraint_count",
+                        len(artifact.placement.constraints),
+                    ),
+                    CompiledInspectionFact(
+                        "placement_candidate_count",
+                        artifact.placement.candidate_count,
+                    ),
+                    CompiledInspectionFact(
+                        "materialized_candidate_count",
+                        len(artifact.placement.candidates),
+                    ),
+                    CompiledInspectionFact(
+                        "placement_candidates_truncated",
+                        artifact.placement.candidates_truncated,
+                    ),
+                    CompiledInspectionFact(
+                        "materialized_rejected_candidate_count",
+                        sum(
+                            candidate.status == "rejected"
+                            for candidate in artifact.placement.candidates
+                        ),
+                    ),
+                ),
+            )
+        placement_stop = 1 + len(placements)
+        if ordinal < placement_stop:
+            return _physical_event_node(placements[ordinal - 1], parent_id=root_id)
+        candidate_stop = placement_stop + len(artifact.placement.candidates)
+        if ordinal < candidate_stop:
+            return _physical_candidate_node(
+                artifact.placement.candidates[ordinal - placement_stop],
+                parent_id=root_id,
+            )
+        return _physical_constraint_node(
+            artifact.placement.constraints[ordinal - candidate_stop],
+            parent_id=root_id,
+        )
+
+    return (
+        CompiledProgramInspectionLayerIndex(
+            id="physical",
+            label="Physical placement",
+            kind="physical",
+            root_ids=(root_id,),
+            nodes=CompiledProgramInspectionNodeIndex(
+                node_count=(
+                    1
+                    + len(placements)
+                    + len(artifact.placement.candidates)
+                    + len(artifact.placement.constraints)
+                ),
+                node_at=node_at,
             ),
-            entity_ids=logical_qubit_ids,
-            resource_ids=physical_resource_ids,
             facts=(
                 CompiledInspectionFact(
-                    "snapshot_fingerprint",
-                    artifact.device_snapshot.snapshot_fingerprint,
+                    "instrument_count",
+                    len(artifact.physical_footprint.instrument_ids),
                 ),
                 CompiledInspectionFact(
-                    "configured_signal_count",
-                    len(artifact.device_snapshot.signal_placements),
+                    "waveform_output_count",
+                    len(artifact.physical_footprint.waveform_outputs),
                 ),
                 CompiledInspectionFact(
-                    "placement_constraint_count",
-                    len(artifact.placement.constraints),
+                    "acquisition_input_count",
+                    len(artifact.physical_footprint.acquisition_inputs),
                 ),
-                CompiledInspectionFact(
-                    "placement_candidate_count",
-                    artifact.placement.candidate_count,
-                ),
-                CompiledInspectionFact(
-                    "materialized_candidate_count",
-                    len(artifact.placement.candidates),
-                ),
-                CompiledInspectionFact(
-                    "placement_candidates_truncated",
-                    artifact.placement.candidates_truncated,
-                ),
-                CompiledInspectionFact(
-                    "materialized_rejected_candidate_count",
-                    sum(
-                        candidate.status == "rejected"
-                        for candidate in artifact.placement.candidates
-                    ),
+                *(
+                    CompiledInspectionFact(
+                        f"budget.{dimension.id}",
+                        {
+                            "scope": dimension.scope,
+                            "usage": dimension.usage,
+                            "limit": dimension.limit,
+                            "projected_point_capacity": (
+                                dimension.projected_point_capacity
+                            ),
+                            "projected_shot_capacity": (
+                                dimension.projected_shot_capacity
+                            ),
+                        },
+                    )
+                    for dimension in artifact.compilation_budget.dimensions
                 ),
             ),
         ),
-        *(
-            CompiledProgramInspectionNode(
-                id=f"physical:event:{event.event_id.value}",
-                kind="placement",
-                label=(
-                    f"{event.signal.signal[0]}({event.signal.signal[2]}) → "
-                    + ", ".join(endpoint.id for endpoint in event.signal.endpoints)
-                ),
-                parent_id=root_id,
-                entity_ids=(event.signal.signal[2],),
-                resource_ids=tuple(endpoint.id for endpoint in event.signal.endpoints),
-                facts=tuple(
-                    fact
-                    for fact in (
-                        CompiledInspectionFact("lo_group_id", event.signal.lo_group_id)
-                        if event.signal.lo_group_id is not None
-                        else None,
-                        CompiledInspectionFact(
-                            "demodulator_slot_id",
-                            event.signal.demodulator_slot_id,
-                        )
-                        if event.signal.demodulator_slot_id is not None
-                        else None,
-                        CompiledInspectionFact(
-                            "constraint_ids",
-                            list(event.constraint_ids),
-                        ),
-                        CompiledInspectionFact(
-                            "candidate_ids",
-                            list(event.candidate_ids),
-                        ),
-                        CompiledInspectionFact(
-                            "candidate_count",
-                            event.candidate_count,
-                        ),
-                    )
-                    if fact is not None
-                ),
-            )
-            for event in placements
+        placements,
+    )
+
+
+def _preferred_references(
+    values: tuple[str, ...],
+    preferred: str | None,
+    *,
+    limit: int = 64,
+) -> tuple[str, ...]:
+    if preferred is None or preferred in values[:limit]:
+        return values[:limit]
+    if preferred not in values:
+        return values[:limit]
+    return (preferred, *values[: limit - 1])
+
+
+def _physical_event_node(
+    event: ListModeEventPlacement,
+    *,
+    parent_id: str,
+) -> CompiledProgramInspectionNode:
+    return CompiledProgramInspectionNode(
+        id=f"physical:event:{event.event_id.value}",
+        kind="placement",
+        label=(
+            f"{event.signal.signal[0]}({event.signal.signal[2]}) → "
+            + ", ".join(endpoint.id for endpoint in event.signal.endpoints)
         ),
-        *(
-            CompiledProgramInspectionNode(
-                id=f"physical:{candidate.id}",
-                kind=f"placement_candidate_{candidate.status}",
-                label=(
-                    f"{candidate.status} {candidate.signal[0]}({candidate.signal[2]}) "
-                    "→ "
-                    + ", ".join(endpoint.id for endpoint in candidate.route.endpoints)
-                ),
-                parent_id=root_id,
-                entity_ids=tuple(
-                    sorted({candidate.signal[2], candidate.route.signal[2]})
-                ),
-                resource_ids=tuple(
-                    endpoint.id for endpoint in candidate.route.endpoints
-                ),
-                facts=(
-                    CompiledInspectionFact("status", candidate.status),
-                    CompiledInspectionFact(
-                        "requested_signal",
-                        list(candidate.signal),
-                    ),
-                    CompiledInspectionFact(
-                        "configured_signal",
-                        list(candidate.route.signal),
-                    ),
-                    CompiledInspectionFact(
-                        "rejection_codes",
-                        [rejection.code for rejection in candidate.rejections],
-                    ),
-                    CompiledInspectionFact(
-                        "rejection_reasons",
-                        [rejection.message for rejection in candidate.rejections],
-                    ),
-                ),
-                warnings=tuple(rejection.message for rejection in candidate.rejections),
+        parent_id=parent_id,
+        entity_ids=(event.signal.signal[2],),
+        resource_ids=tuple(endpoint.id for endpoint in event.signal.endpoints),
+        facts=tuple(
+            fact
+            for fact in (
+                CompiledInspectionFact("lo_group_id", event.signal.lo_group_id)
+                if event.signal.lo_group_id is not None
+                else None,
+                CompiledInspectionFact(
+                    "demodulator_slot_id",
+                    event.signal.demodulator_slot_id,
+                )
+                if event.signal.demodulator_slot_id is not None
+                else None,
+                CompiledInspectionFact("constraint_ids", list(event.constraint_ids)),
+                CompiledInspectionFact("candidate_ids", list(event.candidate_ids)),
+                CompiledInspectionFact("candidate_count", event.candidate_count),
             )
-            for candidate in artifact.placement.candidates
-        ),
-        *(
-            CompiledProgramInspectionNode(
-                id=f"physical:constraint:{constraint.id}",
-                kind="placement_constraint",
-                label=constraint.label,
-                parent_id=root_id,
-                entity_ids=constraint.entity_ids,
-                resource_ids=constraint.resource_ids,
-                facts=(
-                    CompiledInspectionFact("constraint_kind", constraint.kind),
-                    CompiledInspectionFact(
-                        "signal_count",
-                        len(constraint.signals),
-                    ),
-                    CompiledInspectionFact(
-                        "signals",
-                        [list(signal) for signal in constraint.signals],
-                    ),
-                ),
-            )
-            for constraint in artifact.placement.constraints
+            if fact is not None
         ),
     )
-    selected_nodes, page = query_compiled_program_nodes(
-        "physical",
-        all_nodes,
+
+
+def _physical_candidate_node(
+    candidate: ListModePlacementCandidate,
+    *,
+    parent_id: str,
+) -> CompiledProgramInspectionNode:
+    return CompiledProgramInspectionNode(
+        id=f"physical:{candidate.id}",
+        kind=f"placement_candidate_{candidate.status}",
+        label=(
+            f"{candidate.status} {candidate.signal[0]}({candidate.signal[2]}) → "
+            + ", ".join(endpoint.id for endpoint in candidate.route.endpoints)
+        ),
+        parent_id=parent_id,
+        entity_ids=tuple(sorted({candidate.signal[2], candidate.route.signal[2]})),
+        resource_ids=tuple(endpoint.id for endpoint in candidate.route.endpoints),
+        facts=(
+            CompiledInspectionFact("status", candidate.status),
+            CompiledInspectionFact("requested_signal", list(candidate.signal)),
+            CompiledInspectionFact("configured_signal", list(candidate.route.signal)),
+            CompiledInspectionFact(
+                "rejection_codes",
+                [rejection.code for rejection in candidate.rejections],
+            ),
+            CompiledInspectionFact(
+                "rejection_reasons",
+                [rejection.message for rejection in candidate.rejections],
+            ),
+        ),
+        warnings=tuple(rejection.message for rejection in candidate.rejections),
+    )
+
+
+def _physical_constraint_node(
+    constraint: ListModePlacementConstraint,
+    *,
+    parent_id: str,
+) -> CompiledProgramInspectionNode:
+    return CompiledProgramInspectionNode(
+        id=f"physical:constraint:{constraint.id}",
+        kind="placement_constraint",
+        label=constraint.label,
+        parent_id=parent_id,
+        entity_ids=constraint.entity_ids,
+        resource_ids=constraint.resource_ids,
+        facts=(
+            CompiledInspectionFact("constraint_kind", constraint.kind),
+            CompiledInspectionFact("signal_count", len(constraint.signals)),
+            CompiledInspectionFact(
+                "signals",
+                [list(signal) for signal in constraint.signals],
+            ),
+        ),
+    )
+
+
+def _with_physical_placement_layer(
+    program: CompiledProgramInspection,
+    *,
+    physical_layer: CompiledProgramInspectionLayerIndex,
+    placements: tuple[ListModeEventPlacement, ...],
+    candidates: tuple[ListModePlacementCandidate, ...],
+    max_nodes: int,
+) -> CompiledProgramInspection:
+    layer, selection = physical_layer.project(
         query=program.query,
         default_limit=max_nodes,
         snapshot_id=program.snapshot_id,
     )
-    layer = CompiledProgramInspectionLayer(
-        id="physical",
-        label="Physical placement",
-        kind="physical",
-        node_count=len(all_nodes),
-        nodes_truncated=len(selected_nodes) < len(all_nodes),
-        root_ids=(root_id,),
-        nodes=selected_nodes,
-        page=page,
-        facts=(
-            CompiledInspectionFact(
-                "instrument_count",
-                len(artifact.physical_footprint.instrument_ids),
-            ),
-            CompiledInspectionFact(
-                "waveform_output_count",
-                len(artifact.physical_footprint.waveform_outputs),
-            ),
-            CompiledInspectionFact(
-                "acquisition_input_count",
-                len(artifact.physical_footprint.acquisition_inputs),
-            ),
-            *(
-                CompiledInspectionFact(
-                    f"budget.{dimension.id}",
-                    {
-                        "scope": dimension.scope,
-                        "usage": dimension.usage,
-                        "limit": dimension.limit,
-                        "projected_point_capacity": (
-                            dimension.projected_point_capacity
-                        ),
-                        "projected_shot_capacity": (dimension.projected_shot_capacity),
-                    },
-                )
-                for dimension in artifact.compilation_budget.dimensions
-            ),
-        ),
+    placement_stop = 1 + len(placements)
+    candidate_stop = placement_stop + len(candidates)
+    selected_events = tuple(
+        placements[ordinal - 1]
+        for ordinal in selection.ordinals
+        if 1 <= ordinal < placement_stop
     )
-    physical_node_ids = {node.id for node in selected_nodes}
+    selected_candidate_ids = {
+        candidates[ordinal - placement_stop].id
+        for ordinal in selection.ordinals
+        if placement_stop <= ordinal < candidate_stop
+    }
+    candidate_by_id = {candidate.id: candidate for candidate in candidates}
     placement_links = tuple(
         CompiledProgramInspectionLink(
             source_layer_id="scheduled",
@@ -375,8 +505,7 @@ def _with_physical_placement_layer(
             target_node_id=f"physical:event:{event.event_id.value}",
             relation="placed_on",
         )
-        for event in placements
-        if f"physical:event:{event.event_id.value}" in physical_node_ids
+        for event in selected_events
     )
     candidate_links = tuple(
         CompiledProgramInspectionLink(
@@ -388,11 +517,10 @@ def _with_physical_placement_layer(
                 "selected_route" if candidate.status == "selected" else "rejected_route"
             ),
         )
-        for event in placements
-        for candidate in artifact.placement.candidates
-        if candidate.id in event.candidate_ids
-        and f"physical:event:{event.event_id.value}" in physical_node_ids
-        and f"physical:{candidate.id}" in physical_node_ids
+        for event in selected_events
+        for candidate_id in event.candidate_ids
+        if candidate_id in selected_candidate_ids
+        for candidate in (candidate_by_id[candidate_id],)
     )
     return replace(
         program,
@@ -586,6 +714,8 @@ def _minmax_indices(
 
 __all__ = [
     "ArtifactInspectionBounds",
+    "ListModeArtifactInspectionSnapshot",
+    "build_list_mode_artifact_inspection_snapshot",
     "inspect_list_mode_artifact",
     "point_realization_fingerprint",
 ]

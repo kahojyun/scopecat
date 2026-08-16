@@ -4,7 +4,9 @@ import pytest
 
 from scopecat.inspection import (
     CompiledProgramInspectionNode,
+    CompiledProgramInspectionNodeIndex,
     CompiledProgramInspectionQuery,
+    query_compiled_program_node_index,
     query_compiled_program_nodes,
 )
 
@@ -103,3 +105,55 @@ def test_program_node_cursor_is_bound_to_snapshot_and_filters() -> None:
             default_limit=2,
             snapshot_id="artifact-a",
         )
+
+
+def test_unfiltered_program_pages_only_materialize_returned_nodes() -> None:
+    loaded: list[int] = []
+
+    def node_at(
+        ordinal: int,
+        _query: CompiledProgramInspectionQuery | None,
+    ) -> CompiledProgramInspectionNode:
+        loaded.append(ordinal)
+        return CompiledProgramInspectionNode(
+            id=f"scheduled:{ordinal}",
+            kind="play",
+            label=f"pulse {ordinal}",
+        )
+
+    index = CompiledProgramInspectionNodeIndex(
+        node_count=100_000,
+        node_at=node_at,
+    )
+    first = query_compiled_program_node_index(
+        "scheduled",
+        index,
+        query=CompiledProgramInspectionQuery(
+            layer_id="scheduled",
+            snapshot_id="artifact-a",
+            limit=2,
+        ),
+        default_limit=2,
+        snapshot_id="artifact-a",
+    )
+
+    assert [node.id for node in first.nodes] == ["scheduled:0", "scheduled:1"]
+    assert loaded == [0, 1]
+    assert first.page.matching_node_count == 100_000
+    assert first.page.next_cursor is not None
+
+    second = query_compiled_program_node_index(
+        "scheduled",
+        index,
+        query=CompiledProgramInspectionQuery(
+            layer_id="scheduled",
+            snapshot_id="artifact-a",
+            cursor=first.page.next_cursor,
+            limit=2,
+        ),
+        default_limit=2,
+        snapshot_id="artifact-a",
+    )
+
+    assert [node.id for node in second.nodes] == ["scheduled:2", "scheduled:3"]
+    assert loaded == [0, 1, 2, 3]

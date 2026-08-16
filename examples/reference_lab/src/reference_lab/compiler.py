@@ -23,7 +23,7 @@ from scopecat_quantum._ids import (
     TargetCompileEntryId,
     TargetCompilerId,
 )
-from scopecat_quantum.inspection import inspect_quantum_program
+from scopecat_quantum.inspection import build_quantum_program_inspection_snapshot
 from scopecat_quantum.program_results import (
     MappedQuantumTarget,
     QuantumTargetEntryPointBinding,
@@ -58,7 +58,7 @@ from reference_lab.targets.list_mode import (
     ListModeTarget,
     ListModeTargetCompiler,
     MappedListModeTarget,
-    inspect_list_mode_artifact,
+    build_list_mode_artifact_inspection_snapshot,
     list_mode_measurement_invocation_spec,
     list_mode_realtime_write_footprint,
     list_mode_setup_state_invalidations,
@@ -268,19 +268,24 @@ class QuantumLabCompiler:
             response_intent=selection.response_intent,
         )
 
+        inspection_snapshot = None
+        if request.inspection_requested:
+            program_inspection_snapshot = build_quantum_program_inspection_snapshot(
+                artifact.program,
+                bound=artifact.compiled_points[0].bound,
+                scheduled=artifact.entries[0].scheduled,
+                snapshot_id=artifact.target_artifact.artifact_fingerprint,
+            )
+            inspection_snapshot = build_list_mode_artifact_inspection_snapshot(
+                artifact.target_artifact,
+                program_projector=program_inspection_snapshot.project,
+            )
+
         def project_inspection(
             query: CompiledProgramInspectionQuery | None,
         ) -> CompiledArtifactInspection:
-            return inspect_list_mode_artifact(
-                artifact.target_artifact,
-                program=inspect_quantum_program(
-                    artifact.program,
-                    bound=artifact.compiled_points[0].bound,
-                    scheduled=artifact.entries[0].scheduled,
-                    query=query,
-                    snapshot_id=artifact.target_artifact.artifact_fingerprint,
-                ),
-            )
+            assert inspection_snapshot is not None
+            return inspection_snapshot.project(query)
 
         return preparation.build(
             instrument_ids=artifact.target_artifact.instrument_ids,
