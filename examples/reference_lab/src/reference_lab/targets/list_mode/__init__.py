@@ -41,10 +41,17 @@ from reference_lab.targets.list_mode.model import (
     ListModeProgramPlacement,
     ListModeTarget,
 )
+from reference_lab.targets.list_mode.placement import (
+    ConfiguredRoutePlacementProvider,
+    ListModePlacementDecision,
+    ListModePlacementError,
+    ListModePlacementProvider,
+)
 
 __all__ = [
     "AcquisitionResponse",
     "ArtifactInspectionBounds",
+    "ConfiguredRoutePlacementProvider",
     "ListModeArtifact",
     "ListModeArtifactInspectionSnapshot",
     "ListModeBudgetDimension",
@@ -57,6 +64,9 @@ __all__ = [
     "ListModePhysicalFootprint",
     "ListModePlacementCandidate",
     "ListModePlacementConstraint",
+    "ListModePlacementDecision",
+    "ListModePlacementError",
+    "ListModePlacementProvider",
     "ListModePlacementRejection",
     "ListModeProgramPlacement",
     "ListModeRun",

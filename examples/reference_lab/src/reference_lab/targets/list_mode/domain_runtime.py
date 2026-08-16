@@ -85,7 +85,7 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
     return cast(
         "dict[str, JsonValue]",
         {
-            "schema": "reference_lab.list_mode_execution_summary.v9",
+            "schema": "reference_lab.list_mode_execution_summary.v10",
             "compilation": {
                 "key": artifact.compilation_key.value,
                 "semantic_program_fingerprint": (
@@ -164,6 +164,8 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
                 "order": "program_load_then_host_reassert_then_realtime_prepare",
             },
             "placement": {
+                "provider_id": artifact.placement.provider_id,
+                "provider_fingerprint": artifact.placement.provider_fingerprint,
                 "device_snapshot_fingerprint": (
                     artifact.device_snapshot.snapshot_fingerprint
                 ),

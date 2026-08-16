@@ -93,6 +93,14 @@ def _inspect_list_mode_artifact_base(
                 artifact.compilation_key.placement_fingerprint,
             ),
             CompiledInspectionFact(
+                "placement_provider_id",
+                artifact.placement.provider_id,
+            ),
+            CompiledInspectionFact(
+                "placement_provider_fingerprint",
+                artifact.placement.provider_fingerprint,
+            ),
+            CompiledInspectionFact(
                 "next_batch_max_points",
                 artifact.compilation_budget.next_batch_max_points,
             ),

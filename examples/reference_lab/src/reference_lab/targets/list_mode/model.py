@@ -219,6 +219,8 @@ class ListModePlacementConstraint:
 class ListModeProgramPlacement:
     """Exact per-event placement for a finite target compile request."""
 
+    provider_id: str
+    provider_fingerprint: str
     device_snapshot_fingerprint: str
     events: tuple[ListModeEventPlacement, ...]
     candidates: tuple[ListModePlacementCandidate, ...]
@@ -250,6 +252,7 @@ class ListModeCompilationKey:
     """Layered identities from scheduled semantics through artifact layout."""
 
     compiler_id: TargetCompilerId
+    placement_provider_fingerprint: str
     device_snapshot_fingerprint: str
     scheduled_program_fingerprints: tuple[str, ...]
     semantic_program_fingerprint: str
@@ -420,6 +423,8 @@ def device_snapshot_payload(snapshot: ListModeDeviceSnapshot) -> dict[str, objec
 
 def program_placement_payload(placement: ListModeProgramPlacement) -> dict[str, object]:
     return {
+        "provider_id": placement.provider_id,
+        "provider_fingerprint": placement.provider_fingerprint,
         "device_snapshot_fingerprint": placement.device_snapshot_fingerprint,
         "events": [
             {
@@ -487,8 +492,9 @@ def physical_footprint_payload(
 
 def compilation_key_payload(key: ListModeCompilationKey) -> dict[str, object]:
     return {
-        "schema": "reference_lab.list_mode_compilation_key.v1",
+        "schema": "reference_lab.list_mode_compilation_key.v2",
         "compiler_id": key.compiler_id.value,
+        "placement_provider_fingerprint": key.placement_provider_fingerprint,
         "device_snapshot_fingerprint": key.device_snapshot_fingerprint,
         "scheduled_program_fingerprints": list(key.scheduled_program_fingerprints),
         "semantic_program_fingerprint": key.semantic_program_fingerprint,

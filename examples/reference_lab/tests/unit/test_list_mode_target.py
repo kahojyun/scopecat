@@ -72,6 +72,8 @@ from reference_lab.provider import ReferenceLabProvider
 from reference_lab.targets.list_mode import (
     ArtifactInspectionBounds,
     ListModeArtifact,
+    ListModeDeviceSnapshot,
+    ListModePlacementDecision,
     ListModeTarget,
     ListModeTargetCompiler,
     configured_list_mode_target,
@@ -90,6 +92,45 @@ DRIVE_Q0 = DriveSignal(Q0)
 ACQUIRE_Q0 = AcquireSignal(Q0)
 READOUT_Q0 = ReadoutSignal(Q0)
 READOUT_Q1 = ReadoutSignal(Q1)
+
+
+class _ReroutingPlacementProvider:
+    id = "test.rerouting-placement.v1"
+    fingerprint = "sha256:test-rerouting-placement-v1"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def place(
+        self,
+        selected_signals: tuple[tuple[str, str, str], ...],
+        snapshot: ListModeDeviceSnapshot,
+    ) -> ListModePlacementDecision:
+        self.calls += 1
+        placements = tuple(
+            replace(
+                snapshot.signal_placement(("drive", "qubit", "q1")),
+                signal=signal,
+            )
+            if signal == ("drive", "qubit", "q0")
+            else snapshot.signal_placement(signal)
+            for signal in selected_signals
+        )
+        empty_ids = tuple((signal, ()) for signal in selected_signals)
+        return ListModePlacementDecision(
+            provider_id=self.id,
+            provider_fingerprint=self.fingerprint,
+            device_snapshot_fingerprint=snapshot.snapshot_fingerprint,
+            placements=placements,
+            candidates=(),
+            candidate_count=0,
+            constraints=(),
+            constraint_ids_by_signal=empty_ids,
+            candidate_ids_by_signal=empty_ids,
+            candidate_counts_by_signal=tuple(
+                (signal, 0) for signal in selected_signals
+            ),
+        )
 
 
 def test_list_mode_logical_result_preserves_partial_shot_availability() -> None:
@@ -486,6 +527,72 @@ def test_list_mode_placement_candidates_are_bounded_per_signal() -> None:
         for candidate in placement.candidates
         if candidate.id in drive_event.candidate_ids
     )
+
+
+def test_list_mode_placement_provider_controls_physical_artifact_and_cache() -> None:
+    scheduled, _slot = _calibrated_acquisition()
+    target = _target()
+    _compiler, request = _request(target, (scheduled,), repetitions=1)
+    provider = _ReroutingPlacementProvider()
+    compiler = ListModeTargetCompiler(
+        TargetCompilerId("list-mode-compiler.v1"),
+        target,
+        placement_provider=provider,
+    )
+
+    artifact = compiler.compile(request)
+    q0_binding = target.output_binding(DRIVE_Q0)
+    q1_binding = target.output_binding(DriveSignal(Q1))
+    assert q0_binding is not None
+    assert q1_binding is not None
+    waveform_channels = {
+        waveform.channel_id for waveform in artifact.entries[0].waveforms
+    }
+
+    assert provider.calls == 1
+    assert artifact.placement.provider_id == provider.id
+    assert artifact.placement.provider_fingerprint == provider.fingerprint
+    assert (
+        artifact.compilation_key.placement_provider_fingerprint == provider.fingerprint
+    )
+    assert set(q1_binding.channel_ids) <= waveform_channels
+    assert set(q0_binding.channel_ids).isdisjoint(waveform_channels)
+    rerouted = next(
+        event
+        for event in artifact.placement.events
+        if event.signal.signal == ("drive", "qubit", "q0")
+    )
+    assert {endpoint.channel_id for endpoint in rerouted.signal.endpoints} == {
+        channel.value for channel in q1_binding.channel_ids
+    }
+
+    assert compiler.compile(request) is artifact
+    assert provider.calls == 1
+    default = ListModeTargetCompiler(compiler.id, target).compile(request)
+    assert default.compilation_key.placement_fingerprint != (
+        artifact.compilation_key.placement_fingerprint
+    )
+
+
+def test_list_mode_default_placement_reports_unconfigured_signal() -> None:
+    scheduled = schedule(
+        PulseProgram(
+            id=PulseProgramId("unconfigured-drive"),
+            body=Play(
+                PulseEventId("drive"),
+                DriveSignal(QubitId("q-unconfigured")),
+                Constant(Quantity(2, "ns"), Quantity(0.25, "arb")),
+            ),
+        )
+    )
+    compiler, request = _request(_target(), (scheduled,), repetitions=1)
+
+    with pytest.raises(TargetCompilationError) as caught:
+        compiler.compile(request)
+
+    assert {issue.code for issue in caught.value.issues} == {
+        "list_mode_output_signal_unbound"
+    }
 
 
 def test_list_mode_compilation_key_caches_and_explains_batch_capacity() -> None:

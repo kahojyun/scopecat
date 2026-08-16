@@ -108,7 +108,11 @@ Inspection acceptance is transport-oriented as well as compiler-oriented:
 - placement materializes at most eight relevant route candidates per selected
   signal, records structured rejection reasons, and retains the full candidate
   count plus a truncation marker instead of constructing a device-wide
-  signal-by-route product.
+  signal-by-route product;
+- placement is selected through a fingerprinted provider boundary before
+  waveform and acquisition planning. Its chosen physical endpoints determine
+  calibration lookup, overlap checks, emitted AWG channels, digitizer windows,
+  inspection provenance, and the placement cache key.
 
 The GUI should therefore render layer summaries first, page the node list,
 show Map/Repeat nodes as aggregates, draw timing only for the selected scheduled
@@ -501,8 +505,11 @@ The present architecture provides a direct end-to-end baseline:
   binding resolves a fixed count or connected component in deterministic
   topology order and keeps the intent beside its resolved entity table. The
   authored program therefore does not encode chip size or physical numbering.
-  The list-mode compiler independently caches semantic analysis, waveform/placement
-  planning, artifact layout, and final artifacts by their layered fingerprints.
+  A fingerprinted placement provider owns logical-to-physical routing, and its
+  selected endpoints drive the compiled waveform and acquisition artifact rather
+  than serving as explanation-only metadata. The list-mode compiler independently
+  caches semantic analysis, waveform/placement planning, artifact layout, and
+  final artifacts by their layered fingerprints.
   Artifact eviction therefore does not force target-independent analysis or
   waveform planning to repeat. Its continuation report exposes list-entry,
   waveform-memory, per-entry sample, and repetition budgets plus the limiting

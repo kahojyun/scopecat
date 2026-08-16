@@ -110,7 +110,10 @@ tables, and temporary scan axes belong to experiment invocations.
   intent and resolved qubit table, while the program remains chip-size agnostic.
 - Placement also records why each event uses its selected route: configured
   routes, shared endpoints and LOs, demodulator slots, and the common timing
-  domain are stable constraint nodes linked from each event.
+  domain are stable constraint nodes linked from each event. A fingerprinted,
+  injectable placement provider makes that route decision before physical
+  planning, so its endpoints control the emitted AWG and digitizer artifact as
+  well as preview provenance and cache identity.
 - Target admission reports list entries, waveform bytes, event and acquisition
   counts, complete result bytes, and per-shot chunk bytes together. The runtime
   retains bounded shot chunks as one logical partitioned value; Arrow storage
