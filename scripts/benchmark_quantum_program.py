@@ -24,7 +24,10 @@ from scopecat_quantum.inspection import (
 from scopecat_quantum.programs import (
     QuantumProgramExpansionError,
     estimate_quantum_program_workload,
+    plan_quantum_pulse_lowering,
 )
+from scopecat_quantum.pulse_implementations import ResolvedPulseImplementations
+from scopecat_quantum.pulses import PulseProgramId
 
 
 def _options() -> tuple[tuple[int, ...], int]:
@@ -67,17 +70,32 @@ def _benchmark_case(entity_count: int, page_size: int) -> dict[str, object]:
     bound_seconds = time.perf_counter() - started
     workload = estimate_quantum_program_workload(bound.verified)
 
-    preflight_limit = workload.expanded_operation_count - 1
-    preflight_started = time.perf_counter()
-    expansion_preflight_rejected = False
+    lowering_budget_limit = workload.expanded_operation_count - 1
+    lowering_output_id = PulseProgramId("benchmark-large-map-pulses")
+    lowering_rejected_started = time.perf_counter()
+    lowering_budget_rejected = False
     try:
-        bound.verified.require_expansion_budget(preflight_limit)
-    except QuantumProgramExpansionError as error:
-        expansion_preflight_rejected = (
-            error.expanded_operation_count == workload.expanded_operation_count
-            and error.limit == preflight_limit
+        plan_quantum_pulse_lowering(
+            bound.verified,
+            ResolvedPulseImplementations(),
+            output_id=lowering_output_id,
+            max_expanded_operations=lowering_budget_limit,
         )
-    preflight_seconds = time.perf_counter() - preflight_started
+    except QuantumProgramExpansionError as error:
+        lowering_budget_rejected = (
+            error.expanded_operation_count == workload.expanded_operation_count
+            and error.limit == lowering_budget_limit
+        )
+    lowering_rejected_seconds = time.perf_counter() - lowering_rejected_started
+
+    lowering_started = time.perf_counter()
+    lowering_plan = plan_quantum_pulse_lowering(
+        bound.verified,
+        ResolvedPulseImplementations(),
+        output_id=lowering_output_id,
+        max_expanded_operations=workload.expanded_operation_count,
+    )
+    lowering_plan_seconds = time.perf_counter() - lowering_started
 
     snapshot_started = time.perf_counter()
     snapshot = build_quantum_program_inspection_snapshot(
@@ -204,8 +222,14 @@ def _benchmark_case(entity_count: int, page_size: int) -> dict[str, object]:
         "expanded_operation_count": workload.expanded_operation_count,
         "selected_entity_count": workload.selected_entity_count,
         "unresolved_operation_count": len(bound.verified.unresolved.operations),
-        "expansion_preflight_limit": preflight_limit,
-        "expansion_preflight_rejected": expansion_preflight_rejected,
+        "lowering_budget_limit": lowering_budget_limit,
+        "lowering_budget_rejected": lowering_budget_rejected,
+        "lowering_plan_expanded_operation_count": (
+            lowering_plan.expanded_operation_count
+        ),
+        "lowering_plan_retains_control_flow": (
+            lowering_plan.body is bound.verified.program.body
+        ),
         "inspection_page_size": page_size,
         "inspection_layer_count": len(inspection.layers),
         "inspection_node_count": sum(layer.node_count for layer in inspection.layers),
@@ -216,7 +240,8 @@ def _benchmark_case(entity_count: int, page_size: int) -> dict[str, object]:
         ),
         "inspection_bytes": inspection_bytes,
         "bound_seconds": bound_seconds,
-        "expansion_preflight_seconds": preflight_seconds,
+        "lowering_rejected_seconds": lowering_rejected_seconds,
+        "lowering_plan_seconds": lowering_plan_seconds,
         "inspection_snapshot_seconds": inspection_snapshot_seconds,
         "inspection_cold_page_seconds": inspection_cold_page_seconds,
         "inspection_warm_exact_seconds": inspection_warm_exact_seconds,
@@ -244,7 +269,7 @@ def _benchmark_case(entity_count: int, page_size: int) -> dict[str, object]:
 def main() -> None:
     entity_counts, page_size = _options()
     result = {
-        "schema": "scopecat.quantum_program_benchmark.v3",
+        "schema": "scopecat.quantum_program_benchmark.v4",
         "inspection_page_size": page_size,
         "case_count": len(entity_counts),
         "cases": [
