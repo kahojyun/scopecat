@@ -1715,7 +1715,20 @@ def validate_collect_command(
                 or requested_axis.kind != declared_axis.kind
                 or (
                     isinstance(declared_axis.size, int)
-                    and requested_axis.size != declared_axis.size
+                    and (
+                        (
+                            requested_axis.offset is None
+                            and requested_axis.size != declared_axis.size
+                        )
+                        or (
+                            requested_axis.offset is not None
+                            and (
+                                requested_axis.size is None
+                                or requested_axis.offset + requested_axis.size
+                                > declared_axis.size
+                            )
+                        )
+                    )
                 )
             ):
                 problems.append(
@@ -1861,13 +1874,22 @@ def validate_collect_plan(
                         observed_value=observed,
                     )
                 )
-            elif requested_axis.size != observed_size:
+            elif (
+                requested_axis.offset is None and requested_axis.size != observed_size
+            ) or (
+                requested_axis.offset is not None
+                and (
+                    requested_axis.size is None
+                    or requested_axis.offset + requested_axis.size > observed_size
+                )
+            ):
                 plan_problems.append(
                     _collect_axis_state_problem(
                         "instrument_driver_acquisition_axis_state_mismatch",
                         f"{command.instrument_id} acquisition result "
                         f"{request.result_id} axis {declared_axis.id} requires "
-                        f"size {observed_size} from synchronized state, got "
+                        f"range within size {observed_size} from synchronized "
+                        f"state, got offset {requested_axis.offset} and size "
                         f"{requested_axis.size}",
                         reference=reference or declared_axis.size,
                         request_id=request.id,

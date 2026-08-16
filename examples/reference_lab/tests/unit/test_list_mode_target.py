@@ -598,6 +598,28 @@ def test_list_mode_worker_retains_bounded_shot_chunks() -> None:
 
     assert [chunk.shot_start for chunk in run.results.chunks] == [0, 2, 4]
     assert [chunk.shot_count for chunk in run.results.chunks] == [2, 2, 1]
+    collect_actions = [
+        action
+        for batch in instruments.batches
+        for action in batch.actions
+        if isinstance(action, RunHardwareCollect)
+    ]
+    assert len(collect_actions) == 3
+    assert [action.requests[0].dimensions[0].offset for action in collect_actions] == [
+        0,
+        2,
+        4,
+    ]
+    assert [action.requests[0].dimensions[0].size for action in collect_actions] == [
+        2,
+        2,
+        1,
+    ]
+    assert all(
+        action.kind == "collect"
+        for batch in instruments.batches[-2:]
+        for action in batch.actions
+    )
     assert all(
         chunk.values.nbytes + chunk.available.nbytes <= artifact.max_result_chunk_bytes
         for chunk in run.results.chunks

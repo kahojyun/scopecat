@@ -100,6 +100,17 @@ class DriverOperation:
 
 
 @dataclass(frozen=True, slots=True)
+class DriverAcquisitionDimension:
+    """One positional axis selection requested from an acquisition result."""
+
+    id: str
+    kind: str
+    offset: int | None
+    size: int | None
+    unit: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DriverAcquisition:
     """One acquisition dispatched to the physical path in ``target``.
 
@@ -109,6 +120,15 @@ class DriverAcquisition:
 
     target: AcquisitionRef
     results: frozenset[AcquisitionResultRef]
+    dimensions: Mapping[
+        AcquisitionResultRef,
+        tuple[DriverAcquisitionDimension, ...],
+    ] = field(
+        default_factory=lambda: dict[
+            AcquisitionResultRef,
+            tuple[DriverAcquisitionDimension, ...],
+        ]()
+    )
     entity_ids: tuple[str, ...] = ()
     channel_bindings: tuple[CommandChannelBinding, ...] = ()
 
@@ -142,6 +162,7 @@ type DriverOutcome[T] = DriverSuccess[T] | DriverRejected | DriverUnknown
 
 __all__ = [
     "DriverAcquisition",
+    "DriverAcquisitionDimension",
     "DriverArgument",
     "DriverOperation",
     "DriverOutcome",

@@ -140,9 +140,24 @@ class CollectAxisRequest(BaseModel):
 
     id: _NonEmptyId
     kind: _NonEmptyId
+    offset: Annotated[int, Field(strict=True, ge=0, le=_JSON_SAFE_INTEGER)] | None = (
+        None
+    )
     size: Annotated[int, Field(strict=True, ge=1, le=_JSON_SAFE_INTEGER)] | None = None
     unit: str | None = None
     metadata: JsonMetadata = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_selection(self) -> CollectAxisRequest:
+        if self.size is None and self.offset is not None:
+            raise ValueError("an unbounded collect axis cannot select an offset")
+        if (
+            self.size is not None
+            and self.offset is not None
+            and self.offset + self.size > _JSON_SAFE_INTEGER
+        ):
+            raise ValueError("collect axis selection exceeds the JSON-safe range")
+        return self
 
 
 class CollectResultRequest(BaseModel):

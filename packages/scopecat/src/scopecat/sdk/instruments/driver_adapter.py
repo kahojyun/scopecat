@@ -12,6 +12,7 @@ from scopecat.records.instrument import (
 )
 from scopecat.sdk.instruments.authoring import (
     DriverAcquisition,
+    DriverAcquisitionDimension,
     DriverOutcome,
     DriverReadback,
     DriverRejected,
@@ -139,6 +140,19 @@ def lower_acquisition(request: BackendCollectRequest) -> DriverAcquisition:
     return DriverAcquisition(
         target=request.target,
         results=frozenset(request.result_target(result) for result in request.results),
+        dimensions={
+            request.result_target(result): tuple(
+                DriverAcquisitionDimension(
+                    id=dimension.id,
+                    kind=dimension.kind,
+                    offset=dimension.offset,
+                    size=dimension.size,
+                    unit=dimension.unit,
+                )
+                for dimension in result.dimensions
+            )
+            for result in request.results
+        },
         entity_ids=request.entity_ids,
         channel_bindings=request.channel_bindings,
     )

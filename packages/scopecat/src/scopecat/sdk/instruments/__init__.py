@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     )
     from scopecat.sdk.instruments.authoring import (
         DriverAcquisition,
+        DriverAcquisitionDimension,
         DriverArgument,
         DriverOperation,
         DriverOutcome,
@@ -153,6 +154,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "DriverAcquisition": (
         "scopecat.sdk.instruments.authoring",
         "DriverAcquisition",
+    ),
+    "DriverAcquisitionDimension": (
+        "scopecat.sdk.instruments.authoring",
+        "DriverAcquisitionDimension",
     ),
     "DriverCatalog": ("scopecat.sdk.instruments.catalog", "DriverCatalog"),
     "DriverConnectionSpec": (

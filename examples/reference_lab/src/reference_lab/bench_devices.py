@@ -909,6 +909,16 @@ class VirtualDigitizer:
             )
             dtype = "float64"
         if request.results:
+            result = next(iter(request.results))
+            dimensions = request.dimensions.get(result, ())
+            if dimensions:
+                [dimension] = dimensions
+                if dimension.size is not None:
+                    block = block[
+                        (dimension.offset or 0) : (dimension.offset or 0)
+                        + dimension.size
+                    ]
+        if request.results:
             measurement = MeasurementArray.create(
                 dtype=dtype,
                 unit="V",

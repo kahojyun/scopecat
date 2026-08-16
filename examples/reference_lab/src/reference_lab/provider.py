@@ -496,6 +496,10 @@ class MultiChannelVirtualDcSource:
             DriverAcquisition(
                 target=_root_acquisition(request.target),
                 results=root_results,
+                dimensions={
+                    _root_result(result): request.dimensions.get(result, ())
+                    for result in request.results
+                },
             )
         )
         if not isinstance(outcome, DriverSuccess):

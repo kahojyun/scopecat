@@ -129,47 +129,54 @@ class InstrumentListModeRuntime:
             instruments,
             _preparation_batch(artifact, execution_id=execution_id),
         )
-        receipt = _execute_batch(
-            instruments,
-            _execution_batch(artifact, execution_id=execution_id),
-        )
-        blocks = _result_blocks(
-            artifact,
-            receipt=receipt,
-            execution_id=execution_id,
-        )
-        block_offsets = dict.fromkeys(blocks, 0)
         addresses = digitizer_addresses(artifact)
         row_by_address = {
             address: row_index for row_index, address in enumerate(addresses)
         }
-        result_bytes_per_shot = max(1, len(addresses)) * (
-            np.dtype(np.complex128).itemsize + np.dtype(np.bool_).itemsize
-        )
-        shots_per_chunk = max(
-            1,
-            artifact.max_result_chunk_bytes // result_bytes_per_shot,
-        )
+        shots_per_chunk = _shots_per_result_chunk(artifact, addresses)
         chunks: list[DigitizerResultChunk] = []
         for shot_start in range(0, artifact.repetitions, shots_per_chunk):
             shot_stop = min(artifact.repetitions, shot_start + shots_per_chunk)
+            receipt = _execute_batch(
+                instruments,
+                _execution_batch(
+                    artifact,
+                    execution_id=execution_id,
+                    shot_start=shot_start,
+                    shot_count=shot_stop - shot_start,
+                    include_start=shot_start == 0,
+                ),
+            )
+            blocks = _result_blocks(
+                artifact,
+                receipt=receipt,
+                execution_id=execution_id,
+                shot_start=shot_start,
+                shot_count=shot_stop - shot_start,
+            )
+            block_offsets = dict.fromkeys(blocks, 0)
             values = np.zeros(
                 (len(addresses), shot_stop - shot_start),
                 dtype=np.complex128,
             )
             available = np.ones(values.shape, dtype=np.bool_)
-            for shot_index in range(shot_start, shot_stop):
+            for shot_column in range(shot_stop - shot_start):
                 for entry in artifact.entries:
                     _write_digitizer_results(
                         artifact,
                         entry,
-                        shot_column=shot_index - shot_start,
+                        shot_column=shot_column,
                         blocks=blocks,
                         block_offsets=block_offsets,
                         row_by_address=row_by_address,
                         values=values,
                         available=available,
                     )
+            if any(
+                block_offsets[input_id] != block.result_count
+                for input_id, block in blocks.items()
+            ):
+                raise RuntimeError("digitizer result block contains unclaimed values")
             chunks.append(
                 DigitizerResultChunk(
                     shot_start=shot_start,
@@ -177,11 +184,6 @@ class InstrumentListModeRuntime:
                     available=available,
                 )
             )
-        if any(
-            block_offsets[input_id] != block.result_count
-            for input_id, block in blocks.items()
-        ):
-            raise RuntimeError("digitizer result block contains unclaimed values")
         results = DigitizerResultBatch(
             addresses=addresses,
             shot_count=artifact.repetitions,
@@ -602,44 +604,50 @@ def _execution_batch(
     artifact: ListModeArtifact,
     *,
     execution_id: str,
+    shot_start: int = 0,
+    shot_count: int | None = None,
+    include_start: bool = True,
 ) -> RunHardwareBatch:
+    selected_shot_count = artifact.repetitions if shot_count is None else shot_count
+    shot_stop = shot_start + selected_shot_count
     prefix = _execution_prefix(artifact, execution_id=execution_id)
     actions: list[RunHardwareInvoke | RunHardwareCollect] = []
-    for digitizer_program in artifact.digitizer_programs:
+    if include_start:
+        for digitizer_program in artifact.digitizer_programs:
+            actions.append(
+                RunHardwareInvoke(
+                    effect_id=f"{prefix}:arm:{digitizer_program.instrument_id}",
+                    instrument_id=digitizer_program.instrument_id,
+                    resource_id=digitizer_program.instrument_id,
+                    interface_id=DIGITIZER_ARM_PROGRAM.interface_id,
+                    operation_id=DIGITIZER_ARM_PROGRAM.operation_id,
+                )
+            )
+        for awg_program in artifact.awg_programs:
+            actions.append(
+                RunHardwareInvoke(
+                    effect_id=f"{prefix}:arm:{awg_program.instrument_id}",
+                    instrument_id=awg_program.instrument_id,
+                    resource_id=awg_program.instrument_id,
+                    interface_id=AWG_ARM_PROGRAM.interface_id,
+                    operation_id=AWG_ARM_PROGRAM.operation_id,
+                )
+            )
+        timing = artifact.preparation.timing
+        trigger_operation = (
+            TRIGGER_START_PROGRAM_IDEMPOTENT
+            if timing.program_start_guarantee == "session_idempotent"
+            else TRIGGER_START_PROGRAM
+        )
         actions.append(
             RunHardwareInvoke(
-                effect_id=f"{prefix}:arm:{digitizer_program.instrument_id}",
-                instrument_id=digitizer_program.instrument_id,
-                resource_id=digitizer_program.instrument_id,
-                interface_id=DIGITIZER_ARM_PROGRAM.interface_id,
-                operation_id=DIGITIZER_ARM_PROGRAM.operation_id,
+                effect_id=f"{prefix}:start:{timing.trigger_instrument_id}",
+                instrument_id=timing.trigger_instrument_id,
+                resource_id=timing.trigger_instrument_id,
+                interface_id=trigger_operation.interface_id,
+                operation_id=trigger_operation.operation_id,
             )
         )
-    for awg_program in artifact.awg_programs:
-        actions.append(
-            RunHardwareInvoke(
-                effect_id=f"{prefix}:arm:{awg_program.instrument_id}",
-                instrument_id=awg_program.instrument_id,
-                resource_id=awg_program.instrument_id,
-                interface_id=AWG_ARM_PROGRAM.interface_id,
-                operation_id=AWG_ARM_PROGRAM.operation_id,
-            )
-        )
-    timing = artifact.preparation.timing
-    trigger_operation = (
-        TRIGGER_START_PROGRAM_IDEMPOTENT
-        if timing.program_start_guarantee == "session_idempotent"
-        else TRIGGER_START_PROGRAM
-    )
-    actions.append(
-        RunHardwareInvoke(
-            effect_id=f"{prefix}:start:{timing.trigger_instrument_id}",
-            instrument_id=timing.trigger_instrument_id,
-            resource_id=timing.trigger_instrument_id,
-            interface_id=trigger_operation.interface_id,
-            operation_id=trigger_operation.operation_id,
-        )
-    )
     digitizer_inputs = sorted(
         {window.input_id for entry in artifact.entries for window in entry.acquisitions}
     )
@@ -658,7 +666,13 @@ def _execution_batch(
         )
         actions.append(
             RunHardwareCollect(
-                effect_id=f"{prefix}:collect:{input_id.value}",
+                effect_id=_collect_effect_id(
+                    artifact,
+                    prefix=prefix,
+                    input_id=input_id,
+                    shot_start=shot_start,
+                    shot_stop=shot_stop,
+                ),
                 instrument_id=input_id.instrument_id,
                 point_count=1,
                 requests=(
@@ -690,18 +704,13 @@ def _execution_batch(
                                 kind=(
                                     "time" if representation == "raw_trace" else "index"
                                 ),
+                                offset=(
+                                    shot_start
+                                    * _input_results_per_shot(artifact, input_id)
+                                ),
                                 size=(
-                                    artifact.repetitions
-                                    * sum(
-                                        entry.sample_count
-                                        for entry in artifact.entries
-                                        if any(
-                                            window.input_id == input_id
-                                            for window in entry.acquisitions
-                                        )
-                                    )
-                                    if representation == "raw_trace"
-                                    else artifact.repetitions * len(windows)
+                                    selected_shot_count
+                                    * _input_results_per_shot(artifact, input_id)
                                 ),
                                 unit=("s" if representation == "raw_trace" else None),
                             )
@@ -716,7 +725,12 @@ def _execution_batch(
                 ),
             )
         )
-    return RunHardwareBatch(operation_id=f"{prefix}:execute", actions=tuple(actions))
+    operation_id = (
+        f"{prefix}:execute"
+        if shot_start == 0 and shot_stop == artifact.repetitions
+        else f"{prefix}:execute:{shot_start}:{shot_stop}"
+    )
+    return RunHardwareBatch(operation_id=operation_id, actions=tuple(actions))
 
 
 def _execution_prefix(artifact: ListModeArtifact, *, execution_id: str) -> str:
@@ -764,12 +778,24 @@ def _result_blocks(
     *,
     receipt: RunHardwareBatchReceipt,
     execution_id: str,
+    shot_start: int,
+    shot_count: int,
 ) -> dict[DigitizerInputId, _ResultBlock]:
     prefix = _execution_prefix(artifact, execution_id=execution_id)
     inputs = sorted(
         {window.input_id for entry in artifact.entries for window in entry.acquisitions}
     )
-    collect_effect_ids = {f"{prefix}:collect:{input_id.value}" for input_id in inputs}
+    shot_stop = shot_start + shot_count
+    collect_effect_ids = {
+        _collect_effect_id(
+            artifact,
+            prefix=prefix,
+            input_id=input_id,
+            shot_start=shot_start,
+            shot_stop=shot_stop,
+        )
+        for input_id in inputs
+    }
     values = {
         value.value_id: value.value
         for value in receipt.values
@@ -791,7 +817,7 @@ def _result_blocks(
     blocks: dict[DigitizerInputId, _ResultBlock] = {}
     for input_id in inputs:
         representation = _input_representation(artifact, input_id)
-        result_count = _input_result_count(artifact, input_id)
+        result_count = shot_count * _input_results_per_shot(artifact, input_id)
         value = values[
             _raw_value_id(input_id)
             if representation == "raw_trace"
@@ -892,23 +918,62 @@ def _input_representation(
     )
 
 
-def _input_result_count(
+def _collect_effect_id(
+    artifact: ListModeArtifact,
+    *,
+    prefix: str,
+    input_id: DigitizerInputId,
+    shot_start: int,
+    shot_stop: int,
+) -> str:
+    if shot_start == 0 and shot_stop == artifact.repetitions:
+        return f"{prefix}:collect:{input_id.value}"
+    return f"{prefix}:collect:{shot_start}:{shot_stop}:{input_id.value}"
+
+
+def _input_results_per_shot(
     artifact: ListModeArtifact,
     input_id: DigitizerInputId,
 ) -> int:
     if _input_representation(artifact, input_id) == "raw_trace":
-        per_shot = sum(
+        return sum(
             entry.sample_count
             for entry in artifact.entries
             if any(window.input_id == input_id for window in entry.acquisitions)
         )
-    else:
-        per_shot = sum(
-            window.input_id == input_id
-            for entry in artifact.entries
-            for window in entry.acquisitions
+    return sum(
+        window.input_id == input_id
+        for entry in artifact.entries
+        for window in entry.acquisitions
+    )
+
+
+def _shots_per_result_chunk(
+    artifact: ListModeArtifact,
+    addresses: tuple[TargetAcquisitionAddress, ...],
+) -> int:
+    inputs = sorted(
+        {window.input_id for entry in artifact.entries for window in entry.acquisitions}
+    )
+    if not inputs:
+        return artifact.repetitions
+    logical_bytes_per_shot = max(1, len(addresses)) * (
+        np.dtype(np.complex128).itemsize + np.dtype(np.bool_).itemsize
+    )
+    transport_bytes_per_shot = sum(
+        _input_results_per_shot(artifact, input_id)
+        * (
+            np.dtype(np.float64).itemsize
+            if _input_representation(artifact, input_id) == "raw_trace"
+            else np.dtype(np.complex128).itemsize
         )
-    return artifact.repetitions * per_shot
+        for input_id in inputs
+    )
+    retained_bytes_per_shot = max(
+        logical_bytes_per_shot,
+        transport_bytes_per_shot,
+    )
+    return max(1, artifact.max_result_chunk_bytes // retained_bytes_per_shot)
 
 
 def _worker_result_block(
