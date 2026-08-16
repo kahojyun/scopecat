@@ -5,6 +5,9 @@ from typing import cast
 
 import pytest
 
+from scopecat.execution.effect_interpreter import (
+    _CancellationAwareDomainInstruments,
+)
 from scopecat.execution.effects.domain import _RequirementReconciledRuntime
 from scopecat.kernel.errors import OperationFailure
 from scopecat.kernel.problems import ProblemPhase, problem
@@ -20,10 +23,16 @@ from scopecat.sdk.domain.execution import (
     ErasedDomainSetup,
     PreparedDomainExecution,
 )
-from scopecat.sdk.domain.runtime import DomainExecutionReceipt, DomainExecutionResult
+from scopecat.sdk.domain.runtime import (
+    DomainExecutionCancellationRequested,
+    DomainExecutionReceipt,
+    DomainExecutionResult,
+)
 from scopecat.sdk.instruments.execution import (
     RunHardwareBatch,
     RunHardwareBatchReceipt,
+    RunHardwareInvoke,
+    RunInstrumentHost,
 )
 
 
@@ -133,6 +142,35 @@ def test_known_setup_rejection_returns_not_executed() -> None:
     assert receipt.problems == (_failure(),)
     assert setup.calls == 1
     assert realtime.calls == 0
+
+
+def test_domain_instrument_batches_stop_at_the_next_cancellation_boundary() -> None:
+    inner = _Executor(RunHardwareBatchReceipt(operation_id="first"))
+    instruments = _CancellationAwareDomainInstruments(
+        cast("RunInstrumentHost", cast("object", inner)),
+        cancellation_requested=lambda: bool(inner.batches),
+    )
+
+    def batch(operation_id: str) -> RunHardwareBatch:
+        return RunHardwareBatch(
+            operation_id=operation_id,
+            actions=(
+                RunHardwareInvoke(
+                    effect_id=operation_id,
+                    instrument_id="awg",
+                    resource_id="awg",
+                    interface_id="test.noop/v1",
+                    operation_id="noop",
+                ),
+            ),
+        )
+
+    first = instruments.execute(batch("first"))
+    with pytest.raises(DomainExecutionCancellationRequested):
+        instruments.execute(batch("second"))
+
+    assert first.operation_id == "first"
+    assert [batch.operation_id for batch in inner.batches] == ["first"]
 
 
 def test_setup_success_then_requirement_rejection_skips_realtime() -> None:

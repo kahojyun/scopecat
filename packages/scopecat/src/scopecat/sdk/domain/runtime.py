@@ -134,6 +134,15 @@ class DomainExecutionResult[ResultT]:
             raise ValueError("domain results require completed receipt evidence")
 
 
+class DomainExecutionCancellationRequested(Exception):
+    """Stop a synchronous domain call before its next hardware batch.
+
+    Core raises this only at a boundary where no new hardware batch has been
+    submitted. It is control flow rather than provider failure evidence and
+    therefore must not be normalized into an indeterminate domain receipt.
+    """
+
+
 class DomainInstrumentExecutor(Protocol):
     """Run-scoped access to instruments already reserved for a target."""
 
@@ -205,6 +214,8 @@ def execute_domain_invocation[
             invocation.payload,
             instruments=instruments,
         )
+    except DomainExecutionCancellationRequested:
+        raise
     except Exception as error:
         execution_problem = problem_from_exception(
             "domain_execution_raised",
@@ -288,6 +299,7 @@ def _provider_problem(
 
 
 __all__ = [
+    "DomainExecutionCancellationRequested",
     "DomainExecutionId",
     "DomainExecutionReceipt",
     "DomainExecutionResult",
