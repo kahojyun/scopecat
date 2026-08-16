@@ -1101,12 +1101,13 @@ def _select_multiqubit_results(
     if scenario.retention == "discard":
         return
     iq_shots = results.iq_shots
-    entity_dimension = sc.ArrayDimension("selected_qubit", scenario.qubit_count)
+    entity_dimension = sc.ArrayDimension("entity", scenario.qubit_count)
     if scenario.retention == "summary":
         probabilities = experiment.compute(
             "entity-probabilities",
             fn=_summarize_iq_shots,
             inputs={"iq_shots": iq_shots},
+            axes_from=iq_shots,
             output_type=sc.ArrayType(
                 dtype="float64",
                 unit="ratio",
@@ -1119,6 +1120,7 @@ def _select_multiqubit_results(
         "entity-bit-shots",
         fn=_classify_iq_shots,
         inputs={"iq_shots": iq_shots},
+        axes_from=iq_shots,
         output_type=sc.ArrayType(
             dtype="bool",
             dimensions=(
@@ -1337,6 +1339,10 @@ def _controller(args: BenchmarkArguments) -> int:
                 continue
             result["repetition"] = repetition - args.warmups
             results.append(result)
+            print(
+                BENCHMARK_RESULT_PREFIX + json.dumps(result, sort_keys=True),
+                flush=True,
+            )
             print(
                 f"{runner:8} points={point_count:<7} "
                 f"qubits={qubit_count:<4} "

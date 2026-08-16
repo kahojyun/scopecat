@@ -488,6 +488,7 @@ class ExperimentContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ProductRef],
         output_type: Scalar | Array,
+        axes_from: ProductRef | None = None,
     ) -> ProductRef: ...
 
     @overload
@@ -498,6 +499,7 @@ class ExperimentContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ProductRef],
         output_type: Mapping[str, DataType],
+        axes_from: ProductRef | None = None,
     ) -> ProductRefs: ...
 
     @overload
@@ -508,6 +510,7 @@ class ExperimentContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput] | None = None,
         output_type: Scalar | Array,
+        axes_from: ProductRef | None = None,
     ) -> ValueRef: ...
 
     @overload
@@ -518,6 +521,7 @@ class ExperimentContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef],
         output_type: Scalar | Array,
+        axes_from: ProductRef | None = None,
     ) -> ProductRef: ...
 
     @overload
@@ -528,6 +532,7 @@ class ExperimentContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef],
         output_type: Mapping[str, DataType],
+        axes_from: ProductRef | None = None,
     ) -> ProductRefs: ...
 
     @overload
@@ -538,6 +543,7 @@ class ExperimentContext:
         fn: ProductBundleKernel[BundleT],
         inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
         output_type: None = None,
+        axes_from: ProductRef | None = None,
         **input_bindings: ComputeInput | ProductRef,
     ) -> BundleT: ...
 
@@ -549,6 +555,7 @@ class ExperimentContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
         output_type: type[BundleT],
+        axes_from: ProductRef | None = None,
         **input_bindings: ComputeInput | ProductRef,
     ) -> BundleT: ...
 
@@ -560,6 +567,7 @@ class ExperimentContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
         output_type: Scalar | Array | Mapping[str, DataType] | None = None,
+        axes_from: ProductRef | None = None,
         **input_bindings: ComputeInput | ProductRef,
     ) -> ValueRef | ProductRef | ProductRefs: ...
 
@@ -572,15 +580,17 @@ class ExperimentContext:
         output_type: (
             Scalar | Array | Mapping[str, DataType] | type[ProductBundle] | None
         ) = None,
+        axes_from: ProductRef | None = None,
         **input_bindings: ComputeInput | ProductRef,
     ) -> ValueRef | ProductRef | ProductRefs | ProductBundle:
-        """Declare an experiment compute, inferring its id when omitted."""
+        """Declare an experiment compute, optionally reusing matching input axes."""
 
         return self._program.compute(
             id,
             fn=fn,
             inputs=inputs,
             output_type=output_type,
+            axes_from=axes_from,
             **input_bindings,
         )
 

@@ -1,3 +1,5 @@
+# pyright: reportPrivateUsage=false
+
 from __future__ import annotations
 
 import json
@@ -6,6 +8,32 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import cast
+
+from benchmarks.e2e.scan_execution import ScanScenario, _scopecat_invocation
+from scopecat.compiler.frontend.resolution import compile_invocation
+
+
+def test_multiqubit_derived_results_preserve_the_source_entity_axis() -> None:
+    scenario = ScanScenario(
+        point_count=1,
+        profile="multiqubit_result_retention",
+        retention="iq-and-bits",
+        qubit_count=2,
+        physical_channel_count=6,
+        shots=4,
+    )
+
+    logical = compile_invocation(_scopecat_invocation(scenario)).program.program
+    products = {
+        product.qualified_id: product for product in logical.product_declarations
+    }
+    source = products["multiqubit-results/iq_shots"]
+    derived = products["entity-bit-shots"]
+
+    assert derived.axes == source.axes
+    assert derived.axes[0].kind == "entity"
+    assert derived.axes[0].entity_values
+    assert derived.axes[0].shared_as == "targets"
 
 
 def test_scan_execution_benchmark_runs_all_boundaries_with_waveforms(
@@ -50,6 +78,15 @@ def test_scan_execution_benchmark_runs_all_boundaries_with_waveforms(
         cast("dict[str, object]", json.loads(line))
         for line in output.read_text(encoding="utf-8").splitlines()
     )
+    streamed_results = tuple(
+        cast(
+            "dict[str, object]",
+            json.loads(line.removeprefix("BENCHMARK_RESULT=")),
+        )
+        for line in completed.stdout.splitlines()
+        if line.startswith("BENCHMARK_RESULT=")
+    )
+    assert streamed_results == results
     by_case = {
         (
             result["runner"],

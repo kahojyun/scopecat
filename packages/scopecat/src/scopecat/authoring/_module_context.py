@@ -305,18 +305,26 @@ def _compute_contract_assignable(actual: DataType, expected: DataType) -> bool:
 
 def _measurement_compute_output_spec(
     value_type: DataType,
+    *,
+    axes_from: ProductValueSpec | None = None,
 ) -> tuple[MeasurementDType, str | None, tuple[ProductAxis, ...]]:
     if isinstance(value_type, Array):
+        inherited_axes = {
+            axis.id: axis for axis in (axes_from.axes if axes_from is not None else ())
+        }
         return (
             value_type.dtype,
             value_type.unit,
             tuple(
-                ProductAxis(
-                    id=dimension.id,
-                    size=dimension.size,
-                    kind=dimension.kind,
-                    unit=dimension.unit,
-                    shared_as=dimension.id,
+                inherited_axes.get(
+                    dimension.id,
+                    ProductAxis(
+                        id=dimension.id,
+                        size=dimension.size,
+                        kind=dimension.kind,
+                        unit=dimension.unit,
+                        shared_as=dimension.id,
+                    ),
                 )
                 for dimension in value_type.dimensions
             ),
@@ -1128,6 +1136,7 @@ class ModuleContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ProductRef],
         output_type: ScalarType | ArrayType,
+        axes_from: ProductRef | None = None,
     ) -> ProductRef: ...
 
     @overload
@@ -1138,6 +1147,7 @@ class ModuleContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ProductRef],
         output_type: Mapping[str, DataType],
+        axes_from: ProductRef | None = None,
     ) -> ProductRefs: ...
 
     @overload
@@ -1148,6 +1158,7 @@ class ModuleContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput] | None = None,
         output_type: ScalarType | ArrayType,
+        axes_from: ProductRef | None = None,
     ) -> ValueRef: ...
 
     @overload
@@ -1158,6 +1169,7 @@ class ModuleContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef],
         output_type: ScalarType | ArrayType,
+        axes_from: ProductRef | None = None,
     ) -> ProductRef: ...
 
     @overload
@@ -1168,6 +1180,7 @@ class ModuleContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef],
         output_type: Mapping[str, DataType],
+        axes_from: ProductRef | None = None,
     ) -> ProductRefs: ...
 
     @overload
@@ -1178,6 +1191,7 @@ class ModuleContext:
         fn: ProductBundleKernel[BundleT],
         inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
         output_type: None = None,
+        axes_from: ProductRef | None = None,
         **input_bindings: ComputeInput | ProductRef,
     ) -> BundleT: ...
 
@@ -1189,6 +1203,7 @@ class ModuleContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
         output_type: type[BundleT],
+        axes_from: ProductRef | None = None,
         **input_bindings: ComputeInput | ProductRef,
     ) -> BundleT: ...
 
@@ -1200,6 +1215,7 @@ class ModuleContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
         output_type: ScalarType | ArrayType | Mapping[str, DataType] | None = None,
+        axes_from: ProductRef | None = None,
         **input_bindings: ComputeInput | ProductRef,
     ) -> ValueRef | ProductRef | ProductRefs: ...
 
@@ -1212,9 +1228,14 @@ class ModuleContext:
         output_type: (
             ScalarType | ArrayType | Mapping[str, DataType] | type[ProductBundle] | None
         ) = None,
+        axes_from: ProductRef | None = None,
         **input_bindings: ComputeInput | ProductRef,
     ) -> ValueRef | ProductRef | ProductRefs | ProductBundle:
-        """Declare a compute where its inputs exist, inferring an id when omitted."""
+        """Declare a compute where its inputs exist.
+
+        Array dimensions matching an ``axes_from`` input axis reuse its complete
+        logical identity, including entity values and shared-axis semantics.
+        """
 
         duplicate_inputs = set(inputs or {}) & set(input_bindings)
         if duplicate_inputs:
@@ -1241,7 +1262,10 @@ class ModuleContext:
                 fn=fn,
                 inputs=selected_inputs,
                 output_type=selected_output_type,
+                axes_from=axes_from,
             )
+        if axes_from is not None:
+            raise ValueError("compute axes_from must name one of its measured inputs")
 
         bundle_type = _as_product_bundle_type(selected_output_type)
         if bundle_type is not None:
@@ -1362,6 +1386,7 @@ class ModuleContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef],
         output_type: (DataType | Mapping[str, DataType] | type[ProductBundle]),
+        axes_from: ProductRef | None,
     ) -> ProductRef | ProductRefs | ProductBundle:
         """Lower measured inputs to the point-local observation stage."""
 
@@ -1372,6 +1397,11 @@ class ModuleContext:
             for name, value in inputs.items()
             if isinstance(value, ProductRef)
         }
+        if axes_from is not None and all(
+            product.product_id != axes_from.product_id
+            for product in product_inputs.values()
+        ):
+            raise ValueError("compute axes_from must name one of its measured inputs")
         value_inputs = {
             name: cast("ComputeInput", self._capture_domain_value(value))
             for name, value in inputs.items()
@@ -1391,7 +1421,10 @@ class ModuleContext:
         structured = not isinstance(output_type, ScalarType | ArrayType)
         outputs: dict[str, ProductRef] = {}
         for name, value_type in output_types.items():
-            dtype, unit, axes = _measurement_compute_output_spec(value_type)
+            dtype, unit, axes = _measurement_compute_output_spec(
+                value_type,
+                axes_from=axes_from.value_spec if axes_from is not None else None,
+            )
             outputs[name] = self._product(
                 name if structured else id,
                 scope=(id,) if bundle_type is not None else (),
