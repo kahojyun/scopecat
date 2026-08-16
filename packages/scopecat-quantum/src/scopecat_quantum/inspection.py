@@ -375,7 +375,9 @@ def _scheduled_layer_index(
         label=f"schedule {scheduled.id.value}",
         child_count=len(scheduled.events),
         duration_seconds=str(scheduled.duration_seconds),
-        result_ids=tuple(slot.id.local_id for slot in scheduled.acquisition_slots),
+        result_ids=tuple(
+            dict.fromkeys(slot.id.local_id for slot in scheduled.acquisition_slots)
+        ),
         facts=(
             CompiledInspectionFact("event_count", len(scheduled.events)),
             CompiledInspectionFact(

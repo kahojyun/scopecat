@@ -7,10 +7,25 @@ from scopecat import Quantity
 from scopecat.inspection import CompiledProgramInspectionQuery
 
 from scopecat_quantum import authoring
+from scopecat_quantum._ids import (
+    AcquisitionSlotId,
+    PulseEventId,
+    PulseProgramId,
+    QubitId,
+)
+from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.inspection import (
     QuantumInspectionBounds,
     build_quantum_program_inspection_snapshot,
 )
+from scopecat_quantum.pulses import (
+    Acquire,
+    AcquireSignal,
+    AcquisitionSlot,
+    PulseProgram,
+    schedule,
+)
+from scopecat_quantum.pulses import Parallel as PulseParallel
 
 
 def test_program_describe_and_draw_expose_the_authored_structure() -> None:
@@ -129,3 +144,51 @@ program inspection.example
     assert authored.page.next_offset is None
     assert [node.kind for node in authored.nodes] == ["pulse"]
     assert filtered.layers[1].nodes == ()
+
+
+def test_scheduled_inspection_separates_logical_results_from_acquisitions() -> None:
+    @authoring.program(id="inspection.scheduled-results")
+    def program(qubit: authoring.Qubit) -> authoring.QuantumFragment:
+        return authoring.delay(authoring.drive(qubit), Quantity(1, "ns"))
+
+    signals = tuple(AcquireSignal(QubitId(f"q{index}")) for index in range(2))
+    slots = tuple(
+        AcquisitionSlot(
+            id=AcquisitionSlotId("iq", scope=(f"q{index}",)),
+            kind=AcquisitionKind.INTEGRATED_IQ,
+            signal=signal,
+        )
+        for index, signal in enumerate(signals)
+    )
+    scheduled = schedule(
+        PulseProgram(
+            id=PulseProgramId("scheduled-results"),
+            body=PulseParallel(
+                tuple(
+                    Acquire(
+                        id=PulseEventId("acquire", scope=(f"q{index}",)),
+                        signal=signal,
+                        slot_id=slot.id,
+                        duration=Quantity(1, "ns"),
+                    )
+                    for index, (signal, slot) in enumerate(
+                        zip(signals, slots, strict=True)
+                    )
+                )
+            ),
+            acquisition_slots=slots,
+        )
+    )
+
+    inspection = build_quantum_program_inspection_snapshot(
+        program,
+        scheduled=scheduled,
+    ).project(CompiledProgramInspectionQuery(layer_id="scheduled"))
+    scheduled_layer = next(
+        layer for layer in inspection.layers if layer.id == "scheduled"
+    )
+    root = scheduled_layer.nodes[0]
+
+    assert root.result_ids == ("iq",)
+    assert root.result_count == 1
+    assert {fact.id: fact.value for fact in root.facts}["acquisition_count"] == 2

@@ -27,6 +27,7 @@ from scopecat_quantum.programs import (
     QuantumProgramExpansionError,
     QuantumProgramIR,
     QuantumProgramVerificationError,
+    Repeat,
     Sequence,
     materialize_quantum_pulse_program,
     plan_quantum_pulse_lowering,
@@ -150,6 +151,64 @@ def test_parallel_each_verifies_template_before_budgeted_expansion(
 
     assert len(expanded) == 1_000
     assert calls == 1_000
+
+
+def test_repeat_streams_every_expanded_unresolved_operation() -> None:
+    verified = verify_quantum_program(
+        QuantumProgramIR(
+            id=QuantumProgramId("repeated-gate"),
+            body=Repeat(_gate_call("repeated-x90"), count=3),
+        ),
+        (X90,),
+    )
+
+    workload = verified.require_expansion_budget(3)
+    expanded = tuple(verified.iter_expanded_unresolved_operations())
+
+    assert workload.expanded_operation_count == 3
+    assert len(expanded) == 3
+
+
+def test_parallel_width_composes_nested_parallel_and_entity_maps() -> None:
+    item = QubitId("$qubit")
+    entities = tuple(QubitId(f"q{index}") for index in range(4))
+
+    def pulse_leaf(operation_id: str, qubit: QubitId) -> PulseBlock:
+        return PulseBlock(
+            id=CircuitOperationId(operation_id),
+            pulse_template=PulseProgram(
+                id=PulseProgramId(f"{operation_id}-template"),
+                body=Delay(
+                    id=PulseEventId("delay"),
+                    signal=DriveSignal(qubit),
+                    duration=Quantity(1, "ns"),
+                ),
+            ),
+        )
+
+    mapped = ParallelEach(
+        entity_set_id="targets",
+        item_id=item,
+        entity_ids=entities,
+        operation=Parallel(
+            (
+                pulse_leaf("mapped-drive", item),
+                pulse_leaf("mapped-readout", item),
+                pulse_leaf("mapped-acquire", item),
+            )
+        ),
+    )
+    verified = verify_quantum_program(
+        QuantumProgramIR(
+            id=QuantumProgramId("nested-parallel-map"),
+            body=Parallel((mapped, pulse_leaf("independent", Q0))),
+        ),
+        (X90,),
+    )
+
+    workload = verified.require_expansion_budget(None)
+
+    assert workload.max_parallel_width == 13
 
 
 def test_parallel_each_pulses_expand_only_at_materialization(

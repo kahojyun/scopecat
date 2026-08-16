@@ -308,10 +308,12 @@ def estimate_quantum_program_workload(
         if isinstance(node, Repeat):
             return parallel_width(node.operation)
         if isinstance(node, ParallelEach):
-            return max(len(node.entity_ids), parallel_width(node.operation))
+            return len(node.entity_ids) * parallel_width(node.operation)
         children = node.operations if isinstance(node, Sequence) else node.branches
-        own_width = len(children) if isinstance(node, Parallel) else 1
-        return max((own_width, *(parallel_width(child) for child in children)))
+        child_widths = tuple(parallel_width(child) for child in children)
+        if isinstance(node, Parallel):
+            return sum(child_widths)
+        return max(child_widths, default=0)
 
     structural, expanded = estimate(program.program.body)
     return QuantumProgramWorkload(
@@ -332,7 +334,7 @@ def iter_quantum_operations(node: QuantumNode) -> Iterator[QuantumOperation]:
         yield node
         return
     if isinstance(node, Repeat):
-        if node.count:
+        for _ in range(node.count):
             yield from iter_quantum_operations(node.operation)
         return
     if isinstance(node, ParallelEach):
