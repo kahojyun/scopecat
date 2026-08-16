@@ -465,7 +465,10 @@ export function MeasurementDataPreview({
 
       <details className="border-t border-line text-[0.64rem] text-text-dim">
         <summary className="cursor-pointer px-3 py-2 font-bold hover:text-text-soft">
-          Raw records {slicePlan ? "in selected window" : "in preview"}
+          <span>Raw records</span>
+          <span className="ml-1 font-medium text-text-dim">
+            {slicePlan ? "in selected window" : "in preview"}
+          </span>
         </summary>
         <pre
           className="m-0 max-h-[320px] overflow-auto border-t border-line bg-panel-soft p-3 text-[0.63rem] leading-[1.5] text-text-soft"
