@@ -98,6 +98,10 @@ class _CapabilityModel(BaseModel):
     max_list_entries: int = Field(gt=0)
     max_samples_per_entry: int = Field(gt=0)
     max_program_waveform_bytes: int = Field(gt=0)
+    max_program_event_count: int = Field(gt=0)
+    max_program_acquisition_count: int = Field(gt=0)
+    max_result_bytes: int = Field(gt=0)
+    max_result_chunk_bytes: int = Field(gt=0)
     max_repetitions: int = Field(gt=0)
     max_abs_amplitude: float = Field(gt=0.0)
     acquisition_dsp_policy: Literal["target", "device", "prefer_device"]
@@ -288,6 +292,10 @@ def configured_list_mode_target(
         max_list_entries=capability.max_list_entries,
         max_samples_per_entry=capability.max_samples_per_entry,
         max_program_waveform_bytes=capability.max_program_waveform_bytes,
+        max_program_event_count=capability.max_program_event_count,
+        max_program_acquisition_count=capability.max_program_acquisition_count,
+        max_result_bytes=capability.max_result_bytes,
+        max_result_chunk_bytes=capability.max_result_chunk_bytes,
         max_repetitions=capability.max_repetitions,
         max_abs_amplitude=capability.max_abs_amplitude,
         acquisition_dsp_policy=capability.acquisition_dsp_policy,

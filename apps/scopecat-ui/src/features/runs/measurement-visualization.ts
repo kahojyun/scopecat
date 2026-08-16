@@ -14,6 +14,8 @@ type ProductGridSchemaAxis = Extract<
 type VariableRole = SchemaVariable["role"];
 type MeasurementScalar = Extract<MeasurementValue, { kind: "scalar" }>;
 type MeasurementScalarValue = Extract<MeasurementValue, { kind: "scalar" }>["value"];
+type MeasurementArray = Extract<MeasurementValue, { kind: "array" }>;
+type MeasurementPartitionedArray = Extract<MeasurementValue, { kind: "partitioned_array" }>;
 
 interface VariableDescriptor {
   id: string;
@@ -576,7 +578,10 @@ function entityValuePart(
       values: segment.values,
     };
   }
-  if (value.kind !== "array") return undefined;
+  if (value.kind !== "array" && value.kind !== "partitioned_array") return undefined;
+  if (value.kind === "partitioned_array") {
+    return partitionedEntityValuePart(value, offset, entityIndex);
+  }
   const values = treeAtAxis(value.values, offset, entityIndex);
   if (values === undefined) return undefined;
   return {
@@ -586,6 +591,53 @@ function entityValuePart(
         ? true
         : treeAtAxis(value.availability.valid, offset, entityIndex),
     values,
+  };
+}
+
+function partitionedEntityValuePart(
+  value: MeasurementPartitionedArray,
+  entityAxis: number,
+  entityIndex: number,
+): EntityValuePart | undefined {
+  const logicalShape = measurementArrayShape(value);
+  const localShape = logicalShape.filter((_extent, index) => index !== entityAxis);
+  if (value.axis === entityAxis) {
+    let offset = 0;
+    for (const partition of value.partitions) {
+      const extent = partition.shape[entityAxis]!;
+      if (entityIndex < offset + extent) {
+        const localIndex = entityIndex - offset;
+        return {
+          shape: localShape,
+          values: treeAtAxis(partition.values, entityAxis, localIndex),
+          valid: partition.availability
+            ? treeAtAxis(partition.availability.valid, entityAxis, localIndex)
+            : true,
+        };
+      }
+      offset += extent;
+    }
+    return undefined;
+  }
+  const partitionAxis = value.axis - (entityAxis < value.axis ? 1 : 0);
+  const values = value.partitions.map((partition) =>
+    treeAtAxis(partition.values, entityAxis, entityIndex),
+  );
+  if (values.some((selected) => selected === undefined)) return undefined;
+  const partial = value.partitions.some((partition) => partition.availability !== undefined);
+  return {
+    shape: localShape,
+    values: concatenateTrees(values, partitionAxis),
+    valid: partial
+      ? concatenateTrees(
+          value.partitions.map((partition) =>
+            partition.availability
+              ? treeAtAxis(partition.availability.valid, entityAxis, entityIndex)
+              : trueTree(partition.shape.filter((_extent, index) => index !== entityAxis)),
+          ),
+          partitionAxis,
+        )
+      : true,
   };
 }
 
@@ -1000,9 +1052,12 @@ function formatMeasurementValue(
     return formatEntityMeasurementValue(value, variable, entityAxis, selectedEntities);
   }
   if (value.kind === "unavailable") return `Unavailable · ${value.reason}`;
-  if (value.kind === "array") {
-    const size = value.shape.length > 0 ? value.shape.join(" × ") : "?";
-    return `${size} samples${unitSuffix(value.unit)}`;
+  if (value.kind === "array" || value.kind === "partitioned_array") {
+    const shape = measurementArrayShape(value);
+    const size = shape.length > 0 ? shape.join(" × ") : "?";
+    const partitions =
+      value.kind === "partitioned_array" ? ` · ${value.partitions.length} partitions` : "";
+    return `${size} samples${partitions}${unitSuffix(value.unit)}`;
   }
   if (value.kind === "segmented_array") {
     return `${value.segments.length} entity segments${unitSuffix(value.unit)}`;
@@ -1018,10 +1073,9 @@ function formatEntityMeasurementValue(
 ): string {
   const count =
     selected.length === axis.size ? String(axis.size) : `${selected.length}/${axis.size}`;
-  const complete = selected.filter((entityIndex) => {
-    const part = entityValuePart(value, variable, entityIndex);
-    return part !== undefined && treeIsAllTrue(part.valid);
-  }).length;
+  const complete = selected.filter((entityIndex) =>
+    entityValueIsComplete(value, variable.entityAxisOffset!, entityIndex),
+  ).length;
   const shapes = entityLocalShapes(value, variable, selected);
   const shape = commonEntityShape(shapes);
   const shapeSummary =
@@ -1050,15 +1104,15 @@ function entityFailureReasons(
   selected: number[],
 ): string[] {
   if (value.kind === "unavailable") return [value.reason];
-  if (value.kind === "array") {
-    if (!value.availability) return [];
+  if (value.kind === "array" || value.kind === "partitioned_array") {
+    const shape = measurementArrayShape(value);
     const selectedSet = new Set(selected);
-    const entityStride = value.shape
+    const entityStride = shape
       .slice(entityAxisOffset + 1)
       .reduce((product, extent) => product * extent, 1);
-    const entityExtent = value.shape[entityAxisOffset]!;
+    const entityExtent = shape[entityAxisOffset]!;
     return distinctReasons(
-      value.availability.unavailable.filter((group) =>
+      measurementUnavailableGroups(value, shape).filter((group) =>
         group.flat_indices.some((flatIndex) =>
           selectedSet.has(Math.floor(flatIndex / entityStride) % entityExtent),
         ),
@@ -1095,9 +1149,123 @@ function entityLocalShapes(
       return segment ? [[...segment.shape]] : [];
     });
   }
-  const shape = [...value.shape];
+  if (value.kind === "unavailable") return selected.map(() => [...value.shape]);
+  const shape = measurementArrayShape(value);
   shape.splice(offset, 1);
   return selected.map(() => shape);
+}
+
+function measurementArrayShape(value: MeasurementArray | MeasurementPartitionedArray): number[] {
+  if (value.kind === "array") return [...value.shape];
+  const shape = [...value.partitions[0]!.shape];
+  shape[value.axis] = value.partitions.reduce(
+    (total, partition) => total + partition.shape[value.axis]!,
+    0,
+  );
+  return shape;
+}
+
+function measurementUnavailableGroups(
+  value: MeasurementArray | MeasurementPartitionedArray,
+  shape: number[],
+): NonNullable<MeasurementArray["availability"]>["unavailable"] {
+  if (value.kind === "array") return value.availability?.unavailable ?? [];
+  let axisOffset = 0;
+  return value.partitions.flatMap((partition) => {
+    const groups = (partition.availability?.unavailable ?? []).map((group) => ({
+      ...group,
+      flat_indices: group.flat_indices.map((flatIndex) => {
+        const coordinate = unravelIndex(flatIndex, partition.shape);
+        coordinate[value.axis] = coordinate[value.axis]! + axisOffset;
+        return ravelIndex(coordinate, shape);
+      }),
+    }));
+    axisOffset += partition.shape[value.axis]!;
+    return groups;
+  });
+}
+
+function entityValueIsComplete(
+  value: MeasurementValue,
+  entityAxis: number,
+  entityIndex: number,
+): boolean {
+  if (value.kind === "unavailable" || value.kind === "scalar") return false;
+  if (value.kind === "segmented_array") {
+    const segment = value.segments[entityIndex];
+    return (
+      segment?.kind === "array" &&
+      (segment.availability == null || treeIsAllTrue(segment.availability.valid))
+    );
+  }
+  if (value.kind === "array") {
+    return (
+      value.availability == null ||
+      treeIsAllTrue(treeAtAxis(value.availability.valid, entityAxis, entityIndex))
+    );
+  }
+  if (value.axis === entityAxis) {
+    let offset = 0;
+    for (const partition of value.partitions) {
+      const extent = partition.shape[entityAxis]!;
+      if (entityIndex < offset + extent) {
+        return (
+          partition.availability == null ||
+          treeIsAllTrue(treeAtAxis(partition.availability.valid, entityAxis, entityIndex - offset))
+        );
+      }
+      offset += extent;
+    }
+    return false;
+  }
+  return value.partitions.every(
+    (partition) =>
+      partition.availability == null ||
+      treeIsAllTrue(treeAtAxis(partition.availability.valid, entityAxis, entityIndex)),
+  );
+}
+
+function concatenateTrees(values: unknown[], axis: number): unknown {
+  if (axis === 0) {
+    if (!values.every(Array.isArray)) {
+      throw new Error("measurement partition axis does not match its values");
+    }
+    return values.flatMap((value) => value as unknown[]);
+  }
+  if (!values.every(Array.isArray)) {
+    throw new Error("measurement partition rank does not match its values");
+  }
+  const arrays = values as unknown[][];
+  const extent = arrays[0]!.length;
+  if (arrays.some((value) => value.length !== extent)) {
+    throw new Error("measurement partitions disagree outside their split axis");
+  }
+  return Array.from({ length: extent }, (_unused, index) =>
+    concatenateTrees(
+      arrays.map((value) => value[index]),
+      axis - 1,
+    ),
+  );
+}
+
+function trueTree(shape: number[]): unknown {
+  if (shape.length === 0) return true;
+  return Array.from({ length: shape[0]! }, () => trueTree(shape.slice(1)));
+}
+
+function unravelIndex(flatIndex: number, shape: number[]): number[] {
+  const coordinate = Array<number>(shape.length);
+  let remaining = flatIndex;
+  for (let axis = shape.length - 1; axis >= 0; axis -= 1) {
+    const extent = shape[axis]!;
+    coordinate[axis] = remaining % extent;
+    remaining = Math.floor(remaining / extent);
+  }
+  return coordinate;
+}
+
+function ravelIndex(coordinate: number[], shape: number[]): number {
+  return coordinate.reduce((flatIndex, value, axis) => flatIndex * shape[axis]! + value, 0);
 }
 
 function commonEntityShape(shapes: (number | null)[][]): (number | null)[] | undefined {

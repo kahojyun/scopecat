@@ -59,6 +59,7 @@ from scopecat.records.measurement import (
     MeasurementEntityIndex,
     MeasurementEntityProductMetadataOverride,
     MeasurementEntityProductSource,
+    MeasurementPartitionedArray,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementResultContract,
@@ -588,7 +589,7 @@ class Variable[T = NativeAvailableValue]:
                 value.reason
                 if isinstance(value, MeasurementUnavailable)
                 else value.availability
-                if isinstance(value, MeasurementArray)
+                if isinstance(value, MeasurementArray | MeasurementPartitionedArray)
                 else value.availability
                 or next(
                     segment.reason
@@ -2681,7 +2682,10 @@ def _native_value(value: MeasurementValue) -> NativeValue:
 
 def _measurement_value_is_complete(value: MeasurementValue) -> bool:
     return not isinstance(value, MeasurementUnavailable) and not (
-        isinstance(value, MeasurementArray | MeasurementSegmentedArray)
+        isinstance(
+            value,
+            MeasurementArray | MeasurementPartitionedArray | MeasurementSegmentedArray,
+        )
         and (
             value.availability is not None
             or (
@@ -2699,7 +2703,10 @@ def _measurement_value_is_unavailable(
 ) -> bool:
     if isinstance(value, MeasurementUnavailable):
         return reason is None or value.reason == reason
-    if not isinstance(value, MeasurementArray | MeasurementSegmentedArray):
+    if not isinstance(
+        value,
+        MeasurementArray | MeasurementPartitionedArray | MeasurementSegmentedArray,
+    ):
         return False
     availability = value.availability
     return (
@@ -3352,6 +3359,8 @@ def _slice_measurement_value(
                 for dimension_id, indices in indices_by_dimension.items()
             },
         )
+    if isinstance(value, MeasurementPartitionedArray):
+        value = value.materialize()
     shape = tuple(value.shape)
     indices_by_axis = {
         local_dimensions.index(dimension_id): indices
@@ -3450,7 +3459,10 @@ def _slice_segmented_array(
                 indices_by_dimension=local_indices,
             )
         )
-        if isinstance(selected, MeasurementScalar | MeasurementSegmentedArray):
+        if isinstance(
+            selected,
+            MeasurementScalar | MeasurementPartitionedArray | MeasurementSegmentedArray,
+        ):
             raise AssertionError("segmented array slicing produced an invalid segment")
         segments.append(selected)
     return MeasurementSegmentedArray.create(
@@ -3699,7 +3711,10 @@ def _xarray_values(variable: Variable) -> object:
     raw_values = variable._raw_values
     has_unavailable = any(
         isinstance(value, MeasurementUnavailable)
-        or (isinstance(value, MeasurementArray) and value.availability is not None)
+        or (
+            isinstance(value, MeasurementArray | MeasurementPartitionedArray)
+            and value.availability is not None
+        )
         for value in raw_values
     )
     dtype = _xarray_dtype(variable.dtype, nullable=has_unavailable)
@@ -3727,7 +3742,7 @@ def _xarray_values(variable: Variable) -> object:
                 )
             )
         else:
-            array = cast("MeasurementArray", value)
+            array = cast("MeasurementArray | MeasurementPartitionedArray", value)
             if array.availability is None:
                 arrays.append(array.values)
                 continue
@@ -3746,7 +3761,10 @@ def _xarray_fixed_availability(
     raw_values = variable._raw_values
     if not any(
         isinstance(value, MeasurementUnavailable)
-        or (isinstance(value, MeasurementArray) and value.availability is not None)
+        or (
+            isinstance(value, MeasurementArray | MeasurementPartitionedArray)
+            and value.availability is not None
+        )
         for value in raw_values
     ):
         return None
@@ -3760,7 +3778,7 @@ def _xarray_fixed_availability(
             reason_chunks.append(
                 np.full(local_shape or (), value.reason, dtype=np.object_)
             )
-        elif isinstance(value, MeasurementArray):
+        elif isinstance(value, MeasurementArray | MeasurementPartitionedArray):
             if value.availability is None:
                 valid_chunks.append(np.ones(local_shape, dtype=np.bool_))
                 reason_chunks.append(np.full(local_shape, None, dtype=np.object_))

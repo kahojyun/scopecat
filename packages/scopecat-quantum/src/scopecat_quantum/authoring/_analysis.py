@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import (
     Annotated,
     cast,
@@ -40,6 +40,7 @@ from scopecat.program.value_types import (
 from scopecat.program.value_types import (
     String as StringType,
 )
+from scopecat.program.value_types import ValueType
 
 from scopecat_quantum._ids import (
     CouplerId,
@@ -67,11 +68,13 @@ from ._ir import (
     QuantumFragment,
     QuantumQuantity,
     Qubit,
+    QubitSet,
     _DelayFragment,
     _ExpandedFragment,
     _FragmentCall,
     _GateFragment,
     _ImplementedGateFragment,
+    _ParallelEachFragment,
     _ParallelFragment,
     _PlayFragment,
     _PulseTemplateCallFragment,
@@ -124,13 +127,15 @@ def program_port_type(
     value: ProgramPort,
     *,
     non_negative: bool = False,
-) -> ScalarType:
+) -> ValueType:
     """Return the core value contract for one quantum program port."""
 
     if isinstance(value, Qubit):
         return ScalarType(EntityType(entity_kind="logical_qubit"))
     if isinstance(value, Coupler):
         return ScalarType(EntityType(entity_kind="logical_coupler"))
+    if isinstance(value, QubitSet):
+        return value.value_type
     return _program_input_type(
         value,
         non_negative=non_negative,
@@ -250,11 +255,16 @@ def _program_input_type(
 def _program_function_argument(
     name: str,
     annotation: object,
-) -> PulseElement | ProgramInput:
+) -> ProgramPort:
     if annotation is Qubit:
         return Qubit(ir_id=QubitId(name))
     if annotation is Coupler:
         return Coupler(ir_id=CouplerId(name))
+    if annotation is QubitSet:
+        return QubitSet(
+            _id=name,
+            _item=Qubit(ir_id=QubitId(f"{name}[]")),
+        )
     if get_origin(annotation) is Annotated:
         python_type, *metadata = cast("tuple[object, ...]", get_args(annotation))
         gate_kinds = tuple(
@@ -290,7 +300,8 @@ def _program_function_argument(
             value_type=_core_input_type(GateParameterKind.NUMBER),
         )
     raise TypeError(
-        f"quantum program port {name!r} needs Qubit, Coupler, or Annotated scalar type"
+        f"quantum program port {name!r} needs Qubit, QubitSet, Coupler, "
+        "or Annotated scalar type"
     )
 
 
@@ -363,6 +374,7 @@ class _FragmentFacts:
     pulse_only: bool = False
     pulse_owners: tuple[QubitId | CouplerId, ...] = ()
     element_uses: tuple[PulseElement, ...] = ()
+    entity_sets: tuple[QubitSet, ...] = ()
     inputs: tuple[ProgramInput, ...] = ()
     repeat_inputs: tuple[ProgramInput, ...] = ()
     results: tuple[ProgramResult, ...] = ()
@@ -465,6 +477,25 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             repeat_inputs=pulse.repeat_inputs,
             gate_definitions=(fragment.gate.gate.definition,),
         )
+    if isinstance(fragment, _ParallelEachFragment):
+        operation = _summarize_fragment(fragment.operation)
+        foreign_elements = tuple(
+            element
+            for element in operation.element_uses
+            if element != fragment.entity_set.item
+        )
+        return _FragmentFacts(
+            pulse_only=False,
+            element_uses=foreign_elements,
+            entity_sets=(fragment.entity_set,),
+            inputs=operation.inputs,
+            repeat_inputs=operation.repeat_inputs,
+            results=tuple(
+                replace(result, _entity_set=fragment.entity_set)
+                for result in operation.results
+            ),
+            gate_definitions=operation.gate_definitions,
+        )
     if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
         operation = _summarize_fragment(fragment.operation)
         carries_pulse_structure = isinstance(fragment, _QuantumRepeatFragment)
@@ -521,6 +552,9 @@ def _merge_fragment_facts(
         ),
         element_uses=tuple(
             element for child in children for element in child.element_uses
+        ),
+        entity_sets=tuple(
+            entity_set for child in children for entity_set in child.entity_sets
         ),
         inputs=tuple(value for child in children for value in child.inputs),
         repeat_inputs=tuple(

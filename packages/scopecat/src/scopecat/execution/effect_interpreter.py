@@ -26,7 +26,12 @@ from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.sdk.instruments.execution import RunInstrumentHost
+from scopecat.sdk.domain.runtime import DomainExecutionCancellationRequested
+from scopecat.sdk.instruments.execution import (
+    RunHardwareBatch,
+    RunHardwareBatchReceipt,
+    RunInstrumentHost,
+)
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
 
 
@@ -40,6 +45,23 @@ class _CapturedCoverageFailure(Exception):
 
 class _CancellationRequested(Exception):
     """Stop at an interpreter checkpoint after recording the durable reason."""
+
+
+class _CancellationAwareDomainInstruments:
+    """Fence each nested domain batch with the run cancellation signal."""
+
+    def __init__(
+        self,
+        instruments: RunInstrumentHost,
+        cancellation_requested: Callable[[], bool],
+    ) -> None:
+        self._instruments = instruments
+        self._cancellation_requested = cancellation_requested
+
+    def execute(self, batch: RunHardwareBatch) -> RunHardwareBatchReceipt:
+        if self._cancellation_requested():
+            raise DomainExecutionCancellationRequested
+        return self._instruments.execute(batch)
 
 
 def _never_cancel() -> bool:
@@ -91,6 +113,10 @@ class RunEffectInterpreter:
         self._recorded_value_ids = tuple(recorded_value_ids)
         self._instruments = instruments
         self._cancellation_requested = cancellation_requested
+        self._domain_instruments = _CancellationAwareDomainInstruments(
+            instruments,
+            cancellation_requested,
+        )
 
     def run(
         self,
@@ -288,19 +314,24 @@ class RunEffectInterpreter:
                 raise AssertionError("domain job references an unknown point")
             self._active_point_indices.add(point_index)
         try:
-            values = execute_domain_job_values(
+            execute_domain_job_values(
                 job.execution,
                 logical_compute_node_id=job.id,
                 run_id=self.run_id,
-                instruments=self._instruments,
+                instruments=self._domain_instruments,
+                accept=self._hardware.values.append,
             )
+        except DomainExecutionCancellationRequested:
+            self._check_cancellation()
+            raise AssertionError(
+                "domain cancellation marker requires a live request"
+            ) from None
         except BaseException as error:
             self.domain_failure = (job, error)
             pending = tuple(sorted(self._active_point_indices))
             if pending:
                 self._complete_coverage(pending)
             raise _CapturedDomainEffectFailure(job.id) from error
-        self._hardware.values.extend(values)
 
     def _point_state(self, point_index: int) -> PointEffectState:
         if point_index in self._terminal_point_indices:

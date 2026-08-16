@@ -45,6 +45,7 @@ from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDatasetSchema,
+    MeasurementPartitionedArray,
     MeasurementRecord,
 )
 from scopecat.records.measurement_recording import (
@@ -578,10 +579,14 @@ def _json_document(model: BaseModel) -> dict[str, JsonValue]:
 
 def _measurement_record_value_bytes(record: MeasurementRecord) -> int:
     return sum(
-        value.values.nbytes
+        (
+            value.values.nbytes
+            if isinstance(value, MeasurementArray)
+            else value.value_nbytes
+        )
         for values in (record.coordinates, record.observables)
         for value in values.values()
-        if isinstance(value, MeasurementArray)
+        if isinstance(value, MeasurementArray | MeasurementPartitionedArray)
     )
 
 

@@ -111,6 +111,8 @@ beforeEach(() => {
   vi.mocked(getMeasurementSlice).mockResolvedValue({
     items: [],
     selectedPointCount: 0,
+    offset: 0,
+    windowPointCount: 0,
     truncated: false,
   });
   vi.mocked(getMeasurementTracePreview).mockResolvedValue(tracePreview("magnitude"));
@@ -508,6 +510,8 @@ describe("config provenance navigation", () => {
     vi.mocked(getMeasurementSlice).mockResolvedValue({
       items: [],
       selectedPointCount: 4,
+      offset: 0,
+      windowPointCount: 4,
       truncated: false,
     });
     vi.mocked(getMeasurementTracePreview).mockImplementation(async (_runId, selection) =>
@@ -567,6 +571,8 @@ describe("config provenance navigation", () => {
     vi.mocked(getMeasurementSlice).mockResolvedValue({
       items: [],
       selectedPointCount: 4,
+      offset: 0,
+      windowPointCount: 4,
       truncated: false,
     });
     vi.mocked(getMeasurementTracePreview).mockImplementation(async (_runId, selection) =>
@@ -713,9 +719,9 @@ function measurementRecord(
 
 function traceDatasetSchema(): MeasurementDatasetSchema {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v16",
+    format_version: "scopecat.measurement_dataset_schema.v17",
     dataset_id: "raw-measurements",
-    record_schema: "scopecat.measurement_record.v9",
+    record_schema: "scopecat.measurement_record.v10",
     point_domain: {
       kind: "product_grid",
       axes: [traceAxis("row", [0, 1]), traceAxis("column", [0, 1]), traceAxis("bias", [0, 1])],

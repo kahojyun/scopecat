@@ -767,6 +767,7 @@ class RunService:
             point_indices, selected_point_count = product_grid_slice_indices(
                 domain,
                 query.fixed_axis_indices,
+                offset=query.offset,
                 limit=query.limit,
             )
         except ValueError as error:
@@ -789,6 +790,16 @@ class RunService:
             items=records,
             dataset_schema=response_schema if query.include_schema else None,
             selected_point_count=selected_point_count,
+            offset=query.offset,
+            window_point_count=len(point_indices),
+            next_offset=(
+                query.offset + len(point_indices)
+                if query.offset + len(point_indices) < selected_point_count
+                else None
+            ),
+            previous_offset=(
+                max(0, query.offset - query.limit) if query.offset > 0 else None
+            ),
             truncated=selected_point_count > len(point_indices),
         )
 
@@ -948,9 +959,10 @@ def _trace_preview_point_indices(
         point_indices, selected_count = product_grid_slice_indices(
             domain,
             fixed_axis_indices,
-            limit=offset + limit,
+            offset=offset,
+            limit=limit,
         )
-        return point_indices[offset:], selected_count
+        return point_indices, selected_count
     if fixed_axis_indices:
         raise ValueError("trace fixed-axis selection requires a product-grid domain")
     point_dimension = next(

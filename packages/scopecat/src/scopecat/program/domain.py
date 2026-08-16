@@ -27,7 +27,7 @@ from scopecat.program.products import (
     prefix_product_decl,
 )
 from scopecat.program.value_refs import ValueRef
-from scopecat.program.value_types import Scalar, ValueType
+from scopecat.program.value_types import ValueType
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +58,7 @@ def domain_program(
     dialect_id: str,
     dialect_version: str,
     body: object,
-    inputs: Mapping[str, Scalar] | None = None,
+    inputs: Mapping[str, ValueType] | None = None,
     compiler_inputs: Mapping[str, ValueType] | None = None,
     results: Mapping[str, object | None] | None = None,
 ) -> DomainProgramDef:

@@ -21,6 +21,7 @@ from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementArray,
     MeasurementDatasetSchema,
+    MeasurementPartitionedArray,
     MeasurementRecord,
     MeasurementSegmentedArray,
     MeasurementUnavailable,
@@ -134,7 +135,10 @@ def _measurement_value_shape(
 ) -> tuple[int | None, ...]:
     if isinstance(
         value,
-        MeasurementArray | MeasurementSegmentedArray | MeasurementUnavailable,
+        MeasurementArray
+        | MeasurementPartitionedArray
+        | MeasurementSegmentedArray
+        | MeasurementUnavailable,
     ):
         return tuple(value.shape)
     return ()

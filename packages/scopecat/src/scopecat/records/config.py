@@ -49,15 +49,56 @@ def _ensure_unique[T: _HasId](items: list[T], label: str) -> list[T]:
     return items
 
 
+class TopologyConnection(BaseModel):
+    """One typed, undirected connection between two configured entities."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: _NonEmptyId
+    kind: _NonEmptyId
+    endpoints: tuple[_NonEmptyId, _NonEmptyId]
+
+    @model_validator(mode="after")
+    def validate_endpoints(self) -> TopologyConnection:
+        if self.endpoints[0] == self.endpoints[1]:
+            raise ValueError("topology connection endpoints must be distinct")
+        return self
+
+
 class Topology(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     entities: list[EntityRef] = Field(default_factory=list)
+    connections: list[TopologyConnection] = Field(default_factory=list)
 
     @field_validator("entities")
     @classmethod
     def validate_entities(cls, value: list[EntityRef]) -> list[EntityRef]:
         return _ensure_unique(value, "entity")
+
+    @field_validator("connections")
+    @classmethod
+    def validate_connection_ids(
+        cls,
+        value: list[TopologyConnection],
+    ) -> list[TopologyConnection]:
+        return _ensure_unique(value, "topology connection")
+
+    @model_validator(mode="after")
+    def validate_connection_entities(self) -> Topology:
+        entity_ids = {entity.id for entity in self.entities}
+        missing = sorted(
+            endpoint
+            for connection in self.connections
+            for endpoint in connection.endpoints
+            if endpoint not in entity_ids
+        )
+        if missing:
+            raise ValueError(
+                "topology connections reference unknown entities: "
+                + ", ".join(dict.fromkeys(missing))
+            )
+        return self
 
     def entity(self, entity_id: str) -> EntityRef | None:
         for entity in self.entities:

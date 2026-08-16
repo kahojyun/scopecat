@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import (
     cast,
@@ -38,6 +38,7 @@ from scopecat_quantum.programs import (
     verify_quantum_program,
 )
 from scopecat_quantum.programs import Parallel as IrQuantumParallel
+from scopecat_quantum.programs import ParallelEach as IrQuantumParallelEach
 from scopecat_quantum.programs import (
     Repeat as IrQuantumRepeat,
 )
@@ -86,12 +87,14 @@ from ._ir import (
     QuantumFragment,
     QuantumQuantity,
     Qubit,
+    QubitSet,
     RepeatCount,
     _DelayFragment,
     _ExpandedFragment,
     _FragmentCall,
     _GateFragment,
     _ImplementedGateFragment,
+    _ParallelEachFragment,
     _ParallelFragment,
     _PlayFragment,
     _PulseTemplateCallFragment,
@@ -232,6 +235,11 @@ def bind(
             if isinstance(element, Qubit)
             else CouplerId(selected.id)
         )
+    for entity_set in declaration.entity_sets:
+        concrete_bindings[entity_set.id] = _bound_qubit_set(
+            entity_set,
+            selected_bindings[entity_set.id],
+        )
     for input_handle in declaration.inputs:
         value_type = _program_input_type(
             input_handle,
@@ -270,6 +278,7 @@ def _bind_circuit_operation(
     *,
     element_bindings: ElementBindings,
     path: tuple[str, ...],
+    acquisition_scope: tuple[str, ...],
 ) -> GateCall | Measure:
     if isinstance(fragment, _GateFragment):
         return GateCall(
@@ -290,7 +299,7 @@ def _bind_circuit_operation(
     return Measure(
         id=CircuitOperationId(_operation_id(path, "measure")),
         qubit=_bound_qubit_id(result.qubit, element_bindings),
-        acquisition_slot_id=result.acquisition_slot_id,
+        acquisition_slot_id=result.acquisition_slot_id.prefixed(*acquisition_scope),
         acquisition_kind=result.acquisition_kind,
     )
 
@@ -301,6 +310,7 @@ def _bind_quantum_fragment(
     *,
     element_bindings: ElementBindings,
     path: tuple[str, ...],
+    acquisition_scope: tuple[str, ...] = (),
 ) -> QuantumNode:
     if isinstance(fragment, _ExpandedFragment):
         return _bind_quantum_fragment(
@@ -308,6 +318,7 @@ def _bind_quantum_fragment(
             bindings,
             element_bindings=element_bindings,
             path=(*path, f"fragment[{fragment.definition_id}]"),
+            acquisition_scope=acquisition_scope,
         )
     if isinstance(fragment, _FragmentCall):
         raise AssertionError("quantum fragment calls must expand before binding")
@@ -317,6 +328,7 @@ def _bind_quantum_fragment(
             cast("Mapping[str, GateArgumentValue]", bindings),
             element_bindings=element_bindings,
             path=path,
+            acquisition_scope=acquisition_scope,
         )
     if isinstance(fragment, _ImplementedGateFragment):
         call = cast(
@@ -326,6 +338,7 @@ def _bind_quantum_fragment(
                 cast("Mapping[str, GateArgumentValue]", bindings),
                 element_bindings=element_bindings,
                 path=(*path, "logical"),
+                acquisition_scope=acquisition_scope,
             ),
         )
         pulse_template_id = (
@@ -352,7 +365,7 @@ def _bind_quantum_fragment(
             candidate_id=fragment.candidate_id,
         )
     if isinstance(fragment, Acquisition):
-        slot_id = fragment.result.acquisition_slot_id
+        slot_id = fragment.result.acquisition_slot_id.prefixed(*acquisition_scope)
         bound_acquire = _bind_pulse_fragment(
             fragment,
             bindings,
@@ -407,6 +420,26 @@ def _bind_quantum_fragment(
                 ),
             ),
         )
+    if isinstance(fragment, _ParallelEachFragment):
+        entities = bindings[fragment.entity_set.id]
+        if not isinstance(entities, tuple):
+            raise AssertionError("verified qubit-set bindings must be tuples")
+        entity_refs = cast("tuple[EntityRef, ...]", entities)
+        return IrQuantumParallelEach(
+            entity_set_id=fragment.entity_set.id,
+            item_id=fragment.entity_set.item.ir_id,
+            entity_ids=tuple(QubitId(entity.id) for entity in entity_refs),
+            operation=_bind_quantum_fragment(
+                fragment.operation,
+                bindings,
+                element_bindings={
+                    **element_bindings,
+                    fragment.entity_set.item.ir_id: fragment.entity_set.item.ir_id,
+                },
+                path=(*path, "parallel_each-body"),
+                acquisition_scope=acquisition_scope,
+            ),
+        )
     if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment):
         return IrQuantumSequence(
             tuple(
@@ -415,6 +448,7 @@ def _bind_quantum_fragment(
                     bindings,
                     element_bindings=element_bindings,
                     path=(*path, f"sequence[{index}]"),
+                    acquisition_scope=acquisition_scope,
                 )
                 for index, operation in enumerate(fragment.operations)
             )
@@ -427,6 +461,7 @@ def _bind_quantum_fragment(
                     bindings,
                     element_bindings=element_bindings,
                     path=(*path, f"parallel[{index}]"),
+                    acquisition_scope=acquisition_scope,
                 )
                 for index, branch in enumerate(fragment.branches)
             )
@@ -442,6 +477,7 @@ def _bind_quantum_fragment(
                     bindings,
                     element_bindings=element_bindings,
                     path=(*path, "repeat-body"),
+                    acquisition_scope=acquisition_scope,
                 )
             ),
             count=count,
@@ -612,6 +648,36 @@ def _bound_repeat_count(
     return selected
 
 
+def _bound_qubit_set(entity_set: QubitSet, value: object) -> tuple[EntityRef, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        raise ProgramBindingError(
+            f"bindings.{entity_set.id}: expected a sequence of logical qubits"
+        )
+    rows = tuple(
+        dict(cast("Mapping[str, object]", item))
+        if isinstance(item, Mapping)
+        else {"qubit": item}
+        for item in value
+    )
+    try:
+        normalized = coerce_literal(
+            entity_set.value_type,
+            rows,
+            path=("bindings", entity_set.id),
+        )
+    except ValueValidationError as error:
+        raise ProgramBindingError(str(error)) from error
+    entities = tuple(
+        cast("EntityRef", row["qubit"])
+        for row in cast("tuple[dict[str, object], ...]", normalized)
+    )
+    if not entities:
+        raise ProgramBindingError(
+            f"bindings.{entity_set.id}: qubit set must not be empty"
+        )
+    return entities
+
+
 def _bound_gate_definitions(
     fragment: QuantumFragment,
     bindings: Mapping[str, object],
@@ -622,6 +688,8 @@ def _bound_gate_definitions(
         return _bound_gate_definitions(fragment.body, bindings)
     if isinstance(fragment, _FragmentCall):
         raise AssertionError("quantum fragment calls must expand before binding")
+    if isinstance(fragment, _ParallelEachFragment):
+        return _bound_gate_definitions(fragment.operation, bindings)
     if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
         if _bound_repeat_count(fragment.count, bindings) == 0:
             return ()

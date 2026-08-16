@@ -20,6 +20,7 @@ from scopecat.records.measurement import (
     MeasurementDataset,
     MeasurementDimension,
     MeasurementEntityIndex,
+    MeasurementPartitionedArray,
     MeasurementRecord,
     MeasurementResultField,
     MeasurementScalar,
@@ -156,6 +157,52 @@ def test_measurement_array_retains_sparse_partial_availability() -> None:
         "missing",
         "invalid",
     ]
+
+
+def test_measurement_partitioned_array_preserves_shape_and_diagnostics() -> None:
+    first = MeasurementArray.create(
+        dtype="complex128",
+        unit="ratio",
+        values=[[1 + 1j, 0j], [2 + 2j, 3 + 3j]],
+        availability=MeasurementArrayAvailability.create(
+            valid=[[True, False], [True, True]],
+            metadata={"chunk": 0},
+        ),
+    )
+    second = MeasurementArray.create(
+        dtype="complex128",
+        unit="ratio",
+        values=[[4 + 4j], [0j]],
+        availability=MeasurementArrayAvailability.create(
+            valid=[[True], [False]],
+            metadata={"chunk": 1},
+        ),
+    )
+
+    value = MeasurementPartitionedArray.create(
+        partitions=(first, second),
+        axis=1,
+        dtype="complex128",
+        unit="ratio",
+        metadata={"source": "digitizer"},
+    )
+    restored = assert_model_round_trip(value)
+
+    assert restored == value
+    assert restored.shape == (2, 3)
+    assert [partition.shape for partition in restored.partitions] == [(2, 2), (2, 1)]
+    assert restored.values.tolist() == [
+        [1 + 1j, 0j, 4 + 4j],
+        [2 + 2j, 3 + 3j, 0j],
+    ]
+    assert restored.availability is not None
+    assert restored.availability.valid.tolist() == [
+        [True, False, True],
+        [True, True, False],
+    ]
+    assert [
+        tuple(group.flat_indices) for group in restored.availability.unavailable
+    ] == [(1,), (5,)]
 
 
 def test_measurement_array_availability_requires_an_exact_incomplete_partition() -> (

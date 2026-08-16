@@ -334,6 +334,11 @@
       {"id": "q2", "kind": "logical_qubit"},
       {"id": "q3", "kind": "logical_qubit"},
       {"id": "cryostat", "kind": "cryostat"}
+    ],
+    "connections": [
+      {"id": "q0-q1", "kind": "nearest_neighbor", "endpoints": ["q0", "q1"]},
+      {"id": "q1-q2", "kind": "nearest_neighbor", "endpoints": ["q1", "q2"]},
+      {"id": "q2-q3", "kind": "nearest_neighbor", "endpoints": ["q2", "q3"]}
     ]
   },
   "domain_target": {
@@ -341,7 +346,7 @@
     "kind": "reference_lab.list-mode",
     "configuration": {
       "sample_rate_hz": 1000000000,
-      "capabilities": {"max_list_entries": 256, "max_samples_per_entry": 1000000, "max_program_waveform_bytes": 50331648, "max_repetitions": 100000, "max_abs_amplitude": 1.0, "acquisition_dsp_policy": "prefer_device"},
+      "capabilities": {"max_list_entries": 256, "max_samples_per_entry": 1000000, "max_program_waveform_bytes": 50331648, "max_program_event_count": 262144, "max_program_acquisition_count": 65536, "max_result_bytes": 536870912, "max_result_chunk_bytes": 8388608, "max_repetitions": 100000, "max_abs_amplitude": 1.0, "acquisition_dsp_policy": "prefer_device"},
       "reference_clock": {"source": "external", "frequency_hz": 10000000},
       "timing": {
         "domain_id": "control",

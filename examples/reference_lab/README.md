@@ -59,7 +59,8 @@ The scripts are ordinary Python with `# %%` cells and can be followed in order.
 | `28_channel_conflict_diagnostic.py` | Precise conflict on an overlapping physical drive route |
 | `29_channel_unavailable.py` | Entity-axis IQ traces, identity selection, provenance, and one unavailable demodulation channel |
 | `30_drag_calibration.py` | Calibration, analysis, candidate check, acceptance, production use, and undo |
-| `32_quantum_program_inspection.py` | Typed quantum structure without hardware execution |
+| `31_topology_scaled_ramsey.py` | One connected-qubit-set program reused across chip topology and scale |
+| `32_quantum_program_inspection.py` | Authored, logical, scheduled, and physical quantum layers without execution |
 | `33_multichannel_dc_bias.py` | Profile/calibration join across two multichannel DC sources |
 | `34_xy_lo_sweep.py` | Shared LO scan, signed IF waveforms, shared clocks, and derived carrier records |
 | `35_awg_output_monitor.py` | Entityless AWG/scope diagnostic with temporary cable intent |
@@ -101,6 +102,29 @@ tables, and temporary scan axes belong to experiment invocations.
 - The target selects raw capture with target DSP or compatible onboard DSP while
   preserving one versioned integrated-IQ convention. Target and device placement
   are checked against identical known traces.
+- Every compiled artifact embeds the immutable device snapshot used for
+  lowering, exact event-to-channel placement, and a deduplicated physical
+  footprint. Preview joins that physical layer to the authored, logical, and
+  scheduled program layers without expanding the complete experiment.
+- Variable-size quantum calls may select a fixed count or connected component
+  from the accepted logical topology. The bound plan retains the selection
+  intent and resolved qubit table, while the program remains chip-size agnostic.
+- Placement also records why each event uses its selected route: configured
+  routes, shared endpoints and LOs, demodulator slots, and the common timing
+  domain are stable constraint nodes linked from each event. A fingerprinted,
+  injectable placement provider makes that route decision before physical
+  planning, so its endpoints control the emitted AWG and digitizer artifact as
+  well as preview provenance and cache identity.
+- Target admission reports list entries, waveform bytes, event and acquisition
+  counts, complete result bytes, and per-shot chunk bytes together. The runtime
+  retains bounded shot chunks as one logical partitioned value; Arrow storage
+  and GUI decoding preserve those partitions. Result realization validates the
+  complete domain mapping before streaming canonical values into the coverage
+  sink, and canonical or contiguous acquisition rows reuse the device arrays.
+  The GUI requests bounded program-layer pages filtered by entity, resource,
+  kind, result, or text. Oversized product-grid results use authored-axis
+  slices plus previous/next logical-point windows instead of stopping at the
+  first preview page.
 - The list-mode runtime uses explicit load, prepare, arm, shared-trigger, and
   fetch batches. Their order is auditable; target docstrings define trigger
   session guarantees, setup invalidation, and acquisition placement.

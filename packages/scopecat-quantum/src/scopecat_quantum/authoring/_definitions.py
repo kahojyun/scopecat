@@ -58,6 +58,7 @@ from ._ir import (
     QuantumFragment,
     QuantumQuantity,
     Qubit,
+    QubitSet,
     RepeatCount,
     _DelayFragment,
     _FragmentCall,
@@ -108,6 +109,14 @@ class _QuantumFunctionContract:
             parameter
             for parameter in self.parameters
             if isinstance(parameter, ProgramInput)
+        )
+
+    @property
+    def entity_sets(self) -> tuple[QubitSet, ...]:
+        return tuple(
+            parameter
+            for parameter in self.parameters
+            if isinstance(parameter, QubitSet)
         )
 
 
@@ -331,7 +340,10 @@ class GateImplementationDefinition[**P]:
     def parameters(self) -> tuple[PulseElement | ProgramInput, ...]:
         """Return the implementation's typed operands, resources, and inputs."""
 
-        return self.template.parameters
+        return cast(
+            "tuple[PulseElement | ProgramInput, ...]",
+            self.template.parameters,
+        )
 
     @property
     def __wrapped__(self) -> Callable[P, QuantumFragment]:
@@ -484,6 +496,8 @@ def _validate_fragment_call_arguments(
                 )
                 raise TypeError(msg)
             continue
+        if isinstance(formal, QubitSet):
+            raise TypeError("quantum fragments cannot declare QubitSet ports")
         if isinstance(actual, Qubit | Coupler):
             msg = f"quantum fragment {definition.id!r} port {name!r} requires a value"
             raise TypeError(msg)

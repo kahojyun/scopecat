@@ -284,10 +284,30 @@ def test_collect_command_lowers_to_one_acquisition_request() -> None:
             {
                 "request_id": "frequency-axis",
                 "result_id": "frequency",
+                "dimensions": [
+                    {
+                        "id": "frequency",
+                        "kind": "frequency",
+                        "offset": None,
+                        "size": 401,
+                        "unit": "Hz",
+                        "metadata": {},
+                    }
+                ],
             },
             {
                 "request_id": "s-parameter-trace",
                 "result_id": "s_parameter",
+                "dimensions": [
+                    {
+                        "id": "frequency",
+                        "kind": "frequency",
+                        "offset": None,
+                        "size": 401,
+                        "unit": "Hz",
+                        "metadata": {},
+                    }
+                ],
             },
         ],
         "entity_ids": ["logical-vna"],

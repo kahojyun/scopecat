@@ -17,6 +17,12 @@ Benchmark results use three labels:
 - **target**: the next useful single-lab NISQ envelope;
 - **stress**: a larger profile that reveals the next mechanism to evolve.
 
+Executable cases, their component/end-to-end/micro classification, and the
+single local CLI live in the
+[benchmark suite](https://github.com/scopecat-project/scopecat/blob/main/benchmarks/README.md).
+This document owns workload goals and scalability invariants rather than a
+second benchmark registry.
+
 Profiles are provisional until a repeatable benchmark records results. Routine
 benchmarks use virtual backends and generated or replayed data so execution
 volume, payload shape, and failure points remain reproducible. Physical-hardware
@@ -47,6 +53,7 @@ changing the logical workload.
 | Structured trace | 1,000–10,000 outer points; 1,601-sample complex VNA traces plus representative waveforms and per-shot arrays | object throughput, array shape, slicing, and analysis memory |
 | Dense spectroscopy | 100,000 logical points, with a 1,000,000-point stress variant | planning time, peak memory, and compiler partitioning |
 | Historical project | 10,000 retained runs, with a 100,000-run stress variant | pagination, indexing, and GUI/API latency |
+| Large quantum program | 1,000 selected entities and 100,000 scheduled-event stress variant | retained Map/Repeat IR, target budgets, placement, and paged inspection |
 
 The profiles exercise characteristic combinations rather than maximizing every
 dimension at once. Compiler request size remains backend-declared. Shot counts,
@@ -82,6 +89,61 @@ projection test checks this contract. Partial entity or shot failure remains one
 array with null leaves and sparse reason groups, so a common all-success point
 has no per-leaf diagnostic overhead while degraded points remain inspectable.
 
+Large quantum programs have an additional representation invariant. Entity-set
+maps and finite repeats remain one structural template through pulse-lowering
+planning and until target-entry preparation; structural IR and inspection size
+must not grow with the selected entity count.
+Concrete scheduling may grow with physical work, but event, acquisition,
+waveform, total-result, and single-result-chunk limits must reject an unsafe
+request before device preparation. Semantic, placement, and final artifact
+layout fingerprints are recorded separately so entry renaming or repetition
+changes do not discard reusable logical work. Parallel-map verification checks
+the template once, recipe matching streams concrete operations without
+retaining an expanded circuit, and the target expansion budget is checked from
+the retained workload before any per-entity operation is instantiated.
+
+Inspection acceptance is transport-oriented as well as compiler-oriented:
+
+- the initial response contains at most 128 nodes per authored, logical,
+  scheduled, or physical layer;
+- a follow-up query returns nodes for one layer only, with stable offset/limit,
+  matching-count, and next-offset metadata;
+- parent, kind, entity, resource, and result filters use retained ordinal
+  indexes before pagination; text matching runs only across those candidates
+  when an indexed filter is present;
+- entity, resource, and result references inside one aggregate node are capped
+  independently and retain their full counts;
+- physical placement exposes configured routes plus shared endpoint, local
+  oscillator, demodulator, and timing constraints as inspectable nodes;
+- placement materializes at most eight relevant route candidates per selected
+  signal, records structured rejection reasons, and retains the full candidate
+  count plus a truncation marker instead of constructing a device-wide
+  signal-by-route product;
+- placement is selected through a fingerprinted provider boundary before
+  waveform and acquisition planning. Its chosen physical endpoints determine
+  calibration lookup, overlap checks, emitted AWG channels, digitizer windows,
+  inspection provenance, and the placement cache key.
+
+The GUI should therefore render layer summaries first, page the node list,
+show Map/Repeat nodes as aggregates, draw timing only for the selected scheduled
+page, and fetch detail by entity or physical resource. Browser memory and DOM
+size must be proportional to the page, not to the expanded program.
+
+Target inspection also reports the cache disposition of the exact compilation
+that produced the preview. Artifact, semantic, placement, and layout stages are
+shown independently as `hit`, `miss`, or `not_checked`; an artifact hit therefore
+does not misleadingly claim that lower stages ran. These facts are transient
+operator diagnostics and do not enter artifact or invocation identity. Every
+stage is bounded by both an entry count and accounted retained bytes. Inspection
+also reports its byte budget, retained bytes, oversize skips, and compile time.
+
+The layer summary is an explicit resolution navigator from authored intent
+through bound structure and timed events to physical placement. Each stage shows
+its total node count, matching count, and loaded-page size. Timeline marks and
+lowering links are interactive; a link whose target is outside the loaded page
+uses an exact node-identity query backed by the retained inspection index, so
+cross-layer navigation does not fetch or linearly scan an entire large layer.
+
 ## Measurements
 
 Record the repository revision, machine description, workload shape, wall time,
@@ -93,6 +155,91 @@ boundary.
 A target becomes demonstrated when the workload, resource budget, and result
 are repeatable. Optimizations should address the first measured limit while
 preserving the shared invariants.
+
+## Quantum Program Structure Baseline
+
+The quantum-program probe measures entity-set binding, template-level budget
+preflight, and bounded authored/logical inspection without performing concrete
+target lowering:
+
+```console
+uv run python -m benchmarks run quantum-program \
+  --entities 100,1000,10000 \
+  --inspection-page-size 128
+```
+
+It emits `scopecat.benchmark_result.v1` records for the versioned
+`quantum-program` case, with one row per requested scale. Each row records
+structural and expanded operation counts,
+selected-entity count, preflight outcome, inspection size, cold snapshot and
+page projection time, warm exact-node projection time, wall times, and
+retained/peak `tracemalloc` bytes. Wall time and memory are recorded observations
+because machine variance makes them poor routine CI gates. The deterministic
+acceptance test runs 100- and 10,000-entity cases and requires:
+
+- one retained operation and one unresolved template for the one-operation map;
+- an expansion-budget rejection before concrete expansion;
+- no more than 64 retained entity references on one inspection node;
+- returned nodes bounded by layer count times the requested page size; and
+- a serialized authored/logical inspection no larger than 32 KiB;
+- a warm exact-node query returning one matching logical node from both scales.
+
+Run the acceptance contract with:
+
+```console
+uv run pytest -q -n 0 benchmarks/smoke/test_quantum_program.py
+```
+
+The test also exercises the indexed table-primary-key path used by entity-set
+binding. Non-quantity scalar keys use their canonical semantic identity, while
+quantity keys retain tolerance-aware comparison. This keeps ordinary entity
+sets linear without changing quantity equality semantics.
+
+## Inspection Index Micro Baseline
+
+Exact-node lookup and inverted-index filtering are pure data-structure costs,
+so they run independently from quantum lowering and target configuration:
+
+```console
+uv run python -m benchmarks run inspection-index \
+  --nodes 10000 \
+  --page-size 128
+```
+
+The case verifies that an exact query returns one node, a resource query
+materializes only its indexed matches, and both serialized responses remain
+bounded independently of total index size. Its deterministic smoke contract is:
+
+```console
+uv run pytest -q -n 0 benchmarks/smoke/test_inspection_index.py
+```
+
+## List-Mode Target Compiler Baseline
+
+The target-compiler probe runs the configured reference target rather than a
+synthetic inspection index. It records cold and warm semantic, placement,
+layout, and artifact stages, along with their retained-memory cache snapshots:
+
+```console
+uv run python -m benchmarks run list-mode-compiler \
+  --entries 4 \
+  --repetitions 16
+```
+
+It emits a versioned `list-mode-compiler` record in the shared benchmark
+schema. The acceptance test
+requires a complete cold compile, an artifact-level warm hit, every stage to
+remain within its byte budget, byte-pressure eviction before the entry limit,
+and an oversize artifact to bypass the cache instead of violating its memory
+bound:
+
+```console
+uv run pytest -q -n 0 benchmarks/smoke/test_list_mode_compiler.py
+```
+
+Stage byte accounting includes retained waveform buffers and explicit metadata
+allowances. It is a deterministic cache budget, not a claim to equal process
+RSS; the probe records `tracemalloc` retained and peak bytes separately.
 
 ## Scan Execution UX Baseline
 
@@ -130,7 +277,7 @@ point-count costs.
 Run a short comparison with:
 
 ```console
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --points 1,10,100 \
   --host-label lab-pc-hdd \
   --storage-root /path/on/the/experiment-drive
@@ -142,7 +289,7 @@ startup dominates their cost on Windows. Run them explicitly after changing the
 benchmark harness or its execution boundaries:
 
 ```console
-uv run pytest -q benchmarks/test_scan_execution_benchmark.py
+uv run pytest -q -n 0 benchmarks/smoke/test_scan_execution.py
 ```
 
 `--storage-root` must name an existing directory on the storage device being
@@ -167,7 +314,7 @@ To isolate daemon and object-store overhead after a default comparison, add the
 core diagnostic explicitly:
 
 ```console
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --runners scopecat-core,scopecat \
   --points 1,10,100
 ```
@@ -176,7 +323,7 @@ Run the same staircase again with a representative acquisition duration when
 evaluating total experiment UX:
 
 ```console
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --points 1,10,100 \
   --point-delay-ms 10 \
   --host-label lab-pc-hdd \
@@ -199,11 +346,11 @@ only the latest completed point for a plotting-tool stand-in.
 Run a short staircase with:
 
 ```console
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --profile waveform \
   --points 1,10,100 \
   --waveform-samples 4096 \
-  --qubits 4 \
+  --qubit-counts 1,2,4 \
   --live-waveform \
   --host-label lab-pc
 ```
@@ -220,13 +367,13 @@ trace for every logical point. It deliberately excludes the ad hoc runner,
 whose scalar device facade does not perform equivalent work:
 
 ```console
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --profile waveform \
   --acquisition-dsp target \
   --runners scopecat-core,scopecat \
   --points 10,100 \
   --waveform-samples 100000 \
-  --qubits 4
+  --qubit-counts 4
 ```
 
 Do not use this stress result as the default product comparison on digitizers
@@ -244,25 +391,25 @@ user intent or a target storage layout for Scopecat.
 Run each durable selection independently:
 
 ```console
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --profile results \
   --retention summary \
   --points 10,100 \
-  --qubits 4 \
+  --qubit-counts 1,2,4 \
   --shots 1000
 
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --profile results \
   --retention bit-shots \
   --points 10,100 \
-  --qubits 4 \
+  --qubit-counts 1,2,4 \
   --shots 1000
 
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --profile results \
   --retention iq-and-bits \
   --points 10,100 \
-  --qubits 4 \
+  --qubit-counts 1,2,4 \
   --shots 1000
 ```
 
@@ -280,12 +427,12 @@ the acquisition and constructs the current point's results, then discards them
 without creating metadata or result files:
 
 ```console
-uv run python scripts/benchmark_scan_execution.py \
+uv run python -m benchmarks run scan-execution \
   --profile results \
   --retention discard \
   --runners adhoc \
   --points 100 \
-  --qubits 4 \
+  --qubit-counts 4 \
   --shots 1000
 ```
 
@@ -364,7 +511,7 @@ concrete artifact to size the following batch. Cartesian point rows, point
 parameter overlays, runtime point objects, and static value records are now
 random-access views evaluated for the current bounded coverage. Range and
 center/span axes retain compact evaluated sources through planning, catalog
-fingerprinting, and the v9 durable dataset schema. Explicit values axes still
+fingerprinting, and the durable dataset schema. Explicit values axes still
 remain proportional to their declared coordinate count, as their individual
 values are the source rather than generated points.
 
@@ -418,6 +565,29 @@ The present architecture provides a direct end-to-end baseline:
   inspection data; preview and review compile only the selected point and ask
   for target-owned inspection explicitly. Each prepared domain job reports the
   maximum point count for the following batch;
+- quantum target artifacts carry a fingerprinted device snapshot, per-event
+  logical-to-physical placement, and an exact deduplicated resource footprint.
+  Placement records a bounded set of selected and rejected route candidates
+  with structured reasons. Inspection adds this as a bounded physical layer
+  linked to scheduled events, so large programs can be navigated by abstraction
+  level instead of rendered as one flat circuit or waveform list. Follow-up
+  pages use artifact-scoped cursors, and a newer review query supersedes stale
+  queued or in-flight work;
+- bound quantum IR retains entity-set parallel boundaries and repeat counts,
+  while inspection reports structural versus expanded operation counts. The
+  program call may retain a topology-backed qubit-set intent; configuration
+  binding resolves a fixed count or connected component in deterministic
+  topology order and keeps the intent beside its resolved entity table. The
+  authored program therefore does not encode chip size or physical numbering.
+  A fingerprinted placement provider owns logical-to-physical routing, and its
+  selected endpoints drive the compiled waveform and acquisition artifact rather
+  than serving as explanation-only metadata. The list-mode compiler independently
+  caches semantic analysis, waveform/placement planning, artifact layout, and
+  final artifacts by their layered fingerprints.
+  Artifact eviction therefore does not force target-independent analysis or
+  waveform planning to repeat. Its continuation report exposes list-entry,
+  waveform-memory, per-entry sample, and repetition budgets plus the limiting
+  dimension used to choose the next batch size;
 - the reference list-mode target combines its device entry capacity with an
   adaptive 8 MiB aggregate waveform target. Its AWG and virtual-capture codecs
   carry contiguous float64 samples in binary rather than expanding arrays into
@@ -426,8 +596,23 @@ The present architecture provides a direct end-to-end baseline:
   boundary; structurally different entries retain ordinary materialized
   buffers. Direct and run-scoped hardware receipts likewise carry typed headers
   plus binary measurement-array attachments, and target result blocks remain
-  array-native through correlation. Immutable byte-backed arrays are adopted
-  across typed model and wire-decode boundaries rather than recopied;
+  array-native through correlation. Large shot results are collected in bounded
+  chunks with explicit shot offsets, then correlated into the original domain
+  and logical measurement axes without joining their buffers. The logical
+  rectangular value retains those shot partitions through Arrow persistence and
+  GUI decoding; NumPy-oriented compute, trace, and interop boundaries
+  materialize it explicitly. Immutable byte-backed arrays are adopted across
+  typed model and wire-decode boundaries rather than recopied. Domain
+  realization validates the complete output inventory before transferring
+  canonical values one at a time into the execution coverage sink; the daemon
+  then owns bounded pending Arrow chunks until durable ingest acceptance rather
+  than retaining a second complete candidate tuple;
+- cancellation fences every hardware batch submitted from a synchronous domain
+  runtime, including each bounded shot chunk. A request arriving during a
+  driver call is honored before the next batch; the completed receipt is still
+  interpreted first, so cancellation cannot turn known hardware evidence into
+  a fabricated indeterminate failure. The maximum cooperative cancellation
+  delay is therefore one active driver call or one configured result chunk;
 - admission uses the domain compiler's static instrument footprint and all
   structurally compatible local route candidates. Point-local routing narrows
   the operations actually emitted, so a run may conservatively reserve an
@@ -444,7 +629,10 @@ The present architecture provides a direct end-to-end baseline:
   or replayed operation releases its bytes immediately; owner termination and
   daemon shutdown clear orphaned uploads. Unique waveform programs therefore
   do not accumulate in the permanent object store or with total point count;
-- projected Arrow readers and GUI previews provide bounded read paths.
+- projected Arrow readers and GUI previews provide bounded read paths. The GUI
+  pages oversized product-grid slices by logical offset while retaining their
+  authored-axis selection; mixed-radix index projection jumps directly to a
+  deep window without enumerating its prefix.
 
 Generated axes no longer impose a point-count-sized preparation cost: their
 evaluated generation parameters are fingerprinted and persisted directly, and
@@ -475,7 +663,8 @@ in-process optimizer context.
 Run the long-run memory probe with:
 
 ```console
-uv run python scripts/benchmark_adaptive_optimizer.py --decisions 20000 --domain-points 1024
+uv run python -m benchmarks run adaptive-context \
+  --decisions 20000 --domain-points 1024
 ```
 
 The probe feeds a distinct 256 KiB waveform through every retained observation

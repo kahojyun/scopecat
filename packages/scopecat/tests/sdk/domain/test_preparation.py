@@ -10,6 +10,7 @@ import scopecat as sc
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.state import StateValue
 from scopecat.measurements.results import MeasurementScalar
+from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
     make_domain_call_view,
@@ -30,7 +31,10 @@ from scopecat.sdk.domain import (
     DomainStateRequirement,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
-from scopecat.sdk.domain.invocation import DomainOutputValue, seal_domain_output_values
+from scopecat.sdk.domain.invocation import (
+    DomainOutputValue,
+    stream_domain_output_values,
+)
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
     DomainResultValue,
@@ -182,7 +186,12 @@ def test_result_values_project_directly_to_canonical_candidates(tmp_path: Path) 
         for index, result in enumerate(mapping.results)
     )
 
-    candidates = seal_domain_output_values(mapping, tuple(reversed(values)))
+    candidates: list[MeasurementValueCandidate] = []
+    stream_domain_output_values(
+        mapping,
+        reversed(values),
+        accept=candidates.append,
+    )
 
     assert tuple(
         (candidate.logical_point_id, candidate.product_use_id)
@@ -193,10 +202,15 @@ def test_result_values_project_directly_to_canonical_candidates(tmp_path: Path) 
         for use_id in result.product_use_ids
     )
     with pytest.raises(ProviderContractError) as caught:
-        seal_domain_output_values(mapping, values[:-1])
+        stream_domain_output_values(
+            mapping,
+            values[:-1],
+            accept=candidates.append,
+        )
     assert {problem.code for problem in caught.value.problems} == {
         "domain_output_missing_result"
     }
+    assert len(candidates) == 2
 
 
 @pytest.mark.parametrize(
@@ -225,7 +239,8 @@ def test_result_values_accept_every_scalar_dtype(
         for result in mapping.results
     )
 
-    candidates = seal_domain_output_values(mapping, values)
+    candidates: list[MeasurementValueCandidate] = []
+    stream_domain_output_values(mapping, values, accept=candidates.append)
 
     assert [candidate.value for candidate in candidates] == [
         MeasurementScalar.create(dtype=dtype, value=value),

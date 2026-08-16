@@ -37,6 +37,7 @@ from scopecat.daemon.wire import (
     RunSubmission,
 )
 from scopecat.execution.interpreter import execute_admitted_run
+from scopecat.inspection import CompiledProgramInspectionQuery
 from scopecat.planning.point_selection import point_coordinate_contract
 from scopecat.planning.preview import PreviewCoordinateMode, build_run_program_preview
 from scopecat.planning.preview_models import ExperimentPreview
@@ -130,6 +131,7 @@ class _DaemonRunner:
         point: int | Literal["first", "middle", "last"] = "first",
         coordinates: Mapping[str, object] | None = None,
         coordinate_mode: PreviewCoordinateMode = "exact",
+        inspection_query: CompiledProgramInspectionQuery | None = None,
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -152,6 +154,7 @@ class _DaemonRunner:
             point=point,
             coordinates=coordinates,
             coordinate_mode=coordinate_mode,
+            inspection_query=inspection_query,
         )
 
     def review(

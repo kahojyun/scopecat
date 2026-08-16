@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Hashable, Sequence
+from collections.abc import Callable, Hashable, Iterable, Sequence
 from types import MappingProxyType
 from typing import cast
 
-from scopecat.inspection import CompiledArtifactInspection
+from scopecat.inspection import (
+    CompiledArtifactInspection,
+    CompiledProgramInspectionQuery,
+)
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.kernel.state import PayloadRef, StateValue
@@ -28,7 +31,7 @@ from scopecat.sdk.domain.execution import (
 from scopecat.sdk.domain.invocation import (
     DomainOutputValue,
     close_domain_invocation,
-    seal_domain_output_values,
+    stream_domain_output_values,
 )
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
@@ -108,12 +111,19 @@ class DomainPreparationBuilder:
         realtime_state_invalidations: Sequence[DomainStateAddress],
         next_batch_max_points: int,
         inspection: CompiledArtifactInspection | None = None,
+        inspection_projector: (
+            Callable[
+                [CompiledProgramInspectionQuery | None],
+                CompiledArtifactInspection,
+            ]
+            | None
+        ) = None,
         mapping: DomainResultMapping[ResultAddressT],
         invocation: DomainInvocationSpec[PayloadT],
         runtime: DomainRuntime[PayloadT, ResultT],
         realize: Callable[
             [DomainExecutionResult[ResultT]],
-            Sequence[DomainResultValue[ResultAddressT]],
+            Iterable[DomainResultValue[ResultAddressT]],
         ],
     ) -> PreparedDomainExecution:
         """Close one declarative target job behind the core execution ABI.
@@ -146,14 +156,15 @@ class DomainPreparationBuilder:
 
         def close_realized_values(
             fetched: DomainExecutionResult[ResultT],
-        ) -> tuple[MeasurementValueCandidate, ...]:
-            candidates = tuple(realize(fetched))
-            return seal_domain_output_values(
+            accept: Callable[[MeasurementValueCandidate], None],
+        ) -> None:
+            stream_domain_output_values(
                 mapping,
-                tuple(
+                (
                     DomainOutputValue(candidate.result_address, candidate.value)
-                    for candidate in candidates
+                    for candidate in realize(fetched)
                 ),
+                accept=accept,
             )
 
         selected_instrument_ids = tuple(sorted(instrument_ids))
@@ -172,10 +183,11 @@ class DomainPreparationBuilder:
             ),
             next_batch_max_points=next_batch_max_points,
             inspection=inspection,
+            inspection_projector=inspection_projector,
             invocation=cast("ErasedDomainInvocation", native_invocation),
             setup=cast("ErasedDomainSetup | None", setup),
             runtime=cast("ErasedDomainRuntime", runtime),
-            realize=cast("ErasedDomainRealizer", close_realized_values),
+            realize_into=cast("ErasedDomainRealizer", close_realized_values),
         )
 
 

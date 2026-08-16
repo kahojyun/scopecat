@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import assert_type, cast
 
@@ -11,11 +12,13 @@ from scopecat.config.environment import build_config_environment
 from scopecat.execution.evidence import instrument_state_evidence_ref
 from scopecat.execution.local.program import ApplyStateOperation
 from scopecat.execution.program import RunCoverageEffect, RunDomainJob
+from scopecat.inspection import CompiledProgramInspectionQuery
 from scopecat.kernel.errors import CheckFailed
 from scopecat.planning.compilation import compile_run_program
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution import InstrumentStateEvidence
+from scopecat_quantum import authoring as quantum
 from scopecat_quantum.measurement_computes import (
     BinaryIqProbabilityProducts,
 )
@@ -37,15 +40,54 @@ from reference_lab.quantum_runner import (
     run_quantum,
 )
 from reference_lab.targets.list_mode import (
+    ConfiguredRoutePlacementProvider,
+    ListModeDeviceSnapshot,
     ListModeDomainRuntime,
+    ListModePlacementDecision,
     MappedListModeTarget,
     configured_list_mode_target,
     point_realization_fingerprint,
 )
 from reference_lab.virtual_lab.execution import virtual_quantum_runtime
-from reference_lab.workflows.drag_beta_calibration import drag_beta_program
+from reference_lab.workflows.drag_beta_calibration import (
+    drag_beta_program,
+    drag_readout_pulse,
+)
 from reference_lab.workflows.drag_beta_experiment import drag_beta_experiment
 from reference_lab.workflows.ramsey_experiments import q0_fixed_if_lo_sweep
+
+
+@quantum.program(id="reference_lab.test.parallel_set_readout")
+def _parallel_set_readout(
+    targets: quantum.QubitSet,
+) -> quantum.QuantumFragment:
+    def readout(qubit: quantum.Qubit) -> quantum.QuantumFragment:
+        return quantum.parallel(
+            drag_readout_pulse(qubit),
+            quantum.acquire(
+                qubit,
+                duration=sc.Quantity(8, "ns"),
+                result="iq_shots",
+            ),
+        )
+
+    return quantum.parallel_each(
+        targets,
+        readout,
+    )
+
+
+@sc.experiment(id="reference_lab.test.parallel_set_readout")
+def _parallel_set_readout_experiment(
+    experiment: sc.ExperimentContext,
+) -> None:
+    prepare_quantum_hardware(experiment)
+    results = experiment.use(
+        _parallel_set_readout(("q0", "q1"))
+        .with_shots(7)
+        .with_compiler_inputs(qubits=QUBITS.ref)
+    )
+    experiment.alias(results.iq_shots)
 
 
 @sc.experiment
@@ -80,6 +122,27 @@ def _configured_target(
         describe=provider.describe,
     )
     return configured_list_mode_target(config, catalog)
+
+
+class _CompositionPlacementProvider:
+    id = "test.composition-placement.v1"
+    fingerprint = "sha256:test-composition-placement-v1"
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self._configured = ConfiguredRoutePlacementProvider()
+
+    def place(
+        self,
+        selected_signals: tuple[tuple[str, str, str], ...],
+        snapshot: ListModeDeviceSnapshot,
+    ) -> ListModePlacementDecision:
+        self.calls += 1
+        return replace(
+            self._configured.place(selected_signals, snapshot),
+            provider_id=self.id,
+            provider_fingerprint=self.fingerprint,
+        )
 
 
 def _with_dsp_policy(
@@ -138,6 +201,65 @@ def test_quantum_compiler_uses_a_one_point_initial_probe() -> None:
     compiler = QuantumLabCompiler(target=_configured_target(config, provider))
 
     assert compiler.initial_batch_size(1000) == 1
+
+
+def test_parallel_qubit_set_compiles_to_one_entity_axis_result_group() -> None:
+    config = bootstrap_config()
+    provider = ReferenceLabProvider(seed=7)
+    composition = compose_test_instruments(
+        config=config,
+        provider=provider,
+        domain_compiler=QuantumLabCompiler(
+            target=_configured_target(config, provider),
+        ),
+        payload_codecs=reference_lab_payload_codecs(),
+    )
+    bound = bind_program(
+        compile_invocation(_parallel_set_readout_experiment()).program,
+        build_config_environment(config),
+    )
+
+    [product] = bound.bindings.product_defs
+    assert [axis.kind for axis in product.axes] == ["entity", "shot"]
+    assert product.axes[0].entities is not None
+    assert [entity.id for entity in product.axes[0].entities] == ["q0", "q1"]
+
+    plan = compile_run_program(composition.system, bound=bound)
+    [job] = tuple(
+        operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
+    )
+    mapped = cast("MappedListModeTarget", job.execution.invocation.payload)
+    [result] = mapped.mapping.results
+    assert len(result.result_address.acquisitions) == 2
+    assert [
+        address.slot_id.scope for address in result.result_address.acquisitions
+    ] == [("targets", "q0"), ("targets", "q1")]
+    artifact = mapped.artifact
+    assert artifact.placement.logical_qubit_ids == ("q0", "q1")
+    assert (
+        artifact.placement.device_snapshot_fingerprint
+        == artifact.device_snapshot.snapshot_fingerprint
+    )
+    assert len(artifact.placement.events) == 4
+    shared_constraints = tuple(
+        constraint
+        for constraint in artifact.placement.constraints
+        if constraint.kind == "shared_endpoint"
+    )
+    assert any(
+        constraint.entity_ids == ("q0", "q1")
+        and any(
+            resource.startswith("readout-awg:") for resource in constraint.resource_ids
+        )
+        for constraint in shared_constraints
+    )
+    # q0 and q1 are frequency-multiplexed on one I/Q pair and digitizer input.
+    assert len(artifact.physical_footprint.waveform_outputs) == 2
+    assert len(artifact.physical_footprint.acquisition_inputs) == 1
+    assert artifact.instrument_ids == artifact.physical_footprint.instrument_ids
+    assert job.execution.next_batch_max_points == (
+        artifact.compilation_budget.next_batch_max_points
+    )
 
 
 def _logical_measurement_values(
@@ -280,12 +402,14 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
 ) -> None:
     config = bootstrap_config()
     provider = ReferenceLabProvider(seed=7)
+    placement_provider = _CompositionPlacementProvider()
     composition = compose_test_instruments(
         config=config,
         provider=provider,
         domain_compiler=QuantumLabCompiler(
             target=_configured_target(config, provider),
             runtime_selector=virtual_quantum_runtime,
+            placement_provider=placement_provider,
         ),
         payload_codecs=reference_lab_payload_codecs(),
     )
@@ -296,16 +420,62 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
         instrument_backend=composition.backend,
     )
     invocation = drag_beta_experiment()
+    prepared = lab.prepare(invocation)
 
-    preview = lab.prepare(invocation).preview(point="last")
+    preview = prepared.preview(point="last")
 
     assert lab.runs() == ()
     assert preview.selected_point is not None
     assert preview.selected_point.point_index == 14
     [inspection] = preview.domain_inspections
     assert inspection.point_index == 14
-    assert inspection.content.schema_id == ("scopecat.compiled_artifact_inspection.v1")
+    assert inspection.content.schema_id == ("scopecat.compiled_artifact_inspection.v2")
     assert inspection.content.kind == "reference_lab.list_mode.v1"
+    assert inspection.content.program is not None
+    inspection_snapshot_id = inspection.content.program.snapshot_id
+    assert inspection_snapshot_id == inspection.artifact_fingerprint
+    inspection_facts = {fact.id: fact.value for fact in inspection.content.facts}
+    assert inspection_facts["compile_cache.artifact.outcome"] == "miss"
+    assert inspection_facts["compile_cache.semantic.outcome"] == "miss"
+    assert inspection_facts["compile_cache.placement.outcome"] == "miss"
+    assert inspection_facts["compile_cache.layout.outcome"] == "miss"
+    assert cast("float", inspection_facts["compile_seconds.artifact"]) >= 0
+    retained_bytes = cast(
+        "int", inspection_facts["compile_cache.artifact.retained_bytes"]
+    )
+    assert retained_bytes > 0
+    assert retained_bytes <= cast(
+        "int",
+        inspection_facts["compile_cache.artifact.max_retained_bytes"],
+    )
+    assert inspection_facts["placement_provider_id"] == placement_provider.id
+    assert inspection_facts["placement_provider_fingerprint"] == (
+        placement_provider.fingerprint
+    )
+    assert placement_provider.calls == 1
+    assert tuple(layer.id for layer in inspection.content.program.layers) == (
+        "authored",
+        "logical",
+        "scheduled",
+        "physical",
+    )
+    assert any(
+        link.relation == "placed_on" for link in inspection.content.program.links
+    )
+    physical_layer = inspection.content.program.layers[-1]
+    assert physical_layer.kind == "physical"
+    assert physical_layer.nodes[0].resource_ids
+    assert any(node.kind == "placement_constraint" for node in physical_layer.nodes)
+    assert any(
+        node.kind == "placement_candidate_selected" for node in physical_layer.nodes
+    )
+    assert any(
+        node.kind == "placement_candidate_rejected" and node.warnings
+        for node in physical_layer.nodes
+    )
+    assert any(
+        link.relation == "selected_route" for link in inspection.content.program.links
+    )
     [entry] = inspection.content.points
     assert entry.target_entry_id.endswith(".point-14")
 
@@ -313,6 +483,68 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
         coordinates=preview.selected_point.coordinates
     )
     assert selected_again.selected_point == preview.selected_point
+    [selected_again_inspection] = selected_again.domain_inspections
+    selected_again_facts = {
+        fact.id: fact.value for fact in selected_again_inspection.content.facts
+    }
+    assert selected_again_facts["compile_cache.artifact.outcome"] == "hit"
+    assert selected_again_facts["compile_cache.semantic.outcome"] == "not_checked"
+
+    queried = prepared.preview(
+        point="last",
+        inspection_query=CompiledProgramInspectionQuery(
+            layer_id="scheduled",
+            snapshot_id=inspection_snapshot_id,
+            kind="play",
+            limit=1,
+        ),
+    )
+    [queried_inspection] = queried.domain_inspections
+    assert queried_inspection.content.program is not None
+    queried_layers = {
+        layer.id: layer for layer in queried_inspection.content.program.layers
+    }
+    assert all(
+        not layer.nodes
+        for layer_id, layer in queried_layers.items()
+        if layer_id != "scheduled"
+    )
+    assert [node.kind for node in queried_layers["scheduled"].nodes] == ["play"]
+    assert queried_layers["scheduled"].page.returned_node_count == 1
+    assert queried_layers["scheduled"].page.snapshot_id == inspection_snapshot_id
+
+    initial_program = inspection.content.program
+    logical_link = next(
+        link for link in initial_program.links if link.relation == "lowers_to"
+    )
+    placed_link = next(
+        link for link in initial_program.links if link.relation == "placed_on"
+    )
+    candidate_link = next(
+        link for link in initial_program.links if link.relation == "selected_route"
+    )
+    for layer_id, node_id, expected_link in (
+        (logical_link.source_layer_id, logical_link.source_node_id, logical_link),
+        (placed_link.source_layer_id, placed_link.source_node_id, placed_link),
+        (candidate_link.target_layer_id, candidate_link.target_node_id, candidate_link),
+    ):
+        exact = prepared.preview(
+            point="last",
+            inspection_query=CompiledProgramInspectionQuery(
+                layer_id=layer_id,
+                snapshot_id=inspection_snapshot_id,
+                node_id=node_id,
+                limit=1,
+            ),
+        )
+        [exact_inspection] = exact.domain_inspections
+        assert exact_inspection.content.program is not None
+        exact_program = exact_inspection.content.program
+        selected_layer = next(
+            layer for layer in exact_program.layers if layer.id == layer_id
+        )
+        assert [node.id for node in selected_layer.nodes] == [node_id]
+        assert expected_link in exact_program.links
 
     free = lab.prepare(invocation).preview(
         coordinates={

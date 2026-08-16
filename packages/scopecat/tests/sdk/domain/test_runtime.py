@@ -15,6 +15,7 @@ from scopecat.sdk.domain.invocation import (
 )
 from scopecat.sdk.domain.result_mapping import DomainResultMapping
 from scopecat.sdk.domain.runtime import (
+    DomainExecutionCancellationRequested,
     DomainExecutionId,
     DomainExecutionReceipt,
     DomainExecutionResult,
@@ -222,3 +223,13 @@ def test_runtime_exception_and_forged_receipt_are_indeterminate() -> None:
         with pytest.raises(DomainExecutionFailed) as caught:
             _execute(runtime, invocation)
         assert caught.value.certainty == "indeterminate"
+
+
+def test_cancellation_control_flow_is_not_normalized_as_domain_failure() -> None:
+    invocation = _closed_invocation()
+    cancellation = DomainExecutionCancellationRequested()
+
+    with pytest.raises(DomainExecutionCancellationRequested) as caught:
+        _execute(_Runtime(error=cancellation), invocation)
+
+    assert caught.value is cancellation

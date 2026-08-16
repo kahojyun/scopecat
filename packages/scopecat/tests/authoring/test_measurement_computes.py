@@ -20,7 +20,7 @@ from scopecat.measurements.results import (
     MeasurementValue,
 )
 from scopecat.program.domain import domain_program
-from scopecat.program.products import ProductAxis
+from scopecat.program.products import ProductAxis, entity_axis, shot_axis
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +162,47 @@ def test_compute_lowers_multiple_measured_inputs_to_the_observation_stage() -> N
     assert isinstance(output, MeasurementArray)
     assert output.values.tolist() == [1.0, 2.0]
     assert output.unit == "V"
+
+
+def test_compute_can_preserve_semantic_axes_from_a_measured_input() -> None:
+    entities = (
+        sc.EntityRef(id="q0", kind="logical_qubit"),
+        sc.EntityRef(id="q1", kind="logical_qubit"),
+    )
+
+    def classify(*, values: object) -> NDArray[np.bool_]:
+        array = np.asarray(values, dtype=np.complex128)
+        return np.asarray(array.real >= 0.0, dtype=np.bool_)
+
+    @sc.module(id="test.measurement-compute-axes")
+    def module(context: sc.ModuleContext) -> sc.ProductRef:
+        source = context._product(
+            "iq_shots",
+            dtype="complex128",
+            axes=(
+                entity_axis("entity", entities, shared_as="targets"),
+                shot_axis(4, shared_as="shot"),
+            ),
+        )
+        return context.compute(
+            "bit_shots",
+            fn=classify,
+            inputs={"values": source},
+            axes_from=source,
+            output_type=sc.ArrayType(
+                dtype="bool",
+                dimensions=(
+                    sc.ArrayDimension("entity", 2),
+                    sc.ArrayDimension("shot", 4),
+                ),
+            ),
+        )
+
+    source, derived = compose_module(module.definition).product_declarations
+
+    assert derived.value_spec.axes == source.value_spec.axes
+    assert derived.value_spec.axes[0].entity_values
+    assert derived.value_spec.axes[0].shared_as == "targets"
 
 
 def test_compute_joins_measured_products_with_earlier_compute_values() -> None:

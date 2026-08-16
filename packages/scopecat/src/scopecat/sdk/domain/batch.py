@@ -6,6 +6,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
+from scopecat.inspection import CompiledProgramInspectionQuery
 from scopecat.measurements.values import MeasurementValueCatalog
 from scopecat.sdk.domain.view import (
     DomainCallView,
@@ -54,6 +55,7 @@ class DomainBatchRequest:
     points: tuple[DomainPointRef, ...]
     measurement_catalog: MeasurementValueCatalog = field(repr=False)
     inspection_requested: bool = False
+    inspection_query: CompiledProgramInspectionQuery | None = None
 
     @property
     def point_ordinals(self) -> tuple[int, ...]:

@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
+from scopecat.inspection import (
+    CompiledArtifactInspection,
+    CompiledProgramInspectionQuery,
+)
 from scopecat.sdk.payloads import PayloadCodecRegistry
 
 if TYPE_CHECKING:
@@ -90,13 +95,16 @@ class RunAcceptedCoverage:
 class RunCoverage:
     """A lazy operation stream rebuilt for each planning or execution pass."""
 
-    __slots__ = ("_accept_all", "_factory", "_inspect")
+    __slots__ = ("_accept_all", "_factory", "_inspect", "_inspection_snapshots")
 
     def __init__(
         self,
         factory: Callable[[], Iterator[RunCoveredOperation]],
         *,
-        inspect: Callable[[int | PointProposalAttempt], RunPointInspection]
+        inspect: Callable[
+            [int | PointProposalAttempt, CompiledProgramInspectionQuery | None],
+            RunPointInspection,
+        ]
         | None = None,
         accept_all: Callable[
             [tuple[PointProposalAttempt, ...]],
@@ -107,16 +115,55 @@ class RunCoverage:
         self._factory = factory
         self._inspect = inspect
         self._accept_all = accept_all
+        self._inspection_snapshots: OrderedDict[
+            tuple[str, int | str],
+            RunPointInspection,
+        ] = OrderedDict()
 
     def __iter__(self) -> Iterator[RunCoveredOperation]:
         return self._factory()
 
-    def inspect(self, point: int | PointProposalAttempt) -> RunPointInspection | None:
-        """Compile target-owned inspection data for exactly one logical point."""
+    def inspect(
+        self,
+        point: int | PointProposalAttempt,
+        *,
+        query: CompiledProgramInspectionQuery | None = None,
+    ) -> RunPointInspection | None:
+        """Compile once, then project artifact-owned inspection pages."""
 
         if self._inspect is None:
             return None
-        return self._inspect(point)
+        key = (
+            ("point", point)
+            if isinstance(point, int)
+            else ("candidate", point.proposal_fingerprint)
+        )
+        snapshot = self._inspection_snapshots.get(key)
+        if snapshot is None:
+            snapshot = self._inspect(point, None)
+            self._inspection_snapshots[key] = snapshot
+            if len(self._inspection_snapshots) > 8:
+                self._inspection_snapshots.popitem(last=False)
+        else:
+            self._inspection_snapshots.move_to_end(key)
+        if query is None:
+            return snapshot
+        return replace(
+            snapshot,
+            jobs=tuple(
+                replace(
+                    job,
+                    execution=replace(
+                        job.execution,
+                        inspection=_project_compiled_inspection(
+                            job.execution,
+                            query,
+                        ),
+                    ),
+                )
+                for job in snapshot.jobs
+            ),
+        )
 
     def accept(self, candidate: PointProposalAttempt) -> RunAcceptedCoverage:
         """Append one candidate and return its lazy execution coverage."""
@@ -134,6 +181,20 @@ class RunCoverage:
         if self._accept_all is None:
             raise ValueError("run coverage does not accept adaptive domains")
         return self._accept_all(candidates)
+
+
+def _project_compiled_inspection(
+    execution: PreparedDomainExecution,
+    query: CompiledProgramInspectionQuery,
+) -> CompiledArtifactInspection | None:
+    if execution.inspection is None:
+        return None
+    projector = execution.inspection_projector
+    if projector is None:
+        raise RuntimeError(
+            "compiled program inspection queries require an artifact projector"
+        )
+    return projector(query)
 
 
 @dataclass(frozen=True, slots=True)

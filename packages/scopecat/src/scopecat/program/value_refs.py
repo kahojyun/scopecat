@@ -62,6 +62,7 @@ from scopecat.program.table_values import (
     LiteralTableSource,
     ParameterTableSource,
     TableSource,
+    TopologyEntitySetSource,
     literal_table_source,
 )
 from scopecat.program.value_graph import OperationId, operation_result_id
@@ -569,7 +570,10 @@ def internal_lower_value_ref(
         return source
     if isinstance(
         source,
-        LiteralTableSource | ParameterTableSource | InputTableSource,
+        LiteralTableSource
+        | ParameterTableSource
+        | InputTableSource
+        | TopologyEntitySetSource,
     ):
         return source
     raise AssertionError("resolved value source has an unsupported shape")

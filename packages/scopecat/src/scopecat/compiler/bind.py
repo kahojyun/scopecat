@@ -45,10 +45,16 @@ from scopecat.compiler.relations.verification import (
     RowType,
     scalar_expression_imports,
 )
+from scopecat.compiler.topology_selection import (
+    TopologyEntitySetResolution,
+    TopologySelectionError,
+    resolve_topology_entity_set,
+)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.frozen import freeze_json_mapping
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location
-from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_types import Scalar, Table
 from scopecat.kernel.value_validation import ValueValidationError
 from scopecat.measurements.records import BoundRecordUse, ValueRecordUse
 from scopecat.program.logical import LogicalProgram
@@ -56,7 +62,8 @@ from scopecat.program.parameters import (
     ParameterValueContract,
 )
 from scopecat.program.recording import LogicalValueRecordSelection
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.program.table_values import TopologyEntitySetSource
+from scopecat.records.config import ConfigProfileSnapshot, Topology
 from scopecat.records.parameter import ParameterCatalog
 
 
@@ -141,8 +148,10 @@ def _lower_logical_program(
         inputs=inputs,
         type_bindings=type_bindings,
     )
+    topology_entity_sets = _resolve_topology_entity_sets(logical, topology)
     static_evaluator = StaticRelationEvaluator(
         environment.parameters,
+        {resolution.source: resolution for resolution in topology_entity_sets.values()},
     )
     products = lower_products(
         static_evaluator,
@@ -191,6 +200,7 @@ def _lower_logical_program(
     )
     return BoundProgramFacts(
         point_domain=point_domain,
+        topology_entity_sets=topology_entity_sets,
         resource_requirements=tuple(resource_requirements),
         live_compute_ids=frozenset(node.id for node in logical.compute_nodes),
         domain_result_use_ids={
@@ -213,6 +223,40 @@ def _lower_logical_program(
         product_uses=product_uses,
         record_uses=record_uses,
     )
+
+
+def _resolve_topology_entity_sets(
+    program: LogicalProgram,
+    topology: Topology,
+) -> dict[ValueId, TopologyEntitySetResolution]:
+    selected: dict[ValueId, TopologyEntitySetResolution] = {}
+    for definition in program.value_defs:
+        source = definition.source
+        if not isinstance(source, TopologyEntitySetSource):
+            continue
+        if not isinstance(definition.value_type, Table):
+            raise AssertionError("topology entity-set source must own a table value")
+        try:
+            selected[definition.id] = resolve_topology_entity_set(
+                topology,
+                source,
+                definition.value_type,
+            )
+        except TopologySelectionError as error:
+            raise_frontend_problem(
+                "topology_entity_set_selection_failed",
+                str(error),
+                "logical_program",
+                path=("values", definition.id.qualified_name),
+                details={
+                    "entity_kind": source.entity_kind,
+                    "count": source.count,
+                    "connected": source.connected,
+                    "anchor_id": source.anchor_id,
+                    "connection_kind": source.connection_kind,
+                },
+            )
+    return selected
 
 
 def _relation_type_bindings(

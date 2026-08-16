@@ -12,7 +12,10 @@ from scopecat.control.models import (
     PointCoordinateSpec,
     PointCoordinateValue,
 )
-from scopecat.inspection import CompiledArtifactInspection
+from scopecat.inspection import (
+    CompiledArtifactInspection,
+    CompiledProgramInspectionQuery,
+)
 
 type ReviewCoordinateValue = PointCoordinateValue
 type ReviewCoordinateKind = PointCoordinateKind
@@ -64,6 +67,7 @@ class ReviewCompileCommand(_ReviewModel):
     point_index: int | None = Field(default=None, ge=0)
     coordinates: dict[str, ReviewCoordinateValue] | None = None
     coordinate_mode: ReviewCoordinateMode = "exact"
+    inspection_query: CompiledProgramInspectionQuery | None = None
 
     @model_validator(mode="after")
     def validate_selector(self) -> ReviewCompileCommand:
@@ -86,6 +90,7 @@ class ReviewWorkItem(_ReviewModel):
     point_index: int | None = Field(default=None, ge=0)
     coordinates: dict[str, ReviewCoordinateValue] | None = None
     coordinate_mode: ReviewCoordinateMode
+    inspection_query: CompiledProgramInspectionQuery | None = None
 
 
 class ReviewCompletionCommand(_ReviewModel):

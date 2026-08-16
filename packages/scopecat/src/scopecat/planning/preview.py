@@ -8,6 +8,7 @@ from typing import Literal
 from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.execution.local.program import ComputeOperation, OutputInput
 from scopecat.execution.program import RunPointInspection, RunProgram
+from scopecat.inspection import CompiledProgramInspectionQuery
 from scopecat.kernel.points import PointProposalAttempt
 from scopecat.measurements.records import RecordPlan, ValueRecordPlan
 from scopecat.planning.point_selection import (
@@ -43,6 +44,7 @@ def build_run_program_preview(
     point: int | Literal["first", "middle", "last"] = "first",
     coordinates: Mapping[str, object] | None = None,
     coordinate_mode: PreviewCoordinateMode = "exact",
+    inspection_query: CompiledProgramInspectionQuery | None = None,
 ) -> ExperimentPreview:
     """Project stable user-visible facts from a closed RunProgram."""
 
@@ -60,12 +62,15 @@ def build_run_program_preview(
         None if selected_point_index is None else catalog.points[selected_point_index]
     )
     point_inspection = (
-        program.coverage.inspect(free_candidate)
+        program.coverage.inspect(free_candidate, query=inspection_query)
         if free_candidate is not None
         else (
             None
             if selected_point_index is None
-            else program.coverage.inspect(selected_point_index)
+            else program.coverage.inspect(
+                selected_point_index,
+                query=inspection_query,
+            )
         )
     )
     selected_candidate = (

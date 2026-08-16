@@ -1476,12 +1476,13 @@ export interface components {
             points: components["schemas"]["CompiledPointInspection-Output"][];
             /** Points Truncated */
             points_truncated: boolean;
+            program?: components["schemas"]["CompiledProgramInspection-Output"] | null;
             /**
              * Schema Id
-             * @default scopecat.compiled_artifact_inspection.v1
+             * @default scopecat.compiled_artifact_inspection.v2
              * @constant
              */
-            schema_id: "scopecat.compiled_artifact_inspection.v1";
+            schema_id: "scopecat.compiled_artifact_inspection.v2";
             /**
              * Warnings
              * @default []
@@ -1533,6 +1534,215 @@ export interface components {
             waveforms: components["schemas"]["CompiledWaveformInspection"][];
             /** Waveforms Truncated */
             waveforms_truncated: boolean;
+        };
+        /**
+         * CompiledProgramInspection
+         * @description Structured multi-layer view of one bounded compiled program variant.
+         */
+        "CompiledProgramInspection-Output": {
+            /** Dialect Id */
+            dialect_id: string;
+            /** Layers */
+            layers: components["schemas"]["CompiledProgramInspectionLayer-Output"][];
+            /**
+             * Links
+             * @default []
+             */
+            links: components["schemas"]["CompiledProgramInspectionLink"][];
+            /** Program Id */
+            program_id: string;
+            query?: components["schemas"]["CompiledProgramInspectionQuery"] | null;
+            /**
+             * Schema Id
+             * @default scopecat.compiled_program_inspection.v3
+             * @constant
+             */
+            schema_id: "scopecat.compiled_program_inspection.v3";
+            /** Snapshot Id */
+            snapshot_id: string;
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+        };
+        /**
+         * CompiledProgramInspectionLayer
+         * @description A bounded semantic projection of one program compilation stage.
+         */
+        "CompiledProgramInspectionLayer-Output": {
+            /**
+             * Facts
+             * @default []
+             */
+            facts: components["schemas"]["CompiledInspectionFact-Output"][];
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Node Count */
+            node_count: number;
+            /** Nodes */
+            nodes: components["schemas"]["CompiledProgramInspectionNode-Output"][];
+            /** Nodes Truncated */
+            nodes_truncated: boolean;
+            page: components["schemas"]["CompiledProgramInspectionPage"];
+            /** Root Ids */
+            root_ids: string[];
+        };
+        /**
+         * CompiledProgramInspectionLink
+         * @description A stable many-to-many lowering relation between inspection nodes.
+         */
+        CompiledProgramInspectionLink: {
+            /** Relation */
+            relation: string;
+            /** Source Layer Id */
+            source_layer_id: string;
+            /** Source Node Id */
+            source_node_id: string;
+            /** Target Layer Id */
+            target_layer_id: string;
+            /** Target Node Id */
+            target_node_id: string;
+        };
+        /**
+         * CompiledProgramInspectionNode
+         * @description One bounded, identity-bearing node in a compiler inspection layer.
+         */
+        "CompiledProgramInspectionNode-Output": {
+            /**
+             * Child Count
+             * @default 0
+             */
+            child_count: number;
+            /** Duration Seconds */
+            duration_seconds?: string | null;
+            /**
+             * Entity Count
+             * @default 0
+             */
+            entity_count: number;
+            /**
+             * Entity Ids
+             * @default []
+             */
+            entity_ids: string[];
+            /**
+             * Entity Ids Truncated
+             * @default false
+             */
+            entity_ids_truncated: boolean;
+            /**
+             * Facts
+             * @default []
+             */
+            facts: components["schemas"]["CompiledInspectionFact-Output"][];
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Parent Id */
+            parent_id?: string | null;
+            /**
+             * Resource Count
+             * @default 0
+             */
+            resource_count: number;
+            /**
+             * Resource Ids
+             * @default []
+             */
+            resource_ids: string[];
+            /**
+             * Resource Ids Truncated
+             * @default false
+             */
+            resource_ids_truncated: boolean;
+            /**
+             * Result Count
+             * @default 0
+             */
+            result_count: number;
+            /**
+             * Result Ids
+             * @default []
+             */
+            result_ids: string[];
+            /**
+             * Result Ids Truncated
+             * @default false
+             */
+            result_ids_truncated: boolean;
+            /** Start Seconds */
+            start_seconds?: string | null;
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+        };
+        /**
+         * CompiledProgramInspectionPage
+         * @description Page metadata for one layer after server-side filtering.
+         */
+        CompiledProgramInspectionPage: {
+            /** Limit */
+            limit: number;
+            /** Matching Node Count */
+            matching_node_count: number;
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Next Offset */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /** Previous Cursor */
+            previous_cursor?: string | null;
+            /** Returned Node Count */
+            returned_node_count: number;
+            /** Snapshot Id */
+            snapshot_id: string;
+        };
+        /**
+         * CompiledProgramInspectionQuery
+         * @description One bounded server-side node query for a program layer.
+         */
+        CompiledProgramInspectionQuery: {
+            /** Cursor */
+            cursor?: string | null;
+            /** Entity Id */
+            entity_id?: string | null;
+            /** Kind */
+            kind?: string | null;
+            /** Layer Id */
+            layer_id: string;
+            /**
+             * Limit
+             * @default 128
+             */
+            limit: number;
+            /** Node Id */
+            node_id?: string | null;
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
+            /** Parent Id */
+            parent_id?: string | null;
+            /** Resource Id */
+            resource_id?: string | null;
+            /** Result Id */
+            result_id?: string | null;
+            /** Snapshot Id */
+            snapshot_id?: string | null;
+            /** Text */
+            text?: string | null;
         };
         /**
          * CompiledWaveformInspection
@@ -2518,7 +2728,7 @@ export interface components {
         MeasurementAcquisitionEvidenceRefs: {
             [key: string]: number;
         };
-        MeasurementAcquisitionValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementUnavailable"];
+        MeasurementAcquisitionValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementPartitionedArray"] | components["schemas"]["MeasurementUnavailable"];
         /**
          * MeasurementArray
          * @description One rectangular typed array backed by an immutable NumPy buffer.
@@ -2592,10 +2802,10 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension-Output"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v16
+             * @default scopecat.measurement_dataset_schema.v17
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v16";
+            format_version: "scopecat.measurement_dataset_schema.v17";
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
             point_domain: components["schemas"]["MeasurementPointDomain-Output"];
             /** Primary Coordinates */
@@ -2604,10 +2814,10 @@ export interface components {
             primary_observables?: string[];
             /**
              * Record Schema
-             * @default scopecat.measurement_record.v9
+             * @default scopecat.measurement_record.v10
              * @constant
              */
-            record_schema: "scopecat.measurement_record.v9";
+            record_schema: "scopecat.measurement_record.v10";
             result?: components["schemas"]["MeasurementResultContract"] | null;
             /** Variable Groups */
             variable_groups?: components["schemas"]["MeasurementVariableGroup-Output"][];
@@ -2678,6 +2888,30 @@ export interface components {
         };
         "MeasurementMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
+        };
+        /**
+         * MeasurementPartitionedArray
+         * @description One logical rectangular array retained as contiguous axis partitions.
+         *
+         *     Partitions are a physical transport and storage choice. ``shape``, dtype,
+         *     unit, metadata, and availability remain the logical measurement contract;
+         *     consumers that need a single NumPy buffer may call ``materialize()``.
+         */
+        MeasurementPartitionedArray: {
+            /** Axis */
+            axis: number;
+            /** @default float64 */
+            dtype: components["schemas"]["MeasurementDType"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "partitioned_array";
+            metadata?: components["schemas"]["MeasurementMetadata-Output"];
+            /** Partitions */
+            partitions: components["schemas"]["MeasurementArray"][];
+            /** Unit */
+            unit?: string | null;
         };
         /**
          * MeasurementPointCloudPointDomain
@@ -2862,7 +3096,7 @@ export interface components {
         };
         /**
          * MeasurementSlice
-         * @description Records for one semantic product-grid slice.
+         * @description One logical-point window within a semantic product-grid slice.
          */
         MeasurementSlice: {
             dataset_schema?: components["schemas"]["MeasurementDatasetSchema-Output"] | null;
@@ -2871,6 +3105,15 @@ export interface components {
              * @default []
              */
             items: components["schemas"]["MeasurementRecord"][];
+            /** Next Offset */
+            next_offset?: number | null;
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
+            /** Previous Offset */
+            previous_offset?: number | null;
             /** Selected Point Count */
             selected_point_count: number;
             /**
@@ -2878,6 +3121,11 @@ export interface components {
              * @default false
              */
             truncated: boolean;
+            /**
+             * Window Point Count
+             * @default 0
+             */
+            window_point_count: number;
         };
         /**
          * MeasurementSliceQuery
@@ -2898,6 +3146,11 @@ export interface components {
              * @default 4096
              */
             limit: number;
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
             /** Variable Ids */
             variable_ids?: string[] | null;
         };
@@ -3072,7 +3325,7 @@ export interface components {
             /** Unit */
             unit: string | null;
         };
-        MeasurementValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementSegmentedArray"] | components["schemas"]["MeasurementUnavailable"];
+        MeasurementValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementPartitionedArray"] | components["schemas"]["MeasurementSegmentedArray"] | components["schemas"]["MeasurementUnavailable"];
         MeasurementValueMap: {
             [key: string]: components["schemas"]["MeasurementValue"];
         };
@@ -3488,6 +3741,7 @@ export interface components {
             coordinates?: {
                 [key: string]: components["schemas"]["ReviewCoordinateValue-Input"];
             } | null;
+            inspection_query?: components["schemas"]["CompiledProgramInspectionQuery"] | null;
             /** Point Index */
             point_index?: number | null;
         };
@@ -4370,13 +4624,30 @@ export interface components {
         };
         /** Topology */
         "Topology-Input": {
+            /** Connections */
+            connections?: components["schemas"]["TopologyConnection"][];
             /** Entities */
             entities?: components["schemas"]["EntityRef-Input"][];
         };
         /** Topology */
         "Topology-Output": {
+            /** Connections */
+            connections?: components["schemas"]["TopologyConnection"][];
             /** Entities */
             entities?: components["schemas"]["EntityRef-Output"][];
+        };
+        /**
+         * TopologyConnection
+         * @description One typed, undirected connection between two configured entities.
+         */
+        TopologyConnection: {
+            /** Endpoints */
+            endpoints: [
+                components["schemas"]["_NonEmptyId"],
+                components["schemas"]["_NonEmptyId"]
+            ];
+            id: components["schemas"]["_NonEmptyId"];
+            kind: components["schemas"]["_NonEmptyId"];
         };
         /** @constant */
         TraceDownsampling: "minmax";

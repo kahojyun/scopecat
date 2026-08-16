@@ -11,9 +11,12 @@ from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
 from scopecat.measurements.records import EntityRecordPlan, plan_records
+from scopecat.planning.point_materialization import prepare_bound_points
 from scopecat.program.products import RecordSelection
+from scopecat.records.config import Topology, TopologyConnection
 
 from scopecat_quantum import authoring
+from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import GateCall, GateParameterKind
 from scopecat_quantum.measurement_computes import (
     BinaryIqDiscriminator,
@@ -21,6 +24,8 @@ from scopecat_quantum.measurement_computes import (
     IqCentroid,
     binary_iq_probabilities,
 )
+from scopecat_quantum.programs import ParallelEach as QuantumParallelEach
+from scopecat_quantum.programs import estimate_quantum_program_workload
 
 _REPO_ROOT = Path(__file__).parents[3]
 
@@ -364,6 +369,172 @@ def test_program_results_share_one_explicit_shot_dimension() -> None:
     assert [axis.kind for axis in record.axes] == ["entity", "shot"]
     assert record.axes[0].index is not None
     assert [entity.id for entity in record.axes[0].index.values] == ["q0", "q1"]
+
+
+def test_qubit_set_retains_parallel_authoring_and_owns_entity_axis_result() -> None:
+    x = authoring.single_qubit_gate("x")
+
+    @authoring.program(id="test.quantum.qubit-set")
+    def declaration(qubits: authoring.QubitSet) -> authoring.QuantumFragment:
+        return authoring.parallel_each(
+            qubits,
+            lambda qubit: authoring.sequence(
+                x(qubit),
+                authoring.measure(qubit, result="iq_shots"),
+            ),
+        )
+
+    assert [port.id for port in declaration.ports] == ["qubits"]
+    assert declaration.draw().splitlines()[1] == "└─ parallel_each $qubits"
+    assert declaration.results.iq_shots.entity_set is declaration.entity_sets[0]
+    with pytest.raises(ValueError, match="must not be empty"):
+        declaration(())
+    with pytest.raises(ValueError, match="primary key"):
+        declaration(("q0", "q0"))
+
+    bound_program = authoring.bind(
+        declaration,
+        {"qubits": ("q0", "q1")},
+    )
+    assert isinstance(bound_program.program.body, QuantumParallelEach)
+    assert bound_program.program.body.entity_set_id == "qubits"
+    assert [entity.value for entity in bound_program.program.body.entity_ids] == [
+        "q0",
+        "q1",
+    ]
+    assert not hasattr(bound_program.program.body, "branches")
+    workload = estimate_quantum_program_workload(bound_program.verified)
+    assert workload.structural_operation_count == 2
+    assert workload.expanded_operation_count == 4
+    measurements = tuple(
+        operation
+        for operation in bound_program.verified.operations
+        if isinstance(operation, Measure)
+    )
+    assert [operation.qubit.value for operation in measurements] == ["q0", "q1"]
+    assert [operation.acquisition_slot_id.local_id for operation in measurements] == [
+        "iq_shots",
+        "iq_shots",
+    ]
+    assert len({operation.acquisition_slot_id for operation in measurements}) == 2
+
+    reversed_bound = authoring.bind(
+        declaration,
+        {"qubits": ("q1", "q0")},
+    )
+    assert {
+        operation.qubit: operation.acquisition_slot_id
+        for operation in reversed_bound.verified.operations
+        if isinstance(operation, Measure)
+    } == {operation.qubit: operation.acquisition_slot_id for operation in measurements}
+
+    large_entity_ids = tuple(f"q{index}" for index in range(1_000))
+    large_bound = authoring.bind(
+        declaration,
+        {"qubits": large_entity_ids},
+    )
+    assert isinstance(large_bound.program.body, QuantumParallelEach)
+    assert not hasattr(large_bound.program.body, "branches")
+    assert large_bound.program.body.operation == bound_program.program.body.operation
+    assert len(large_bound.program.body.entity_ids) == 1_000
+    large_workload = estimate_quantum_program_workload(large_bound.verified)
+    assert large_workload.structural_operation_count == 2
+    assert large_workload.expanded_operation_count == 2_000
+    assert large_workload.selected_entity_count == 1_000
+
+    call = declaration(("q0", "q1")).with_shots(16)
+
+    @sc.experiment(id="test.quantum.qubit-set", kind="quantum")
+    def experiment(context: sc.ExperimentContext) -> None:
+        results = context.use(call)
+        context.alias(results.iq_shots)
+
+    compiled = compile_invocation(experiment())
+    config = load_config_snapshot_document(
+        _REPO_ROOT / "fixtures" / "core" / "simple_scan" / "config-snapshot.json"
+    )
+    topology = config.system.topology.model_copy(
+        update={
+            "entities": [
+                sc.EntityRef(id="q0", kind="logical_qubit"),
+                sc.EntityRef(id="q1", kind="logical_qubit"),
+                *config.system.topology.entities[1:],
+            ]
+        }
+    )
+    config = config.model_copy(
+        update={"system": config.system.model_copy(update={"topology": topology})}
+    )
+    bound = bind_program(
+        compiled.program,
+        build_config_environment(config),
+    )
+    [product] = bound.bindings.product_defs
+    assert [axis.kind for axis in product.axes] == ["entity", "shot"]
+    assert product.axes[0].entities is not None
+    assert [entity.id for entity in product.axes[0].entities] == ["q0", "q1"]
+    assert product.axes[1].size == 16
+
+
+def test_qubit_set_can_resolve_a_topology_selection_intent() -> None:
+    @authoring.program(id="test.quantum.topology-selected-readout")
+    def declaration(qubits: authoring.QubitSet) -> authoring.QuantumFragment:
+        return authoring.parallel_each(
+            qubits,
+            lambda qubit: authoring.measure(qubit, result="iq_shots"),
+        )
+
+    call = declaration(
+        authoring.select_qubits(
+            3,
+            connected=True,
+            anchor="q1",
+            connection_kind="nearest_neighbor",
+        )
+    ).with_shots(8)
+
+    @sc.experiment(id="test.quantum.topology-selection", kind="quantum")
+    def experiment(context: sc.ExperimentContext) -> None:
+        context.alias(context.use(call).iq_shots)
+
+    compiled = compile_invocation(experiment())
+    config = load_config_snapshot_document(
+        _REPO_ROOT / "fixtures" / "core" / "simple_scan" / "config-snapshot.json"
+    )
+    topology = Topology(
+        entities=[
+            sc.EntityRef(id=f"q{index}", kind="logical_qubit") for index in range(4)
+        ],
+        connections=[
+            TopologyConnection(
+                id=f"q{index}-q{index + 1}",
+                kind="nearest_neighbor",
+                endpoints=(f"q{index}", f"q{index + 1}"),
+            )
+            for index in range(3)
+        ],
+    )
+    config = config.model_copy(
+        update={"system": config.system.model_copy(update={"topology": topology})}
+    )
+
+    bound = bind_program(compiled.program, build_config_environment(config))
+
+    [resolution] = bound.bindings.topology_entity_sets.values()
+    assert [entity.id for entity in resolution.entities] == ["q1", "q0", "q2"]
+    [product] = bound.bindings.product_defs
+    assert product.axes[0].entities == resolution.entities
+    prepared = prepare_bound_points(bound)
+    [execution] = bound.program.program.domain_executions
+    [(input_id, values)] = prepared.bind_domain_inputs(
+        execution.id,
+        "program",
+        ("qubits",),
+        (0,),
+    )
+    assert input_id == "qubits"
+    rows = cast("list[dict[str, sc.EntityRef]]", values[0])
+    assert [row["qubit"].id for row in rows] == ["q1", "q0", "q2"]
 
 
 def test_program_call_binds_compiler_collection_outside_program_arguments() -> None:

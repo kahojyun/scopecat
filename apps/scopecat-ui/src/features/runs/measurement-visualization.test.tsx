@@ -927,6 +927,37 @@ describe("measurement visualization", () => {
     ).toBeVisible();
   });
 
+  it("navigates bounded logical-point windows for oversized slices", () => {
+    const schema = threeDimensionalGridSchema();
+    const items = slicedGridRecords([0]);
+    const onSliceOffsetChange = vi.fn();
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items: [] }}
+        slice={{
+          ...slicePreview(schema, items),
+          selectedPointCount: 10_000,
+          offset: 4096,
+          windowPointCount: items.length,
+          previousOffset: 0,
+          nextOffset: 8192,
+          truncated: true,
+        }}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{ bias: 0 }}
+        onSliceOffsetChange={onSliceOffsetChange}
+        onFixedAxisIndexChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Points 4,097–4,102 of 10,000/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Previous measurement window" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next measurement window" }));
+    expect(onSliceOffsetChange.mock.calls).toEqual([[0], [8192]]);
+  });
+
   it("reports selected-slice read failures instead of blaming variable shapes", () => {
     const schema = threeDimensionalGridSchema();
 
@@ -1055,8 +1086,27 @@ describe("measurement visualization", () => {
       screen.getByRole("img", { name: "Response: Response [ratio] by Bias [V]" }),
     ).toBeVisible();
     expect(screen.getByRole("columnheader", { name: /Bias \[V\]/ })).toBeVisible();
-    expect(screen.getByText("Raw records")).toBeVisible();
+    expect(screen.getByText(/Raw records/)).toBeVisible();
     expect(screen.getByTestId("measurement-preview")).not.toBeVisible();
+  });
+
+  it("keeps a live daemon receipt visible while the selected slice is not durable", () => {
+    const schema = threeDimensionalGridSchema();
+    const liveRecord = slicedGridRecords([0])[0]!;
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items: [liveRecord], livePointIndex: 0 }}
+        slice={slicePreview(schema, [])}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{ bias: 0 }}
+        onFixedAxisIndexChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Raw records", { exact: true }));
+    expect(screen.getByTestId("measurement-preview")).toHaveTextContent('"point_index": 0');
   });
 
   it("offers every chart candidate instead of silently truncating observables", () => {
@@ -1108,9 +1158,9 @@ describe("measurement visualization", () => {
 
 function baseSchema(): MeasurementDatasetSchema {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v16",
+    format_version: "scopecat.measurement_dataset_schema.v17",
     dataset_id: "raw-measurements",
-    record_schema: "scopecat.measurement_record.v9",
+    record_schema: "scopecat.measurement_record.v10",
     point_domain: { kind: "point_cloud", columns: [] },
     dimensions: [{ id: "point", kind: "point", size: 3 }],
     variables: [],
@@ -1634,6 +1684,8 @@ function slicePreview(schema: MeasurementDatasetSchema, items: MeasurementRecord
     items,
     schema,
     selectedPointCount: items.length,
+    offset: 0,
+    windowPointCount: items.length,
     truncated: false,
   };
 }

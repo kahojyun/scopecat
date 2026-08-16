@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from scopecat.inspection import (
+    CompiledArtifactInspection,
+    CompiledProgramInspectionQuery,
+)
 from scopecat.sdk.domain import (
     DomainBatchInputs,
     DomainBatchRequest,
@@ -19,9 +23,11 @@ from scopecat_quantum._ids import (
     TargetCompileEntryId,
     TargetCompilerId,
 )
+from scopecat_quantum.inspection import build_quantum_program_inspection_snapshot
 from scopecat_quantum.program_results import (
     MappedQuantumTarget,
     QuantumTargetEntryPointBinding,
+    QuantumTargetResultAddress,
     QuantumTargetResultUseBinding,
     seal_quantum_target_result_mapping,
 )
@@ -32,10 +38,9 @@ from scopecat_quantum.program_targets import (
     prepare_quantum_target_entry,
 )
 from scopecat_quantum.programs import (
-    lower_quantum_program_to_pulses,
+    plan_quantum_pulse_lowering,
 )
 from scopecat_quantum.pulse_implementations import ResolvedPulseImplementations
-from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from reference_lab.parameters import QUBITS
 from reference_lab.point_values import QuantumLabPointValues
@@ -47,13 +52,16 @@ from reference_lab.targets.configuration import (
     LIST_MODE_TARGET_KIND,
 )
 from reference_lab.targets.list_mode import (
+    ConfiguredRoutePlacementProvider,
     ListModeArtifact,
+    ListModeCompilationTrace,
     ListModeDomainRuntime,
+    ListModePlacementProvider,
     ListModeRun,
     ListModeTarget,
     ListModeTargetCompiler,
     MappedListModeTarget,
-    inspect_list_mode_artifact,
+    build_list_mode_artifact_inspection_snapshot,
     list_mode_measurement_invocation_spec,
     list_mode_realtime_write_footprint,
     list_mode_setup_state_invalidations,
@@ -73,9 +81,11 @@ class _QuantumLabArtifact:
 
 @dataclass(frozen=True, slots=True)
 class _ListQuantumLabArtifact(_QuantumLabArtifact):
+    compiled_points: tuple[_CompiledQuantumPoint, ...]
     entries: tuple[PreparedQuantumTargetEntry, ...]
     batch: PreparedQuantumTargetBatch
     target_artifact: ListModeArtifact = field(repr=False)
+    compilation_trace: ListModeCompilationTrace
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,13 +132,20 @@ class QuantumLabCompiler:
         *,
         target: ListModeTarget,
         runtime_selector: QuantumRuntimeSelector | None = None,
+        placement_provider: ListModePlacementProvider | None = None,
     ) -> None:
         self._target = target
         self._runtime = ListModeDomainRuntime()
         self._runtime_selector = runtime_selector
+        selected_placement_provider = (
+            ConfiguredRoutePlacementProvider()
+            if placement_provider is None
+            else placement_provider
+        )
         self._target_compiler = ListModeTargetCompiler(
             _QUANTUM_LAB_TARGET_COMPILER_ID,
             self._target,
+            placement_provider=selected_placement_provider,
         )
 
     @property
@@ -175,16 +192,22 @@ class QuantumLabCompiler:
         *,
         shots: int,
     ) -> _ListQuantumLabArtifact:
-        points = _compile_points(program, inputs, point_ordinals)
+        points = _compile_points(
+            program,
+            inputs,
+            point_ordinals,
+            max_expanded_operations=self._target.max_program_event_count,
+        )
         entries = tuple(
             prepare_quantum_target_entry(
                 TargetCompileEntryId(f"{program.id}.point-{point.values.ordinal}"),
-                lower_quantum_program_to_pulses(
+                plan_quantum_pulse_lowering(
                     point.bound.verified,
                     point.implementations,
                     output_id=PulseProgramId(
                         f"{program.id}.point-{point.values.ordinal}.pulses"
                     ),
+                    max_expanded_operations=self._target.max_program_event_count,
                 ),
             )
             for point in points
@@ -193,12 +216,17 @@ class QuantumLabCompiler:
             entries,
             repetitions=shots,
         )
+        target_artifact, compilation_trace = self._target_compiler.compile_with_trace(
+            batch.request
+        )
         return _ListQuantumLabArtifact(
             program=program,
             points=tuple(point.values for point in points),
+            compiled_points=points,
             entries=entries,
             batch=batch,
-            target_artifact=self._target_compiler.compile(batch.request),
+            target_artifact=target_artifact,
+            compilation_trace=compilation_trace,
         )
 
     def compile_batch(
@@ -254,6 +282,27 @@ class QuantumLabCompiler:
             ),
             response_intent=selection.response_intent,
         )
+
+        inspection_snapshot = None
+        if request.inspection_requested:
+            program_inspection_snapshot = build_quantum_program_inspection_snapshot(
+                artifact.program,
+                bound=artifact.compiled_points[0].bound,
+                scheduled=artifact.entries[0].scheduled,
+                snapshot_id=artifact.target_artifact.artifact_fingerprint,
+            )
+            inspection_snapshot = build_list_mode_artifact_inspection_snapshot(
+                artifact.target_artifact,
+                program_projector=program_inspection_snapshot.project,
+                compilation_trace=artifact.compilation_trace,
+            )
+
+        def project_inspection(
+            query: CompiledProgramInspectionQuery | None,
+        ) -> CompiledArtifactInspection:
+            assert inspection_snapshot is not None
+            return inspection_snapshot.project(query)
+
         return preparation.build(
             instrument_ids=artifact.target_artifact.instrument_ids,
             setup=runtime,
@@ -265,15 +314,16 @@ class QuantumLabCompiler:
                 artifact.target_artifact
             ),
             realtime_state_invalidations=(),
-            next_batch_max_points=_next_batch_max_points(
-                artifact.target_artifact,
-                max_list_entries=self._target.max_list_entries,
-                max_program_waveform_bytes=(self._target.max_program_waveform_bytes),
+            next_batch_max_points=(
+                artifact.target_artifact.compilation_budget.next_batch_max_points
             ),
             inspection=(
-                inspect_list_mode_artifact(artifact.target_artifact)
+                project_inspection(request.inspection_query)
                 if request.inspection_requested
                 else None
+            ),
+            inspection_projector=(
+                project_inspection if request.inspection_requested else None
             ),
             mapping=mapping,
             invocation=invocation,
@@ -288,21 +338,6 @@ class QuantumLabCompiler:
         if self._runtime_selector is None:
             return QuantumRuntimeSelection(self._runtime)
         return self._runtime_selector(context)
-
-
-def _next_batch_max_points(
-    artifact: ListModeArtifact,
-    *,
-    max_list_entries: int,
-    max_program_waveform_bytes: int,
-) -> int:
-    largest_entry_bytes = max(
-        artifact.materialized_waveform_bytes(entry) for entry in artifact.entries
-    )
-    return min(
-        max_list_entries,
-        max(1, max_program_waveform_bytes // max(largest_entry_bytes, 1)),
-    )
 
 
 def _quantum_program(call: DomainCallView) -> quantum.Program:
@@ -341,10 +376,10 @@ def _validate_call(
 def _shot_count(call: DomainCallView) -> int:
     counts: list[int] = []
     for result in call.results:
-        axes = result.product.axes
-        if not axes or axes[0].kind != "shot":
-            raise ValueError("quantum lab result products require a leading shot axis")
-        size = axes[0].size
+        shot_axes = tuple(axis for axis in result.product.axes if axis.kind == "shot")
+        if len(shot_axes) != 1:
+            raise ValueError("quantum lab result products require one shot axis")
+        size = shot_axes[0].size
         if size is None:
             raise ValueError("quantum lab result products require fixed shot counts")
         counts.append(size)
@@ -357,6 +392,8 @@ def _compile_points(
     program: quantum.Program,
     inputs: DomainBatchInputs,
     point_ordinals: tuple[int, ...],
+    *,
+    max_expanded_operations: int,
 ) -> tuple[_CompiledQuantumPoint, ...]:
     program_inputs = inputs.program
     compiler_parameters = (
@@ -381,9 +418,10 @@ def _compile_points(
             _CompiledQuantumPoint(
                 values=point,
                 bound=bound,
-                implementations=QUANTUM_PULSE_PROFILE.materialize(
+                implementations=QUANTUM_PULSE_PROFILE.materialize_quantum(
                     parameters,
-                    bound.verified.unresolved,
+                    bound.verified,
+                    max_expanded_operations=max_expanded_operations,
                 ),
             )
         )
@@ -393,15 +431,18 @@ def _compile_points(
 def _result_address(
     entry: PreparedQuantumTargetEntry,
     result: quantum.MeasurementResult,
-) -> TargetAcquisitionAddress:
+) -> QuantumTargetResultAddress:
     addresses = tuple(
         address
         for address in entry.acquisition_addresses
         if address.slot_id.local_id == result.id
     )
-    if len(addresses) != 1:
-        raise ValueError("quantum lab results must have one acquisition address")
-    return addresses[0]
+    expected_count = 1 if result.entity_set is None else None
+    if not addresses or (
+        expected_count is not None and len(addresses) != expected_count
+    ):
+        raise ValueError("quantum lab results must cover their acquisitions")
+    return QuantumTargetResultAddress(addresses)
 
 
 def _measurement_results(

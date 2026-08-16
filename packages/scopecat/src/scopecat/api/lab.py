@@ -18,6 +18,7 @@ from scopecat.authoring.experiments import Experiment, ExperimentInvocation
 from scopecat.config.candidates import CandidateConfig
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import DaemonHealth
+from scopecat.inspection import CompiledProgramInspectionQuery
 from scopecat.planning.preview import PreviewCoordinateMode
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.system import ExperimentSystemBuilder
@@ -45,6 +46,7 @@ class PreparedLabExperiment:
         point: PreviewPoint = "first",
         coordinates: Mapping[str, object] | None = None,
         coordinate_mode: PreviewCoordinateMode = "exact",
+        inspection_query: CompiledProgramInspectionQuery | None = None,
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -57,6 +59,7 @@ class PreparedLabExperiment:
             point=point,
             coordinates=coordinates,
             coordinate_mode=coordinate_mode,
+            inspection_query=inspection_query,
             name=name,
             tags=tags,
             description=description,
@@ -206,6 +209,7 @@ class LabClient:
         point: PreviewPoint = "first",
         coordinates: Mapping[str, object] | None = None,
         coordinate_mode: PreviewCoordinateMode = "exact",
+        inspection_query: CompiledProgramInspectionQuery | None = None,
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -218,6 +222,7 @@ class LabClient:
             point=point,
             coordinates=coordinates,
             coordinate_mode=coordinate_mode,
+            inspection_query=inspection_query,
             name=name,
             tags=tags,
             description=description,
@@ -275,6 +280,7 @@ class LabClient:
         point: PreviewPoint = "first",
         coordinates: Mapping[str, object] | None = None,
         coordinate_mode: PreviewCoordinateMode = "exact",
+        inspection_query: CompiledProgramInspectionQuery | None = None,
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -287,6 +293,7 @@ class LabClient:
             point=point,
             coordinates=coordinates,
             coordinate_mode=coordinate_mode,
+            inspection_query=inspection_query,
             name=name,
             tags=tags,
             description=description,

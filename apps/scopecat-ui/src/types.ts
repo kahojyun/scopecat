@@ -130,6 +130,10 @@ export interface MeasurementSlicePreview {
   items: MeasurementRecord[];
   schema?: MeasurementDatasetSchema;
   selectedPointCount: number;
+  offset: number;
+  windowPointCount: number;
+  nextOffset?: number;
+  previousOffset?: number;
   truncated: boolean;
 }
 

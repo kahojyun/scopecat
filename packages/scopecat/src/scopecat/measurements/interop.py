@@ -22,6 +22,7 @@ from scopecat.program.measurement_types import MeasurementDType, MeasurementVari
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDatasetSchema,
+    MeasurementPartitionedArray,
     MeasurementScalar,
     MeasurementSegmentedArray,
     MeasurementUnavailable,
@@ -703,7 +704,10 @@ def _unavailable_columns(
         if isinstance(value, MeasurementUnavailable):
             reasons.append(value.reason)
             metadata.append(_stable_json(value.metadata))
-        elif isinstance(value, MeasurementArray | MeasurementSegmentedArray) and (
+        elif isinstance(
+            value,
+            MeasurementArray | MeasurementPartitionedArray | MeasurementSegmentedArray,
+        ) and (
             value.availability is not None
             or (
                 isinstance(value, MeasurementSegmentedArray)
@@ -770,7 +774,7 @@ def _point_observation_shape(
         if len(field.dims) == 1:
             continue
         value = projected[field.name][position]
-        if isinstance(value, MeasurementArray):
+        if isinstance(value, MeasurementArray | MeasurementPartitionedArray):
             shape = tuple(np.asarray(value.values).shape)
         elif isinstance(value, MeasurementUnavailable):
             shape = tuple(value.shape)
@@ -810,6 +814,8 @@ def _observation_value(
         return value
     if isinstance(value, MeasurementUnavailable):
         return value.model_copy(update={"shape": ()})
+    if isinstance(value, MeasurementPartitionedArray):
+        value = value.materialize()
     if not isinstance(value, MeasurementArray):
         raise TypeError(f"observation field {field.name!r} is not array-valued")
     if value.availability is not None:

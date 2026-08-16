@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from scopecat.kernel.errors import (
@@ -37,8 +38,9 @@ def execute_domain_job_values(
     logical_compute_node_id: str,
     run_id: str,
     instruments: DomainInstrumentExecutor,
-) -> tuple[MeasurementValueCandidate, ...]:
-    """Execute one closed domain job and return canonical logical candidates."""
+    accept: Callable[[MeasurementValueCandidate], None],
+) -> None:
+    """Execute one closed domain job into the execution-owned coverage sink."""
 
     invocation = prepared.invocation
     runtime = _RequirementReconciledRuntime(prepared)
@@ -53,7 +55,7 @@ def execute_domain_job_values(
         execution_id,
         instruments=instruments,
     )
-    return prepared.realize(result)
+    prepared.realize_into(result, accept)
 
 
 @dataclass(frozen=True, slots=True)

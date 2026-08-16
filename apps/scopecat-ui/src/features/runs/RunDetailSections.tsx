@@ -409,6 +409,7 @@ export function DataCard({
   onTracePlanChange,
   onMeasurementEntitySelectionChange,
   measurementFixedAxisIndices,
+  onMeasurementSliceOffsetChange,
   onMeasurementFixedAxisIndexChange,
 }: {
   run: ProjectRun;
@@ -426,6 +427,7 @@ export function DataCard({
   onTracePlanChange: (planId: string) => void;
   onMeasurementEntitySelectionChange: (selection: MeasurementEntitySelection) => void;
   measurementFixedAxisIndices: Record<string, number>;
+  onMeasurementSliceOffsetChange: (offset: number) => void;
   onMeasurementFixedAxisIndexChange: (axisId: string, index: number) => void;
 }) {
   const [selectedContentKey, setSelectedContentKey] = useState<string>();
@@ -556,6 +558,7 @@ export function DataCard({
         onTracePlanChange={onTracePlanChange}
         onMeasurementEntitySelectionChange={onMeasurementEntitySelectionChange}
         fixedAxisIndices={measurementFixedAxisIndices}
+        onSliceOffsetChange={onMeasurementSliceOffsetChange}
         onFixedAxisIndexChange={onMeasurementFixedAxisIndexChange}
       />
     </article>
@@ -631,6 +634,7 @@ function MeasurementRecords({
   onTracePlanChange,
   onMeasurementEntitySelectionChange,
   fixedAxisIndices,
+  onSliceOffsetChange,
   onFixedAxisIndexChange,
   error,
   pending,
@@ -647,6 +651,7 @@ function MeasurementRecords({
   onTracePlanChange: (planId: string) => void;
   onMeasurementEntitySelectionChange: (selection: MeasurementEntitySelection) => void;
   fixedAxisIndices: Record<string, number>;
+  onSliceOffsetChange: (offset: number) => void;
   onFixedAxisIndexChange: (axisId: string, index: number) => void;
   error: Error | null;
   pending: boolean;
@@ -686,6 +691,7 @@ function MeasurementRecords({
       onTracePlanChange={onTracePlanChange}
       onEntitySelectionChange={onMeasurementEntitySelectionChange}
       fixedAxisIndices={fixedAxisIndices}
+      onSliceOffsetChange={onSliceOffsetChange}
       onFixedAxisIndexChange={onFixedAxisIndexChange}
     />
   );

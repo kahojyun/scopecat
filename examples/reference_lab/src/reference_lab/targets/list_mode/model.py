@@ -105,6 +105,264 @@ class AcquisitionBinding:
 
 
 @dataclass(frozen=True, slots=True, order=True)
+class ListModePhysicalEndpoint:
+    """One concrete channel selected by list-mode placement."""
+
+    kind: Literal["waveform_output", "acquisition_input"]
+    instrument_id: str
+    channel_id: str
+    component_path: tuple[str, ...]
+
+    @property
+    def id(self) -> str:
+        return f"{self.instrument_id}:{self.channel_id}"
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeSignalPlacement:
+    """Configured route from one logical signal to physical endpoints."""
+
+    signal: tuple[str, str, str]
+    endpoints: tuple[ListModePhysicalEndpoint, ...]
+    lo_group_id: str | None = None
+    demodulator_slot_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeDeviceSnapshot:
+    """Immutable list-mode view of the configured quantum device."""
+
+    target_id: TargetId
+    configuration_fingerprint: str
+    timing_instrument_id: str
+    signal_placements: tuple[ListModeSignalPlacement, ...]
+    snapshot_fingerprint: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "snapshot_fingerprint",
+            canonical_fingerprint(device_snapshot_payload(self)),
+        )
+
+    def signal_placement(
+        self,
+        signal: tuple[str, str, str],
+    ) -> ListModeSignalPlacement:
+        for placement in self.signal_placements:
+            if placement.signal == signal:
+                return placement
+        raise KeyError(signal)
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeEventPlacement:
+    """One scheduled event placed on its configured physical route."""
+
+    entry_id: TargetCompileEntryId
+    event_id: PulseEventId
+    signal: ListModeSignalPlacement
+    constraint_ids: tuple[str, ...]
+    candidate_ids: tuple[str, ...]
+    candidate_count: int
+
+
+type ListModePlacementCandidateStatus = Literal["selected", "rejected"]
+type ListModePlacementRejectionCode = Literal[
+    "signal_role_mismatch",
+    "entity_kind_mismatch",
+    "entity_mismatch",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ListModePlacementRejection:
+    """One structured reason a physical route was not selected."""
+
+    code: ListModePlacementRejectionCode
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class ListModePlacementCandidate:
+    """One physical route considered for a requested logical signal."""
+
+    id: str
+    signal: tuple[str, str, str]
+    route: ListModeSignalPlacement
+    status: ListModePlacementCandidateStatus
+    rejections: tuple[ListModePlacementRejection, ...]
+
+
+type ListModePlacementConstraintKind = Literal[
+    "configured_route",
+    "shared_endpoint",
+    "shared_local_oscillator",
+    "demodulator_slot",
+    "timing_domain",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ListModePlacementConstraint:
+    """One explainable physical constraint shared by placed program events."""
+
+    id: str
+    kind: ListModePlacementConstraintKind
+    label: str
+    signals: tuple[tuple[str, str, str], ...]
+    entity_ids: tuple[str, ...]
+    resource_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeProgramPlacement:
+    """Exact per-event placement for a finite target compile request."""
+
+    provider_id: str
+    provider_fingerprint: str
+    device_snapshot_fingerprint: str
+    events: tuple[ListModeEventPlacement, ...]
+    candidates: tuple[ListModePlacementCandidate, ...]
+    candidate_count: int
+    candidates_truncated: bool
+    constraints: tuple[ListModePlacementConstraint, ...]
+
+    @property
+    def logical_qubit_ids(self) -> tuple[str, ...]:
+        return tuple(sorted({event.signal.signal[2] for event in self.events}))
+
+
+@dataclass(frozen=True, slots=True)
+class ListModePhysicalFootprint:
+    """Compact physical resource and memory footprint of one artifact."""
+
+    instrument_ids: tuple[str, ...]
+    waveform_outputs: tuple[ListModePhysicalEndpoint, ...]
+    acquisition_inputs: tuple[ListModePhysicalEndpoint, ...]
+    timing_instrument_id: str
+    waveform_bytes: int
+    result_bytes: int
+    event_count: int
+    acquisition_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeCompilationKey:
+    """Layered identities from scheduled semantics through artifact layout."""
+
+    compiler_id: TargetCompilerId
+    placement_provider_fingerprint: str
+    device_snapshot_fingerprint: str
+    scheduled_program_fingerprints: tuple[str, ...]
+    semantic_program_fingerprint: str
+    placement_fingerprint: str
+    artifact_layout_fingerprint: str
+
+    @property
+    def value(self) -> str:
+        """Return the final artifact-layout cache key."""
+
+        return self.artifact_layout_fingerprint
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeCompilationStageCacheInfo:
+    """Observable behavior of one process-local compilation-stage LRU."""
+
+    hits: int
+    misses: int
+    evictions: int
+    size: int
+    capacity: int
+    retained_bytes: int
+    max_retained_bytes: int
+    oversize_skips: int
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeCompilationCachePolicy:
+    """Process-local entry and retained-memory budgets for compiler stages."""
+
+    semantic_max_entries: int = 64
+    semantic_max_bytes: int = 4 * 1024 * 1024
+    placement_max_entries: int = 64
+    placement_max_bytes: int = 16 * 1024 * 1024
+    layout_max_entries: int = 64
+    layout_max_bytes: int = 64 * 1024 * 1024
+    artifact_max_entries: int = 32
+    artifact_max_bytes: int = 64 * 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeCompilationCacheInfo:
+    """Observable behavior of semantic, placement, layout, and artifact LRUs."""
+
+    semantic: ListModeCompilationStageCacheInfo
+    placement: ListModeCompilationStageCacheInfo
+    layout: ListModeCompilationStageCacheInfo
+    artifact: ListModeCompilationStageCacheInfo
+
+
+type ListModeCompilationCacheOutcome = Literal["hit", "miss", "not_checked"]
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeCompilationTrace:
+    """Cache disposition of the stages consulted for one compile call."""
+
+    semantic: ListModeCompilationCacheOutcome
+    placement: ListModeCompilationCacheOutcome
+    layout: ListModeCompilationCacheOutcome
+    artifact: ListModeCompilationCacheOutcome
+    semantic_seconds: float
+    placement_seconds: float
+    layout_seconds: float
+    artifact_seconds: float
+    cache_info: ListModeCompilationCacheInfo
+
+    @property
+    def artifact_reused(self) -> bool:
+        return self.artifact == "hit"
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeBudgetDimension:
+    """Observed use and capacity for one target-owned resource dimension."""
+
+    id: Literal[
+        "list_entries",
+        "waveform_memory_bytes",
+        "event_count",
+        "acquisition_count",
+        "result_bytes",
+        "result_chunk_bytes",
+        "samples_per_entry",
+        "repetitions",
+    ]
+    scope: Literal["batch", "entry", "invocation"]
+    usage: int
+    limit: int
+    projected_point_capacity: int | None = None
+    projected_shot_capacity: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeCompilationBudget:
+    """Multi-dimensional admission report for a compiled list-mode batch."""
+
+    dimensions: tuple[ListModeBudgetDimension, ...]
+    next_batch_max_points: int
+    limiting_dimensions: tuple[str, ...]
+
+    def dimension(self, id: str) -> ListModeBudgetDimension:
+        for dimension in self.dimensions:
+            if dimension.id == id:
+                return dimension
+        raise KeyError(id)
+
+
+@dataclass(frozen=True, slots=True, order=True)
 class ClockPreparation:
     """Shared reference-clock preparation for one physical instrument."""
 
@@ -167,6 +425,141 @@ def canonical_fingerprint(payload: object) -> str:
         sort_keys=True,
     ).encode()
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def physical_endpoint_payload(endpoint: ListModePhysicalEndpoint) -> dict[str, object]:
+    return {
+        "kind": endpoint.kind,
+        "instrument_id": endpoint.instrument_id,
+        "channel_id": endpoint.channel_id,
+        "component_path": list(endpoint.component_path),
+    }
+
+
+def signal_placement_payload(placement: ListModeSignalPlacement) -> dict[str, object]:
+    return {
+        "signal": list(placement.signal),
+        "endpoints": [
+            physical_endpoint_payload(endpoint) for endpoint in placement.endpoints
+        ],
+        "lo_group_id": placement.lo_group_id,
+        "demodulator_slot_id": placement.demodulator_slot_id,
+    }
+
+
+def device_snapshot_payload(snapshot: ListModeDeviceSnapshot) -> dict[str, object]:
+    return {
+        "schema": "reference_lab.list_mode_device_snapshot.v1",
+        "target_id": snapshot.target_id.value,
+        "configuration_fingerprint": snapshot.configuration_fingerprint,
+        "timing_instrument_id": snapshot.timing_instrument_id,
+        "signal_placements": [
+            signal_placement_payload(placement)
+            for placement in snapshot.signal_placements
+        ],
+    }
+
+
+def program_placement_payload(placement: ListModeProgramPlacement) -> dict[str, object]:
+    return {
+        "provider_id": placement.provider_id,
+        "provider_fingerprint": placement.provider_fingerprint,
+        "device_snapshot_fingerprint": placement.device_snapshot_fingerprint,
+        "events": [
+            {
+                "entry_id": event.entry_id.value,
+                "event_id": pulse_event_identity_payload(event.event_id),
+                "signal": signal_placement_payload(event.signal),
+                "constraint_ids": list(event.constraint_ids),
+                "candidate_ids": list(event.candidate_ids),
+                "candidate_count": event.candidate_count,
+            }
+            for event in placement.events
+        ],
+        "candidates": [
+            {
+                "id": candidate.id,
+                "signal": list(candidate.signal),
+                "route": signal_placement_payload(candidate.route),
+                "status": candidate.status,
+                "rejections": [
+                    {
+                        "code": rejection.code,
+                        "message": rejection.message,
+                    }
+                    for rejection in candidate.rejections
+                ],
+            }
+            for candidate in placement.candidates
+        ],
+        "candidate_count": placement.candidate_count,
+        "candidates_truncated": placement.candidates_truncated,
+        "constraints": [
+            {
+                "id": constraint.id,
+                "kind": constraint.kind,
+                "label": constraint.label,
+                "signals": [list(signal) for signal in constraint.signals],
+                "entity_ids": list(constraint.entity_ids),
+                "resource_ids": list(constraint.resource_ids),
+            }
+            for constraint in placement.constraints
+        ],
+    }
+
+
+def physical_footprint_payload(
+    footprint: ListModePhysicalFootprint,
+) -> dict[str, object]:
+    return {
+        "instrument_ids": list(footprint.instrument_ids),
+        "waveform_outputs": [
+            physical_endpoint_payload(endpoint)
+            for endpoint in footprint.waveform_outputs
+        ],
+        "acquisition_inputs": [
+            physical_endpoint_payload(endpoint)
+            for endpoint in footprint.acquisition_inputs
+        ],
+        "timing_instrument_id": footprint.timing_instrument_id,
+        "waveform_bytes": footprint.waveform_bytes,
+        "result_bytes": footprint.result_bytes,
+        "event_count": footprint.event_count,
+        "acquisition_count": footprint.acquisition_count,
+    }
+
+
+def compilation_key_payload(key: ListModeCompilationKey) -> dict[str, object]:
+    return {
+        "schema": "reference_lab.list_mode_compilation_key.v2",
+        "compiler_id": key.compiler_id.value,
+        "placement_provider_fingerprint": key.placement_provider_fingerprint,
+        "device_snapshot_fingerprint": key.device_snapshot_fingerprint,
+        "scheduled_program_fingerprints": list(key.scheduled_program_fingerprints),
+        "semantic_program_fingerprint": key.semantic_program_fingerprint,
+        "placement_fingerprint": key.placement_fingerprint,
+        "artifact_layout_fingerprint": key.artifact_layout_fingerprint,
+    }
+
+
+def compilation_budget_payload(
+    budget: ListModeCompilationBudget,
+) -> dict[str, object]:
+    return {
+        "dimensions": [
+            {
+                "id": dimension.id,
+                "scope": dimension.scope,
+                "usage": dimension.usage,
+                "limit": dimension.limit,
+                "projected_point_capacity": dimension.projected_point_capacity,
+                "projected_shot_capacity": dimension.projected_shot_capacity,
+            }
+            for dimension in budget.dimensions
+        ],
+        "next_batch_max_points": budget.next_batch_max_points,
+        "limiting_dimensions": list(budget.limiting_dimensions),
+    }
 
 
 def pulse_event_identity_payload(event_id: PulseEventId) -> dict[str, object]:
@@ -283,6 +676,10 @@ class ListModeTarget:
     max_list_entries: int
     max_samples_per_entry: int
     max_program_waveform_bytes: int
+    max_program_event_count: int
+    max_program_acquisition_count: int
+    max_result_bytes: int
+    max_result_chunk_bytes: int
     max_repetitions: int
     max_abs_amplitude: float
     acquisition_dsp_policy: Literal["target", "device", "prefer_device"]
@@ -340,30 +737,71 @@ class ListModeTarget:
         return self._configuration_fingerprint
 
     @property
+    def device_snapshot(self) -> ListModeDeviceSnapshot:
+        """Return the exact logical-to-physical routing snapshot."""
+
+        placements = tuple(
+            sorted(
+                (
+                    *(
+                        ListModeSignalPlacement(
+                            signal=signal_key(binding.signal),
+                            endpoints=tuple(
+                                ListModePhysicalEndpoint(
+                                    kind="waveform_output",
+                                    instrument_id=channel.instrument_id,
+                                    channel_id=channel.value,
+                                    component_path=channel.component_path,
+                                )
+                                for channel in binding.channel_ids
+                            ),
+                            lo_group_id=binding.lo_group_id,
+                        )
+                        for binding in self.output_bindings
+                    ),
+                    *(
+                        ListModeSignalPlacement(
+                            signal=signal_key(binding.signal),
+                            endpoints=(
+                                ListModePhysicalEndpoint(
+                                    kind="acquisition_input",
+                                    instrument_id=binding.input_id.instrument_id,
+                                    channel_id=binding.input_id.value,
+                                    component_path=binding.input_id.component_path,
+                                ),
+                            ),
+                            demodulator_slot_id=binding.demodulator_slot_id.value,
+                        )
+                        for binding in self.acquisition_bindings
+                    ),
+                ),
+                key=lambda placement: placement.signal,
+            )
+        )
+        return ListModeDeviceSnapshot(
+            target_id=self.id,
+            configuration_fingerprint=self.configuration_fingerprint,
+            timing_instrument_id=self.preparation.timing.trigger_instrument_id,
+            signal_placements=placements,
+        )
+
+    @property
     def supported_envelopes(self) -> tuple[str, ...]:
         return ("constant", "gaussian", "drag")
 
-    def output_binding(self, signal: OutputSignal) -> IqOutputBinding | None:
-        for binding in self.output_bindings:
-            if binding.signal == signal:
-                return binding
-        return None
-
-    def acquisition_binding(self, signal: AcquireSignal) -> AcquisitionBinding | None:
-        for binding in self.acquisition_bindings:
-            if binding.signal == signal:
-                return binding
-        return None
-
     def _capability_payload(self) -> dict[str, object]:
         return {
-            "schema": "reference_lab.list_mode_target.capabilities.v7",
+            "schema": "reference_lab.list_mode_target.capabilities.v9",
             "target_id": self.id.value,
             "sample_rate_hz": self.sample_rate_hz,
             "timing_quantization": self.timing_quantization,
             "max_list_entries": self.max_list_entries,
             "max_samples_per_entry": self.max_samples_per_entry,
             "max_program_waveform_bytes": self.max_program_waveform_bytes,
+            "max_program_event_count": self.max_program_event_count,
+            "max_program_acquisition_count": self.max_program_acquisition_count,
+            "max_result_bytes": self.max_result_bytes,
+            "max_result_chunk_bytes": self.max_result_chunk_bytes,
             "max_repetitions": self.max_repetitions,
             "max_abs_amplitude": float(self.max_abs_amplitude).hex(),
             "digitizer_result_representation": (self.digitizer_result_representation),
@@ -671,7 +1109,13 @@ class ListModeArtifact:
     sample_rate_hz: int
     waveform_semantics_id: str
     max_abs_amplitude: float
+    max_result_chunk_bytes: int
     timing_quantization: TimingQuantizationMode
+    compilation_key: ListModeCompilationKey
+    compilation_budget: ListModeCompilationBudget
+    device_snapshot: ListModeDeviceSnapshot
+    placement: ListModeProgramPlacement
+    physical_footprint: ListModePhysicalFootprint
     preparation: ListModePreparation
     host_state_requirements: ListModeHostStateRequirements
     entries: tuple[ListModeEntry, ...]
@@ -681,15 +1125,7 @@ class ListModeArtifact:
     def instrument_ids(self) -> tuple[str, ...]:
         """Return the exact physical footprint of this compiled batch."""
 
-        return tuple(
-            sorted(
-                {
-                    *(program.instrument_id for program in self.awg_programs),
-                    *(program.instrument_id for program in self.digitizer_programs),
-                    self.preparation.timing.trigger_instrument_id,
-                }
-            )
-        )
+        return self.physical_footprint.instrument_ids
 
     def trigger_participants(
         self,
@@ -918,9 +1354,26 @@ __all__ = [
     "IqOffsetCouplingPolicy",
     "IqOutputBinding",
     "ListModeArtifact",
+    "ListModeBudgetDimension",
+    "ListModeCompilationBudget",
+    "ListModeCompilationCacheInfo",
+    "ListModeCompilationKey",
+    "ListModeCompilationStageCacheInfo",
+    "ListModeDeviceSnapshot",
     "ListModeEntry",
+    "ListModeEventPlacement",
     "ListModeHostStateRequirements",
+    "ListModePhysicalEndpoint",
+    "ListModePhysicalFootprint",
+    "ListModePlacementCandidate",
+    "ListModePlacementCandidateStatus",
+    "ListModePlacementConstraint",
+    "ListModePlacementConstraintKind",
+    "ListModePlacementRejection",
+    "ListModePlacementRejectionCode",
     "ListModePreparation",
+    "ListModeProgramPlacement",
+    "ListModeSignalPlacement",
     "ListModeTarget",
     "MaterializedAwgProgram",
     "MaterializedAwgProgramEntry",
@@ -935,7 +1388,13 @@ __all__ = [
     "TriggerParticipants",
     "awg_phase_template_identity_payload",
     "awg_waveform_identity_payload",
+    "compilation_budget_payload",
+    "compilation_key_payload",
+    "device_snapshot_payload",
     "host_state_policy_payload",
     "host_state_requirements_payload",
+    "physical_footprint_payload",
     "preparation_payload",
+    "program_placement_payload",
+    "signal_placement_payload",
 ]

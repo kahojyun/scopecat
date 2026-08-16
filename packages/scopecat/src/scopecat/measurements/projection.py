@@ -51,6 +51,7 @@ from scopecat.records.measurement import (
     MeasurementArrayUnavailableGroup,
     MeasurementDatasetSchema,
     MeasurementEntityAcquisition,
+    MeasurementPartitionedArray,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementSegmentedArray,
@@ -425,8 +426,18 @@ def _projected_entity_value(
     point: AcceptedRunPoint,
 ) -> MeasurementValue:
     values = tuple(
-        product_values.value_for_output(point.logical_id, member.product_use_id).value
+        (
+            value.materialize()
+            if isinstance(value, MeasurementPartitionedArray)
+            else value
+        )
         for member in record.members
+        for value in (
+            product_values.value_for_output(
+                point.logical_id,
+                member.product_use_id,
+            ).value,
+        )
     )
     if _entity_local_shapes_vary(values):
         return _projected_entity_ragged_value(record, values)
@@ -634,7 +645,9 @@ def _entity_acquisition_outcome(
 ) -> Literal["available", "unavailable", "partial"]:
     if isinstance(value, MeasurementUnavailable):
         return "unavailable"
-    if isinstance(value, MeasurementArray) and value.availability is not None:
+    if isinstance(value, MeasurementArray | MeasurementPartitionedArray) and (
+        value.availability is not None
+    ):
         return "partial"
     return "available"
 

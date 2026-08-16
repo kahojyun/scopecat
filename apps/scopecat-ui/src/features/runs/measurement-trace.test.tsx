@@ -221,7 +221,14 @@ describe("measurement trace visualization", () => {
     render(
       <MeasurementDataPreview
         preview={{ schema, items: [] }}
-        slice={{ items: [], schema, selectedPointCount: 0, truncated: false }}
+        slice={{
+          items: [],
+          schema,
+          selectedPointCount: 0,
+          offset: 0,
+          windowPointCount: 0,
+          truncated: false,
+        }}
         sliceError={null}
         slicePending={false}
         fixedAxisIndices={{}}
@@ -269,7 +276,14 @@ describe("measurement trace visualization", () => {
     });
     const common = {
       preview: { schema, items: [] },
-      slice: { items: [], schema, selectedPointCount: 0, truncated: false },
+      slice: {
+        items: [],
+        schema,
+        selectedPointCount: 0,
+        offset: 0,
+        windowPointCount: 0,
+        truncated: false,
+      },
       sliceError: null,
       slicePending: false,
       fixedAxisIndices: {},

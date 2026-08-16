@@ -9,7 +9,7 @@ defined separately in :mod:`scopecat.sdk.domain.runtime`.
 
 from __future__ import annotations
 
-from collections.abc import Hashable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -192,29 +192,31 @@ def close_domain_invocation[
     )
 
 
-def seal_domain_output_values[
+def stream_domain_output_values[
     ResultAddressT: Hashable,
 ](
     mapping: DomainResultMapping[ResultAddressT],
-    values: Sequence[DomainOutputValue[ResultAddressT]],
-) -> tuple[MeasurementValueCandidate, ...]:
-    """Accept exact observable-value coverage against retained contracts.
+    values: Iterable[DomainOutputValue[ResultAddressT]],
+    *,
+    accept: Callable[[MeasurementValueCandidate], None],
+) -> None:
+    """Validate complete output coverage, then stream canonical candidates.
 
     The adapter supplies only opaque result addresses and measurement values.
     Point, product-use, and product identity are derived from ``mapping``.  Any
-    coverage or value-contract problem rejects the complete candidate set; no
-    partial accepted proof is returned. This first carrier supports observable
-    products only; artifact and other product kinds require distinct payload
-    closures rather than overloading ``MeasurementValue``.
+    coverage or value-contract problem rejects the complete candidate set
+    before anything reaches ``accept``. Once validated, candidates transfer to
+    the execution-owned coverage sink one at a time instead of materializing a
+    second complete tuple. This first carrier supports observable products
+    only; artifact and other product kinds require distinct payload closures
+    rather than overloading ``MeasurementValue``.
     """
-
-    selected = tuple(values)
 
     expected_addresses = {result.result_address for result in mapping.results}
     by_address: dict[ResultAddressT, DomainOutputValue[ResultAddressT]] = {}
     first_index_by_address: dict[ResultAddressT, int] = {}
     problems: list[Problem] = []
-    for candidate_index, candidate in enumerate(selected):
+    for candidate_index, candidate in enumerate(values):
         if candidate.result_address in by_address:
             problems.append(
                 _domain_output_problem(
@@ -300,15 +302,16 @@ def seal_domain_output_values[
     if problems:
         raise ProviderContractError(problems)
 
-    return tuple(
-        MeasurementValueCandidate(
-            result.logical_point_id,
-            product_use_id,
-            by_address[result.result_address].value,
-        )
-        for result in mapping.results
-        for product_use_id in result.product_use_ids
-    )
+    for result in mapping.results:
+        value = by_address[result.result_address].value
+        for product_use_id in result.product_use_ids:
+            accept(
+                MeasurementValueCandidate(
+                    result.logical_point_id,
+                    product_use_id,
+                    value,
+                )
+            )
 
 
 def _domain_invocation_intent_fingerprint(
@@ -390,5 +393,5 @@ __all__ = [
     "ProductUse",
     "ProductUseId",
     "close_domain_invocation",
-    "seal_domain_output_values",
+    "stream_domain_output_values",
 ]

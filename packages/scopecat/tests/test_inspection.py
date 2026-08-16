@@ -1,0 +1,369 @@
+from __future__ import annotations
+
+import pytest
+
+from scopecat.inspection import (
+    CompiledProgramInspectionInvertedIndexBuilder,
+    CompiledProgramInspectionLayerIndex,
+    CompiledProgramInspectionLink,
+    CompiledProgramInspectionLinkIndex,
+    CompiledProgramInspectionNode,
+    CompiledProgramInspectionNodeIndex,
+    CompiledProgramInspectionPage,
+    CompiledProgramInspectionQuery,
+    query_compiled_program_node_index,
+)
+
+
+def _query_static_nodes(
+    layer_id: str,
+    nodes: tuple[CompiledProgramInspectionNode, ...],
+    *,
+    query: CompiledProgramInspectionQuery | None,
+    default_limit: int,
+    snapshot_id: str = "transient",
+) -> tuple[tuple[CompiledProgramInspectionNode, ...], CompiledProgramInspectionPage]:
+    selection = query_compiled_program_node_index(
+        layer_id,
+        CompiledProgramInspectionNodeIndex.from_nodes(nodes),
+        query=query,
+        default_limit=default_limit,
+        snapshot_id=snapshot_id,
+    )
+    return selection.nodes, selection.page
+
+
+def test_program_lineage_projection_does_not_require_both_endpoints_in_page() -> None:
+    logical = CompiledProgramInspectionLayerIndex(
+        id="logical",
+        label="Logical",
+        kind="logical",
+        root_ids=(),
+        nodes=CompiledProgramInspectionNodeIndex.from_nodes(
+            (
+                CompiledProgramInspectionNode(
+                    id="logical:gate",
+                    kind="gate",
+                    label="gate",
+                ),
+            )
+        ),
+    )
+    scheduled = CompiledProgramInspectionLayerIndex(
+        id="scheduled",
+        label="Scheduled",
+        kind="scheduled",
+        root_ids=(),
+        nodes=CompiledProgramInspectionNodeIndex.from_nodes(
+            tuple(
+                CompiledProgramInspectionNode(
+                    id=f"scheduled:event:{ordinal}",
+                    kind="play",
+                    label=f"play {ordinal}",
+                )
+                for ordinal in range(2)
+            )
+        ),
+    )
+    query = CompiledProgramInspectionQuery(
+        layer_id="logical",
+        node_id="logical:gate",
+    )
+    logical_page, _selection = logical.project(
+        query=query,
+        default_limit=1,
+        snapshot_id="artifact-a",
+    )
+    scheduled_page, _selection = scheduled.project(
+        query=query,
+        default_limit=1,
+        snapshot_id="artifact-a",
+    )
+    links = tuple(
+        CompiledProgramInspectionLink(
+            source_layer_id="logical",
+            source_node_id="logical:gate",
+            target_layer_id="scheduled",
+            target_node_id=f"scheduled:event:{ordinal}",
+            relation="lowers_to",
+        )
+        for ordinal in range(2)
+    )
+
+    projected = CompiledProgramInspectionLinkIndex.from_links(links).project(
+        (logical_page, scheduled_page),
+        max_links=1,
+    )
+
+    assert scheduled_page.nodes == ()
+    assert projected.links == links[:1]
+    assert projected.truncated
+
+
+def test_program_node_queries_bound_large_reference_sets() -> None:
+    node = CompiledProgramInspectionNode(
+        id="logical:map",
+        kind="parallel_each",
+        label="parallel_each $targets (100 entities)",
+        entity_ids=tuple(f"q{index}" for index in range(100)),
+    )
+
+    selected, page = _query_static_nodes(
+        "logical",
+        (node,),
+        query=CompiledProgramInspectionQuery(
+            layer_id="logical",
+            entity_id="q99",
+        ),
+        default_limit=128,
+    )
+
+    assert page.matching_node_count == 1
+    [bounded] = selected
+    assert bounded.entity_count == 100
+    assert bounded.entity_ids_truncated
+    assert len(bounded.entity_ids) == 64
+    assert bounded.entity_ids[0] == "q99"
+
+
+def test_program_node_queries_preserve_selected_result_in_bounded_references() -> None:
+    node = CompiledProgramInspectionNode(
+        id="scheduled:program",
+        kind="program",
+        label="schedule",
+        result_ids=tuple(f"result-{index}" for index in range(100)),
+    )
+
+    selected, page = _query_static_nodes(
+        "scheduled",
+        (node,),
+        query=CompiledProgramInspectionQuery(
+            layer_id="scheduled",
+            result_id="result-99",
+        ),
+        default_limit=128,
+    )
+
+    assert page.matching_node_count == 1
+    [bounded] = selected
+    assert bounded.result_ids[0] == "result-99"
+    assert bounded.result_count == 100
+    assert bounded.result_ids_truncated
+
+
+def test_program_node_cursor_is_bound_to_snapshot_and_filters() -> None:
+    nodes = tuple(
+        CompiledProgramInspectionNode(
+            id=f"scheduled:{index}",
+            kind="play",
+            label=f"pulse {index}",
+        )
+        for index in range(5)
+    )
+    query = CompiledProgramInspectionQuery(
+        layer_id="scheduled",
+        snapshot_id="artifact-a",
+        limit=2,
+        kind="play",
+    )
+
+    first, first_page = _query_static_nodes(
+        "scheduled",
+        nodes,
+        query=query,
+        default_limit=2,
+        snapshot_id="artifact-a",
+    )
+    assert [node.id for node in first] == ["scheduled:0", "scheduled:1"]
+    assert first_page.next_cursor is not None
+
+    second, second_page = _query_static_nodes(
+        "scheduled",
+        nodes,
+        query=CompiledProgramInspectionQuery(
+            layer_id="scheduled",
+            snapshot_id="artifact-a",
+            cursor=first_page.next_cursor,
+            limit=2,
+            kind="play",
+        ),
+        default_limit=2,
+        snapshot_id="artifact-a",
+    )
+    assert [node.id for node in second] == ["scheduled:2", "scheduled:3"]
+    assert second_page.previous_cursor is not None
+
+    with pytest.raises(ValueError, match="cursor does not match"):
+        _query_static_nodes(
+            "scheduled",
+            nodes,
+            query=CompiledProgramInspectionQuery(
+                layer_id="scheduled",
+                snapshot_id="artifact-a",
+                cursor=first_page.next_cursor,
+                limit=2,
+                kind="acquire",
+            ),
+            default_limit=2,
+            snapshot_id="artifact-a",
+        )
+    with pytest.raises(ValueError, match="snapshot does not match"):
+        _query_static_nodes(
+            "scheduled",
+            nodes,
+            query=CompiledProgramInspectionQuery(
+                layer_id="scheduled",
+                snapshot_id="artifact-b",
+                limit=2,
+            ),
+            default_limit=2,
+            snapshot_id="artifact-a",
+        )
+
+
+def test_unfiltered_program_pages_only_materialize_returned_nodes() -> None:
+    loaded: list[int] = []
+
+    def node_at(
+        ordinal: int,
+        _query: CompiledProgramInspectionQuery | None,
+    ) -> CompiledProgramInspectionNode:
+        loaded.append(ordinal)
+        return CompiledProgramInspectionNode(
+            id=f"scheduled:{ordinal}",
+            kind="play",
+            label=f"pulse {ordinal}",
+        )
+
+    index = CompiledProgramInspectionNodeIndex(
+        node_count=100_000,
+        node_at=node_at,
+    )
+    first = query_compiled_program_node_index(
+        "scheduled",
+        index,
+        query=CompiledProgramInspectionQuery(
+            layer_id="scheduled",
+            snapshot_id="artifact-a",
+            limit=2,
+        ),
+        default_limit=2,
+        snapshot_id="artifact-a",
+    )
+
+    assert [node.id for node in first.nodes] == ["scheduled:0", "scheduled:1"]
+    assert loaded == [0, 1]
+    assert first.page.matching_node_count == 100_000
+    assert first.page.next_cursor is not None
+
+    second = query_compiled_program_node_index(
+        "scheduled",
+        index,
+        query=CompiledProgramInspectionQuery(
+            layer_id="scheduled",
+            snapshot_id="artifact-a",
+            cursor=first.page.next_cursor,
+            limit=2,
+        ),
+        default_limit=2,
+        snapshot_id="artifact-a",
+    )
+
+    assert [node.id for node in second.nodes] == ["scheduled:2", "scheduled:3"]
+    assert loaded == [0, 1, 2, 3]
+
+
+def test_program_node_identity_query_uses_reusable_index() -> None:
+    loaded: list[int] = []
+
+    def node_at(
+        ordinal: int,
+        _query: CompiledProgramInspectionQuery | None,
+    ) -> CompiledProgramInspectionNode:
+        loaded.append(ordinal)
+        return CompiledProgramInspectionNode(
+            id=f"scheduled:{ordinal}",
+            kind="play",
+            label=f"pulse {ordinal}",
+        )
+
+    index = CompiledProgramInspectionNodeIndex(
+        node_count=100_000,
+        node_at=node_at,
+        ordinal_by_id=lambda node_id: (
+            int(node_id.removeprefix("scheduled:"))
+            if node_id.startswith("scheduled:")
+            else None
+        ),
+    )
+
+    selected = query_compiled_program_node_index(
+        "scheduled",
+        index,
+        query=CompiledProgramInspectionQuery(
+            layer_id="scheduled",
+            snapshot_id="artifact-a",
+            node_id="scheduled:99999",
+        ),
+        default_limit=128,
+        snapshot_id="artifact-a",
+    )
+
+    assert [node.id for node in selected.nodes] == ["scheduled:99999"]
+    assert selected.ordinals == (99_999,)
+    assert selected.page.matching_node_count == 1
+    assert loaded == [99_999]
+
+
+def test_indexed_program_filters_do_not_scan_large_lazy_layer() -> None:
+    loaded: list[int] = []
+    inverted_index = CompiledProgramInspectionInvertedIndexBuilder()
+    for ordinal in range(100_000):
+        inverted_index.add(
+            ordinal,
+            parent_id=f"batch:{ordinal // 1_000}",
+            kind="play" if ordinal % 2 else "acquire",
+            entity_ids=(f"q{ordinal % 128}",),
+            resource_ids=(f"channel-{ordinal % 64}",),
+            result_ids=(f"slot-{ordinal % 256}",),
+        )
+
+    def node_at(
+        ordinal: int,
+        _query: CompiledProgramInspectionQuery | None,
+    ) -> CompiledProgramInspectionNode:
+        loaded.append(ordinal)
+        return CompiledProgramInspectionNode(
+            id=f"scheduled:{ordinal}",
+            kind="play" if ordinal % 2 else "acquire",
+            label=f"pulse {ordinal}",
+            parent_id=f"batch:{ordinal // 1_000}",
+            entity_ids=(f"q{ordinal % 128}",),
+            resource_ids=(f"channel-{ordinal % 64}",),
+            result_ids=(f"slot-{ordinal % 256}",),
+        )
+
+    selection = query_compiled_program_node_index(
+        "scheduled",
+        CompiledProgramInspectionNodeIndex(
+            node_count=100_000,
+            node_at=node_at,
+            inverted_index=inverted_index.build(),
+        ),
+        query=CompiledProgramInspectionQuery(
+            layer_id="scheduled",
+            parent_id="batch:99",
+            kind="play",
+            entity_id="q31",
+            resource_id="channel-31",
+            result_id="slot-159",
+            text="99999",
+        ),
+        default_limit=128,
+    )
+
+    assert [node.id for node in selection.nodes] == ["scheduled:99999"]
+    assert selection.page.matching_node_count == 1
+    assert loaded
+    assert len(loaded) < 10
+    assert all(99_000 <= ordinal < 100_000 for ordinal in loaded)

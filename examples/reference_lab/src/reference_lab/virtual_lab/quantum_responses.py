@@ -7,7 +7,6 @@ from typing import cast
 
 from scopecat import Quantity
 from scopecat_quantum import authoring as quantum
-from scopecat_quantum._ids import AcquisitionSlotId
 from scopecat_quantum.program_targets import PreparedQuantumTargetEntry
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
@@ -27,6 +26,7 @@ from reference_lab.workflows.drag_beta_calibration import (
 from reference_lab.workflows.ramsey import (
     parallel_two_qubit_ramsey_program,
     ramsey_program,
+    topology_scaled_ramsey_program,
 )
 
 
@@ -43,7 +43,7 @@ def quantum_lab_response(
         return DragBetaAcquisitionResponse(
             points=tuple(
                 DragBetaResponsePoint(
-                    address=_result_address(entry, result.acquisition_slot_id),
+                    address=_result_addresses(entry, result)[0],
                     beta=cast("Quantity", point.value("beta")),
                     amplification=cast("int", point.value("amplification")),
                 )
@@ -54,12 +54,13 @@ def quantum_lab_response(
     if program.id not in {
         ramsey_program.id,
         parallel_two_qubit_ramsey_program.id,
+        topology_scaled_ramsey_program.id,
     }:
         return None
     return RamseyAcquisitionResponse(
         points=tuple(
             RamseyResponsePoint(
-                address=_result_address(entry, result.acquisition_slot_id),
+                address=address,
                 phase_rad=float(
                     cast(
                         "Quantity",
@@ -81,6 +82,7 @@ def quantum_lab_response(
             )
             for entry, point in zip(entries, points, strict=True)
             for result in program.results
+            for address in _result_addresses(entry, result)
         ),
         shots=shots,
     )
@@ -96,14 +98,22 @@ def _ramsey_precession(delay: Quantity) -> float:
     return 2.0 * math.pi * 0.0125 * delay_ns
 
 
-def _result_address(
+def _result_addresses(
     entry: PreparedQuantumTargetEntry,
-    slot_id: AcquisitionSlotId,
-) -> TargetAcquisitionAddress:
-    [address] = tuple(
-        address for address in entry.acquisition_addresses if address.slot_id == slot_id
+    result: quantum.MeasurementResult,
+) -> tuple[TargetAcquisitionAddress, ...]:
+    if result.entity_set is None:
+        [address] = tuple(
+            address
+            for address in entry.acquisition_addresses
+            if address.slot_id == result.acquisition_slot_id
+        )
+        return (address,)
+    return tuple(
+        address
+        for address in entry.acquisition_addresses
+        if address.slot_id.local_id == result.id
     )
-    return address
 
 
 __all__ = ["quantum_lab_response"]

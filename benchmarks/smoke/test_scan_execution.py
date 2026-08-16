@@ -1,3 +1,5 @@
+# pyright: reportPrivateUsage=false
+
 from __future__ import annotations
 
 import json
@@ -7,25 +9,53 @@ import sys
 from pathlib import Path
 from typing import cast
 
+from benchmarks.e2e.scan_execution import ScanScenario, _scopecat_invocation
+from scopecat.compiler.frontend.resolution import compile_invocation
+
+
+def test_multiqubit_derived_results_preserve_the_source_entity_axis() -> None:
+    scenario = ScanScenario(
+        point_count=1,
+        profile="multiqubit_result_retention",
+        retention="iq-and-bits",
+        qubit_count=2,
+        physical_channel_count=6,
+        shots=4,
+    )
+
+    logical = compile_invocation(_scopecat_invocation(scenario)).program.program
+    products = {
+        product.qualified_id: product for product in logical.product_declarations
+    }
+    source = products["multiqubit-results/iq_shots"]
+    derived = products["entity-bit-shots"]
+
+    assert derived.axes == source.axes
+    assert derived.axes[0].kind == "entity"
+    assert derived.axes[0].entity_values
+    assert derived.axes[0].shared_as == "targets"
+
 
 def test_scan_execution_benchmark_runs_all_boundaries_with_waveforms(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / "results.jsonl"
-    script = Path(__file__).parents[1] / "scripts" / "benchmark_scan_execution.py"
 
     completed = subprocess.run(  # noqa: S603
         (
             sys.executable,
-            str(script),
+            "-m",
+            "benchmarks",
+            "run",
+            "scan-execution",
             "--points",
             "3",
             "--profile",
             "waveform",
             "--waveform-samples",
             "128",
-            "--qubits",
-            "2",
+            "--qubit-counts",
+            "1,2,4",
             "--live-waveform",
             "--runners",
             "adhoc,scopecat-core,scopecat",
@@ -48,57 +78,86 @@ def test_scan_execution_benchmark_runs_all_boundaries_with_waveforms(
         cast("dict[str, object]", json.loads(line))
         for line in output.read_text(encoding="utf-8").splitlines()
     )
-    by_runner = {result["runner"]: result for result in results}
-    assert set(by_runner) == {"adhoc", "scopecat-core", "scopecat"}
-    assert all(result["points_completed"] == 3 for result in results)
-    assert by_runner["adhoc"]["trigger_count"] == 3
-    assert by_runner["scopecat-core"]["trigger_count"] == 2
-    assert by_runner["scopecat"]["trigger_count"] == 2
-    expected_total_bytes = 3 * 6 * 128 * 8
-    expected_retained_bytes = 6 * 128 * 8
-    assert all(
-        result["schema"] == "scopecat.scan_execution_benchmark.v6" for result in results
+    streamed_results = tuple(
+        cast(
+            "dict[str, object]",
+            json.loads(line.removeprefix("BENCHMARK_RESULT=")),
+        )
+        for line in completed.stdout.splitlines()
+        if line.startswith("BENCHMARK_RESULT=")
     )
+    assert streamed_results == results
+    by_case = {
+        (
+            result["runner"],
+            cast("dict[str, object]", result["scenario"])["qubit_count"],
+        ): result
+        for result in results
+    }
+    assert set(by_case) == {
+        (runner, qubit_count)
+        for runner in ("adhoc", "scopecat-core", "scopecat")
+        for qubit_count in (1, 2, 4)
+    }
+    assert all(result["points_completed"] == 3 for result in results)
+    assert all(result["schema"] == "scopecat.benchmark_result.v1" for result in results)
+    assert all(result["case_id"] == "scan-execution" for result in results)
+    assert all(result["case_version"] == 7 for result in results)
+    assert all(result["kind"] == "e2e" for result in results)
     assert all(
         cast("dict[str, object]", result["scenario"])["acquisition_dsp_policy"]
         == "prefer_device"
         for result in results
     )
-    assert all(
-        result["waveform_bytes_uploaded"] == expected_total_bytes for result in results
-    )
-    assert all(
-        result["live_waveform_bytes_retained"] == expected_retained_bytes
-        for result in results
-    )
-    assert by_runner["adhoc"]["max_waveform_batch_bytes"] == expected_retained_bytes
-    scopecat_batch_bytes = cast(
-        "int", by_runner["scopecat"]["max_waveform_batch_bytes"]
-    )
-    assert expected_retained_bytes <= scopecat_batch_bytes
-    assert scopecat_batch_bytes <= 2 * expected_retained_bytes
+    for qubit_count in (1, 2, 4):
+        expected_retained_bytes = (2 * qubit_count + 2) * 128 * 8
+        expected_total_bytes = 3 * expected_retained_bytes
+        assert by_case[("adhoc", qubit_count)]["trigger_count"] == 3
+        assert by_case[("scopecat-core", qubit_count)]["trigger_count"] == 2
+        assert by_case[("scopecat", qubit_count)]["trigger_count"] == 2
+        assert all(
+            by_case[(runner, qubit_count)]["waveform_bytes_uploaded"]
+            == expected_total_bytes
+            for runner in ("adhoc", "scopecat-core", "scopecat")
+        )
+        assert all(
+            by_case[(runner, qubit_count)]["live_waveform_bytes_retained"]
+            == expected_retained_bytes
+            for runner in ("adhoc", "scopecat-core", "scopecat")
+        )
+        assert (
+            by_case[("adhoc", qubit_count)]["max_waveform_batch_bytes"]
+            == expected_retained_bytes
+        )
+        scopecat_batch_bytes = cast(
+            "int", by_case[("scopecat", qubit_count)]["max_waveform_batch_bytes"]
+        )
+        assert expected_retained_bytes <= scopecat_batch_bytes
+        assert scopecat_batch_bytes <= 2 * expected_retained_bytes
 
 
 def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
-    script = Path(__file__).parents[1] / "scripts" / "benchmark_scan_execution.py"
     work_dir = tmp_path / "scopecat-worker"
 
     completed = subprocess.run(  # noqa: S603
         (
             sys.executable,
-            str(script),
+            "-m",
+            "benchmarks",
+            "run",
+            "scan-execution",
             "--worker",
             "scopecat",
             "--point-count",
             "257",
+            "--qubit-count",
+            "2",
             "--profile",
             "waveform",
             "--acquisition-dsp",
             "target",
             "--waveform-samples",
             "128",
-            "--qubits",
-            "2",
             "--host-label",
             "test",
             "--work-dir",
@@ -138,11 +197,11 @@ def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
     result_line = next(
         line
         for line in completed.stdout.splitlines()
-        if line.startswith("SCAN_BENCHMARK_RESULT=")
+        if line.startswith("BENCHMARK_RESULT=")
     )
     result = cast(
         "dict[str, object]",
-        json.loads(result_line.removeprefix("SCAN_BENCHMARK_RESULT=")),
+        json.loads(result_line.removeprefix("BENCHMARK_RESULT=")),
     )
     scenario = cast("dict[str, object]", result["scenario"])
     assert scenario["acquisition_dsp_policy"] == "target"
@@ -154,12 +213,13 @@ def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
 
 
 def test_target_dsp_rejects_the_unmatched_adhoc_runner(tmp_path: Path) -> None:
-    script = Path(__file__).parents[1] / "scripts" / "benchmark_scan_execution.py"
-
     completed = subprocess.run(  # noqa: S603
         (
             sys.executable,
-            str(script),
+            "-m",
+            "benchmarks",
+            "run",
+            "scan-execution",
             "--points",
             "1",
             "--profile",
@@ -242,15 +302,19 @@ def _result_worker(
     retention: str,
     shots: int,
 ) -> dict[str, object]:
-    script = Path(__file__).parents[1] / "scripts" / "benchmark_scan_execution.py"
     work_dir = tmp_path / f"{runner}-{retention}-{shots}"
     completed = subprocess.run(  # noqa: S603
         (
             sys.executable,
-            str(script),
+            "-m",
+            "benchmarks",
+            "run",
+            "scan-execution",
             "--worker",
             runner,
             "--point-count",
+            "2",
+            "--qubit-count",
             "2",
             "--profile",
             "results",
@@ -260,8 +324,6 @@ def _result_worker(
             str(shots),
             "--waveform-samples",
             "72",
-            "--qubits",
-            "2",
             "--host-label",
             "test",
             "--work-dir",
@@ -275,9 +337,9 @@ def _result_worker(
     result_line = next(
         line
         for line in completed.stdout.splitlines()
-        if line.startswith("SCAN_BENCHMARK_RESULT=")
+        if line.startswith("BENCHMARK_RESULT=")
     )
     return cast(
         "dict[str, object]",
-        json.loads(result_line.removeprefix("SCAN_BENCHMARK_RESULT=")),
+        json.loads(result_line.removeprefix("BENCHMARK_RESULT=")),
     )

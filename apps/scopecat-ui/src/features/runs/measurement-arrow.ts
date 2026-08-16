@@ -2,6 +2,7 @@ import { DataType, tableFromIPC, type Field, type Table } from "apache-arrow";
 import type { MeasurementRecord, MeasurementValue } from "../../api-contract";
 
 type MeasurementArray = Extract<MeasurementValue, { kind: "array" }>;
+type MeasurementPartitionedArray = Extract<MeasurementValue, { kind: "partitioned_array" }>;
 type MeasurementSegmentedArray = Extract<MeasurementValue, { kind: "segmented_array" }>;
 type MeasurementUnavailable = Extract<MeasurementValue, { kind: "unavailable" }>;
 type MeasurementDType = MeasurementValue["dtype"];
@@ -48,6 +49,18 @@ export function decodeMeasurementArrowRecord(content: ArrayBuffer): MeasurementR
         availabilitySidecar,
         metadata,
       );
+    } else if (hasPartitionShapeFields(shapeSidecar)) {
+      if (!isPartitionShapeSidecar(shapeSidecar)) {
+        throw new Error("live measurement Arrow partition shape is invalid");
+      }
+      value = decodePartitionedArray(
+        rawValue,
+        dtype,
+        unit,
+        shapeSidecar,
+        availabilitySidecar,
+        metadata,
+      );
     } else {
       value = decodeArray(
         rawValue,
@@ -71,6 +84,55 @@ export function decodeMeasurementArrowRecord(content: ArrayBuffer): MeasurementR
     acquisition_evidence: decodeJsonColumn(table, "__scopecat.acquisition_evidence"),
     metadata: decodeJsonColumn(table, "__scopecat.record_metadata"),
   };
+}
+
+function decodePartitionedArray(
+  rawValue: unknown,
+  dtype: MeasurementDType,
+  unit: string | null,
+  shapeSidecar: PartitionShapeSidecar,
+  availabilitySidecar: Record<string, unknown>,
+  metadata: Record<string, unknown>,
+): MeasurementPartitionedArray {
+  const diagnostics = availabilitySidecar.partitions;
+  if (!Array.isArray(diagnostics) || diagnostics.length !== shapeSidecar.partition_sizes.length) {
+    throw new Error("live measurement Arrow partition diagnostics are invalid");
+  }
+  let offset = 0;
+  const partitions = shapeSidecar.partition_sizes.map((size, index) => {
+    const rawDiagnostics = diagnostics[index];
+    if (!Array.isArray(rawDiagnostics)) {
+      throw new Error("live measurement Arrow partition diagnostics are invalid");
+    }
+    const shape = [...shapeSidecar.shape];
+    shape[shapeSidecar.partition_axis] = size;
+    const partition = decodeArray(
+      sliceNestedAxis(rawValue, shapeSidecar.partition_axis, offset, size),
+      dtype,
+      unit,
+      shape,
+      { unavailable: rawDiagnostics },
+      {},
+    );
+    offset += size;
+    return partition;
+  });
+  return {
+    kind: "partitioned_array",
+    dtype,
+    unit,
+    axis: shapeSidecar.partition_axis,
+    partitions,
+    metadata,
+  };
+}
+
+function sliceNestedAxis(value: unknown, axis: number, offset: number, size: number): unknown {
+  if (!Array.isArray(value)) {
+    throw new Error("live measurement Arrow partitioned value is invalid");
+  }
+  if (axis === 0) return value.slice(offset, offset + size);
+  return value.map((child) => sliceNestedAxis(child, axis - 1, offset, size));
 }
 
 function decodeUnavailable(
@@ -219,6 +281,36 @@ function segmentShape(value: unknown): (number | null)[] | null {
     throw new Error("live measurement Arrow segmented shape is invalid");
   }
   return value.shape;
+}
+
+type PartitionShapeSidecar = {
+  shape: number[];
+  partition_axis: number;
+  partition_sizes: number[];
+};
+
+function isPartitionShapeSidecar(
+  value: Record<string, unknown> | null,
+): value is PartitionShapeSidecar {
+  if (value === null) return false;
+  const shape = value.shape;
+  const axis = value.partition_axis;
+  const sizes = value.partition_sizes;
+  return (
+    isConcreteShape(shape) &&
+    typeof axis === "number" &&
+    Number.isInteger(axis) &&
+    axis >= 0 &&
+    axis < shape.length &&
+    Array.isArray(sizes) &&
+    sizes.length > 0 &&
+    sizes.every((size) => typeof size === "number" && Number.isInteger(size) && size > 0) &&
+    sizes.reduce((total, size) => total + size, 0) === shape[axis]
+  );
+}
+
+function hasPartitionShapeFields(value: Record<string, unknown> | null): boolean {
+  return value !== null && ("partition_axis" in value || "partition_sizes" in value);
 }
 
 function nestedShape(value: unknown): number[] {

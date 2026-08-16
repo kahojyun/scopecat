@@ -332,6 +332,10 @@ def test_list_mode_target_owns_only_real_time_members() -> None:
     )
     assert target.max_list_entries == 256
     assert target.max_program_waveform_bytes == 48 * 1024 * 1024
+    assert target.max_program_event_count == 256 * 1024
+    assert target.max_program_acquisition_count == 64 * 1024
+    assert target.max_result_bytes == 512 * 1024 * 1024
+    assert target.max_result_chunk_bytes == 8 * 1024 * 1024
 
 
 def test_acquisition_dsp_policy_selects_only_advertised_lowerings() -> None:
@@ -551,8 +555,10 @@ def test_list_mode_target_resolves_lo_and_mixer_from_reviewed_parameters() -> No
 
     baseline = _configured_target(config)
     target = _configured_target(changed)
-    binding = target.output_binding(DriveSignal(QubitId("q0")))
-    assert binding is not None
+    signal = DriveSignal(QubitId("q0"))
+    binding = next(
+        binding for binding in target.output_bindings if binding.signal == signal
+    )
     assert binding.intermediate_frequency_hz == 0.0
     assert binding.mixer.ii == 0.9
     assert binding.mixer.iq == 0.1

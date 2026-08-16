@@ -18,7 +18,7 @@ import { requestPath } from "../../test/http";
 import type { ContentEntry } from "../../types";
 
 const liveMeasurementFixture = readFileSync(
-  new URL("./test-fixtures/measurement-append-v9.arrow", import.meta.url),
+  new URL("./test-fixtures/measurement-append-v10.arrow", import.meta.url),
 );
 
 afterEach(() => {
@@ -486,7 +486,7 @@ describe("run daemon reads", () => {
     await expect(getMeasurementLivePreview("run/1")).resolves.toMatchObject({
       active: true,
       latest: {
-        run_id: "run-arrow-v9",
+        run_id: "run-arrow-v10",
         logical_point_id: "point-7",
         point_index: 7,
       },
@@ -505,16 +505,26 @@ describe("run daemon reads", () => {
           items: [measurementRecord("run/1", 3)],
           dataset_schema: measurementSchema(),
           selected_point_count: 6,
+          offset: 4,
+          window_point_count: 1,
+          next_offset: 5,
+          previous_offset: 0,
           truncated: false,
         }),
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(getMeasurementSlice("run/1", { bias: 1 }, ["x", "y", "signal"])).resolves.toEqual({
+    await expect(
+      getMeasurementSlice("run/1", { bias: 1 }, ["x", "y", "signal"], 4),
+    ).resolves.toEqual({
       items: [measurementRecord("run/1", 3)],
       schema: measurementSchema(),
       selectedPointCount: 6,
+      offset: 4,
+      windowPointCount: 1,
+      nextOffset: 5,
+      previousOffset: 0,
       truncated: false,
     });
     const request = fetchMock.mock.calls[0]?.[0];
@@ -524,6 +534,7 @@ describe("run daemon reads", () => {
       fixed_axis_indices: { bias: 1 },
       include_schema: false,
       limit: 4096,
+      offset: 4,
       variable_ids: ["x", "y", "signal"],
     });
   });
@@ -588,9 +599,9 @@ describe("run daemon reads", () => {
 
 function measurementSchema() {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v16" as const,
+    format_version: "scopecat.measurement_dataset_schema.v17" as const,
     dataset_id: "raw-measurements",
-    record_schema: "scopecat.measurement_record.v9" as const,
+    record_schema: "scopecat.measurement_record.v10" as const,
     point_domain: { kind: "product_grid" as const, axes: [] },
     dimensions: [{ id: "point", kind: "point", size: 1 }],
     variables: [],

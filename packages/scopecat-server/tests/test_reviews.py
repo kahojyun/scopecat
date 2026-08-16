@@ -15,6 +15,7 @@ from scopecat.daemon.reviews import (
     ReviewPointView,
     ReviewSessionCreateCommand,
 )
+from scopecat.inspection import CompiledProgramInspectionQuery
 from scopecat.kernel.quantity import Quantity
 
 from scopecat_server import BackendConflict, BackendNotFound, LocalDaemonRuntime
@@ -59,11 +60,23 @@ def test_review_worker_lease_expires_without_losing_latest_result() -> None:
     now[0] += timedelta(seconds=10)
     receipt = service.enqueue(
         session.session_id,
-        ReviewCompileCommand(coordinates={}, coordinate_mode="free"),
+        ReviewCompileCommand(
+            coordinates={},
+            coordinate_mode="free",
+            inspection_query=CompiledProgramInspectionQuery(
+                layer_id="scheduled",
+                entity_id="q17",
+                offset=128,
+                limit=128,
+            ),
+        ),
     )
     claimed = service.claim(session.session_id, "worker-lease")
     assert claimed is not None
     assert claimed.request_id == receipt.request_id
+    assert claimed.inspection_query is not None
+    assert claimed.inspection_query.entity_id == "q17"
+    assert claimed.inspection_query.offset == 128
     assert service.get(session.session_id).pending_request_count == 1
 
     now[0] += timedelta(seconds=16)
@@ -102,6 +115,49 @@ def test_review_service_retains_only_recent_inactive_sessions() -> None:
     active = _review_command(3)
     service.create(active)
     assert service.get(active.session_id).active
+
+
+def test_new_review_query_supersedes_queued_and_claimed_results() -> None:
+    now = datetime(2026, 8, 14, tzinfo=UTC)
+    service = ReviewService(clock=lambda: now)
+    session = service.create(_review_command(0))
+    first = service.enqueue(
+        session.session_id,
+        ReviewCompileCommand(point_index=0),
+    )
+    claimed = service.claim(session.session_id, "worker-0")
+    assert claimed is not None
+    assert claimed.request_id == first.request_id
+
+    second = service.enqueue(
+        session.session_id,
+        ReviewCompileCommand(
+            point_index=0,
+            inspection_query=CompiledProgramInspectionQuery(
+                layer_id="scheduled",
+                text="measure",
+            ),
+        ),
+    )
+    assert service.get(session.session_id).pending_request_count == 1
+
+    stale = service.complete(
+        session.session_id,
+        ReviewCompletionCommand(
+            worker_id="worker-0",
+            result=ReviewCompilationResult(
+                request_id=first.request_id,
+                completed_at=now,
+                error="stale",
+            ),
+        ),
+    )
+    assert stale.latest_result is None
+    assert stale.pending_request_count == 1
+
+    latest = service.claim(session.session_id, "worker-0")
+    assert latest is not None
+    assert latest.request_id == second.request_id
 
 
 def test_review_session_round_trips_compile_work_without_run_admission(

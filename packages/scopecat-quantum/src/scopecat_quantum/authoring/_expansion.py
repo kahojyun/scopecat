@@ -18,9 +18,11 @@ from ._ir import (
     ProgramInput,
     QuantumFragment,
     Qubit,
+    QubitSet,
     _ExpandedFragment,
     _FragmentCall,
     _FragmentHandle,
+    _ParallelEachFragment,
     _QuantumParallelFragment,
     _QuantumRepeatFragment,
     _QuantumSequenceFragment,
@@ -67,6 +69,11 @@ def _expand_fragment_calls(
                 for branch in value.branches
             ),
         )
+    if isinstance(value, _ParallelEachFragment):
+        return replace(
+            value,
+            operation=_expand_fragment_calls(value.operation, bindings, stack=stack),
+        )
     if isinstance(value, _QuantumRepeatFragment):
         return replace(
             value,
@@ -88,6 +95,8 @@ def _evaluate_fragment_call(
         if isinstance(formal, Qubit | Coupler):
             resolved[name] = actual
             continue
+        if isinstance(formal, QubitSet):
+            raise AssertionError("quantum fragments cannot declare QubitSet ports")
         selected = bindings[actual.id] if isinstance(actual, ProgramInput) else actual
         try:
             resolved[name] = coerce_literal(

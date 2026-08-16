@@ -124,6 +124,7 @@ class ExperimentReviewHandle:
                 point="first" if item.point_index is None else item.point_index,
                 coordinates=item.coordinates,
                 coordinate_mode=item.coordinate_mode,
+                inspection_query=item.inspection_query,
             )
             result = _review_result(item.request_id, preview)
         except Exception as error:

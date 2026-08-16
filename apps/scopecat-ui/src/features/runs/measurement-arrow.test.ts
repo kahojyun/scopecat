@@ -3,18 +3,18 @@ import { describe, expect, it } from "vitest";
 import { decodeMeasurementArrowRecord } from "./measurement-arrow";
 
 const fixture = readFileSync(
-  new URL("./test-fixtures/measurement-append-v9.arrow", import.meta.url),
+  new URL("./test-fixtures/measurement-append-v10.arrow", import.meta.url),
 );
 
 describe("live measurement Arrow", () => {
-  it("decodes the current Python v9 wire including evidence and array sidecars", () => {
+  it("decodes the current Python v10 wire including partitioned arrays", () => {
     const content = fixture.buffer.slice(
       fixture.byteOffset,
       fixture.byteOffset + fixture.byteLength,
     );
 
     expect(decodeMeasurementArrowRecord(content)).toEqual({
-      run_id: "run-arrow-v9",
+      run_id: "run-arrow-v10",
       logical_point_id: "point-7",
       point_index: 7,
       coordinates: {
@@ -28,21 +28,38 @@ describe("live measurement Arrow", () => {
       },
       observables: {
         trace: {
-          kind: "array",
+          kind: "partitioned_array",
           dtype: "float64",
           unit: "V",
-          shape: [2],
-          values: [1.5, 0],
-          availability: {
-            valid: [true, false],
-            unavailable: [
-              {
-                reason: "invalid",
-                flat_indices: [1],
-                metadata: { sample: 1 },
+          axis: 0,
+          partitions: [
+            {
+              kind: "array",
+              dtype: "float64",
+              unit: "V",
+              shape: [1],
+              values: [1.5],
+              metadata: {},
+            },
+            {
+              kind: "array",
+              dtype: "float64",
+              unit: "V",
+              shape: [1],
+              values: [0],
+              availability: {
+                valid: [false],
+                unavailable: [
+                  {
+                    reason: "invalid",
+                    flat_indices: [0],
+                    metadata: { sample: 1 },
+                  },
+                ],
               },
-            ],
-          },
+              metadata: {},
+            },
+          ],
           metadata: { channel: 1 },
         },
         entity_trace: {
@@ -111,7 +128,7 @@ describe("live measurement Arrow", () => {
         ],
         variable_refs: { entity_trace: 0, trace: 1 },
       },
-      metadata: { note: "Python Arrow v9 fixture" },
+      metadata: { note: "Python Arrow v10 fixture" },
     });
   });
 });

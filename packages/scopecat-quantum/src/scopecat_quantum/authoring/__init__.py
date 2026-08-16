@@ -29,6 +29,7 @@ from ._construction import (
     input,
     measure,
     parallel,
+    parallel_each,
     play,
     program,
     pulse_template,
@@ -80,6 +81,7 @@ from ._ir import (
     QuantumResultContract,
     Qubit,
     QubitInput,
+    QubitSet,
     RepeatCount,
 )
 from ._programs import (
@@ -87,6 +89,7 @@ from ._programs import (
     ProgramDefinition,
     QuantumProgramCall,
 )
+from ._selection import QubitSelectionIntent, select_qubits
 
 __all__ = [
     "INTEGRATED_IQ_RESULT",
@@ -120,6 +123,8 @@ __all__ = [
     "QuantumResultContract",
     "Qubit",
     "QubitInput",
+    "QubitSelectionIntent",
+    "QubitSet",
     "RepeatCount",
     "SingleQubitGate",
     "TwoQubitGate",
@@ -140,6 +145,7 @@ __all__ = [
     "input",
     "measure",
     "parallel",
+    "parallel_each",
     "play",
     "program",
     "program_port_type",
@@ -148,6 +154,7 @@ __all__ = [
     "readout",
     "repeat",
     "scalar_input",
+    "select_qubits",
     "sequence",
     "shift_phase",
     "single_qubit_gate",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from decimal import Decimal
 from enum import IntEnum, StrEnum
 from typing import Annotated
 
@@ -164,6 +165,11 @@ def test_content_fingerprint_preserves_primitive_enum_types() -> None:
     assert first != content_fingerprint(1)
     assert first != content_fingerprint(_SecondIntegerToken.ONE)
     assert content_fingerprint(_TextToken.ONE) != content_fingerprint("one")
+
+
+def test_content_fingerprint_normalizes_equivalent_decimals() -> None:
+    assert content_fingerprint(Decimal("1.00")) == content_fingerprint(Decimal("1"))
+    assert content_fingerprint(Decimal("-0")) == content_fingerprint(Decimal("0.0"))
 
 
 @pytest.mark.parametrize(

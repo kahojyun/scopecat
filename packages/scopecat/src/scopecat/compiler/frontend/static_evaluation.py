@@ -6,16 +6,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
-from scopecat.compiler.relations.evaluation import (
-    evaluate_scalar,
-)
+from scopecat.compiler.relations.evaluation import evaluate_scalar, evaluate_table_value
 from scopecat.compiler.relations.verification import (
     ExpressionTypeBindings,
     verify_scalar_expression,
 )
-from scopecat.kernel.value_data import CellValue
-from scopecat.kernel.value_types import Scalar
+from scopecat.compiler.topology_selection import TopologyEntitySetResolution
+from scopecat.kernel.value_data import CellValue, Row
+from scopecat.kernel.value_types import Scalar, Table
 from scopecat.program.expressions import ScalarExpr
+from scopecat.program.table_values import TableSource, TopologyEntitySetSource
 
 
 def _static_bindings(bindings: ExpressionTypeBindings) -> ExpressionTypeBindings:
@@ -32,6 +32,10 @@ class StaticRelationEvaluator:
     """Evaluate verified config-time relations."""
 
     parameters: ParameterRelationData
+    topology_entity_sets: Mapping[
+        TopologyEntitySetSource,
+        TopologyEntitySetResolution,
+    ]
 
     def scalar(
         self,
@@ -52,4 +56,21 @@ class StaticRelationEvaluator:
             EvalContext(params=self.parameters, inputs=dict(inputs)),
             bindings=selected_bindings,
             expected_type=expected_type,
+        )
+
+    def table(
+        self,
+        source: TableSource,
+        value_type: Table,
+        *,
+        inputs: Mapping[str, object],
+    ) -> list[Row]:
+        """Evaluate a direct table source during configuration binding."""
+
+        if isinstance(source, TopologyEntitySetSource):
+            return list(self.topology_entity_sets[source].table.rows)
+        return evaluate_table_value(
+            source,
+            value_type,
+            EvalContext(params=self.parameters, inputs=dict(inputs)),
         )

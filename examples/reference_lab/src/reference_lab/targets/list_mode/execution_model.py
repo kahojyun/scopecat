@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -33,43 +33,100 @@ class DigitizerValueBlock:
 
 
 @dataclass(frozen=True, slots=True)
-class DigitizerResultBatch:
-    """Address-major integrated-IQ matrix with one column per shot."""
+class DigitizerResultChunk:
+    """Address-major integrated-IQ values for one contiguous shot slice."""
 
-    addresses: tuple[TargetAcquisitionAddress, ...]
+    shot_start: int
     values: NDArray[np.complex128]
     available: NDArray[np.bool_]
 
     def __post_init__(self) -> None:
         values, available = _normalized_arrays(self.values, self.available, ndim=2)
-        if values.shape[0] != len(self.addresses):
-            raise ValueError("digitizer result rows must match acquisition addresses")
-        if len(self.addresses) != len(set(self.addresses)):
-            raise ValueError("digitizer result addresses must be unique")
-        object.__setattr__(self, "addresses", tuple(self.addresses))
+        if self.shot_start < 0:
+            raise ValueError("digitizer result chunk start must be non-negative")
+        if values.shape[1] == 0:
+            raise ValueError("digitizer result chunks must contain at least one shot")
         object.__setattr__(self, "values", values)
         object.__setattr__(self, "available", available)
+
+    @property
+    def shot_count(self) -> int:
+        return cast("int", self.values.shape[1])
+
+    @property
+    def shot_stop(self) -> int:
+        return self.shot_start + self.shot_count
+
+
+@dataclass(frozen=True, slots=True)
+class DigitizerResultBatch:
+    """Chunked address-major integrated-IQ results across all shots."""
+
+    addresses: tuple[TargetAcquisitionAddress, ...]
+    shot_count: int
+    chunks: tuple[DigitizerResultChunk, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.addresses) != len(set(self.addresses)):
+            raise ValueError("digitizer result addresses must be unique")
+        if self.shot_count <= 0:
+            raise ValueError("digitizer result shot count must be positive")
+        chunks = tuple(self.chunks)
+        expected_start = 0
+        for chunk in chunks:
+            if chunk.values.shape[0] != len(self.addresses):
+                raise ValueError(
+                    "digitizer result chunk rows must match acquisition addresses"
+                )
+            if chunk.shot_start != expected_start:
+                raise ValueError("digitizer result chunks must exactly partition shots")
+            expected_start = chunk.shot_stop
+        if expected_start != self.shot_count:
+            raise ValueError("digitizer result chunks must exactly cover all shots")
+        object.__setattr__(self, "addresses", tuple(self.addresses))
+        object.__setattr__(self, "chunks", chunks)
 
     @property
     def result_count(self) -> int:
         """Return the number of address-qualified shot results."""
 
-        return int(self.values.size)
+        return len(self.addresses) * self.shot_count
 
     def select(
         self,
         addresses: tuple[TargetAcquisitionAddress, ...],
     ) -> DigitizerResultBatch:
-        """Select and reorder address rows without constructing shot objects."""
+        """Select and reorder address rows without constructing shot objects.
+
+        Canonical and contiguous selections retain the device-owned arrays as
+        views. Only a genuinely non-contiguous reorder allocates row copies.
+        """
+
+        if addresses == self.addresses:
+            return self
 
         row_by_address = {
             address: row_index for row_index, address in enumerate(self.addresses)
         }
-        rows = [row_by_address[address] for address in addresses]
+        rows = tuple(row_by_address[address] for address in addresses)
+        row_selection: slice | list[int]
+        if not rows:
+            row_selection = slice(0, 0)
+        elif rows == tuple(range(rows[0], rows[0] + len(rows))):
+            row_selection = slice(rows[0], rows[0] + len(rows))
+        else:
+            row_selection = list(rows)
         return DigitizerResultBatch(
             addresses=addresses,
-            values=self.values[rows],
-            available=self.available[rows],
+            shot_count=self.shot_count,
+            chunks=tuple(
+                DigitizerResultChunk(
+                    shot_start=chunk.shot_start,
+                    values=chunk.values[row_selection],
+                    available=chunk.available[row_selection],
+                )
+                for chunk in self.chunks
+            ),
         )
 
 
@@ -123,7 +180,7 @@ def run_fingerprint(
 
     return canonical_fingerprint(
         {
-            "schema": "reference_lab.virtual_list_mode_run.v3",
+            "schema": "reference_lab.virtual_list_mode_run.v4",
             "artifact_id": artifact.id.value,
             "artifact_fingerprint": artifact.artifact_fingerprint,
             "response_fingerprint": response_fingerprint,
@@ -134,13 +191,20 @@ def run_fingerprint(
                 }
                 for address in results.addresses
             ],
-            "shape": list(results.values.shape),
-            "values_sha256": hashlib.sha256(
-                memoryview(results.values).cast("B")
-            ).hexdigest(),
-            "available_sha256": hashlib.sha256(
-                memoryview(results.available).cast("B")
-            ).hexdigest(),
+            "shape": [len(results.addresses), results.shot_count],
+            "chunks": [
+                {
+                    "shot_start": chunk.shot_start,
+                    "shot_count": chunk.shot_count,
+                    "values_sha256": hashlib.sha256(
+                        memoryview(chunk.values).cast("B")
+                    ).hexdigest(),
+                    "available_sha256": hashlib.sha256(
+                        memoryview(chunk.available).cast("B")
+                    ).hexdigest(),
+                }
+                for chunk in results.chunks
+            ],
         }
     )
 
@@ -169,6 +233,7 @@ def _normalized_arrays(
 __all__ = [
     "AcquisitionResponse",
     "DigitizerResultBatch",
+    "DigitizerResultChunk",
     "DigitizerValueBlock",
     "ListModeRun",
     "digitizer_addresses",

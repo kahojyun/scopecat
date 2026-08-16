@@ -17,6 +17,7 @@ from scopecat.sdk.instruments.authoring import (
     DriverPayload,
 )
 from scopecat.sdk.instruments.catalog import DriverCatalog
+from scopecat.sdk.instruments.commands import CollectAxisRequest
 from scopecat.sdk.instruments.members import (
     AcquisitionRef,
     AcquisitionResultRef,
@@ -112,6 +113,7 @@ class BackendInvokeRequest(_BackendRequestModel):
 class BackendCollectResult(_BackendRequestModel):
     request_id: _NonEmptyId
     result_id: _NonEmptyId
+    dimensions: tuple[CollectAxisRequest, ...] = ()
 
 
 class BackendCollectRequest(_BackendRequestModel):
@@ -227,6 +229,7 @@ def lower_backend_collect_request(command: CollectCommand) -> BackendCollectRequ
             BackendCollectResult(
                 request_id=request.id,
                 result_id=request.result_id,
+                dimensions=tuple(request.dimensions),
             )
             for request in command.requests
         ),

@@ -12,6 +12,12 @@ if TYPE_CHECKING:
         CompiledInspectionBounds,
         CompiledInspectionFact,
         CompiledPointInspection,
+        CompiledProgramInspection,
+        CompiledProgramInspectionLayer,
+        CompiledProgramInspectionLink,
+        CompiledProgramInspectionNode,
+        CompiledProgramInspectionPage,
+        CompiledProgramInspectionQuery,
         CompiledWaveformInspection,
     )
     from scopecat.sdk.domain.batch import (
@@ -72,6 +78,12 @@ _INSPECTION_EXPORTS = (
     "CompiledInspectionBounds",
     "CompiledInspectionFact",
     "CompiledPointInspection",
+    "CompiledProgramInspection",
+    "CompiledProgramInspectionLayer",
+    "CompiledProgramInspectionLink",
+    "CompiledProgramInspectionNode",
+    "CompiledProgramInspectionPage",
+    "CompiledProgramInspectionQuery",
     "CompiledWaveformInspection",
 )
 _RESULT_MAPPING_EXPORTS = (
@@ -136,6 +148,12 @@ __all__ = [
     "CompiledInspectionBounds",
     "CompiledInspectionFact",
     "CompiledPointInspection",
+    "CompiledProgramInspection",
+    "CompiledProgramInspectionLayer",
+    "CompiledProgramInspectionLink",
+    "CompiledProgramInspectionNode",
+    "CompiledProgramInspectionPage",
+    "CompiledProgramInspectionQuery",
     "CompiledWaveformInspection",
     "DomainBatchInputs",
     "DomainBatchRequest",

@@ -16,7 +16,7 @@ from scopecat.kernel.product_identity import (
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_types import Entity, Scalar, Table
 from scopecat.program.input_capture import capture_runtime_input, empty_program_mapping
 from scopecat.program.measurement_types import (
     EntityAcquisitionSemantics,
@@ -425,7 +425,15 @@ def entity_axis(
     *,
     shared_as: str | None = None,
 ) -> ProductAxis:
-    selected_entities = _axis_value(entities)
+    selected_entities = _entity_axis_value(entities)
+    if isinstance(selected_entities, ValueRef) and isinstance(
+        selected_entities.value_type, Table
+    ):
+        columns = selected_entities.value_type.columns
+        if len(columns) != 1 or not isinstance(columns[0].value_type.atom, Entity):
+            raise TypeError(
+                "table-backed entity axes require exactly one entity column"
+            )
     return ProductAxis(
         id=id,
         size=cast("AxisSizeInput", selected_entities),
@@ -442,7 +450,15 @@ def _axis_value(value: object) -> object:
     if not isinstance(value, ValueRef):
         return capture_runtime_input(value)
     if not isinstance(value.value_type, Scalar):
-        raise TypeError("product and entity axis values must be scalar")
+        raise TypeError("product axis values must be scalar")
+    return value
+
+
+def _entity_axis_value(value: object) -> object:
+    if not isinstance(value, ValueRef):
+        return capture_runtime_input(value)
+    if not isinstance(value.value_type, Scalar | Table):
+        raise TypeError("entity axis values must be scalar or table")
     return value
 
 

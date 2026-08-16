@@ -3,11 +3,13 @@
 The source tree in this module is deliberately heterogeneous: logical gate and
 measurement operations may be composed with authored pulse blocks, while an
 ``ImplementedGate`` retains both a gate's semantic identity and a local pulse
-implementation. Refinement binds only the still-abstract operations to resolved
-pulse implementations, then produces the canonical pulse authoring IR.
+implementation. Pulse planning pairs that retained tree with the exact
+point-effective implementation catalog; target preparation later produces the
+canonical pulse authoring IR.
 
-Pulse refinement expands the finite source tree into one canonical pulse
-program behind the target-owned compile request.
+Pulse resolution retains finite Map/Repeat control flow and an exact
+implementation catalog. Concrete pulse branches are materialized only at the
+target scheduling boundary.
 """
 
 from __future__ import annotations
@@ -37,17 +39,21 @@ from scopecat_quantum.measurement_implementations import (
 )
 from scopecat_quantum.pulse_implementations import (
     GatePulseImplementationBinding,
-    PulseImplementationBindings,
+    PulseImplementationIndex,
     ResolvedPulseImplementations,
-    bind_pulse_implementations,
 )
 from scopecat_quantum.pulses import (
     Acquire,
+    AcquireSignal,
     AcquisitionSlot,
+    DriveSignal,
+    LogicalSignal,
     PulseInstruction,
     PulseProgram,
     PulseValidationError,
+    ReadoutSignal,
     iter_pulse_leaves,
+    pulse_leaf_owners,
     schedule,
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
@@ -93,6 +99,24 @@ class Parallel:
 
 
 @dataclass(frozen=True, slots=True)
+class ParallelEach:
+    """One retained entity-set map with a single bound body template."""
+
+    entity_set_id: str
+    item_id: QubitId
+    entity_ids: tuple[QubitId, ...]
+    operation: QuantumNode
+
+    def __post_init__(self) -> None:
+        if not self.entity_set_id:
+            raise ValueError("quantum parallel_each entity-set id must be non-empty")
+        if not self.entity_ids:
+            raise ValueError("quantum parallel_each entity set must not be empty")
+        if len(set(self.entity_ids)) != len(self.entity_ids):
+            raise ValueError("quantum parallel_each entity ids must be unique")
+
+
+@dataclass(frozen=True, slots=True)
 class Repeat:
     """A finite repeated subtree."""
 
@@ -105,7 +129,7 @@ class Repeat:
 
 
 type QuantumOperation = GateCall | Measure | PulseBlock | ImplementedGate
-type QuantumNode = QuantumOperation | Sequence | Parallel | Repeat
+type QuantumNode = QuantumOperation | Sequence | Parallel | ParallelEach | Repeat
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,9 +178,22 @@ class QuantumProgramVerificationError(ValueError):
         )
 
 
+class QuantumProgramExpansionError(ValueError):
+    """A retained program exceeds the concrete lowering budget."""
+
+    def __init__(self, *, expanded_operation_count: int, limit: int) -> None:
+        self.expanded_operation_count = expanded_operation_count
+        self.limit = limit
+        super().__init__(
+            "quantum program requires "
+            f"{expanded_operation_count} expanded operations; lowering budget "
+            f"is {limit}"
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class VerifiedQuantumProgram:
-    """Mixed source plus flat logical operations and its unresolved proof."""
+    """Mixed source plus template-level logical and unresolved proofs."""
 
     program: QuantumProgramIR
     logical_operations: tuple[GateCall | Measure, ...]
@@ -165,6 +202,126 @@ class VerifiedQuantumProgram:
     @property
     def operations(self) -> tuple[QuantumOperation, ...]:
         return tuple(iter_quantum_operations(self.program.body))
+
+    def require_expansion_budget(
+        self,
+        max_expanded_operations: int | None,
+    ) -> QuantumProgramWorkload:
+        """Check finite lowering work without instantiating retained control flow."""
+
+        workload = estimate_quantum_program_workload(self)
+        if (
+            max_expanded_operations is not None
+            and workload.expanded_operation_count > max_expanded_operations
+        ):
+            raise QuantumProgramExpansionError(
+                expanded_operation_count=workload.expanded_operation_count,
+                limit=max_expanded_operations,
+            )
+        return workload
+
+    def iter_expanded_unresolved_operations(
+        self,
+        *,
+        max_expanded_operations: int | None = None,
+    ) -> Iterator[GateCall | Measure]:
+        """Stream concrete unresolved leaves after a constant-memory preflight."""
+
+        if max_expanded_operations is not None:
+            self.require_expansion_budget(max_expanded_operations)
+        return (
+            operation
+            for operation in iter_expanded_quantum_operations(self.program.body)
+            if isinstance(operation, GateCall | Measure)
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class QuantumProgramWorkload:
+    """Logical expansion estimate without lowering pulses or rendering buffers."""
+
+    structural_operation_count: int
+    expanded_operation_count: int
+    selected_entity_count: int
+    max_parallel_width: int
+
+
+def estimate_quantum_program_workload(
+    program: VerifiedQuantumProgram,
+) -> QuantumProgramWorkload:
+    """Summarize retained control flow and its finite logical expansion."""
+
+    selected_entities: set[QubitId] = set()
+
+    def estimate(
+        node: QuantumNode,
+        template_items: frozenset[QubitId] | None = None,
+    ) -> tuple[int, int]:
+        selected_template_items: frozenset[QubitId] = (
+            frozenset() if template_items is None else template_items
+        )
+        if isinstance(node, GateCall):
+            selected_entities.update(
+                qubit for qubit in node.qubits if qubit not in selected_template_items
+            )
+            return 1, 1
+        if isinstance(node, Measure):
+            if node.qubit not in selected_template_items:
+                selected_entities.add(node.qubit)
+            return 1, 1
+        if isinstance(node, ImplementedGate):
+            selected_entities.update(
+                qubit
+                for qubit in node.call.qubits
+                if qubit not in selected_template_items
+            )
+            return 1, 1
+        if isinstance(node, PulseBlock):
+            selected_entities.update(
+                owner
+                for owner in pulse_leaf_owners(node.pulse_template.body)
+                if isinstance(owner, QubitId) and owner not in selected_template_items
+            )
+            return 1, 1
+        if isinstance(node, Repeat):
+            structural, expanded = estimate(node.operation, selected_template_items)
+            return structural, expanded * node.count
+        if isinstance(node, ParallelEach):
+            selected_entities.update(node.entity_ids)
+            structural, expanded = estimate(
+                node.operation,
+                selected_template_items | {node.item_id},
+            )
+            return structural, expanded * len(node.entity_ids)
+        children = node.operations if isinstance(node, Sequence) else node.branches
+        estimates = tuple(
+            estimate(child, selected_template_items) for child in children
+        )
+        return (
+            sum(item[0] for item in estimates),
+            sum(item[1] for item in estimates),
+        )
+
+    def parallel_width(node: QuantumNode) -> int:
+        if isinstance(node, GateCall | Measure | ImplementedGate | PulseBlock):
+            return 1
+        if isinstance(node, Repeat):
+            return parallel_width(node.operation)
+        if isinstance(node, ParallelEach):
+            return len(node.entity_ids) * parallel_width(node.operation)
+        children = node.operations if isinstance(node, Sequence) else node.branches
+        child_widths = tuple(parallel_width(child) for child in children)
+        if isinstance(node, Parallel):
+            return sum(child_widths)
+        return max(child_widths, default=0)
+
+    structural, expanded = estimate(program.program.body)
+    return QuantumProgramWorkload(
+        structural_operation_count=structural,
+        expanded_operation_count=expanded,
+        selected_entity_count=len(selected_entities),
+        max_parallel_width=parallel_width(program.program.body),
+    )
 
 
 def iter_quantum_operations(node: QuantumNode) -> Iterator[QuantumOperation]:
@@ -180,9 +337,226 @@ def iter_quantum_operations(node: QuantumNode) -> Iterator[QuantumOperation]:
         if node.count:
             yield from iter_quantum_operations(node.operation)
         return
+    if isinstance(node, ParallelEach):
+        for entity_id in node.entity_ids:
+            yield from iter_quantum_operations(
+                instantiate_parallel_each_operation(node, entity_id)
+            )
+        return
     children = node.operations if isinstance(node, Sequence) else node.branches
     for child in children:
         yield from iter_quantum_operations(child)
+
+
+def iter_expanded_quantum_operations(node: QuantumNode) -> Iterator[QuantumOperation]:
+    """Yield concrete leaves in deterministic occurrence order."""
+
+    if isinstance(
+        node,
+        GateCall | Measure | PulseBlock | ImplementedGate,
+    ):
+        yield node
+        return
+    if isinstance(node, Repeat):
+        for _ in range(node.count):
+            yield from iter_expanded_quantum_operations(node.operation)
+        return
+    if isinstance(node, ParallelEach):
+        for entity_id in node.entity_ids:
+            yield from iter_expanded_quantum_operations(
+                instantiate_parallel_each_operation(node, entity_id)
+            )
+        return
+    children = node.operations if isinstance(node, Sequence) else node.branches
+    for child in children:
+        yield from iter_expanded_quantum_operations(child)
+
+
+def instantiate_parallel_each_operation(
+    node: ParallelEach,
+    entity_id: QubitId,
+) -> QuantumNode:
+    """Instantiate one retained map body with entity-keyed identities."""
+
+    if entity_id not in node.entity_ids:
+        raise KeyError(entity_id)
+    scope = (node.entity_set_id, entity_id.value)
+    return _substitute_quantum_node(
+        node.operation,
+        source=node.item_id,
+        target=entity_id,
+        scope=scope,
+    )
+
+
+def _scoped_operation_id(
+    operation_id: CircuitOperationId,
+    scope: tuple[str, ...],
+) -> CircuitOperationId:
+    return CircuitOperationId("/".join((*scope, operation_id.value)))
+
+
+def _substitute_qubit(
+    qubit: QubitId,
+    *,
+    source: QubitId,
+    target: QubitId,
+) -> QubitId:
+    return target if qubit == source else qubit
+
+
+def _substitute_pulse_template(
+    template: PulseProgram,
+    *,
+    source: QubitId,
+    target: QubitId,
+) -> PulseProgram:
+    def substitute_signal(signal: LogicalSignal) -> LogicalSignal:
+        if isinstance(signal, DriveSignal | ReadoutSignal | AcquireSignal):
+            return replace(
+                signal,
+                qubit=_substitute_qubit(
+                    signal.qubit,
+                    source=source,
+                    target=target,
+                ),
+            )
+        if isinstance(signal.owner, QubitId):
+            return replace(
+                signal,
+                owner=_substitute_qubit(
+                    signal.owner,
+                    source=source,
+                    target=target,
+                ),
+            )
+        return signal
+
+    def substitute_instruction(instruction: PulseInstruction) -> PulseInstruction:
+        if isinstance(instruction, PulseSequence):
+            return PulseSequence(
+                tuple(
+                    substitute_instruction(child) for child in instruction.instructions
+                )
+            )
+        if isinstance(instruction, PulseParallel):
+            return PulseParallel(
+                tuple(substitute_instruction(child) for child in instruction.branches)
+            )
+        return replace(instruction, signal=substitute_signal(instruction.signal))
+
+    return PulseProgram(
+        id=template.id,
+        body=substitute_instruction(template.body),
+        acquisition_slots=tuple(
+            replace(slot, signal=substitute_signal(slot.signal))
+            for slot in template.acquisition_slots
+        ),
+    )
+
+
+def _substitute_quantum_node(
+    node: QuantumNode,
+    *,
+    source: QubitId,
+    target: QubitId,
+    scope: tuple[str, ...],
+) -> QuantumNode:
+    if isinstance(node, GateCall):
+        return replace(
+            node,
+            id=_scoped_operation_id(node.id, scope),
+            qubits=tuple(
+                _substitute_qubit(qubit, source=source, target=target)
+                for qubit in node.qubits
+            ),
+        )
+    if isinstance(node, Measure):
+        return replace(
+            node,
+            id=_scoped_operation_id(node.id, scope),
+            qubit=_substitute_qubit(node.qubit, source=source, target=target),
+            acquisition_slot_id=node.acquisition_slot_id.prefixed(*scope),
+        )
+    if isinstance(node, PulseBlock):
+        return replace(
+            node,
+            id=_scoped_operation_id(node.id, scope),
+            pulse_template=_substitute_pulse_template(
+                node.pulse_template,
+                source=source,
+                target=target,
+            ),
+            acquisition_slot_bindings=tuple(
+                (template_id, output_id.prefixed(*scope))
+                for template_id, output_id in node.acquisition_slot_bindings
+            ),
+        )
+    if isinstance(node, ImplementedGate):
+        call = _substitute_quantum_node(
+            node.call,
+            source=source,
+            target=target,
+            scope=scope,
+        )
+        assert isinstance(call, GateCall)
+        return replace(
+            node,
+            call=call,
+            pulse_template=_substitute_pulse_template(
+                node.pulse_template,
+                source=source,
+                target=target,
+            ),
+        )
+    if isinstance(node, Sequence):
+        return Sequence(
+            tuple(
+                _substitute_quantum_node(
+                    child,
+                    source=source,
+                    target=target,
+                    scope=scope,
+                )
+                for child in node.operations
+            )
+        )
+    if isinstance(node, Parallel):
+        return Parallel(
+            tuple(
+                _substitute_quantum_node(
+                    child,
+                    source=source,
+                    target=target,
+                    scope=scope,
+                )
+                for child in node.branches
+            )
+        )
+    if isinstance(node, Repeat):
+        return Repeat(
+            operation=_substitute_quantum_node(
+                node.operation,
+                source=source,
+                target=target,
+                scope=scope,
+            ),
+            count=node.count,
+        )
+    return ParallelEach(
+        entity_set_id=node.entity_set_id,
+        item_id=_substitute_qubit(node.item_id, source=source, target=target),
+        entity_ids=tuple(
+            _substitute_qubit(entity, source=source, target=target)
+            for entity in node.entity_ids
+        ),
+        operation=_substitute_quantum_node(
+            node.operation,
+            source=source,
+            target=target,
+            scope=scope,
+        ),
+    )
 
 
 def verify_quantum_program(
@@ -455,6 +829,12 @@ def _iter_operations_with_paths(
                 (*path, "branches", index),
             )
         return
+    if isinstance(node, ParallelEach):
+        yield from _iter_operations_with_paths(
+            node.operation,
+            (*path, "operation"),
+        )
+        return
     if node.count:
         yield from _iter_operations_with_paths(
             node.operation,
@@ -515,6 +895,39 @@ def _verify_parallel_qubits(
         for branch in branch_qubits:
             parallel_touched.update(branch)
         return parallel_touched
+    if isinstance(node, ParallelEach):
+        template_qubits = _verify_parallel_qubits(
+            node.operation,
+            (*path, "operation"),
+            issues,
+        )
+        _verify_parallel_each_gate_substitutions(node, path, issues)
+        owners: dict[QubitId, int] = {}
+        for right_index, entity_id in enumerate(node.entity_ids):
+            right_qubits = {
+                entity_id if qubit == node.item_id else qubit
+                for qubit in template_qubits
+            }
+            for qubit in sorted(right_qubits, key=lambda item: item.value):
+                left_index = owners.get(qubit)
+                if left_index is not None:
+                    issues.append(
+                        CircuitIssue(
+                            code="parallel_qubit_conflict",
+                            message=(
+                                f"parallel_each entities {left_index} and "
+                                f"{right_index} both use qubit {qubit.value!r}"
+                            ),
+                            path=(
+                                *path,
+                                "entities",
+                                node.entity_ids[right_index].value,
+                            ),
+                        )
+                    )
+                else:
+                    owners[qubit] = right_index
+        return set(owners)
     if node.count == 0:
         return set()
     return _verify_parallel_qubits(
@@ -524,11 +937,46 @@ def _verify_parallel_qubits(
     )
 
 
-@dataclass(frozen=True, slots=True)
-class LoweredQuantumPulseProgram:
-    """Canonical pulse program produced by quantum lowering."""
+def _verify_parallel_each_gate_substitutions(
+    node: ParallelEach,
+    path: tuple[QuantumIssuePathItem, ...],
+    issues: list[CircuitIssue],
+) -> None:
+    """Reject entity substitutions that collapse distinct gate operands."""
 
-    program: PulseProgram
+    for operation, operation_path in _iter_operations_with_paths(
+        node.operation,
+        (*path, "operation"),
+    ):
+        call = operation.call if isinstance(operation, ImplementedGate) else operation
+        if not isinstance(call, GateCall) or node.item_id not in call.qubits:
+            continue
+        fixed_qubits = set(call.qubits) - {node.item_id}
+        for entity_id in node.entity_ids:
+            if entity_id not in fixed_qubits:
+                continue
+            issues.append(
+                CircuitIssue(
+                    code="circuit_gate_qubit_duplicate",
+                    message=(
+                        f"gate call {call.id.value!r} uses qubit "
+                        f"{entity_id.value!r} more than once after parallel_each "
+                        "substitution"
+                    ),
+                    path=(*operation_path, "entities", entity_id.value, "qubits"),
+                )
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class QuantumPulseLoweringPlan:
+    """Implementation catalog and Map/Repeat tree awaiting target materialization."""
+
+    source_program_id: QuantumProgramId
+    output_id: PulseProgramId
+    body: QuantumNode
+    implementations: ResolvedPulseImplementations
+    expanded_operation_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -537,32 +985,43 @@ class _InstantiatedTemplate:
     acquisition_slots: tuple[AcquisitionSlot, ...]
 
 
-def lower_quantum_program_to_pulses(
+def plan_quantum_pulse_lowering(
     program: VerifiedQuantumProgram,
     implementations: ResolvedPulseImplementations,
     *,
     output_id: PulseProgramId,
-) -> LoweredQuantumPulseProgram:
-    """Resolve abstract leaves and lower one mixed program to pulse IR."""
+    max_expanded_operations: int | None = None,
+) -> QuantumPulseLoweringPlan:
+    """Close retained quantum lowering without expanding Map/Repeat nodes."""
 
-    bindings = bind_pulse_implementations(
-        program.unresolved,
-        implementations,
+    workload = program.require_expansion_budget(max_expanded_operations)
+    return QuantumPulseLoweringPlan(
+        source_program_id=program.program.id,
+        output_id=output_id,
+        body=program.program.body,
+        implementations=implementations,
+        expanded_operation_count=workload.expanded_operation_count,
     )
+
+
+def materialize_quantum_pulse_program(
+    plan: QuantumPulseLoweringPlan,
+) -> PulseProgram:
+    """Expand one retained lowering at an explicit target scheduling boundary."""
+
+    bindings = PulseImplementationIndex.from_implementations(plan.implementations)
     acquisition_slots: list[AcquisitionSlot] = []
     body = _lower_node(
-        program.program.body,
-        source_program_id=program.program.id,
+        plan.body,
+        source_program_id=plan.source_program_id,
         bindings=bindings,
         acquisition_slots=acquisition_slots,
         occurrence_scope=(),
     )
-    return LoweredQuantumPulseProgram(
-        program=PulseProgram(
-            id=output_id,
-            body=body,
-            acquisition_slots=tuple(acquisition_slots),
-        ),
+    return PulseProgram(
+        id=plan.output_id,
+        body=body,
+        acquisition_slots=tuple(acquisition_slots),
     )
 
 
@@ -570,7 +1029,7 @@ def _lower_node(
     node: QuantumNode,
     *,
     source_program_id: QuantumProgramId,
-    bindings: PulseImplementationBindings,
+    bindings: PulseImplementationIndex,
     acquisition_slots: list[AcquisitionSlot],
     occurrence_scope: tuple[str, ...],
 ) -> PulseInstruction:
@@ -600,6 +1059,19 @@ def _lower_node(
                 for child in node.branches
             )
         )
+    if isinstance(node, ParallelEach):
+        return PulseParallel(
+            tuple(
+                _lower_node(
+                    instantiate_parallel_each_operation(node, entity_id),
+                    source_program_id=source_program_id,
+                    bindings=bindings,
+                    acquisition_slots=acquisition_slots,
+                    occurrence_scope=occurrence_scope,
+                )
+                for entity_id in node.entity_ids
+            )
+        )
     if isinstance(node, Repeat):
         return PulseSequence(
             tuple(
@@ -626,7 +1098,7 @@ def _lower_leaf(
     node: QuantumOperation,
     *,
     source_program_id: QuantumProgramId,
-    bindings: PulseImplementationBindings,
+    bindings: PulseImplementationIndex,
     acquisition_slots: list[AcquisitionSlot],
     occurrence_scope: tuple[str, ...],
 ) -> PulseInstruction:
@@ -656,7 +1128,7 @@ def _lower_leaf(
     if isinstance(node, ImplementedGate):
         return _instantiate_template(node.pulse_template, prefix=prefix).body
 
-    binding = bindings.binding_for(node.id)
+    binding = bindings.binding_for(node)
     if isinstance(node, GateCall):
         assert isinstance(binding, GatePulseImplementationBinding)
         return _instantiate_template(binding.pulse_template, prefix=prefix).body

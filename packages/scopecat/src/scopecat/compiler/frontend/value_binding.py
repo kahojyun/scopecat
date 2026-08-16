@@ -14,6 +14,7 @@ from scopecat.program.table_values import (
     LiteralTableSource,
     ParameterTableSource,
     TableSource,
+    TopologyEntitySetSource,
     literal_table_source,
 )
 from scopecat.program.value_refs import ValueRef, internal_lower_value_ref
@@ -61,7 +62,10 @@ def bind_table_source(
     value = _lower_authoring_value(inputs[source.input_id])
     if isinstance(
         value,
-        LiteralTableSource | ParameterTableSource | InputTableSource,
+        LiteralTableSource
+        | ParameterTableSource
+        | InputTableSource
+        | TopologyEntitySetSource,
     ):
         return value
     return literal_table_source(

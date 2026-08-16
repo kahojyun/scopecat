@@ -1,4 +1,4 @@
-"""Compare a direct point-local scan with the reference Scopecat execution path.
+"""Measure the reference scan across the complete Scopecat execution path.
 
 The benchmark treats time from submission to the first physical trigger as
 preparation. It does not require the first point to be a separate hardware
@@ -35,6 +35,11 @@ from fastapi.testclient import TestClient
 from pydantic import JsonValue
 
 import scopecat as sc
+from benchmarks.record import (
+    BENCHMARK_RESULT_PREFIX,
+    BENCHMARK_RESULT_SCHEMA,
+    git_revision,
+)
 from reference_lab.bench_interfaces import (
     AWG_LOAD_PROGRAM,
     AWG_PROGRAM,
@@ -55,7 +60,6 @@ from reference_lab.payloads import (
 )
 from reference_lab.provider import ReferenceLabProvider
 from reference_lab.quantum_runner import (
-    BINARY_IQ_DISCRIMINATOR,
     prepare_quantum_hardware,
     quantum_capture,
 )
@@ -89,7 +93,6 @@ from scopecat.sdk.instruments.backend import InstrumentBackend
 from scopecat_quantum import authoring as q
 from scopecat_quantum.measurement_computes import (
     BinaryIqProbabilityProducts,
-    binary_iq_probabilities,
 )
 from scopecat_server import LocalDaemonRuntime  # noqa: TID251
 from scopecat_server.instruments.backend import (  # noqa: TID251
@@ -98,7 +101,6 @@ from scopecat_server.instruments.backend import (  # noqa: TID251
 from scopecat_testkit.instrument_host import compose_test_instruments
 from scopecat_testkit.server.in_process_lab import in_process_lab  # noqa: TID251
 
-_RESULT_PREFIX = "SCAN_BENCHMARK_RESULT="
 type RunnerName = Literal["adhoc", "scopecat-core", "scopecat"]
 type ProfileName = Literal[
     "drag_beta_integrated_iq",
@@ -135,12 +137,13 @@ class BenchmarkArguments:
     retention: RetentionMode
     shots: int
     waveform_samples: int
-    qubits: int
+    qubit_counts: str | None
     host_label: str
     storage_root: str | None
     output: str
     worker: RunnerName | None
     point_count: int | None
+    qubit_count: int | None
     work_dir: str | None
 
 
@@ -168,8 +171,8 @@ class ScanScenario:
             raise ValueError("waveform_sample_count must be positive")
         if self.shots <= 0:
             raise ValueError("shots must be positive")
-        if not 1 <= self.qubit_count <= 4:
-            raise ValueError("qubit_count must be between one and four")
+        if self.qubit_count <= 0:
+            raise ValueError("qubit_count must be positive")
         if self.profile == "drag_beta_integrated_iq" and (
             self.waveform_sample_count != 72 or self.qubit_count != 1
         ):
@@ -217,7 +220,10 @@ class HostMetadata:
 class BenchmarkResult:
     """One isolated benchmark worker result."""
 
-    schema: Literal["scopecat.scan_execution_benchmark.v6"]
+    schema: Literal["scopecat.benchmark_result.v1"]
+    case_id: Literal["scan-execution"]
+    case_version: Literal[7]
+    kind: Literal["e2e"]
     revision: str
     runner: RunnerName
     scenario: ScanScenario
@@ -573,8 +579,11 @@ def run_ad_hoc(
     durable_bytes, durable_files = _tree_size(root)
     measurement_dataset_bytes = _ad_hoc_measurement_bytes(root)
     return BenchmarkResult(
-        schema="scopecat.scan_execution_benchmark.v6",
-        revision=_git_revision(),
+        schema=BENCHMARK_RESULT_SCHEMA,
+        case_id="scan-execution",
+        case_version=7,
+        kind="e2e",
+        revision=git_revision(),
         runner="adhoc",
         scenario=scenario,
         host=_host_metadata(host_label),
@@ -655,8 +664,11 @@ def run_scopecat_core(
     )
     measurement_dataset_bytes = _scopecat_measurement_bytes(root / ".scopecat-test")
     return BenchmarkResult(
-        schema="scopecat.scan_execution_benchmark.v6",
-        revision=_git_revision(),
+        schema=BENCHMARK_RESULT_SCHEMA,
+        case_id="scan-execution",
+        case_version=7,
+        kind="e2e",
+        revision=git_revision(),
         runner="scopecat-core",
         scenario=scenario,
         host=_host_metadata(host_label),
@@ -752,8 +764,11 @@ def run_scopecat(
     object_store_bytes, object_store_files = _tree_size(root / ".scopecat" / "objects")
     measurement_dataset_bytes = _scopecat_measurement_bytes(root / ".scopecat")
     return BenchmarkResult(
-        schema="scopecat.scan_execution_benchmark.v6",
-        revision=_git_revision(),
+        schema=BENCHMARK_RESULT_SCHEMA,
+        case_id="scan-execution",
+        case_version=7,
+        kind="e2e",
+        revision=git_revision(),
         runner="scopecat",
         scenario=scenario,
         host=_host_metadata(host_label),
@@ -954,103 +969,45 @@ class TimedInstrumentDriver:
         self._delegate.abort()
 
 
-def _multichannel_waveform_body(
-    qubits: tuple[q.Qubit, ...],
+@q.program(id="benchmark.multichannel-waveform")
+def _multichannel_waveform_program(
+    targets: q.QubitSet,
+    readout_qubit: q.Qubit,
     *,
-    duration: q.QuantumQuantity,
-    phase: q.QuantumQuantity,
+    duration: Annotated[
+        sc.Quantity,
+        sc.ScalarType(sc.QuantityType(unit="ns")),
+    ],
+    phase: Annotated[
+        sc.Quantity,
+        sc.ScalarType(sc.QuantityType(unit="rad")),
+    ],
 ) -> q.QuantumFragment:
     return q.parallel(
-        *(
-            q.play(
+        q.parallel_each(
+            targets,
+            lambda qubit: q.play(
                 q.drive(qubit),
                 q.constant(
                     duration=duration,
                     amplitude=sc.Quantity(0.2, "arb"),
                     phase=phase,
                 ),
-            )
-            for qubit in qubits
+            ),
         ),
         q.play(
-            q.readout(qubits[0]),
+            q.readout(readout_qubit),
             q.constant(
                 duration=duration,
                 amplitude=sc.Quantity(0.25, "arb"),
             ),
         ),
         q.acquire(
-            qubits[0],
+            readout_qubit,
             duration=duration,
             result="iq_shots",
         ),
     )
-
-
-@q.program(id="benchmark.multichannel-waveform-1q")
-def _multichannel_waveform_1q(
-    q0: q.Qubit,
-    duration: Annotated[
-        sc.Quantity,
-        sc.ScalarType(sc.QuantityType(unit="ns")),
-    ],
-    phase: Annotated[
-        sc.Quantity,
-        sc.ScalarType(sc.QuantityType(unit="rad")),
-    ],
-) -> q.QuantumFragment:
-    return _multichannel_waveform_body((q0,), duration=duration, phase=phase)
-
-
-@q.program(id="benchmark.multichannel-waveform-2q")
-def _multichannel_waveform_2q(
-    q0: q.Qubit,
-    q1: q.Qubit,
-    duration: Annotated[
-        sc.Quantity,
-        sc.ScalarType(sc.QuantityType(unit="ns")),
-    ],
-    phase: Annotated[
-        sc.Quantity,
-        sc.ScalarType(sc.QuantityType(unit="rad")),
-    ],
-) -> q.QuantumFragment:
-    return _multichannel_waveform_body((q0, q1), duration=duration, phase=phase)
-
-
-@q.program(id="benchmark.multichannel-waveform-3q")
-def _multichannel_waveform_3q(
-    q0: q.Qubit,
-    q1: q.Qubit,
-    q2: q.Qubit,
-    duration: Annotated[
-        sc.Quantity,
-        sc.ScalarType(sc.QuantityType(unit="ns")),
-    ],
-    phase: Annotated[
-        sc.Quantity,
-        sc.ScalarType(sc.QuantityType(unit="rad")),
-    ],
-) -> q.QuantumFragment:
-    return _multichannel_waveform_body((q0, q1, q2), duration=duration, phase=phase)
-
-
-@q.program(id="benchmark.multichannel-waveform-4q")
-def _multichannel_waveform_4q(
-    q0: q.Qubit,
-    q1: q.Qubit,
-    q2: q.Qubit,
-    q3: q.Qubit,
-    duration: Annotated[
-        sc.Quantity,
-        sc.ScalarType(sc.QuantityType(unit="ns")),
-    ],
-    phase: Annotated[
-        sc.Quantity,
-        sc.ScalarType(sc.QuantityType(unit="rad")),
-    ],
-) -> q.QuantumFragment:
-    return _multichannel_waveform_body((q0, q1, q2, q3), duration=duration, phase=phase)
 
 
 def _multichannel_waveform_call(
@@ -1059,45 +1016,29 @@ def _multichannel_waveform_call(
     duration: sc.Quantity,
     phase: ComputeInput,
 ) -> q.QuantumProgramCall:
-    if qubit_count == 1:
-        return _multichannel_waveform_1q(
-            q0="q0",
-            duration=duration,
-            phase=phase,
-        )
-    if qubit_count == 2:
-        return _multichannel_waveform_2q(
-            q0="q0",
-            q1="q1",
-            duration=duration,
-            phase=phase,
-        )
-    if qubit_count == 3:
-        return _multichannel_waveform_3q(
-            q0="q0",
-            q1="q1",
-            q2="q2",
-            duration=duration,
-            phase=phase,
-        )
-    return _multichannel_waveform_4q(
-        q0="q0",
-        q1="q1",
-        q2="q2",
-        q3="q3",
+    return _multichannel_waveform_program(
+        targets=q.select_qubits(qubit_count),
+        readout_qubit="q0",
         duration=duration,
         phase=phase,
     )
 
 
-def _multiqubit_result_body(
-    qubits: tuple[q.Qubit, ...],
+@q.program(id="benchmark.multiqubit-results")
+def _multiqubit_result_program(
+    targets: q.QubitSet,
     *,
-    duration: q.QuantumQuantity,
-    phase: q.QuantumQuantity,
+    duration: Annotated[
+        sc.Quantity,
+        sc.ScalarType(sc.QuantityType(unit="ns")),
+    ],
+    phase: Annotated[
+        sc.Quantity,
+        sc.ScalarType(sc.QuantityType(unit="rad")),
+    ],
 ) -> q.QuantumFragment:
-    return q.parallel(
-        *(
+    def branch(qubit: q.Qubit) -> q.QuantumFragment:
+        return q.parallel(
             q.play(
                 q.drive(qubit),
                 q.constant(
@@ -1105,94 +1046,22 @@ def _multiqubit_result_body(
                     amplitude=sc.Quantity(0.2, "arb"),
                     phase=phase,
                 ),
-            )
-            for qubit in qubits
-        ),
-        *(
+            ),
             q.play(
                 q.readout(qubit),
                 q.constant(
                     duration=duration,
                     amplitude=sc.Quantity(0.05, "arb"),
                 ),
-            )
-            for qubit in qubits
-        ),
-        *(
+            ),
             q.acquire(
                 qubit,
                 duration=duration,
-                result=f"q{index}_iq_shots",
-            )
-            for index, qubit in enumerate(qubits)
-        ),
-    )
+                result="iq_shots",
+            ),
+        )
 
-
-@q.program(id="benchmark.multiqubit-results-1q")
-def _multiqubit_results_1q(
-    q0: q.Qubit,
-    duration: Annotated[
-        sc.Quantity,
-        sc.ScalarType(sc.QuantityType(unit="ns")),
-    ],
-    phase: Annotated[
-        sc.Quantity,
-        sc.ScalarType(sc.QuantityType(unit="rad")),
-    ],
-) -> q.QuantumFragment:
-    return _multiqubit_result_body((q0,), duration=duration, phase=phase)
-
-
-@q.program(id="benchmark.multiqubit-results-2q")
-def _multiqubit_results_2q(
-    q0: q.Qubit,
-    q1: q.Qubit,
-    duration: Annotated[
-        sc.Quantity,
-        sc.ScalarType(sc.QuantityType(unit="ns")),
-    ],
-    phase: Annotated[
-        sc.Quantity,
-        sc.ScalarType(sc.QuantityType(unit="rad")),
-    ],
-) -> q.QuantumFragment:
-    return _multiqubit_result_body((q0, q1), duration=duration, phase=phase)
-
-
-@q.program(id="benchmark.multiqubit-results-3q")
-def _multiqubit_results_3q(
-    q0: q.Qubit,
-    q1: q.Qubit,
-    q2: q.Qubit,
-    duration: Annotated[
-        sc.Quantity,
-        sc.ScalarType(sc.QuantityType(unit="ns")),
-    ],
-    phase: Annotated[
-        sc.Quantity,
-        sc.ScalarType(sc.QuantityType(unit="rad")),
-    ],
-) -> q.QuantumFragment:
-    return _multiqubit_result_body((q0, q1, q2), duration=duration, phase=phase)
-
-
-@q.program(id="benchmark.multiqubit-results-4q")
-def _multiqubit_results_4q(
-    q0: q.Qubit,
-    q1: q.Qubit,
-    q2: q.Qubit,
-    q3: q.Qubit,
-    duration: Annotated[
-        sc.Quantity,
-        sc.ScalarType(sc.QuantityType(unit="ns")),
-    ],
-    phase: Annotated[
-        sc.Quantity,
-        sc.ScalarType(sc.QuantityType(unit="rad")),
-    ],
-) -> q.QuantumFragment:
-    return _multiqubit_result_body((q0, q1, q2, q3), duration=duration, phase=phase)
+    return q.parallel_each(targets, branch)
 
 
 def _multiqubit_result_call(
@@ -1201,28 +1070,8 @@ def _multiqubit_result_call(
     duration: sc.Quantity,
     phase: ComputeInput,
 ) -> q.QuantumProgramCall:
-    if qubit_count == 1:
-        return _multiqubit_results_1q(q0="q0", duration=duration, phase=phase)
-    if qubit_count == 2:
-        return _multiqubit_results_2q(
-            q0="q0",
-            q1="q1",
-            duration=duration,
-            phase=phase,
-        )
-    if qubit_count == 3:
-        return _multiqubit_results_3q(
-            q0="q0",
-            q1="q1",
-            q2="q2",
-            duration=duration,
-            phase=phase,
-        )
-    return _multiqubit_results_4q(
-        q0="q0",
-        q1="q1",
-        q2="q2",
-        q3="q3",
+    return _multiqubit_result_program(
+        targets=q.select_qubits(qubit_count),
         duration=duration,
         phase=phase,
     )
@@ -1231,6 +1080,13 @@ def _multiqubit_result_call(
 def _classify_iq_shots(*, iq_shots: object) -> np.ndarray:
     values = np.asarray(iq_shots, dtype=np.complex128)
     return np.asarray(values.real >= 0.0, dtype=np.bool_)
+
+
+def _summarize_iq_shots(*, iq_shots: object) -> np.ndarray:
+    values = np.asarray(iq_shots, dtype=np.complex128)
+    if values.ndim != 2:
+        raise ValueError("multiqubit IQ summary requires [entity, shot] values")
+    return np.asarray(np.mean(values.real >= 0.0, axis=1), dtype=np.float64)
 
 
 def _select_multiqubit_results(
@@ -1244,32 +1100,38 @@ def _select_multiqubit_results(
     )
     if scenario.retention == "discard":
         return
-    for index in range(scenario.qubit_count):
-        iq_shots = results[f"q{index}_iq_shots"]
-        if scenario.retention == "summary":
-            probabilities = binary_iq_probabilities(
-                experiment,
-                iq_shots,
-                discriminator=BINARY_IQ_DISCRIMINATOR,
-                id=f"q{index}-probabilities",
-            )
-            experiment.alias(
-                probabilities.probability_1,
-                record_id=f"q{index}_probability_1",
-            )
-            continue
-        bit_shots = experiment.compute(
-            f"q{index}-bit-shots",
-            fn=_classify_iq_shots,
+    iq_shots = results.iq_shots
+    entity_dimension = sc.ArrayDimension("entity", scenario.qubit_count)
+    if scenario.retention == "summary":
+        probabilities = experiment.compute(
+            "entity-probabilities",
+            fn=_summarize_iq_shots,
             inputs={"iq_shots": iq_shots},
+            axes_from=iq_shots,
             output_type=sc.ArrayType(
-                dtype="bool",
-                dimensions=(sc.ArrayDimension("shot", scenario.shots),),
+                dtype="float64",
+                unit="ratio",
+                dimensions=(entity_dimension,),
             ),
         )
-        experiment.alias(bit_shots, record_id=f"q{index}_bit_shots")
-        if scenario.retention == "iq-and-bits":
-            experiment.alias(iq_shots, record_id=f"q{index}_iq_shots")
+        experiment.alias(probabilities, record_id="probability_1")
+        return
+    bit_shots = experiment.compute(
+        "entity-bit-shots",
+        fn=_classify_iq_shots,
+        inputs={"iq_shots": iq_shots},
+        axes_from=iq_shots,
+        output_type=sc.ArrayType(
+            dtype="bool",
+            dimensions=(
+                entity_dimension,
+                sc.ArrayDimension("shot", scenario.shots),
+            ),
+        ),
+    )
+    experiment.alias(bit_shots, record_id="bit_shots")
+    if scenario.retention == "iq-and-bits":
+        experiment.alias(iq_shots, record_id="iq_shots")
 
 
 def _scopecat_invocation(scenario: ScanScenario) -> sc.ExperimentInvocation:
@@ -1383,7 +1245,7 @@ def _worker(args: BenchmarkArguments) -> int:
             "a dataset; run the discard lower bound with --runners adhoc"
         )
     profile = _PROFILE_ALIASES[args.profile]
-    qubit_count = 1 if profile == "drag_beta_integrated_iq" else args.qubits
+    qubit_count = cast("int", args.qubit_count)
     waveform_sample_count = (
         72 if profile == "drag_beta_integrated_iq" else args.waveform_samples
     )
@@ -1408,12 +1270,17 @@ def _worker(args: BenchmarkArguments) -> int:
         result = run_scopecat_core(scenario, root, host_label=args.host_label)
     else:
         result = run_scopecat(scenario, root, host_label=args.host_label)
-    print(_RESULT_PREFIX + json.dumps(asdict(result), sort_keys=True), flush=True)
+    print(
+        BENCHMARK_RESULT_PREFIX + json.dumps(asdict(result), sort_keys=True),
+        flush=True,
+    )
     return 0
 
 
 def _controller(args: BenchmarkArguments) -> int:
     point_counts = _positive_ints(args.points)
+    profile = _PROFILE_ALIASES[args.profile]
+    qubit_counts = _selected_qubit_counts(args.qubit_counts, profile=profile)
     runners: tuple[RunnerName, ...] = tuple(
         cast("RunnerName", item) for item in args.runners.split(",")
     )
@@ -1437,17 +1304,33 @@ def _controller(args: BenchmarkArguments) -> int:
         dir=args.storage_root,
     ) as selected:
         temporary_root = Path(selected)
-        jobs: tuple[tuple[RunnerName, int, int, bool], ...] = tuple(
-            (runner, point_count, repetition, repetition < args.warmups)
+        jobs: tuple[tuple[RunnerName, int, int, int, bool], ...] = tuple(
+            (
+                runner,
+                point_count,
+                qubit_count,
+                repetition,
+                repetition < args.warmups,
+            )
             for point_count in point_counts
+            for qubit_count in qubit_counts
             for runner in runners
             for repetition in range(args.warmups + args.repetitions)
         )
-        for index, (runner, point_count, repetition, warmup) in enumerate(jobs):
-            work_dir = temporary_root / f"{index}-{runner}-{point_count}-{repetition}"
+        for index, (
+            runner,
+            point_count,
+            qubit_count,
+            repetition,
+            warmup,
+        ) in enumerate(jobs):
+            work_dir = temporary_root / (
+                f"{index}-{runner}-p{point_count}-q{qubit_count}-r{repetition}"
+            )
             result = _run_worker_process(
                 runner=runner,
                 point_count=point_count,
+                qubit_count=qubit_count,
                 args=args,
                 work_dir=work_dir,
             )
@@ -1457,7 +1340,12 @@ def _controller(args: BenchmarkArguments) -> int:
             result["repetition"] = repetition - args.warmups
             results.append(result)
             print(
+                BENCHMARK_RESULT_PREFIX + json.dumps(result, sort_keys=True),
+                flush=True,
+            )
+            print(
                 f"{runner:8} points={point_count:<7} "
+                f"qubits={qubit_count:<4} "
                 f"dsp={_scenario_str(result, 'acquisition_dsp_policy'):<13} "
                 f"retention={_scenario_str(result, 'retention'):<11} "
                 f"shots={_scenario_int(result, 'shots'):<7} "
@@ -1482,16 +1370,22 @@ def _run_worker_process(
     *,
     runner: RunnerName,
     point_count: int,
+    qubit_count: int,
     args: BenchmarkArguments,
     work_dir: Path,
 ) -> dict[str, object]:
     command = [
         sys.executable,
-        str(Path(__file__).resolve()),
+        "-m",
+        "benchmarks",
+        "run",
+        "scan-execution",
         "--worker",
         runner,
         "--point-count",
         str(point_count),
+        "--qubit-count",
+        str(qubit_count),
         "--point-delay-ms",
         str(args.point_delay_ms),
         "--acquisition-dsp",
@@ -1504,8 +1398,6 @@ def _run_worker_process(
         str(args.shots),
         "--waveform-samples",
         str(args.waveform_samples),
-        "--qubits",
-        str(args.qubits),
         "--host-label",
         args.host_label,
         "--work-dir",
@@ -1525,10 +1417,10 @@ def _run_worker_process(
             f"{completed.stdout}\n{completed.stderr}"
         )
     for line in reversed(completed.stdout.splitlines()):
-        if line.startswith(_RESULT_PREFIX):
+        if line.startswith(BENCHMARK_RESULT_PREFIX):
             return cast(
                 "dict[str, object]",
-                json.loads(line.removeprefix(_RESULT_PREFIX)),
+                json.loads(line.removeprefix(BENCHMARK_RESULT_PREFIX)),
             )
     raise RuntimeError(
         f"worker returned no result:\n{completed.stdout}\n{completed.stderr}"
@@ -1555,6 +1447,7 @@ def _summaries(results: Sequence[dict[str, object]]) -> list[dict[str, object]]:
             acquisition_dsp_policy,
             retention,
             point_count,
+            qubit_count,
             shots,
             sample_count,
             channel_count,
@@ -1566,6 +1459,7 @@ def _summaries(results: Sequence[dict[str, object]]) -> list[dict[str, object]]:
                 "acquisition_dsp_policy": acquisition_dsp_policy,
                 "retention": retention,
                 "point_count": point_count,
+                "qubit_count": qubit_count,
                 "shots": shots,
                 "waveform_sample_count": sample_count,
                 "physical_channel_count": channel_count,
@@ -1605,13 +1499,14 @@ def _summaries(results: Sequence[dict[str, object]]) -> list[dict[str, object]]:
 
 def _scenario_signature(
     result: dict[str, object],
-) -> tuple[str, str, str, int, int, int, int]:
+) -> tuple[str, str, str, int, int, int, int, int]:
     scenario = cast("dict[str, object]", result["scenario"])
     return (
         cast("str", scenario["profile"]),
         cast("str", scenario["acquisition_dsp_policy"]),
         cast("str", scenario["retention"]),
         cast("int", scenario["point_count"]),
+        cast("int", scenario["qubit_count"]),
         cast("int", scenario["shots"]),
         cast("int", scenario["waveform_sample_count"]),
         cast("int", scenario["physical_channel_count"]),
@@ -1633,10 +1528,39 @@ def _nested_float(result: dict[str, object], group: str, key: str) -> float:
     return float(cast("float", selected[key]))
 
 
-def _positive_ints(value: str) -> tuple[int, ...]:
+def _positive_ints(value: str, *, label: str = "point counts") -> tuple[int, ...]:
     selected = tuple(int(item) for item in value.split(","))
     if not selected or any(item <= 0 for item in selected):
-        raise ValueError("point counts must be positive")
+        raise ValueError(f"{label} must be positive")
+    return selected
+
+
+def _selected_qubit_counts(
+    value: str | None,
+    *,
+    profile: ProfileName,
+) -> tuple[int, ...]:
+    if profile == "drag_beta_integrated_iq":
+        if value is not None and value != "1":
+            raise ValueError("the dense profile requires exactly one qubit")
+        return (1,)
+    available = sum(
+        entity.kind == "logical_qubit"
+        for entity in bootstrap_config().system.topology.entities
+    )
+    if available <= 0:
+        raise ValueError("the benchmark configuration has no logical qubits")
+    if value is None:
+        return (available,)
+    if value == "all":
+        return tuple(range(1, available + 1))
+    selected = _positive_ints(value, label="qubit counts")
+    if len(set(selected)) != len(selected):
+        raise ValueError("qubit counts must be unique")
+    if any(count > available for count in selected):
+        raise ValueError(
+            f"qubit counts exceed the configured {available}-qubit topology"
+        )
     return selected
 
 
@@ -1728,26 +1652,6 @@ def _tree_size(root: Path) -> tuple[int, int]:
     return sum(path.stat().st_size for path in files), len(files)
 
 
-def _git_revision() -> str:
-    git = shutil.which("git")
-    if git is None:
-        raise RuntimeError("git is required to record the benchmark revision")
-    completed = subprocess.run(  # noqa: S603
-        (git, "rev-parse", "HEAD"),
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    revision = completed.stdout.strip()
-    status = subprocess.run(  # noqa: S603
-        (git, "status", "--porcelain"),
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return f"{revision}-dirty" if status.stdout else revision
-
-
 def _host_metadata(label: str) -> HostMetadata:
     total_memory = int(cast("int", psutil.virtual_memory().total))
     return HostMetadata(
@@ -1786,7 +1690,13 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--retention", choices=_RETENTION_MODES, default="summary")
     parser.add_argument("--shots", type=int, default=1)
     parser.add_argument("--waveform-samples", type=int, default=4096)
-    parser.add_argument("--qubits", type=int, default=4)
+    parser.add_argument(
+        "--qubit-counts",
+        help=(
+            "comma-separated topology-selected sizes, or 'all'; defaults to the "
+            "complete configured device for scalable profiles"
+        ),
+    )
     parser.add_argument("--host-label", default=platform.node() or "local")
     parser.add_argument("--storage-root")
     parser.add_argument(
@@ -1795,6 +1705,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--worker", choices=_ALL_RUNNERS, help=argparse.SUPPRESS)
     parser.add_argument("--point-count", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--qubit-count", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--work-dir", help=argparse.SUPPRESS)
     return parser
 
@@ -1816,12 +1727,13 @@ def _arguments(argv: Sequence[str] | None) -> BenchmarkArguments:
         retention=cast("RetentionMode", parsed.retention),
         shots=cast("int", parsed.shots),
         waveform_samples=cast("int", parsed.waveform_samples),
-        qubits=cast("int", parsed.qubits),
+        qubit_counts=cast("str | None", parsed.qubit_counts),
         host_label=cast("str", parsed.host_label),
         storage_root=cast("str | None", parsed.storage_root),
         output=cast("str", parsed.output),
         worker=cast("RunnerName | None", parsed.worker),
         point_count=cast("int | None", parsed.point_count),
+        qubit_count=cast("int | None", parsed.qubit_count),
         work_dir=cast("str | None", parsed.work_dir),
     )
 
@@ -1829,8 +1741,14 @@ def _arguments(argv: Sequence[str] | None) -> BenchmarkArguments:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _arguments(argv)
     if args.worker is not None:
-        if args.point_count is None or args.work_dir is None:
-            raise ValueError("workers require --point-count and --work-dir")
+        if (
+            args.point_count is None
+            or args.qubit_count is None
+            or args.work_dir is None
+        ):
+            raise ValueError(
+                "workers require --point-count, --qubit-count, and --work-dir"
+            )
         return _worker(args)
     if args.repetitions <= 0 or args.warmups < 0:
         raise ValueError(
@@ -1842,8 +1760,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("waveform samples must be positive")
     if args.shots <= 0:
         raise ValueError("shots must be positive")
-    if not 1 <= args.qubits <= 4:
-        raise ValueError("qubits must be between one and four")
     if args.profile != "results" and (args.retention != "summary" or args.shots != 1):
         raise ValueError(
             "retention selection and shot scaling require --profile results"

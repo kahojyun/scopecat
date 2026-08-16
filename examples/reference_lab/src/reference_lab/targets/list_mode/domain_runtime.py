@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import cast
 
 from scopecat.kernel.json_types import JsonValue
@@ -12,9 +13,9 @@ from scopecat.sdk.domain import (
     DomainInvocationSpec,
     DomainResultValue,
 )
-from scopecat_quantum.program_results import MappedQuantumTarget
-from scopecat_quantum.targets import (
-    TargetAcquisitionAddress,
+from scopecat_quantum.program_results import (
+    MappedQuantumTarget,
+    QuantumTargetResultAddress,
 )
 
 from reference_lab.targets.list_mode.circuit_runtime import (
@@ -85,7 +86,34 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
     return cast(
         "dict[str, JsonValue]",
         {
-            "schema": "reference_lab.list_mode_execution_summary.v6",
+            "schema": "reference_lab.list_mode_execution_summary.v10",
+            "compilation": {
+                "key": artifact.compilation_key.value,
+                "semantic_program_fingerprint": (
+                    artifact.compilation_key.semantic_program_fingerprint
+                ),
+                "placement_fingerprint": (
+                    artifact.compilation_key.placement_fingerprint
+                ),
+                "next_batch_max_points": (
+                    artifact.compilation_budget.next_batch_max_points
+                ),
+                "limiting_dimensions": list(
+                    artifact.compilation_budget.limiting_dimensions
+                ),
+                "dimensions": {
+                    dimension.id: {
+                        "scope": dimension.scope,
+                        "usage": dimension.usage,
+                        "limit": dimension.limit,
+                        "projected_point_capacity": (
+                            dimension.projected_point_capacity
+                        ),
+                        "projected_shot_capacity": (dimension.projected_shot_capacity),
+                    }
+                    for dimension in artifact.compilation_budget.dimensions
+                },
+            },
             "waveform_outputs": {
                 program.instrument_id: sorted(
                     {
@@ -136,6 +164,30 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
                 "scope": "invocation",
                 "order": "program_load_then_host_reassert_then_realtime_prepare",
             },
+            "placement": {
+                "provider_id": artifact.placement.provider_id,
+                "provider_fingerprint": artifact.placement.provider_fingerprint,
+                "device_snapshot_fingerprint": (
+                    artifact.device_snapshot.snapshot_fingerprint
+                ),
+                "logical_qubit_count": len(artifact.placement.logical_qubit_ids),
+                "event_count": len(artifact.placement.events),
+                "constraint_count": len(artifact.placement.constraints),
+                "constraint_kinds": sorted(
+                    {constraint.kind for constraint in artifact.placement.constraints}
+                ),
+            },
+            "physical_footprint": {
+                "instrument_count": len(artifact.physical_footprint.instrument_ids),
+                "waveform_output_count": len(
+                    artifact.physical_footprint.waveform_outputs
+                ),
+                "acquisition_input_count": len(
+                    artifact.physical_footprint.acquisition_inputs
+                ),
+                "waveform_bytes": artifact.physical_footprint.waveform_bytes,
+                "result_bytes": artifact.physical_footprint.result_bytes,
+            },
             "host_state_requirements": {
                 "policy_id": artifact.host_state_requirements.policy_id,
                 "coupling_group_count": len(
@@ -149,10 +201,13 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
     )
 
 
-def _result_address_intent(address: TargetAcquisitionAddress) -> object:
+def _result_address_intent(address: QuantumTargetResultAddress) -> object:
     return {
         "entry_id": address.entry_id.value,
-        "slot_id": acquisition_slot_identity_payload(address.slot_id),
+        "acquisitions": [
+            acquisition_slot_identity_payload(acquisition.slot_id)
+            for acquisition in address.acquisitions
+        ],
     }
 
 
@@ -214,7 +269,7 @@ class ListModeDomainRuntime:
 def realize_executed_measurements(
     mapped_target: MappedListModeTarget,
     executed: DomainExecutionResult[ListModeRun],
-) -> tuple[DomainResultValue[TargetAcquisitionAddress], ...]:
+) -> Iterable[DomainResultValue[QuantumTargetResultAddress]]:
     """Correlate and decode one complete raw run under selected policies."""
 
     if executed.receipt.result_fingerprint != executed.result.fingerprint:

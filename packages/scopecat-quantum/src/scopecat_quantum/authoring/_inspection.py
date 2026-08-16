@@ -44,11 +44,13 @@ from ._ir import (
     QuantumFragment,
     QuantumQuantity,
     Qubit,
+    QubitSet,
     _DelayFragment,
     _ExpandedFragment,
     _FragmentCall,
     _GateFragment,
     _ImplementedGateFragment,
+    _ParallelEachFragment,
     _ParallelFragment,
     _PlayFragment,
     _PulseTemplateCallFragment,
@@ -97,6 +99,8 @@ def describe(program: _InspectableProgram, /) -> str:
     for port in program.ports:
         if isinstance(port, Qubit):
             value_type = "qubit"
+        elif isinstance(port, QubitSet):
+            value_type = "qubit-set"
         elif isinstance(port, Coupler):
             value_type = "coupler"
         else:
@@ -199,6 +203,11 @@ def _inspection_node(fragment: QuantumFragment) -> _InspectionNode:
             "parallel",
             tuple(_inspection_node(item) for item in fragment.branches),
         )
+    if isinstance(fragment, _ParallelEachFragment):
+        return _InspectionNode(
+            f"parallel_each ${fragment.entity_set.id}",
+            (_inspection_node(fragment.operation),),
+        )
     if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
         return _InspectionNode(
             f"repeat {_inspection_value(fragment.count)}",
@@ -267,7 +276,7 @@ def _is_zero_phase(value: QuantumQuantity) -> bool:
 
 
 def _inspection_value(value: object) -> str:
-    if isinstance(value, Qubit | Coupler):
+    if isinstance(value, Qubit | QubitSet | Coupler):
         return value.id
     if isinstance(value, ProgramInput):
         return f"${value.id}"

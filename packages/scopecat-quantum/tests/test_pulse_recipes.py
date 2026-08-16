@@ -10,11 +10,17 @@ from scopecat_quantum._ids import (
     AcquisitionSlotId,
     CircuitOperationId,
     CouplerId,
+    QuantumProgramId,
     QubitId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.circuits import Measure, verify_circuit_operations
 from scopecat_quantum.gates import GateArgument, GateCall, GateParameterKind
+from scopecat_quantum.programs import (
+    ParallelEach,
+    QuantumProgramIR,
+    verify_quantum_program,
+)
 from scopecat_quantum.pulse_implementations import (
     GatePulseImplementationArgument,
     GatePulseImplementationKey,
@@ -187,6 +193,37 @@ def test_repeated_exact_gate_calls_materialize_one_reusable_implementation() -> 
     resolved = _PROFILE.materialize(_parameters(), circuit)
 
     assert len(resolved.gates) == 1
+
+
+def test_profile_streams_retained_parallel_each_operations() -> None:
+    item = QubitId("$qubit")
+    verified = verify_quantum_program(
+        QuantumProgramIR(
+            QuantumProgramId("mapped-x"),
+            ParallelEach(
+                entity_set_id="qubits",
+                item_id=item,
+                entity_ids=(QubitId("q0"), QubitId("q1")),
+                operation=GateCall(
+                    CircuitOperationId("mapped-x"),
+                    X.definition.id,
+                    (item,),
+                ),
+            ),
+        ),
+        (X.definition,),
+    )
+
+    resolved = _PROFILE.materialize_quantum(
+        _parameters(),
+        verified,
+        max_expanded_operations=2,
+    )
+
+    assert tuple(implementation.id.value for implementation in resolved.gates) == (
+        "x.constant[q0]",
+        "x.constant[q1]",
+    )
 
 
 def test_actual_gate_arguments_are_forwarded_into_the_authored_fragment() -> None:

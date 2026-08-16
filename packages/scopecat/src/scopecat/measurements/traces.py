@@ -21,6 +21,7 @@ from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementEntityAcquisition,
+    MeasurementPartitionedArray,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
@@ -559,6 +560,8 @@ def _local_trace_array(
             )
         segment = value.segments[entity_index]
         return _local_segment_array(segment)
+    if isinstance(value, MeasurementPartitionedArray):
+        value = value.materialize()
     if not isinstance(value, MeasurementArray):
         raise ValueError("trace values must be point-local arrays")
     entity_axis = (

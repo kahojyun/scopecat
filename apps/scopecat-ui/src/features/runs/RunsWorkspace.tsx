@@ -79,6 +79,7 @@ export function RunsWorkspace({
   const [requestedMeasurementSlice, setRequestedMeasurementSlice] = useState<{
     runId: string;
     fixedAxisIndices: Record<string, number>;
+    offset: number;
   }>();
   const [requestedMeasurementTracePlan, setRequestedMeasurementTracePlan] = useState<{
     runId: string;
@@ -230,6 +231,12 @@ export function RunsWorkspace({
     [requestedMeasurementSlice, selectedRunId, slicePlan],
   );
   const measurementSliceKey = JSON.stringify(measurementFixedAxisIndices);
+  const measurementSliceOffset =
+    requestedMeasurementSlice !== undefined &&
+    requestedMeasurementSlice.runId === selectedRunId &&
+    JSON.stringify(requestedMeasurementSlice.fixedAxisIndices) === measurementSliceKey
+      ? requestedMeasurementSlice.offset
+      : 0;
   const currentMeasurementEntitySelection =
     requestedMeasurementEntities !== undefined &&
     requestedMeasurementEntities.runId === selectedRunId
@@ -240,12 +247,13 @@ export function RunsWorkspace({
     : undefined;
   const measurementTraceEntityKey = JSON.stringify(selectedTraceEntityIndices ?? null);
   const measurementSliceQuery = useQuery({
-    queryKey: ["measurement-slice", selectedRunId, measurementSliceKey],
+    queryKey: ["measurement-slice", selectedRunId, measurementSliceKey, measurementSliceOffset],
     queryFn: ({ signal }) =>
       getMeasurementSlice(
         selectedRunId!,
         measurementFixedAxisIndices,
         slicePlan!.variableIds,
+        measurementSliceOffset,
         signal,
       ),
     enabled: selectedRunId !== undefined && slicePlan !== undefined,
@@ -500,6 +508,13 @@ export function RunsWorkspace({
               }}
               onMeasurementEntitySelectionChange={handleMeasurementEntitySelectionChange}
               measurementFixedAxisIndices={measurementFixedAxisIndices}
+              onMeasurementSliceOffsetChange={(offset) => {
+                setRequestedMeasurementSlice({
+                  runId: selectedRunId!,
+                  fixedAxisIndices: measurementFixedAxisIndices,
+                  offset,
+                });
+              }}
               onMeasurementFixedAxisIndexChange={(axisId, index) => {
                 setRequestedMeasurementSlice({
                   runId: selectedRunId!,
@@ -507,6 +522,7 @@ export function RunsWorkspace({
                     ...measurementFixedAxisIndices,
                     [axisId]: index,
                   },
+                  offset: 0,
                 });
               }}
               analyses={analysesQuery.data}

@@ -23,7 +23,7 @@ from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import ModelLocation
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.value_types import Scalar, ValueType
+from scopecat.kernel.value_types import Scalar, Table, ValueType
 from scopecat.measurements.products import ProductAxisDef, ProductDef
 from scopecat.measurements.records import (
     EntityRecordUse,
@@ -44,6 +44,7 @@ from scopecat.program.products import (
     ProductRecordSelection,
     product_axis_dimension_id,
 )
+from scopecat.program.table_values import TableSource
 from scopecat.program.value_refs import (
     ValueRef,
     internal_lower_value_ref,
@@ -324,6 +325,19 @@ def _static_axis_size(
         )
         return len(entities), {}, entities
     if entity_axis:
+        if isinstance(selected_type, Table):
+            rows = static_evaluator.table(
+                cast("TableSource", selected_value),
+                selected_type,
+                inputs=input_row(inputs),
+            )
+            [column] = selected_type.columns
+            entities = _axis_entities(
+                topology,
+                [row[column.id] for row in rows],
+                location=location,
+            )
+            return len(entities), {}, entities
         if not isinstance(selected_value, ScalarExpr):
             raise_frontend_problem(
                 "product_entity_axis_invalid",
