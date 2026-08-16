@@ -413,7 +413,8 @@ export function MeasurementDataPreview({
           Heatmaps and point-scalar plots use the selected durable slice when available. Trace
           previews are bounded by the server for the selected authored domain and entities. Entity
           selection also filters comparison plots and table summaries. Large slices expose bounded
-          logical-point windows without losing their authored-axis context.
+          logical-point windows without losing their authored-axis context. The JSON preview retains
+          the bounded run view, including the latest live daemon receipt.
         </p>
       )}
 
@@ -466,15 +467,13 @@ export function MeasurementDataPreview({
       <details className="border-t border-line text-[0.64rem] text-text-dim">
         <summary className="cursor-pointer px-3 py-2 font-bold hover:text-text-soft">
           <span>Raw records</span>
-          <span className="ml-1 font-medium text-text-dim">
-            {slicePlan ? "in selected window" : "in preview"}
-          </span>
+          <span className="ml-1 font-medium text-text-dim">in preview</span>
         </summary>
         <pre
           className="m-0 max-h-[320px] overflow-auto border-t border-line bg-panel-soft p-3 text-[0.63rem] leading-[1.5] text-text-soft"
           data-testid="measurement-preview"
         >
-          {JSON.stringify(slicePlan ? (slice?.items ?? []) : preview.items, null, 2)}
+          {JSON.stringify(preview.items, null, 2)}
         </pre>
       </details>
     </div>

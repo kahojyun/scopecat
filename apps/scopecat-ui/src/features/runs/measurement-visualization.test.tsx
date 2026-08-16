@@ -1090,6 +1090,25 @@ describe("measurement visualization", () => {
     expect(screen.getByTestId("measurement-preview")).not.toBeVisible();
   });
 
+  it("keeps a live daemon receipt visible while the selected slice is not durable", () => {
+    const schema = threeDimensionalGridSchema();
+    const liveRecord = slicedGridRecords([0])[0]!;
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items: [liveRecord], livePointIndex: 0 }}
+        slice={slicePreview(schema, [])}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{ bias: 0 }}
+        onFixedAxisIndexChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Raw records", { exact: true }));
+    expect(screen.getByTestId("measurement-preview")).toHaveTextContent('"point_index": 0');
+  });
+
   it("offers every chart candidate instead of silently truncating observables", () => {
     const variables = Array.from({ length: 8 }, (_item, index) => ({
       id: `signal-${index}`,
