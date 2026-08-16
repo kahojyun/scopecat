@@ -60,6 +60,7 @@ class CompiledProgramInspectionQuery:
     cursor: str | None = None
     offset: int = 0
     limit: int = 128
+    node_id: str | None = None
     parent_id: str | None = None
     entity_id: str | None = None
     resource_id: str | None = None
@@ -142,6 +143,7 @@ class CompiledProgramInspectionNodeIndex:
         [int, CompiledProgramInspectionQuery | None],
         CompiledProgramInspectionNode,
     ]
+    ordinal_by_id: Callable[[str], int | None] | None = None
 
     @classmethod
     def from_nodes(
@@ -149,9 +151,11 @@ class CompiledProgramInspectionNodeIndex:
         nodes: Sequence[CompiledProgramInspectionNode],
     ) -> CompiledProgramInspectionNodeIndex:
         retained = tuple(nodes)
+        ordinals = {node.id: ordinal for ordinal, node in enumerate(retained)}
         return cls(
             node_count=len(retained),
             node_at=lambda ordinal, _query: retained[ordinal],
+            ordinal_by_id=ordinals.get,
         )
 
 
@@ -277,7 +281,23 @@ def query_compiled_program_node_index(
     )
     selected_nodes: list[CompiledProgramInspectionNode] = []
     selected_ordinals: list[int] = []
-    if selected_query is None or not _program_query_has_filters(selected_query):
+    if (
+        selected_query is not None
+        and selected_query.node_id is not None
+        and nodes.ordinal_by_id is not None
+    ):
+        ordinal = nodes.ordinal_by_id(selected_query.node_id)
+        node = None if ordinal is None else nodes.node_at(ordinal, selected_query)
+        matches = node is not None and _matches_program_node(node, selected_query)
+        matching_node_count = int(matches)
+        if matches and offset == 0:
+            assert node is not None
+            assert ordinal is not None
+            selected_ordinals.append(ordinal)
+            selected_nodes.append(
+                _bound_program_node_references(node, query=selected_query)
+            )
+    elif selected_query is None or not _program_query_has_filters(selected_query):
         matching_node_count = nodes.node_count
         selected_ordinals.extend(
             range(offset, min(offset + limit, matching_node_count))
@@ -335,6 +355,7 @@ def _program_query_has_filters(query: CompiledProgramInspectionQuery) -> bool:
         value is not None
         for value in (
             query.parent_id,
+            query.node_id,
             query.entity_id,
             query.resource_id,
             query.kind,
@@ -376,6 +397,7 @@ def _inspection_cursor_signature(
         snapshot_id,
         None if query is None else query.layer_id,
         None if query is None else query.limit,
+        None if query is None else query.node_id,
         None if query is None else query.parent_id,
         None if query is None else query.entity_id,
         None if query is None else query.resource_id,
@@ -389,6 +411,8 @@ def _matches_program_node(
     node: CompiledProgramInspectionNode,
     query: CompiledProgramInspectionQuery,
 ) -> bool:
+    if query.node_id is not None and node.id != query.node_id:
+        return False
     if query.parent_id is not None and node.parent_id != query.parent_id:
         return False
     if query.entity_id is not None and query.entity_id not in node.entity_ids:

@@ -119,6 +119,13 @@ show Map/Repeat nodes as aggregates, draw timing only for the selected scheduled
 page, and fetch detail by entity or physical resource. Browser memory and DOM
 size must be proportional to the page, not to the expanded program.
 
+The layer summary is an explicit resolution navigator from authored intent
+through bound structure and timed events to physical placement. Each stage shows
+its total node count, matching count, and loaded-page size. Timeline marks and
+lowering links are interactive; a link whose target is outside the loaded page
+uses an exact node-identity query backed by the retained inspection index, so
+cross-layer navigation does not fetch or linearly scan an entire large layer.
+
 ## Measurements
 
 Record the repository revision, machine description, workload shape, wall time,

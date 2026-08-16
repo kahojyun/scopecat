@@ -252,6 +252,29 @@ def _physical_placement_layer_index(
         )
     )
     root_id = "physical:placement"
+    placement_stop = 1 + len(placements)
+    candidate_stop = placement_stop + len(artifact.placement.candidates)
+    ordinal_by_id = {
+        root_id: 0,
+        **{
+            f"physical:event:{event.event_id.value}": ordinal
+            for ordinal, event in enumerate(placements, start=1)
+        },
+        **{
+            f"physical:{candidate.id}": ordinal
+            for ordinal, candidate in enumerate(
+                artifact.placement.candidates,
+                start=placement_stop,
+            )
+        },
+        **{
+            f"physical:constraint:{constraint.id}": ordinal
+            for ordinal, constraint in enumerate(
+                artifact.placement.constraints,
+                start=candidate_stop,
+            )
+        },
+    }
 
     def node_at(
         ordinal: int,
@@ -310,10 +333,8 @@ def _physical_placement_layer_index(
                     ),
                 ),
             )
-        placement_stop = 1 + len(placements)
         if ordinal < placement_stop:
             return _physical_event_node(placements[ordinal - 1], parent_id=root_id)
-        candidate_stop = placement_stop + len(artifact.placement.candidates)
         if ordinal < candidate_stop:
             return _physical_candidate_node(
                 artifact.placement.candidates[ordinal - placement_stop],
@@ -338,6 +359,7 @@ def _physical_placement_layer_index(
                     + len(artifact.placement.constraints)
                 ),
                 node_at=node_at,
+                ordinal_by_id=ordinal_by_id.get,
             ),
             facts=(
                 CompiledInspectionFact(

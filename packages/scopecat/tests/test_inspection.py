@@ -157,3 +157,45 @@ def test_unfiltered_program_pages_only_materialize_returned_nodes() -> None:
 
     assert [node.id for node in second.nodes] == ["scheduled:2", "scheduled:3"]
     assert loaded == [0, 1, 2, 3]
+
+
+def test_program_node_identity_query_uses_reusable_index() -> None:
+    loaded: list[int] = []
+
+    def node_at(
+        ordinal: int,
+        _query: CompiledProgramInspectionQuery | None,
+    ) -> CompiledProgramInspectionNode:
+        loaded.append(ordinal)
+        return CompiledProgramInspectionNode(
+            id=f"scheduled:{ordinal}",
+            kind="play",
+            label=f"pulse {ordinal}",
+        )
+
+    index = CompiledProgramInspectionNodeIndex(
+        node_count=100_000,
+        node_at=node_at,
+        ordinal_by_id=lambda node_id: (
+            int(node_id.removeprefix("scheduled:"))
+            if node_id.startswith("scheduled:")
+            else None
+        ),
+    )
+
+    selected = query_compiled_program_node_index(
+        "scheduled",
+        index,
+        query=CompiledProgramInspectionQuery(
+            layer_id="scheduled",
+            snapshot_id="artifact-a",
+            node_id="scheduled:99999",
+        ),
+        default_limit=128,
+        snapshot_id="artifact-a",
+    )
+
+    assert [node.id for node in selected.nodes] == ["scheduled:99999"]
+    assert selected.ordinals == (99_999,)
+    assert selected.page.matching_node_count == 1
+    assert loaded == [99_999]

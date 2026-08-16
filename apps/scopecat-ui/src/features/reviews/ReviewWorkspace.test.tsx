@@ -45,6 +45,9 @@ describe("ReviewWorkspace", () => {
     expect(screen.getByText("awg-1/outputs/i")).toBeVisible();
     expect(screen.getByText("sha256:realization")).toBeVisible();
     expect(screen.getByText("Quantum program")).toBeVisible();
+    expect(screen.getByLabelText("Program layer overview")).toBeVisible();
+    expect(screen.getByText("Intent")).toBeVisible();
+    expect(screen.getByText("Timed events")).toBeVisible();
     expect(screen.getByRole("tab", { name: /Scheduled pulse events/ })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -52,6 +55,66 @@ describe("ReviewWorkspace", () => {
     expect(screen.getByText("play drive(q0)")).toBeVisible();
     fireEvent.click(screen.getByText("play drive(q0)"));
     expect(screen.getByText("entity q0")).toBeVisible();
+  });
+
+  it("navigates lowering lineage across already loaded abstraction layers", async () => {
+    renderWorkspace();
+    await screen.findByText("Quantum program");
+
+    fireEvent.click(screen.getByText("play drive(q0)"));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open lineage Bound logical program x90(q0)",
+      }),
+    );
+
+    expect(screen.getByRole("tab", { name: /Bound logical program/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: /x90\(q0\)/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "← Back to play drive(q0)" })).toBeVisible();
+  });
+
+  it("queries an exact lineage node when its layer page is not loaded", async () => {
+    const value = reviewSession();
+    const logical = value.latest_result?.inspections[0]?.content.program?.layers.find(
+      (layer) => layer.id === "logical",
+    );
+    expect(logical).toBeDefined();
+    if (logical) {
+      logical.nodes = [];
+      logical.nodes_truncated = true;
+      logical.page.returned_node_count = 0;
+    }
+    vi.mocked(getReviews).mockResolvedValue({ items: [value] });
+    vi.mocked(getReview).mockResolvedValue(value);
+
+    renderWorkspace();
+    await screen.findByText("Quantum program");
+    fireEvent.click(screen.getByText("play drive(q0)"));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open lineage Bound logical program logical:operation:body/gate",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(compileReviewPoint).toHaveBeenCalledWith("review-1", {
+        point_index: 0,
+        coordinate_mode: "exact",
+        inspection_query: {
+          layer_id: "logical",
+          snapshot_id: "sha256:artifact",
+          node_id: "logical:operation:body/gate",
+          offset: 0,
+          limit: 128,
+        },
+      }),
+    );
   });
 
   it("shows selected placement candidates and structured rejection reasons", async () => {

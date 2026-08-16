@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProgramInspectionQuery, ReviewSession } from "../../api-contract";
 import { EChart, type EChartsCoreOption } from "../../ui/EChart";
 
@@ -8,6 +8,11 @@ type PresentedFact = PresentedInspection["content"]["facts"][number];
 type PresentedProgram = NonNullable<PresentedInspection["content"]["program"]>;
 type PresentedLayer = PresentedProgram["layers"][number];
 type PresentedNode = PresentedLayer["nodes"][number];
+type ProgramNodeLocation = {
+  layerId: string;
+  nodeId: string;
+  label: string;
+};
 
 export function CompiledInspectionView({
   inspections,
@@ -74,19 +79,100 @@ function ProgramInspectionView({
   const [kindFilter, setKindFilter] = useState("");
   const [entityFilter, setEntityFilter] = useState("");
   const [resourceFilter, setResourceFilter] = useState("");
+  const pendingNavigation = useRef<ProgramNodeLocation | null>(null);
+  const [navigationHistory, setNavigationHistory] = useState<ProgramNodeLocation[]>([]);
 
   useEffect(() => {
-    const defaultLayer = inspection.layers.at(-1)?.id ?? "";
-    setLayerId((current) =>
-      inspection.layers.some((candidate) => candidate.id === current) ? current : defaultLayer,
-    );
-    setSelectedNodeId(null);
+    const pending = pendingNavigation.current;
+    const pendingLayer = pending
+      ? inspection.layers.find((candidate) => candidate.id === pending.layerId)
+      : undefined;
+    const pendingNode = pendingLayer?.nodes.find((candidate) => candidate.id === pending?.nodeId);
+    setLayerId((current) => {
+      if (pendingLayer) return pendingLayer.id;
+      if (inspection.query) return inspection.query.layer_id;
+      return inspection.layers.some((candidate) => candidate.id === current)
+        ? current
+        : (inspection.layers.at(-1)?.id ?? "");
+    });
+    setSelectedNodeId((current) => {
+      if (pending) return pendingNode?.id ?? null;
+      if (current == null) return null;
+      return inspection.layers.some((candidate) =>
+        candidate.nodes.some((node) => node.id === current),
+      )
+        ? current
+        : null;
+    });
+    if (
+      pending &&
+      inspection.query?.layer_id === pending.layerId &&
+      inspection.query.node_id === pending.nodeId
+    ) {
+      pendingNavigation.current = null;
+    }
     const query = inspection.query;
     setTextFilter(query?.text ?? "");
     setKindFilter(query?.kind ?? "");
     setEntityFilter(query?.entity_id ?? "");
     setResourceFilter(query?.resource_id ?? "");
   }, [inspection]);
+
+  const resetFilters = () => {
+    setTextFilter("");
+    setKindFilter("");
+    setEntityFilter("");
+    setResourceFilter("");
+  };
+
+  const queryLayer = (targetLayer: PresentedLayer, nodeId?: string) => {
+    onQuery?.({
+      layer_id: targetLayer.id,
+      snapshot_id: inspection.snapshot_id,
+      offset: 0,
+      limit: targetLayer.page.limit,
+      ...(nodeId && { node_id: nodeId }),
+    });
+  };
+
+  const openLayer = (targetLayer: PresentedLayer) => {
+    setLayerId(targetLayer.id);
+    setSelectedNodeId(null);
+    pendingNavigation.current = null;
+    setNavigationHistory([]);
+    resetFilters();
+    queryLayer(targetLayer);
+  };
+
+  const openNode = (targetLayerId: string, targetNodeId: string, remember = true) => {
+    const targetLayer = inspection.layers.find((candidate) => candidate.id === targetLayerId);
+    if (!targetLayer) return;
+    if (remember && layer && selectedNode) {
+      setNavigationHistory((current) => [
+        ...current,
+        { layerId: layer.id, nodeId: selectedNode.id, label: selectedNode.label },
+      ]);
+    }
+    resetFilters();
+    setLayerId(targetLayer.id);
+    const targetNode = targetLayer.nodes.find((candidate) => candidate.id === targetNodeId);
+    if (targetNode) {
+      setSelectedNodeId(targetNode.id);
+      pendingNavigation.current = null;
+      return;
+    }
+    const target = { layerId: targetLayer.id, nodeId: targetNodeId, label: targetNodeId };
+    setSelectedNodeId(null);
+    pendingNavigation.current = target;
+    queryLayer(targetLayer, targetNodeId);
+  };
+
+  const returnToPreviousNode = () => {
+    const target = navigationHistory.at(-1);
+    if (!target) return;
+    setNavigationHistory((current) => current.slice(0, -1));
+    openNode(target.layerId, target.nodeId, false);
+  };
 
   const submitQuery = (cursor?: string) => {
     if (!layer || !onQuery) return;
@@ -102,6 +188,8 @@ function ProgramInspectionView({
       ...(resourceFilter.trim() && { resource_id: resourceFilter.trim() }),
     });
     setSelectedNodeId(null);
+    pendingNavigation.current = null;
+    setNavigationHistory([]);
   };
 
   return (
@@ -113,41 +201,11 @@ function ProgramInspectionView({
         </div>
         <span className="text-[0.56rem] text-text-dim">{inspection.dialect_id}</span>
       </header>
-      <div className="flex flex-wrap gap-1 border-b border-line bg-panel-soft p-2" role="tablist">
-        {inspection.layers.map((candidate) => (
-          <button
-            aria-selected={candidate.id === layer?.id}
-            className={`cursor-pointer rounded px-2.5 py-1.5 text-[0.6rem] font-bold ${
-              candidate.id === layer?.id
-                ? "bg-panel-strong text-text"
-                : "bg-transparent text-text-dim hover:text-text-soft"
-            }`}
-            key={candidate.id}
-            onClick={() => {
-              setLayerId(candidate.id);
-              setSelectedNodeId(null);
-              setTextFilter("");
-              setKindFilter("");
-              setEntityFilter("");
-              setResourceFilter("");
-              onQuery?.({
-                layer_id: candidate.id,
-                snapshot_id: inspection.snapshot_id,
-                offset: 0,
-                limit: candidate.page.limit,
-              });
-            }}
-            role="tab"
-            type="button"
-          >
-            {candidate.label}
-            <span className="ml-1.5 font-normal opacity-70">
-              {candidate.node_count.toLocaleString()}
-              {candidate.nodes_truncated ? "+" : ""}
-            </span>
-          </button>
-        ))}
-      </div>
+      <ProgramLayerOverview
+        inspection={inspection}
+        onSelect={openLayer}
+        selectedLayerId={layer?.id ?? ""}
+      />
       {layer && (
         <>
           <ProgramQueryBar
@@ -183,14 +241,103 @@ function ProgramInspectionView({
                   <FactGrid facts={layer.facts} />
                 </div>
               )}
-              {layer.id === "scheduled" && <ProgramTimeline layer={layer} />}
-              <ProgramNodeInspector inspection={inspection} layer={layer} node={selectedNode} />
+              {layer.id === "scheduled" && (
+                <ProgramTimeline
+                  layer={layer}
+                  onSelect={setSelectedNodeId}
+                  selectedNodeId={selectedNodeId}
+                />
+              )}
+              <ProgramNodeInspector
+                backTarget={navigationHistory.at(-1)}
+                inspection={inspection}
+                layer={layer}
+                node={selectedNode}
+                onBack={returnToPreviousNode}
+                onNavigate={openNode}
+              />
             </div>
           </div>
         </>
       )}
     </section>
   );
+}
+
+function ProgramLayerOverview({
+  inspection,
+  selectedLayerId,
+  onSelect,
+}: {
+  inspection: PresentedProgram;
+  selectedLayerId: string;
+  onSelect: (layer: PresentedLayer) => void;
+}) {
+  const largestLayer = Math.max(...inspection.layers.map((candidate) => candidate.node_count), 1);
+  const scale = (count: number) =>
+    Math.max(4, (Math.log10(count + 1) / Math.log10(largestLayer + 1)) * 100);
+  return (
+    <div className="border-b border-line bg-panel-soft p-2.5">
+      <div className="mb-2 flex items-center justify-between gap-2 text-[0.53rem] text-text-dim">
+        <span>{inspection.layers.length} abstraction levels</span>
+        <span>Log-scaled workload · bounded pages</span>
+      </div>
+      <div
+        aria-label="Program layer overview"
+        className="grid grid-cols-4 gap-1.5 max-[1100px]:grid-cols-2 max-[560px]:grid-cols-1"
+        role="tablist"
+      >
+        {inspection.layers.map((candidate) => {
+          const selected = candidate.id === selectedLayerId;
+          const loaded = candidate.page.returned_node_count;
+          return (
+            <button
+              aria-label={`Open ${candidate.label}: ${candidate.node_count.toLocaleString()} nodes`}
+              aria-selected={selected}
+              className={`group grid min-w-0 cursor-pointer gap-1 rounded border px-2.5 py-2 text-left ${
+                selected
+                  ? "border-line-strong bg-panel-strong text-text"
+                  : "border-line bg-panel text-text-soft hover:border-line-strong"
+              }`}
+              key={candidate.id}
+              onClick={() => onSelect(candidate)}
+              role="tab"
+              type="button"
+            >
+              <span className="text-[0.49rem] font-bold tracking-[0.07em] text-text-dim uppercase">
+                {programResolutionLabel(candidate)}
+              </span>
+              <span className="truncate text-[0.61rem] font-bold">{candidate.label}</span>
+              <span className="flex items-baseline justify-between gap-2">
+                <strong className="text-[0.72rem]">{candidate.node_count.toLocaleString()}</strong>
+                <span className="text-[0.49rem] text-text-dim">
+                  {loaded.toLocaleString()} loaded
+                </span>
+              </span>
+              <span className="h-1 overflow-hidden rounded bg-panel-soft">
+                <span
+                  className={`block h-full rounded ${selected ? "bg-accent" : "bg-line-strong"}`}
+                  style={{ width: `${scale(candidate.node_count)}%` }}
+                />
+              </span>
+              <span className="truncate text-[0.49rem] text-text-dim">
+                {candidate.page.matching_node_count.toLocaleString()} matching
+                {candidate.nodes_truncated ? " · paged" : " · complete"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function programResolutionLabel(layer: PresentedLayer): string {
+  if (layer.id === "authored") return "Intent";
+  if (layer.id === "logical") return "Bound structure";
+  if (layer.id === "scheduled") return "Timed events";
+  if (layer.id === "physical") return "Hardware";
+  return layer.kind;
 }
 
 function ProgramQueryBar({
@@ -369,21 +516,38 @@ function ProgramNodeList({
   );
 }
 
-function ProgramTimeline({ layer }: { layer: PresentedLayer }) {
+function ProgramTimeline({
+  layer,
+  selectedNodeId,
+  onSelect,
+}: {
+  layer: PresentedLayer;
+  selectedNodeId: string | null;
+  onSelect: (nodeId: string) => void;
+}) {
   const events = layer.nodes.filter(
     (node) => node.start_seconds != null && node.duration_seconds != null,
   );
-  const duration = Math.max(
+  const visibleDuration = Math.max(
     ...events.map((node) => Number(node.start_seconds) + Number(node.duration_seconds)),
     0,
   );
-  const lanes = Array.from(new Set(events.flatMap((node) => node.entity_ids))).slice(0, 16);
+  const declaredDuration = Number(
+    layer.facts.find((fact) => fact.id === "duration_seconds")?.value,
+  );
+  const duration = declaredDuration > 0 ? declaredDuration : visibleDuration;
+  const allLanes = Array.from(new Set(events.flatMap((node) => node.entity_ids)));
+  const lanes = allLanes.slice(0, 16);
   if (events.length === 0 || duration <= 0) return null;
   return (
     <div className="mb-3 rounded border border-line bg-panel-soft p-2.5">
       <div className="mb-2 flex items-center justify-between text-[0.56rem] text-text-dim">
-        <strong className="text-text-soft">Timeline</strong>
-        <span>{duration.toExponential(3)} s</span>
+        <strong className="text-text-soft">Visible page timeline</strong>
+        <span>
+          {events.length.toLocaleString()} events · {lanes.length.toLocaleString()}
+          {allLanes.length > lanes.length ? `/${allLanes.length.toLocaleString()}` : ""} lanes ·{" "}
+          {duration.toExponential(3)} s
+        </span>
       </div>
       <div className="grid gap-1">
         {lanes.map((lane) => (
@@ -393,14 +557,20 @@ function ProgramTimeline({ layer }: { layer: PresentedLayer }) {
               {events
                 .filter((event) => event.entity_ids.includes(lane))
                 .map((event) => (
-                  <span
-                    className="absolute top-0.5 h-3 min-w-[2px] rounded bg-accent/70"
+                  <button
+                    aria-label={`Select ${event.label} on ${lane}`}
+                    aria-pressed={selectedNodeId === event.id}
+                    className={`absolute top-0.5 h-3 min-w-[2px] cursor-pointer rounded border-0 ${
+                      selectedNodeId === event.id ? "bg-accent" : "bg-accent/70 hover:bg-accent"
+                    }`}
                     key={event.id}
+                    onClick={() => onSelect(event.id)}
                     style={{
                       left: `${(Number(event.start_seconds) / duration) * 100}%`,
                       width: `${Math.max((Number(event.duration_seconds) / duration) * 100, 0.25)}%`,
                     }}
                     title={event.label}
+                    type="button"
                   />
                 ))}
             </div>
@@ -415,15 +585,32 @@ function ProgramNodeInspector({
   inspection,
   layer,
   node,
+  backTarget,
+  onBack,
+  onNavigate,
 }: {
   inspection: PresentedProgram;
   layer: PresentedLayer;
   node: PresentedNode | undefined;
+  backTarget: ProgramNodeLocation | undefined;
+  onBack: () => void;
+  onNavigate: (layerId: string, nodeId: string) => void;
 }) {
   if (!node) {
     return (
-      <div className="rounded border border-dashed border-line p-4 text-center text-[0.6rem] text-text-dim">
-        Select a node to inspect its entities, results, timing, and lowering lineage.
+      <div className="grid gap-2">
+        {backTarget && (
+          <button
+            className="w-fit cursor-pointer text-[0.55rem] font-bold text-accent hover:underline"
+            onClick={onBack}
+            type="button"
+          >
+            ← Back to {backTarget.label}
+          </button>
+        )}
+        <div className="rounded border border-dashed border-line p-4 text-center text-[0.6rem] text-text-dim">
+          Select a node to inspect its entities, results, timing, and lowering lineage.
+        </div>
       </div>
     );
   }
@@ -443,6 +630,15 @@ function ProgramNodeInspector({
   const candidateStatus = placementCandidateStatus(node);
   return (
     <div className="grid gap-2.5">
+      {backTarget && (
+        <button
+          className="w-fit cursor-pointer text-[0.55rem] font-bold text-accent hover:underline"
+          onClick={onBack}
+          type="button"
+        >
+          ← Back to {backTarget.label}
+        </button>
+      )}
       <div>
         {ancestors.length > 0 && (
           <div className="mb-1 truncate text-[0.51rem] text-text-dim">
@@ -490,19 +686,31 @@ function ProgramNodeInspector({
           <strong className="text-text-soft">Lowering lineage</strong>
           {[...incoming, ...outgoing].slice(0, 6).map((link) => {
             const isIncoming = link.target_layer_id === layer.id;
+            const targetLayerId = isIncoming ? link.source_layer_id : link.target_layer_id;
+            const targetNodeId = isIncoming ? link.source_node_id : link.target_node_id;
+            const targetLayer = inspection.layers.find(
+              (candidate) => candidate.id === targetLayerId,
+            );
+            const targetNode = targetLayer?.nodes.find(
+              (candidate) => candidate.id === targetNodeId,
+            );
             return (
-              <div
-                className="grid grid-cols-[auto_minmax(0,1fr)] gap-1.5"
+              <button
+                aria-label={`Open lineage ${targetLayer?.label ?? targetLayerId} ${targetNode?.label ?? targetNodeId}`}
+                className="grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 rounded border-0 bg-transparent px-1 py-1 text-left text-text-dim hover:bg-panel-strong hover:text-text-soft"
                 key={`${link.source_layer_id}:${link.source_node_id}:${link.target_layer_id}:${link.target_node_id}`}
+                onClick={() => onNavigate(targetLayerId, targetNodeId)}
+                type="button"
               >
                 <span>{isIncoming ? "from" : "to"}</span>
-                <code className="truncate">
-                  {isIncoming
-                    ? `${link.source_layer_id} / ${link.source_node_id}`
-                    : `${link.target_layer_id} / ${link.target_node_id}`}{" "}
-                  ({link.relation})
-                </code>
-              </div>
+                <span className="min-w-0">
+                  <strong className="block truncate text-text-soft">
+                    {targetLayer?.label ?? targetLayerId}
+                  </strong>
+                  <code className="block truncate">{targetNode?.label ?? targetNodeId}</code>
+                </span>
+                <span className="text-[0.48rem]">{link.relation} →</span>
+              </button>
             );
           })}
           {incoming.length + outgoing.length > 6 && (

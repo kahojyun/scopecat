@@ -383,6 +383,13 @@ def _scheduled_layer_index(
             ),
         ),
     )
+    ordinal_by_id = {
+        root_id: 0,
+        **{
+            f"scheduled:event:{event.id.value}": ordinal
+            for ordinal, event in enumerate(scheduled.events, start=1)
+        },
+    }
 
     def node_at(
         ordinal: int,
@@ -403,6 +410,7 @@ def _scheduled_layer_index(
         nodes=CompiledProgramInspectionNodeIndex(
             node_count=1 + len(scheduled.events),
             node_at=node_at,
+            ordinal_by_id=ordinal_by_id.get,
         ),
         facts=(
             CompiledInspectionFact(

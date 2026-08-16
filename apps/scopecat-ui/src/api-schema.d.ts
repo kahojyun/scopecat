@@ -1726,6 +1726,8 @@ export interface components {
              * @default 128
              */
             limit: number;
+            /** Node Id */
+            node_id?: string | null;
             /**
              * Offset
              * @default 0
