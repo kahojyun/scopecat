@@ -314,11 +314,12 @@ class RunEffectInterpreter:
                 raise AssertionError("domain job references an unknown point")
             self._active_point_indices.add(point_index)
         try:
-            values = execute_domain_job_values(
+            execute_domain_job_values(
                 job.execution,
                 logical_compute_node_id=job.id,
                 run_id=self.run_id,
                 instruments=self._domain_instruments,
+                accept=self._hardware.values.append,
             )
         except DomainExecutionCancellationRequested:
             self._check_cancellation()
@@ -331,7 +332,6 @@ class RunEffectInterpreter:
             if pending:
                 self._complete_coverage(pending)
             raise _CapturedDomainEffectFailure(job.id) from error
-        self._hardware.values.extend(values)
 
     def _point_state(self, point_index: int) -> PointEffectState:
         if point_index in self._terminal_point_indices:

@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+from scopecat_quantum._ids import AcquisitionSlotId, TargetCompileEntryId
+from scopecat_quantum.targets import TargetAcquisitionAddress
+
+from reference_lab.targets.list_mode.execution_model import (
+    DigitizerResultBatch,
+    DigitizerResultChunk,
+)
+
 from ._list_mode_test_support import (
     MeasurementArray,
     MeasurementPartitionedArray,
@@ -7,6 +15,29 @@ from ._list_mode_test_support import (
     realize_integrated_iq_chunks,
     realize_integrated_iq_value,
 )
+
+
+def test_result_batch_reuses_canonical_and_contiguous_row_storage() -> None:
+    entry_id = TargetCompileEntryId("entry")
+    addresses = tuple(
+        TargetAcquisitionAddress(entry_id, AcquisitionSlotId(f"slot-{index}"))
+        for index in range(3)
+    )
+    values = np.arange(12, dtype=np.float64).astype(np.complex128).reshape(3, 4)
+    available = np.ones((3, 4), dtype=np.bool_)
+    batch = DigitizerResultBatch(
+        addresses=addresses,
+        shot_count=4,
+        chunks=(DigitizerResultChunk(0, values, available),),
+    )
+
+    assert batch.select(addresses) is batch
+    contiguous = batch.select(addresses[1:])
+    assert np.shares_memory(contiguous.chunks[0].values, values)
+    assert np.shares_memory(contiguous.chunks[0].available, available)
+
+    reordered = batch.select((addresses[2], addresses[0]))
+    assert not np.shares_memory(reordered.chunks[0].values, values)
 
 
 def test_list_mode_logical_result_preserves_partial_shot_availability() -> None:

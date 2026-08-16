@@ -96,20 +96,34 @@ class DigitizerResultBatch:
         self,
         addresses: tuple[TargetAcquisitionAddress, ...],
     ) -> DigitizerResultBatch:
-        """Select and reorder address rows without constructing shot objects."""
+        """Select and reorder address rows without constructing shot objects.
+
+        Canonical and contiguous selections retain the device-owned arrays as
+        views. Only a genuinely non-contiguous reorder allocates row copies.
+        """
+
+        if addresses == self.addresses:
+            return self
 
         row_by_address = {
             address: row_index for row_index, address in enumerate(self.addresses)
         }
-        rows = [row_by_address[address] for address in addresses]
+        rows = tuple(row_by_address[address] for address in addresses)
+        row_selection: slice | list[int]
+        if not rows:
+            row_selection = slice(0, 0)
+        elif rows == tuple(range(rows[0], rows[0] + len(rows))):
+            row_selection = slice(rows[0], rows[0] + len(rows))
+        else:
+            row_selection = list(rows)
         return DigitizerResultBatch(
             addresses=addresses,
             shot_count=self.shot_count,
             chunks=tuple(
                 DigitizerResultChunk(
                     shot_start=chunk.shot_start,
-                    values=chunk.values[rows],
-                    available=chunk.available[rows],
+                    values=chunk.values[row_selection],
+                    available=chunk.available[row_selection],
                 )
                 for chunk in self.chunks
             ),

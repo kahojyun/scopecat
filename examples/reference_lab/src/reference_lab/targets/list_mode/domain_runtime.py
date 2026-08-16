@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import cast
 
 from scopecat.kernel.json_types import JsonValue
@@ -268,7 +269,7 @@ class ListModeDomainRuntime:
 def realize_executed_measurements(
     mapped_target: MappedListModeTarget,
     executed: DomainExecutionResult[ListModeRun],
-) -> tuple[DomainResultValue[QuantumTargetResultAddress], ...]:
+) -> Iterable[DomainResultValue[QuantumTargetResultAddress]]:
     """Correlate and decode one complete raw run under selected policies."""
 
     if executed.receipt.result_fingerprint != executed.result.fingerprint:

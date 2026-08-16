@@ -13,7 +13,6 @@ from scopecat.kernel.errors import OperationFailure
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
-from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.sdk.domain.execution import (
     DomainStateAddress,
     DomainStateRequirement,
@@ -94,10 +93,11 @@ def _prepared(
     realtime: _Realtime,
     requirements: tuple[DomainStateRequirement, ...] = (),
 ) -> PreparedDomainExecution:
-    def realize(
+    def realize_into(
         _result: DomainExecutionResult[object],
-    ) -> tuple[MeasurementValueCandidate, ...]:
-        return ()
+        _accept: object,
+    ) -> None:
+        return None
 
     return PreparedDomainExecution(
         instrument_ids=("awg",),
@@ -110,7 +110,7 @@ def _prepared(
         invocation=cast("ErasedDomainInvocation", object()),
         setup=cast("ErasedDomainSetup", setup),
         runtime=cast("ErasedDomainRuntime", realtime),
-        realize=cast("ErasedDomainRealizer", realize),
+        realize_into=cast("ErasedDomainRealizer", realize_into),
     )
 
 

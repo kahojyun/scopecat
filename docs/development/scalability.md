@@ -579,7 +579,11 @@ The present architecture provides a direct end-to-end baseline:
   rectangular value retains those shot partitions through Arrow persistence and
   GUI decoding; NumPy-oriented compute, trace, and interop boundaries
   materialize it explicitly. Immutable byte-backed arrays are adopted across
-  typed model and wire-decode boundaries rather than recopied;
+  typed model and wire-decode boundaries rather than recopied. Domain
+  realization validates the complete output inventory before transferring
+  canonical values one at a time into the execution coverage sink; the daemon
+  then owns bounded pending Arrow chunks until durable ingest acceptance rather
+  than retaining a second complete candidate tuple;
 - cancellation fences every hardware batch submitted from a synchronous domain
   runtime, including each bounded shot chunk. A request arriving during a
   driver call is honored before the next batch; the completed receipt is still

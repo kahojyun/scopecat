@@ -117,8 +117,11 @@ tables, and temporary scan axes belong to experiment invocations.
 - Target admission reports list entries, waveform bytes, event and acquisition
   counts, complete result bytes, and per-shot chunk bytes together. The runtime
   retains bounded shot chunks as one logical partitioned value; Arrow storage
-  and GUI decoding preserve those partitions. The GUI requests bounded
-  program-layer pages filtered by entity, resource, kind, or text.
+  and GUI decoding preserve those partitions. Result realization validates the
+  complete domain mapping before streaming canonical values into the coverage
+  sink, and canonical or contiguous acquisition rows reuse the device arrays.
+  The GUI requests bounded program-layer pages filtered by entity, resource,
+  kind, result, or text.
 - The list-mode runtime uses explicit load, prepare, arm, shared-trigger, and
   fetch batches. Their order is auditable; target docstrings define trigger
   session guarantees, setup invalidation, and acquisition placement.

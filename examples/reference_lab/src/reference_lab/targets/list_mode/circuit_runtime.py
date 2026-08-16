@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import numpy as np
@@ -62,33 +63,29 @@ def correlate_list_mode_run(
 
 def realize_measurements(
     correlated_run: CorrelatedListModeRun,
-) -> tuple[DomainResultValue[QuantumTargetResultAddress], ...]:
+) -> Iterator[DomainResultValue[QuantumTargetResultAddress]]:
     """Project address rows directly to integrated-IQ measurement arrays."""
 
-    realized: list[DomainResultValue[QuantumTargetResultAddress]] = []
     row_offset = 0
     for result in correlated_run.mapped_target.mapping.results:
         row_count = len(result.result_address.acquisitions)
         row_selection: int | slice = (
             row_offset if row_count == 1 else slice(row_offset, row_offset + row_count)
         )
-        realized.append(
-            DomainResultValue(
-                result.result_address,
-                realize_integrated_iq_chunks(
-                    tuple(
-                        chunk.values[row_selection]
-                        for chunk in correlated_run.results.chunks
-                    ),
-                    tuple(
-                        chunk.available[row_selection]
-                        for chunk in correlated_run.results.chunks
-                    ),
+        yield DomainResultValue(
+            result.result_address,
+            realize_integrated_iq_chunks(
+                tuple(
+                    chunk.values[row_selection]
+                    for chunk in correlated_run.results.chunks
                 ),
-            )
+                tuple(
+                    chunk.available[row_selection]
+                    for chunk in correlated_run.results.chunks
+                ),
+            ),
         )
         row_offset += row_count
-    return tuple(realized)
 
 
 def realize_integrated_iq_chunks(
