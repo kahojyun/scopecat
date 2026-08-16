@@ -24,8 +24,8 @@ def test_scan_execution_benchmark_runs_all_boundaries_with_waveforms(
             "waveform",
             "--waveform-samples",
             "128",
-            "--qubits",
-            "2",
+            "--qubit-counts",
+            "1,2,4",
             "--live-waveform",
             "--runners",
             "adhoc,scopecat-core,scopecat",
@@ -48,35 +48,52 @@ def test_scan_execution_benchmark_runs_all_boundaries_with_waveforms(
         cast("dict[str, object]", json.loads(line))
         for line in output.read_text(encoding="utf-8").splitlines()
     )
-    by_runner = {result["runner"]: result for result in results}
-    assert set(by_runner) == {"adhoc", "scopecat-core", "scopecat"}
+    by_case = {
+        (
+            result["runner"],
+            cast("dict[str, object]", result["scenario"])["qubit_count"],
+        ): result
+        for result in results
+    }
+    assert set(by_case) == {
+        (runner, qubit_count)
+        for runner in ("adhoc", "scopecat-core", "scopecat")
+        for qubit_count in (1, 2, 4)
+    }
     assert all(result["points_completed"] == 3 for result in results)
-    assert by_runner["adhoc"]["trigger_count"] == 3
-    assert by_runner["scopecat-core"]["trigger_count"] == 2
-    assert by_runner["scopecat"]["trigger_count"] == 2
-    expected_total_bytes = 3 * 6 * 128 * 8
-    expected_retained_bytes = 6 * 128 * 8
     assert all(
-        result["schema"] == "scopecat.scan_execution_benchmark.v6" for result in results
+        result["schema"] == "scopecat.scan_execution_benchmark.v7" for result in results
     )
     assert all(
         cast("dict[str, object]", result["scenario"])["acquisition_dsp_policy"]
         == "prefer_device"
         for result in results
     )
-    assert all(
-        result["waveform_bytes_uploaded"] == expected_total_bytes for result in results
-    )
-    assert all(
-        result["live_waveform_bytes_retained"] == expected_retained_bytes
-        for result in results
-    )
-    assert by_runner["adhoc"]["max_waveform_batch_bytes"] == expected_retained_bytes
-    scopecat_batch_bytes = cast(
-        "int", by_runner["scopecat"]["max_waveform_batch_bytes"]
-    )
-    assert expected_retained_bytes <= scopecat_batch_bytes
-    assert scopecat_batch_bytes <= 2 * expected_retained_bytes
+    for qubit_count in (1, 2, 4):
+        expected_retained_bytes = (2 * qubit_count + 2) * 128 * 8
+        expected_total_bytes = 3 * expected_retained_bytes
+        assert by_case[("adhoc", qubit_count)]["trigger_count"] == 3
+        assert by_case[("scopecat-core", qubit_count)]["trigger_count"] == 2
+        assert by_case[("scopecat", qubit_count)]["trigger_count"] == 2
+        assert all(
+            by_case[(runner, qubit_count)]["waveform_bytes_uploaded"]
+            == expected_total_bytes
+            for runner in ("adhoc", "scopecat-core", "scopecat")
+        )
+        assert all(
+            by_case[(runner, qubit_count)]["live_waveform_bytes_retained"]
+            == expected_retained_bytes
+            for runner in ("adhoc", "scopecat-core", "scopecat")
+        )
+        assert (
+            by_case[("adhoc", qubit_count)]["max_waveform_batch_bytes"]
+            == expected_retained_bytes
+        )
+        scopecat_batch_bytes = cast(
+            "int", by_case[("scopecat", qubit_count)]["max_waveform_batch_bytes"]
+        )
+        assert expected_retained_bytes <= scopecat_batch_bytes
+        assert scopecat_batch_bytes <= 2 * expected_retained_bytes
 
 
 def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
@@ -91,14 +108,14 @@ def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
             "scopecat",
             "--point-count",
             "257",
+            "--qubit-count",
+            "2",
             "--profile",
             "waveform",
             "--acquisition-dsp",
             "target",
             "--waveform-samples",
             "128",
-            "--qubits",
-            "2",
             "--host-label",
             "test",
             "--work-dir",
@@ -252,6 +269,8 @@ def _result_worker(
             runner,
             "--point-count",
             "2",
+            "--qubit-count",
+            "2",
             "--profile",
             "results",
             "--retention",
@@ -260,8 +279,6 @@ def _result_worker(
             str(shots),
             "--waveform-samples",
             "72",
-            "--qubits",
-            "2",
             "--host-label",
             "test",
             "--work-dir",
