@@ -2222,6 +2222,19 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
             assert [
                 event.payload["record_id"] for event in project_analysis_events
             ] == [first.id, revised.id]
+            assert [event.payload["revision"] for event in project_analysis_events] == [
+                1,
+                2,
+            ]
+            assert [
+                event.payload["publication_hash"] for event in project_analysis_events
+            ] == [
+                first.view.analysis.publication_hash,
+                revised.view.analysis.publication_hash,
+            ]
+            assert [
+                event.payload["input_run_ids"] for event in project_analysis_events
+            ] == [[baseline.id, candidate.id], [baseline.id, candidate.id]]
 
             missing_analysis = transport.get("/api/v1/analyses/missing")
             missing_content = transport.get(
@@ -2239,6 +2252,58 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
         )
         assert restored.id == "analysis-candidate-verification-r2"
         assert restored.artifact("report").text().endswith("Reviewed comparison.\n")
+
+
+def test_project_analysis_allocates_distinct_revisions_for_concurrent_saves(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        run_id = _complete_signal_run(
+            runtime,
+            submission_id="concurrent-project-analysis",
+            signal=0.8,
+        )
+        with TestClient(runtime.app()) as transport:
+            lab = LabClient(_daemon_client(transport))
+            run = lab.get_run(run_id)
+            pending = []
+            for verdict in ("first", "second"):
+                context = lab.analysis(
+                    "Concurrent comparison",
+                    key="concurrent-comparison",
+                )
+                context.measurements(run, id="measurement")
+                pending.append(context.result().fact("verdict", verdict))
+
+            ready = Barrier(len(pending))
+
+            def save(result: Analysis) -> PublishedAnalysis:
+                ready.wait()
+                return result.save()
+
+            with ThreadPoolExecutor(max_workers=len(pending)) as executor:
+                saved = tuple(executor.map(save, pending))
+
+            assert {item.id for item in saved} == {
+                "analysis-concurrent-comparison",
+                "analysis-concurrent-comparison-r2",
+            }
+            assert {item.revision for item in saved} == {1, 2}
+            assert {cast("str", item.fact("verdict").value) for item in saved} == {
+                "first",
+                "second",
+            }
+            assert len(runtime.application.analyses.list().items) == 2
+            assert (
+                len(
+                    [
+                        event
+                        for event in _events(runtime).items
+                        if event.kind == "project_analysis_saved"
+                    ]
+                )
+                == 2
+            )
 
 
 def test_project_analysis_publication_rolls_back_index_and_event_together(

@@ -5,7 +5,10 @@ from __future__ import annotations
 from base64 import b64encode
 from collections.abc import Generator
 from contextlib import contextmanager
+from threading import Lock
+from typing import cast
 
+from pydantic import JsonValue
 from scopecat.control.models import DurableEventInput
 from scopecat.daemon.views import (
     AnalysisContentBytesView,
@@ -51,6 +54,7 @@ class AnalysisService:
         self._repository = repository
         self._services = services
         self._control = control
+        self._publication_lock = Lock()
 
     def list(self) -> ProjectAnalysisListView:
         with self._analysis_errors():
@@ -84,7 +88,7 @@ class AnalysisService:
     def save(self, command: AnalysisSaveCommand) -> AnalysisSaveReceipt:
         from scopecat.analysis.service import AnalysisInput, prepare_project_analysis
 
-        with self._analysis_errors():
+        with self._publication_lock, self._analysis_errors():
             inputs = tuple(
                 AnalysisInput(
                     id=item.id,
@@ -120,14 +124,23 @@ class AnalysisService:
                         publication,
                     )
                     if created:
+                        event_payload: dict[str, JsonValue] = {
+                            "analysis_key": prepared.saved.analysis_key,
+                            "record_id": prepared.saved.record.id,
+                            "revision": prepared.publication.revision,
+                            "publication_hash": prepared.publication.publication_hash,
+                            "input_run_ids": [
+                                cast("JsonValue", run_id)
+                                for run_id in sorted(
+                                    {str(item.run_id) for item in command.inputs}
+                                )
+                            ],
+                        }
                         self._control.append_event_in_transaction(
                             connection,
                             DurableEventInput(
                                 kind="project_analysis_saved",
-                                payload={
-                                    "analysis_key": prepared.saved.analysis_key,
-                                    "record_id": prepared.saved.record.id,
-                                },
+                                payload=event_payload,
                             ),
                         )
             return AnalysisSaveReceipt(
