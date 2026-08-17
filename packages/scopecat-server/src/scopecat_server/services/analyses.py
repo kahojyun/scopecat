@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from base64 import b64encode
 
-from scopecat.analysis.service import AnalysisInput, prepare_project_analysis
 from scopecat.daemon.views import (
     AnalysisContentBytesView,
     ProjectAnalysisListView,
@@ -68,6 +67,8 @@ class AnalysisService:
         return max(matches, key=lambda item: item.analysis.revision)
 
     def save(self, command: AnalysisSaveCommand) -> AnalysisSaveReceipt:
+        from scopecat.analysis.service import AnalysisInput, prepare_project_analysis
+
         inputs = tuple(
             AnalysisInput(
                 id=item.id,
