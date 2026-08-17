@@ -50,6 +50,7 @@ from scopecat.records.analysis import (
     AnalysisTableRecordOutput,
     AnalysisTableRow,
     AnalysisTableView,
+    RunAnalysisSubject,
 )
 
 _PUBLICATION_HASH = f"sha256:{'0' * 64}"
@@ -144,7 +145,7 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
     None
 ):
     record = AnalysisRecord(
-        run_id="run-analysis",
+        subject=RunAnalysisSubject(run_id="run-analysis"),
         title="Fit review",
         revision=1,
         publication_hash=_PUBLICATION_HASH,
@@ -272,7 +273,7 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
 
 def test_analysis_dataset_derivation_round_trips_its_adapter_contract() -> None:
     record = AnalysisRecord(
-        run_id="run-analysis",
+        subject=RunAnalysisSubject(run_id="run-analysis"),
         title="Mapped dataset",
         revision=1,
         publication_hash=_PUBLICATION_HASH,
@@ -409,7 +410,7 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
     )
     with pytest.raises(ValidationError, match="total table cell count"):
         AnalysisRecord(
-            run_id="run-table-budget",
+            subject=RunAnalysisSubject(run_id="run-table-budget"),
             title="large tables",
             revision=1,
             publication_hash=_PUBLICATION_HASH,
@@ -446,7 +447,7 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
     )
     with pytest.raises(ValidationError, match="total figure point count"):
         AnalysisRecord(
-            run_id="run-figure-budget",
+            subject=RunAnalysisSubject(run_id="run-figure-budget"),
             title="large figures",
             revision=1,
             publication_hash=_PUBLICATION_HASH,
@@ -464,7 +465,7 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
 
     with pytest.raises(ValidationError, match=f"at most {MAX_ANALYSIS_OUTPUTS} items"):
         AnalysisRecord(
-            run_id="run-output-budget",
+            subject=RunAnalysisSubject(run_id="run-output-budget"),
             title="too many outputs",
             revision=1,
             publication_hash=_PUBLICATION_HASH,
@@ -478,7 +479,7 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
 def test_analysis_record_rejects_empty_required_text_like_the_wire_contract() -> None:
     with pytest.raises(ValidationError, match="at least 1 character"):
         AnalysisRecord(
-            run_id="run-analysis",
+            subject=RunAnalysisSubject(run_id="run-analysis"),
             title="",
             revision=1,
             publication_hash=_PUBLICATION_HASH,
@@ -486,7 +487,7 @@ def test_analysis_record_rejects_empty_required_text_like_the_wire_contract() ->
         )
     with pytest.raises(ValidationError, match="at least 1 character"):
         AnalysisRecord(
-            run_id="run-analysis",
+            subject=RunAnalysisSubject(run_id="run-analysis"),
             title="Analysis",
             revision=1,
             publication_hash=_PUBLICATION_HASH,
@@ -495,6 +496,8 @@ def test_analysis_record_rejects_empty_required_text_like_the_wire_contract() ->
         )
     with pytest.raises(ValidationError, match="at least 1 character"):
         AnalysisRecordInput(
+            id="source",
+            run_id="run-analysis",
             target="",
             kind="measurement_dataset",
             content_hash=f"sha256:{'0' * 64}",
@@ -518,10 +521,13 @@ def test_analysis_record_rejects_empty_required_text_like_the_wire_contract() ->
 
 def test_analysis_record_input_requires_source_only_for_analysis_datasets() -> None:
     source = AnalysisPublishedOutputReference(
+        run_id="run-analysis",
         analysis_record_id="analysis-fit-r2",
         output_id="fits",
     )
     retained = AnalysisRecordInput(
+        id="fits",
+        run_id="run-analysis",
         target="analysis-fit-r2-fits",
         kind="analysis_dataset",
         content_hash=f"sha256:{'0' * 64}",
@@ -533,6 +539,8 @@ def test_analysis_record_input_requires_source_only_for_analysis_datasets() -> N
     assert retained.source == source
     with pytest.raises(ValidationError, match="require one published analysis"):
         AnalysisRecordInput(
+            id="fits",
+            run_id="run-analysis",
             target="analysis-fit-r2-fits",
             kind="analysis_dataset",
             content_hash=f"sha256:{'0' * 64}",
@@ -541,6 +549,8 @@ def test_analysis_record_input_requires_source_only_for_analysis_datasets() -> N
         )
     with pytest.raises(ValidationError, match="require one published analysis"):
         AnalysisRecordInput(
+            id="measurements",
+            run_id="run-analysis",
             target="raw-measurements",
             kind="measurement_dataset",
             content_hash=f"sha256:{'0' * 64}",
@@ -553,7 +563,7 @@ def test_analysis_record_input_requires_source_only_for_analysis_datasets() -> N
 def test_analysis_record_rejects_view_without_its_dataset_output() -> None:
     with pytest.raises(ValidationError, match="source must identify a dataset"):
         AnalysisRecord(
-            run_id="run-analysis",
+            subject=RunAnalysisSubject(run_id="run-analysis"),
             title="Dangling view",
             revision=1,
             publication_hash=_PUBLICATION_HASH,
@@ -577,7 +587,7 @@ def test_analysis_record_rejects_view_without_its_dataset_output() -> None:
 def test_analysis_record_rejects_unknown_output_producer() -> None:
     with pytest.raises(ValidationError, match="producer must identify an execution"):
         AnalysisRecord(
-            run_id="run-analysis",
+            subject=RunAnalysisSubject(run_id="run-analysis"),
             title="Dangling producer",
             revision=1,
             publication_hash=_PUBLICATION_HASH,
@@ -608,7 +618,7 @@ def test_analysis_record_rejects_unknown_execution_output_producer() -> None:
         match="producer must identify an execution output",
     ):
         AnalysisRecord(
-            run_id="run-analysis",
+            subject=RunAnalysisSubject(run_id="run-analysis"),
             title="Dangling execution output",
             revision=1,
             publication_hash=_PUBLICATION_HASH,

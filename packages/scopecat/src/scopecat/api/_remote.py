@@ -251,6 +251,8 @@ class RemoteRunOperations:
 
 def _analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
     return AnalysisInputPayload(
+        id=value.id,
+        run_id=value.run_id,
         target=value.target,
         kind=value.kind,
         content_hash=value.content_hash,

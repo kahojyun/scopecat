@@ -176,6 +176,8 @@ class ConfigActivationReceipt(_WireModel):
 class AnalysisInputPayload(_WireModel):
     """JSON-safe reference consumed by a durable analysis record."""
 
+    id: NonEmptyText
+    run_id: NonEmptyText
     target: NonEmptyText
     kind: Literal["measurement_dataset", "analysis_dataset"]
     content_hash: NonEmptyText

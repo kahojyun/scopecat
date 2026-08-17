@@ -276,7 +276,8 @@ class RunAnalysisView(_ViewModel):
         if (
             self.entry.role != "record"
             or self.entry.kind != "analysis"
-            or self.analysis.run_id != self.run_id
+            or self.analysis.subject.kind != "run"
+            or self.analysis.subject.run_id != self.run_id
         ):
             raise ValueError("run analysis view identity is inconsistent")
         return self

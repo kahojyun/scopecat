@@ -620,6 +620,8 @@ class AnalysisContext:
         self._accessed_inputs.setdefault(
             dataset.entry.id,
             AnalysisInput(
+                id=dataset.entry.id,
+                run_id=self.run.id,
                 target=dataset.entry.id,
                 kind="measurement_dataset",
                 content_hash=dataset.entry.content_hash,
@@ -656,12 +658,15 @@ class AnalysisContext:
         dataset = published.dataset(output)
         reference = selected.content
         source = AnalysisPublishedOutputReference(
+            run_id=self.run.id,
             analysis_record_id=published.id,
             output_id=selected.id,
         )
         self._accessed_inputs.setdefault(
             reference.dataset_id,
             AnalysisInput(
+                id=reference.dataset_id,
+                run_id=self.run.id,
                 target=reference.dataset_id,
                 kind="analysis_dataset",
                 content_hash=reference.content_hash,
@@ -746,6 +751,8 @@ class AnalysisContext:
             self._accessed_inputs.setdefault(
                 provenance.target,
                 AnalysisInput(
+                    id=provenance.target,
+                    run_id=self.run.id,
                     target=provenance.target,
                     kind="measurement_dataset",
                     content_hash=provenance.content_hash,

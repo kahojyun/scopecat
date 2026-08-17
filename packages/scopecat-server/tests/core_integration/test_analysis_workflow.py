@@ -823,6 +823,7 @@ def test_analysis_dataset_input_freezes_the_exact_same_run_output_revision(
     assert first_input.content_hash == source_v1_output.content.content_hash
     assert first_input.codec == DERIVED_DATASET_CODEC
     assert first_input.source == AnalysisPublishedOutputReference(
+        run_id=handle.id,
         analysis_record_id=source_v1.id,
         output_id="fits",
     )
@@ -861,6 +862,7 @@ def test_analysis_dataset_input_freezes_the_exact_same_run_output_revision(
     assert review_v2.fact("maximum-score").value == first_score
     [second_input] = review_v2.inputs
     assert second_input.source == AnalysisPublishedOutputReference(
+        run_id=handle.id,
         analysis_record_id=source_v2.id,
         output_id="fits",
     )
@@ -896,12 +898,15 @@ def test_analysis_dataset_input_rejects_a_source_from_another_run(
         second_handle.analysis("Invalid consumer", key="invalid-consumer").result(),
         inputs=(
             AnalysisInput(
+                id=source_output.content.dataset_id,
+                run_id=second_handle.id,
                 target=source_output.content.dataset_id,
                 kind="analysis_dataset",
                 content_hash=source_output.content.content_hash,
                 codec=source_output.content.codec,
                 role="data",
                 source=AnalysisPublishedOutputReference(
+                    run_id=first_handle.id,
                     analysis_record_id=source.id,
                     output_id="fits",
                 ),

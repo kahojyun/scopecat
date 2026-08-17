@@ -333,6 +333,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert quality.worst_complex_rmse < 0.02
     [review_input] = review.inputs
     assert review_input.source == AnalysisPublishedOutputReference(
+        run_id=run.id,
         analysis_record_id=analysis.id,
         output_id="fit-by-bias",
     )

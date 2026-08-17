@@ -665,8 +665,9 @@ class AnalysisArtifactReference(_AnalysisContentModel):
 
 
 class AnalysisPublishedOutputReference(_AnalysisContentModel):
-    """Exact output revision consumed from an earlier analysis on this run."""
+    """Exact output revision consumed from an earlier run analysis."""
 
+    run_id: _NonEmptyText
     analysis_record_id: _NonEmptyText
     output_id: _NonEmptyText
 
@@ -674,6 +675,8 @@ class AnalysisPublishedOutputReference(_AnalysisContentModel):
 class AnalysisRecordInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    id: _NonEmptyText
+    run_id: _NonEmptyText
     target: _NonEmptyText
     kind: Literal["measurement_dataset", "analysis_dataset"]
     content_hash: _NonEmptyText
@@ -690,6 +693,25 @@ class AnalysisRecordInput(BaseModel):
                 "analysis dataset inputs require one published analysis output source"
             )
         return self
+
+
+class RunAnalysisSubject(_AnalysisContentModel):
+    """A publication whose scientific subject is one run."""
+
+    kind: Literal["run"] = "run"
+    run_id: _NonEmptyText
+
+
+class ProjectAnalysisSubject(_AnalysisContentModel):
+    """A publication over an explicit snapshot of project run inputs."""
+
+    kind: Literal["project"] = "project"
+
+
+type AnalysisSubject = Annotated[
+    RunAnalysisSubject | ProjectAnalysisSubject,
+    Field(discriminator="kind"),
+]
 
 
 class _AnalysisRecordOutput(BaseModel):
@@ -772,7 +794,7 @@ def validate_analysis_output_content_budget(
 class AnalysisRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    run_id: _NonEmptyText
+    subject: AnalysisSubject
     title: _NonEmptyText
     key: _NonEmptyText | None = None
     revision: int = Field(ge=1)

@@ -54,6 +54,7 @@ from scopecat.records.analysis import (
     AnalysisTableRecordOutput,
     AnalysisTableView,
     AnalysisTableViewSpec,
+    RunAnalysisSubject,
     validate_analysis_output_content_budget,
 )
 from scopecat.records.artifact import RunContentEntry
@@ -74,6 +75,8 @@ from scopecat.runs.repository import (
 
 @dataclass(frozen=True)
 class AnalysisInput:
+    id: str
+    run_id: str
     target: str
     kind: Literal["measurement_dataset", "analysis_dataset"]
     content_hash: str
@@ -305,7 +308,7 @@ def prepare_analysis(
         outputs=saved_outputs,
     )
     analysis_record = AnalysisRecord(
-        run_id=run_id,
+        subject=RunAnalysisSubject(run_id=run_id),
         title=title,
         key=analysis_key,
         revision=revision,
@@ -377,6 +380,13 @@ def _validate_analysis_inputs(
         for entry in list_records(storage.read_manifest(run_id), kind="analysis")
     }
     for index, input_ref in enumerate(inputs):
+        if input_ref.run_id != run_id:
+            _raise_analysis_problem(
+                "analysis_input_run_invalid",
+                "run analysis inputs must belong to their subject run",
+                "inputs",
+                index,
+            )
         source = input_ref.source
         if input_ref.kind == "measurement_dataset":
             if source is not None:
@@ -394,7 +404,7 @@ def _validate_analysis_inputs(
                 "inputs",
                 index,
             )
-        if source.analysis_record_id not in analysis_entries:
+        if source.run_id != run_id or source.analysis_record_id not in analysis_entries:
             _raise_analysis_problem(
                 "analysis_input_source_unknown",
                 "analysis dataset input must identify an earlier analysis on this run",
@@ -528,6 +538,8 @@ def _analysis_publication_hash(
         "inputs": [
             {
                 "target": item.target,
+                "id": item.id,
+                "run_id": item.run_id,
                 "kind": item.kind,
                 "content_hash": item.content_hash,
                 "codec": item.codec,
@@ -591,6 +603,8 @@ def _analysis_record_inputs(
         metadata = input_ref.metadata
         record_inputs.append(
             AnalysisRecordInput(
+                id=input_ref.id,
+                run_id=input_ref.run_id,
                 target=input_ref.target,
                 kind=input_ref.kind,
                 content_hash=input_ref.content_hash,

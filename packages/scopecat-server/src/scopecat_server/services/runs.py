@@ -405,6 +405,8 @@ class RunService:
 
         inputs = tuple(
             AnalysisInput(
+                id=item.id,
+                run_id=item.run_id,
                 target=item.target,
                 kind=item.kind,
                 content_hash=item.content_hash,
