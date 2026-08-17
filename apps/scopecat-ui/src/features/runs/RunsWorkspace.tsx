@@ -14,8 +14,10 @@ import {
   getMeasurementPreview,
   getMeasurementSlice,
   getMeasurementTracePreview,
+  getOlderRunContents,
   getOlderRuns,
   getRun,
+  getRunContents,
   getOlderRunAnalysisSummaries,
   getRunAnalysisSummaries,
   getRunDomainDecisions,
@@ -129,6 +131,16 @@ export function RunsWorkspace({
     queryFn: ({ signal }) => getRun(selectedRunId!, signal),
     enabled: selectedRunId !== undefined,
   });
+  const runContentsQuery = useInfiniteQuery({
+    queryKey: ["run-contents", selectedRunId],
+    queryFn: ({ pageParam, signal }) =>
+      pageParam === undefined
+        ? getRunContents(selectedRunId!, signal)
+        : getOlderRunContents(selectedRunId!, pageParam, signal),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (page) => page.nextCursor,
+    enabled: selectedRunId !== undefined,
+  });
   const selectedEventsQuery = useQuery({
     queryKey: ["events", "run", selectedRunId],
     queryFn: ({ signal }) => getRunEvents(selectedRunId!, signal),
@@ -184,6 +196,7 @@ export function RunsWorkspace({
         queryClient.invalidateQueries({ queryKey: ["runs"] }),
         queryClient.invalidateQueries({ queryKey: ["events"] }),
         queryClient.invalidateQueries({ queryKey: ["run"] }),
+        queryClient.invalidateQueries({ queryKey: ["run-contents"] }),
       ]);
     },
   });
@@ -216,6 +229,15 @@ export function RunsWorkspace({
     }
     return [...items.values()];
   }, [analysesQuery.data]);
+  const runContents = useMemo(() => {
+    const items = new Map<string, ProjectRun["contents"][number]>();
+    for (const page of runContentsQuery.data?.pages ?? []) {
+      for (const content of page.items) {
+        items.set(`${content.role}:${content.id}`, content);
+      }
+    }
+    return [...items.values()];
+  }, [runContentsQuery.data]);
   const slicePlan = useMemo(
     () => measurementSlicePlan(measurements?.schema),
     [measurements?.schema],
@@ -311,7 +333,8 @@ export function RunsWorkspace({
     }
   }, [runs, selectedRunId, onSelectRun]);
 
-  const selectedRun = runDetailQuery.data ?? runs.find((run) => run.runId === selectedRunId);
+  const selectedRunBase = runDetailQuery.data ?? runs.find((run) => run.runId === selectedRunId);
+  const selectedRun = selectedRunBase ? { ...selectedRunBase, contents: runContents } : undefined;
   const selectedEvents = selectedEventsQuery.data ?? [];
   const activeCount = runs.filter((run) => ["accepted", "running"].includes(run.status)).length;
   const attentionCount = runs.filter((run) => run.status === "attention_required").length;
@@ -545,6 +568,11 @@ export function RunsWorkspace({
               analysesHasNextPage={analysesQuery.hasNextPage}
               analysesLoadingNextPage={analysesQuery.isFetchingNextPage}
               onLoadOlderAnalyses={() => void analysesQuery.fetchNextPage()}
+              contentsError={runContentsQuery.error}
+              contentsPending={runContentsQuery.isPending}
+              contentsHasNextPage={runContentsQuery.hasNextPage}
+              contentsLoadingNextPage={runContentsQuery.isFetchingNextPage}
+              onLoadOlderContents={() => void runContentsQuery.fetchNextPage()}
               attentionError={attentionMutation.error}
               attentionPending={attentionMutation.isPending}
               onResolveAttention={() => {

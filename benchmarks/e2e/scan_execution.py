@@ -1579,7 +1579,7 @@ def _validate_runner_compatibility(
 
 def _completed_point_count(run: RunHandle, scenario: ScanScenario) -> int:
     if scenario.retention == "discard":
-        if run.datasets:
+        if run.contents(limit=1, role="dataset").items:
             raise RuntimeError("discard benchmark unexpectedly retained a dataset")
         return scenario.point_count
     return len(run.measurements().records)

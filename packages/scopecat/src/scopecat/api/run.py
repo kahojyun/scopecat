@@ -210,18 +210,6 @@ class RunHandle:
 
         return self.session.run_operations.load_request(self.id)
 
-    @property
-    def artifacts(self) -> tuple[str, ...]:
-        return self._content_ids("artifact")
-
-    @property
-    def datasets(self) -> tuple[str, ...]:
-        return self._content_ids("dataset")
-
-    @property
-    def records(self) -> tuple[str, ...]:
-        return self._content_ids("record")
-
     def contents(
         self,
         *,
@@ -252,24 +240,6 @@ class RunHandle:
             role=role,
             content_id=content_id,
         )
-
-    def _content_ids(
-        self,
-        role: Literal["artifact", "dataset", "record"],
-    ) -> tuple[str, ...]:
-        selected: list[str] = []
-        before: int | None = None
-        while True:
-            page = self.contents(
-                limit=100,
-                before=before,
-                role=role,
-                kind=None,
-            )
-            selected.extend(entry.id for entry in page.items)
-            if page.next_cursor is None:
-                return tuple(selected)
-            before = page.next_cursor
 
     def measurements(self) -> Dataset:
         """Open this run's measurement dataset for notebook analysis."""

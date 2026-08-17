@@ -7,6 +7,7 @@ import type {
   RunAnalysisSummary as RunAnalysisSummaryView,
   RunAnalysisView,
   ContentEntryView,
+  RunContentPage as RunContentPageView,
   RunControlView,
   RunSnapshot,
   RunResourceView,
@@ -26,6 +27,7 @@ import type {
   MeasurementSlicePreview,
   ProjectEvent,
   ProjectRun,
+  ProjectRunContentPage,
   ProjectRunPage,
   PresentationRunStatus,
   RunAnalysis,
@@ -76,35 +78,45 @@ function normalizeRunPage(response: RunSummaryPage): ProjectRunPage {
 }
 
 export async function getRun(runId: string, signal?: AbortSignal): Promise<ProjectRun> {
-  const [response, contents] = await Promise.all([
-    apiData(
-      apiClient.GET("/api/v1/runs/{run_id}", {
-        params: { path: { run_id: runId } },
-        signal,
-      }),
-    ),
-    getAllRunContents(runId, signal),
-  ]);
-  return normalizeRun(response.control, response.snapshot, response.resources ?? [], contents);
+  const response = await apiData(
+    apiClient.GET("/api/v1/runs/{run_id}", {
+      params: { path: { run_id: runId } },
+      signal,
+    }),
+  );
+  return normalizeRun(response.control, response.snapshot, response.resources ?? []);
 }
 
-async function getAllRunContents(runId: string, signal?: AbortSignal): Promise<ContentEntryView[]> {
-  const items: ContentEntryView[] = [];
-  let before: number | undefined;
-  do {
-    const page = await apiData(
-      apiClient.GET("/api/v1/runs/{run_id}/contents", {
-        params: {
-          path: { run_id: runId },
-          query: { limit: 500, before },
-        },
-        signal,
-      }),
-    );
-    items.push(...page.items);
-    before = page.next_cursor ?? undefined;
-  } while (before !== undefined);
-  return items;
+export async function getRunContents(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<ProjectRunContentPage> {
+  return getRunContentPage(runId, undefined, signal);
+}
+
+export async function getOlderRunContents(
+  runId: string,
+  before: number,
+  signal?: AbortSignal,
+): Promise<ProjectRunContentPage> {
+  return getRunContentPage(runId, before, signal);
+}
+
+async function getRunContentPage(
+  runId: string,
+  before: number | undefined,
+  signal?: AbortSignal,
+): Promise<ProjectRunContentPage> {
+  const response = await apiData(
+    apiClient.GET("/api/v1/runs/{run_id}/contents", {
+      params: {
+        path: { run_id: runId },
+        query: { limit: 100, before },
+      },
+      signal,
+    }),
+  );
+  return normalizeRunContentPage(response);
 }
 
 export async function getRunDomainDecisions(
@@ -494,7 +506,6 @@ function normalizeRun(
   control: RunControlView,
   snapshot: RunSnapshot,
   detailResources?: RunResourceView[],
-  contents: ContentEntryView[] = [],
 ): ProjectRun {
   const admission = control.admission;
   const outcome = snapshot.outcome ?? undefined;
@@ -546,7 +557,14 @@ function normalizeRun(
       detailResources !== undefined
         ? detailResources.map(normalizeRunResource)
         : (plan.run_resource_requirements ?? []).map(normalizeResourceRequirement),
-    contents: contents.map(normalizeContentEntry),
+    contents: [],
+  };
+}
+
+function normalizeRunContentPage(response: RunContentPageView): ProjectRunContentPage {
+  return {
+    items: response.items.map(normalizeContentEntry),
+    nextCursor: response.next_cursor ?? undefined,
   };
 }
 

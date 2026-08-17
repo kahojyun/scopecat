@@ -244,8 +244,9 @@ def test_in_process_lab_records_compute_value_without_instruments(
     assert stored_result.paths == (("score",),)
     assert stored_result[0].value("score") == 2.5
     assert typed_result[0].value(typed_result.output.score) == 2.5
-    assert run.datasets == ("raw-measurements",)
-    assert run.datasets == (dataset.entry.id,)
+    datasets = run.contents(role="dataset")
+    assert tuple(entry.id for entry in datasets.items) == ("raw-measurements",)
+    assert tuple(entry.id for entry in datasets.items) == (dataset.entry.id,)
     assert run.content("dataset", dataset.entry.id) == dataset.entry
 
 

@@ -53,6 +53,11 @@ export function RunDetail({
   analysesHasNextPage,
   analysesLoadingNextPage,
   onLoadOlderAnalyses,
+  contentsError,
+  contentsPending,
+  contentsHasNextPage,
+  contentsLoadingNextPage,
+  onLoadOlderContents,
   attentionError,
   attentionPending,
   onResolveAttention,
@@ -86,6 +91,11 @@ export function RunDetail({
   analysesHasNextPage: boolean;
   analysesLoadingNextPage: boolean;
   onLoadOlderAnalyses: () => void;
+  contentsError: Error | null;
+  contentsPending: boolean;
+  contentsHasNextPage: boolean;
+  contentsLoadingNextPage: boolean;
+  onLoadOlderContents: () => void;
   attentionError: Error | null;
   attentionPending: boolean;
   onResolveAttention: () => void;
@@ -214,6 +224,11 @@ export function RunDetail({
           measurements={measurements}
           error={measurementsError}
           pending={measurementsPending}
+          contentsError={contentsError}
+          contentsPending={contentsPending}
+          contentsHasNextPage={contentsHasNextPage}
+          contentsLoadingNextPage={contentsLoadingNextPage}
+          onLoadOlderContents={onLoadOlderContents}
           measurementSlice={measurementSlice}
           measurementSliceError={measurementSliceError}
           measurementSlicePending={measurementSlicePending}

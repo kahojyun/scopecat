@@ -10,6 +10,7 @@ import {
   getRunAnalysisSummaries,
   getRunArtifactDownload,
   getRunContent,
+  getRunContents,
   getRunEvents,
   getRuns,
 } from "./run-api";
@@ -56,64 +57,40 @@ describe("run daemon reads", () => {
     );
   });
 
-  it("joins the run snapshot with its relational content catalog", async () => {
+  it("loads run detail without eagerly reading its content catalog", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) =>
+      vi.fn(() =>
         Promise.resolve(
-          jsonResponse(
-            requestPath(input).includes("/contents?")
-              ? {
-                  run_id: "run/1",
-                  items: [
-                    {
-                      role: "artifact",
-                      id: "fit-notes",
-                      kind: "attachment",
-                      title: "Fit notes",
-                      media_type: "text/markdown",
-                      filename: "fit.md",
-                      content_hash: "sha256:notes",
-                    },
-                    {
-                      role: "record",
-                      id: "analysis-fit",
-                      kind: "analysis",
-                      content_hash: "sha256:analysis",
-                    },
-                  ],
-                  next_cursor: null,
-                }
-              : {
-                  control: {
-                    state: "closed",
-                    completed_point_count: 1,
-                    point_plan: staticPointPlan("run/1"),
-                    admission: {
-                      run_id: "run/1",
-                      display_name: "Ramsey calibration",
-                      tags: ["calibration"],
-                      description: "Calibrate the Ramsey sequence.",
-                      plan: {
-                        experiment_id: "ramsey",
-                        experiment_kind: "scratch",
-                        point_count: 1,
-                        initial_point_count: 1,
-                        point_limit: 1,
-                        coordinates: [],
-                        sampled_points: [],
-                        sampled_points_truncated: false,
-                      },
-                    },
-                  },
-                  snapshot: {
-                    run_id: "run/1",
-                    config_content_hash: "sha256:config",
-                    outcome: { result: "succeeded", certainty: "known" },
-                  },
-                  resources: [],
+          jsonResponse({
+            control: {
+              state: "closed",
+              completed_point_count: 1,
+              point_plan: staticPointPlan("run/1"),
+              admission: {
+                run_id: "run/1",
+                display_name: "Ramsey calibration",
+                tags: ["calibration"],
+                description: "Calibrate the Ramsey sequence.",
+                plan: {
+                  experiment_id: "ramsey",
+                  experiment_kind: "scratch",
+                  point_count: 1,
+                  initial_point_count: 1,
+                  point_limit: 1,
+                  coordinates: [],
+                  sampled_points: [],
+                  sampled_points_truncated: false,
                 },
-          ),
+              },
+            },
+            snapshot: {
+              run_id: "run/1",
+              config_content_hash: "sha256:config",
+              outcome: { result: "succeeded", certainty: "known" },
+            },
+            resources: [],
+          }),
         ),
       ),
     );
@@ -129,7 +106,43 @@ describe("run daemon reads", () => {
       result: "succeeded",
       certainty: "known",
     });
-    expect(run.contents).toEqual([
+    expect(run.contents).toEqual([]);
+  });
+
+  it("loads one bounded page of run contents", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          jsonResponse({
+            run_id: "run/1",
+            items: [
+              {
+                role: "artifact",
+                id: "fit-notes",
+                kind: "attachment",
+                title: "Fit notes",
+                media_type: "text/markdown",
+                filename: "fit.md",
+                content_hash: "sha256:notes",
+              },
+              {
+                role: "record",
+                id: "analysis-fit",
+                kind: "analysis",
+                content_hash: "sha256:analysis",
+              },
+            ],
+            next_cursor: 17,
+          }),
+        ),
+      ),
+    );
+
+    const page = await getRunContents("run/1");
+
+    expect(page.nextCursor).toBe(17);
+    expect(page.items).toEqual([
       {
         id: "fit-notes",
         role: "artifact",

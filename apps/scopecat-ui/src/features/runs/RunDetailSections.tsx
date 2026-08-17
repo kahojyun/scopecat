@@ -362,6 +362,11 @@ export function DataCard({
   measurements,
   error,
   pending,
+  contentsError,
+  contentsPending,
+  contentsHasNextPage,
+  contentsLoadingNextPage,
+  onLoadOlderContents,
   measurementSlice,
   measurementSliceError,
   measurementSlicePending,
@@ -380,6 +385,11 @@ export function DataCard({
   measurements?: MeasurementPreview;
   error: Error | null;
   pending: boolean;
+  contentsError: Error | null;
+  contentsPending: boolean;
+  contentsHasNextPage: boolean;
+  contentsLoadingNextPage: boolean;
+  onLoadOlderContents: () => void;
   measurementSlice?: MeasurementSlicePreview;
   measurementSliceError: Error | null;
   measurementSlicePending: boolean;
@@ -428,7 +438,12 @@ export function DataCard({
       <CardHeading
         icon={<Database size={17} />}
         title="Data contents"
-        accessory={<span className={countBadge}>{run.contents.length}</span>}
+        accessory={
+          <span className={countBadge}>
+            {run.contents.length}
+            {contentsHasNextPage ? "+" : ""}
+          </span>
+        }
       />
       {hasPlanMetadata && (
         <div className="mb-[13px] grid grid-cols-3 gap-2 rounded-[8px] border border-line bg-[rgb(255_255_255_/_1%)] p-2.5 max-[460px]:grid-cols-1">
@@ -454,43 +469,80 @@ export function DataCard({
       {run.plan.recordIds.length > 0 && (
         <TagGroup label="Record types" values={run.plan.recordIds} />
       )}
-      {run.contents.length > 0 ? (
-        <ul className="mt-2.5 grid list-none gap-[7px] p-0">
-          {run.contents.map((content) => (
-            <li
-              key={contentKey(content)}
-              className={classes(
-                "flex min-w-0 items-center gap-[9px] rounded-[8px] border border-line bg-[rgb(255_255_255_/_1.2%)]",
-                contentKey(content) === selectedContentKey &&
-                  "border-[rgb(128_163_207_/_25%)] bg-accent-soft",
-              )}
-            >
-              <button
-                className="flex w-full cursor-pointer items-center gap-[9px] border-0 bg-transparent p-[9px] text-left text-inherit [&>svg]:flex-none [&>svg]:text-text-dim"
-                type="button"
-                onClick={() => setSelectedContentKey(contentKey(content))}
-                aria-current={contentKey(content) === selectedContentKey ? "true" : undefined}
+      {contentsError && run.contents.length === 0 ? (
+        <InlineEmpty
+          title="Data contents unavailable"
+          detail={errorMessage(contentsError)}
+          warning
+        />
+      ) : contentsPending ? (
+        <InlineEmpty
+          title="Reading data contents"
+          detail="Waiting for the daemon's relational content catalog."
+        />
+      ) : run.contents.length > 0 ? (
+        <div className="grid gap-[7px]">
+          <ul className="mt-2.5 grid list-none gap-[7px] p-0">
+            {run.contents.map((content) => (
+              <li
+                key={contentKey(content)}
+                className={classes(
+                  "flex min-w-0 items-center gap-[9px] rounded-[8px] border border-line bg-[rgb(255_255_255_/_1.2%)]",
+                  contentKey(content) === selectedContentKey &&
+                    "border-[rgb(128_163_207_/_25%)] bg-accent-soft",
+                )}
               >
-                <span
-                  className="grid size-7 flex-none place-items-center rounded-[7px] bg-blue-soft text-blue"
-                  aria-hidden="true"
+                <button
+                  className="flex w-full cursor-pointer items-center gap-[9px] border-0 bg-transparent p-[9px] text-left text-inherit [&>svg]:flex-none [&>svg]:text-text-dim"
+                  type="button"
+                  onClick={() => setSelectedContentKey(contentKey(content))}
+                  aria-current={contentKey(content) === selectedContentKey ? "true" : undefined}
                 >
-                  {content.role === "dataset" ? <Database size={15} /> : <SquareStack size={15} />}
-                </span>
-                <span className="grid min-w-0 flex-1 gap-0.5">
-                  <strong className="overflow-hidden text-[0.7rem] font-[650] text-ellipsis whitespace-nowrap">
-                    {content.label}
-                  </strong>
-                  <small className="overflow-hidden text-[0.6rem] text-ellipsis whitespace-nowrap text-text-dim">
-                    {titleCase(content.role)}
-                    {content.detail ? ` · ${content.detail}` : ""}
-                  </small>
-                </span>
-                {canPreviewRunContent(content) && <ChevronRight size={15} aria-hidden="true" />}
-              </button>
-            </li>
-          ))}
-        </ul>
+                  <span
+                    className="grid size-7 flex-none place-items-center rounded-[7px] bg-blue-soft text-blue"
+                    aria-hidden="true"
+                  >
+                    {content.role === "dataset" ? (
+                      <Database size={15} />
+                    ) : (
+                      <SquareStack size={15} />
+                    )}
+                  </span>
+                  <span className="grid min-w-0 flex-1 gap-0.5">
+                    <strong className="overflow-hidden text-[0.7rem] font-[650] text-ellipsis whitespace-nowrap">
+                      {content.label}
+                    </strong>
+                    <small className="overflow-hidden text-[0.6rem] text-ellipsis whitespace-nowrap text-text-dim">
+                      {titleCase(content.role)}
+                      {content.detail ? ` · ${content.detail}` : ""}
+                    </small>
+                  </span>
+                  {canPreviewRunContent(content) && <ChevronRight size={15} aria-hidden="true" />}
+                </button>
+              </li>
+            ))}
+          </ul>
+          {contentsError ? (
+            <p className="m-0 text-[0.61rem] text-red" role="status">
+              {errorMessage(contentsError)}
+            </p>
+          ) : null}
+          {contentsHasNextPage ? (
+            <button
+              className={classes(secondaryButton, "w-full")}
+              disabled={contentsLoadingNextPage}
+              onClick={onLoadOlderContents}
+              type="button"
+            >
+              {contentsLoadingNextPage ? (
+                <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />
+              ) : (
+                <ChevronDown size={14} aria-hidden="true" />
+              )}
+              {contentsLoadingNextPage ? "Loading older contents…" : "Load older contents"}
+            </button>
+          ) : null}
+        </div>
       ) : (
         <InlineEmpty
           title="No materialized contents"
