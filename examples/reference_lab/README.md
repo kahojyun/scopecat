@@ -58,7 +58,7 @@ The scripts are ordinary Python with `# %%` cells and can be followed in order.
 | `27_channel_timing_candidate.py` | Reviewed timing candidate used by a pinned run |
 | `28_channel_conflict_diagnostic.py` | Precise conflict on an overlapping physical drive route |
 | `29_channel_unavailable.py` | Entity-axis IQ traces, identity selection, provenance, and one unavailable demodulation channel |
-| `30_drag_calibration.py` | Calibration, analysis, candidate check, acceptance, production use, and undo |
+| `30_drag_calibration.py` | Calibration, cross-run candidate verification, acceptance, production use, and undo |
 | `31_topology_scaled_ramsey.py` | One connected-qubit-set program reused across chip topology and scale |
 | `32_quantum_program_inspection.py` | Authored, logical, scheduled, and physical quantum layers without execution |
 | `33_multichannel_dc_bias.py` | Profile/calibration join across two multichannel DC sources |

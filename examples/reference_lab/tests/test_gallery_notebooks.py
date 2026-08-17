@@ -383,6 +383,16 @@ def test_drag_calibration_closes_the_reviewed_config_loop(
     assert summary["execution_evidence"] == 0
     assert summary["fit_report"] == "drag-beta-fit.md"
     assert summary["proposal_evidence"] == ("quadratic-fit", "observations")
+    assert summary["verification_subject"] == "project"
+    verification_inputs = cast(
+        "list[tuple[str, str, str]]", summary["verification_inputs"]
+    )
+    assert [item[0] for item in verification_inputs] == ["baseline", "candidate"]
+    assert [item[2] for item in verification_inputs] == ["baseline", "candidate"]
+    assert cast("float", summary["verification_improvement"]) >= 0.001
+    assert summary["verification_accepted"]
+    assert summary["verification_report"] == "drag-beta-verification.md"
+    assert summary["verification_is_project_owned"]
     assert summary["candidate_run_uses_analysis"]
     assert summary["accepted_as_default"]
     assert summary["default_restored"]

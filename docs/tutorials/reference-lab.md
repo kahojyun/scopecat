@@ -57,15 +57,18 @@ uv run python examples/reference_lab/notebooks/30_drag_calibration.py
 
 In the project console, inspect the new runs, measurement data, analysis, and
 configuration history. The workflow records a baseline, publishes a candidate,
-accepts it, uses the new default in production, and demonstrates undo. Durable
-revisions and decisions remain visible without exposing storage identifiers in
-the ordinary notebook flow.
+runs the same scan with that candidate, and publishes a project-level
+baseline/candidate verification. Only a passing verification accepts the
+candidate; the workflow then uses the new default in production and demonstrates
+undo. Durable revisions and decisions remain visible without exposing storage
+identifiers in the ordinary notebook flow.
 
 The structured summary verifies the design outcomes directly:
 
 - the baseline run completes and records the previewed point count;
 - analysis publishes outputs, evidence, a report, and one proposal;
 - the candidate run identifies the analysis proposal as its config source;
+- project analysis freezes both run datasets and records the acceptance metric;
 - the production run uses the accepted default;
 - undo restores the previous default without deleting history.
 

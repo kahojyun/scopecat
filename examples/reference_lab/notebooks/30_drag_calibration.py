@@ -9,6 +9,11 @@ from reference_lab.configuration import EXAMPLE_ROOT
 from reference_lab.notebook import show
 from reference_lab.workflows.drag_beta_analysis import drag_beta_analysis
 from reference_lab.workflows.drag_beta_experiment import drag_beta_experiment
+from reference_lab.workflows.drag_beta_verification import (
+    DRAG_BETA_VERIFICATION_KEY,
+    DRAG_BETA_VERIFICATION_SCHEMA,
+    drag_beta_candidate_verification,
+)
 from reference_lab.workflows.production_drag_gate import production_drag_experiment
 
 # %%
@@ -35,10 +40,27 @@ candidate_run = lab.run(
 )
 
 # %%
+verification = drag_beta_candidate_verification(
+    lab.analysis(
+        "DRAG beta candidate verification",
+        key=DRAG_BETA_VERIFICATION_KEY,
+    ),
+    baseline_run=baseline_run,
+    candidate_run=candidate_run,
+).save()
+verification_decision = verification.fact_as(
+    "decision",
+    DRAG_BETA_VERIFICATION_SCHEMA,
+)
+verification_report = verification.artifact("verification-report")
+if not verification_decision.accepted:
+    raise RuntimeError("DRAG beta candidate did not improve the verification scan")
+
+# Only the cross-run verification decision authorizes changing the default.
 accepted = lab.config.accept(
     analysis,
     actor="nightly-calibration",
-    note="accept the reviewed DRAG fit",
+    note=f"accept after project verification {verification.id}",
 )
 
 production_run = lab.run(
@@ -64,6 +86,18 @@ drag_beta_summary = {
     "execution_evidence": len(analysis.executions),
     "fit_report": fit_report.entry.filename,
     "proposal_evidence": proposal.evidence_output_ids,
+    "verification": verification.id,
+    "verification_subject": verification.view.analysis.subject.kind,
+    "verification_inputs": [
+        (item.id, item.run_id, item.role) for item in verification.inputs
+    ],
+    "verification_improvement": verification_decision.improvement,
+    "verification_accepted": verification_decision.accepted,
+    "verification_report": verification_report.entry.filename,
+    "verification_is_project_owned": all(
+        entry.id != verification.id
+        for entry in (*baseline_run.manifest.records, *candidate_run.manifest.records)
+    ),
     "candidate_run_uses_analysis": (
         candidate_source is not None
         and candidate_source.kind == "analysis_candidate"

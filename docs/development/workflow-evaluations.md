@@ -110,9 +110,10 @@ default, then accept it deliberately.
 **Executable evidence:** `20_flux_spectroscopy.py`, `30_drag_calibration.py`, and
 analysis/configuration integration tests.
 
-**Success evidence:** analysis has a source run, published outputs and report,
-the proposal cites evidence, a candidate run records proposal provenance, and
-acceptance creates one immutable default change.
+**Success evidence:** calibration analysis has a source run, published outputs
+and report, the proposal cites evidence, a candidate run records proposal
+provenance, project analysis compares the exact baseline and candidate inputs,
+and only a passing verification creates one immutable default change.
 
 **Design questions:** facts, artifacts, views, and proposals need distinct user
 meaning without exposing output ontology in the common happy path. Review must

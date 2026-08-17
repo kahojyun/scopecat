@@ -137,7 +137,9 @@ def fit_drag_beta(observations: Sequence[DragBetaObservation]) -> DragBetaFit:
 def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     """Fit one DRAG run and author its table, figure, and proposal."""
 
-    observations = _observations_from_frame(_observation_frame(context.measurements()))
+    observations = _observations_from_frame(
+        drag_beta_observation_frame(context.measurements())
+    )
     fit = fit_drag_beta(observations)
 
     return (
@@ -187,7 +189,9 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     )
 
 
-def _observation_frame(dataset: Dataset) -> pl.DataFrame:
+def drag_beta_observation_frame(dataset: Dataset) -> pl.DataFrame:
+    """Project one DRAG run into the canonical comparison columns."""
+
     schema = DRAG_BETA_EXPERIMENT.output
     frame = (
         dataset.bind(schema)
@@ -245,5 +249,6 @@ __all__ = [
     "DragBetaFit",
     "DragBetaObservation",
     "drag_beta_analysis",
+    "drag_beta_observation_frame",
     "fit_drag_beta",
 ]
