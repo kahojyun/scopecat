@@ -65,7 +65,8 @@ from scopecat.daemon.views import (
     MeasurementSliceQuery,
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
-    ParameterProposalListView,
+    ParameterProposalPage,
+    ParameterProposalView,
     ProjectAnalysisContentPage,
     ProjectAnalysisPage,
     ProjectAnalysisView,
@@ -699,8 +700,23 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         return application.runs.attach_run_content(run_id, command)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/parameter-proposals")
-    def list_parameter_proposals(run_id: str) -> ParameterProposalListView:
-        return application.runs.list_parameter_proposals(run_id)
+    def list_parameter_proposals(
+        run_id: str,
+        limit: Annotated[int, Query(ge=1, le=200)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> ParameterProposalPage:
+        return application.runs.list_parameter_proposals(
+            run_id,
+            limit=limit,
+            before=before,
+        )
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/parameter-proposals/{{proposal_id}}")
+    def get_parameter_proposal(
+        run_id: str,
+        proposal_id: str,
+    ) -> ParameterProposalView:
+        return application.runs.get_parameter_proposal(run_id, proposal_id)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/attention")
     def resolve_attention(

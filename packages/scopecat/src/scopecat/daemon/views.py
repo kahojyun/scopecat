@@ -444,14 +444,15 @@ class ParameterProposalView(_ViewModel):
         return self
 
 
-class ParameterProposalListView(_ViewModel):
+class ParameterProposalPage(_ViewModel):
     run_id: str
     items: tuple[ParameterProposalView, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
-    def validate_identity(self) -> ParameterProposalListView:
+    def validate_identity(self) -> ParameterProposalPage:
         if any(item.proposal.source_run_id != self.run_id for item in self.items):
-            raise ValueError("parameter proposal list contains a different run")
+            raise ValueError("parameter proposal page contains a different run")
         return self
 
 
@@ -716,7 +717,7 @@ __all__ = [
     "MeasurementTracePreview",
     "MeasurementTracePreviewQuery",
     "MeasurementTraceSeries",
-    "ParameterProposalListView",
+    "ParameterProposalPage",
     "ParameterProposalView",
     "ProjectAnalysisContentPage",
     "ProjectAnalysisPage",

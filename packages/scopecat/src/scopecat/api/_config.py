@@ -21,14 +21,14 @@ from scopecat.config.registry.records import (
     ManualCandidateAcceptance,
 )
 from scopecat.config.resolution import config_revision_entry_id
-from scopecat.daemon.client import DaemonClient
+from scopecat.daemon.client import DaemonClient, DaemonNotFoundError
 from scopecat.daemon.views import (
     ActiveConfigView,
     ConfigActivationPage,
     ConfigDraftPreview,
     ConfigEntryView,
     ConfigRegistryPage,
-    ParameterProposalListView,
+    ParameterProposalPage,
 )
 from scopecat.daemon.wire import (
     CandidateConfigRevisionSource,
@@ -119,14 +119,15 @@ class LabConfigOperations:
         if isinstance(selected, str):
             raise ValueError("daemon config selector must be 'active'")
         if isinstance(selected, CandidateConfig):
-            proposals = {
-                item.proposal.id: item.proposal
-                for item in self.client.parameter_proposals(
-                    selected.source_run_id
-                ).items
-            }
             proposal = selected.parameter_proposal
-            if proposals.get(proposal.id) != proposal:
+            try:
+                saved_proposal = self.client.parameter_proposal(
+                    selected.source_run_id,
+                    proposal.id,
+                ).proposal
+            except DaemonNotFoundError:
+                saved_proposal = None
+            if saved_proposal != proposal:
                 raise ValueError(
                     "save the producing analysis before using its candidate config"
                 )
@@ -264,8 +265,15 @@ class LabConfigOperations:
     def proposals(
         self,
         run: RunSelector | RunHandle,
-    ) -> ParameterProposalListView:
-        return self.client.parameter_proposals(run_handle_id(run))
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ParameterProposalPage:
+        return self.client.parameter_proposals(
+            run_handle_id(run),
+            limit=limit,
+            before=before,
+        )
 
     def accept(
         self,

@@ -53,6 +53,8 @@ from scopecat.daemon.views import (
     RunControlView,
     RunDetail,
     RunPlanView,
+    RunSummary,
+    RunSummaryPage,
 )
 from scopecat.daemon.wire import (
     ConfigActivationReceipt,
@@ -95,6 +97,59 @@ from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments import InstrumentProviderContext
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
+
+
+def test_lab_runs_preserves_bounded_page_navigation() -> None:
+    snapshot = RunSnapshot(
+        run_id="run-page",
+        created_at=_NOW,
+        config_content_hash=config_content_hash(load_config()),
+    )
+    summary = RunSummary(
+        control=RunControlView(
+            sequence=12,
+            admission=RunAdmissionView(
+                run_id=snapshot.run_id,
+                plan=RunPlanView(
+                    experiment_id="page-test",
+                    experiment_kind="test",
+                    point_count=1,
+                    initial_point_count=1,
+                    point_limit=1,
+                ),
+                admitted_at=_NOW,
+            ),
+            state="closed",
+            updated_at=_NOW,
+            completed_point_count=1,
+            point_plan=RunPointPlanView(
+                run_id=snapshot.run_id,
+                initial_point_count=1,
+                accepted_point_count=1,
+                point_limit=1,
+                decision_count=0,
+                optimizer_attempt_count=0,
+                operator_request_count=0,
+                plan_closed=True,
+                stop_reason="static point plan",
+            ),
+        ),
+        snapshot=snapshot,
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.url.path == "/api/v1/runs"
+        assert dict(request.url.params) == {
+            "limit": "1",
+            "before": "9",
+            "state": "closed",
+        }
+        return _model(RunSummaryPage(items=(summary,), next_cursor=8))
+
+    page = LabClient(_client(handler)).runs(limit=1, before=9, state="closed")
+
+    assert tuple(run.id for run in page.items) == (snapshot.run_id,)
+    assert page.next_cursor == 8
 
 
 def test_remote_run_uses_full_dataset_batches_and_projected_arrow_pages() -> None:

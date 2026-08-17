@@ -411,7 +411,7 @@ def test_flux_spectroscopy_failure_aborts_with_bias_disabled(
     with pytest.raises(RunIndeterminate):
         lab.prepare(flux_spectroscopy()).run()
 
-    [run] = lab.runs()
+    [run] = lab.runs().items
     assert run.status == "unknown"
     assert not provider.world.dc_source(
         f"{FLUX_SOURCE_ID}:flux.dac_a.ch1"

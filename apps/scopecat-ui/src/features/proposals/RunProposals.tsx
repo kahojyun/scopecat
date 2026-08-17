@@ -1,8 +1,15 @@
-import { useState, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useMemo, useState, type ReactNode } from "react";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import {
   ArrowRight,
   CheckCircle2,
+  ChevronDown,
   CircleDot,
   GitCompareArrows,
   History,
@@ -11,7 +18,11 @@ import {
   XCircle,
 } from "lucide-react";
 import { getConfigRegistry } from "../config/config-api";
-import { acceptProposal, getRunParameterProposals } from "../../data/parameter-proposals/api";
+import {
+  acceptProposal,
+  getOlderRunParameterProposals,
+  getRunParameterProposals,
+} from "../../data/parameter-proposals/api";
 import type { ParameterProposal } from "../../data/parameter-proposals/types";
 import { errorMessage, formatDateTime, shorten } from "../../lib/presentation";
 import { useConfirmationDialog } from "../../ui/ConfirmationDialog";
@@ -24,14 +35,26 @@ export function RunProposals({ runId }: { runId: string }) {
   const [defaultedProposalId, setDefaultedProposalId] = useState<string>();
   const { requestConfirmation, confirmationDialog } = useConfirmationDialog();
 
-  const proposalsQuery = useQuery({
+  const proposalsQuery = useInfiniteQuery({
     queryKey: ["parameter-proposals", runId],
-    queryFn: ({ signal }) => getRunParameterProposals(runId, signal),
+    queryFn: ({ pageParam, signal }) =>
+      pageParam === undefined
+        ? getRunParameterProposals(runId, signal)
+        : getOlderRunParameterProposals(runId, pageParam, signal),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (page) => page.nextCursor,
   });
+  const proposals = useMemo(() => {
+    const items = new Map<string, ParameterProposal>();
+    for (const page of proposalsQuery.data?.pages ?? []) {
+      for (const proposal of page.items) items.set(proposal.id, proposal);
+    }
+    return [...items.values()];
+  }, [proposalsQuery.data]);
   const configQuery = useQuery({
     queryKey: ["config", "registry"],
     queryFn: ({ signal }) => getConfigRegistry(signal),
-    enabled: (proposalsQuery.data?.items.length ?? 0) > 0,
+    enabled: proposals.length > 0,
   });
   const generation = configQuery.data?.activation?.generation ?? 0;
 
@@ -97,7 +120,10 @@ export function RunProposals({ runId }: { runId: string }) {
             autoComplete="name"
           />
         </label>
-        <span className={countBadge}>{proposalsQuery.data?.items.length ?? 0}</span>
+        <span className={countBadge}>
+          {proposals.length}
+          {proposalsQuery.hasNextPage ? "+" : ""}
+        </span>
       </header>
 
       {proposalsQuery.isPending ? (
@@ -106,14 +132,14 @@ export function RunProposals({ runId }: { runId: string }) {
           title="Reading proposals"
           detail="Loading parameter changes and their operator approvals."
         />
-      ) : proposalsQuery.isError ? (
+      ) : proposalsQuery.isError && proposalsQuery.data === undefined ? (
         <ProposalMessage
           icon={<XCircle />}
           title="Proposals unavailable"
           detail={errorMessage(proposalsQuery.error)}
           warning
         />
-      ) : proposalsQuery.data.items.length === 0 ? (
+      ) : proposals.length === 0 ? (
         <ProposalMessage
           icon={<CircleDot />}
           title="No parameter proposals"
@@ -121,7 +147,7 @@ export function RunProposals({ runId }: { runId: string }) {
         />
       ) : (
         <div className="grid gap-2.5 p-3">
-          {proposalsQuery.data.items.map((proposal) => {
+          {proposals.map((proposal) => {
             const note = notes[proposal.id] ?? "";
             const activating =
               acceptMutation.isPending && acceptMutation.variables?.proposal.id === proposal.id;
@@ -233,6 +259,30 @@ export function RunProposals({ runId }: { runId: string }) {
               </section>
             );
           })}
+          {proposalsQuery.isFetchNextPageError ? (
+            <p className="mx-1 my-0 text-[0.62rem] text-red" role="status">
+              {errorMessage(proposalsQuery.error)}
+            </p>
+          ) : null}
+          {proposalsQuery.hasNextPage ? (
+            <button
+              className={classes(
+                "inline-flex min-h-8 cursor-pointer items-center justify-center gap-1.5 rounded-[7px] border border-line bg-panel px-2.5 text-[0.62rem] font-[750] text-text-soft hover:bg-panel-soft disabled:cursor-not-allowed disabled:opacity-42",
+              )}
+              disabled={proposalsQuery.isFetchingNextPage}
+              onClick={() => void proposalsQuery.fetchNextPage()}
+              type="button"
+            >
+              {proposalsQuery.isFetchingNextPage ? (
+                <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />
+              ) : (
+                <ChevronDown size={14} aria-hidden="true" />
+              )}
+              {proposalsQuery.isFetchingNextPage
+                ? "Loading older proposals…"
+                : "Load older proposals"}
+            </button>
+          ) : null}
         </div>
       )}
       {confirmationDialog}

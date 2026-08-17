@@ -24,9 +24,10 @@ export interface ParameterProposal {
   approval?: ParameterProposalApproval;
 }
 
-export interface RunParameterProposals {
+export interface RunParameterProposalPage {
   runId: string;
   items: ParameterProposal[];
+  nextCursor?: number;
 }
 
 export interface AcceptProposalCommand {

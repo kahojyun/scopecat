@@ -1,30 +1,47 @@
 import { apiClient, apiData } from "../../api-client";
-import type { ConfigPublishCommand, ParameterProposalList } from "../../api-contract";
+import type { ConfigPublishCommand, ParameterProposalPage } from "../../api-contract";
 import type {
   AcceptProposalCommand,
   ParameterProposal,
   ParameterProposalApproval,
   ParameterProposalDelta,
-  RunParameterProposals,
+  RunParameterProposalPage,
 } from "./types";
 
-type WireProposalView = NonNullable<ParameterProposalList["items"]>[number];
+type WireProposalView = NonNullable<ParameterProposalPage["items"]>[number];
 type WireProposalDelta = WireProposalView["proposal"]["deltas"][number];
 type WireProposalApproval = NonNullable<WireProposalView["approval"]>;
 
 export async function getRunParameterProposals(
   runId: string,
   signal?: AbortSignal,
-): Promise<RunParameterProposals> {
+): Promise<RunParameterProposalPage> {
+  return getRunParameterProposalPage(runId, undefined, signal);
+}
+
+export async function getOlderRunParameterProposals(
+  runId: string,
+  before: number,
+  signal?: AbortSignal,
+): Promise<RunParameterProposalPage> {
+  return getRunParameterProposalPage(runId, before, signal);
+}
+
+async function getRunParameterProposalPage(
+  runId: string,
+  before: number | undefined,
+  signal?: AbortSignal,
+): Promise<RunParameterProposalPage> {
   const response = await apiData(
     apiClient.GET("/api/v1/runs/{run_id}/parameter-proposals", {
-      params: { path: { run_id: runId } },
+      params: { path: { run_id: runId }, query: { limit: 100, before } },
       signal,
     }),
   );
   return {
     runId: response.run_id,
     items: (response.items ?? []).map(normalizeProposalView),
+    nextCursor: response.next_cursor ?? undefined,
   };
 }
 

@@ -3685,13 +3685,15 @@ export interface components {
             id: string;
             value_type: components["schemas"]["PersistableValueType"];
         };
-        /** ParameterProposalListView */
-        ParameterProposalListView: {
+        /** ParameterProposalPage */
+        ParameterProposalPage: {
             /**
              * Items
              * @default []
              */
             items: components["schemas"]["ParameterProposalView"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
             /** Run Id */
             run_id: string;
         };
@@ -6425,7 +6427,10 @@ export interface operations {
     };
     list_parameter_proposals_api_v1_runs__run_id__parameter_proposals_get: {
         parameters: {
-            query?: never;
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
             header?: never;
             path: {
                 run_id: string;
@@ -6440,7 +6445,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ParameterProposalListView"];
+                    "application/json": components["schemas"]["ParameterProposalPage"];
                 };
             };
             /** @description Validation Error */

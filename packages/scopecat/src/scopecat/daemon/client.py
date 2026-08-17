@@ -55,7 +55,8 @@ from scopecat.daemon.views import (
     MeasurementArrowQuery,
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
-    ParameterProposalListView,
+    ParameterProposalPage,
+    ParameterProposalView,
     ProjectAnalysisContentPage,
     ProjectAnalysisPage,
     ProjectAnalysisView,
@@ -858,10 +859,31 @@ class DaemonClient:
             ContentEntry,
         )
 
-    def parameter_proposals(self, run_id: str) -> ParameterProposalListView:
+    def parameter_proposals(
+        self,
+        run_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ParameterProposalPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
         return self._get_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/parameter-proposals",
-            ParameterProposalListView,
+            ParameterProposalPage,
+            params=params,
+        )
+
+    def parameter_proposal(
+        self,
+        run_id: str,
+        proposal_id: str,
+    ) -> ParameterProposalView:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/parameter-proposals/"
+            f"{quote(proposal_id, safe='')}",
+            ParameterProposalView,
         )
 
     def resolve_attention(

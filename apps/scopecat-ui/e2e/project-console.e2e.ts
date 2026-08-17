@@ -235,7 +235,7 @@ import scopecat as sc
 
 project_root = Path(sys.argv[1])
 with sc.open_project(project_root).connect() as lab:
-    baseline = lab.runs()[0]
+    baseline = lab.runs().items[0]
     analysis = (
         baseline.analysis("notebook repetition fit").result()
         .dataset(

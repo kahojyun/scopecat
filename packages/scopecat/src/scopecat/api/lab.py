@@ -16,9 +16,10 @@ from scopecat.api.instruments import LabInstrumentOperations
 from scopecat.api.project_analysis import RemoteProjectAnalysisOperations
 from scopecat.api.published_analysis import PublishedAnalysis, PublishedAnalysisPage
 from scopecat.api.review import ExperimentReviewHandle
-from scopecat.api.run import RunHandle, run_handle_id
+from scopecat.api.run import RunHandle, RunHandlePage, run_handle_id
 from scopecat.authoring.experiments import Experiment, ExperimentInvocation
 from scopecat.config.candidates import CandidateConfig
+from scopecat.control.models import ControlRunState
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import DaemonHealth
 from scopecat.inspection import CompiledProgramInspectionQuery
@@ -173,10 +174,19 @@ class LabClient:
     def health(self) -> DaemonHealth:
         return self._control.health()
 
-    def runs(self) -> tuple[RunHandle, ...]:
-        return tuple(
-            RunHandle(session=self, id=item.run_id)
-            for item in self._control.runs().items
+    def runs(
+        self,
+        *,
+        limit: int = 50,
+        before: int | None = None,
+        state: ControlRunState | None = None,
+    ) -> RunHandlePage:
+        """Load one bounded newest-first page of run handles."""
+
+        page = self._control.runs(limit=limit, before=before, state=state)
+        return RunHandlePage(
+            items=tuple(RunHandle(session=self, id=item.run_id) for item in page.items),
+            next_cursor=page.next_cursor,
         )
 
     def analysis(

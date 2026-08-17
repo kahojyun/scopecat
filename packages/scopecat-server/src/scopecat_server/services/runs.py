@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING, Literal
 from scopecat.analysis.repository import AnalysisPublicationSummary
 from scopecat.config.changes import (
     list_parameter_change_proposals,
-    load_parameter_change_approval,
+    load_parameter_change_approval_for_proposal,
+    load_parameter_change_proposal,
 )
 from scopecat.control.models import (
     ControlRun,
@@ -32,7 +33,7 @@ from scopecat.daemon.views import (
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
     MeasurementTraceSeries,
-    ParameterProposalListView,
+    ParameterProposalPage,
     ParameterProposalView,
     RunAdmissionView,
     RunAnalysisPage,
@@ -689,24 +690,53 @@ class RunService:
             )
         return artifact
 
-    def list_parameter_proposals(self, run_id: str) -> ParameterProposalListView:
+    def list_parameter_proposals(
+        self,
+        run_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ParameterProposalPage:
         with self._config_errors():
-            proposals = list_parameter_change_proposals(
+            page = list_parameter_change_proposals(
                 run_id=run_id,
                 services=self._services,
+                limit=limit,
+                before=before,
             )
-            return ParameterProposalListView(
+            return ParameterProposalPage(
                 run_id=run_id,
                 items=tuple(
                     ParameterProposalView(
                         proposal=proposal,
-                        approval=load_parameter_change_approval(
+                        approval=load_parameter_change_approval_for_proposal(
                             run_id=run_id,
-                            selector=proposal.id,
+                            proposal=proposal,
                             storage=self._runs,
                         ),
                     )
-                    for proposal in proposals
+                    for proposal in page.items
+                ),
+                next_cursor=page.next_cursor,
+            )
+
+    def get_parameter_proposal(
+        self,
+        run_id: str,
+        proposal_id: str,
+    ) -> ParameterProposalView:
+        with self._config_errors():
+            proposal = load_parameter_change_proposal(
+                run_id=run_id,
+                selector=proposal_id,
+                services=self._services,
+            )
+            return ParameterProposalView(
+                proposal=proposal,
+                approval=load_parameter_change_approval_for_proposal(
+                    run_id=run_id,
+                    proposal=proposal,
+                    storage=self._runs,
                 ),
             )
 

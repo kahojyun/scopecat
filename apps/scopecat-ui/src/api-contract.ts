@@ -103,7 +103,7 @@ export type ComplexComponents = Extract<
 >;
 export type ActiveConfig = GetResponse<"/api/v1/config-registry/active">;
 export type InstrumentList = GetResponse<"/api/v1/instruments">;
-export type ParameterProposalList = GetResponse<"/api/v1/runs/{run_id}/parameter-proposals">;
+export type ParameterProposalPage = GetResponse<"/api/v1/runs/{run_id}/parameter-proposals">;
 export type RunSummaryPage = GetResponse<"/api/v1/runs">;
 export type EventPage = GetResponse<"/api/v1/events">;
 export type ParameterAtom = components["schemas"]["ParameterAtomValue-Input"];

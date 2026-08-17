@@ -593,6 +593,14 @@ class RunHandle:
         return self.record_json(selector, expected_kind=expected_kind)
 
 
+@dataclass(frozen=True, slots=True)
+class RunHandlePage:
+    """Bounded page of notebook run handles."""
+
+    items: tuple[RunHandle, ...] = ()
+    next_cursor: int | None = None
+
+
 def run_handle_id(run: RunHandle | RunSelector) -> str:
     if isinstance(run, RunHandle):
         return run.id

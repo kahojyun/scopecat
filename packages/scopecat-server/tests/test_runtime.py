@@ -54,7 +54,8 @@ from scopecat.daemon.views import (
     ConfigRegistryPage,
     MeasurementArrowColumn,
     MeasurementArrowQuery,
-    ParameterProposalListView,
+    ParameterProposalPage,
+    ParameterProposalView,
     RunAnalysisPage,
     RunAnalysisView,
     RunConfigView,
@@ -1889,8 +1890,13 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         config = RunConfigView.model_validate(
             client.get(f"/api/v1/runs/{admission.run_id}/config").json()
         )
-        proposals = ParameterProposalListView.model_validate(
+        proposals = ParameterProposalPage.model_validate(
             client.get(f"/api/v1/runs/{admission.run_id}/parameter-proposals").json()
+        )
+        exact_proposal = ParameterProposalView.model_validate(
+            client.get(
+                f"/api/v1/runs/{admission.run_id}/parameter-proposals/{proposal.id}"
+            ).json()
         )
         activated = client.post(
             "/api/v1/config-registry/default",
@@ -1906,7 +1912,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
                 note="fit evidence reviewed",
             ).model_dump(mode="json"),
         )
-        approved_proposals = ParameterProposalListView.model_validate(
+        approved_proposals = ParameterProposalPage.model_validate(
             client.get(f"/api/v1/runs/{admission.run_id}/parameter-proposals").json()
         )
 
@@ -1919,6 +1925,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
 
         assert first_save.status_code == 201
         assert retry == saved
+        assert exact_proposal.proposal == proposal
         assert analyses.json()["items"][0]["key"] == "fit"
         assert analysis_detail.json()["entry"]["id"] == "analysis-fit"
         assert analysis_record.json()["content"]["title"] == "fit"

@@ -424,7 +424,7 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
 
     preview = prepared.preview(point="last")
 
-    assert lab.runs() == ()
+    assert lab.runs().items == ()
     assert preview.selected_point is not None
     assert preview.selected_point.point_index == 14
     [inspection] = preview.domain_inspections
