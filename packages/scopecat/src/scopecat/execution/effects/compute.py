@@ -15,7 +15,7 @@ from scopecat.kernel.payloads import unwrap_payload_values
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.value_validation import coerce_literal
-from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
+from scopecat.records.content import CommandPayload, command_payload_from_bytes
 from scopecat.sdk.payloads import PayloadCodecRegistry
 
 

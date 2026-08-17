@@ -16,7 +16,7 @@ from pydantic import (
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.program.measurement_types import MeasurementDType
-from scopecat.records.artifact import CommandPayload
+from scopecat.records.content import CommandPayload
 from scopecat.records.instrument import (
     CommandChannelBinding as _CommandChannelBinding,
 )

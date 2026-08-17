@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from scopecat.records.artifact import command_payload_from_bytes
+from scopecat.records.content import command_payload_from_bytes
 from scopecat.sdk.payloads import (
     PayloadCodec,
     PayloadCodecCatalog,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import upsert_contents
 
@@ -15,7 +15,7 @@ def merge_terminal_manifest(
     *,
     run_id: str,
     outcome: RunOutcome,
-    contents: Sequence[RunContentEntry] = (),
+    contents: Sequence[ContentEntry] = (),
 ) -> RunManifest:
     """Apply terminal evidence to the latest durable manifest.
 

@@ -10,7 +10,7 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.project_state import ProjectStateServices
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.access import (
     read_artifact_bytes,
@@ -226,7 +226,7 @@ def read_run_measurement_dataset(
     return RunMeasurementDatasetResult(dataset_entry=dataset_entry, dataset=dataset)
 
 
-def _artifact_supports_text(artifact: RunContentEntry) -> bool:
+def _artifact_supports_text(artifact: ContentEntry) -> bool:
     media_type = artifact.media_type
     return media_type is not None and (
         media_type.startswith("text/")
@@ -234,7 +234,7 @@ def _artifact_supports_text(artifact: RunContentEntry) -> bool:
     )
 
 
-def _artifact_media_label(artifact: RunContentEntry) -> str:
+def _artifact_media_label(artifact: ContentEntry) -> str:
     if artifact.media_type is None:
         return "unknown"
     return artifact.media_type

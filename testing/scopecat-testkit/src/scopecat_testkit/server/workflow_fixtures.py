@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.runs.access import artifact_storage_ref
 
 from scopecat_testkit.server.runtime import sqlite_run_repository
@@ -9,7 +9,7 @@ from scopecat_testkit.server.runtime import sqlite_run_repository
 def attach_binary_artifact(project_root: Path, run_id: str) -> None:
     storage = sqlite_run_repository(project_root)
     manifest = storage.read_manifest(run_id)
-    binary = RunContentEntry(
+    binary = ContentEntry(
         role="artifact",
         id="binary-artifact",
         kind="binary",

@@ -111,13 +111,13 @@ from scopecat.daemon.wire import (
 from scopecat.kernel.content_identity import sha256_content_hash
 from scopecat.measurements.recording_arrow import encode_measurement_append
 from scopecat.planning.catalog import InstrumentContractCatalog
-from scopecat.records.artifact import (
+from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.content import (
     BlobPayloadBody,
     CommandPayload,
+    ContentEntry,
     InlinePayloadBody,
-    RunContentEntry,
 )
-from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.records.measurement_recording import (
@@ -786,11 +786,11 @@ class DaemonClient:
         self,
         run_id: str,
         command: RunAttachmentCommand,
-    ) -> RunContentEntry:
+    ) -> ContentEntry:
         return self._post_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/attachments",
             command,
-            RunContentEntry,
+            ContentEntry,
         )
 
     def parameter_proposals(self, run_id: str) -> ParameterProposalListView:

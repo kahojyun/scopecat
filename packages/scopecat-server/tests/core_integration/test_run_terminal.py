@@ -10,7 +10,7 @@ from scopecat.execution.evidence import (
 )
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import StateValue
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.execution import (
     InstrumentStateEvidence,
     summarize_instrument_state_evidence,
@@ -120,14 +120,14 @@ def test_terminal_manifest_preserves_existing_attachments(tmp_path: Path) -> Non
             config_content_hash=_CONFIG_HASH,
         )
     )
-    attachment = RunContentEntry(
+    attachment = ContentEntry(
         role="artifact",
         id="operator-note",
         kind="attachment",
         content_hash="operator-note-content",
         media_type="text/plain",
     )
-    workflow_record = RunContentEntry(
+    workflow_record = ContentEntry(
         role="record",
         id="approval",
         kind="workflow_decision",

@@ -19,7 +19,7 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.parameter import (
     ParameterCatalog,
     ParameterDefinition,
@@ -45,8 +45,8 @@ from scopecat.records.run_request import (
 type _MetadataModelFactory = Callable[[object], BaseModel]
 
 
-def _artifact_with_metadata(value: object) -> RunContentEntry:
-    return RunContentEntry.model_validate(
+def _artifact_with_metadata(value: object) -> ContentEntry:
+    return ContentEntry.model_validate(
         {"id": "artifact", "kind": "attachment", "metadata": {"value": value}}
     )
 

@@ -2,7 +2,7 @@ import type {
   ProjectAnalysisPage as ProjectAnalysisPageView,
   ProjectAnalysisSummary as ProjectAnalysisSummaryView,
   ProjectAnalysisView,
-  RunContentEntry,
+  ContentEntryView,
 } from "../../api-contract";
 import { apiClient, apiData } from "../../api-client";
 import { titleCase } from "../../lib/presentation";
@@ -114,7 +114,7 @@ function normalizeProjectAnalysis(view: ProjectAnalysisView): ProjectAnalysis {
   };
 }
 
-function projectContentEntry(entry: RunContentEntry, index: number): ContentEntry {
+function projectContentEntry(entry: ContentEntryView, index: number): ContentEntry {
   const mediaType = entry.media_type ?? undefined;
   const filename = entry.filename ?? undefined;
   return {

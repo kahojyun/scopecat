@@ -27,7 +27,7 @@ from pydantic import (
 
 from scopecat.kernel.content_identity import canonical_json, stable_content_hash
 from scopecat.kernel.quantity import Quantity
-from scopecat.records.artifact import Sha256ContentHash
+from scopecat.records.content import Sha256ContentHash
 from scopecat.records.metadata import JsonMetadata
 
 type _NonEmptyText = Annotated[str, Field(min_length=1)]

@@ -75,16 +75,14 @@ from scopecat.optimization import (
     CompletedPointObservation,
     OptimizationComplete,
 )
+from scopecat.records.content import ModelWrite
 from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     measurement_record_content_hash,
 )
 from scopecat.records.run import RunManifest
-from scopecat.runs.repository import (
-    RunModelWrite,
-    TerminalRunCommit,
-)
+from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS
 from scopecat.sdk.runtime_problems import (
     contextualize_problems,
@@ -334,10 +332,10 @@ def _execute_run(
         ),
         instrument_state=instrument_state,
     )
-    models: list[RunModelWrite] = []
+    models: list[ModelWrite] = []
     if instrument_state is not None:
         models.append(
-            RunModelWrite(
+            ModelWrite(
                 ref=instrument_state_evidence_ref(),
                 value=instrument_state,
             )

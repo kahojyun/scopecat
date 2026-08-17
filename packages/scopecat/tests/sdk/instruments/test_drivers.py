@@ -20,8 +20,8 @@ from scopecat.kernel.value_types import Entity, Float, Int, Payload, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
 from scopecat.program.measurement_types import MeasurementDType
-from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.records.config import instrument_bindings
+from scopecat.records.content import command_payload_from_bytes
 from scopecat.records.instrument import (
     InstrumentPropertyState as RecordInstrumentPropertyState,
 )

@@ -9,8 +9,8 @@ from datetime import UTC, datetime
 from scopecat.kernel.problems import Problem
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.planning.system import ExperimentSystem
-from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.content import CommandPayload
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import InstrumentAcquisitionEvidence
 from scopecat.sdk.domain.compiler import DomainCompiler

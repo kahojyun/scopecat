@@ -6,7 +6,7 @@ import type {
   RunAnalysisPage,
   RunAnalysisSummary as RunAnalysisSummaryView,
   RunAnalysisView,
-  RunContentEntry,
+  ContentEntryView,
   RunControlView,
   RunManifest,
   RunResourceView,
@@ -555,7 +555,7 @@ function normalizeRunResource(resource: RunResourceView): RunResource {
   };
 }
 
-function normalizeContentEntry(entry: RunContentEntry, index: number): ContentEntry {
+function normalizeContentEntry(entry: ContentEntryView, index: number): ContentEntry {
   const mediaType = entry.media_type ?? undefined;
   const filename = entry.filename ?? undefined;
   return {

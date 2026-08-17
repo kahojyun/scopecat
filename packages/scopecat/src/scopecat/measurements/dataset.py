@@ -45,7 +45,7 @@ from scopecat.program.value_refs import (
 )
 from scopecat.program.value_types import Array, Payload, Scalar
 from scopecat.program.value_types import Quantity as QuantityType
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import (
     EntityAcquisitionEvidence,
     MeasurementAcquisitionEvidence,
@@ -704,7 +704,7 @@ class Dataset:
     """
 
     _raw: MeasurementDataset | None
-    _entry: RunContentEntry
+    _entry: ContentEntry
     _load_raw: Callable[[], MeasurementDataset] | None = field(
         repr=False,
     )
@@ -728,7 +728,7 @@ class Dataset:
     def __init__(
         self,
         raw: MeasurementDataset,
-        entry: RunContentEntry,
+        entry: ContentEntry,
         *,
         view_dimensions: Mapping[str, int | None] | None = None,
         view_dimension_positions: Mapping[str, Sequence[int]] | None = None,
@@ -748,7 +748,7 @@ class Dataset:
         cls,
         *,
         schema: MeasurementDatasetSchema,
-        entry: RunContentEntry,
+        entry: ContentEntry,
         load_raw: Callable[[], MeasurementDataset],
         load_projected_batches: Callable[[ProjectionSchema, int], pa.RecordBatchReader],
     ) -> Self:
@@ -768,7 +768,7 @@ class Dataset:
         self,
         *,
         raw: MeasurementDataset | None,
-        entry: RunContentEntry,
+        entry: ContentEntry,
         schema: MeasurementDatasetSchema,
         load_raw: Callable[[], MeasurementDataset] | None,
         load_projected_batches: (
@@ -879,7 +879,7 @@ class Dataset:
         return xarray
 
     @property
-    def entry(self) -> RunContentEntry:
+    def entry(self) -> ContentEntry:
         """Return detached run-entry provenance for this snapshot."""
 
         return self._entry.model_copy(deep=True)
@@ -3037,11 +3037,11 @@ def _visible_entity_values(
 
 
 def _derived_measurement_dataset_entry(
-    source: RunContentEntry,
+    source: ContentEntry,
     dataset: MeasurementDataset,
     *,
     operation: Mapping[str, object],
-) -> RunContentEntry:
+) -> ContentEntry:
     """Describe one materialized semantic transform without reusing source identity."""
 
     metadata = deepcopy(source.metadata)

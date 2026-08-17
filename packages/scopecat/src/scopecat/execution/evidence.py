@@ -9,7 +9,7 @@ from scopecat.measurements.datasets import (
     MEASUREMENT_DATASET_KIND,
     RAW_MEASUREMENTS_DATASET_ID,
 )
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.execution import (
     InstrumentStateEvidence,
     summarize_instrument_state_evidence,
@@ -36,17 +36,17 @@ def build_terminal_contents(
     dataset_schema: MeasurementDatasetSchema | None,
     expected_record_count: int | None,
     instrument_state: InstrumentStateEvidence | None,
-) -> tuple[RunContentEntry, ...]:
+) -> tuple[ContentEntry, ...]:
     incomplete_run = outcome.result != "succeeded"
     partial = incomplete_run and (
         expected_record_count is None or expected_record_count != measurement_count
     )
-    datasets: list[RunContentEntry] = []
+    datasets: list[ContentEntry] = []
     if dataset_content_hash is not None:
         if dataset_schema is None:
             raise ValueError("recorded measurements require a sealed dataset contract")
         datasets.append(
-            RunContentEntry(
+            ContentEntry(
                 role="dataset",
                 id=RAW_MEASUREMENTS_DATASET_ID,
                 kind=MEASUREMENT_DATASET_KIND,
@@ -75,7 +75,7 @@ def build_terminal_contents(
         ()
         if instrument_state is None
         else (
-            RunContentEntry(
+            ContentEntry(
                 role="record",
                 id=INSTRUMENT_STATE_EVIDENCE_ID,
                 kind=INSTRUMENT_STATE_EVIDENCE_KIND,

@@ -28,8 +28,8 @@ from scopecat.daemon.wire import (
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateLiteral, StateValue
-from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import InstrumentBindingSpec, InstrumentConnection
+from scopecat.records.content import CommandPayload
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,

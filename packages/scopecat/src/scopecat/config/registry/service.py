@@ -55,13 +55,13 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     StorageLocation,
 )
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
     ConfigContentHash,
     ConfigProfileSnapshot,
     config_content_equal,
     config_content_hash,
 )
+from scopecat.records.content import ContentEntry
 from scopecat.records.parameter_change import (
     ParameterChangeProposal,
     ParameterValueDelta,
@@ -1000,7 +1000,7 @@ def _validate_required_text(value: str, *, field: str) -> None:
 
 def _require_run_record(
     *, source_manifest: RunManifest, record_id: str, kind: str
-) -> RunContentEntry:
+) -> ContentEntry:
     record = next(
         (entry for entry in source_manifest.records if entry.id == record_id),
         None,

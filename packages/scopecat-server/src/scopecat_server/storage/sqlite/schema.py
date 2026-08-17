@@ -1,5 +1,6 @@
 """Current SQLite project-store schema."""
 
+from scopecat_server.storage.sqlite.analysis_schema import ANALYSIS_TABLES_SQL
 from scopecat_server.storage.sqlite.config_schema import CONFIG_REGISTRY_TABLES_SQL
 from scopecat_server.storage.sqlite.execution_schema import EXECUTION_TABLES_SQL
 from scopecat_server.storage.sqlite.run_schema import RUN_TABLES_SQL
@@ -133,6 +134,7 @@ PROJECT_SCHEMA_SQL = "\n".join(
         "BEGIN IMMEDIATE;",
         _CONTROL_TABLES_SQL,
         RUN_TABLES_SQL,
+        ANALYSIS_TABLES_SQL,
         CONFIG_REGISTRY_TABLES_SQL,
         EXECUTION_TABLES_SQL,
         "COMMIT;",

@@ -15,7 +15,7 @@ from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
 )
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.run import RunManifest
 from scopecat.runs.refs import (
     artifact_content_ref,
@@ -24,15 +24,15 @@ from scopecat.runs.refs import (
 )
 from scopecat.runs.repository import RunRepository
 
-type RunPayloadEntry = RunContentEntry
+type RunPayloadEntry = ContentEntry
 type _ContentRole = Literal["artifact", "dataset", "record"]
 
 _JSON_OBJECT_ADAPTER = TypeAdapter(dict[str, JsonValue])
 
 
 def upsert_contents(
-    existing: Sequence[RunContentEntry], additions: Sequence[RunContentEntry]
-) -> tuple[RunContentEntry, ...]:
+    existing: Sequence[ContentEntry], additions: Sequence[ContentEntry]
+) -> tuple[ContentEntry, ...]:
     additions_by_id = {(entry.role, entry.id): entry for entry in additions}
     kept = [
         entry for entry in existing if (entry.role, entry.id) not in additions_by_id
@@ -58,22 +58,22 @@ def list_records(
     manifest: RunManifest,
     *,
     kind: str | None = None,
-) -> tuple[RunContentEntry, ...]:
+) -> tuple[ContentEntry, ...]:
     return _list_entries(manifest, "record", kind=kind)
 
 
-def artifact_storage_ref(artifact: RunContentEntry) -> str:
+def artifact_storage_ref(artifact: ContentEntry) -> str:
     return artifact_content_ref(artifact_id=artifact.id, kind=artifact.kind)
 
 
-def dataset_storage_ref(dataset: RunContentEntry) -> str:
+def dataset_storage_ref(dataset: ContentEntry) -> str:
     return dataset_content_ref(
         dataset_id=dataset.id,
         kind=dataset.kind,
     )
 
 
-def record_storage_ref(record: RunContentEntry) -> str:
+def record_storage_ref(record: ContentEntry) -> str:
     return record_content_ref(record_id=record.id, kind=record.kind)
 
 
@@ -82,7 +82,7 @@ def require_artifact(
     manifest: RunManifest,
     selector: str,
     expected_kind: str | None = None,
-) -> RunContentEntry:
+) -> ContentEntry:
     return _require_entry(manifest, "artifact", selector, expected_kind=expected_kind)
 
 
@@ -91,7 +91,7 @@ def require_dataset(
     manifest: RunManifest,
     selector: str,
     expected_kind: str | None = None,
-) -> RunContentEntry:
+) -> ContentEntry:
     return _require_entry(manifest, "dataset", selector, expected_kind=expected_kind)
 
 
@@ -100,7 +100,7 @@ def require_record(
     manifest: RunManifest,
     selector: str,
     expected_kind: str | None = None,
-) -> RunContentEntry:
+) -> ContentEntry:
     return _require_entry(manifest, "record", selector, expected_kind=expected_kind)
 
 
@@ -108,7 +108,7 @@ def read_artifact_bytes(
     *,
     storage: RunRepository,
     run_id: str,
-    artifact: RunContentEntry,
+    artifact: ContentEntry,
 ) -> bytes:
     return storage.read_bytes(run_id, artifact_storage_ref(artifact))
 
@@ -117,7 +117,7 @@ def read_dataset_bytes(
     *,
     storage: RunRepository,
     run_id: str,
-    dataset: RunContentEntry,
+    dataset: ContentEntry,
 ) -> bytes:
     return storage.read_bytes(run_id, dataset_storage_ref(dataset))
 
@@ -126,7 +126,7 @@ def read_artifact_text(
     *,
     storage: RunRepository,
     run_id: str,
-    artifact: RunContentEntry,
+    artifact: ContentEntry,
 ) -> str:
     return storage.read_text(run_id, artifact_storage_ref(artifact))
 
@@ -135,7 +135,7 @@ def read_artifact_json(
     *,
     storage: RunRepository,
     run_id: str,
-    artifact: RunContentEntry,
+    artifact: ContentEntry,
 ) -> Mapping[str, JsonValue]:
     selector = artifact.id
     try:
@@ -166,7 +166,7 @@ def read_record_json(
     *,
     storage: RunRepository,
     run_id: str,
-    record: RunContentEntry,
+    record: ContentEntry,
 ) -> Mapping[str, JsonValue]:
     selector = record.id
     try:
@@ -196,16 +196,16 @@ def _role_plural(role: _ContentRole) -> str:
 def _role_entries(
     manifest: RunManifest,
     role: _ContentRole,
-) -> tuple[RunContentEntry, ...]:
+) -> tuple[ContentEntry, ...]:
     return tuple(entry for entry in manifest.contents if entry.role == role)
 
 
 def _filter_entries(
-    entries: Sequence[RunContentEntry],
+    entries: Sequence[ContentEntry],
     *,
     kind: str | None = None,
     metadata: Mapping[str, object] | None = None,
-) -> tuple[RunContentEntry, ...]:
+) -> tuple[ContentEntry, ...]:
     return tuple(
         entry
         for entry in entries
@@ -220,7 +220,7 @@ def _list_entries(
     *,
     kind: str | None = None,
     metadata: Mapping[str, object] | None = None,
-) -> tuple[RunContentEntry, ...]:
+) -> tuple[ContentEntry, ...]:
     return _filter_entries(
         _role_entries(manifest, role),
         kind=kind,
@@ -232,7 +232,7 @@ def _get_entry(
     manifest: RunManifest,
     role: _ContentRole,
     entry_id: str,
-) -> RunContentEntry | None:
+) -> ContentEntry | None:
     return next(
         (
             entry
@@ -247,7 +247,7 @@ def _find_entry(
     manifest: RunManifest,
     role: _ContentRole,
     selector: str,
-) -> RunContentEntry | None:
+) -> ContentEntry | None:
     relative = PurePosixPath(selector)
     if relative.is_absolute() or ".." in relative.parts:
         raise CheckFailed(
@@ -269,7 +269,7 @@ def _require_entry(
     selector: str,
     *,
     expected_kind: str | None,
-) -> RunContentEntry:
+) -> ContentEntry:
     entry = _find_entry(manifest, role, selector)
     path = (_role_plural(role), selector)
     if entry is None:

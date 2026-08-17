@@ -67,7 +67,7 @@ from scopecat.program.point_domain import (
     point_axis_values,
 )
 from scopecat.program.products import EntityAxisDef
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDataset,
@@ -489,7 +489,7 @@ def test_entity_projection_uses_explicit_ragged_segments() -> None:
     assert restored_value == value
     dataset = Dataset(
         MeasurementDataset(dataset_schema=schema, records=projected.records),
-        RunContentEntry(
+        ContentEntry(
             role="dataset",
             id="raw-measurements",
             kind="measurement_dataset",

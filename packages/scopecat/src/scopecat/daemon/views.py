@@ -37,12 +37,12 @@ from scopecat.measurements.traces import (
     TraceValueMode,
 )
 from scopecat.records.analysis import AnalysisRecord
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
     ConfigContentHash,
     ConfigProfileSnapshot,
     config_content_hash,
 )
+from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementDatasetSchema,
@@ -272,7 +272,7 @@ class RunAnalysisView(_ViewModel):
     """One persisted analysis record and its manifest identity."""
 
     run_id: str
-    entry: RunContentEntry
+    entry: ContentEntry
     analysis: AnalysisRecord
 
     @model_validator(mode="after")
@@ -291,7 +291,7 @@ class RunAnalysisSummary(_ViewModel):
     """Bounded list projection for one run-owned analysis publication."""
 
     run_id: str
-    entry: RunContentEntry
+    entry: ContentEntry
     title: str
     key: str | None = None
     revision: int = Field(ge=1)
@@ -324,9 +324,9 @@ class RunAnalysisPage(_ViewModel):
 class ProjectAnalysisView(_ViewModel):
     """One project-level analysis and its owned content entries."""
 
-    entry: RunContentEntry
+    entry: ContentEntry
     analysis: AnalysisRecord
-    contents: tuple[RunContentEntry, ...] = ()
+    contents: tuple[ContentEntry, ...] = ()
 
     @model_validator(mode="after")
     def validate_identity(self) -> ProjectAnalysisView:
@@ -343,7 +343,7 @@ class ProjectAnalysisView(_ViewModel):
 class ProjectAnalysisSummary(_ViewModel):
     """Bounded list projection for one project-level analysis publication."""
 
-    entry: RunContentEntry
+    entry: ContentEntry
     title: str
     key: str
     revision: int = Field(ge=1)
@@ -370,7 +370,7 @@ class AnalysisContentBytesView(_ViewModel):
     """Exact bytes for one project analysis-owned content entry."""
 
     analysis_id: str
-    entry: RunContentEntry
+    entry: ContentEntry
     content_base64: str
 
     @model_validator(mode="after")
@@ -386,7 +386,7 @@ class AnalysisContentBytesView(_ViewModel):
 
 class RunArtifactBytesView(_ViewModel):
     run_id: str
-    artifact: RunContentEntry
+    artifact: ContentEntry
     content_base64: str
 
     @model_validator(mode="after")
@@ -401,7 +401,7 @@ class RunArtifactBytesView(_ViewModel):
 
 class RunDatasetBytesView(_ViewModel):
     run_id: str
-    dataset: RunContentEntry
+    dataset: ContentEntry
     content_base64: str
 
     @model_validator(mode="after")
@@ -668,7 +668,7 @@ class MeasurementTracePreview(_ViewModel):
 
 
 def _require_entry_role(
-    entry: RunContentEntry,
+    entry: ContentEntry,
     role: Literal["artifact", "dataset", "record"],
 ) -> None:
     if entry.role != role:

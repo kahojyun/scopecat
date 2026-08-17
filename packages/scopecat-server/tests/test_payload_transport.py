@@ -24,7 +24,7 @@ from scopecat.daemon.wire import (
 from scopecat.kernel.content_identity import sha256_content_hash
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
-from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
+from scopecat.records.content import CommandPayload, command_payload_from_bytes
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     DriverCatalog,

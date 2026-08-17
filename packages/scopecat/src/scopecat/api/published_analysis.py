@@ -27,7 +27,7 @@ from scopecat.records.analysis import (
     AnalysisTableRecordOutput,
     AnalysisTableView,
 )
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.runs.data import (
     RunArtifactBytesResult,
@@ -51,7 +51,7 @@ class _PublishedAnalysisSource(Protocol):
         self,
         analysis_id: str,
         selector: str,
-    ) -> RunContentEntry: ...
+    ) -> ContentEntry: ...
 
     def _load_analysis_dataset(
         self,
@@ -101,7 +101,7 @@ class PublishedAnalysisArtifact:
     output: AnalysisArtifactRecordOutput
 
     @property
-    def entry(self) -> RunContentEntry:
+    def entry(self) -> ContentEntry:
         return self.source._analysis_artifact_entry(  # pyright: ignore[reportPrivateUsage]
             self.analysis_id,
             self.output.content.artifact_id,

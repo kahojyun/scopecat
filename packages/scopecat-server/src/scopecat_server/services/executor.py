@@ -39,15 +39,13 @@ from scopecat.daemon.wire import (
 )
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.records.content import ModelWrite
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetReceipt,
 )
 from scopecat.records.run import RunManifest
-from scopecat.runs.repository import (
-    RunModelWrite,
-    TerminalRunCommit,
-)
+from scopecat.runs.repository import TerminalRunCommit
 from scopecat.runs.terminal import merge_terminal_manifest
 
 from scopecat_server.storage.sqlite.control_plane import (
@@ -463,7 +461,7 @@ class ExecutorService:
             outcome=command.outcome,
             contents=command.contents,
             models=tuple(
-                RunModelWrite(
+                ModelWrite(
                     ref=write.ref,
                     value=_JsonDocument(root=write.value),
                 )

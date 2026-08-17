@@ -18,9 +18,9 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.project_state import ProjectStateServices
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import BytesWrite, ContentEntry
 from scopecat.runs.refs import artifact_content_ref
-from scopecat.runs.repository import RunBytesWrite, RunContentPublication
+from scopecat.runs.repository import RunContentPublication
 
 
 def attach_run_artifact(
@@ -35,7 +35,7 @@ def attach_run_artifact(
     filename: str | None = None,
     media_type: str | None = None,
     metadata: Mapping[str, JsonValue] | None = None,
-) -> RunContentEntry:
+) -> ContentEntry:
     """Validate and ingest one user-owned attachment into a run."""
 
     selected_sources = [path is not None, text is not None, content is not None]
@@ -95,7 +95,7 @@ def attach_run_artifact(
         stored_content = content
     else:
         raise AssertionError("validated attachment source is missing")
-    artifact = RunContentEntry(
+    artifact = ContentEntry(
         role="artifact",
         id=key,
         kind=kind,
@@ -109,7 +109,7 @@ def attach_run_artifact(
         RunContentPublication(
             run_id=run_id,
             entries=(artifact,),
-            bytes=(RunBytesWrite(ref=ref, content=stored_content),),
+            bytes=(BytesWrite(ref=ref, content=stored_content),),
         )
     )
     return artifact

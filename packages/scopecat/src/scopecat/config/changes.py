@@ -24,8 +24,8 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.project_state import ProjectStateServices
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.content import ContentEntry, ModelWrite
 from scopecat.records.parameter_change import (
     ParameterChangeApprovalRecord,
     ParameterChangeProposal,
@@ -35,7 +35,6 @@ from scopecat.runs.access import list_records
 from scopecat.runs.refs import record_content_ref
 from scopecat.runs.repository import (
     RunContentPublication,
-    RunModelWrite,
     RunRepository,
 )
 
@@ -44,8 +43,8 @@ SAFE_PARAMETER_CHANGE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 @dataclass(frozen=True, slots=True)
 class PreparedParameterChangeProposals:
-    entries: tuple[RunContentEntry, ...]
-    writes: tuple[RunModelWrite, ...]
+    entries: tuple[ContentEntry, ...]
+    writes: tuple[ModelWrite, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,7 +201,7 @@ def prepare_parameter_change_approval(
             run_id=run_id,
             entries=(approval_entry,),
             models=(
-                RunModelWrite(
+                ModelWrite(
                     ref=approval_ref,
                     value=approval,
                     replace=False,
@@ -302,8 +301,8 @@ def parameter_change_proposal_record_ref(proposal_id: str) -> str:
 
 def _parameter_change_proposal_record(
     *, proposal: ParameterChangeProposal
-) -> RunContentEntry:
-    return RunContentEntry(
+) -> ContentEntry:
+    return ContentEntry(
         role="record",
         id=proposal.id,
         kind="parameter_change_proposal",
@@ -314,8 +313,8 @@ def _parameter_change_proposal_record(
 
 def _parameter_change_approval_record_entry(
     record: ParameterChangeApprovalRecord,
-) -> RunContentEntry:
-    return RunContentEntry(
+) -> ContentEntry:
+    return ContentEntry(
         role="record",
         id=f"{record.proposal_id}-approval",
         kind="parameter_change_approval_record",
@@ -332,8 +331,8 @@ def prepare_parameter_change_proposal_contents(
 ) -> PreparedParameterChangeProposals:
     """Prepare immutable proposals, reusing durable entries on retries."""
 
-    entries: list[RunContentEntry] = []
-    writes: list[RunModelWrite] = []
+    entries: list[ContentEntry] = []
+    writes: list[ModelWrite] = []
     for proposal in proposals:
         candidate_entry = _parameter_change_proposal_record(proposal=proposal)
         if proposal.source_run_id != run_id:
@@ -381,7 +380,7 @@ def prepare_parameter_change_proposal_contents(
             continue
         entries.append(candidate_entry)
         writes.append(
-            RunModelWrite(
+            ModelWrite(
                 ref=proposal_ref,
                 value=proposal,
                 replace=False,
@@ -416,7 +415,7 @@ def _same_parameter_change_proposal(
 
 def _resolve_proposal_ref(
     *, storage: RunRepository, run_id: str, selector: str
-) -> tuple[ParameterChangeProposal, RunContentEntry]:
+) -> tuple[ParameterChangeProposal, ContentEntry]:
     manifest = storage.read_manifest(run_id)
     _validate_selector_path(selector)
     for proposal_record in _proposal_records(manifest):
@@ -449,7 +448,7 @@ def _resolve_proposal_ref(
 
 
 def _load_proposal_record(
-    *, storage: RunRepository, run_id: str, proposal_record: RunContentEntry
+    *, storage: RunRepository, run_id: str, proposal_record: ContentEntry
 ) -> ParameterChangeProposal:
     proposal_ref = record_content_ref(
         record_id=proposal_record.id,
@@ -504,7 +503,7 @@ def _load_proposal_record(
     return proposal
 
 
-def _proposal_records(manifest: RunManifest) -> tuple[RunContentEntry, ...]:
+def _proposal_records(manifest: RunManifest) -> tuple[ContentEntry, ...]:
     return list_records(manifest, kind="parameter_change_proposal")
 
 

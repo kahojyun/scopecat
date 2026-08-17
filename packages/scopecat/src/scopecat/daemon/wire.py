@@ -42,12 +42,12 @@ from scopecat.records.analysis import (
     AnalysisPublishedOutputReference,
     AnalysisTableViewSpec,
 )
-from scopecat.records.artifact import RunContentEntry, Sha256ContentHash
 from scopecat.records.config import (
     ConfigContentHash,
     ConfigProfileSnapshot,
     InstrumentBindingSpec,
 )
+from scopecat.records.content import ContentEntry, Sha256ContentHash
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
@@ -387,7 +387,7 @@ class AnalysisSaveCommand(_WireModel):
 
 
 class AnalysisSaveReceipt(_WireModel):
-    record: RunContentEntry
+    record: ContentEntry
     analysis_key: NonEmptyText
     inputs: tuple[AnalysisInputPayload, ...] = ()
     parameter_proposals: tuple[ParameterChangeProposal, ...] = ()
@@ -622,7 +622,7 @@ class TerminalRunCommitCommand(_FencedCommand):
     """Lossless JSON projection of one interpreter terminal delta."""
 
     outcome: RunOutcome
-    contents: tuple[RunContentEntry, ...] = ()
+    contents: tuple[ContentEntry, ...] = ()
     models: tuple[TerminalModelWrite, ...] = ()
 
 

@@ -119,7 +119,7 @@ from scopecat.daemon.wire import (
     TerminalRunCommitCommand,
 )
 from scopecat.planning.catalog import InstrumentContractCatalog
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
 from scopecat.records.run import RunManifest
@@ -646,7 +646,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     def attach_run_content(
         run_id: str,
         command: RunAttachmentCommand,
-    ) -> RunContentEntry:
+    ) -> ContentEntry:
         return application.runs.attach_run_content(run_id, command)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/parameter-proposals")

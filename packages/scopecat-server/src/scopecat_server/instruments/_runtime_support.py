@@ -17,12 +17,12 @@ from scopecat.kernel.problems import (
     RuntimeLocation,
     problem,
 )
-from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import (
     InstrumentConnection,
     InstrumentSpec,
     VirtualInstrumentConnection,
 )
+from scopecat.records.content import CommandPayload
 from scopecat.records.instrument import InstrumentPropertyState, InstrumentStateSnapshot
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,

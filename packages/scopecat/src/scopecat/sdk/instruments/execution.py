@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.problems import Problem
-from scopecat.records.artifact import CommandPayload
+from scopecat.records.content import CommandPayload
 from scopecat.records.instrument import CommandChannelBinding, InstrumentStateSnapshot
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,

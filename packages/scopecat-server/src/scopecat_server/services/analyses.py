@@ -28,7 +28,7 @@ from scopecat.records.analysis import (
     PublishedAnalysisRecordInput,
     RunAnalysisSubject,
 )
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.run import AnalysisCandidateRunConfigSource
 from scopecat.runs.refs import (
     artifact_content_ref,
@@ -299,7 +299,7 @@ class AnalysisService:
             raise BackendConflict(str(error)) from error
 
 
-def _content_entry(view: ProjectAnalysisView, selector: str) -> RunContentEntry:
+def _content_entry(view: ProjectAnalysisView, selector: str) -> ContentEntry:
     try:
         return next(entry for entry in view.contents if entry.id == selector)
     except StopIteration:

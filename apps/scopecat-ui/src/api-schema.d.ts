@@ -1058,7 +1058,7 @@ export interface components {
             analysis_id: string;
             /** Content Base64 */
             content_base64: string;
-            entry: components["schemas"]["RunContentEntry"];
+            entry: components["schemas"]["ContentEntry"];
         };
         /**
          * AnalysisDatasetDerivation
@@ -2079,6 +2079,36 @@ export interface components {
              * @default
              */
             note: string;
+        };
+        /**
+         * ContentEntry
+         * @description One content-addressable manifest entry.
+         */
+        ContentEntry: {
+            /** Content Hash */
+            content_hash: string;
+            /** Filename */
+            filename?: string | null;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Media Type */
+            media_type?: string | null;
+            metadata?: components["schemas"]["JsonMetadata"];
+            /** Produced By */
+            produced_by?: string | null;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "artifact" | "dataset" | "record";
+            /** Schema */
+            schema?: {
+                [key: string]: unknown;
+            } | null;
+            /** Title */
+            title?: string | null;
         };
         /** @enum {string} */
         ControlRunState: "queued" | "leased" | "attention_required" | "closed";
@@ -3791,7 +3821,7 @@ export interface components {
          * @description Bounded list projection for one project-level analysis publication.
          */
         ProjectAnalysisSummary: {
-            entry: components["schemas"]["RunContentEntry"];
+            entry: components["schemas"]["ContentEntry"];
             /** Input Count */
             input_count: number;
             /** Key */
@@ -3817,8 +3847,8 @@ export interface components {
              * Contents
              * @default []
              */
-            contents: components["schemas"]["RunContentEntry"][];
-            entry: components["schemas"]["RunContentEntry"];
+            contents: components["schemas"]["ContentEntry"][];
+            entry: components["schemas"]["ContentEntry"];
         };
         /** PropertySpec */
         PropertySpec: {
@@ -4140,7 +4170,7 @@ export interface components {
          * @description Bounded list projection for one run-owned analysis publication.
          */
         RunAnalysisSummary: {
-            entry: components["schemas"]["RunContentEntry"];
+            entry: components["schemas"]["ContentEntry"];
             /** Input Count */
             input_count: number;
             /** Key */
@@ -4164,13 +4194,13 @@ export interface components {
          */
         RunAnalysisView: {
             analysis: components["schemas"]["AnalysisRecord"];
-            entry: components["schemas"]["RunContentEntry"];
+            entry: components["schemas"]["ContentEntry"];
             /** Run Id */
             run_id: string;
         };
         /** RunArtifactBytesView */
         RunArtifactBytesView: {
-            artifact: components["schemas"]["RunContentEntry"];
+            artifact: components["schemas"]["ContentEntry"];
             /** Content Base64 */
             content_base64: string;
             /** Run Id */
@@ -4178,7 +4208,7 @@ export interface components {
         };
         /** RunArtifactJsonResult */
         RunArtifactJsonResult: {
-            artifact: components["schemas"]["RunContentEntry"];
+            artifact: components["schemas"]["ContentEntry"];
             /** Content */
             content: {
                 [key: string]: components["schemas"]["scopecat__kernel__json_types__JsonValue-Output"];
@@ -4186,41 +4216,11 @@ export interface components {
         };
         /** RunArtifactTextResult */
         RunArtifactTextResult: {
-            artifact: components["schemas"]["RunContentEntry"];
+            artifact: components["schemas"]["ContentEntry"];
             /** Content */
             content: string;
         };
         RunConfigSource: components["schemas"]["ConfigRegistryRunConfigSource"] | components["schemas"]["AnalysisCandidateRunConfigSource"];
-        /**
-         * RunContentEntry
-         * @description One content-addressable run-local manifest entry.
-         */
-        RunContentEntry: {
-            /** Content Hash */
-            content_hash: string;
-            /** Filename */
-            filename?: string | null;
-            /** Id */
-            id: string;
-            /** Kind */
-            kind: string;
-            /** Media Type */
-            media_type?: string | null;
-            metadata?: components["schemas"]["JsonMetadata"];
-            /** Produced By */
-            produced_by?: string | null;
-            /**
-             * Role
-             * @enum {string}
-             */
-            role: "artifact" | "dataset" | "record";
-            /** Schema */
-            schema?: {
-                [key: string]: unknown;
-            } | null;
-            /** Title */
-            title?: string | null;
-        };
         /**
          * RunControlView
          * @description Run state without durable scheduler internals.
@@ -4482,7 +4482,7 @@ export interface components {
              * Contents
              * @default []
              */
-            contents: components["schemas"]["RunContentEntry"][];
+            contents: components["schemas"]["ContentEntry"][];
             /**
              * Created At
              * Format: date-time
@@ -4498,7 +4498,7 @@ export interface components {
          */
         RunMeasurementDatasetResult: {
             dataset: components["schemas"]["MeasurementDataset"];
-            dataset_entry: components["schemas"]["RunContentEntry"];
+            dataset_entry: components["schemas"]["ContentEntry"];
         };
         /**
          * RunOutcome
@@ -4627,7 +4627,7 @@ export interface components {
             content: {
                 [key: string]: components["schemas"]["scopecat__kernel__json_types__JsonValue-Output"];
             };
-            record: components["schemas"]["RunContentEntry"];
+            record: components["schemas"]["ContentEntry"];
         };
         /**
          * RunResourceRequirement

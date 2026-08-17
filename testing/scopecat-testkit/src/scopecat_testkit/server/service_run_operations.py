@@ -31,8 +31,8 @@ from scopecat.measurements.datasets import (
 from scopecat.measurements.paging import project_measurement_page
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisExecution, AnalysisRecord
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.content import ContentEntry
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
@@ -228,7 +228,7 @@ class ServiceRunOperations:
         filename: str | None,
         media_type: str | None,
         metadata: Mapping[str, JsonValue] | None,
-    ) -> RunContentEntry:
+    ) -> ContentEntry:
         return attach_run_artifact(
             services=self.services,
             run_id=run_id,

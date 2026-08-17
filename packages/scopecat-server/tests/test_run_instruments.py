@@ -36,13 +36,13 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
-from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentRunStartPolicy,
     InstrumentSuccessAction,
     config_content_hash,
 )
+from scopecat.records.content import CommandPayload, command_payload_from_bytes
 from scopecat.records.measurement import (
     MeasurementAcquisitionValue,
     MeasurementArray,

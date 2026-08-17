@@ -8,24 +8,10 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.content import BytesWrite, ContentEntry, ModelWrite
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.run import RunManifest
-
-
-@dataclass(frozen=True, slots=True)
-class RunModelWrite:
-    ref: str
-    value: BaseModel
-    replace: bool = True
-
-
-@dataclass(frozen=True, slots=True)
-class RunBytesWrite:
-    ref: str
-    content: bytes
-    replace: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,8 +20,8 @@ class TerminalRunCommit:
 
     run_id: str
     outcome: RunOutcome
-    contents: tuple[RunContentEntry, ...] = ()
-    models: tuple[RunModelWrite, ...] = ()
+    contents: tuple[ContentEntry, ...] = ()
+    models: tuple[ModelWrite, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,9 +29,9 @@ class RunContentPublication:
     """Content refs and manifest entries made visible as one operation."""
 
     run_id: str
-    entries: tuple[RunContentEntry, ...]
-    models: tuple[RunModelWrite, ...] = ()
-    bytes: tuple[RunBytesWrite, ...] = ()
+    entries: tuple[ContentEntry, ...]
+    models: tuple[ModelWrite, ...] = ()
+    bytes: tuple[BytesWrite, ...] = ()
 
 
 class RunRepository(Protocol):

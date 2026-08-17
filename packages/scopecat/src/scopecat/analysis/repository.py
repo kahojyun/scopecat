@@ -7,8 +7,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scopecat.records.artifact import RunContentEntry
-from scopecat.runs.repository import RunBytesWrite, RunModelWrite
+from scopecat.records.content import BytesWrite, ContentEntry, ModelWrite
 
 
 class AnalysisPublicationManifest(BaseModel):
@@ -16,8 +15,8 @@ class AnalysisPublicationManifest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    record: RunContentEntry
-    contents: tuple[RunContentEntry, ...] = ()
+    record: ContentEntry
+    contents: tuple[ContentEntry, ...] = ()
 
     @model_validator(mode="after")
     def validate_contents(self) -> AnalysisPublicationManifest:
@@ -36,7 +35,7 @@ class AnalysisPublicationSummary(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    record: RunContentEntry
+    record: ContentEntry
     title: str = Field(min_length=1)
     analysis_key: str = Field(min_length=1)
     revision: int = Field(ge=1)
@@ -73,8 +72,8 @@ class AnalysisPublication:
     step_id: str | None
     input_count: int
     output_count: int
-    models: tuple[RunModelWrite, ...] = ()
-    bytes: tuple[RunBytesWrite, ...] = ()
+    models: tuple[ModelWrite, ...] = ()
+    bytes: tuple[BytesWrite, ...] = ()
 
 
 class AnalysisRepository(Protocol):

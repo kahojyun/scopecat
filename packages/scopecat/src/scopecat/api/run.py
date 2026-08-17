@@ -41,8 +41,8 @@ from scopecat.measurements.datasets import (
 )
 from scopecat.measurements.interop import ProjectionSchema
 from scopecat.records.analysis import AnalysisExecution
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunManifest
@@ -125,7 +125,7 @@ class RunOperations(Protocol):
         filename: str | None,
         media_type: str | None,
         metadata: Mapping[str, JsonValue] | None,
-    ) -> RunContentEntry: ...
+    ) -> ContentEntry: ...
 
     def artifact_text(
         self,
@@ -437,7 +437,7 @@ class RunHandle:
         filename: str | None = None,
         media_type: str | None = None,
         metadata: Mapping[str, JsonValue] | None = None,
-    ) -> RunContentEntry:
+    ) -> ContentEntry:
         return self.session.run_operations.attach(
             run_id=self.id,
             path=path,
@@ -512,7 +512,7 @@ class RunHandle:
         self,
         analysis_id: str,
         selector: str,
-    ) -> RunContentEntry:
+    ) -> ContentEntry:
         del analysis_id
         return require_artifact(
             manifest=self.manifest,

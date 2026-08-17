@@ -66,7 +66,7 @@ from scopecat.records.analysis import (
     RunAnalysisSubject,
     validate_analysis_output_content_budget,
 )
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import BytesWrite, ContentEntry, ModelWrite
 from scopecat.records.metadata import validate_json_metadata
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.runs.access import list_records, require_dataset
@@ -75,11 +75,7 @@ from scopecat.runs.refs import (
     dataset_content_ref,
     record_content_ref,
 )
-from scopecat.runs.repository import (
-    RunBytesWrite,
-    RunContentPublication,
-    RunModelWrite,
-)
+from scopecat.runs.repository import RunContentPublication
 
 
 @dataclass(frozen=True)
@@ -187,7 +183,7 @@ type AnalysisOutput = (
 
 @dataclass(frozen=True)
 class SavedAnalysis:
-    record: RunContentEntry
+    record: ContentEntry
     analysis_key: str
     inputs: tuple[AnalysisInput, ...] = ()
     executions: tuple[AnalysisExecution, ...] = ()
@@ -360,7 +356,7 @@ def prepare_analysis(
             analysis_views=analysis_views,
         ),
     )
-    record = RunContentEntry(
+    record = ContentEntry(
         role="record",
         id=selected_record_id,
         kind="analysis",
@@ -392,7 +388,7 @@ def prepare_analysis(
             ),
             models=(
                 *prepared_proposals.writes,
-                RunModelWrite(ref=ref, value=analysis_record),
+                ModelWrite(ref=ref, value=analysis_record),
             ),
             bytes=(*prepared_datasets.writes, *prepared_artifacts.writes),
         ),
@@ -484,7 +480,7 @@ def prepare_project_analysis(
             analysis_views=analysis_views,
         ),
     )
-    record = RunContentEntry(
+    record = ContentEntry(
         role="record",
         id=record_id,
         kind="analysis",
@@ -518,7 +514,7 @@ def prepare_project_analysis(
             input_count=len(inputs),
             output_count=len(outputs),
             models=(
-                RunModelWrite(
+                ModelWrite(
                     ref=record_content_ref(record_id=record_id, kind="analysis"),
                     value=analysis_record,
                 ),
@@ -530,7 +526,7 @@ def prepare_project_analysis(
 
 @dataclass(frozen=True, slots=True)
 class _ExistingAnalysis:
-    entry: RunContentEntry
+    entry: ContentEntry
     record: AnalysisRecord
 
 
@@ -1050,8 +1046,8 @@ def _analysis_record_outputs(
 
 @dataclass(frozen=True, slots=True)
 class _PreparedAnalysisDatasets:
-    entries: tuple[RunContentEntry, ...]
-    writes: tuple[RunBytesWrite, ...]
+    entries: tuple[ContentEntry, ...]
+    writes: tuple[BytesWrite, ...]
     references: Mapping[str, AnalysisDatasetReference]
 
 
@@ -1060,8 +1056,8 @@ def _prepare_analysis_datasets(
     analysis_record_id: str,
     outputs: Sequence[AnalysisOutput],
 ) -> _PreparedAnalysisDatasets:
-    entries: list[RunContentEntry] = []
-    writes: list[RunBytesWrite] = []
+    entries: list[ContentEntry] = []
+    writes: list[BytesWrite] = []
     references: dict[str, AnalysisDatasetReference] = {}
     for output in outputs:
         if not isinstance(output, AnalysisDatasetOutput):
@@ -1084,7 +1080,7 @@ def _prepare_analysis_datasets(
         content_hash = sha256_content_hash(content)
         metadata = validate_json_metadata(output.metadata)
         entries.append(
-            RunContentEntry(
+            ContentEntry(
                 role="dataset",
                 id=dataset_id,
                 kind="analysis_dataset",
@@ -1098,7 +1094,7 @@ def _prepare_analysis_datasets(
             )
         )
         writes.append(
-            RunBytesWrite(
+            BytesWrite(
                 ref=dataset_content_ref(
                     dataset_id=dataset_id,
                     kind="analysis_dataset",
@@ -1120,8 +1116,8 @@ def _prepare_analysis_datasets(
 
 @dataclass(frozen=True, slots=True)
 class _PreparedAnalysisArtifacts:
-    entries: tuple[RunContentEntry, ...]
-    writes: tuple[RunBytesWrite, ...]
+    entries: tuple[ContentEntry, ...]
+    writes: tuple[BytesWrite, ...]
     references: Mapping[str, AnalysisArtifactReference]
 
 
@@ -1130,8 +1126,8 @@ def _prepare_analysis_artifacts(
     analysis_record_id: str,
     outputs: Sequence[AnalysisOutput],
 ) -> _PreparedAnalysisArtifacts:
-    entries: list[RunContentEntry] = []
-    writes: list[RunBytesWrite] = []
+    entries: list[ContentEntry] = []
+    writes: list[BytesWrite] = []
     references: dict[str, AnalysisArtifactReference] = {}
     for output in outputs:
         if not isinstance(output, AnalysisArtifactOutput):
@@ -1140,7 +1136,7 @@ def _prepare_analysis_artifacts(
         content_hash = sha256_content_hash(output.content)
         metadata = validate_json_metadata(output.metadata)
         entries.append(
-            RunContentEntry(
+            ContentEntry(
                 role="artifact",
                 id=artifact_id,
                 kind="analysis_artifact",
@@ -1153,7 +1149,7 @@ def _prepare_analysis_artifacts(
             )
         )
         writes.append(
-            RunBytesWrite(
+            BytesWrite(
                 ref=artifact_content_ref(
                     artifact_id=artifact_id,
                     kind="analysis_artifact",

@@ -81,12 +81,12 @@ from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.service import PlannedRun
 from scopecat.planning.system import ExperimentSystem
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     config_content_hash,
     instrument_bindings,
 )
+from scopecat.records.content import ContentEntry
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementScalar
 from scopecat.records.run import ConfigRegistryRunConfigSource, RunManifest
@@ -99,7 +99,7 @@ _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 
 def test_remote_run_uses_full_dataset_batches_and_projected_arrow_pages() -> None:
     schema = signal_point_schema(size=3)
-    dataset_entry = RunContentEntry(
+    dataset_entry = ContentEntry(
         role="dataset",
         id="raw-measurements",
         kind="measurement_dataset",

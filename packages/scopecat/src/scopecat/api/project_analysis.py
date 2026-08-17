@@ -23,7 +23,7 @@ from scopecat.daemon.views import (
 from scopecat.daemon.wire import AnalysisSaveCommand
 from scopecat.kernel.json_types import JsonValue
 from scopecat.records.analysis import AnalysisExecution
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.runs.data import (
     RunArtifactBytesResult,
@@ -117,7 +117,7 @@ class RemoteProjectAnalysisOperations:
         self,
         analysis_id: str,
         selector: str,
-    ) -> RunContentEntry:
+    ) -> ContentEntry:
         view = self.view(analysis_id)
         try:
             return next(entry for entry in view.contents if entry.id == selector)

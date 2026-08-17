@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 from scopecat.kernel.errors import OperationFailure
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.records.artifact import command_payload_from_bytes
+from scopecat.records.content import command_payload_from_bytes
 from scopecat.records.measurement import MeasurementArray, MeasurementUnavailable
 from scopecat.sdk.domain import (
     DomainInstrumentExecutor,

@@ -9,7 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_types import Payload, Scalar
-from scopecat.records.artifact import command_payload_from_bytes
+from scopecat.records.content import command_payload_from_bytes
 from scopecat.sdk.domain import (
     DomainInstrumentExecutor,
 )

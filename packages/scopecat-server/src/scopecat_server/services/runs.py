@@ -77,7 +77,7 @@ from scopecat.measurements.datasets import (
 )
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisRecord
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import (
     MeasurementDataset,
     MeasurementDatasetSchema,
@@ -644,7 +644,7 @@ class RunService:
         self,
         run_id: str,
         command: RunAttachmentCommand,
-    ) -> RunContentEntry:
+    ) -> ContentEntry:
         content = (
             None
             if command.content_base64 is None
@@ -716,7 +716,7 @@ class RunService:
                 for candidate in manifest.datasets
                 if candidate.id == RAW_MEASUREMENTS_DATASET_ID
             ),
-            RunContentEntry(
+            ContentEntry(
                 role="dataset",
                 id=RAW_MEASUREMENTS_DATASET_ID,
                 kind="measurement_dataset",

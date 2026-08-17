@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import (
     list_payload_entries,
@@ -10,8 +10,8 @@ from scopecat.runs.access import (
 )
 
 
-def _entry(**fields: object) -> RunContentEntry:
-    return RunContentEntry.model_validate({"content_hash": "test-content", **fields})
+def _entry(**fields: object) -> ContentEntry:
+    return ContentEntry.model_validate({"content_hash": "test-content", **fields})
 
 
 def test_manifest_entry_helpers_list_by_role_kind_and_metadata() -> None:
@@ -108,9 +108,9 @@ def test_upsert_contents_and_records_replace_by_id() -> None:
 
 def _manifest(
     *,
-    artifacts: list[RunContentEntry],
-    datasets: list[RunContentEntry],
-    records: list[RunContentEntry],
+    artifacts: list[ContentEntry],
+    datasets: list[ContentEntry],
+    records: list[ContentEntry],
 ) -> RunManifest:
     return RunManifest(
         run_id="run_test",

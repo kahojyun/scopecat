@@ -16,8 +16,8 @@ from scopecat.kernel.errors import (
     StorageError,
 )
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.content import BytesWrite, ContentEntry, ModelWrite
 from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
     RunConfigSource,
@@ -27,9 +27,7 @@ from scopecat.records.run_request import RunRequest
 from scopecat.runs.admission import RunSkeleton
 from scopecat.runs.refs import CONFIG_PROFILE_SNAPSHOT_REF
 from scopecat.runs.repository import (
-    RunBytesWrite,
     RunContentPublication,
-    RunModelWrite,
     TerminalRunCommit,
 )
 from scopecat_testkit.authoring import load_config
@@ -78,8 +76,8 @@ def _outcome(run_id: str) -> RunOutcome:
     )
 
 
-def _content(content_id: str) -> RunContentEntry:
-    return RunContentEntry(
+def _content(content_id: str) -> ContentEntry:
+    return ContentEntry(
         role="artifact",
         id=content_id,
         kind="test",
@@ -93,7 +91,7 @@ def _terminal_commit(run_id: str, content_id: str) -> TerminalRunCommit:
         outcome=_outcome(run_id),
         contents=(_content(content_id),),
         models=(
-            RunModelWrite(
+            ModelWrite(
                 ref=f"records/{content_id}.json",
                 value=_Record(value=content_id),
             ),
@@ -206,7 +204,7 @@ def test_terminal_commit_publishes_content_before_merged_manifest(
             run_id=run_id,
             config_content_hash="sha256:" + "0" * 64,
             contents=(
-                RunContentEntry(
+                ContentEntry(
                     role="artifact",
                     id="operator-note",
                     kind="attachment",
@@ -220,7 +218,7 @@ def test_terminal_commit_publishes_content_before_merged_manifest(
         result="succeeded",
         certainty="known",
     )
-    terminal_evidence = RunContentEntry(
+    terminal_evidence = ContentEntry(
         role="record",
         id="terminal-evidence",
         kind="contract_evidence",
@@ -233,7 +231,7 @@ def test_terminal_commit_publishes_content_before_merged_manifest(
             outcome=outcome,
             contents=(terminal_evidence,),
             models=(
-                RunModelWrite(
+                ModelWrite(
                     ref="records/terminal-evidence.json",
                     value=_PortableRecord(message="terminal"),
                 ),
@@ -256,13 +254,13 @@ def test_terminal_commit_publishes_content_before_merged_manifest(
 def test_content_publication_merges_entries_and_refs(tmp_path: Path) -> None:
     repository = _repository(tmp_path)
     run_id = "run-content-publication"
-    existing = RunContentEntry(
+    existing = ContentEntry(
         role="artifact",
         id="existing",
         kind="attachment",
         content_hash="existing-content",
     )
-    published = RunContentEntry(
+    published = ContentEntry(
         role="record",
         id="analysis",
         kind="analysis",
@@ -277,13 +275,13 @@ def test_content_publication_merges_entries_and_refs(tmp_path: Path) -> None:
             run_id=run_id,
             entries=(published,),
             models=(
-                RunModelWrite(
+                ModelWrite(
                     ref="records/analysis.json",
                     value=_PortableRecord(message="analysis"),
                 ),
             ),
             bytes=(
-                RunBytesWrite(
+                BytesWrite(
                     ref="artifacts/summary.txt",
                     content=b"summary\n",
                 ),
@@ -306,7 +304,7 @@ def test_immutable_content_conflict_does_not_partially_publish(
 ) -> None:
     repository = _repository(tmp_path)
     run_id = "run-content-conflict"
-    original = RunContentEntry(
+    original = ContentEntry(
         role="record",
         id="proposal",
         kind="parameter_change_proposal",
@@ -318,7 +316,7 @@ def test_immutable_content_conflict_does_not_partially_publish(
             run_id=run_id,
             entries=(original,),
             models=(
-                RunModelWrite(
+                ModelWrite(
                     ref="records/proposal.json",
                     value=_PortableRecord(message="original"),
                     replace=False,
@@ -331,7 +329,7 @@ def test_immutable_content_conflict_does_not_partially_publish(
             run_id=run_id,
             entries=(original,),
             models=(
-                RunModelWrite(
+                ModelWrite(
                     ref="records/proposal.json",
                     value=_PortableRecord(message="original"),
                     replace=False,
@@ -346,7 +344,7 @@ def test_immutable_content_conflict_does_not_partially_publish(
             RunContentPublication(
                 run_id=run_id,
                 entries=(
-                    RunContentEntry(
+                    ContentEntry(
                         role="record",
                         id="other",
                         kind="analysis",
@@ -354,14 +352,14 @@ def test_immutable_content_conflict_does_not_partially_publish(
                     ),
                 ),
                 models=(
-                    RunModelWrite(
+                    ModelWrite(
                         ref="records/proposal.json",
                         value=_PortableRecord(message="different"),
                         replace=False,
                     ),
                 ),
                 bytes=(
-                    RunBytesWrite(
+                    BytesWrite(
                         ref="artifacts/should-not-publish.txt",
                         content=b"uncommitted",
                     ),
@@ -392,7 +390,7 @@ def test_duplicate_immutable_refs_conflict_within_one_publication(
             RunContentPublication(
                 run_id=run_id,
                 entries=(
-                    RunContentEntry(
+                    ContentEntry(
                         role="record",
                         id="proposal",
                         kind="parameter_change_proposal",
@@ -400,12 +398,12 @@ def test_duplicate_immutable_refs_conflict_within_one_publication(
                     ),
                 ),
                 models=(
-                    RunModelWrite(
+                    ModelWrite(
                         ref="records/proposal.json",
                         value=_PortableRecord(message="first"),
                         replace=False,
                     ),
-                    RunModelWrite(
+                    ModelWrite(
                         ref="records/proposal.json",
                         value=_PortableRecord(message="second"),
                         replace=False,
@@ -534,7 +532,7 @@ def test_terminal_commit_rolls_back_all_refs_if_manifest_publish_fails(
                 run_id=run_id,
                 outcome=_outcome(run_id),
                 models=(
-                    RunModelWrite(
+                    ModelWrite(
                         ref="records/terminal-evidence.json",
                         value=_Record(value="terminal"),
                     ),
@@ -657,7 +655,7 @@ def test_prepared_content_uses_and_leaves_the_callers_transaction(
         run_id=run_id,
         entries=(_content("prepared"),),
         bytes=(
-            RunBytesWrite(
+            BytesWrite(
                 ref="artifacts/prepared.bin",
                 content=b"prepared",
             ),
@@ -714,7 +712,7 @@ def test_content_publications_merge_the_latest_manifest_across_writers(
                 run_id=run_id,
                 entries=(_content(content_id),),
                 bytes=(
-                    RunBytesWrite(
+                    BytesWrite(
                         ref=f"artifacts/{content_id}.bin",
                         content=content_id.encode(),
                     ),

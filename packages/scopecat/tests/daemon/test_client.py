@@ -49,15 +49,15 @@ from scopecat.daemon.wire import (
 )
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.planning.catalog import InstrumentContractCatalog
-from scopecat.records.artifact import (
-    BlobPayloadBody,
-    InlinePayloadBody,
-    command_payload_from_bytes,
-)
 from scopecat.records.config import (
     InstrumentBindingSpec,
     VirtualInstrumentConnection,
     config_content_hash,
+)
+from scopecat.records.content import (
+    BlobPayloadBody,
+    InlinePayloadBody,
+    command_payload_from_bytes,
 )
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.run import RunManifest

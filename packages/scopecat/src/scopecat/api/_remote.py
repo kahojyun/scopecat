@@ -45,8 +45,8 @@ from scopecat.daemon.wire import (
     RunAttachmentCommand,
 )
 from scopecat.records.analysis import AnalysisExecution
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.content import ContentEntry
 from scopecat.records.metadata import validate_json_metadata
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunManifest
@@ -180,7 +180,7 @@ class RemoteRunOperations:
         filename: str | None,
         media_type: str | None,
         metadata: Mapping[str, JsonValue] | None,
-    ) -> RunContentEntry:
+    ) -> ContentEntry:
         source_path = None if path is None else Path(path)
         if source_path is not None:
             if text is not None or content is not None:

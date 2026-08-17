@@ -8,8 +8,8 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.kernel.run_outcome import RunOutcome, RunStatus, utc_now
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigContentHash
+from scopecat.records.content import ContentEntry
 
 
 class ConfigRegistryRunConfigSource(BaseModel):
@@ -65,18 +65,18 @@ class RunManifest(BaseModel):
     outcome: RunOutcome | None = None
     config_content_hash: ConfigContentHash
     config_source: RunConfigSource | None = None
-    contents: tuple[RunContentEntry, ...] = ()
+    contents: tuple[ContentEntry, ...] = ()
 
     @property
-    def records(self) -> tuple[RunContentEntry, ...]:
+    def records(self) -> tuple[ContentEntry, ...]:
         return tuple(entry for entry in self.contents if entry.role == "record")
 
     @property
-    def datasets(self) -> tuple[RunContentEntry, ...]:
+    def datasets(self) -> tuple[ContentEntry, ...]:
         return tuple(entry for entry in self.contents if entry.role == "dataset")
 
     @property
-    def artifacts(self) -> tuple[RunContentEntry, ...]:
+    def artifacts(self) -> tuple[ContentEntry, ...]:
         return tuple(entry for entry in self.contents if entry.role == "artifact")
 
     @model_validator(mode="after")
