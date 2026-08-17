@@ -68,7 +68,7 @@ def _encode_virtual_capture_queue(value: object) -> bytes:
 
 
 def _decode_virtual_capture_queue(content: bytes) -> object:
-    header_size = cast("int", struct.unpack_from("<Q", content)[0])
+    header_size = struct.unpack_from("<Q", content)[0]
     body_offset = 8 + header_size
     document = cast(
         "dict[str, object]",

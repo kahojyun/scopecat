@@ -319,7 +319,7 @@ def _encode_awg_program(value: object) -> bytes:
 
 
 def _decode_awg_program(content: bytes) -> object:
-    header_size = cast("int", struct.unpack_from("<Q", content)[0])
+    header_size = struct.unpack_from("<Q", content)[0]
     body_offset = 8 + header_size
     document = cast(
         "dict[str, object]",

@@ -274,10 +274,7 @@ def _unpack[WireT: BaseModel](
 ) -> tuple[WireT, memoryview]:
     if len(content) < _PREFIX_SIZE or content[: len(_MAGIC)] != _MAGIC:
         raise HardwareReceiptWireError("invalid hardware receipt prefix")
-    header_size = cast(
-        "int",
-        struct.unpack_from("<Q", content, len(_MAGIC))[0],
-    )
+    header_size = struct.unpack_from("<Q", content, len(_MAGIC))[0]
     if header_size > _MAX_HEADER_BYTES or _PREFIX_SIZE + header_size > len(content):
         raise HardwareReceiptWireError("invalid hardware receipt header size")
     try:
