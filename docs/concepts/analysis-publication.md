@@ -186,9 +186,15 @@ timestamp.
 
 Reading by logical key returns the latest revision. Reading by an exact analysis
 record ID returns that historical revision. `PublishedAnalysis.revision` and
-`publication_hash` expose the allocated revision and the content identity when
-code needs to report or compare them; ordinary authoring code does not manage
-either value.
+`publication_hash` expose the allocated revision and the content identity, while
+`published_at` reports the stable server-assigned time of the first successful
+publication. Ordinary authoring code does not manage these values.
+
+History reads return bounded summaries instead of fetching every publication
+body. Use `run.analysis_summaries(...)` for one run or
+`lab.analysis_summaries(...)` for project-level multi-run publications, then
+open a selected item through `published_analysis(...)` when its outputs are
+needed.
 
 `Analysis.save()` and `run.analyze(...)` return that same `PublishedAnalysis`
 handle after persistence. There is no separate immediate outcome model: code run
