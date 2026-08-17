@@ -1,5 +1,4 @@
 import type {
-  AnalysisRecordOutput,
   DurableEvent,
   EventPage,
   MeasurementTracePreview,
@@ -27,10 +26,10 @@ import type {
   ProjectRunPage,
   PresentationRunStatus,
   RunAnalysis,
-  RunAnalysisOutput,
   RunContentPreview,
   RunResource,
 } from "../../types";
+import { analysisOutput } from "../analyses/analysis-model";
 
 type RunResourceRequirement =
   RunControlView["admission"]["plan"]["run_resource_requirements"][number];
@@ -273,9 +272,12 @@ export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promi
     title: analysis.title,
     key: analysis.key ?? undefined,
     stepId: analysis.step_id ?? undefined,
+    revision: analysis.revision,
+    publicationHash: analysis.publication_hash,
+    subject: "run" as const,
     inputs: analysis.inputs ?? [],
     executions: analysis.executions ?? [],
-    outputs: analysis.outputs.map(runAnalysisOutput),
+    outputs: analysis.outputs.map(analysisOutput),
   }));
 }
 
@@ -304,41 +306,6 @@ export async function getRunArtifactDownload(
       type: response.artifact.media_type ?? "application/octet-stream",
     }),
     filename: response.artifact.filename ?? selector,
-  };
-}
-
-function runAnalysisOutput(output: AnalysisRecordOutput): RunAnalysisOutput {
-  const producedBy =
-    output.kind === "fact" || output.kind === "dataset" || output.kind === "artifact"
-      ? (output.produced_by ?? undefined)
-      : undefined;
-  const derivedFrom = output.kind === "dataset" ? (output.derived_from ?? undefined) : undefined;
-  const shared = {
-    id: output.id,
-    title: output.title,
-    producedBy,
-    derivedFrom,
-    metadata: output.metadata ?? {},
-  };
-  if (output.kind === "table") {
-    return { ...shared, kind: "table", content: output.content };
-  }
-  if (output.kind === "figure") {
-    return { ...shared, kind: "figure", content: output.content };
-  }
-  if (output.kind === "fact") {
-    return { ...shared, kind: "fact", content: output.content };
-  }
-  if (output.kind === "dataset") {
-    return { ...shared, kind: "dataset", content: output.content };
-  }
-  if (output.kind === "artifact") {
-    return { ...shared, kind: "artifact", content: output.content };
-  }
-  return {
-    ...shared,
-    kind: "parameter_change_proposal",
-    content: output.content,
   };
 }
 

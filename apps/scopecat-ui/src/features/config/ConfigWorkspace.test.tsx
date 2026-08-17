@@ -262,6 +262,9 @@ describe("ConfigWorkspace", () => {
         id: "analysis-fit",
         title: "Frequency fit",
         key: "fit",
+        revision: 1,
+        publicationHash: "sha256:analysis-fit",
+        subject: "run",
         inputs: [],
         executions: [],
         outputs: [],
@@ -288,6 +291,8 @@ describe("ConfigWorkspace", () => {
     expect(await screen.findByText("analysis-fit")).toBeInTheDocument();
     expect(screen.getByText("Frequency fit")).toBeInTheDocument();
     expect(screen.getByText("Approved · nightly-calibration")).toBeInTheDocument();
+    expect(screen.getByText("analysis-candidate-verification")).toBeInTheDocument();
+    expect(screen.getByText("decision")).toBeInTheDocument();
     expect(screen.getByText("High-confidence fit")).toBeInTheDocument();
     expect(document.querySelector('time[datetime="2026-07-24T08:00:00Z"]')).toBeInTheDocument();
 
@@ -392,6 +397,10 @@ function runtimeDerivedEntry(
             proposal_id: proposalId,
             run_id: "run-calibration",
             base_config_content_hash: "sha256:baseline",
+            verification: {
+              analysis_record_id: "analysis-candidate-verification",
+              output_id: "decision",
+            },
           },
   };
 }

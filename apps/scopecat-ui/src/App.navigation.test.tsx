@@ -52,6 +52,17 @@ vi.mock("./features/config/ConfigWorkspace", () => ({
   ),
 }));
 
+vi.mock("./features/analyses/AnalysesWorkspace", () => ({
+  AnalysesWorkspace: ({ onOpenRun }: { onOpenRun: (runId: string) => void }) => (
+    <div>
+      Project analysis workspace
+      <button type="button" onClick={() => onOpenRun("run-2")}>
+        Open analysis input run
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock("./features/instruments/InstrumentsWorkspace", () => ({
   InstrumentsWorkspace: () => <div>Instrument workspace</div>,
 }));
@@ -127,6 +138,24 @@ afterEach(() => {
 });
 
 describe("config provenance navigation", () => {
+  it("restores the analyses route and opens an input in the Runs view", async () => {
+    window.history.replaceState(null, "", "/#analyses");
+    renderApp();
+
+    expect(await screen.findByText("Project analysis workspace")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Analyses" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(getRuns).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open analysis input run" }));
+
+    expect(screen.getByRole("button", { name: "Runs" })).toHaveAttribute("aria-current", "page");
+    expect(window.location.search).toBe("?run=run-2");
+    expect(window.location.hash).toBe("");
+  });
+
   it("restores and updates the Instruments hash route", async () => {
     window.history.replaceState(null, "", "/#instruments");
     renderApp();

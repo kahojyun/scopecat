@@ -1,0 +1,79 @@
+import type { ProjectAnalysisList, ProjectAnalysisView, RunContentEntry } from "../../api-contract";
+import { apiClient, apiData } from "../../api-client";
+import { titleCase } from "../../lib/presentation";
+import type { ContentEntry, ProjectAnalysis } from "../../types";
+import { analysisOutput } from "./analysis-model";
+
+export async function getProjectAnalyses(signal?: AbortSignal): Promise<ProjectAnalysis[]> {
+  const response = await apiData(apiClient.GET("/api/v1/analyses", { signal }));
+  return normalizeProjectAnalyses(response);
+}
+
+export async function getProjectAnalysis(
+  selector: string,
+  signal?: AbortSignal,
+): Promise<ProjectAnalysis> {
+  const response = await apiData(
+    apiClient.GET("/api/v1/analyses/{selector}", {
+      params: { path: { selector } },
+      signal,
+    }),
+  );
+  return normalizeProjectAnalysis(response);
+}
+
+export async function getProjectAnalysisArtifactDownload(
+  analysisId: string,
+  selector: string,
+  signal?: AbortSignal,
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await apiData(
+    apiClient.GET("/api/v1/analyses/{analysis_id}/contents/{selector}/bytes", {
+      params: { path: { analysis_id: analysisId, selector } },
+      signal,
+    }),
+  );
+  const binary = atob(response.content_base64);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return {
+    blob: new Blob([bytes], {
+      type: response.entry.media_type ?? "application/octet-stream",
+    }),
+    filename: response.entry.filename ?? selector,
+  };
+}
+
+function normalizeProjectAnalyses(response: ProjectAnalysisList): ProjectAnalysis[] {
+  return response.items.map(normalizeProjectAnalysis);
+}
+
+function normalizeProjectAnalysis(view: ProjectAnalysisView): ProjectAnalysis {
+  const { analysis, entry } = view;
+  return {
+    id: entry.id,
+    title: analysis.title,
+    key: analysis.key ?? undefined,
+    stepId: analysis.step_id ?? undefined,
+    revision: analysis.revision,
+    publicationHash: analysis.publication_hash,
+    subject: "project",
+    inputs: analysis.inputs ?? [],
+    executions: analysis.executions ?? [],
+    outputs: analysis.outputs.map(analysisOutput),
+    contents: view.contents.map(projectContentEntry),
+  };
+}
+
+function projectContentEntry(entry: RunContentEntry, index: number): ContentEntry {
+  const mediaType = entry.media_type ?? undefined;
+  const filename = entry.filename ?? undefined;
+  return {
+    id: entry.id,
+    role: entry.role,
+    kind: entry.kind,
+    label: entry.title ?? filename ?? `${titleCase(entry.role)} ${index + 1}`,
+    detail: mediaType ?? entry.kind,
+    mediaType,
+    filename,
+  };
+}

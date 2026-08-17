@@ -80,6 +80,10 @@ export type AnalysisRecordOutput = components["schemas"]["AnalysisRecordOutput"]
 export type AnalysisParameterProposalReference =
   components["schemas"]["AnalysisParameterProposalReference"];
 export type AnalysisTableView = components["schemas"]["AnalysisTableView"];
+export type AnalysisContentBytes =
+  GetResponse<"/api/v1/analyses/{analysis_id}/contents/{selector}/bytes">;
+export type ProjectAnalysisList = GetResponse<"/api/v1/analyses">;
+export type ProjectAnalysisView = GetResponse<"/api/v1/analyses/{selector}">;
 export type MeasurementDatasetSchema = components["schemas"]["MeasurementDatasetSchema-Output"];
 export type MeasurementAcquisitionValue = components["schemas"]["MeasurementAcquisitionValue"];
 export type MeasurementRecord = components["schemas"]["MeasurementRecord"];

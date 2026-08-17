@@ -137,7 +137,7 @@ export interface MeasurementSlicePreview {
   truncated: boolean;
 }
 
-interface RunAnalysisOutputBase {
+interface AnalysisOutputBase {
   id: string;
   title: string;
   producedBy?: AnalysisExecutionOutputReference;
@@ -145,7 +145,7 @@ interface RunAnalysisOutputBase {
   metadata: Record<string, unknown>;
 }
 
-export type RunAnalysisOutput = RunAnalysisOutputBase &
+export type AnalysisOutput = AnalysisOutputBase &
   (
     | { kind: "fact"; content: AnalysisFact }
     | { kind: "dataset"; content: AnalysisDatasetReference }
@@ -155,14 +155,26 @@ export type RunAnalysisOutput = RunAnalysisOutputBase &
     | { kind: "parameter_change_proposal"; content: AnalysisParameterProposalReference }
   );
 
-export interface RunAnalysis {
+export interface AnalysisPublication {
   id: string;
   title: string;
   key?: string;
   stepId?: string;
+  revision: number;
+  publicationHash: string;
+  subject: "run" | "project";
   inputs: AnalysisRecordInput[];
   executions: AnalysisExecution[];
-  outputs: RunAnalysisOutput[];
+  outputs: AnalysisOutput[];
+}
+
+export interface RunAnalysis extends AnalysisPublication {
+  subject: "run";
+}
+
+export interface ProjectAnalysis extends AnalysisPublication {
+  subject: "project";
+  contents: ContentEntry[];
 }
 
 export interface RunContentPreview {

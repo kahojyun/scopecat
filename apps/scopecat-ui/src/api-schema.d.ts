@@ -4,6 +4,57 @@
  */
 
 export interface paths {
+    "/api/v1/analyses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Project Analyses */
+        get: operations["list_project_analyses_api_v1_analyses_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analyses/{analysis_id}/contents/{selector}/bytes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Analysis Content Bytes */
+        get: operations["get_project_analysis_content_bytes_api_v1_analyses__analysis_id__contents__selector__bytes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analyses/{selector}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Analysis */
+        get: operations["get_project_analysis_api_v1_analyses__selector__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config-registry": {
         parameters: {
             query?: never;
@@ -982,6 +1033,17 @@ export interface components {
             source_run_id: string;
         };
         /**
+         * AnalysisContentBytesView
+         * @description Exact bytes for one project analysis-owned content entry.
+         */
+        AnalysisContentBytesView: {
+            /** Analysis Id */
+            analysis_id: string;
+            /** Content Base64 */
+            content_base64: string;
+            entry: components["schemas"]["RunContentEntry"];
+        };
+        /**
          * AnalysisDatasetDerivation
          * @description First-party normalization from one traced native dataset result.
          */
@@ -1247,11 +1309,12 @@ export interface components {
         };
         /**
          * AnalysisPublishedOutputReference
-         * @description Exact output revision consumed from an earlier analysis on this run.
+         * @description Exact output revision consumed from an earlier run analysis.
          */
         AnalysisPublishedOutputReference: {
             analysis_record_id: components["schemas"]["_NonEmptyText"];
             output_id: components["schemas"]["_NonEmptyText"];
+            run_id: components["schemas"]["_NonEmptyText"];
         };
         /** AnalysisRecord */
         AnalysisRecord: {
@@ -1265,14 +1328,15 @@ export interface components {
             publication_hash: components["schemas"]["_NonEmptyText"];
             /** Revision */
             revision: number;
-            run_id: components["schemas"]["_NonEmptyText"];
             step_id?: components["schemas"]["_NonEmptyText"] | null;
+            subject: components["schemas"]["AnalysisSubject"];
             title: components["schemas"]["_NonEmptyText"];
         };
         /** AnalysisRecordInput */
         AnalysisRecordInput: {
             codec: components["schemas"]["_NonEmptyText"];
             content_hash: components["schemas"]["_NonEmptyText"];
+            id: components["schemas"]["_NonEmptyText"];
             /**
              * Kind
              * @enum {string}
@@ -1280,12 +1344,14 @@ export interface components {
             kind: "measurement_dataset" | "analysis_dataset";
             metadata?: components["schemas"]["JsonMetadata"] | null;
             role: components["schemas"]["_NonEmptyText"];
+            run_id: components["schemas"]["_NonEmptyText"];
             source?: components["schemas"]["AnalysisPublishedOutputReference"] | null;
             target: components["schemas"]["_NonEmptyText"];
             /** Title */
             title?: string | null;
         };
         AnalysisRecordOutput: components["schemas"]["AnalysisFactRecordOutput"] | components["schemas"]["AnalysisDatasetRecordOutput"] | components["schemas"]["AnalysisArtifactRecordOutput"] | components["schemas"]["AnalysisTableRecordOutput"] | components["schemas"]["AnalysisFigureRecordOutput"] | components["schemas"]["AnalysisParameterProposalRecordOutput"];
+        AnalysisSubject: components["schemas"]["RunAnalysisSubject"] | components["schemas"]["ProjectAnalysisSubject"];
         /**
          * AnalysisTable
          * @description A bounded, display-ready scalar table with an explicit column schema.
@@ -1398,6 +1464,7 @@ export interface components {
             proposal_id: string;
             /** Run Id */
             run_id: string;
+            verification?: components["schemas"]["ProjectAnalysisOutputReference"] | null;
         };
         /** CandidateConfigRevisionSource */
         CandidateConfigRevisionSource: {
@@ -1408,6 +1475,7 @@ export interface components {
             kind: "candidate_config";
             proposal_id: components["schemas"]["NonEmptyText"];
             run_id: components["schemas"]["NonEmptyText"];
+            verification?: components["schemas"]["ProjectAnalysisOutputReference"] | null;
         };
         /**
          * CollectReceipt
@@ -3632,6 +3700,46 @@ export interface components {
          * @enum {string}
          */
         ProblemPhase: "definition" | "authoring" | "configuration" | "planning" | "provider_preflight" | "execution" | "persistence" | "analysis";
+        /** ProjectAnalysisListView */
+        ProjectAnalysisListView: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["ProjectAnalysisView"][];
+        };
+        /**
+         * ProjectAnalysisOutputReference
+         * @description One exact project-analysis output used as decision evidence.
+         */
+        ProjectAnalysisOutputReference: {
+            analysis_record_id: components["schemas"]["_NonEmptyText"];
+            output_id: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * ProjectAnalysisSubject
+         * @description A publication over an explicit snapshot of project run inputs.
+         */
+        ProjectAnalysisSubject: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "project";
+        };
+        /**
+         * ProjectAnalysisView
+         * @description One project-level analysis and its owned content entries.
+         */
+        ProjectAnalysisView: {
+            analysis: components["schemas"]["AnalysisRecord"];
+            /**
+             * Contents
+             * @default []
+             */
+            contents: components["schemas"]["RunContentEntry"][];
+            entry: components["schemas"]["RunContentEntry"];
+        };
         /** PropertySpec */
         PropertySpec: {
             /**
@@ -3909,6 +4017,18 @@ export interface components {
             items: components["schemas"]["RunAnalysisView"][];
             /** Run Id */
             run_id: string;
+        };
+        /**
+         * RunAnalysisSubject
+         * @description A publication whose scientific subject is one run.
+         */
+        RunAnalysisSubject: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "run";
+            run_id: components["schemas"]["_NonEmptyText"];
         };
         /**
          * RunAnalysisView
@@ -4717,6 +4837,89 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_project_analyses_api_v1_analyses_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectAnalysisListView"];
+                };
+            };
+        };
+    };
+    get_project_analysis_content_bytes_api_v1_analyses__analysis_id__contents__selector__bytes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                analysis_id: string;
+                selector: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisContentBytesView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_analysis_api_v1_analyses__selector__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                selector: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectAnalysisView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_config_registry_api_v1_config_registry_get: {
         parameters: {
             query?: never;

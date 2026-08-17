@@ -303,6 +303,22 @@ function EntryProvenance({
                       : "Approval unavailable"}
                 </dd>
               </div>
+              {source.verification && (
+                <>
+                  <div>
+                    <dt>Cross-run verification</dt>
+                    <dd>
+                      <code>{source.verification.analysis_record_id}</code>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Decision output</dt>
+                    <dd>
+                      <code>{source.verification.output_id}</code>
+                    </dd>
+                  </div>
+                </>
+              )}
               {approval && (
                 <>
                   <div>

@@ -24,9 +24,9 @@ import type {
   ProjectRun,
   RunAnalysis,
 } from "../../types";
-import { AnalysisMetadataView, AnalysisOutputView } from "./AnalysisOutputView";
+import { AnalysisPublicationView } from "../analyses/AnalysisPublicationView";
 import { MeasurementDataPreview } from "./MeasurementDataPreview";
-import { canPreviewRunContent, getRunContent } from "./run-api";
+import { canPreviewRunContent, getRunArtifactDownload, getRunContent } from "./run-api";
 import type {
   MeasurementEntitySelection,
   MeasurementTraceQueryPlan,
@@ -170,96 +170,11 @@ export function AnalysisCard({
                 </span>
                 <span className={countBadge}>{analysis.outputs.length}</span>
               </summary>
-              <div className="grid gap-2 px-2.5 pb-2.5">
-                {analysis.inputs.length > 0 ? (
-                  <section className="rounded-[7px] border border-line bg-panel p-[9px]">
-                    <h4 className="mt-0 mb-2 text-[0.58rem] font-extrabold tracking-[0.06em] text-text-dim uppercase">
-                      Inputs
-                    </h4>
-                    <ul className="m-0 grid list-none gap-2 p-0">
-                      {analysis.inputs.map((input, index) => (
-                        <li
-                          className="min-w-0 text-[0.61rem] text-text-soft"
-                          key={`${input.role}:${input.target}:${index}`}
-                        >
-                          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                            <strong>{input.title ?? input.target}</strong>
-                            <span className="text-text-dim">
-                              {input.role} · {titleCase(input.kind)}
-                            </span>
-                          </div>
-                          {input.source ? (
-                            <code
-                              className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
-                              title={`${input.source.analysis_record_id}:${input.source.output_id}`}
-                            >
-                              {input.source.analysis_record_id}:{input.source.output_id}
-                            </code>
-                          ) : null}
-                          <code
-                            className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
-                            title={input.target}
-                          >
-                            {input.target}
-                          </code>
-                          <AnalysisMetadataView metadata={input.metadata ?? {}} />
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                ) : null}
-                {analysis.executions.length > 0 ? (
-                  <section className="rounded-[7px] border border-line bg-panel p-[9px]">
-                    <h4 className="mt-0 mb-2 text-[0.58rem] font-extrabold tracking-[0.06em] text-text-dim uppercase">
-                      Execution evidence
-                    </h4>
-                    <ul className="m-0 grid list-none gap-2 p-0">
-                      {analysis.executions.map((execution) => (
-                        <li className="min-w-0 text-[0.61rem] text-text-soft" key={execution.id}>
-                          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                            <strong>{execution.id}</strong>
-                            <span className="text-text-dim">
-                              {titleCase(execution.access)} · {execution.outputs.length} result
-                              {execution.outputs.length === 1 ? "" : "s"}
-                            </span>
-                          </div>
-                          <code
-                            className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
-                            title={execution.implementation}
-                          >
-                            {execution.implementation}
-                          </code>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                ) : null}
-                {analysis.outputs.map((output, index) => (
-                  <section
-                    className="overflow-hidden rounded-[7px] border border-line bg-panel"
-                    key={`${output.kind}:${output.title}:${index}`}
-                  >
-                    <header className="flex items-center justify-between gap-2.5 border-b border-line px-[9px] py-[7px]">
-                      <span className="grid min-w-0 gap-0.5">
-                        <strong className="text-[0.65rem]">{output.title}</strong>
-                        {output.producedBy ? (
-                          <small className="text-[0.55rem] text-text-dim">
-                            Produced by {formatExecutionOutput(output.producedBy)}
-                          </small>
-                        ) : output.derivedFrom ? (
-                          <small className="text-[0.55rem] text-text-dim">
-                            Derived from {formatExecutionOutput(output.derivedFrom.source)} via{" "}
-                            {output.derivedFrom.adapter}
-                          </small>
-                        ) : null}
-                      </span>
-                      <span className="text-[0.56rem] font-[750] text-text-dim uppercase">
-                        {titleCase(output.kind)}
-                      </span>
-                    </header>
-                    <AnalysisOutputView output={output} runId={runId} />
-                  </section>
-                ))}
+              <div className="px-2.5 pb-2.5">
+                <AnalysisPublicationView
+                  analysis={analysis}
+                  getArtifactDownload={(selector) => getRunArtifactDownload(runId, selector)}
+                />
               </div>
             </details>
           ))}
@@ -878,10 +793,6 @@ function humanizeEvent(kind: string): string {
 
 function contentKey(entry: ContentEntry): string {
   return `${entry.role}:${entry.id}`;
-}
-
-function formatExecutionOutput(source: { execution_id: string; output_name: string }): string {
-  return `${source.execution_id}:${source.output_name}`;
 }
 
 function formatPreviewContent(value: unknown): string {

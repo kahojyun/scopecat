@@ -4,6 +4,7 @@ import {
   Atom,
   Activity,
   Cable,
+  GitCompareArrows,
   LayoutDashboard,
   LoaderCircle,
   RefreshCw,
@@ -15,7 +16,12 @@ import { RunsWorkspace } from "./features/runs/RunsWorkspace";
 import { titleCase } from "./lib/presentation";
 import { classes, iconButton } from "./ui/styles";
 
-type ProjectView = "runs" | "reviews" | "instruments" | "configuration";
+type ProjectView = "runs" | "analyses" | "reviews" | "instruments" | "configuration";
+
+const AnalysesWorkspace = lazy(async () => {
+  const module = await import("./features/analyses/AnalysesWorkspace");
+  return { default: module.AnalysesWorkspace };
+});
 
 const ConfigWorkspace = lazy(async () => {
   const module = await import("./features/config/ConfigWorkspace");
@@ -183,6 +189,15 @@ export default function App() {
           </button>
           <button
             type="button"
+            className={navigationClass(view === "analyses")}
+            aria-current={view === "analyses" ? "page" : undefined}
+            onClick={() => selectView("analyses")}
+          >
+            <GitCompareArrows size={15} aria-hidden="true" />
+            Analyses
+          </button>
+          <button
+            type="button"
             className={navigationClass(view === "reviews")}
             aria-current={view === "reviews" ? "page" : undefined}
             onClick={() => selectView("reviews")}
@@ -281,6 +296,21 @@ export default function App() {
             healthReachable={daemonReachable}
             daemonUnavailable={daemonUnavailable}
           />
+        ) : view === "analyses" ? (
+          <Suspense
+            fallback={
+              <DetailEmpty
+                icon={<LoaderCircle className="animate-spin" />}
+                title="Loading analyses"
+                detail="The cross-run analysis workspace is being prepared."
+              />
+            }
+          >
+            <AnalysesWorkspace
+              daemonUnavailable={daemonUnavailable}
+              onOpenRun={openConfigSourceRun}
+            />
+          </Suspense>
         ) : view === "reviews" ? (
           <Suspense
             fallback={
@@ -393,6 +423,7 @@ function selectedRunFromUrl(): string | undefined {
 function projectViewFromLocation(): ProjectView {
   if (window.location.hash === "#configuration") return "configuration";
   if (window.location.hash === "#instruments") return "instruments";
+  if (window.location.hash === "#analyses") return "analyses";
   if (window.location.hash.startsWith("#reviews")) return "reviews";
   return "runs";
 }
@@ -409,9 +440,11 @@ function replaceNavigation(view: ProjectView, runId?: string): void {
       ? "configuration"
       : view === "instruments"
         ? "instruments"
-        : view === "reviews"
-          ? "reviews"
-          : "";
+        : view === "analyses"
+          ? "analyses"
+          : view === "reviews"
+            ? "reviews"
+            : "";
   window.history.replaceState(null, "", `${location.pathname}${location.search}${location.hash}`);
 }
 
