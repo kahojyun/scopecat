@@ -19,9 +19,12 @@ from scopecat.analysis.service import (
 )
 from scopecat.daemon.views import (
     MeasurementArrowQuery,
-    RunAnalysisListView,
+    RunAnalysisPage,
+    RunAnalysisSummary,
     RunAnalysisView,
 )
+from scopecat.kernel.errors import NotFound
+from scopecat.kernel.ids import artifact_slug
 from scopecat.measurements.datasets import (
     RAW_MEASUREMENTS_DATASET_ID,
 )
@@ -156,17 +159,51 @@ class ServiceRunOperations:
             parameter_proposals=parameter_proposals,
         )
 
-    def analyses(self, run_id: str) -> RunAnalysisListView:
+    def analyses(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> RunAnalysisPage:
         manifest = self.services.runs.read_manifest(run_id)
-        return RunAnalysisListView(
+        records = list_records(manifest, kind="analysis")
+        numbered = tuple(enumerate(records, start=1))
+        eligible = tuple(
+            item for item in reversed(numbered) if before is None or item[0] < before
+        )
+        selected = eligible[: limit + 1]
+        page = selected[:limit]
+        return RunAnalysisPage(
             run_id=run_id,
             items=tuple(
-                self.analysis(run_id, record.id)
-                for record in list_records(manifest, kind="analysis")
+                _analysis_summary(self.analysis(run_id, record.id))
+                for _, record in page
             ),
+            next_cursor=page[-1][0] if len(selected) > limit else None,
         )
 
     def analysis(self, run_id: str, selector: str) -> RunAnalysisView:
+        try:
+            return self._analysis(run_id, selector)
+        except NotFound as exact_error:
+            manifest = self.services.runs.read_manifest(run_id)
+            analysis_key = artifact_slug(selector, fallback="analysis")
+            base_id = f"analysis-{analysis_key}"
+            matches = tuple(
+                record
+                for record in list_records(manifest, kind="analysis")
+                if record.id == base_id
+                or (
+                    record.id.startswith(f"{base_id}-r")
+                    and record.id.removeprefix(f"{base_id}-r").isdigit()
+                )
+            )
+            if not matches:
+                raise exact_error
+            return self._analysis(run_id, matches[-1].id)
+
+    def _analysis(self, run_id: str, selector: str) -> RunAnalysisView:
         result = read_run_record_json(
             run_id=run_id,
             selector=selector,
@@ -260,3 +297,17 @@ class ServiceRunOperations:
             selector=selector,
             expected_kind=expected_kind,
         )
+
+
+def _analysis_summary(view: RunAnalysisView) -> RunAnalysisSummary:
+    return RunAnalysisSummary(
+        run_id=view.run_id,
+        entry=view.entry,
+        title=view.analysis.title,
+        key=view.analysis.key,
+        revision=view.analysis.revision,
+        publication_hash=view.analysis.publication_hash,
+        step_id=view.analysis.step_id,
+        input_count=len(view.analysis.inputs),
+        output_count=len(view.analysis.outputs),
+    )

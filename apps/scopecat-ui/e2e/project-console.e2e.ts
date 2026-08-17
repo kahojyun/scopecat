@@ -14,14 +14,14 @@ interface ProjectDaemon {
   projectRoot: string;
 }
 
-interface ConfigRegistryView {
+interface ConfigRegistryPage {
   activation: {
     entry_id: string;
     generation: number;
   };
 }
 
-interface ConfigActivationHistoryView {
+interface ConfigActivationPage {
   items: unknown[];
 }
 
@@ -556,19 +556,21 @@ test("queues a free off-grid scan domain into a running adaptive compiler", asyn
   }
 });
 
-async function readRegistry(page: Page, baseUrl: string): Promise<ConfigRegistryView> {
-  const response = await page.request.get(`${baseUrl}/api/v1/config-registry`);
+async function readRegistry(page: Page, baseUrl: string): Promise<ConfigRegistryPage> {
+  const response = await page.request.get(`${baseUrl}/api/v1/config-registry?limit=100`);
   await expectResponseOk(response, "GET");
-  return (await response.json()) as ConfigRegistryView;
+  return (await response.json()) as ConfigRegistryPage;
 }
 
 async function readActivationHistory(
   page: Page,
   baseUrl: string,
-): Promise<ConfigActivationHistoryView> {
-  const response = await page.request.get(`${baseUrl}/api/v1/config-registry/activations`);
+): Promise<ConfigActivationPage> {
+  const response = await page.request.get(
+    `${baseUrl}/api/v1/config-registry/activations?limit=100`,
+  );
   await expectResponseOk(response, "GET");
-  return (await response.json()) as ConfigActivationHistoryView;
+  return (await response.json()) as ConfigActivationPage;
 }
 
 async function createCandidateAnalysis(projectRoot: string): Promise<CandidateAnalysis> {

@@ -22,14 +22,13 @@ from scopecat.api.analysis import (
     AnalysisContext,
     AnalysisStep,
 )
-from scopecat.api.published_analysis import PublishedAnalysis
+from scopecat.api.published_analysis import PublishedAnalysis, PublishedAnalysisPage
 from scopecat.daemon.views import (
     MeasurementArrowColumn,
     MeasurementArrowQuery,
-    RunAnalysisListView,
+    RunAnalysisPage,
     RunAnalysisView,
 )
-from scopecat.kernel.ids import artifact_slug
 from scopecat.measurements.dataset import (
     Dataset,
     ExperimentResultView,
@@ -104,7 +103,13 @@ class RunOperations(Protocol):
         parameter_proposals: Sequence[ParameterChangeProposal],
     ) -> SavedAnalysis: ...
 
-    def analyses(self, run_id: str) -> RunAnalysisListView: ...
+    def analyses(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> RunAnalysisPage: ...
 
     def analysis(self, run_id: str, selector: str) -> RunAnalysisView: ...
 
@@ -339,31 +344,40 @@ class RunHandle:
 
         return AnalysisContext(run=self, default_title=title, default_key=key)
 
-    def published_analyses(self) -> tuple[PublishedAnalysis, ...]:
-        """Load every durable analysis publication in manifest order."""
+    def published_analyses(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> PublishedAnalysisPage:
+        """Load one bounded newest-first page of durable publications."""
 
-        return tuple(
-            PublishedAnalysis(source=self, view=view)
-            for view in self.session.run_operations.analyses(self.id).items
+        page = self.session.run_operations.analyses(
+            self.id,
+            limit=limit,
+            before=before,
+        )
+        return PublishedAnalysisPage(
+            items=tuple(
+                PublishedAnalysis(
+                    source=self,
+                    view=self.session.run_operations.analysis(
+                        self.id,
+                        summary.entry.id,
+                    ),
+                )
+                for summary in page.items
+            ),
+            next_cursor=page.next_cursor,
         )
 
     def published_analysis(self, selector: str) -> PublishedAnalysis:
         """Load an exact analysis record ID or the latest matching logical key."""
 
-        analyses = self.published_analyses()
-        exact = next(
-            (analysis for analysis in analyses if analysis.id == selector),
-            None,
+        return PublishedAnalysis(
+            source=self,
+            view=self.session.run_operations.analysis(self.id, selector),
         )
-        if exact is not None:
-            return exact
-        selected_key = artifact_slug(selector, fallback="analysis")
-        matches = tuple(
-            analysis for analysis in analyses if analysis.key == selected_key
-        )
-        if not matches:
-            raise KeyError(f"run has no published analysis: {selector}")
-        return matches[-1]
 
     def save_analysis(
         self,

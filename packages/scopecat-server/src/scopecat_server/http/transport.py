@@ -52,10 +52,10 @@ from scopecat.daemon.reviews import (
 from scopecat.daemon.views import (
     ActiveConfigView,
     AnalysisContentBytesView,
-    ConfigActivationHistoryView,
+    ConfigActivationPage,
     ConfigDraftPreview,
     ConfigEntryView,
-    ConfigRegistryView,
+    ConfigRegistryPage,
     DaemonHealth,
     InstrumentListView,
     InstrumentView,
@@ -68,7 +68,7 @@ from scopecat.daemon.views import (
     ParameterProposalListView,
     ProjectAnalysisPage,
     ProjectAnalysisView,
-    RunAnalysisListView,
+    RunAnalysisPage,
     RunAnalysisView,
     RunArtifactBytesView,
     RunConfigView,
@@ -256,12 +256,21 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         )
 
     @app.get(f"{_API_PREFIX}/config-registry")
-    def get_config_registry() -> ConfigRegistryView:
-        return application.config.get_config_registry()
+    def get_config_registry(
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> ConfigRegistryPage:
+        return application.config.get_config_registry(limit=limit, before=before)
 
     @app.get(f"{_API_PREFIX}/config-registry/activations")
-    def get_config_activation_history() -> ConfigActivationHistoryView:
-        return application.config.get_config_activation_history()
+    def get_config_activation_history(
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> ConfigActivationPage:
+        return application.config.get_config_activation_history(
+            limit=limit,
+            before=before,
+        )
 
     @app.get(f"{_API_PREFIX}/config-registry/active")
     def get_active_config() -> ActiveConfigView:
@@ -522,8 +531,16 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         return application.runs.get_run_request(run_id)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/analyses")
-    def list_run_analyses(run_id: str) -> RunAnalysisListView:
-        return application.runs.list_run_analyses(run_id)
+    def list_run_analyses(
+        run_id: str,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> RunAnalysisPage:
+        return application.runs.list_run_analyses(
+            run_id,
+            limit=limit,
+            before=before,
+        )
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/analyses", status_code=201)
     def save_run_analysis(

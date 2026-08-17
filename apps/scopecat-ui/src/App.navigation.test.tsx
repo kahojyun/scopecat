@@ -13,7 +13,7 @@ import {
   getMeasurementTracePreview,
   getOlderRuns,
   getRun,
-  getRunAnalyses,
+  getRunAnalysisSummaries,
   getRunEvents,
   getRuns,
 } from "./features/runs/run-api";
@@ -34,7 +34,7 @@ vi.mock("./features/runs/run-api", async (importOriginal) => ({
   getMeasurementTracePreview: vi.fn(),
   getOlderRuns: vi.fn(),
   getRun: vi.fn(),
-  getRunAnalyses: vi.fn(),
+  getRunAnalysisSummaries: vi.fn(),
   getRunEvents: vi.fn(),
   getRuns: vi.fn(),
 }));
@@ -139,7 +139,7 @@ beforeEach(() => {
     truncated: false,
   });
   vi.mocked(getMeasurementTracePreview).mockResolvedValue(tracePreview("magnitude"));
-  vi.mocked(getRunAnalyses).mockResolvedValue([]);
+  vi.mocked(getRunAnalysisSummaries).mockResolvedValue({ items: [] });
 });
 
 afterEach(() => {
@@ -946,6 +946,6 @@ function canonicalQueryCallCounts(): number[] {
     vi.mocked(getRun).mock.calls.length,
     vi.mocked(getRunEvents).mock.calls.length,
     vi.mocked(getMeasurementPreview).mock.calls.length,
-    vi.mocked(getRunAnalyses).mock.calls.length,
+    vi.mocked(getRunAnalysisSummaries).mock.calls.length,
   ];
 }

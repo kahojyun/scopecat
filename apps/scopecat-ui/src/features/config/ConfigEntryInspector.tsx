@@ -44,14 +44,15 @@ export function ConfigEntryInspector({
   onActivate: () => void;
   onEdit?: () => void;
 }) {
-  const candidateRunId = entry.source.kind === "candidate_config" ? entry.source.run_id : undefined;
+  const candidateSource = entry.source.kind === "candidate_config" ? entry.source : undefined;
+  const candidateRunId = candidateSource?.run_id;
   const candidateProposalsQuery = useQuery({
     queryKey: ["parameter-proposals", candidateRunId],
     queryFn: ({ signal }) => getRunParameterProposals(candidateRunId!, signal),
     enabled: candidateRunId !== undefined,
   });
   const candidateProposal = candidateProposalsQuery.data?.items.find(
-    (proposal) => proposal.id === entry.source.proposal_id,
+    (proposal) => proposal.id === candidateSource?.proposal_id,
   );
   const candidateAnalysisId = candidateProposal?.analysisRecordId;
   const candidateAnalysisQuery = useQuery({

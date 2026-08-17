@@ -5,28 +5,35 @@ import {
   Atom,
   Box,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   CircleDot,
   Cpu,
   Database,
   Gauge,
+  LoaderCircle,
   SquareStack,
   XCircle,
 } from "lucide-react";
 import type { MeasurementTracePreview } from "../../api-contract";
 import { errorMessage, formatRelative, titleCase } from "../../lib/presentation";
-import { classes, countBadge, detailCard } from "../../ui/styles";
+import { classes, countBadge, detailCard, secondaryButton } from "../../ui/styles";
 import type {
   ContentEntry,
   MeasurementPreview,
   MeasurementSlicePreview,
   ProjectEvent,
   ProjectRun,
-  RunAnalysis,
+  RunAnalysisSummary,
 } from "../../types";
 import { AnalysisPublicationView } from "../analyses/AnalysisPublicationView";
 import { MeasurementDataPreview } from "./MeasurementDataPreview";
-import { canPreviewRunContent, getRunArtifactDownload, getRunContent } from "./run-api";
+import {
+  canPreviewRunContent,
+  getRunAnalysis,
+  getRunArtifactDownload,
+  getRunContent,
+} from "./run-api";
 import type {
   MeasurementEntitySelection,
   MeasurementTraceQueryPlan,
@@ -123,18 +130,29 @@ export function AnalysisCard({
   error,
   pending,
   runId,
+  hasNextPage,
+  loadingNextPage,
+  onLoadOlder,
 }: {
-  analyses?: RunAnalysis[];
+  analyses?: RunAnalysisSummary[];
   error: Error | null;
   pending: boolean;
   runId: string;
+  hasNextPage: boolean;
+  loadingNextPage: boolean;
+  onLoadOlder: () => void;
 }) {
   return (
     <article className={detailCard} data-testid="resource-card">
       <CardHeading
         icon={<Atom size={17} />}
         title="Analyses"
-        accessory={<span className={countBadge}>{analyses?.length ?? 0}</span>}
+        accessory={
+          <span className={countBadge}>
+            {analyses?.length ?? 0}
+            {hasNextPage ? "+" : ""}
+          </span>
+        }
       />
       {error ? (
         <InlineEmpty title="Analyses unavailable" detail={errorMessage(error)} warning />
@@ -151,36 +169,77 @@ export function AnalysisCard({
       ) : (
         <div className="grid gap-2">
           {analyses.map((analysis) => (
-            <details
-              className="overflow-hidden rounded-[8px] border border-line bg-[rgb(255_255_255_/_1.2%)]"
-              key={analysis.id}
-            >
-              <summary className="flex cursor-pointer items-center justify-between gap-2.5 p-2.5">
-                <span className="grid min-w-0 gap-[3px]">
-                  <strong className="overflow-hidden text-[0.7rem] text-ellipsis whitespace-nowrap">
-                    {analysis.title}
-                  </strong>
-                  <small className="text-[0.6rem] text-text-dim">
-                    {analysis.key ?? analysis.id}
-                    {analysis.stepId ? ` · ${analysis.stepId}` : ""}
-                    {analysis.executions.length > 0
-                      ? ` · ${analysis.executions.length} traced`
-                      : ""}
-                  </small>
-                </span>
-                <span className={countBadge}>{analysis.outputs.length}</span>
-              </summary>
-              <div className="px-2.5 pb-2.5">
-                <AnalysisPublicationView
-                  analysis={analysis}
-                  getArtifactDownload={(selector) => getRunArtifactDownload(runId, selector)}
-                />
-              </div>
-            </details>
+            <RunAnalysisItem analysis={analysis} key={analysis.id} runId={runId} />
           ))}
+          {hasNextPage && (
+            <button
+              className={classes(secondaryButton, "w-full")}
+              disabled={loadingNextPage}
+              onClick={onLoadOlder}
+              type="button"
+            >
+              {loadingNextPage ? (
+                <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />
+              ) : (
+                <ChevronDown size={14} aria-hidden="true" />
+              )}
+              {loadingNextPage ? "Loading older analyses…" : "Load older analyses"}
+            </button>
+          )}
         </div>
       )}
     </article>
+  );
+}
+
+function RunAnalysisItem({
+  analysis,
+  runId,
+}: {
+  analysis: RunAnalysisSummary;
+  runId: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const detail = useQuery({
+    queryKey: ["analysis", runId, analysis.id],
+    queryFn: ({ signal }) => getRunAnalysis(runId, analysis.id, signal),
+    enabled: expanded,
+  });
+  return (
+    <details
+      className="overflow-hidden rounded-[8px] border border-line bg-[rgb(255_255_255_/_1.2%)]"
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
+    >
+      <summary className="flex cursor-pointer items-center justify-between gap-2.5 p-2.5">
+        <span className="grid min-w-0 gap-[3px]">
+          <strong className="overflow-hidden text-[0.7rem] text-ellipsis whitespace-nowrap">
+            {analysis.title}
+          </strong>
+          <small className="text-[0.6rem] text-text-dim">
+            {analysis.key ?? analysis.id}
+            {analysis.stepId ? ` · ${analysis.stepId}` : ""}
+            {analysis.inputCount > 0 ? ` · ${analysis.inputCount} inputs` : ""}
+          </small>
+        </span>
+        <span className={countBadge}>{analysis.outputCount}</span>
+      </summary>
+      <div className="px-2.5 pb-2.5">
+        {detail.isPending ? (
+          <InlineEmpty title="Reading analysis" detail="Loading exact publication details." />
+        ) : detail.isError ? (
+          <InlineEmpty
+            title="Analysis unavailable"
+            detail={errorMessage(detail.error)}
+            warning
+          />
+        ) : (
+          <AnalysisPublicationView
+            analysis={detail.data}
+            getArtifactDownload={(selector) => getRunArtifactDownload(runId, selector)}
+          />
+        )}
+      </div>
+    </details>
   );
 }
 

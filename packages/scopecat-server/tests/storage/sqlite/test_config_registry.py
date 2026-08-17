@@ -227,6 +227,43 @@ def test_listing_reads_entry_metadata_without_loading_each_config(
     connection.close()
 
 
+def test_registry_and_activation_pages_use_stable_newest_first_cursors(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
+    for index in range(1, 4):
+        _publish_direct_revision(
+            config=config.model_copy(update={"id": f"config-{index}"}),
+            unit_of_work=store.write_unit_of_work,
+            entry_id=f"entry-{index}",
+            actor="test",
+        )
+
+    with store.read_unit_of_work() as work:
+        entry_head = work.registry.list_entry_page(limit=2, before=None)
+        entry_tail = work.registry.list_entry_page(
+            limit=2,
+            before=entry_head.next_cursor,
+        )
+        activation_head = work.registry.list_activation_page(limit=2, before=None)
+        activation_tail = work.registry.list_activation_page(
+            limit=2,
+            before=activation_head.next_cursor,
+        )
+        first_activation = work.registry.read_activation(1)
+
+    assert [entry.id for entry in entry_head.items] == ["entry-3", "entry-2"]
+    assert entry_head.next_cursor == 2
+    assert [entry.id for entry in entry_tail.items] == ["entry-1"]
+    assert entry_tail.next_cursor is None
+    assert [record.generation for record in activation_head.items] == [3, 2]
+    assert activation_head.next_cursor == 2
+    assert [record.generation for record in activation_tail.items] == [1]
+    assert activation_tail.next_cursor is None
+    assert first_activation.entry_id == "entry-1"
+
+
 def test_aggregate_reads_open_one_unit_of_work(tmp_path: Path) -> None:
     store = _store(tmp_path)
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")

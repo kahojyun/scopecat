@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -57,12 +58,14 @@ from scopecat.daemon.points import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
-    ConfigActivationHistoryView,
+    ConfigActivationPage,
     ConfigDraftPreview,
-    ConfigRegistryView,
+    ConfigRegistryPage,
     MeasurementArrowColumn,
     MeasurementArrowQuery,
     ParameterProposalListView,
+    RunAnalysisPage,
+    RunAnalysisView,
     RunConfigView,
     RunControlView,
     RunDatasetBytesView,
@@ -949,7 +952,7 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
     with LocalDaemonRuntime(tmp_path) as runtime:
         client = TestClient(runtime.app())
 
-        empty = ConfigRegistryView.model_validate(
+        empty = ConfigRegistryPage.model_validate(
             client.get("/api/v1/config-registry").json()
         )
         missing = client.get("/api/v1/config-registry/active")
@@ -994,10 +997,10 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
             ).model_dump(mode="json"),
         )
 
-        registry = ConfigRegistryView.model_validate(
+        registry = ConfigRegistryPage.model_validate(
             client.get("/api/v1/config-registry").json()
         )
-        activation_history = ConfigActivationHistoryView.model_validate(
+        activation_history = ConfigActivationPage.model_validate(
             client.get("/api/v1/config-registry/activations").json()
         )
         active = ActiveConfigView.model_validate(
@@ -1005,7 +1008,7 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         )
         events = _events(runtime).items
 
-        assert empty == ConfigRegistryView()
+        assert empty == ConfigRegistryPage()
         assert missing.status_code == 404
         assert baseline_publish.status_code == 200
         assert updated_publish.status_code == 200
@@ -1023,12 +1026,12 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         assert undo.activation.action == "undo"
         assert undo.activation.generation == 3
         assert undo.activation.entry_id == "baseline"
-        assert [entry.id for entry in registry.entries] == ["baseline", "updated"]
+        assert [entry.id for entry in registry.entries] == ["updated", "baseline"]
         assert registry.activation is not None
         assert [record.action for record in activation_history.items] == [
-            "activation",
-            "activation",
             "undo",
+            "activation",
+            "activation",
         ]
         assert active.entry.id == "baseline"
         assert active.config == baseline
@@ -1412,7 +1415,7 @@ def test_config_publish_rolls_back_registry_and_event_when_event_fails(
             with pytest.raises(RuntimeError, match="event publication failed"):
                 runtime.application.config.publish_config(command)
 
-        assert runtime.application.config.get_config_registry() == ConfigRegistryView()
+        assert runtime.application.config.get_config_registry() == ConfigRegistryPage()
         assert _events(runtime).items == ()
 
         receipt = runtime.application.config.publish_config(command)
@@ -2043,7 +2046,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
 
         assert first_save.status_code == 201
         assert retry == saved
-        assert analyses.json()["items"][0]["analysis"]["key"] == "fit"
+        assert analyses.json()["items"][0]["key"] == "fit"
         assert analysis_detail.json()["entry"]["id"] == "analysis-fit"
         assert analysis_record.json()["content"]["title"] == "fit"
         persisted_outputs = analysis_record.json()["content"]["outputs"]
@@ -2102,6 +2105,64 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             "parameter_proposal_approved",
             "config_activated",
         ]
+
+
+def test_run_analysis_history_is_paged_and_logical_keys_resolve_latest(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        client = TestClient(runtime.app())
+        admission = runtime.application.submit_run(_submission("analysis-history"))
+        analysis_url = f"/api/v1/runs/{admission.run_id}/analyses"
+        for revision in range(1, 4):
+            command = AnalysisSaveCommand(
+                title=f"History revision {revision}",
+                analysis_key="history",
+                outputs=(
+                    AnalysisArtifactOutputPayload(
+                        kind="artifact",
+                        id="note",
+                        title="Revision note",
+                        content_base64=b64encode(
+                            f"revision {revision}".encode()
+                        ).decode(),
+                        filename="note.txt",
+                        media_type="text/plain",
+                    ),
+                ),
+            )
+            response = client.post(
+                analysis_url,
+                json=command.model_dump(mode="json"),
+            )
+            assert response.status_code == 201
+
+        head = RunAnalysisPage.model_validate(
+            client.get(analysis_url, params={"limit": 2}).json()
+        )
+        tail = RunAnalysisPage.model_validate(
+            client.get(
+                analysis_url,
+                params={"limit": 2, "before": head.next_cursor},
+            ).json()
+        )
+        latest = RunAnalysisView.model_validate(
+            client.get(f"{analysis_url}/history").json()
+        )
+        exact = RunAnalysisView.model_validate(
+            client.get(f"{analysis_url}/analysis-history").json()
+        )
+
+        assert [item.entry.id for item in head.items] == [
+            "analysis-history-r3",
+            "analysis-history-r2",
+        ]
+        assert head.next_cursor == 2
+        assert [item.entry.id for item in tail.items] == ["analysis-history"]
+        assert tail.next_cursor is None
+        assert latest.entry.id == "analysis-history-r3"
+        assert latest.analysis.revision == 3
+        assert exact.analysis.revision == 1
 
 
 def test_project_analysis_compares_completed_runs_and_reloads_outputs(

@@ -27,7 +27,7 @@ from scopecat.analysis.service import (
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
     MeasurementArrowQuery,
-    RunAnalysisListView,
+    RunAnalysisPage,
     RunAnalysisView,
 )
 from scopecat.daemon.wire import (
@@ -156,8 +156,14 @@ class RemoteRunOperations:
             parameter_proposals=receipt.parameter_proposals,
         )
 
-    def analyses(self, run_id: str) -> RunAnalysisListView:
-        return self.client.analyses(run_id)
+    def analyses(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> RunAnalysisPage:
+        return self.client.analyses(run_id, limit=limit, before=before)
 
     def analysis(self, run_id: str, selector: str) -> RunAnalysisView:
         return self.client.analysis(run_id, selector)

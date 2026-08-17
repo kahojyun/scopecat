@@ -7,7 +7,7 @@ import {
   getMeasurementTracePreview,
   getOlderRuns,
   getRun,
-  getRunAnalyses,
+  getRunAnalysisSummaries,
   getRunArtifactDownload,
   getRunContent,
   getRunEvents,
@@ -211,13 +211,19 @@ describe("run daemon reads", () => {
   it("reads persisted analyses and typed run content", async () => {
     const fetchMock = vi.fn((input: string | URL | Request) => {
       const path = requestPath(input);
-      if (path.endsWith("/analyses")) {
+      if (path.includes("/analyses?")) {
         return Promise.resolve(
           jsonResponse({
             run_id: "run/1",
             items: [
               {
                 entry: { id: "analysis-fit" },
+                title: "Fit review",
+                key: "fit",
+                revision: 1,
+                publication_hash: "sha256:analysis",
+                input_count: 1,
+                output_count: 1,
                 analysis: {
                   title: "Fit review",
                   key: "fit",
@@ -312,7 +318,7 @@ describe("run daemon reads", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const analyses = await getRunAnalyses("run/1");
+    const analyses = await getRunAnalysisSummaries("run/1");
     const text = await getRunContent("run/1", textArtifact());
     const json = await getRunContent("run/1", jsonArtifact());
     const record = await getRunContent("run/1", {
@@ -323,50 +329,12 @@ describe("run daemon reads", () => {
       detail: "analysis",
     });
 
-    expect(analyses[0]).toMatchObject({
+    expect(analyses.items[0]).toMatchObject({
       id: "analysis-fit",
       title: "Fit review",
       key: "fit",
-      inputs: [
-        {
-          target: "measurement-dataset",
-          kind: "measurement_dataset",
-          role: "fit-input",
-          title: "Sweep data",
-          metadata: { selector: "raw-measurements" },
-        },
-      ],
-      executions: [
-        {
-          id: "fit",
-          implementation: "python:fit",
-          outputs: [
-            {
-              name: "fit",
-              kind: "value",
-              content_hash: "sha256:fitted-frequency",
-            },
-          ],
-        },
-      ],
-      outputs: [
-        {
-          kind: "fact",
-          title: "Fitted frequency",
-          content: {
-            schema_id: "scopecat.scalar.v1",
-            schema_codec: "scopecat.analysis-fact-schema.v1",
-            schema_hash: `sha256:${"c".repeat(64)}`,
-            codec: "scopecat.python-json.v1",
-            value: 5.1,
-          },
-          producedBy: {
-            execution_id: "fit",
-            output_name: "fit",
-          },
-          metadata: {},
-        },
-      ],
+      inputCount: 1,
+      outputCount: 1,
     });
     expect(text).toMatchObject({ format: "text", content: "Converged\n" });
     expect(json).toMatchObject({
@@ -378,7 +346,7 @@ describe("run daemon reads", () => {
       content: { title: "Fit review" },
     });
     expect(fetchMock.mock.calls.map(([path]) => requestPath(path))).toEqual([
-      "/api/v1/runs/run%2F1/analyses",
+      "/api/v1/runs/run%2F1/analyses?limit=100",
       "/api/v1/runs/run%2F1/artifacts/fit-notes/text?expected_kind=attachment",
       "/api/v1/runs/run%2F1/artifacts/fit-result/json?expected_kind=result",
       "/api/v1/runs/run%2F1/records/analysis-fit/json?expected_kind=analysis",

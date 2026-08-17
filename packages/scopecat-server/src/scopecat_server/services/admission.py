@@ -24,7 +24,7 @@ from scopecat.daemon.wire import (
     RunAdmission,
     RunSubmission,
 )
-from scopecat.kernel.errors import ProblemFailure
+from scopecat.kernel.errors import NotFound, ProblemFailure
 from scopecat.kernel.problems import (
     ProblemPhase,
     problem,
@@ -209,15 +209,17 @@ class AdmissionService:
                 == config_registry_service.ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR
             ):
                 generation = source.registry_generation
-                activations = (
-                    config_registry_service.load_config_registry_activation_history(
-                        unit_of_work=self._services.config_registry
+                try:
+                    activation = (
+                        None
+                        if generation is None
+                        else config_registry_service.load_config_registry_activation(
+                            generation=generation,
+                            unit_of_work=self._services.config_registry,
+                        )
                     )
-                )
-                activation = next(
-                    (item for item in activations if item.generation == generation),
-                    None,
-                )
+                except NotFound:
+                    activation = None
                 if (
                     generation is None
                     or activation is None

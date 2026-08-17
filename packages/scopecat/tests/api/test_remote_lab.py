@@ -48,7 +48,7 @@ from scopecat.daemon.points import RunPointPlanView
 from scopecat.daemon.views import (
     ActiveConfigView,
     ConfigDraftPreview,
-    ConfigRegistryView,
+    ConfigRegistryPage,
     RunAdmissionView,
     RunControlView,
     RunDetail,
@@ -583,7 +583,7 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
         if path == "/api/v1/config-registry":
-            return _model(ConfigRegistryView(entries=(entry,), activation=activation))
+            return _model(ConfigRegistryPage(entries=(entry,), activation=activation))
         if path == "/api/v1/config-registry/active" and request.method == "GET":
             return _model(
                 ActiveConfigView(entry=entry, activation=activation, config=config)
@@ -624,7 +624,7 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
         if path == "/api/v1/config-registry":
-            return _model(ConfigRegistryView(entries=(entry,), activation=activation))
+            return _model(ConfigRegistryPage(entries=(entry,), activation=activation))
         if path == "/api/v1/config-registry/active" and request.method == "GET":
             return _model(
                 ActiveConfigView(entry=entry, activation=activation, config=config)
@@ -710,7 +710,7 @@ def test_lab_config_inventory_migration_assembles_registry_coordination() -> Non
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
         if path == "/api/v1/config-registry":
-            return _model(ConfigRegistryView(entries=(entry,), activation=activation))
+            return _model(ConfigRegistryPage(entries=(entry,), activation=activation))
         if path == "/api/v1/config-registry/instrument-inventory-migrations":
             seen.append(
                 InstrumentInventoryMigrationCommand.model_validate_json(request.content)

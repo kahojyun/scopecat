@@ -45,10 +45,10 @@ from scopecat.daemon.reviews import (
 from scopecat.daemon.views import (
     ActiveConfigView,
     AnalysisContentBytesView,
-    ConfigActivationHistoryView,
+    ConfigActivationPage,
     ConfigDraftPreview,
     ConfigEntryView,
-    ConfigRegistryView,
+    ConfigRegistryPage,
     DaemonHealth,
     InstrumentListView,
     InstrumentView,
@@ -58,7 +58,7 @@ from scopecat.daemon.views import (
     ParameterProposalListView,
     ProjectAnalysisPage,
     ProjectAnalysisView,
-    RunAnalysisListView,
+    RunAnalysisPage,
     RunAnalysisView,
     RunArtifactBytesView,
     RunConfigView,
@@ -290,16 +290,34 @@ class DaemonClient:
         )
         return ReviewSessionCloseReceipt.model_validate_json(response.content)
 
-    def config_registry(self) -> ConfigRegistryView:
+    def config_registry(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ConfigRegistryPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
         return self._get_model(
             f"{_API_PREFIX}/config-registry",
-            ConfigRegistryView,
+            ConfigRegistryPage,
+            params=params,
         )
 
-    def config_activation_history(self) -> ConfigActivationHistoryView:
+    def config_activation_history(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ConfigActivationPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
         return self._get_model(
             f"{_API_PREFIX}/config-registry/activations",
-            ConfigActivationHistoryView,
+            ConfigActivationPage,
+            params=params,
         )
 
     def active_config(self) -> ActiveConfigView:
@@ -569,10 +587,20 @@ class DaemonClient:
             RunRequestView,
         )
 
-    def analyses(self, run_id: str) -> RunAnalysisListView:
+    def analyses(
+        self,
+        run_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> RunAnalysisPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
         return self._get_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/analyses",
-            RunAnalysisListView,
+            RunAnalysisPage,
+            params=params,
         )
 
     def analysis(self, run_id: str, selector: str) -> RunAnalysisView:

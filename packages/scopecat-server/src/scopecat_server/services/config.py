@@ -26,10 +26,10 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
-    ConfigActivationHistoryView,
+    ConfigActivationPage,
     ConfigDraftPreview,
     ConfigEntryView,
-    ConfigRegistryView,
+    ConfigRegistryPage,
 )
 from scopecat.daemon.wire import (
     CandidateConfigRevisionSource,
@@ -87,22 +87,39 @@ class ConfigService:
         self._analyses = analyses
         self._mutation_lock = Lock()
 
-    def get_config_registry(self) -> ConfigRegistryView:
+    def get_config_registry(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ConfigRegistryPage:
         with self._config_errors():
-            snapshot = config_registry_service.load_config_registry_snapshot(
-                unit_of_work=self._config_registry.read_unit_of_work
+            snapshot = config_registry_service.load_config_registry_page(
+                limit=limit,
+                before=before,
+                unit_of_work=self._config_registry.read_unit_of_work,
             )
-            return ConfigRegistryView(
+            return ConfigRegistryPage(
                 entries=snapshot.entries,
                 activation=snapshot.activation,
+                next_cursor=snapshot.next_cursor,
             )
 
-    def get_config_activation_history(self) -> ConfigActivationHistoryView:
+    def get_config_activation_history(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ConfigActivationPage:
         with self._config_errors():
-            return ConfigActivationHistoryView(
-                items=config_registry_service.load_config_registry_activation_history(
-                    unit_of_work=self._config_registry.read_unit_of_work
-                )
+            page = config_registry_service.load_config_registry_activation_page(
+                limit=limit,
+                before=before,
+                unit_of_work=self._config_registry.read_unit_of_work,
+            )
+            return ConfigActivationPage(
+                items=page.items,
+                next_cursor=page.next_cursor,
             )
 
     def get_active_config(self) -> ActiveConfigView:

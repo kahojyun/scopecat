@@ -9,6 +9,8 @@ import {
   activateConfigEntry,
   getConfigRegistry,
   getConfigRegistryEntry,
+  getOlderConfigActivationHistory,
+  getOlderConfigRegistryEntries,
   undoConfig,
 } from "./config-api";
 import { ConfigWorkspace } from "./ConfigWorkspace";
@@ -25,6 +27,8 @@ vi.mock("./config-api", async (importOriginal) => ({
   activateConfigEntry: vi.fn(),
   getConfigRegistry: vi.fn(),
   getConfigRegistryEntry: vi.fn(),
+  getOlderConfigActivationHistory: vi.fn(),
+  getOlderConfigRegistryEntries: vi.fn(),
   undoConfig: vi.fn(),
 }));
 
@@ -39,6 +43,8 @@ beforeEach(() => {
     items: [],
   });
   vi.mocked(getRunAnalysis).mockRejectedValue(new Error("analysis unavailable"));
+  vi.mocked(getOlderConfigRegistryEntries).mockResolvedValue({ entries: [] });
+  vi.mocked(getOlderConfigActivationHistory).mockResolvedValue({ items: [] });
 });
 
 afterEach(() => {
@@ -48,6 +54,61 @@ afterEach(() => {
 });
 
 describe("ConfigWorkspace", () => {
+  it("pins an old active entry even when it is outside the registry head page", async () => {
+    const current = configEntry("old-active", "sha256:old-active");
+    const recent = configEntry("recent", "sha256:recent");
+    vi.mocked(getConfigRegistry).mockResolvedValue({
+      activation: activation(120, current.id, current.content_hash),
+      activation_history: [activation(120, current.id, current.content_hash)],
+      entries: [recent],
+      entries_next_cursor: 119,
+    });
+    vi.mocked(getConfigRegistryEntry).mockImplementation(async (entryId) =>
+      entryDetail(entryId === current.id ? current : recent),
+    );
+
+    renderWorkspace();
+
+    expect(await screen.findByRole("button", { name: /old-active/i })).toBeInTheDocument();
+    expect(screen.getAllByText("Default").length).toBeGreaterThan(0);
+    expect(getConfigRegistryEntry).toHaveBeenCalledWith(
+      "old-active",
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("loads older saved versions and activation history independently", async () => {
+    const current = configEntry("current", "sha256:current");
+    const older = configEntry("older", "sha256:older");
+    vi.mocked(getConfigRegistry).mockResolvedValue({
+      activation: activation(3, current.id, current.content_hash),
+      activation_history: [activation(3, current.id, current.content_hash)],
+      entries: [current],
+      entries_next_cursor: 2,
+      activation_history_next_cursor: 3,
+    });
+    vi.mocked(getOlderConfigRegistryEntries).mockResolvedValue({
+      entries: [older],
+      activation: activation(3, current.id, current.content_hash),
+    });
+    vi.mocked(getOlderConfigActivationHistory).mockResolvedValue({
+      items: [activation(2, older.id, older.content_hash)],
+    });
+    vi.mocked(getConfigRegistryEntry).mockImplementation(async (entryId) =>
+      entryDetail(entryId === older.id ? older : current),
+    );
+
+    renderWorkspace();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Load older versions" }));
+    expect(await screen.findByText("older")).toBeInTheDocument();
+    expect(getOlderConfigRegistryEntries).toHaveBeenCalledWith(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Load older changes" }));
+    expect(await screen.findByText("G2")).toBeInTheDocument();
+    expect(getOlderConfigActivationHistory).toHaveBeenCalledWith(3);
+  });
+
   it("presents saved versions as defaults and undo without generation ceremony", async () => {
     vi.mocked(getConfigRegistry).mockResolvedValue({
       activation: activation(2, "baseline", "sha256:baseline"),

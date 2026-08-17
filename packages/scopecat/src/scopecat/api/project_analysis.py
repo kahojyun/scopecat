@@ -14,7 +14,7 @@ from scopecat.analysis.service import (
     SavedAnalysis,
 )
 from scopecat.api._remote import analysis_input_payload, analysis_output_payload
-from scopecat.api.published_analysis import PublishedAnalysis
+from scopecat.api.published_analysis import PublishedAnalysis, PublishedAnalysisPage
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
     ProjectAnalysisPage,
@@ -31,14 +31,6 @@ from scopecat.runs.data import (
     RunArtifactTextResult,
     RunRecordJsonResult,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class PublishedAnalysisPage:
-    """Bounded page of immutable project analysis handles."""
-
-    items: tuple[PublishedAnalysis, ...]
-    next_cursor: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,4 +191,4 @@ def _require_kind(actual: str, expected: str | None) -> None:
         raise TypeError(f"analysis content is {actual!r}, not {expected!r}")
 
 
-__all__ = ["PublishedAnalysisPage", "RemoteProjectAnalysisOperations"]
+__all__ = ["RemoteProjectAnalysisOperations"]

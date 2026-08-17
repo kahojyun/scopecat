@@ -3,8 +3,10 @@ import type {
   EventPage,
   MeasurementTracePreview,
   MeasurementTracePreviewQuery,
-  RunContentEntry,
+  RunAnalysisPage,
+  RunAnalysisSummary as RunAnalysisSummaryView,
   RunAnalysisView,
+  RunContentEntry,
   RunControlView,
   RunManifest,
   RunResourceView,
@@ -27,6 +29,8 @@ import type {
   ProjectRunPage,
   PresentationRunStatus,
   RunAnalysis,
+  RunAnalysisSummary,
+  RunAnalysisSummaryPage,
   RunContentPreview,
   RunResource,
 } from "../../types";
@@ -261,14 +265,37 @@ export async function getMeasurementTracePreview(
   );
 }
 
-export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promise<RunAnalysis[]> {
-  const response = await apiData(
-    apiClient.GET("/api/v1/runs/{run_id}/analyses", {
-      params: { path: { run_id: runId } },
-      signal,
-    }),
+export async function getRunAnalysisSummaries(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<RunAnalysisSummaryPage> {
+  return getRunAnalysisSummaryPage(runId, undefined, signal);
+}
+
+export async function getOlderRunAnalysisSummaries(
+  runId: string,
+  before: number,
+  signal?: AbortSignal,
+): Promise<RunAnalysisSummaryPage> {
+  return getRunAnalysisSummaryPage(runId, before, signal);
+}
+
+async function getRunAnalysisSummaryPage(
+  runId: string,
+  before: number | undefined,
+  signal: AbortSignal | undefined,
+): Promise<RunAnalysisSummaryPage> {
+  return normalizeRunAnalysisPage(
+    await apiData(
+      apiClient.GET("/api/v1/runs/{run_id}/analyses", {
+        params: {
+          path: { run_id: runId },
+          query: { limit: 100, before },
+        },
+        signal,
+      }),
+    ),
   );
-  return (response.items ?? []).map(normalizeRunAnalysis);
 }
 
 export async function getRunAnalysis(
@@ -301,6 +328,26 @@ function normalizeRunAnalysis({
     inputs: analysis.inputs ?? [],
     executions: analysis.executions ?? [],
     outputs: analysis.outputs.map(analysisOutput),
+  };
+}
+
+function normalizeRunAnalysisPage(response: RunAnalysisPage): RunAnalysisSummaryPage {
+  return {
+    items: response.items.map(normalizeRunAnalysisSummary),
+    nextCursor: response.next_cursor ?? undefined,
+  };
+}
+
+function normalizeRunAnalysisSummary(summary: RunAnalysisSummaryView): RunAnalysisSummary {
+  return {
+    id: summary.entry.id,
+    title: summary.title,
+    key: summary.key ?? undefined,
+    stepId: summary.step_id ?? undefined,
+    revision: summary.revision,
+    publicationHash: summary.publication_hash,
+    inputCount: summary.input_count,
+    outputCount: summary.output_count,
   };
 }
 

@@ -24,10 +24,10 @@ from scopecat.config.resolution import config_revision_entry_id
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
     ActiveConfigView,
-    ConfigActivationHistoryView,
+    ConfigActivationPage,
     ConfigDraftPreview,
     ConfigEntryView,
-    ConfigRegistryView,
+    ConfigRegistryPage,
     ParameterProposalListView,
 )
 from scopecat.daemon.wire import (
@@ -65,11 +65,21 @@ class LabConfigOperations:
     default_config: ConfigProfileSnapshot | None
     operator: str
 
-    def registry(self) -> ConfigRegistryView:
-        return self.client.config_registry()
+    def registry(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ConfigRegistryPage:
+        return self.client.config_registry(limit=limit, before=before)
 
-    def history(self) -> ConfigActivationHistoryView:
-        return self.client.config_activation_history()
+    def history(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ConfigActivationPage:
+        return self.client.config_activation_history(limit=limit, before=before)
 
     def active(self) -> ActiveConfigView:
         return self.client.active_config()

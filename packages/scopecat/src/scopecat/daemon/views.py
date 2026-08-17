@@ -67,15 +67,19 @@ class _ViewModel(BaseModel):
     )
 
 
-class ConfigRegistryView(_ViewModel):
-    """Saved revisions and the current activation head."""
+class ConfigRegistryPage(_ViewModel):
+    """Newest-first page of saved revisions and the current activation head."""
 
     entries: tuple[ConfigRegistryEntry, ...] = ()
     activation: ConfigRegistryActivationRecord | None = None
+    next_cursor: int | None = Field(default=None, ge=1)
 
 
-class ConfigActivationHistoryView(_ViewModel):
+class ConfigActivationPage(_ViewModel):
+    """Newest-first page of default configuration changes."""
+
     items: tuple[ConfigRegistryActivationRecord, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
 
 
 class ActiveConfigView(_ViewModel):
@@ -283,14 +287,37 @@ class RunAnalysisView(_ViewModel):
         return self
 
 
-class RunAnalysisListView(_ViewModel):
+class RunAnalysisSummary(_ViewModel):
+    """Bounded list projection for one run-owned analysis publication."""
+
     run_id: str
-    items: tuple[RunAnalysisView, ...] = ()
+    entry: RunContentEntry
+    title: str
+    key: str | None = None
+    revision: int = Field(ge=1)
+    publication_hash: str
+    step_id: str | None = None
+    input_count: int = Field(ge=0)
+    output_count: int = Field(ge=0)
 
     @model_validator(mode="after")
-    def validate_identity(self) -> RunAnalysisListView:
+    def validate_identity(self) -> RunAnalysisSummary:
+        if self.entry.role != "record" or self.entry.kind != "analysis":
+            raise ValueError("run analysis summary identity is inconsistent")
+        return self
+
+
+class RunAnalysisPage(_ViewModel):
+    """Newest-first keyset page of run analysis summaries."""
+
+    run_id: str
+    items: tuple[RunAnalysisSummary, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> RunAnalysisPage:
         if any(item.run_id != self.run_id for item in self.items):
-            raise ValueError("run analysis list contains a different run")
+            raise ValueError("run analysis page contains a different run")
         return self
 
 
@@ -658,10 +685,10 @@ def _validate_base64(value: str) -> None:
 __all__ = [
     "ActiveConfigView",
     "AnalysisContentBytesView",
-    "ConfigActivationHistoryView",
+    "ConfigActivationPage",
     "ConfigDraftPreview",
     "ConfigEntryView",
-    "ConfigRegistryView",
+    "ConfigRegistryPage",
     "DaemonHealth",
     "InstrumentConnectionSummary",
     "InstrumentListView",
@@ -681,7 +708,8 @@ __all__ = [
     "ProjectAnalysisSummary",
     "ProjectAnalysisView",
     "RunAdmissionView",
-    "RunAnalysisListView",
+    "RunAnalysisPage",
+    "RunAnalysisSummary",
     "RunAnalysisView",
     "RunArtifactBytesView",
     "RunConfigView",

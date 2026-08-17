@@ -32,8 +32,12 @@ export type ConfigDraftPreview = Omit<
 };
 export type ConfigProfileSnapshot = components["schemas"]["ConfigProfileSnapshot-Input"];
 export type ConfigRegistryEntry = components["schemas"]["ConfigRegistryEntry"];
-export type ConfigRegistryOverview = GetResponse<"/api/v1/config-registry"> & {
+export type ConfigRegistryPage = GetResponse<"/api/v1/config-registry">;
+export type ConfigActivationPage = GetResponse<"/api/v1/config-registry/activations">;
+export type ConfigRegistryOverview = Omit<ConfigRegistryPage, "next_cursor"> & {
   activation_history: ConfigActivationRecord[];
+  entries_next_cursor?: number;
+  activation_history_next_cursor?: number;
 };
 export type DriverCatalog = GetResponse<"/api/v1/instrument-drivers">;
 export type DriverConnectionSpec = components["schemas"]["DriverConnectionSpec"];
@@ -134,6 +138,8 @@ export type CompiledArtifactInspection = components["schemas"]["CompiledArtifact
 export type CompiledPointInspection = components["schemas"]["CompiledPointInspection-Output"];
 export type CompiledWaveformInspection = components["schemas"]["CompiledWaveformInspection"];
 export type RunContentEntry = components["schemas"]["RunContentEntry"];
+export type RunAnalysisPage = components["schemas"]["RunAnalysisPage"];
+export type RunAnalysisSummary = components["schemas"]["RunAnalysisSummary"];
 export type RunAnalysisView = components["schemas"]["RunAnalysisView"];
 export type RunManifest = components["schemas"]["RunManifest"];
 export type RunResourceView = components["schemas"]["RunResourceView"];

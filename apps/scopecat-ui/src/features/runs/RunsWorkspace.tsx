@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronRight,
   CircleDot,
@@ -16,7 +16,8 @@ import {
   getMeasurementTracePreview,
   getOlderRuns,
   getRun,
-  getRunAnalyses,
+  getOlderRunAnalysisSummaries,
+  getRunAnalysisSummaries,
   getRunDomainDecisions,
   getRunEvents,
   getRuns,
@@ -29,6 +30,7 @@ import type {
   ProjectHealth,
   ProjectRun,
   ProjectRunPage,
+  RunAnalysisSummary,
 } from "../../types";
 import { useConfirmationDialog, type ConfirmationRequest } from "../../ui/ConfirmationDialog";
 import { classes, eyebrow, secondaryButton } from "../../ui/styles";
@@ -165,9 +167,14 @@ export function RunsWorkspace({
     enabled: selectedRunId !== undefined,
     refetchInterval: selectedRunIsActive ? 250 : false,
   });
-  const analysesQuery = useQuery({
-    queryKey: ["analyses", selectedRunId],
-    queryFn: ({ signal }) => getRunAnalyses(selectedRunId!, signal),
+  const analysesQuery = useInfiniteQuery({
+    queryKey: ["analyses", "run", selectedRunId],
+    queryFn: ({ pageParam, signal }) =>
+      pageParam === undefined
+        ? getRunAnalysisSummaries(selectedRunId!, signal)
+        : getOlderRunAnalysisSummaries(selectedRunId!, pageParam, signal),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (page) => page.nextCursor,
     enabled: selectedRunId !== undefined,
   });
   const attentionMutation = useMutation({
@@ -202,6 +209,13 @@ export function RunsWorkspace({
     () => mergeMeasurementPreviews(measurementsQuery.data, liveMeasurementsQuery.data),
     [liveMeasurementsQuery.data, measurementsQuery.data],
   );
+  const runAnalyses = useMemo(() => {
+    const items = new Map<string, RunAnalysisSummary>();
+    for (const page of analysesQuery.data?.pages ?? []) {
+      for (const analysis of page.items) items.set(analysis.id, analysis);
+    }
+    return [...items.values()];
+  }, [analysesQuery.data]);
   const slicePlan = useMemo(
     () => measurementSlicePlan(measurements?.schema),
     [measurements?.schema],
@@ -525,9 +539,12 @@ export function RunsWorkspace({
                   offset: 0,
                 });
               }}
-              analyses={analysesQuery.data}
+              analyses={runAnalyses}
               analysesError={analysesQuery.error}
               analysesPending={analysesQuery.isPending}
+              analysesHasNextPage={analysesQuery.hasNextPage}
+              analysesLoadingNextPage={analysesQuery.isFetchingNextPage}
+              onLoadOlderAnalyses={() => void analysesQuery.fetchNextPage()}
               attentionError={attentionMutation.error}
               attentionPending={attentionMutation.isPending}
               onResolveAttention={() => {

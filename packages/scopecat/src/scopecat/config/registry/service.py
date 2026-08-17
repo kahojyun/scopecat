@@ -35,6 +35,7 @@ from scopecat.config.registry.ports import (
 from scopecat.config.registry.records import (
     CandidateAcceptance,
     CandidateConfigRegistrySource,
+    ConfigRegistryActivationPage,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
@@ -146,6 +147,13 @@ class ConfigRegistryEntrySnapshot:
 class ConfigRegistrySnapshot:
     entries: tuple[ConfigRegistryEntry, ...]
     activation: ConfigRegistryActivationRecord | None
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigRegistryPageSnapshot:
+    entries: tuple[ConfigRegistryEntry, ...]
+    activation: ConfigRegistryActivationRecord | None
+    next_cursor: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -541,6 +549,34 @@ def load_config_registry_snapshot(
         )
 
 
+def load_config_registry_page(
+    *,
+    limit: int,
+    before: int | None,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
+) -> ConfigRegistryPageSnapshot:
+    """Read one newest-first registry page and the active projection."""
+
+    with unit_of_work() as work:
+        page = work.registry.list_entry_page(limit=limit, before=before)
+        activation = _read_latest_activation(work.registry)
+        if activation is not None:
+            loaded = _load_config_registry_entry_locked(
+                entry_id=activation.entry_id,
+                work=work,
+            )
+            _validate_active_entry_identity(
+                work.registry,
+                activation,
+                loaded.entry,
+            )
+        return ConfigRegistryPageSnapshot(
+            entries=page.items,
+            activation=activation,
+            next_cursor=page.next_cursor,
+        )
+
+
 def _list_config_registry_entries_locked(
     repository: ConfigRegistryRepository,
 ) -> tuple[ConfigRegistryEntry, ...]:
@@ -791,10 +827,10 @@ def undo_config_registry(
             current_activation,
             current.entry,
         )
-        history = work.registry.list_activation_history()
         undo_target = _previous_distinct_activation(
-            history,
+            work.registry,
             active_entry_id=current_activation.entry_id,
+            active_generation=current_activation.generation,
         )
         loaded = _load_config_registry_entry_locked(
             entry_id=undo_target.entry_id,
@@ -848,6 +884,25 @@ def load_config_registry_activation_history(
 ) -> tuple[ConfigRegistryActivationRecord, ...]:
     with unit_of_work() as work:
         return work.registry.list_activation_history()
+
+
+def load_config_registry_activation(
+    *,
+    generation: int,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
+) -> ConfigRegistryActivationRecord:
+    with unit_of_work() as work:
+        return work.registry.read_activation(generation)
+
+
+def load_config_registry_activation_page(
+    *,
+    limit: int,
+    before: int | None,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
+) -> ConfigRegistryActivationPage:
+    with unit_of_work() as work:
+        return work.registry.list_activation_page(limit=limit, before=before)
 
 
 def load_active_config_registry_activation(
@@ -1377,13 +1432,23 @@ def _require_stable_instrument_exclusivity_keys(
 
 
 def _previous_distinct_activation(
-    history: Sequence[ConfigRegistryActivationRecord],
+    repository: ConfigRegistryRepository,
     *,
     active_entry_id: str,
+    active_generation: int,
 ) -> ConfigRegistryActivationRecord:
-    for record in reversed(history[:-1]):
-        if record.entry_id != active_entry_id:
-            return record
+    before: int | None = None
+    while True:
+        page = repository.list_activation_page(limit=100, before=before)
+        for record in page.items:
+            if (
+                record.generation < active_generation
+                and record.entry_id != active_entry_id
+            ):
+                return record
+        if page.next_cursor is None:
+            break
+        before = page.next_cursor
     raise _registry_failure(
         Conflict,
         code="config_registry.no_undo_target",
@@ -1433,6 +1498,7 @@ __all__ = [
     "CandidateConfigRevisionSource",
     "ConfigRegistryEntrySnapshot",
     "ConfigRegistryMutationResult",
+    "ConfigRegistryPageSnapshot",
     "ConfigRegistryRepository",
     "ConfigRegistrySnapshot",
     "ConfigRegistryUnitOfWork",
@@ -1451,8 +1517,11 @@ __all__ = [
     "load_active_config_registry_config",
     "load_active_config_registry_entry",
     "load_active_config_registry_snapshot",
+    "load_config_registry_activation",
     "load_config_registry_activation_history",
+    "load_config_registry_activation_page",
     "load_config_registry_entry_snapshot",
+    "load_config_registry_page",
     "load_config_registry_snapshot",
     "plan_instrument_inventory_migration",
     "preview_manual_config_draft",

@@ -549,6 +549,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/analyses/{selector}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run Analysis */
+        get: operations["get_run_analysis_api_v1_runs__run_id__analyses__selector__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/artifacts/{selector}/bytes": {
         parameters: {
             query?: never;
@@ -1843,13 +1860,18 @@ export interface components {
             /** Properties */
             properties?: components["schemas"]["PropertySpec"][];
         };
-        /** ConfigActivationHistoryView */
-        ConfigActivationHistoryView: {
+        /**
+         * ConfigActivationPage
+         * @description Newest-first page of default configuration changes.
+         */
+        ConfigActivationPage: {
             /**
              * Items
              * @default []
              */
             items: components["schemas"]["ConfigRegistryActivationRecord"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
         };
         /** ConfigActivationReceipt */
         ConfigActivationReceipt: {
@@ -2012,6 +2034,20 @@ export interface components {
             /** Source */
             source: components["schemas"]["DirectConfigRegistrySource"] | components["schemas"]["ManualConfigDraftRegistrySource"] | components["schemas"]["CandidateConfigRegistrySource"];
         };
+        /**
+         * ConfigRegistryPage
+         * @description Newest-first page of saved revisions and the current activation head.
+         */
+        ConfigRegistryPage: {
+            activation?: components["schemas"]["ConfigRegistryActivationRecord"] | null;
+            /**
+             * Entries
+             * @default []
+             */
+            entries: components["schemas"]["ConfigRegistryEntry"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
+        };
         /** ConfigRegistryRunConfigSource */
         ConfigRegistryRunConfigSource: {
             /** Config Ref */
@@ -2028,18 +2064,6 @@ export interface components {
             registry_generation?: number | null;
             /** Selector */
             selector: string;
-        };
-        /**
-         * ConfigRegistryView
-         * @description Saved revisions and the current activation head.
-         */
-        ConfigRegistryView: {
-            activation?: components["schemas"]["ConfigRegistryActivationRecord"] | null;
-            /**
-             * Entries
-             * @default []
-             */
-            entries: components["schemas"]["ConfigRegistryEntry"][];
         };
         ConfigRevisionSource: components["schemas"]["DirectConfigRevisionSource"] | components["schemas"]["ManualConfigDraftRevisionSource"] | components["schemas"]["CandidateConfigRevisionSource"];
         /**
@@ -4084,13 +4108,18 @@ export interface components {
              */
             tags: string[];
         };
-        /** RunAnalysisListView */
-        RunAnalysisListView: {
+        /**
+         * RunAnalysisPage
+         * @description Newest-first keyset page of run analysis summaries.
+         */
+        RunAnalysisPage: {
             /**
              * Items
              * @default []
              */
-            items: components["schemas"]["RunAnalysisView"][];
+            items: components["schemas"]["RunAnalysisSummary"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
             /** Run Id */
             run_id: string;
         };
@@ -4105,6 +4134,29 @@ export interface components {
              */
             kind: "run";
             run_id: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * RunAnalysisSummary
+         * @description Bounded list projection for one run-owned analysis publication.
+         */
+        RunAnalysisSummary: {
+            entry: components["schemas"]["RunContentEntry"];
+            /** Input Count */
+            input_count: number;
+            /** Key */
+            key?: string | null;
+            /** Output Count */
+            output_count: number;
+            /** Publication Hash */
+            publication_hash: string;
+            /** Revision */
+            revision: number;
+            /** Run Id */
+            run_id: string;
+            /** Step Id */
+            step_id?: string | null;
+            /** Title */
+            title: string;
         };
         /**
          * RunAnalysisView
@@ -5010,7 +5062,10 @@ export interface operations {
     };
     get_config_registry_api_v1_config_registry_get: {
         parameters: {
-            query?: never;
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -5023,14 +5078,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ConfigRegistryView"];
+                    "application/json": components["schemas"]["ConfigRegistryPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
     };
     get_config_activation_history_api_v1_config_registry_activations_get: {
         parameters: {
-            query?: never;
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -5043,7 +5110,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ConfigActivationHistoryView"];
+                    "application/json": components["schemas"]["ConfigActivationPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -5874,7 +5950,10 @@ export interface operations {
     };
     list_run_analyses_api_v1_runs__run_id__analyses_get: {
         parameters: {
-            query?: never;
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
             header?: never;
             path: {
                 run_id: string;
@@ -5889,7 +5968,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunAnalysisListView"];
+                    "application/json": components["schemas"]["RunAnalysisPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_analysis_api_v1_runs__run_id__analyses__selector__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                selector: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunAnalysisView"];
                 };
             };
             /** @description Validation Error */

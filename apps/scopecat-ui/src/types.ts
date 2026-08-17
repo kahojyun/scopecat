@@ -99,6 +99,11 @@ export interface ProjectAnalysisSummaryPage {
   nextCursor?: number;
 }
 
+export interface RunAnalysisSummaryPage {
+  items: RunAnalysisSummary[];
+  nextCursor?: number;
+}
+
 export interface ProjectEvent {
   id: number;
   runId?: string;
@@ -175,6 +180,17 @@ export interface AnalysisPublication {
 
 export interface RunAnalysis extends AnalysisPublication {
   subject: "run";
+}
+
+export interface RunAnalysisSummary {
+  id: string;
+  title: string;
+  key?: string;
+  stepId?: string;
+  revision: number;
+  publicationHash: string;
+  inputCount: number;
+  outputCount: number;
 }
 
 export interface ProjectAnalysis extends AnalysisPublication {

@@ -119,3 +119,17 @@ class ConfigRegistryActivationRecord(_FrozenRegistryModel):
             msg = "previous registry entry id and content hash must be paired"
             raise ValueError(msg)
         return self
+
+
+class ConfigRegistryEntryPage(_FrozenRegistryModel):
+    """Newest-first keyset page of saved configuration revisions."""
+
+    items: tuple[ConfigRegistryEntry, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+
+class ConfigRegistryActivationPage(_FrozenRegistryModel):
+    """Newest-first keyset page of default configuration changes."""
+
+    items: tuple[ConfigRegistryActivationRecord, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)

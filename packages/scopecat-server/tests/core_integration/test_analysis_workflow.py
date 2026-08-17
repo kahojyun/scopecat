@@ -689,7 +689,7 @@ def test_analysis_publishes_typed_facts_and_owned_artifacts(tmp_path: Path) -> N
     assert published.fact("resonance").value == {"value": 5.1, "unit": "GHz"}
     assert published.artifact("fit-report").text() == ("# Fit report\n\nConverged.\n")
     assert published.artifact("fit-report").entry == entry
-    assert handle.published_analyses()[-1].id == "analysis-publication"
+    assert handle.published_analyses().items[0].id == "analysis-publication"
     with pytest.raises(TypeError, match="is fact"):
         published.dataset("resonance")
 

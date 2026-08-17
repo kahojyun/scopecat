@@ -38,6 +38,14 @@ from scopecat.runs.data import (
 from scopecat.sdk.compute import PYTHON_JSON_CODEC
 
 
+@dataclass(frozen=True, slots=True)
+class PublishedAnalysisPage:
+    """Bounded page of immutable analysis handles."""
+
+    items: tuple[PublishedAnalysis, ...]
+    next_cursor: int | None = None
+
+
 class _PublishedAnalysisSource(Protocol):
     def _analysis_artifact_entry(
         self,
@@ -264,4 +272,4 @@ class PublishedAnalysis:
         return output
 
 
-__all__ = ["PublishedAnalysis", "PublishedAnalysisArtifact"]
+__all__ = ["PublishedAnalysis", "PublishedAnalysisArtifact", "PublishedAnalysisPage"]

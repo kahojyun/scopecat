@@ -1,23 +1,36 @@
-import { GitCompareArrows, History, LoaderCircle, RotateCcw } from "lucide-react";
-import type { ConfigActivationRecord, ConfigRegistryOverview } from "../../api-contract";
-import { formatDateTime, shorten } from "../../lib/presentation";
+import {
+  ChevronDown,
+  GitCompareArrows,
+  History,
+  LoaderCircle,
+  RotateCcw,
+} from "lucide-react";
+import type {
+  ConfigActivationRecord,
+  ConfigRegistryEntry,
+  ConfigRegistryOverview,
+} from "../../api-contract";
+import { errorMessage, formatDateTime, shorten } from "../../lib/presentation";
 import { classes, secondaryButton } from "../../ui/styles";
 import { ConfigInlineEmpty } from "./ConfigUi";
 
 export function ConfigSummary({
   overview,
+  activeEntry,
   undoDisabled,
   undoPending,
   onUndo,
 }: {
   overview: ConfigRegistryOverview;
+  activeEntry?: ConfigRegistryEntry;
   undoDisabled: boolean;
   undoPending: boolean;
   onUndo: () => void;
 }) {
   const active = overview.activation;
   const history = overview.activation_history;
-  const defaultEntry = overview.entries.find((entry) => entry.id === active?.entry_id);
+  const defaultEntry =
+    activeEntry ?? overview.entries.find((entry) => entry.id === active?.entry_id);
   // Browser state cannot prove whether runtime changes were copied back to Git.
   const runtimeDerived =
     defaultEntry?.source.kind === "manual_parameter_updates" ||
@@ -46,11 +59,17 @@ export function ConfigSummary({
       <dl className="m-0 grid min-w-0 grid-cols-2 items-center border-r border-line px-3 py-[7px] max-[1100px]:border-r-0 max-[460px]:border-b">
         <div className="grid min-w-0 grid-cols-[1fr_auto] items-baseline gap-2 border-r border-line px-[9px]">
           <dt className={summaryLabel}>Saved versions</dt>
-          <dd className="m-0 text-[0.75rem] font-bold text-text-soft">{overview.entries.length}</dd>
+          <dd className="m-0 text-[0.75rem] font-bold text-text-soft">
+            {overview.entries.length}
+            {overview.entries_next_cursor !== undefined ? "+" : ""}
+          </dd>
         </div>
         <div className="grid min-w-0 grid-cols-[1fr_auto] items-baseline gap-2 px-[9px]">
           <dt className={summaryLabel}>Default changes</dt>
-          <dd className="m-0 text-[0.75rem] font-bold text-text-soft">{history.length}</dd>
+          <dd className="m-0 text-[0.75rem] font-bold text-text-soft">
+            {history.length}
+            {overview.activation_history_next_cursor !== undefined ? "+" : ""}
+          </dd>
         </div>
       </dl>
       <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-[9px] py-[7px] pr-[9px] pl-3 max-[1100px]:col-span-full max-[1100px]:border-t max-[1100px]:border-line max-[460px]:col-auto max-[460px]:border-t-0">
@@ -94,7 +113,19 @@ export function ConfigSummary({
   );
 }
 
-export function ActivationHistory({ history }: { history: ConfigActivationRecord[] }) {
+export function ActivationHistory({
+  history,
+  hasOlder,
+  loadingOlder,
+  olderError,
+  onLoadOlder,
+}: {
+  history: ConfigActivationRecord[];
+  hasOlder: boolean;
+  loadingOlder: boolean;
+  olderError: Error | null;
+  onLoadOlder: () => void;
+}) {
   return (
     <section
       className="rounded-lg border border-line bg-panel px-5 py-[18px]"
@@ -117,6 +148,7 @@ export function ActivationHistory({ history }: { history: ConfigActivationRecord
         </div>
         <span className="rounded-md border border-line px-[7px] py-1 text-[0.61rem] text-text-dim">
           {history.length}
+          {hasOlder ? "+" : ""}
         </span>
       </header>
       {history.length === 0 ? (
@@ -158,6 +190,28 @@ export function ActivationHistory({ history }: { history: ConfigActivationRecord
               </code>
             </li>
           ))}
+          {olderError && (
+            <li className="px-2 py-1 text-[0.61rem] text-red" role="status">
+              {errorMessage(olderError)}
+            </li>
+          )}
+          {hasOlder && (
+            <li>
+              <button
+                className={classes(secondaryButton, "w-full")}
+                disabled={loadingOlder}
+                onClick={onLoadOlder}
+                type="button"
+              >
+                {loadingOlder ? (
+                  <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />
+                ) : (
+                  <ChevronDown size={14} aria-hidden="true" />
+                )}
+                {loadingOlder ? "Loading older changes…" : "Load older changes"}
+              </button>
+            </li>
+          )}
         </ol>
       )}
     </section>
