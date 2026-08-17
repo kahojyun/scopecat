@@ -11,6 +11,7 @@ import {
   Settings2,
   Unplug,
 } from "lucide-react";
+import { parameterProposalKeys } from "./data/parameter-proposals/query-keys";
 import { getEvents, getHealth } from "./data/project-api";
 import { RunsWorkspace } from "./features/runs/RunsWorkspace";
 import { titleCase } from "./lib/presentation";
@@ -92,7 +93,7 @@ export default function App() {
       void queryClient.invalidateQueries({ queryKey: ["reviews"] });
       void queryClient.invalidateQueries({ queryKey: ["review"] });
       void queryClient.invalidateQueries({
-        queryKey: ["parameter-proposals"],
+        queryKey: parameterProposalKeys.all,
       });
     };
     const refreshAfterConnection = () => {

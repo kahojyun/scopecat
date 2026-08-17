@@ -3,6 +3,7 @@ import { CheckCircle2, GitCompareArrows, LoaderCircle, SlidersHorizontal } from 
 import { getRunAnalysis } from "../runs/run-api";
 import type { ConfigProfileSnapshot, ConfigRegistryEntry } from "../../api-contract";
 import { getRunParameterProposals } from "../../data/parameter-proposals/api";
+import { parameterProposalKeys } from "../../data/parameter-proposals/query-keys";
 import type { ParameterProposal } from "../../data/parameter-proposals/types";
 import { errorMessage, formatDateTime, shorten } from "../../lib/presentation";
 import { classes, primaryButton, secondaryButton } from "../../ui/styles";
@@ -47,7 +48,7 @@ export function ConfigEntryInspector({
   const candidateSource = entry.source.kind === "candidate_config" ? entry.source : undefined;
   const candidateRunId = candidateSource?.run_id;
   const candidateProposalsQuery = useQuery({
-    queryKey: ["parameter-proposals", candidateRunId],
+    queryKey: parameterProposalKeys.firstPage(candidateRunId!),
     queryFn: ({ signal }) => getRunParameterProposals(candidateRunId!, signal),
     enabled: candidateRunId !== undefined,
   });

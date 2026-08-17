@@ -24,6 +24,7 @@ import {
   getRunParameterProposals,
 } from "../../data/parameter-proposals/api";
 import type { ParameterProposal } from "../../data/parameter-proposals/types";
+import { parameterProposalKeys } from "../../data/parameter-proposals/query-keys";
 import { errorMessage, formatDateTime, shorten } from "../../lib/presentation";
 import { useConfirmationDialog } from "../../ui/ConfirmationDialog";
 import { classes, countBadge, detailCard } from "../../ui/styles";
@@ -36,7 +37,7 @@ export function RunProposals({ runId }: { runId: string }) {
   const { requestConfirmation, confirmationDialog } = useConfirmationDialog();
 
   const proposalsQuery = useInfiniteQuery({
-    queryKey: ["parameter-proposals", runId],
+    queryKey: parameterProposalKeys.infinite(runId),
     queryFn: ({ pageParam, signal }) =>
       pageParam === undefined
         ? getRunParameterProposals(runId, signal)
@@ -400,7 +401,7 @@ const proposalActionButton =
 async function invalidateProposalConsumers(queryClient: QueryClient, runId: string) {
   await Promise.all([
     queryClient.invalidateQueries({
-      queryKey: ["parameter-proposals", runId],
+      queryKey: parameterProposalKeys.run(runId),
     }),
     queryClient.invalidateQueries({ queryKey: ["events"] }),
     queryClient.invalidateQueries({ queryKey: ["run", runId] }),
