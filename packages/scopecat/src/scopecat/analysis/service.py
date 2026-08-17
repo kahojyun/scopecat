@@ -57,6 +57,7 @@ from scopecat.records.analysis import (
     AnalysisRecord,
     AnalysisRecordInput,
     AnalysisRecordOutput,
+    AnalysisSubject,
     AnalysisTableRecordOutput,
     AnalysisTableView,
     AnalysisTableViewSpec,
@@ -205,6 +206,16 @@ class PreparedProjectAnalysis:
     publication: AnalysisPublication | None
 
 
+@dataclass(frozen=True, slots=True)
+class _PreparedAnalysisContents:
+    """Immutable record and output contents shared by both publication owners."""
+
+    record: ContentEntry
+    entries: tuple[ContentEntry, ...]
+    models: tuple[ModelWrite, ...]
+    bytes: tuple[BytesWrite, ...]
+
+
 def save_analysis(
     *,
     services: ProjectStateServices,
@@ -330,38 +341,19 @@ def prepare_analysis(
         for output in saved_outputs
         if isinstance(output, AnalysisParameterProposalOutput)
     )
-    ref = record_content_ref(record_id=selected_record_id, kind="analysis")
     storage = services.runs
-    prepared_datasets = _prepare_analysis_datasets(
-        analysis_record_id=selected_record_id,
-        outputs=saved_outputs,
-    )
-    prepared_artifacts = _prepare_analysis_artifacts(
-        analysis_record_id=selected_record_id,
-        outputs=saved_outputs,
-    )
-    analysis_record = AnalysisRecord(
+    prepared_contents = _prepare_analysis_contents(
         subject=RunAnalysisSubject(run_id=run_id),
+        record_id=selected_record_id,
         title=title,
-        key=analysis_key,
+        analysis_key=analysis_key,
         revision=revision,
         publication_hash=publication_hash,
         step_id=step_id,
-        inputs=_analysis_record_inputs(inputs),
-        executions=list(executions),
-        outputs=_analysis_record_outputs(
-            saved_outputs,
-            dataset_references=prepared_datasets.references,
-            artifact_references=prepared_artifacts.references,
-            analysis_views=analysis_views,
-        ),
-    )
-    record = ContentEntry(
-        role="record",
-        id=selected_record_id,
-        kind="analysis",
-        media_type="application/json",
-        content_hash=model_wire_content_hash(analysis_record),
+        inputs=inputs,
+        executions=executions,
+        outputs=saved_outputs,
+        analysis_views=analysis_views,
     )
     prepared_proposals = prepare_parameter_change_proposal_contents(
         storage=storage,
@@ -369,7 +361,7 @@ def prepare_analysis(
         proposals=saved_proposals,
     )
     saved = SavedAnalysis(
-        record=record,
+        record=prepared_contents.record,
         analysis_key=analysis_key,
         inputs=tuple(inputs),
         executions=tuple(executions),
@@ -382,15 +374,13 @@ def prepare_analysis(
             run_id=run_id,
             entries=(
                 *prepared_proposals.entries,
-                *prepared_datasets.entries,
-                *prepared_artifacts.entries,
-                record,
+                *prepared_contents.entries,
             ),
             models=(
                 *prepared_proposals.writes,
-                ModelWrite(ref=ref, value=analysis_record),
+                *prepared_contents.models,
             ),
-            bytes=(*prepared_datasets.writes, *prepared_artifacts.writes),
+            bytes=prepared_contents.bytes,
         ),
     )
 
@@ -456,6 +446,60 @@ def prepare_project_analysis(
     revision = 1 if existing is None else existing.record.revision + 1
     base_record_id = f"analysis-{analysis_key}"
     record_id = base_record_id if revision == 1 else f"{base_record_id}-r{revision}"
+    prepared_contents = _prepare_analysis_contents(
+        subject=ProjectAnalysisSubject(),
+        record_id=record_id,
+        title=title,
+        analysis_key=analysis_key,
+        revision=revision,
+        publication_hash=publication_hash,
+        step_id=step_id,
+        inputs=inputs,
+        executions=executions,
+        outputs=outputs,
+        analysis_views=analysis_views,
+    )
+    saved = SavedAnalysis(
+        record=prepared_contents.record,
+        analysis_key=analysis_key,
+        inputs=tuple(inputs),
+        executions=tuple(executions),
+        outputs=tuple(outputs),
+    )
+    return PreparedProjectAnalysis(
+        saved=saved,
+        publication=AnalysisPublication(
+            manifest=AnalysisPublicationManifest(
+                record=prepared_contents.record,
+                contents=prepared_contents.entries,
+            ),
+            analysis_key=analysis_key,
+            revision=revision,
+            publication_hash=publication_hash,
+            title=title,
+            step_id=step_id,
+            input_count=len(inputs),
+            output_count=len(outputs),
+            models=prepared_contents.models,
+            bytes=prepared_contents.bytes,
+        ),
+    )
+
+
+def _prepare_analysis_contents(
+    *,
+    subject: AnalysisSubject,
+    record_id: str,
+    title: str,
+    analysis_key: str,
+    revision: int,
+    publication_hash: str,
+    step_id: str | None,
+    inputs: Sequence[AnalysisInput],
+    executions: Sequence[AnalysisExecution],
+    outputs: Sequence[AnalysisOutput],
+    analysis_views: Mapping[str, AnalysisTableView | AnalysisFigureView],
+) -> _PreparedAnalysisContents:
     prepared_datasets = _prepare_analysis_datasets(
         analysis_record_id=record_id,
         outputs=outputs,
@@ -465,7 +509,7 @@ def prepare_project_analysis(
         outputs=outputs,
     )
     analysis_record = AnalysisRecord(
-        subject=ProjectAnalysisSubject(),
+        subject=subject,
         title=title,
         key=analysis_key,
         revision=revision,
@@ -487,40 +531,20 @@ def prepare_project_analysis(
         media_type="application/json",
         content_hash=model_wire_content_hash(analysis_record),
     )
-    contents = (
-        *prepared_datasets.entries,
-        *prepared_artifacts.entries,
-        record,
-    )
-    saved = SavedAnalysis(
+    return _PreparedAnalysisContents(
         record=record,
-        analysis_key=analysis_key,
-        inputs=tuple(inputs),
-        executions=tuple(executions),
-        outputs=tuple(outputs),
-    )
-    return PreparedProjectAnalysis(
-        saved=saved,
-        publication=AnalysisPublication(
-            manifest=AnalysisPublicationManifest(
-                record=record,
-                contents=contents,
-            ),
-            analysis_key=analysis_key,
-            revision=revision,
-            publication_hash=publication_hash,
-            title=title,
-            step_id=step_id,
-            input_count=len(inputs),
-            output_count=len(outputs),
-            models=(
-                ModelWrite(
-                    ref=record_content_ref(record_id=record_id, kind="analysis"),
-                    value=analysis_record,
-                ),
-            ),
-            bytes=(*prepared_datasets.writes, *prepared_artifacts.writes),
+        entries=(
+            *prepared_datasets.entries,
+            *prepared_artifacts.entries,
+            record,
         ),
+        models=(
+            ModelWrite(
+                ref=record_content_ref(record_id=record_id, kind="analysis"),
+                value=analysis_record,
+            ),
+        ),
+        bytes=(*prepared_datasets.writes, *prepared_artifacts.writes),
     )
 
 
