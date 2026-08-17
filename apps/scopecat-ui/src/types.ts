@@ -94,6 +94,11 @@ export interface ProjectRunPage {
   nextCursor?: number;
 }
 
+export interface ProjectAnalysisSummaryPage {
+  items: ProjectAnalysisSummary[];
+  nextCursor?: number;
+}
+
 export interface ProjectEvent {
   id: number;
   runId?: string;

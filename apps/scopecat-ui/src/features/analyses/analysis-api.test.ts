@@ -4,6 +4,7 @@ import {
   getProjectAnalysis,
   getProjectAnalysisArtifactDownload,
   getProjectAnalysisSummaries,
+  getOlderProjectAnalysisSummaries,
 } from "./analysis-api";
 
 afterEach(() => {
@@ -16,14 +17,17 @@ describe("project analysis API", () => {
       Promise.resolve(
         jsonResponse({
           items: [projectAnalysisSummary("analysis-verify", 1)],
+          next_cursor: 17,
         }),
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const [analysis] = await getProjectAnalysisSummaries();
+    const page = await getProjectAnalysisSummaries();
+    const [analysis] = page.items;
 
-    expect(requestPath(fetchMock.mock.calls[0]![0])).toBe("/api/v1/analyses");
+    expect(requestPath(fetchMock.mock.calls[0]![0])).toBe("/api/v1/analyses?limit=100");
+    expect(page.nextCursor).toBe(17);
     expect(analysis).toMatchObject({
       id: "analysis-verify",
       key: "verify",
@@ -32,6 +36,24 @@ describe("project analysis API", () => {
       inputCount: 1,
       outputCount: 1,
     });
+  });
+
+  it("continues project analysis history from the server cursor", async () => {
+    const fetchMock = vi.fn((_input: string | URL | Request) =>
+      Promise.resolve(
+        jsonResponse({
+          items: [projectAnalysisSummary("analysis-older", 1)],
+          next_cursor: null,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const page = await getOlderProjectAnalysisSummaries(17);
+
+    expect(requestPath(fetchMock.mock.calls[0]![0])).toBe("/api/v1/analyses?limit=100&before=17");
+    expect(page.items[0]?.id).toBe("analysis-older");
+    expect(page.nextCursor).toBeUndefined();
   });
 
   it("loads exact inputs and outputs from the selected detail endpoint", async () => {

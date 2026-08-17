@@ -2213,18 +2213,32 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
             ]
             assert revised.artifact("report").text().endswith("Reviewed comparison.\n")
             assert lab.published_analysis("candidate-verification").id == revised.id
-            assert [item.id for item in lab.published_analyses()] == [
-                first.id,
-                revised.id,
-            ]
+            published_page = lab.published_analyses(limit=1)
+            assert [item.id for item in published_page.items] == [revised.id]
+            assert published_page.next_cursor is not None
+            older_published_page = lab.published_analyses(
+                limit=1,
+                before=published_page.next_cursor,
+            )
+            assert [item.id for item in older_published_page.items] == [first.id]
+            assert older_published_page.next_cursor is None
+            summary_page = runtime.application.analyses.list(limit=1)
             assert [
                 (
                     summary.entry.id,
                     summary.input_count,
                     summary.output_count,
                 )
-                for summary in runtime.application.analyses.list().items
-            ] == [(first.id, 2, 3), (revised.id, 2, 3)]
+                for summary in summary_page.items
+            ] == [(revised.id, 2, 3)]
+            assert summary_page.next_cursor is not None
+            assert [
+                summary.entry.id
+                for summary in runtime.application.analyses.list(
+                    limit=1,
+                    before=summary_page.next_cursor,
+                ).items
+            ] == [first.id]
             assert not any(
                 entry.kind == "analysis" for entry in baseline.manifest.records
             )
@@ -2357,9 +2371,9 @@ def test_project_analysis_consumes_project_datasets_facts_and_artifacts(
                 "Project consumer",
                 key="project-consumer",
             )
-            summary = consumer_context.analysis_dataset(source, "summary")
-            accepted = consumer_context.analysis_fact(source, "accepted")
-            report = consumer_context.analysis_artifact(source, "report")
+            summary = consumer_context.analysis_dataset("project-source", "summary")
+            accepted = consumer_context.analysis_fact("project-source", "accepted")
+            report = consumer_context.analysis_artifact("project-source", "report")
             consumer = (
                 consumer_context.result()
                 .fact(
@@ -2562,6 +2576,30 @@ def test_candidate_acceptance_requires_matching_cross_run_verification(
                 )
                 .save()
             )
+            verification_decision = verification.fact("decision")
+            with pytest.raises(
+                BackendConflict,
+                match="must identify an exact project analysis",
+            ):
+                runtime.application.config.publish_config(
+                    ConfigPublishCommand(
+                        source=CandidateConfigRevisionSource(
+                            run_id=baseline_id,
+                            proposal_id=proposal.id,
+                            acceptance=CrossRunCandidateAcceptance(
+                                decision=ProjectAnalysisDecisionReference(
+                                    analysis_record_id="candidate-comparison",
+                                    output_id="decision",
+                                    schema_id=verification_decision.schema_id,
+                                    schema_hash=verification_decision.schema_hash,
+                                )
+                            ),
+                        ),
+                        entry_id="logical-key-verification",
+                        actor="nightly-calibration",
+                        expected_generation=1,
+                    )
+                )
             accepted = lab.config.accept_verified(
                 proposal_analysis,
                 verified_by=(verification, "decision"),

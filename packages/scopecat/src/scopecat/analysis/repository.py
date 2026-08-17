@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.records.artifact import RunContentEntry
 from scopecat.runs.repository import RunBytesWrite, RunModelWrite
@@ -31,6 +31,36 @@ class AnalysisPublicationManifest(BaseModel):
         return self
 
 
+class AnalysisPublicationSummary(BaseModel):
+    """Bounded index projection for one project-level publication."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    record: RunContentEntry
+    title: str = Field(min_length=1)
+    analysis_key: str = Field(min_length=1)
+    revision: int = Field(ge=1)
+    publication_hash: str = Field(min_length=1)
+    step_id: str | None = None
+    input_count: int = Field(ge=0)
+    output_count: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_record(self) -> AnalysisPublicationSummary:
+        if self.record.role != "record" or self.record.kind != "analysis":
+            raise ValueError("analysis publication summary identity is invalid")
+        return self
+
+
+class AnalysisPublicationPage(BaseModel):
+    """Newest-first keyset page from the project analysis index."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    items: tuple[AnalysisPublicationSummary, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+
 @dataclass(frozen=True, slots=True)
 class AnalysisPublication:
     """Prepared project-level analysis content published atomically."""
@@ -39,6 +69,10 @@ class AnalysisPublication:
     analysis_key: str
     revision: int
     publication_hash: str
+    title: str
+    step_id: str | None
+    input_count: int
+    output_count: int
     models: tuple[RunModelWrite, ...] = ()
     bytes: tuple[RunBytesWrite, ...] = ()
 
@@ -46,9 +80,19 @@ class AnalysisPublication:
 class AnalysisRepository(Protocol):
     """Durable project-level analysis publication storage."""
 
-    def list_manifests(self) -> tuple[AnalysisPublicationManifest, ...]: ...
+    def list_summaries(
+        self,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> AnalysisPublicationPage: ...
 
     def read_manifest(self, record_id: str) -> AnalysisPublicationManifest: ...
+
+    def latest_manifest(
+        self,
+        analysis_key: str,
+    ) -> AnalysisPublicationManifest | None: ...
 
     def publish(self, publication: AnalysisPublication) -> None: ...
 
@@ -65,5 +109,7 @@ class AnalysisRepository(Protocol):
 __all__ = [
     "AnalysisPublication",
     "AnalysisPublicationManifest",
+    "AnalysisPublicationPage",
+    "AnalysisPublicationSummary",
     "AnalysisRepository",
 ]

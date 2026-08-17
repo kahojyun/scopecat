@@ -13,7 +13,10 @@ from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.analysis import AnalysisContext, AnalysisStep
 from scopecat.api.instruments import LabInstrumentOperations
-from scopecat.api.project_analysis import RemoteProjectAnalysisOperations
+from scopecat.api.project_analysis import (
+    PublishedAnalysisPage,
+    RemoteProjectAnalysisOperations,
+)
 from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.api.review import ExperimentReviewHandle
 from scopecat.api.run import RunHandle, run_handle_id
@@ -217,8 +220,13 @@ class LabClient:
             )
         return analysis.save()
 
-    def published_analyses(self) -> tuple[PublishedAnalysis, ...]:
-        return self._analyses.published_analyses()
+    def published_analyses(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> PublishedAnalysisPage:
+        return self._analyses.published_analyses(limit=limit, before=before)
 
     def published_analysis(self, selector: str) -> PublishedAnalysis:
         return self._analyses.published_analysis(selector)

@@ -1,14 +1,15 @@
-import { useEffect, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Atom, CircleOff, LoaderCircle } from "lucide-react";
+import { useEffect, useMemo, type ReactNode } from "react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { Atom, ChevronDown, CircleOff, LoaderCircle } from "lucide-react";
 import { errorMessage } from "../../lib/presentation";
-import type { ProjectAnalysis } from "../../types";
-import { classes, countBadge } from "../../ui/styles";
+import type { ProjectAnalysis, ProjectAnalysisSummary } from "../../types";
+import { classes, countBadge, secondaryButton } from "../../ui/styles";
 import { AnalysisPublicationView } from "./AnalysisPublicationView";
 import {
   getProjectAnalysis,
   getProjectAnalysisArtifactDownload,
   getProjectAnalysisSummaries,
+  getOlderProjectAnalysisSummaries,
 } from "./analysis-api";
 
 export function AnalysesWorkspace({
@@ -22,24 +23,35 @@ export function AnalysesWorkspace({
   onSelectAnalysis: (analysisId: string) => void;
   selectedAnalysisId?: string;
 }) {
-  const analyses = useQuery({
+  const analyses = useInfiniteQuery({
     queryKey: ["analyses", "project"],
-    queryFn: ({ signal }) => getProjectAnalysisSummaries(signal),
+    queryFn: ({ pageParam, signal }) =>
+      pageParam === undefined
+        ? getProjectAnalysisSummaries(signal)
+        : getOlderProjectAnalysisSummaries(pageParam, signal),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (page) => page.nextCursor,
     enabled: !daemonUnavailable,
   });
-  const selectedSummary =
-    analyses.data?.find((analysis) => analysis.id === selectedAnalysisId) ?? analyses.data?.at(-1);
+  const summaries = useMemo(() => {
+    const items = new Map<string, ProjectAnalysisSummary>();
+    for (const page of analyses.data?.pages ?? []) {
+      for (const analysis of page.items) items.set(analysis.id, analysis);
+    }
+    return [...items.values()];
+  }, [analyses.data]);
+  const selectedId = selectedAnalysisId ?? summaries[0]?.id;
   const selectedAnalysis = useQuery({
-    queryKey: ["analyses", "project", selectedSummary?.id, "detail"],
-    queryFn: ({ signal }) => getProjectAnalysis(selectedSummary!.id, signal),
-    enabled: !daemonUnavailable && selectedSummary !== undefined,
+    queryKey: ["analyses", "project", selectedId, "detail"],
+    queryFn: ({ signal }) => getProjectAnalysis(selectedId!, signal),
+    enabled: !daemonUnavailable && selectedId !== undefined,
   });
 
   useEffect(() => {
-    if (selectedSummary && selectedSummary.id !== selectedAnalysisId) {
-      onSelectAnalysis(selectedSummary.id);
+    if (selectedId && selectedAnalysisId === undefined) {
+      onSelectAnalysis(selectedId);
     }
-  }, [onSelectAnalysis, selectedAnalysisId, selectedSummary]);
+  }, [onSelectAnalysis, selectedAnalysisId, selectedId]);
 
   if (daemonUnavailable) {
     return (
@@ -59,7 +71,7 @@ export function AnalysesWorkspace({
       />
     );
   }
-  if (analyses.isError) {
+  if (analyses.isError && analyses.data === undefined) {
     return (
       <WorkspaceMessage
         icon={<CircleOff />}
@@ -68,7 +80,7 @@ export function AnalysesWorkspace({
       />
     );
   }
-  if (!selectedSummary) {
+  if (!selectedId) {
     return (
       <WorkspaceMessage
         icon={<Atom />}
@@ -91,14 +103,17 @@ export function AnalysesWorkspace({
           >
             Project analyses
           </h2>
-          <span className={countBadge}>{analyses.data.length}</span>
+          <span className={countBadge}>
+            {summaries.length}
+            {analyses.hasNextPage ? "+" : ""}
+          </span>
         </div>
         <div className="grid gap-1.5 max-[900px]:grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
-          {analyses.data.map((analysis) => (
+          {summaries.map((analysis) => (
             <button
               className={classes(
                 "grid cursor-pointer gap-1 rounded-md border border-transparent bg-transparent px-2.5 py-2.5 text-left text-text-soft hover:bg-panel",
-                analysis.id === selectedSummary.id && "border-line-strong bg-panel",
+                analysis.id === selectedId && "border-line-strong bg-panel",
               )}
               key={analysis.id}
               onClick={() => onSelectAnalysis(analysis.id)}
@@ -120,6 +135,26 @@ export function AnalysesWorkspace({
               </span>
             </button>
           ))}
+          {analyses.isFetchNextPageError ? (
+            <p className="mx-2 my-1 text-[0.61rem] leading-[1.4] text-red" role="status">
+              {errorMessage(analyses.error)}
+            </p>
+          ) : null}
+          {analyses.hasNextPage ? (
+            <button
+              className={classes(secondaryButton, "w-full")}
+              disabled={analyses.isFetchingNextPage}
+              onClick={() => void analyses.fetchNextPage()}
+              type="button"
+            >
+              {analyses.isFetchingNextPage ? (
+                <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />
+              ) : (
+                <ChevronDown size={14} aria-hidden="true" />
+              )}
+              {analyses.isFetchingNextPage ? "Loading older analyses…" : "Load older analyses"}
+            </button>
+          ) : null}
         </div>
       </aside>
 
@@ -128,7 +163,7 @@ export function AnalysesWorkspace({
           <WorkspaceMessage
             icon={<LoaderCircle className="animate-spin" />}
             title="Loading analysis detail"
-            detail={`Reading ${selectedSummary.id} and its exact output provenance.`}
+            detail={`Reading ${selectedId} and its exact output provenance.`}
           />
         ) : selectedAnalysis.isError ? (
           <WorkspaceMessage

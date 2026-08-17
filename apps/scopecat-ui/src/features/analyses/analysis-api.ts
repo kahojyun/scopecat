@@ -1,19 +1,44 @@
 import type {
-  ProjectAnalysisList,
+  ProjectAnalysisPage as ProjectAnalysisPageView,
   ProjectAnalysisSummary as ProjectAnalysisSummaryView,
   ProjectAnalysisView,
   RunContentEntry,
 } from "../../api-contract";
 import { apiClient, apiData } from "../../api-client";
 import { titleCase } from "../../lib/presentation";
-import type { ContentEntry, ProjectAnalysis, ProjectAnalysisSummary } from "../../types";
+import type {
+  ContentEntry,
+  ProjectAnalysis,
+  ProjectAnalysisSummary,
+  ProjectAnalysisSummaryPage,
+} from "../../types";
 import { analysisOutput } from "./analysis-model";
 
 export async function getProjectAnalysisSummaries(
   signal?: AbortSignal,
-): Promise<ProjectAnalysisSummary[]> {
-  const response = await apiData(apiClient.GET("/api/v1/analyses", { signal }));
-  return normalizeProjectAnalyses(response);
+): Promise<ProjectAnalysisSummaryPage> {
+  return normalizeProjectAnalyses(
+    await apiData(
+      apiClient.GET("/api/v1/analyses", {
+        params: { query: { limit: 100 } },
+        signal,
+      }),
+    ),
+  );
+}
+
+export async function getOlderProjectAnalysisSummaries(
+  before: number,
+  signal?: AbortSignal,
+): Promise<ProjectAnalysisSummaryPage> {
+  return normalizeProjectAnalyses(
+    await apiData(
+      apiClient.GET("/api/v1/analyses", {
+        params: { query: { limit: 100, before } },
+        signal,
+      }),
+    ),
+  );
 }
 
 export async function getProjectAnalysis(
@@ -50,8 +75,11 @@ export async function getProjectAnalysisArtifactDownload(
   };
 }
 
-function normalizeProjectAnalyses(response: ProjectAnalysisList): ProjectAnalysisSummary[] {
-  return response.items.map(normalizeProjectAnalysisSummary);
+function normalizeProjectAnalyses(response: ProjectAnalysisPageView): ProjectAnalysisSummaryPage {
+  return {
+    items: response.items.map(normalizeProjectAnalysisSummary),
+    nextCursor: response.next_cursor ?? undefined,
+  };
 }
 
 function normalizeProjectAnalysisSummary(

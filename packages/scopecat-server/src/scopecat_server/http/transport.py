@@ -66,7 +66,7 @@ from scopecat.daemon.views import (
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
     ParameterProposalListView,
-    ProjectAnalysisListView,
+    ProjectAnalysisPage,
     ProjectAnalysisView,
     RunAnalysisListView,
     RunAnalysisView,
@@ -537,8 +537,11 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         return application.runs.get_run_analysis(run_id, selector)
 
     @app.get(f"{_API_PREFIX}/analyses")
-    def list_project_analyses() -> ProjectAnalysisListView:
-        return application.analyses.list()
+    def list_project_analyses(
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> ProjectAnalysisPage:
+        return application.analyses.list(limit=limit, before=before)
 
     @app.post(f"{_API_PREFIX}/analyses", status_code=201)
     def save_project_analysis(command: AnalysisSaveCommand) -> AnalysisSaveReceipt:

@@ -3738,13 +3738,18 @@ export interface components {
             schema_hash: components["schemas"]["Sha256ContentHash"];
             schema_id: components["schemas"]["_NonEmptyText"];
         };
-        /** ProjectAnalysisListView */
-        ProjectAnalysisListView: {
+        /**
+         * ProjectAnalysisPage
+         * @description Newest-first keyset page of project analysis summaries.
+         */
+        ProjectAnalysisPage: {
             /**
              * Items
              * @default []
              */
             items: components["schemas"]["ProjectAnalysisSummary"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
         };
         /**
          * ProjectAnalysisSubject
@@ -4910,7 +4915,10 @@ export type $defs = Record<string, never>;
 export interface operations {
     list_project_analyses_api_v1_analyses_get: {
         parameters: {
-            query?: never;
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4923,7 +4931,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectAnalysisListView"];
+                    "application/json": components["schemas"]["ProjectAnalysisPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

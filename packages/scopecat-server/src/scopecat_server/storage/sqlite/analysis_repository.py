@@ -14,6 +14,8 @@ from pydantic_core import PydanticSerializationError
 from scopecat.analysis.repository import (
     AnalysisPublication,
     AnalysisPublicationManifest,
+    AnalysisPublicationPage,
+    AnalysisPublicationSummary,
 )
 from scopecat.kernel.errors import Conflict, DataIntegrityError, NotFound, StorageError
 from scopecat.kernel.problems import (
@@ -50,27 +52,85 @@ class SQLiteAnalysisRepository:
         self.sqlite = database
         self.objects = ImmutableObjectStore(objects)
 
-    def list_manifests(self) -> tuple[AnalysisPublicationManifest, ...]:
+    def list_summaries(
+        self,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> AnalysisPublicationPage:
+        """Return one newest-first keyset page without reading content objects."""
+
         try:
             with self.sqlite.read_connection() as connection:
-                rows = cast(
-                    "list[sqlite3.Row]",
+                if before is None:
+                    rows = cast(
+                        "list[sqlite3.Row]",
+                        connection.execute(
+                            """
+                            SELECT sequence, manifest_json, title, analysis_key,
+                                   revision, publication_hash, step_id,
+                                   input_count, output_count
+                            FROM analysis_publications
+                            ORDER BY sequence DESC
+                            LIMIT ?
+                            """,
+                            (limit + 1,),
+                        ).fetchall(),
+                    )
+                else:
+                    rows = cast(
+                        "list[sqlite3.Row]",
+                        connection.execute(
+                            """
+                            SELECT sequence, manifest_json, title, analysis_key,
+                                   revision, publication_hash, step_id,
+                                   input_count, output_count
+                            FROM analysis_publications
+                            WHERE sequence < ?
+                            ORDER BY sequence DESC
+                            LIMIT ?
+                            """,
+                            (before, limit + 1),
+                        ).fetchall(),
+                    )
+            selected = rows[:limit]
+            return AnalysisPublicationPage(
+                items=tuple(_summary(row) for row in selected),
+                next_cursor=(
+                    cast("int", selected[-1]["sequence"]) if len(rows) > limit else None
+                ),
+            )
+        except (sqlite3.Error, ValidationError) as error:
+            raise _storage_failure("analyses") from error
+
+    def latest_manifest(
+        self,
+        analysis_key: str,
+    ) -> AnalysisPublicationManifest | None:
+        try:
+            with self.sqlite.read_connection() as connection:
+                row = cast(
+                    "sqlite3.Row | None",
                     connection.execute(
                         """
                         SELECT manifest_json
                         FROM analysis_publications
-                        ORDER BY sequence
-                        """
-                    ).fetchall(),
+                        WHERE analysis_key = ?
+                        ORDER BY revision DESC
+                        LIMIT 1
+                        """,
+                        (analysis_key,),
+                    ).fetchone(),
                 )
-            return tuple(
-                AnalysisPublicationManifest.model_validate_json(
+            return (
+                None
+                if row is None
+                else AnalysisPublicationManifest.model_validate_json(
                     cast("str", row["manifest_json"])
                 )
-                for row in rows
             )
         except (sqlite3.Error, ValidationError) as error:
-            raise _storage_failure("analyses") from error
+            raise _storage_failure(analysis_key) from error
 
     def read_manifest(self, record_id: str) -> AnalysisPublicationManifest:
         _validate_identity(record_id, "record.json")
@@ -169,14 +229,18 @@ class SQLiteAnalysisRepository:
                 """
                 INSERT INTO analysis_publications(
                     record_id, analysis_key, revision, publication_hash,
-                    manifest_json
-                ) VALUES (?, ?, ?, ?, ?)
+                    title, step_id, input_count, output_count, manifest_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record_id,
                     publication.analysis_key,
                     publication.revision,
                     publication.publication_hash,
+                    publication.title,
+                    publication.step_id,
+                    publication.input_count,
+                    publication.output_count,
                     manifest_json,
                 ),
             )
@@ -239,6 +303,22 @@ def _encode_model(model: BaseModel) -> bytes:
             separators=(",", ":"),
         ).encode()
         + b"\n"
+    )
+
+
+def _summary(row: sqlite3.Row) -> AnalysisPublicationSummary:
+    manifest = AnalysisPublicationManifest.model_validate_json(
+        cast("str", row["manifest_json"])
+    )
+    return AnalysisPublicationSummary(
+        record=manifest.record,
+        title=cast("str", row["title"]),
+        analysis_key=cast("str", row["analysis_key"]),
+        revision=cast("int", row["revision"]),
+        publication_hash=cast("str", row["publication_hash"]),
+        step_id=cast("str | None", row["step_id"]),
+        input_count=cast("int", row["input_count"]),
+        output_count=cast("int", row["output_count"]),
     )
 
 

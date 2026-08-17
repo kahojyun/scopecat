@@ -513,6 +513,10 @@ def prepare_project_analysis(
             analysis_key=analysis_key,
             revision=revision,
             publication_hash=publication_hash,
+            title=title,
+            step_id=step_id,
+            input_count=len(inputs),
+            output_count=len(outputs),
             models=(
                 RunModelWrite(
                     ref=record_content_ref(record_id=record_id, kind="analysis"),
@@ -772,17 +776,18 @@ def _latest_project_analysis(
     repository: AnalysisRepository,
     analysis_key: str,
 ) -> _ExistingAnalysis | None:
-    matches: list[_ExistingAnalysis] = []
-    for manifest in repository.list_manifests():
-        entry = manifest.record
-        record = repository.read_model(
+    manifest = repository.latest_manifest(analysis_key)
+    if manifest is None:
+        return None
+    entry = manifest.record
+    return _ExistingAnalysis(
+        entry=entry,
+        record=repository.read_model(
             entry.id,
             record_content_ref(record_id=entry.id, kind="analysis"),
             AnalysisRecord,
-        )
-        if record.key == analysis_key:
-            matches.append(_ExistingAnalysis(entry=entry, record=record))
-    return max(matches, key=lambda item: item.record.revision, default=None)
+        ),
+    )
 
 
 def _revisioned_outputs(

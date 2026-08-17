@@ -12,7 +12,7 @@ from pydantic import JsonValue
 from scopecat.control.models import DurableEventInput
 from scopecat.daemon.views import (
     AnalysisContentBytesView,
-    ProjectAnalysisListView,
+    ProjectAnalysisPage,
     ProjectAnalysisSummary,
     ProjectAnalysisView,
 )
@@ -60,34 +60,42 @@ class AnalysisService:
         self._control = control
         self._publication_lock = Lock()
 
-    def list(self) -> ProjectAnalysisListView:
+    def list(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ProjectAnalysisPage:
         with self._analysis_errors():
-            return ProjectAnalysisListView(
+            page = self._repository.list_summaries(limit=limit, before=before)
+            return ProjectAnalysisPage(
                 items=tuple(
-                    self._summary(manifest.record.id)
-                    for manifest in self._repository.list_manifests()
-                )
+                    ProjectAnalysisSummary(
+                        entry=summary.record,
+                        title=summary.title,
+                        key=summary.analysis_key,
+                        revision=summary.revision,
+                        publication_hash=summary.publication_hash,
+                        step_id=summary.step_id,
+                        input_count=summary.input_count,
+                        output_count=summary.output_count,
+                    )
+                    for summary in page.items
+                ),
+                next_cursor=page.next_cursor,
             )
 
     def get(self, selector: str) -> ProjectAnalysisView:
         with self._analysis_errors():
-            manifests = self._repository.list_manifests()
-            exact = next(
-                (manifest for manifest in manifests if manifest.record.id == selector),
-                None,
-            )
-            if exact is not None:
-                return self._view(exact.record.id)
-            selected_key = artifact_slug(selector, fallback="analysis")
-            matches = tuple(
-                view
-                for manifest in manifests
-                for view in (self._view(manifest.record.id),)
-                if view.analysis.key == selected_key
-            )
-            if not matches:
-                return self._view(selector)
-            return max(matches, key=lambda item: item.analysis.revision)
+            try:
+                manifest = self._repository.read_manifest(selector)
+            except NotFound as exact_error:
+                manifest = self._repository.latest_manifest(
+                    artifact_slug(selector, fallback="analysis")
+                )
+                if manifest is None:
+                    raise exact_error
+            return self._view(manifest.record.id)
 
     def save(self, command: AnalysisSaveCommand) -> AnalysisSaveReceipt:
         from scopecat.analysis.service import (
@@ -185,7 +193,12 @@ class AnalysisService:
     ) -> None:
         """Require evidence over both the proposal source and a candidate run."""
 
-        view = self.get(reference.analysis_record_id)
+        try:
+            view = self._view(reference.analysis_record_id)
+        except NotFound as error:
+            raise BackendConflict(
+                "candidate verification must identify an exact project analysis"
+            ) from error
         output = next(
             (
                 output
@@ -274,25 +287,6 @@ class AnalysisService:
             entry=manifest.record,
             analysis=record,
             contents=manifest.contents,
-        )
-
-    def _summary(self, record_id: str) -> ProjectAnalysisSummary:
-        manifest = self._repository.read_manifest(record_id)
-        record = self._repository.read_model(
-            record_id,
-            record_content_ref(record_id=record_id, kind="analysis"),
-            AnalysisRecord,
-        )
-        assert record.key is not None
-        return ProjectAnalysisSummary(
-            entry=manifest.record,
-            title=record.title,
-            key=record.key,
-            revision=record.revision,
-            publication_hash=record.publication_hash,
-            step_id=record.step_id,
-            input_count=len(record.inputs),
-            output_count=len(record.outputs),
         )
 
     @contextmanager

@@ -17,8 +17,7 @@ from scopecat.api._remote import analysis_input_payload, analysis_output_payload
 from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
-    ProjectAnalysisListView,
-    ProjectAnalysisSummary,
+    ProjectAnalysisPage,
     ProjectAnalysisView,
 )
 from scopecat.daemon.wire import AnalysisSaveCommand
@@ -32,6 +31,14 @@ from scopecat.runs.data import (
     RunArtifactTextResult,
     RunRecordJsonResult,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class PublishedAnalysisPage:
+    """Bounded page of immutable project analysis handles."""
+
+    items: tuple[PublishedAnalysis, ...]
+    next_cursor: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,9 +78,18 @@ class RemoteProjectAnalysisOperations:
             outputs=tuple(outputs),
         )
 
-    def published_analyses(self) -> tuple[PublishedAnalysis, ...]:
-        return tuple(
-            self.published_analysis(summary.entry.id) for summary in self.summaries()
+    def published_analyses(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> PublishedAnalysisPage:
+        summaries = self.summaries(limit=limit, before=before)
+        return PublishedAnalysisPage(
+            items=tuple(
+                self.published_analysis(summary.entry.id) for summary in summaries.items
+            ),
+            next_cursor=summaries.next_cursor,
         )
 
     def published_analysis(self, selector: str) -> PublishedAnalysis:
@@ -81,11 +97,13 @@ class RemoteProjectAnalysisOperations:
             source=self, view=self.client.project_analysis(selector)
         )
 
-    def views(self) -> ProjectAnalysisListView:
-        return self.client.project_analyses()
-
-    def summaries(self) -> tuple[ProjectAnalysisSummary, ...]:
-        return self.views().items
+    def summaries(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ProjectAnalysisPage:
+        return self.client.project_analyses(limit=limit, before=before)
 
     def view(self, selector: str) -> ProjectAnalysisView:
         return self.client.project_analysis(selector)
@@ -181,4 +199,4 @@ def _require_kind(actual: str, expected: str | None) -> None:
         raise TypeError(f"analysis content is {actual!r}, not {expected!r}")
 
 
-__all__ = ["RemoteProjectAnalysisOperations"]
+__all__ = ["PublishedAnalysisPage", "RemoteProjectAnalysisOperations"]

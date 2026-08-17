@@ -855,7 +855,7 @@ class AnalysisContext:
             if run is not None:
                 raise TypeError("run is only valid when selecting an analysis by name")
             return analysis
-        return (run or self._required_run()).published_analysis(analysis)
+        return (run or self._owner).published_analysis(analysis)
 
     def _retain_input(self, input_ref: AnalysisInput) -> None:
         existing = self._accessed_inputs.setdefault(input_ref.id, input_ref)

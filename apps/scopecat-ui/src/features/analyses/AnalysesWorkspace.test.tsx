@@ -6,16 +6,24 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectAnalysis, ProjectAnalysisSummary } from "../../types";
 import { AnalysesWorkspace } from "./AnalysesWorkspace";
-import { getProjectAnalysis, getProjectAnalysisSummaries } from "./analysis-api";
+import {
+  getOlderProjectAnalysisSummaries,
+  getProjectAnalysis,
+  getProjectAnalysisSummaries,
+} from "./analysis-api";
 
 vi.mock("./analysis-api", () => ({
   getProjectAnalysis: vi.fn(),
   getProjectAnalysisSummaries: vi.fn(),
+  getOlderProjectAnalysisSummaries: vi.fn(),
   getProjectAnalysisArtifactDownload: vi.fn(),
 }));
 
 beforeEach(() => {
-  vi.mocked(getProjectAnalysisSummaries).mockResolvedValue([projectAnalysisSummary()]);
+  vi.mocked(getProjectAnalysisSummaries).mockResolvedValue({
+    items: [projectAnalysisSummary()],
+  });
+  vi.mocked(getOlderProjectAnalysisSummaries).mockResolvedValue({ items: [] });
   vi.mocked(getProjectAnalysis).mockResolvedValue(projectAnalysis());
 });
 
@@ -41,12 +49,29 @@ describe("AnalysesWorkspace", () => {
   });
 
   it("explains how to create the first project analysis", async () => {
-    vi.mocked(getProjectAnalysisSummaries).mockResolvedValue([]);
+    vi.mocked(getProjectAnalysisSummaries).mockResolvedValue({ items: [] });
 
     renderWorkspace(vi.fn());
 
     expect(await screen.findByText("No project analyses saved")).toBeVisible();
     expect(screen.getByText(/lab\.analyze\(step\)/)).toBeVisible();
+  });
+
+  it("loads older project analyses through the page cursor", async () => {
+    vi.mocked(getProjectAnalysisSummaries).mockResolvedValue({
+      items: [projectAnalysisSummary()],
+      nextCursor: 17,
+    });
+    vi.mocked(getOlderProjectAnalysisSummaries).mockResolvedValue({
+      items: [projectAnalysisSummary("analysis-older", "Older verification", 1)],
+    });
+
+    renderWorkspace(vi.fn());
+
+    fireEvent.click(await screen.findByRole("button", { name: "Load older analyses" }));
+
+    expect(await screen.findByText("Older verification")).toBeVisible();
+    expect(getOlderProjectAnalysisSummaries).toHaveBeenCalledWith(17, expect.any(AbortSignal));
   });
 });
 
@@ -65,13 +90,17 @@ function renderWorkspace(onOpenRun: (runId: string) => void) {
   );
 }
 
-function projectAnalysisSummary(): ProjectAnalysisSummary {
+function projectAnalysisSummary(
+  id = "analysis-candidate-verification-r2",
+  title = "Candidate verification",
+  revision = 2,
+): ProjectAnalysisSummary {
   return {
-    id: "analysis-candidate-verification-r2",
-    title: "Candidate verification",
+    id,
+    title,
     key: "candidate-verification",
     stepId: "candidate-verification",
-    revision: 2,
+    revision,
     publicationHash: "sha256:publication",
     inputCount: 1,
     outputCount: 1,

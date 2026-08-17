@@ -332,8 +332,11 @@ class ProjectAnalysisSummary(_ViewModel):
         return self
 
 
-class ProjectAnalysisListView(_ViewModel):
+class ProjectAnalysisPage(_ViewModel):
+    """Newest-first keyset page of project analysis summaries."""
+
     items: tuple[ProjectAnalysisSummary, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
 
 
 class AnalysisContentBytesView(_ViewModel):
@@ -674,7 +677,7 @@ __all__ = [
     "MeasurementTraceSeries",
     "ParameterProposalListView",
     "ParameterProposalView",
-    "ProjectAnalysisListView",
+    "ProjectAnalysisPage",
     "ProjectAnalysisSummary",
     "ProjectAnalysisView",
     "RunAdmissionView",
