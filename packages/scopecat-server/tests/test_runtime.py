@@ -16,6 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 from scopecat.adaptive_domains import DomainProposalAttempt, ResolvedDomainFragment
 from scopecat.analysis.datasets import DerivedDataset
+from scopecat.api.analysis import Analysis, AnalysisContext, analysis_step
 from scopecat.api.lab import LabClient
 from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.application import LabApplication
@@ -2104,11 +2105,12 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
             baseline = lab.get_run(baseline_id)
             candidate = lab.get_run(candidate_id)
 
-            def publish(report: str) -> PublishedAnalysis:
-                context = lab.analysis(
-                    "Candidate verification",
-                    key="candidate-verification",
-                )
+            @analysis_step(id="candidate-verification")
+            def candidate_verification(
+                context: AnalysisContext,
+                *,
+                report: str,
+            ) -> Analysis:
                 baseline_data = context.measurements(
                     baseline,
                     id="baseline",
@@ -2126,7 +2128,7 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
                     "float", candidate_data.data_vars["signal"].values[0]
                 )
                 return (
-                    context.result()
+                    context.result("Candidate verification")
                     .dataset(
                         "comparison",
                         pa.table(
@@ -2144,8 +2146,10 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
                         filename="candidate-verification.md",
                         media_type="text/markdown",
                     )
-                    .save()
                 )
+
+            def publish(report: str) -> PublishedAnalysis:
+                return lab.analyze(candidate_verification(report=report))
 
             first = publish("# Candidate verification\n\nInitial comparison.\n")
             retry = publish("# Candidate verification\n\nInitial comparison.\n")
@@ -2193,6 +2197,22 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
             assert not any(
                 entry.kind == "analysis" for entry in candidate.manifest.records
             )
+            project_analysis_events = [
+                event
+                for event in _events(runtime).items
+                if event.kind == "project_analysis_saved"
+            ]
+            assert [event.run_id for event in project_analysis_events] == [None, None]
+            assert [
+                event.payload["record_id"] for event in project_analysis_events
+            ] == [first.id, revised.id]
+
+            missing_analysis = transport.get("/api/v1/analyses/missing")
+            missing_content = transport.get(
+                f"/api/v1/analyses/{revised.id}/contents/missing/bytes"
+            )
+            assert missing_analysis.status_code == 404
+            assert missing_content.status_code == 404
 
     with (
         LocalDaemonRuntime(tmp_path) as restarted,
@@ -2203,6 +2223,65 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
         )
         assert restored.id == "analysis-candidate-verification-r2"
         assert restored.artifact("report").text().endswith("Reviewed comparison.\n")
+
+
+def test_project_analysis_publication_rolls_back_index_and_event_together(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        run_id = _complete_signal_run(
+            runtime,
+            submission_id="project-analysis-atomic",
+            signal=0.8,
+        )
+        with TestClient(runtime.app()) as transport:
+            lab = LabClient(_daemon_client(transport))
+            context = lab.analysis("Atomic comparison", key="atomic-comparison")
+            context.measurements(
+                lab.get_run(run_id),
+                id="baseline",
+                role="baseline",
+            )
+            result = context.result().fact("decision", True)
+            append_event = SQLiteControlPlane.append_event_in_transaction
+
+            def fail_project_analysis_event(
+                control: SQLiteControlPlane,
+                connection: sqlite3.Connection,
+                event: DurableEventInput,
+            ) -> DurableEvent:
+                if event.kind == "project_analysis_saved":
+                    raise RuntimeError("project analysis event publication failed")
+                return append_event(control, connection, event)
+
+            with monkeypatch.context() as patch:
+                patch.setattr(
+                    SQLiteControlPlane,
+                    "append_event_in_transaction",
+                    fail_project_analysis_event,
+                )
+                with pytest.raises(
+                    RuntimeError,
+                    match="project analysis event publication failed",
+                ):
+                    result.save()
+
+            assert runtime.application.analyses.list().items == ()
+            assert [
+                event.kind
+                for event in _events(runtime).items
+                if event.kind == "project_analysis_saved"
+            ] == []
+
+            saved = result.save()
+
+            assert saved.id == "analysis-atomic-comparison"
+            assert [
+                event.kind
+                for event in _events(runtime).items
+                if event.kind == "project_analysis_saved"
+            ] == ["project_analysis_saved"]
 
 
 def test_candidate_acceptance_requires_matching_cross_run_verification(

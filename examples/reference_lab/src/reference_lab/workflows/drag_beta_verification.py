@@ -80,6 +80,7 @@ def evaluate_drag_beta_candidate(
     )
 
 
+@sc.analysis_step(id=DRAG_BETA_VERIFICATION_KEY)
 def drag_beta_candidate_verification(
     context: sc.AnalysisContext,
     *,

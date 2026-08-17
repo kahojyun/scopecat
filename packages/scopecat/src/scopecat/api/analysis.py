@@ -1091,7 +1091,7 @@ class AnalysisInvocation:
     arguments: tuple[tuple[str, object], ...]
 
     def run(self, context: AnalysisContext) -> Analysis:
-        """Evaluate the analysis function against one completed run."""
+        """Evaluate the analysis function against its declared inputs."""
 
         return self._definition(context, **dict(self.arguments))
 

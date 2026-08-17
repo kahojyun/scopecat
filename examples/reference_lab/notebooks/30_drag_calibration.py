@@ -10,7 +10,6 @@ from reference_lab.notebook import show
 from reference_lab.workflows.drag_beta_analysis import drag_beta_analysis
 from reference_lab.workflows.drag_beta_experiment import drag_beta_experiment
 from reference_lab.workflows.drag_beta_verification import (
-    DRAG_BETA_VERIFICATION_KEY,
     DRAG_BETA_VERIFICATION_SCHEMA,
     drag_beta_candidate_verification,
 )
@@ -40,14 +39,12 @@ candidate_run = lab.run(
 )
 
 # %%
-verification = drag_beta_candidate_verification(
-    lab.analysis(
-        "DRAG beta candidate verification",
-        key=DRAG_BETA_VERIFICATION_KEY,
-    ),
-    baseline_run=baseline_run,
-    candidate_run=candidate_run,
-).save()
+verification = lab.analyze(
+    drag_beta_candidate_verification(
+        baseline_run=baseline_run,
+        candidate_run=candidate_run,
+    )
+)
 verification_decision = verification.fact_as(
     "decision",
     DRAG_BETA_VERIFICATION_SCHEMA,

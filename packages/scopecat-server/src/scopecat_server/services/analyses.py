@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from base64 import b64encode
+from collections.abc import Generator
+from contextlib import contextmanager
 
+from scopecat.control.models import DurableEventInput
 from scopecat.daemon.views import (
     AnalysisContentBytesView,
     ProjectAnalysisListView,
     ProjectAnalysisView,
 )
 from scopecat.daemon.wire import AnalysisSaveCommand, AnalysisSaveReceipt
+from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError, NotFound
 from scopecat.kernel.ids import artifact_slug
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisRecord, ProjectAnalysisOutputReference
@@ -24,8 +28,9 @@ from scopecat.runs.refs import (
 from scopecat_server.storage.sqlite.analysis_repository import (
     SQLiteAnalysisRepository,
 )
+from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
 
-from ..errors import BackendConflict
+from ..errors import BackendConflict, BackendNotFound
 from .runs import analysis_output_from_payload
 
 
@@ -37,95 +42,117 @@ class AnalysisService:
         *,
         repository: SQLiteAnalysisRepository,
         services: ProjectStateServices,
+        control: SQLiteControlPlane,
     ) -> None:
         self._repository = repository
         self._services = services
+        self._control = control
 
     def list(self) -> ProjectAnalysisListView:
-        return ProjectAnalysisListView(
-            items=tuple(
-                self._view(manifest.record.id)
-                for manifest in self._repository.list_manifests()
+        with self._analysis_errors():
+            return ProjectAnalysisListView(
+                items=tuple(
+                    self._view(manifest.record.id)
+                    for manifest in self._repository.list_manifests()
+                )
             )
-        )
 
     def get(self, selector: str) -> ProjectAnalysisView:
-        manifests = self._repository.list_manifests()
-        exact = next(
-            (manifest for manifest in manifests if manifest.record.id == selector),
-            None,
-        )
-        if exact is not None:
-            return self._view(exact.record.id)
-        selected_key = artifact_slug(selector, fallback="analysis")
-        matches = tuple(
-            view
-            for manifest in manifests
-            for view in (self._view(manifest.record.id),)
-            if view.analysis.key == selected_key
-        )
-        if not matches:
-            return self._view(selector)
-        return max(matches, key=lambda item: item.analysis.revision)
+        with self._analysis_errors():
+            manifests = self._repository.list_manifests()
+            exact = next(
+                (manifest for manifest in manifests if manifest.record.id == selector),
+                None,
+            )
+            if exact is not None:
+                return self._view(exact.record.id)
+            selected_key = artifact_slug(selector, fallback="analysis")
+            matches = tuple(
+                view
+                for manifest in manifests
+                for view in (self._view(manifest.record.id),)
+                if view.analysis.key == selected_key
+            )
+            if not matches:
+                return self._view(selector)
+            return max(matches, key=lambda item: item.analysis.revision)
 
     def save(self, command: AnalysisSaveCommand) -> AnalysisSaveReceipt:
         from scopecat.analysis.service import AnalysisInput, prepare_project_analysis
 
-        inputs = tuple(
-            AnalysisInput(
-                id=item.id,
-                run_id=item.run_id,
-                target=item.target,
-                kind=item.kind,
-                content_hash=item.content_hash,
-                codec=item.codec,
-                role=item.role,
-                title=item.title,
-                metadata=item.metadata,
-                source=item.source,
+        with self._analysis_errors():
+            inputs = tuple(
+                AnalysisInput(
+                    id=item.id,
+                    run_id=item.run_id,
+                    target=item.target,
+                    kind=item.kind,
+                    content_hash=item.content_hash,
+                    codec=item.codec,
+                    role=item.role,
+                    title=item.title,
+                    metadata=item.metadata,
+                    source=item.source,
+                )
+                for item in command.inputs
             )
-            for item in command.inputs
-        )
-        prepared = prepare_project_analysis(
-            services=self._services,
-            repository=self._repository,
-            title=command.title,
-            analysis_key=command.analysis_key,
-            step_id=command.step_id,
-            inputs=inputs,
-            executions=command.executions,
-            outputs=tuple(
-                analysis_output_from_payload(item) for item in command.outputs
-            ),
-        )
-        if prepared.publication is not None:
-            self._repository.publish(prepared.publication)
-        return AnalysisSaveReceipt(
-            record=prepared.saved.record,
-            analysis_key=prepared.saved.analysis_key,
-            inputs=command.inputs,
-        )
+            prepared = prepare_project_analysis(
+                services=self._services,
+                repository=self._repository,
+                title=command.title,
+                analysis_key=command.analysis_key,
+                step_id=command.step_id,
+                inputs=inputs,
+                executions=command.executions,
+                outputs=tuple(
+                    analysis_output_from_payload(item) for item in command.outputs
+                ),
+            )
+            if prepared.publication is not None:
+                publication = self._repository.prepare_publication(prepared.publication)
+                with self._control.write_transaction() as connection:
+                    created = self._repository.publish_prepared_in_transaction(
+                        connection,
+                        publication,
+                    )
+                    if created:
+                        self._control.append_event_in_transaction(
+                            connection,
+                            DurableEventInput(
+                                kind="project_analysis_saved",
+                                payload={
+                                    "analysis_key": prepared.saved.analysis_key,
+                                    "record_id": prepared.saved.record.id,
+                                },
+                            ),
+                        )
+            return AnalysisSaveReceipt(
+                record=prepared.saved.record,
+                analysis_key=prepared.saved.analysis_key,
+                inputs=command.inputs,
+            )
 
     def content_bytes(
         self,
         analysis_id: str,
         selector: str,
     ) -> AnalysisContentBytesView:
-        view = self._view(analysis_id)
-        entry = _content_entry(view, selector)
-        if entry.role == "dataset":
-            ref = dataset_content_ref(dataset_id=entry.id, kind=entry.kind)
-        elif entry.role == "artifact":
-            ref = artifact_content_ref(artifact_id=entry.id, kind=entry.kind)
-        else:
-            ref = record_content_ref(record_id=entry.id, kind=entry.kind)
-        return AnalysisContentBytesView(
-            analysis_id=view.entry.id,
-            entry=entry,
-            content_base64=b64encode(
-                self._repository.read_bytes(view.entry.id, ref)
-            ).decode("ascii"),
-        )
+        with self._analysis_errors():
+            view = self._view(analysis_id)
+            entry = _content_entry(view, selector)
+            if entry.role == "dataset":
+                ref = dataset_content_ref(dataset_id=entry.id, kind=entry.kind)
+            elif entry.role == "artifact":
+                ref = artifact_content_ref(artifact_id=entry.id, kind=entry.kind)
+            else:
+                ref = record_content_ref(record_id=entry.id, kind=entry.kind)
+            return AnalysisContentBytesView(
+                analysis_id=view.entry.id,
+                entry=entry,
+                content_base64=b64encode(
+                    self._repository.read_bytes(view.entry.id, ref)
+                ).decode("ascii"),
+            )
 
     def validate_candidate_verification(
         self,
@@ -174,12 +201,21 @@ class AnalysisService:
             contents=manifest.contents,
         )
 
+    @contextmanager
+    def _analysis_errors(self) -> Generator[None]:
+        try:
+            yield
+        except NotFound as error:
+            raise BackendNotFound(str(error)) from error
+        except (CheckFailed, Conflict, DataIntegrityError) as error:
+            raise BackendConflict(str(error)) from error
+
 
 def _content_entry(view: ProjectAnalysisView, selector: str) -> RunContentEntry:
     try:
         return next(entry for entry in view.contents if entry.id == selector)
     except StopIteration:
-        raise KeyError(f"analysis has no content: {selector}") from None
+        raise BackendNotFound(f"analysis has no content: {selector}") from None
 
 
 __all__ = ["AnalysisService"]

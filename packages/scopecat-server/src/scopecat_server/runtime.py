@@ -126,6 +126,7 @@ class LocalDaemonRuntime:
             analysis_service = AnalysisService(
                 repository=analyses,
                 services=services,
+                control=control,
             )
             config_service = ConfigService(
                 control=control,

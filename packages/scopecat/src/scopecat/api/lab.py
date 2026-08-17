@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import TracebackType
 from typing import Literal, Self
 
@@ -11,7 +11,7 @@ from scopecat.api._config import LabConfigOperations
 from scopecat.api._control import LabControlOperations
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
-from scopecat.api.analysis import AnalysisContext
+from scopecat.api.analysis import AnalysisContext, AnalysisStep
 from scopecat.api.instruments import LabInstrumentOperations
 from scopecat.api.project_analysis import RemoteProjectAnalysisOperations
 from scopecat.api.published_analysis import PublishedAnalysis
@@ -192,6 +192,30 @@ class LabClient:
             default_title=title,
             default_key=key,
         )
+
+    def analyze(
+        self,
+        step: AnalysisStep,
+        *,
+        key: str | None = None,
+    ) -> PublishedAnalysis:
+        """Run and durably publish one project-level analysis step."""
+
+        analysis = step.run(
+            AnalysisContext(
+                owner=self._analyses,
+                default_title=step.id,
+                default_key=key or step.id,
+                step_id=step.id,
+            )
+        )
+        if analysis.key is None or analysis.step_id is None:
+            analysis = replace(
+                analysis,
+                key=analysis.key or key or step.id,
+                step_id=analysis.step_id or step.id,
+            )
+        return analysis.save()
 
     def published_analyses(self) -> tuple[PublishedAnalysis, ...]:
         return self._analyses.published_analyses()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import cast
 
@@ -32,6 +33,14 @@ from scopecat_server.storage.sqlite.object_store import (
 )
 
 _SAFE_RECORD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedAnalysisPublication:
+    """Immutable objects prepared before publishing their logical references."""
+
+    publication: AnalysisPublication
+    refs: tuple[tuple[str, StoredObject], ...]
 
 
 class SQLiteAnalysisRepository:
@@ -87,6 +96,21 @@ class SQLiteAnalysisRepository:
             raise _storage_failure(record_id) from error
 
     def publish(self, publication: AnalysisPublication) -> None:
+        prepared = self.prepare_publication(publication)
+        try:
+            with self.sqlite.write_transaction() as connection:
+                self.publish_prepared_in_transaction(connection, prepared)
+        except Conflict, NotFound, DataIntegrityError:
+            raise
+        except sqlite3.Error as error:
+            raise _storage_failure(publication.manifest.record.id) from error
+
+    def prepare_publication(
+        self,
+        publication: AnalysisPublication,
+    ) -> PreparedAnalysisPublication:
+        """Write immutable objects without publishing their logical refs."""
+
         manifest = publication.manifest
         record_id = manifest.record.id
         prepared: list[tuple[str, StoredObject]] = []
@@ -99,57 +123,76 @@ class SQLiteAnalysisRepository:
             for write in publication.bytes:
                 _validate_identity(record_id, write.ref)
                 prepared.append((write.ref, self.objects.put(write.content)))
-            manifest_json = manifest.model_dump_json()
-            with self.sqlite.write_transaction() as connection:
-                existing = cast(
-                    "sqlite3.Row | None",
-                    connection.execute(
-                        """
-                        SELECT manifest_json
-                        FROM analysis_publications
-                        WHERE record_id = ?
-                        """,
-                        (record_id,),
-                    ).fetchone(),
-                )
-                if existing is not None:
-                    if existing["manifest_json"] == manifest_json:
-                        return
-                    raise _conflict(record_id)
-                connection.execute(
-                    """
-                    INSERT INTO analysis_publications(
-                        record_id, analysis_key, revision, publication_hash,
-                        manifest_json
-                    ) VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (
-                        record_id,
-                        publication.analysis_key,
-                        publication.revision,
-                        publication.publication_hash,
-                        manifest_json,
-                    ),
-                )
-                connection.executemany(
-                    """
-                    INSERT INTO analysis_repository_refs(record_id, ref, digest)
-                    VALUES (?, ?, ?)
-                    """,
-                    ((record_id, ref, stored.digest) for ref, stored in prepared),
-                )
+            return PreparedAnalysisPublication(
+                publication=publication,
+                refs=tuple(prepared),
+            )
         except Conflict, NotFound:
             raise
-        except sqlite3.IntegrityError as error:
-            raise _conflict(record_id) from error
         except (
             OSError,
             ObjectStoreError,
             PydanticSerializationError,
             TypeError,
             ValueError,
-            sqlite3.Error,
         ) as error:
+            raise _storage_failure(record_id) from error
+
+    def publish_prepared_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        prepared: PreparedAnalysisPublication,
+    ) -> bool:
+        """Publish prepared refs through the caller's SQLite transaction."""
+
+        publication = prepared.publication
+        manifest = publication.manifest
+        record_id = manifest.record.id
+        manifest_json = manifest.model_dump_json()
+        try:
+            existing = cast(
+                "sqlite3.Row | None",
+                connection.execute(
+                    """
+                    SELECT manifest_json
+                    FROM analysis_publications
+                    WHERE record_id = ?
+                    """,
+                    (record_id,),
+                ).fetchone(),
+            )
+            if existing is not None:
+                if existing["manifest_json"] == manifest_json:
+                    return False
+                raise _conflict(record_id)
+            connection.execute(
+                """
+                INSERT INTO analysis_publications(
+                    record_id, analysis_key, revision, publication_hash,
+                    manifest_json
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    record_id,
+                    publication.analysis_key,
+                    publication.revision,
+                    publication.publication_hash,
+                    manifest_json,
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO analysis_repository_refs(record_id, ref, digest)
+                VALUES (?, ?, ?)
+                """,
+                ((record_id, ref, stored.digest) for ref, stored in prepared.refs),
+            )
+            return True
+        except Conflict, NotFound:
+            raise
+        except sqlite3.IntegrityError as error:
+            raise _conflict(record_id) from error
+        except sqlite3.Error as error:
             raise _storage_failure(record_id) from error
 
     def read_model[TModel: BaseModel](
