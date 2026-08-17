@@ -118,7 +118,7 @@ class RemoteRunOperations:
         outputs: Sequence[AnalysisOutput],
         parameter_proposals: Sequence[ParameterChangeProposal],
     ) -> SavedAnalysis:
-        payloads = tuple(_analysis_output_payload(output) for output in outputs)
+        payloads = tuple(analysis_output_payload(output) for output in outputs)
         output_proposals = tuple(
             payload.content
             for payload in payloads
@@ -132,7 +132,7 @@ class RemoteRunOperations:
                 title=title,
                 analysis_key=analysis_key,
                 step_id=step_id,
-                inputs=tuple(_analysis_input_payload(item) for item in inputs),
+                inputs=tuple(analysis_input_payload(item) for item in inputs),
                 executions=tuple(executions),
                 outputs=payloads,
             ),
@@ -249,7 +249,7 @@ class RemoteRunOperations:
         )
 
 
-def _analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
+def analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
     return AnalysisInputPayload(
         id=value.id,
         run_id=value.run_id,
@@ -266,7 +266,7 @@ def _analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
     )
 
 
-def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
+def analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
     metadata = validate_json_metadata(value.metadata)
     if isinstance(value, AnalysisFactOutput):
         return AnalysisFactOutputPayload(

@@ -118,7 +118,7 @@ if TYPE_CHECKING:
     from scopecat.measurements.traces import MeasurementTraceProjection
 
 
-def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
+def analysis_output_from_payload(item: AnalysisOutputPayload) -> AnalysisOutput:
     from scopecat.analysis.datasets import DerivedDataset
     from scopecat.analysis.service import (
         AnalysisArtifactOutput,
@@ -418,7 +418,7 @@ class RunService:
             )
             for item in command.inputs
         )
-        outputs = tuple(_analysis_output(item) for item in command.outputs)
+        outputs = tuple(analysis_output_from_payload(item) for item in command.outputs)
         proposals = tuple(
             item.content
             for item in command.outputs

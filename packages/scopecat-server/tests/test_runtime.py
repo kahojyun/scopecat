@@ -10,11 +10,14 @@ from pathlib import Path
 from threading import Barrier, Event, Thread
 from typing import Literal, Never, cast
 
+import httpx2
 import pyarrow as pa
 import pytest
 from fastapi.testclient import TestClient
 from scopecat.adaptive_domains import DomainProposalAttempt, ResolvedDomainFragment
 from scopecat.analysis.datasets import DerivedDataset
+from scopecat.api.lab import LabClient
+from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.application import LabApplication
 from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.documents import load_config_snapshot_document
@@ -33,6 +36,7 @@ from scopecat.control.models import (
     RunPlanSummary,
     RunResourceRequirement,
 )
+from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.points import (
     AcceptedRunPointView,
     RunDomainDecisionCommand,
@@ -80,6 +84,7 @@ from scopecat.daemon.wire import (
     ManualConfigDraftRevisionSource,
     MeasurementFlushCommand,
     MeasurementHeaderCommand,
+    MeasurementSealCommand,
     RunAdmission,
     RunAttachmentCommand,
     RunCancellationReceipt,
@@ -87,6 +92,7 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.execution.evidence import build_terminal_contents
 from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.quantity import Quantity
@@ -125,6 +131,8 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetBatch,
     MeasurementDatasetHeader,
+    MeasurementDatasetSeal,
+    measurement_dataset_content_hash,
 )
 from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import (
@@ -238,6 +246,131 @@ def _submission(
             ),
         ),
     )
+
+
+def _daemon_client(transport: TestClient) -> DaemonClient:
+    def send(request: httpx2.Request) -> httpx2.Response:
+        response = transport.request(
+            request.method,
+            request.url.raw_path.decode(),
+            content=request.content,
+            headers=dict(request.headers),
+        )
+        return httpx2.Response(
+            response.status_code,
+            content=response.content,
+            headers=dict(response.headers),
+        )
+
+    return DaemonClient(
+        "http://testserver",
+        transport=httpx2.MockTransport(send),
+    )
+
+
+def _complete_signal_run(
+    runtime: LocalDaemonRuntime,
+    *,
+    submission_id: str,
+    signal: float,
+) -> str:
+    admission = runtime.application.submit_run(_submission(submission_id))
+    run_id = admission.run_id
+    lease = runtime.application.executor.start_executor(
+        run_id,
+        ExecutorStartRequest(executor_id=f"executor-{submission_id}"),
+    )
+    header = MeasurementDatasetHeader(
+        run_id=run_id,
+        recording_contract_fingerprint="test.project-analysis.v1",
+        dataset_schema=MeasurementDatasetSchema(
+            dataset_id="raw-measurements",
+            point_domain=MeasurementProductGridPointDomain(axes=[]),
+            dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
+            variables=[
+                MeasurementVariable(
+                    id="signal",
+                    role="observable",
+                    dtype="float64",
+                    unit="ratio",
+                    dims=["point"],
+                )
+            ],
+        ),
+        expected_record_count=1,
+        record_count_limit=1,
+    )
+    record = MeasurementRecord(
+        run_id=run_id,
+        logical_point_id="point-0",
+        point_index=0,
+        coordinates={},
+        observables={
+            "signal": MeasurementScalar.create(
+                dtype="float64",
+                value=signal,
+                unit="ratio",
+            )
+        },
+    )
+    append = MeasurementDatasetAppend(
+        run_id=run_id,
+        header_content_hash=header.content_hash,
+        start_index=0,
+        records=(record,),
+    )
+    runtime.application.executor.initialize_measurements(
+        run_id,
+        MeasurementHeaderCommand(lease_id=lease.lease_id, header=header),
+    )
+    runtime.application.executor.ingest_measurements(
+        run_id,
+        lease_id=lease.lease_id,
+        content=encode_measurement_append(append, header.dataset_schema),
+    )
+    runtime.application.executor.flush_measurements(
+        run_id,
+        MeasurementFlushCommand(lease_id=lease.lease_id),
+    )
+    runtime.application.executor.seal_measurements(
+        run_id,
+        MeasurementSealCommand(
+            lease_id=lease.lease_id,
+            seal=MeasurementDatasetSeal(
+                run_id=run_id,
+                header_content_hash=header.content_hash,
+                point_count=1,
+                dataset_content_hash=measurement_dataset_content_hash(
+                    header_content_hash=header.content_hash,
+                    record_content_hashes=append.record_content_hashes,
+                ),
+            ),
+        ),
+    )
+    outcome = RunOutcome(
+        run_id=run_id,
+        result="succeeded",
+        certainty="known",
+    )
+    runtime.application.executor.commit_terminal(
+        run_id,
+        TerminalRunCommitCommand(
+            lease_id=lease.lease_id,
+            outcome=outcome,
+            contents=build_terminal_contents(
+                outcome=outcome,
+                measurement_count=1,
+                dataset_content_hash=measurement_dataset_content_hash(
+                    header_content_hash=header.content_hash,
+                    record_content_hashes=append.record_content_hashes,
+                ),
+                dataset_schema=header.dataset_schema,
+                expected_record_count=1,
+                instrument_state=None,
+            ),
+        ),
+    )
+    return run_id
 
 
 def _domain_only_config() -> ConfigProfileSnapshot:
@@ -1945,6 +2078,126 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             "parameter_proposal_approved",
             "config_activated",
         ]
+
+
+def test_project_analysis_compares_completed_runs_and_reloads_outputs(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        baseline_id = _complete_signal_run(
+            runtime,
+            submission_id="comparison-baseline",
+            signal=0.8,
+        )
+        candidate_id = _complete_signal_run(
+            runtime,
+            submission_id="comparison-candidate",
+            signal=1.1,
+        )
+        with TestClient(runtime.app()) as transport:
+            lab = LabClient(_daemon_client(transport))
+            baseline = lab.get_run(baseline_id)
+            candidate = lab.get_run(candidate_id)
+
+            def publish(report: str) -> PublishedAnalysis:
+                context = lab.analysis(
+                    "Candidate verification",
+                    key="candidate-verification",
+                )
+                baseline_data = context.measurements(
+                    baseline,
+                    id="baseline",
+                    role="baseline",
+                )
+                candidate_data = context.measurements(
+                    candidate,
+                    id="candidate",
+                    role="candidate",
+                )
+                baseline_peak = cast(
+                    "float", baseline_data.data_vars["signal"].values[0]
+                )
+                candidate_peak = cast(
+                    "float", candidate_data.data_vars["signal"].values[0]
+                )
+                return (
+                    context.result()
+                    .dataset(
+                        "comparison",
+                        pa.table(
+                            {
+                                "role": ["baseline", "candidate"],
+                                "run_id": [baseline.id, candidate.id],
+                                "peak_signal": [baseline_peak, candidate_peak],
+                            }
+                        ),
+                    )
+                    .fact("candidate-improved", candidate_peak >= baseline_peak)
+                    .artifact(
+                        "report",
+                        text=report,
+                        filename="candidate-verification.md",
+                        media_type="text/markdown",
+                    )
+                    .save()
+                )
+
+            first = publish("# Candidate verification\n\nInitial comparison.\n")
+            retry = publish("# Candidate verification\n\nInitial comparison.\n")
+            revised = publish("# Candidate verification\n\nReviewed comparison.\n")
+
+            assert first.id == "analysis-candidate-verification"
+            assert retry.id == first.id
+            assert revised.id == "analysis-candidate-verification-r2"
+            assert revised.revision == 2
+            assert revised.view.analysis.subject.kind == "project"
+            assert [(item.id, item.run_id, item.role) for item in revised.inputs] == [
+                ("baseline", baseline.id, "baseline"),
+                ("candidate", candidate.id, "candidate"),
+            ]
+            assert (
+                revised.inputs[0].content_hash
+                == baseline.measurements().entry.content_hash
+            )
+            assert (
+                revised.inputs[1].content_hash
+                == candidate.measurements().entry.content_hash
+            )
+            assert revised.fact("candidate-improved").value is True
+            assert revised.dataset("comparison").table.to_pylist() == [
+                {
+                    "role": "baseline",
+                    "run_id": baseline.id,
+                    "peak_signal": 0.8,
+                },
+                {
+                    "role": "candidate",
+                    "run_id": candidate.id,
+                    "peak_signal": 1.1,
+                },
+            ]
+            assert revised.artifact("report").text().endswith("Reviewed comparison.\n")
+            assert lab.published_analysis("candidate-verification").id == revised.id
+            assert [item.id for item in lab.published_analyses()] == [
+                first.id,
+                revised.id,
+            ]
+            assert not any(
+                entry.kind == "analysis" for entry in baseline.manifest.records
+            )
+            assert not any(
+                entry.kind == "analysis" for entry in candidate.manifest.records
+            )
+
+    with (
+        LocalDaemonRuntime(tmp_path) as restarted,
+        TestClient(restarted.app()) as transport,
+    ):
+        restored = LabClient(_daemon_client(transport)).published_analysis(
+            "candidate-verification"
+        )
+        assert restored.id == "analysis-candidate-verification-r2"
+        assert restored.artifact("report").text().endswith("Reviewed comparison.\n")
 
 
 def test_analysis_publication_rolls_back_refs_manifest_and_event_together(

@@ -11,6 +11,11 @@ from scopecat.analysis.datasets import (
     DERIVED_DATASET_MEDIA_TYPE,
     DerivedDataset,
 )
+from scopecat.analysis.repository import (
+    AnalysisPublication,
+    AnalysisPublicationManifest,
+    AnalysisRepository,
+)
 from scopecat.config.changes import (
     load_parameter_change_proposal,
     parameter_change_proposal_record_ref,
@@ -30,6 +35,7 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
+from scopecat.measurements.datasets import MEASUREMENT_DATASET_CODEC
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import (
     ANALYSIS_ARTIFACT_CODEC,
@@ -54,13 +60,14 @@ from scopecat.records.analysis import (
     AnalysisTableRecordOutput,
     AnalysisTableView,
     AnalysisTableViewSpec,
+    ProjectAnalysisSubject,
     RunAnalysisSubject,
     validate_analysis_output_content_budget,
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.metadata import validate_json_metadata
 from scopecat.records.parameter_change import ParameterChangeProposal
-from scopecat.runs.access import list_records
+from scopecat.runs.access import list_records, require_dataset
 from scopecat.runs.refs import (
     artifact_content_ref,
     dataset_content_ref,
@@ -173,6 +180,14 @@ class PreparedAnalysis:
     publication: RunContentPublication
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedProjectAnalysis:
+    """Project-level analysis ready for repository publication."""
+
+    saved: SavedAnalysis
+    publication: AnalysisPublication | None
+
+
 def save_analysis(
     *,
     services: ProjectStateServices,
@@ -218,6 +233,7 @@ def prepare_analysis(
 
     base_record_id = f"analysis-{analysis_key}"
     _validate_analysis_output_ids(outputs)
+    _validate_analysis_input_ids(inputs)
     analysis_views = _prepare_analysis_views(outputs)
     _validate_analysis_execution_outputs(executions, outputs)
     _validate_analysis_inputs(
@@ -362,10 +378,250 @@ def prepare_analysis(
     )
 
 
+def prepare_project_analysis(
+    *,
+    services: ProjectStateServices,
+    repository: AnalysisRepository,
+    title: str,
+    analysis_key: str,
+    step_id: str | None,
+    inputs: Sequence[AnalysisInput],
+    executions: Sequence[AnalysisExecution],
+    outputs: Sequence[AnalysisOutput],
+) -> PreparedProjectAnalysis:
+    """Prepare one immutable publication over explicit completed-run inputs."""
+
+    if not inputs:
+        _raise_analysis_problem(
+            "project_analysis_input_missing",
+            "project analysis requires at least one explicit run input",
+            "inputs",
+        )
+    if any(isinstance(output, AnalysisParameterProposalOutput) for output in outputs):
+        _raise_analysis_problem(
+            "project_analysis_parameter_proposal_unsupported",
+            "project analysis cannot publish parameter proposals yet",
+            "outputs",
+        )
+    _validate_analysis_output_ids(outputs)
+    _validate_analysis_input_ids(inputs)
+    analysis_views = _prepare_analysis_views(outputs)
+    _validate_analysis_execution_outputs(executions, outputs)
+    _validate_project_analysis_inputs(services=services, inputs=inputs)
+    publication_hash = _analysis_publication_hash(
+        title=title,
+        analysis_key=analysis_key,
+        step_id=step_id,
+        inputs=inputs,
+        executions=executions,
+        outputs=outputs,
+    )
+    existing = _latest_project_analysis(
+        repository=repository,
+        analysis_key=analysis_key,
+    )
+    if existing is not None and existing.record.publication_hash == publication_hash:
+        return PreparedProjectAnalysis(
+            saved=SavedAnalysis(
+                record=existing.entry,
+                analysis_key=analysis_key,
+                inputs=tuple(inputs),
+                executions=tuple(existing.record.executions),
+                outputs=tuple(outputs),
+            ),
+            publication=None,
+        )
+
+    revision = 1 if existing is None else existing.record.revision + 1
+    base_record_id = f"analysis-{analysis_key}"
+    record_id = base_record_id if revision == 1 else f"{base_record_id}-r{revision}"
+    prepared_datasets = _prepare_analysis_datasets(
+        analysis_record_id=record_id,
+        outputs=outputs,
+    )
+    prepared_artifacts = _prepare_analysis_artifacts(
+        analysis_record_id=record_id,
+        outputs=outputs,
+    )
+    analysis_record = AnalysisRecord(
+        subject=ProjectAnalysisSubject(),
+        title=title,
+        key=analysis_key,
+        revision=revision,
+        publication_hash=publication_hash,
+        step_id=step_id,
+        inputs=_analysis_record_inputs(inputs),
+        executions=list(executions),
+        outputs=_analysis_record_outputs(
+            outputs,
+            dataset_references=prepared_datasets.references,
+            artifact_references=prepared_artifacts.references,
+            analysis_views=analysis_views,
+        ),
+    )
+    record = RunContentEntry(
+        role="record",
+        id=record_id,
+        kind="analysis",
+        media_type="application/json",
+        content_hash=model_wire_content_hash(analysis_record),
+    )
+    contents = (
+        *prepared_datasets.entries,
+        *prepared_artifacts.entries,
+        record,
+    )
+    saved = SavedAnalysis(
+        record=record,
+        analysis_key=analysis_key,
+        inputs=tuple(inputs),
+        executions=tuple(executions),
+        outputs=tuple(outputs),
+    )
+    return PreparedProjectAnalysis(
+        saved=saved,
+        publication=AnalysisPublication(
+            manifest=AnalysisPublicationManifest(
+                record=record,
+                contents=contents,
+            ),
+            analysis_key=analysis_key,
+            revision=revision,
+            publication_hash=publication_hash,
+            models=(
+                RunModelWrite(
+                    ref=record_content_ref(record_id=record_id, kind="analysis"),
+                    value=analysis_record,
+                ),
+            ),
+            bytes=(*prepared_datasets.writes, *prepared_artifacts.writes),
+        ),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _ExistingAnalysis:
     entry: RunContentEntry
     record: AnalysisRecord
+
+
+def _validate_analysis_input_ids(inputs: Sequence[AnalysisInput]) -> None:
+    ids = tuple(input_ref.id for input_ref in inputs)
+    if len(ids) != len(set(ids)):
+        _raise_analysis_problem(
+            "analysis_input_id_duplicated",
+            "analysis input ids must be unique",
+            "inputs",
+        )
+
+
+def _validate_project_analysis_inputs(
+    *,
+    services: ProjectStateServices,
+    inputs: Sequence[AnalysisInput],
+) -> None:
+    storage = services.runs
+    for index, input_ref in enumerate(inputs):
+        manifest = storage.read_manifest(input_ref.run_id)
+        if manifest.status != "completed":
+            _raise_analysis_problem(
+                "project_analysis_input_run_incomplete",
+                "project analysis inputs must belong to completed runs",
+                "inputs",
+                index,
+            )
+        if input_ref.kind == "measurement_dataset":
+            if input_ref.source is not None:
+                _raise_analysis_problem(
+                    "analysis_input_source_invalid",
+                    "measurement dataset inputs cannot identify an analysis output",
+                    "inputs",
+                    index,
+                )
+            entry = require_dataset(
+                manifest=manifest,
+                selector=input_ref.target,
+                expected_kind="measurement_dataset",
+            )
+            if (
+                entry.content_hash != input_ref.content_hash
+                or input_ref.codec != MEASUREMENT_DATASET_CODEC
+            ):
+                _raise_analysis_problem(
+                    "analysis_input_content_mismatch",
+                    "measurement dataset input must match its exact run content",
+                    "inputs",
+                    index,
+                )
+            continue
+        source = input_ref.source
+        if source is None or source.run_id != input_ref.run_id:
+            _raise_analysis_problem(
+                "analysis_input_source_missing",
+                "analysis dataset inputs require an exact run analysis output",
+                "inputs",
+                index,
+            )
+        _validate_run_analysis_dataset_input(
+            services=services,
+            input_ref=input_ref,
+            index=index,
+        )
+
+
+def _validate_run_analysis_dataset_input(
+    *,
+    services: ProjectStateServices,
+    input_ref: AnalysisInput,
+    index: int,
+) -> None:
+    source = input_ref.source
+    assert source is not None
+    storage = services.runs
+    analysis_entries = {
+        entry.id: entry
+        for entry in list_records(
+            storage.read_manifest(source.run_id),
+            kind="analysis",
+        )
+    }
+    if source.analysis_record_id not in analysis_entries:
+        _raise_analysis_problem(
+            "analysis_input_source_unknown",
+            "analysis dataset input must identify an existing run analysis",
+            "inputs",
+            index,
+        )
+    source_record = storage.read_model(
+        source.run_id,
+        record_content_ref(
+            record_id=source.analysis_record_id,
+            kind="analysis",
+        ),
+        AnalysisRecord,
+    )
+    source_output = next(
+        (output for output in source_record.outputs if output.id == source.output_id),
+        None,
+    )
+    if not isinstance(source_output, AnalysisDatasetRecordOutput):
+        _raise_analysis_problem(
+            "analysis_input_source_not_dataset",
+            "analysis dataset input source must identify a dataset output",
+            "inputs",
+            index,
+        )
+    if (
+        input_ref.target != source_output.content.dataset_id
+        or input_ref.content_hash != source_output.content.content_hash
+        or input_ref.codec != source_output.content.codec
+    ):
+        _raise_analysis_problem(
+            "analysis_input_content_mismatch",
+            "analysis dataset input must match its exact published output content",
+            "inputs",
+            index,
+        )
 
 
 def _validate_analysis_inputs(
@@ -458,6 +714,24 @@ def _latest_analysis(
     for entry in list_records(storage.read_manifest(run_id), kind="analysis"):
         record = storage.read_model(
             run_id,
+            record_content_ref(record_id=entry.id, kind="analysis"),
+            AnalysisRecord,
+        )
+        if record.key == analysis_key:
+            matches.append(_ExistingAnalysis(entry=entry, record=record))
+    return max(matches, key=lambda item: item.record.revision, default=None)
+
+
+def _latest_project_analysis(
+    *,
+    repository: AnalysisRepository,
+    analysis_key: str,
+) -> _ExistingAnalysis | None:
+    matches: list[_ExistingAnalysis] = []
+    for manifest in repository.list_manifests():
+        entry = manifest.record
+        record = repository.read_model(
+            entry.id,
             record_content_ref(record_id=entry.id, kind="analysis"),
             AnalysisRecord,
         )

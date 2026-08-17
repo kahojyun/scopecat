@@ -48,7 +48,7 @@ from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
-from scopecat.runs.access import require_dataset
+from scopecat.runs.access import require_artifact, require_dataset
 from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
@@ -219,9 +219,14 @@ class RunHandle:
 
         return self.measurements()
 
-    def _load_analysis_dataset(self, selector: str) -> DerivedDataset:
+    def _load_analysis_dataset(
+        self,
+        analysis_id: str,
+        selector: str,
+    ) -> DerivedDataset:
         """Load one published analysis dataset for the typed read facade."""
 
+        del analysis_id
         loaded = self.session.run_operations.load_dataset_bytes(
             self.id,
             selector,
@@ -338,7 +343,7 @@ class RunHandle:
         """Load every durable analysis publication in manifest order."""
 
         return tuple(
-            PublishedAnalysis(run=self, view=view)
+            PublishedAnalysis(source=self, view=view)
             for view in self.session.run_operations.analyses(self.id).items
         )
 
@@ -478,6 +483,58 @@ class RunHandle:
             selector=selector,
             expected_kind=expected_kind,
         )
+
+    def _analysis_artifact_text(
+        self,
+        analysis_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunArtifactTextResult:
+        del analysis_id
+        return self.artifact_text(selector, expected_kind=expected_kind)
+
+    def _analysis_artifact_entry(
+        self,
+        analysis_id: str,
+        selector: str,
+    ) -> RunContentEntry:
+        del analysis_id
+        return require_artifact(
+            manifest=self.manifest,
+            selector=selector,
+            expected_kind="analysis_artifact",
+        )
+
+    def _analysis_artifact_json(
+        self,
+        analysis_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunArtifactJsonResult:
+        del analysis_id
+        return self.artifact_json(selector, expected_kind=expected_kind)
+
+    def _analysis_artifact_bytes(
+        self,
+        analysis_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunArtifactBytesResult:
+        del analysis_id
+        return self.artifact_bytes(selector, expected_kind=expected_kind)
+
+    def _analysis_record_json(
+        self,
+        analysis_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunRecordJsonResult:
+        del analysis_id
+        return self.record_json(selector, expected_kind=expected_kind)
 
 
 def run_handle_id(run: RunHandle | RunSelector) -> str:

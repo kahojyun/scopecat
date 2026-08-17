@@ -51,6 +51,7 @@ from scopecat.daemon.reviews import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
+    AnalysisContentBytesView,
     ConfigActivationHistoryView,
     ConfigDraftPreview,
     ConfigEntryView,
@@ -65,6 +66,8 @@ from scopecat.daemon.views import (
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
     ParameterProposalListView,
+    ProjectAnalysisListView,
+    ProjectAnalysisView,
     RunAnalysisListView,
     RunAnalysisView,
     RunArtifactBytesView,
@@ -532,6 +535,25 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/analyses/{{selector}}")
     def get_run_analysis(run_id: str, selector: str) -> RunAnalysisView:
         return application.runs.get_run_analysis(run_id, selector)
+
+    @app.get(f"{_API_PREFIX}/analyses")
+    def list_project_analyses() -> ProjectAnalysisListView:
+        return application.analyses.list()
+
+    @app.post(f"{_API_PREFIX}/analyses", status_code=201)
+    def save_project_analysis(command: AnalysisSaveCommand) -> AnalysisSaveReceipt:
+        return application.analyses.save(command)
+
+    @app.get(f"{_API_PREFIX}/analyses/{{selector}}")
+    def get_project_analysis(selector: str) -> ProjectAnalysisView:
+        return application.analyses.get(selector)
+
+    @app.get(f"{_API_PREFIX}/analyses/{{analysis_id}}/contents/{{selector}}/bytes")
+    def get_project_analysis_content_bytes(
+        analysis_id: str,
+        selector: str,
+    ) -> AnalysisContentBytesView:
+        return application.analyses.content_bytes(analysis_id, selector)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/artifacts/{{selector}}/bytes")
     def get_run_artifact_bytes(

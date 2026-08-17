@@ -294,6 +294,47 @@ class RunAnalysisListView(_ViewModel):
         return self
 
 
+class ProjectAnalysisView(_ViewModel):
+    """One project-level analysis and its owned content entries."""
+
+    entry: RunContentEntry
+    analysis: AnalysisRecord
+    contents: tuple[RunContentEntry, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> ProjectAnalysisView:
+        if (
+            self.entry.role != "record"
+            or self.entry.kind != "analysis"
+            or self.analysis.subject.kind != "project"
+            or self.entry not in self.contents
+        ):
+            raise ValueError("project analysis view identity is inconsistent")
+        return self
+
+
+class ProjectAnalysisListView(_ViewModel):
+    items: tuple[ProjectAnalysisView, ...] = ()
+
+
+class AnalysisContentBytesView(_ViewModel):
+    """Exact bytes for one project analysis-owned content entry."""
+
+    analysis_id: str
+    entry: RunContentEntry
+    content_base64: str
+
+    @model_validator(mode="after")
+    def validate_content(self) -> AnalysisContentBytesView:
+        if self.entry.produced_by != self.analysis_id:
+            raise ValueError("analysis content producer is inconsistent")
+        _validate_base64(self.content_base64)
+        return self
+
+    def content_bytes(self) -> bytes:
+        return b64decode(self.content_base64, validate=True)
+
+
 class RunArtifactBytesView(_ViewModel):
     run_id: str
     artifact: RunContentEntry
@@ -594,6 +635,7 @@ def _validate_base64(value: str) -> None:
 
 __all__ = [
     "ActiveConfigView",
+    "AnalysisContentBytesView",
     "ConfigActivationHistoryView",
     "ConfigDraftPreview",
     "ConfigEntryView",
@@ -613,6 +655,8 @@ __all__ = [
     "MeasurementTraceSeries",
     "ParameterProposalListView",
     "ParameterProposalView",
+    "ProjectAnalysisListView",
+    "ProjectAnalysisView",
     "RunAdmissionView",
     "RunAnalysisListView",
     "RunAnalysisView",

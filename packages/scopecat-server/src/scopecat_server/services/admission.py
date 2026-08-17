@@ -264,7 +264,8 @@ class AdmissionService:
                 AnalysisRecord,
             )
             if (
-                analysis.run_id != source.source_run_id
+                analysis.subject.kind != "run"
+                or analysis.subject.run_id != source.source_run_id
                 or not _analysis_references_proposal(
                     analysis,
                     proposal_id=proposal.id,

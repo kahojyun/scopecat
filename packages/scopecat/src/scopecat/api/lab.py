@@ -11,7 +11,10 @@ from scopecat.api._config import LabConfigOperations
 from scopecat.api._control import LabControlOperations
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
+from scopecat.api.analysis import AnalysisContext
 from scopecat.api.instruments import LabInstrumentOperations
+from scopecat.api.project_analysis import RemoteProjectAnalysisOperations
+from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.api.review import ExperimentReviewHandle
 from scopecat.api.run import RunHandle, run_handle_id
 from scopecat.authoring.experiments import Experiment, ExperimentInvocation
@@ -121,6 +124,7 @@ class LabClient:
         self._owns_client = isinstance(daemon, str)
         self._client = DaemonClient(daemon) if isinstance(daemon, str) else daemon
         self._runs = RemoteRunOperations(self._client)
+        self._analyses = RemoteProjectAnalysisOperations(self._client)
         self._config = LabConfigOperations(
             client=self._client,
             runs=self._runs,
@@ -174,6 +178,26 @@ class LabClient:
             RunHandle(session=self, id=item.run_id)
             for item in self._control.runs().items
         )
+
+    def analysis(
+        self,
+        title: str,
+        *,
+        key: str | None = None,
+    ) -> AnalysisContext:
+        """Start a project publication over explicit completed-run inputs."""
+
+        return AnalysisContext(
+            owner=self._analyses,
+            default_title=title,
+            default_key=key,
+        )
+
+    def published_analyses(self) -> tuple[PublishedAnalysis, ...]:
+        return self._analyses.published_analyses()
+
+    def published_analysis(self, selector: str) -> PublishedAnalysis:
+        return self._analyses.published_analysis(selector)
 
     def get_run(self, run: RunSelector | RunHandle) -> RunHandle:
         run_id = run_handle_id(run)

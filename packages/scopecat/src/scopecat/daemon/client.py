@@ -44,6 +44,7 @@ from scopecat.daemon.reviews import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
+    AnalysisContentBytesView,
     ConfigActivationHistoryView,
     ConfigDraftPreview,
     ConfigEntryView,
@@ -55,6 +56,8 @@ from scopecat.daemon.views import (
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
     ParameterProposalListView,
+    ProjectAnalysisListView,
+    ProjectAnalysisView,
     RunAnalysisListView,
     RunAnalysisView,
     RunArtifactBytesView,
@@ -589,6 +592,38 @@ class DaemonClient:
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/analyses",
             command,
             AnalysisSaveReceipt,
+        )
+
+    def project_analyses(self) -> ProjectAnalysisListView:
+        return self._get_model(f"{_API_PREFIX}/analyses", ProjectAnalysisListView)
+
+    def project_analysis(self, selector: str) -> ProjectAnalysisView:
+        return self._get_model(
+            f"{_API_PREFIX}/analyses/{quote(selector, safe='')}",
+            ProjectAnalysisView,
+        )
+
+    def save_project_analysis(
+        self,
+        command: AnalysisSaveCommand,
+    ) -> AnalysisSaveReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/analyses",
+            command,
+            AnalysisSaveReceipt,
+        )
+
+    def project_analysis_content_bytes(
+        self,
+        analysis_id: str,
+        selector: str,
+    ) -> AnalysisContentBytesView:
+        selected_analysis = quote(analysis_id, safe="")
+        selected_content = quote(selector, safe="")
+        return self._get_model(
+            f"{_API_PREFIX}/analyses/{selected_analysis}/contents/"
+            f"{selected_content}/bytes",
+            AnalysisContentBytesView,
         )
 
     def artifact_bytes(

@@ -12,7 +12,7 @@ from scopecat.config.candidates import (
     CandidateSelection,
     candidate_config_from_proposals,
 )
-from scopecat.daemon.views import RunAnalysisView
+from scopecat.daemon.views import ProjectAnalysisView, RunAnalysisView
 from scopecat.records.analysis import (
     AnalysisArtifactRecordOutput,
     AnalysisDatasetRecordOutput,
@@ -29,8 +29,6 @@ from scopecat.records.analysis import (
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.parameter_change import ParameterChangeProposal
-from scopecat.records.run import RunManifest
-from scopecat.runs.access import require_artifact
 from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
@@ -40,35 +38,46 @@ from scopecat.runs.data import (
 from scopecat.sdk.compute import PYTHON_JSON_CODEC
 
 
-class _PublishedAnalysisRun(Protocol):
-    @property
-    def manifest(self) -> RunManifest: ...
-
-    def _load_analysis_dataset(self, selector: str) -> DerivedDataset: ...
-
-    def artifact_text(
+class _PublishedAnalysisSource(Protocol):
+    def _analysis_artifact_entry(
         self,
+        analysis_id: str,
+        selector: str,
+    ) -> RunContentEntry: ...
+
+    def _load_analysis_dataset(
+        self,
+        analysis_id: str,
+        selector: str,
+    ) -> DerivedDataset: ...
+
+    def _analysis_artifact_text(
+        self,
+        analysis_id: str,
         selector: str,
         *,
         expected_kind: str | None = None,
     ) -> RunArtifactTextResult: ...
 
-    def artifact_json(
+    def _analysis_artifact_json(
         self,
+        analysis_id: str,
         selector: str,
         *,
         expected_kind: str | None = None,
     ) -> RunArtifactJsonResult: ...
 
-    def artifact_bytes(
+    def _analysis_artifact_bytes(
         self,
+        analysis_id: str,
         selector: str,
         *,
         expected_kind: str | None = None,
     ) -> RunArtifactBytesResult: ...
 
-    def record_json(
+    def _analysis_record_json(
         self,
+        analysis_id: str,
         selector: str,
         *,
         expected_kind: str | None = None,
@@ -79,25 +88,27 @@ class _PublishedAnalysisRun(Protocol):
 class PublishedAnalysisArtifact:
     """One analysis-owned artifact with typed payload access."""
 
-    run: _PublishedAnalysisRun
+    source: _PublishedAnalysisSource
+    analysis_id: str
     output: AnalysisArtifactRecordOutput
 
     @property
     def entry(self) -> RunContentEntry:
-        return require_artifact(
-            manifest=self.run.manifest,
-            selector=self.output.content.artifact_id,
-            expected_kind="analysis_artifact",
+        return self.source._analysis_artifact_entry(  # pyright: ignore[reportPrivateUsage]
+            self.analysis_id,
+            self.output.content.artifact_id,
         )
 
     def bytes(self) -> bytes:
-        return self.run.artifact_bytes(
+        return self.source._analysis_artifact_bytes(  # pyright: ignore[reportPrivateUsage]
+            self.analysis_id,
             self.output.content.artifact_id,
             expected_kind="analysis_artifact",
         ).content
 
     def text(self) -> str:
-        return self.run.artifact_text(
+        return self.source._analysis_artifact_text(  # pyright: ignore[reportPrivateUsage]
+            self.analysis_id,
             self.output.content.artifact_id,
             expected_kind="analysis_artifact",
         ).content
@@ -105,7 +116,8 @@ class PublishedAnalysisArtifact:
     def json(self) -> dict[str, object]:
         return cast(
             "dict[str, object]",
-            self.run.artifact_json(
+            self.source._analysis_artifact_json(  # pyright: ignore[reportPrivateUsage]
+                self.analysis_id,
                 self.output.content.artifact_id,
                 expected_kind="analysis_artifact",
             ).content,
@@ -116,8 +128,8 @@ class PublishedAnalysisArtifact:
 class PublishedAnalysis:
     """One immutable analysis record with output-ID based typed access."""
 
-    run: _PublishedAnalysisRun
-    view: RunAnalysisView
+    source: _PublishedAnalysisSource
+    view: RunAnalysisView | ProjectAnalysisView
 
     @property
     def id(self) -> str:
@@ -211,13 +223,15 @@ class PublishedAnalysis:
 
     def dataset(self, id: str) -> DerivedDataset:
         output = self._output(id, AnalysisDatasetRecordOutput)
-        return self.run._load_analysis_dataset(  # pyright: ignore[reportPrivateUsage]
-            output.content.dataset_id
+        return self.source._load_analysis_dataset(  # pyright: ignore[reportPrivateUsage]
+            self.id,
+            output.content.dataset_id,
         )
 
     def artifact(self, id: str) -> PublishedAnalysisArtifact:
         return PublishedAnalysisArtifact(
-            run=self.run,
+            source=self.source,
+            analysis_id=self.id,
             output=self._output(id, AnalysisArtifactRecordOutput),
         )
 
@@ -230,7 +244,8 @@ class PublishedAnalysis:
     def proposal(self, id: str) -> ParameterChangeProposal:
         output = self._output(id, AnalysisParameterProposalRecordOutput)
         return ParameterChangeProposal.model_validate(
-            self.run.record_json(
+            self.source._analysis_record_json(  # pyright: ignore[reportPrivateUsage]
+                self.id,
                 output.content.proposal_id,
                 expected_kind="parameter_change_proposal",
             ).content
