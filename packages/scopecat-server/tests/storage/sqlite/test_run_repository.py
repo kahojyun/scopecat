@@ -181,6 +181,39 @@ def test_lists_runs_by_creation_time(tmp_path: Path) -> None:
     ]
 
 
+def test_run_projection_is_relational_without_a_manifest_object(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    run_id = "run-relational-projection"
+    manifest = _portable_manifest(run_id, 1).model_copy(
+        update={"contents": (_content("report"),)}
+    )
+
+    repository.write_manifest(manifest)
+
+    with sqlite3.connect(repository.database) as connection:
+        assert connection.execute(
+            "SELECT config_content_hash FROM runs WHERE run_id = ?",
+            (run_id,),
+        ).fetchone() == (manifest.config_content_hash,)
+        assert connection.execute(
+            "SELECT result, certainty FROM run_outcomes WHERE run_id = ?",
+            (run_id,),
+        ).fetchone() == ("succeeded", "known")
+        assert connection.execute(
+            "SELECT role, content_id, kind FROM run_contents WHERE run_id = ?",
+            (run_id,),
+        ).fetchone() == ("artifact", "report", "test")
+        assert connection.execute(
+            """
+            SELECT COUNT(*) FROM run_repository_refs
+            WHERE run_id = ? AND ref = 'manifest.json'
+            """,
+            (run_id,),
+        ).fetchone() == (0,)
+    assert _object_files(repository) == set()
+    assert repository.read_manifest(run_id) == manifest
+
+
 def test_structured_run_inputs_bind_manifest_source_and_snapshot_hashes(
     tmp_path: Path,
 ) -> None:
@@ -507,7 +540,7 @@ def test_equal_content_reuses_one_immutable_object(tmp_path: Path) -> None:
     assert len(_object_files(repository)) == 1
 
 
-def test_terminal_commit_rolls_back_all_refs_if_manifest_publish_fails(
+def test_terminal_commit_rolls_back_all_refs_if_outcome_publish_fails(
     tmp_path: Path,
 ) -> None:
     repository = _repository(tmp_path)
@@ -517,9 +550,9 @@ def test_terminal_commit_rolls_back_all_refs_if_manifest_publish_fails(
     with sqlite3.connect(repository.database) as connection:
         connection.execute(
             """
-            CREATE TRIGGER reject_terminal_manifest
-            BEFORE UPDATE OF digest ON run_repository_refs
-            WHEN OLD.run_id = 'run-rollback' AND OLD.ref = 'manifest.json'
+            CREATE TRIGGER reject_terminal_outcome
+            BEFORE INSERT ON run_outcomes
+            WHEN NEW.run_id = 'run-rollback'
             BEGIN
                 SELECT RAISE(ABORT, 'injected failure');
             END

@@ -22,7 +22,6 @@ from scopecat.records.measurement_recording import (
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.admission import RunSkeleton, build_run_admission
-from scopecat.runs.refs import MANIFEST_REF
 from scopecat.runs.repository import RunRepository
 from scopecat.sdk.instruments.execution import RunInstrumentHost
 from scopecat_server.services.active_measurements import ActiveMeasurementStore
@@ -43,17 +42,8 @@ class SQLiteTestRunRepository(SQLiteRunRepository):
     """Fixture-only low-level writes excluded from the production port."""
 
     def write_manifest(self, manifest: RunManifest) -> None:
-        prepared = self._prepare_model(
-            manifest.run_id,
-            MANIFEST_REF,
-            manifest,
-        )
         with self._transaction() as connection:
-            self._publish_refs(
-                connection,
-                manifest.run_id,
-                (prepared,),
-            )
+            self._replace_run_projection(connection, manifest)
 
     def write_run_skeleton(self, skeleton: RunSkeleton) -> None:
         _persist_run_skeleton(self, skeleton)
@@ -195,10 +185,8 @@ def list_test_runs(repository: RunRepository) -> list[RunManifest]:
             "list[tuple[str]]",
             connection.execute(
                 """
-                SELECT run_id FROM run_repository_refs
-                WHERE ref = ?
+                SELECT run_id FROM runs
                 """,
-                (MANIFEST_REF,),
             ).fetchall(),
         )
     manifests = [runs.read_manifest(row[0]) for row in rows]
