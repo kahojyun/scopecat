@@ -136,7 +136,7 @@ class SummaryStatsAnalysisStep:
         measurements = context.measurements()
         input_ref = dataset_storage_ref(measurements.entry)
         result = _build_summary_result(
-            run_id=context.run.id,
+            run_id=context.run_id,
             step=SUMMARY_STATS_STEP,
             input_ref=input_ref,
             measurements=measurements,
@@ -188,7 +188,7 @@ class BestSignalAnalysisStep:
         best_point_index = measurements.point_indices[best_position]
         reason = f"Best signal observed at point {best_point_index}."
         result = BestSignalAnalysisResult(
-            run_id=context.run.id,
+            run_id=context.run_id,
             parameter_id=parameter_id,
             best_point_index=best_point_index,
             best_signal=best_signal,

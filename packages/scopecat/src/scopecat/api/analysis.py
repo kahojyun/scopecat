@@ -637,6 +637,12 @@ class AnalysisContext:
     def config(self) -> ConfigProfileSnapshot:
         return self._required_run().config
 
+    @property
+    def run_id(self) -> str:
+        """Return the subject run ID for a run-scoped analysis context."""
+
+        return self._required_run().id
+
     def measurements(
         self,
         run: _AnalysisRun | None = None,
