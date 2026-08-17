@@ -123,12 +123,17 @@ class LocalDaemonRuntime:
             active_measurements = ActiveMeasurementStore()
             reviews = ReviewService()
             instrument_actors = InstrumentActorRegistry()
+            analysis_service = AnalysisService(
+                repository=analyses,
+                services=services,
+            )
             config_service = ConfigService(
                 control=control,
                 config_registry=config_registry,
                 runs=runs,
                 services=services,
                 actors=instrument_actors,
+                analyses=analysis_service,
             )
             point_plans = RunPointPlanService(control=control, runs=runs)
             run_service = RunService(
@@ -137,10 +142,6 @@ class LocalDaemonRuntime:
                 services=services,
                 active_measurements=active_measurements,
                 point_plans=point_plans,
-            )
-            analysis_service = AnalysisService(
-                repository=analyses,
-                services=services,
             )
             admission = AdmissionService(
                 control=control,

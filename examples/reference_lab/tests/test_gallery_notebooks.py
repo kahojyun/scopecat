@@ -393,6 +393,7 @@ def test_drag_calibration_closes_the_reviewed_config_loop(
     assert summary["verification_accepted"]
     assert summary["verification_report"] == "drag-beta-verification.md"
     assert summary["verification_is_project_owned"]
+    assert summary["accepted_verification"] == summary["verification"]
     assert summary["candidate_run_uses_analysis"]
     assert summary["accepted_as_default"]
     assert summary["default_restored"]

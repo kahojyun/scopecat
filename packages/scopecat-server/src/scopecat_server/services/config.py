@@ -62,6 +62,7 @@ from ..instruments.actors import (
     InstrumentActorRegistry,
     InstrumentActorShutdown,
 )
+from .analyses import AnalysisService
 
 
 class ConfigService:
@@ -75,12 +76,14 @@ class ConfigService:
         runs: SQLiteRunRepository,
         services: ProjectStateServices,
         actors: InstrumentActorRegistry,
+        analyses: AnalysisService,
     ) -> None:
         self._control = control
         self._config_registry = config_registry
         self._runs = runs
         self._services = services
         self._actors = actors
+        self._analyses = analyses
         self._mutation_lock = Lock()
 
     def get_config_registry(self) -> ConfigRegistryView:
@@ -131,6 +134,12 @@ class ConfigService:
                 connection, services = transaction
                 source = command.source
                 if isinstance(source, CandidateConfigRevisionSource):
+                    if source.verification is not None:
+                        self._analyses.validate_candidate_verification(
+                            source.verification,
+                            source_run_id=source.run_id,
+                            proposal_id=source.proposal_id,
+                        )
                     prepared = prepare_parameter_change_approval(
                         run_id=source.run_id,
                         selector=source.proposal_id,
@@ -476,6 +485,7 @@ def _config_revision(
         revision_source = config_registry_service.CandidateConfigRevisionSource(
             run_id=source.run_id,
             proposal_id=source.proposal_id,
+            verification=source.verification,
         )
     return config_registry_service.ConfigRevision(
         source=revision_source,

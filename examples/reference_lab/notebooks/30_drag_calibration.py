@@ -59,8 +59,9 @@ if not verification_decision.accepted:
 # Only the cross-run verification decision authorizes changing the default.
 accepted = lab.config.accept(
     analysis,
+    verified_by=(verification, "decision"),
     actor="nightly-calibration",
-    note=f"accept after project verification {verification.id}",
+    note="accept the project-verified DRAG candidate",
 )
 
 production_run = lab.run(
@@ -97,6 +98,12 @@ drag_beta_summary = {
     "verification_is_project_owned": all(
         entry.id != verification.id
         for entry in (*baseline_run.manifest.records, *candidate_run.manifest.records)
+    ),
+    "accepted_verification": (
+        accepted.entry.source.verification.analysis_record_id
+        if accepted.entry.source.kind == "candidate_config"
+        and accepted.entry.source.verification is not None
+        else None
     ),
     "candidate_run_uses_analysis": (
         candidate_source is not None

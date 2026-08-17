@@ -38,7 +38,10 @@ from scopecat.daemon.wire import (
     InstrumentInventoryMigrationReceipt,
     ManualConfigDraftRevisionSource,
 )
-from scopecat.records.analysis import AnalysisParameterProposalRecordOutput
+from scopecat.records.analysis import (
+    AnalysisParameterProposalRecordOutput,
+    ProjectAnalysisOutputReference,
+)
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import (
     AnalysisCandidateRunConfigSource,
@@ -257,6 +260,7 @@ class LabConfigOperations:
         entry_id: str | None = None,
         actor: str | None = None,
         note: str = "",
+        verified_by: tuple[PublishedAnalysis, str] | None = None,
     ) -> ConfigPublishReceipt:
         """Accept a saved analysis proposal or an already selected candidate."""
 
@@ -266,11 +270,22 @@ class LabConfigOperations:
             if selection is not None:
                 raise ValueError("proposal selection belongs on a PublishedAnalysis")
             selected = candidate
+        verification = None
+        if verified_by is not None:
+            verification_analysis, output_id = verified_by
+            if verification_analysis.view.analysis.subject.kind != "project":
+                raise TypeError("candidate verification must be a project analysis")
+            verification_analysis.output(output_id)
+            verification = ProjectAnalysisOutputReference(
+                analysis_record_id=verification_analysis.id,
+                output_id=output_id,
+            )
         return self.client.publish_config(
             ConfigPublishCommand(
                 source=CandidateConfigRevisionSource(
                     run_id=selected.source_run_id,
                     proposal_id=selected.proposal_id,
+                    verification=verification,
                 ),
                 actor=actor or self.operator,
                 expected_generation=self._generation(),

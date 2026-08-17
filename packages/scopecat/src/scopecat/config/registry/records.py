@@ -8,6 +8,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.kernel.run_outcome import utc_now
+from scopecat.records.analysis import ProjectAnalysisOutputReference
 from scopecat.records.config import ConfigContentHash
 
 
@@ -42,6 +43,7 @@ class CandidateConfigRegistrySource(_FrozenRegistryModel):
     run_id: str
     proposal_id: str
     base_config_content_hash: ConfigContentHash
+    verification: ProjectAnalysisOutputReference | None = None
 
     @model_validator(mode="after")
     def validate_evidence(self) -> CandidateConfigRegistrySource:

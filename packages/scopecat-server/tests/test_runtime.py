@@ -23,7 +23,10 @@ from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.inventory import InstrumentInventoryRekey
 from scopecat.config.parameters import ReplaceParameter, replace_scalar_parameter
-from scopecat.config.registry import ActiveConfigRegistrySnapshot
+from scopecat.config.registry import (
+    ActiveConfigRegistrySnapshot,
+    CandidateConfigRegistrySource,
+)
 from scopecat.control.models import (
     AdaptiveRegionSpec,
     DurableEvent,
@@ -108,6 +111,7 @@ from scopecat.records.analysis import (
     AnalysisFigureProjection,
     AnalysisFigureViewSpec,
     AnalysisTableViewSpec,
+    ProjectAnalysisOutputReference,
 )
 from scopecat.records.config import (
     ConfigProfileSnapshot,
@@ -273,8 +277,9 @@ def _complete_signal_run(
     *,
     submission_id: str,
     signal: float,
+    submission: RunSubmission | None = None,
 ) -> str:
-    admission = runtime.application.submit_run(_submission(submission_id))
+    admission = runtime.application.submit_run(submission or _submission(submission_id))
     run_id = admission.run_id
     lease = runtime.application.executor.start_executor(
         run_id,
@@ -2198,6 +2203,107 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
         )
         assert restored.id == "analysis-candidate-verification-r2"
         assert restored.artifact("report").text().endswith("Reviewed comparison.\n")
+
+
+def test_candidate_acceptance_requires_matching_cross_run_verification(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        baseline_id = _complete_signal_run(
+            runtime,
+            submission_id="verified-baseline",
+            signal=0.8,
+        )
+        unrelated_id = _complete_signal_run(
+            runtime,
+            submission_id="verified-unrelated",
+            signal=1.0,
+        )
+        proposal = _analysis_proposal(baseline_id)
+        runtime.application.runs.save_run_analysis(
+            baseline_id,
+            _analysis_command(proposal),
+        )
+
+        with TestClient(runtime.app()) as transport:
+            lab = LabClient(_daemon_client(transport))
+            baseline = lab.get_run(baseline_id)
+            proposal_analysis = baseline.published_analysis("fit")
+            candidate = proposal_analysis.candidate_config()
+            candidate_config, candidate_source = lab.config.resolve_with_source(
+                candidate
+            )
+            assert candidate_source is not None
+            candidate_submission = _submission("verified-candidate").model_copy(
+                update={
+                    "config": candidate_config,
+                    "config_source": candidate_source,
+                }
+            )
+            candidate_id = _complete_signal_run(
+                runtime,
+                submission_id="verified-candidate",
+                signal=1.1,
+                submission=candidate_submission,
+            )
+
+            invalid_context = lab.analysis(
+                "Unrelated comparison",
+                key="unrelated-comparison",
+            )
+            invalid_context.measurements(baseline, id="baseline", role="baseline")
+            invalid_context.measurements(
+                lab.get_run(unrelated_id),
+                id="candidate",
+                role="candidate",
+            )
+            invalid_verification = (
+                invalid_context.result().fact("decision", True).save()
+            )
+            with pytest.raises(
+                BackendConflict,
+                match="does not include a run using this proposal",
+            ):
+                runtime.application.config.publish_config(
+                    ConfigPublishCommand(
+                        source=CandidateConfigRevisionSource(
+                            run_id=baseline_id,
+                            proposal_id=proposal.id,
+                            verification=ProjectAnalysisOutputReference(
+                                analysis_record_id=invalid_verification.id,
+                                output_id="decision",
+                            ),
+                        ),
+                        entry_id="invalid-verified-candidate",
+                        actor="nightly-calibration",
+                        expected_generation=1,
+                    )
+                )
+
+            valid_context = lab.analysis(
+                "Candidate comparison",
+                key="candidate-comparison",
+            )
+            valid_context.measurements(baseline, id="baseline", role="baseline")
+            valid_context.measurements(
+                lab.get_run(candidate_id),
+                id="candidate",
+                role="candidate",
+            )
+            verification = valid_context.result().fact("decision", True).save()
+            accepted = lab.config.accept(
+                proposal_analysis,
+                verified_by=(verification, "decision"),
+                entry_id="verified-candidate-config",
+            )
+
+            assert isinstance(accepted.entry.source, CandidateConfigRegistrySource)
+            assert accepted.entry.source.verification == (
+                ProjectAnalysisOutputReference(
+                    analysis_record_id=verification.id,
+                    output_id="decision",
+                )
+            )
 
 
 def test_analysis_publication_rolls_back_refs_manifest_and_event_together(

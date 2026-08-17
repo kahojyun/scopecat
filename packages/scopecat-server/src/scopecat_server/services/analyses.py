@@ -12,8 +12,9 @@ from scopecat.daemon.views import (
 from scopecat.daemon.wire import AnalysisSaveCommand, AnalysisSaveReceipt
 from scopecat.kernel.ids import artifact_slug
 from scopecat.project_state import ProjectStateServices
-from scopecat.records.analysis import AnalysisRecord
+from scopecat.records.analysis import AnalysisRecord, ProjectAnalysisOutputReference
 from scopecat.records.artifact import RunContentEntry
+from scopecat.records.run import AnalysisCandidateRunConfigSource
 from scopecat.runs.refs import (
     artifact_content_ref,
     dataset_content_ref,
@@ -24,6 +25,7 @@ from scopecat_server.storage.sqlite.analysis_repository import (
     SQLiteAnalysisRepository,
 )
 
+from ..errors import BackendConflict
 from .runs import analysis_output_from_payload
 
 
@@ -123,6 +125,40 @@ class AnalysisService:
             content_base64=b64encode(
                 self._repository.read_bytes(view.entry.id, ref)
             ).decode("ascii"),
+        )
+
+    def validate_candidate_verification(
+        self,
+        reference: ProjectAnalysisOutputReference,
+        *,
+        source_run_id: str,
+        proposal_id: str,
+    ) -> None:
+        """Require evidence over both the proposal source and a candidate run."""
+
+        view = self.get(reference.analysis_record_id)
+        if not any(
+            output.id == reference.output_id for output in view.analysis.outputs
+        ):
+            raise BackendConflict(
+                "candidate verification output does not exist in its project analysis"
+            )
+        input_run_ids = {input_ref.run_id for input_ref in view.analysis.inputs}
+        if source_run_id not in input_run_ids:
+            raise BackendConflict(
+                "candidate verification does not include the proposal source run"
+            )
+        for run_id in input_run_ids - {source_run_id}:
+            manifest = self._services.runs.read_manifest(run_id)
+            source = manifest.config_source
+            if (
+                isinstance(source, AnalysisCandidateRunConfigSource)
+                and source.source_run_id == source_run_id
+                and source.proposal_id == proposal_id
+            ):
+                return
+        raise BackendConflict(
+            "candidate verification does not include a run using this proposal"
         )
 
     def _view(self, record_id: str) -> ProjectAnalysisView:

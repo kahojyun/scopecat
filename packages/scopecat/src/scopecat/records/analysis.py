@@ -708,6 +708,13 @@ class ProjectAnalysisSubject(_AnalysisContentModel):
     kind: Literal["project"] = "project"
 
 
+class ProjectAnalysisOutputReference(_AnalysisContentModel):
+    """One exact project-analysis output used as decision evidence."""
+
+    analysis_record_id: _NonEmptyText
+    output_id: _NonEmptyText
+
+
 type AnalysisSubject = Annotated[
     RunAnalysisSubject | ProjectAnalysisSubject,
     Field(discriminator="kind"),

@@ -40,6 +40,7 @@ from scopecat.records.analysis import (
     AnalysisFigureViewSpec,
     AnalysisPublishedOutputReference,
     AnalysisTableViewSpec,
+    ProjectAnalysisOutputReference,
 )
 from scopecat.records.artifact import RunContentEntry, Sha256ContentHash
 from scopecat.records.config import (
@@ -101,6 +102,7 @@ class CandidateConfigRevisionSource(_WireModel):
     kind: Literal["candidate_config"] = "candidate_config"
     run_id: NonEmptyText
     proposal_id: NonEmptyText
+    verification: ProjectAnalysisOutputReference | None = None
 
 
 type ConfigRevisionSource = Annotated[
