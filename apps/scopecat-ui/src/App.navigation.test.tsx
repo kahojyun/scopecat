@@ -53,11 +53,23 @@ vi.mock("./features/config/ConfigWorkspace", () => ({
 }));
 
 vi.mock("./features/analyses/AnalysesWorkspace", () => ({
-  AnalysesWorkspace: ({ onOpenRun }: { onOpenRun: (runId: string) => void }) => (
+  AnalysesWorkspace: ({
+    onOpenRun,
+    onSelectAnalysis,
+    selectedAnalysisId,
+  }: {
+    onOpenRun: (runId: string) => void;
+    onSelectAnalysis: (analysisId: string) => void;
+    selectedAnalysisId?: string;
+  }) => (
     <div>
       Project analysis workspace
+      <span>Selected analysis {selectedAnalysisId ?? "none"}</span>
       <button type="button" onClick={() => onOpenRun("run-2")}>
         Open analysis input run
+      </button>
+      <button type="button" onClick={() => onSelectAnalysis("analysis-next")}>
+        Select next analysis
       </button>
     </div>
   ),
@@ -154,6 +166,18 @@ describe("config provenance navigation", () => {
     expect(screen.getByRole("button", { name: "Runs" })).toHaveAttribute("aria-current", "page");
     expect(window.location.search).toBe("?run=run-2");
     expect(window.location.hash).toBe("");
+  });
+
+  it("restores and updates an exact analysis deep link", async () => {
+    window.history.replaceState(null, "", "/?analysis=analysis-review-r2#analyses");
+    renderApp();
+
+    expect(await screen.findByText("Selected analysis analysis-review-r2")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select next analysis" }));
+
+    expect(window.location.search).toBe("?analysis=analysis-next");
+    expect(window.location.hash).toBe("#analyses");
   });
 
   it("restores and updates the Instruments hash route", async () => {

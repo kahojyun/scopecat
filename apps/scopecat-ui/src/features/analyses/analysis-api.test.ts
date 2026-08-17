@@ -1,23 +1,27 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { requestPath } from "../../test/http";
-import { getProjectAnalyses, getProjectAnalysisArtifactDownload } from "./analysis-api";
+import {
+  getProjectAnalysis,
+  getProjectAnalysisArtifactDownload,
+  getProjectAnalysisSummaries,
+} from "./analysis-api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("project analysis API", () => {
-  it("normalizes project publications with exact run inputs and revisions", async () => {
+  it("loads bounded project publication summaries", async () => {
     const fetchMock = vi.fn((_input: string | URL | Request) =>
       Promise.resolve(
         jsonResponse({
-          items: [projectAnalysisView("analysis-verify", 1)],
+          items: [projectAnalysisSummary("analysis-verify", 1)],
         }),
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const [analysis] = await getProjectAnalyses();
+    const [analysis] = await getProjectAnalysisSummaries();
 
     expect(requestPath(fetchMock.mock.calls[0]![0])).toBe("/api/v1/analyses");
     expect(analysis).toMatchObject({
@@ -25,8 +29,20 @@ describe("project analysis API", () => {
       key: "verify",
       revision: 1,
       publicationHash: "sha256:publication-1",
-      subject: "project",
+      inputCount: 1,
+      outputCount: 1,
     });
+  });
+
+  it("loads exact inputs and outputs from the selected detail endpoint", async () => {
+    const fetchMock = vi.fn((_input: string | URL | Request) =>
+      Promise.resolve(jsonResponse(projectAnalysisView("analysis-verify", 1))),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const analysis = await getProjectAnalysis("analysis-verify");
+
+    expect(requestPath(fetchMock.mock.calls[0]![0])).toBe("/api/v1/analyses/analysis-verify");
     expect(analysis?.inputs[0]).toMatchObject({
       id: "baseline",
       run_id: "run-baseline",
@@ -71,6 +87,25 @@ describe("project analysis API", () => {
     await expect(download.blob.text()).resolves.toBe("# Verified\n");
   });
 });
+
+function projectAnalysisSummary(id: string, revision: number) {
+  return {
+    entry: {
+      role: "record",
+      id,
+      kind: "analysis",
+      media_type: "application/json",
+      content_hash: `sha256:record-${revision}`,
+    },
+    title: "Candidate verification",
+    key: "verify",
+    revision,
+    publication_hash: `sha256:publication-${revision}`,
+    step_id: "candidate-verification",
+    input_count: 1,
+    output_count: 1,
+  };
+}
 
 function projectAnalysisView(id: string, revision: number) {
   const recordEntry = {

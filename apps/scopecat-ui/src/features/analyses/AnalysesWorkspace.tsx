@@ -1,30 +1,45 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Atom, CircleOff, LoaderCircle } from "lucide-react";
 import { errorMessage } from "../../lib/presentation";
+import type { ProjectAnalysis } from "../../types";
 import { classes, countBadge } from "../../ui/styles";
 import { AnalysisPublicationView } from "./AnalysisPublicationView";
-import { getProjectAnalysisArtifactDownload, getProjectAnalyses } from "./analysis-api";
+import {
+  getProjectAnalysis,
+  getProjectAnalysisArtifactDownload,
+  getProjectAnalysisSummaries,
+} from "./analysis-api";
 
 export function AnalysesWorkspace({
   daemonUnavailable,
   onOpenRun,
+  onSelectAnalysis,
+  selectedAnalysisId,
 }: {
   daemonUnavailable: boolean;
   onOpenRun: (runId: string) => void;
+  onSelectAnalysis: (analysisId: string) => void;
+  selectedAnalysisId?: string;
 }) {
-  const [selectedId, setSelectedId] = useState<string>();
   const analyses = useQuery({
     queryKey: ["analyses", "project"],
-    queryFn: ({ signal }) => getProjectAnalyses(signal),
+    queryFn: ({ signal }) => getProjectAnalysisSummaries(signal),
     enabled: !daemonUnavailable,
   });
-  const selected =
-    analyses.data?.find((analysis) => analysis.id === selectedId) ?? analyses.data?.at(-1);
+  const selectedSummary =
+    analyses.data?.find((analysis) => analysis.id === selectedAnalysisId) ?? analyses.data?.at(-1);
+  const selectedAnalysis = useQuery({
+    queryKey: ["analyses", "project", selectedSummary?.id, "detail"],
+    queryFn: ({ signal }) => getProjectAnalysis(selectedSummary!.id, signal),
+    enabled: !daemonUnavailable && selectedSummary !== undefined,
+  });
 
   useEffect(() => {
-    if (selected && selected.id !== selectedId) setSelectedId(selected.id);
-  }, [selected, selectedId]);
+    if (selectedSummary && selectedSummary.id !== selectedAnalysisId) {
+      onSelectAnalysis(selectedSummary.id);
+    }
+  }, [onSelectAnalysis, selectedAnalysisId, selectedSummary]);
 
   if (daemonUnavailable) {
     return (
@@ -53,7 +68,7 @@ export function AnalysesWorkspace({
       />
     );
   }
-  if (!selected) {
+  if (!selectedSummary) {
     return (
       <WorkspaceMessage
         icon={<Atom />}
@@ -83,10 +98,10 @@ export function AnalysesWorkspace({
             <button
               className={classes(
                 "grid cursor-pointer gap-1 rounded-md border border-transparent bg-transparent px-2.5 py-2.5 text-left text-text-soft hover:bg-panel",
-                analysis.id === selected.id && "border-line-strong bg-panel",
+                analysis.id === selectedSummary.id && "border-line-strong bg-panel",
               )}
               key={analysis.id}
-              onClick={() => setSelectedId(analysis.id)}
+              onClick={() => onSelectAnalysis(analysis.id)}
               type="button"
               title={`Inspect analysis ${analysis.id}`}
             >
@@ -100,8 +115,8 @@ export function AnalysesWorkspace({
                 {analysis.key ?? analysis.id}
               </span>
               <span className="text-[0.56rem] text-text-dim">
-                {analysis.inputs.length} input{analysis.inputs.length === 1 ? "" : "s"} ·{" "}
-                {analysis.outputs.length} output{analysis.outputs.length === 1 ? "" : "s"}
+                {analysis.inputCount} input{analysis.inputCount === 1 ? "" : "s"} ·{" "}
+                {analysis.outputCount} output{analysis.outputCount === 1 ? "" : "s"}
               </span>
             </button>
           ))}
@@ -109,37 +124,65 @@ export function AnalysesWorkspace({
       </aside>
 
       <div className="min-w-0 p-4 max-[680px]:p-2.5">
-        <header className="mb-3 flex flex-wrap items-start justify-between gap-3 border-b border-line pb-3">
-          <div className="min-w-0">
-            <div className="mb-1 flex flex-wrap items-center gap-2 text-[0.58rem] font-bold tracking-[0.07em] text-text-dim uppercase">
-              <span>Project analysis</span>
-              <span>Revision {selected.revision}</span>
-              {selected.stepId ? <span>{selected.stepId}</span> : null}
-            </div>
-            <h3 className="m-0 text-[1.05rem] tracking-[-0.02em]">{selected.title}</h3>
-            <code className="text-[0.62rem] text-text-dim">{selected.id}</code>
-          </div>
-          <span className={countBadge}>{selected.outputs.length} outputs</span>
-        </header>
-
-        <dl className="mb-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-md border border-line bg-panel-soft p-3 text-[0.61rem]">
-          <dt className="font-bold text-text-dim">Key</dt>
-          <dd className="m-0 font-mono text-text-soft">{selected.key ?? "—"}</dd>
-          <dt className="font-bold text-text-dim">Publication</dt>
-          <dd className="m-0 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-text-soft">
-            <span title={selected.publicationHash}>{selected.publicationHash}</span>
-          </dd>
-        </dl>
-
-        <AnalysisPublicationView
-          analysis={selected}
-          getArtifactDownload={(selector) =>
-            getProjectAnalysisArtifactDownload(selected.id, selector)
-          }
-          onOpenRun={onOpenRun}
-        />
+        {selectedAnalysis.isPending ? (
+          <WorkspaceMessage
+            icon={<LoaderCircle className="animate-spin" />}
+            title="Loading analysis detail"
+            detail={`Reading ${selectedSummary.id} and its exact output provenance.`}
+          />
+        ) : selectedAnalysis.isError ? (
+          <WorkspaceMessage
+            icon={<CircleOff />}
+            title="Analysis detail unavailable"
+            detail={errorMessage(selectedAnalysis.error)}
+          />
+        ) : selectedAnalysis.data ? (
+          <AnalysisDetail analysis={selectedAnalysis.data} onOpenRun={onOpenRun} />
+        ) : null}
       </div>
     </section>
+  );
+}
+
+function AnalysisDetail({
+  analysis: selected,
+  onOpenRun,
+}: {
+  analysis: ProjectAnalysis;
+  onOpenRun: (runId: string) => void;
+}) {
+  return (
+    <>
+      <header className="mb-3 flex flex-wrap items-start justify-between gap-3 border-b border-line pb-3">
+        <div className="min-w-0">
+          <div className="mb-1 flex flex-wrap items-center gap-2 text-[0.58rem] font-bold tracking-[0.07em] text-text-dim uppercase">
+            <span>Project analysis</span>
+            <span>Revision {selected.revision}</span>
+            {selected.stepId ? <span>{selected.stepId}</span> : null}
+          </div>
+          <h3 className="m-0 text-[1.05rem] tracking-[-0.02em]">{selected.title}</h3>
+          <code className="text-[0.62rem] text-text-dim">{selected.id}</code>
+        </div>
+        <span className={countBadge}>{selected.outputs.length} outputs</span>
+      </header>
+
+      <dl className="mb-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-md border border-line bg-panel-soft p-3 text-[0.61rem]">
+        <dt className="font-bold text-text-dim">Key</dt>
+        <dd className="m-0 font-mono text-text-soft">{selected.key ?? "—"}</dd>
+        <dt className="font-bold text-text-dim">Publication</dt>
+        <dd className="m-0 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-text-soft">
+          <span title={selected.publicationHash}>{selected.publicationHash}</span>
+        </dd>
+      </dl>
+
+      <AnalysisPublicationView
+        analysis={selected}
+        getArtifactDownload={(selector) =>
+          getProjectAnalysisArtifactDownload(selected.id, selector)
+        }
+        onOpenRun={onOpenRun}
+      />
+    </>
   );
 }
 

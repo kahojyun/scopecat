@@ -1,10 +1,17 @@
-import type { ProjectAnalysisList, ProjectAnalysisView, RunContentEntry } from "../../api-contract";
+import type {
+  ProjectAnalysisList,
+  ProjectAnalysisSummary as ProjectAnalysisSummaryView,
+  ProjectAnalysisView,
+  RunContentEntry,
+} from "../../api-contract";
 import { apiClient, apiData } from "../../api-client";
 import { titleCase } from "../../lib/presentation";
-import type { ContentEntry, ProjectAnalysis } from "../../types";
+import type { ContentEntry, ProjectAnalysis, ProjectAnalysisSummary } from "../../types";
 import { analysisOutput } from "./analysis-model";
 
-export async function getProjectAnalyses(signal?: AbortSignal): Promise<ProjectAnalysis[]> {
+export async function getProjectAnalysisSummaries(
+  signal?: AbortSignal,
+): Promise<ProjectAnalysisSummary[]> {
   const response = await apiData(apiClient.GET("/api/v1/analyses", { signal }));
   return normalizeProjectAnalyses(response);
 }
@@ -43,8 +50,23 @@ export async function getProjectAnalysisArtifactDownload(
   };
 }
 
-function normalizeProjectAnalyses(response: ProjectAnalysisList): ProjectAnalysis[] {
-  return response.items.map(normalizeProjectAnalysis);
+function normalizeProjectAnalyses(response: ProjectAnalysisList): ProjectAnalysisSummary[] {
+  return response.items.map(normalizeProjectAnalysisSummary);
+}
+
+function normalizeProjectAnalysisSummary(
+  summary: ProjectAnalysisSummaryView,
+): ProjectAnalysisSummary {
+  return {
+    id: summary.entry.id,
+    title: summary.title,
+    key: summary.key,
+    stepId: summary.step_id ?? undefined,
+    revision: summary.revision,
+    publicationHash: summary.publication_hash,
+    inputCount: summary.input_count,
+    outputCount: summary.output_count,
+  };
 }
 
 function normalizeProjectAnalysis(view: ProjectAnalysisView): ProjectAnalysis {

@@ -43,6 +43,9 @@ export default function App() {
   const activeQueries = useIsFetching();
   const [view, setView] = useState<ProjectView>(projectViewFromLocation);
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>(selectedRunFromUrl);
+  const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | undefined>(
+    selectedAnalysisFromUrl,
+  );
   const eventCursor = useRef(0);
 
   const healthQuery = useQuery({
@@ -63,7 +66,11 @@ export default function App() {
   }, [eventsQuery.data]);
 
   useEffect(() => {
-    const restoreHashRoute = () => setView(projectViewFromLocation());
+    const restoreHashRoute = () => {
+      setView(projectViewFromLocation());
+      setSelectedRunId(selectedRunFromUrl());
+      setSelectedAnalysisId(selectedAnalysisFromUrl());
+    };
     window.addEventListener("hashchange", restoreHashRoute);
     return () => window.removeEventListener("hashchange", restoreHashRoute);
   }, []);
@@ -141,17 +148,24 @@ export default function App() {
   };
   const selectView = (selected: ProjectView) => {
     setView(selected);
-    replaceNavigation(selected, selectedRunId);
+    replaceNavigation(selected, {
+      analysisId: selected === "analyses" ? selectedAnalysisId : undefined,
+      runId: selected === "runs" ? selectedRunId : undefined,
+    });
     window.scrollTo({ top: 0, left: 0 });
   };
   const selectRun = useCallback((runId: string) => {
     setSelectedRunId(runId);
-    replaceNavigation("runs", runId);
+    replaceNavigation("runs", { runId });
+  }, []);
+  const selectAnalysis = useCallback((analysisId: string) => {
+    setSelectedAnalysisId(analysisId);
+    replaceNavigation("analyses", { analysisId });
   }, []);
   const openConfigSourceRun = (runId: string) => {
     setSelectedRunId(runId);
     setView("runs");
-    replaceNavigation("runs", runId);
+    replaceNavigation("runs", { runId });
     window.scrollTo({ top: 0, left: 0 });
   };
 
@@ -309,6 +323,8 @@ export default function App() {
             <AnalysesWorkspace
               daemonUnavailable={daemonUnavailable}
               onOpenRun={openConfigSourceRun}
+              onSelectAnalysis={selectAnalysis}
+              selectedAnalysisId={selectedAnalysisId}
             />
           </Suspense>
         ) : view === "reviews" ? (
@@ -420,6 +436,10 @@ function selectedRunFromUrl(): string | undefined {
   return new URL(window.location.href).searchParams.get("run") || undefined;
 }
 
+function selectedAnalysisFromUrl(): string | undefined {
+  return new URL(window.location.href).searchParams.get("analysis") || undefined;
+}
+
 function projectViewFromLocation(): ProjectView {
   if (window.location.hash === "#configuration") return "configuration";
   if (window.location.hash === "#instruments") return "instruments";
@@ -428,12 +448,20 @@ function projectViewFromLocation(): ProjectView {
   return "runs";
 }
 
-function replaceNavigation(view: ProjectView, runId?: string): void {
+function replaceNavigation(
+  view: ProjectView,
+  selection: { analysisId?: string; runId?: string } = {},
+): void {
   const location = new URL(window.location.href);
-  if (runId) {
-    location.searchParams.set("run", runId);
+  if (selection.runId) {
+    location.searchParams.set("run", selection.runId);
   } else {
     location.searchParams.delete("run");
+  }
+  if (selection.analysisId) {
+    location.searchParams.set("analysis", selection.analysisId);
+  } else {
+    location.searchParams.delete("analysis");
   }
   location.hash =
     view === "configuration"

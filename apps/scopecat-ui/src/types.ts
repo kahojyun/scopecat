@@ -177,6 +177,17 @@ export interface ProjectAnalysis extends AnalysisPublication {
   contents: ContentEntry[];
 }
 
+export interface ProjectAnalysisSummary {
+  id: string;
+  title: string;
+  key: string;
+  stepId?: string;
+  revision: number;
+  publicationHash: string;
+  inputCount: number;
+  outputCount: number;
+}
+
 export interface RunContentPreview {
   entry: ContentEntry;
   format: "text" | "json";

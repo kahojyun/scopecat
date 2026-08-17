@@ -313,8 +313,27 @@ class ProjectAnalysisView(_ViewModel):
         return self
 
 
+class ProjectAnalysisSummary(_ViewModel):
+    """Bounded list projection for one project-level analysis publication."""
+
+    entry: RunContentEntry
+    title: str
+    key: str
+    revision: int = Field(ge=1)
+    publication_hash: str
+    step_id: str | None = None
+    input_count: int = Field(ge=0)
+    output_count: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> ProjectAnalysisSummary:
+        if self.entry.role != "record" or self.entry.kind != "analysis":
+            raise ValueError("project analysis summary identity is inconsistent")
+        return self
+
+
 class ProjectAnalysisListView(_ViewModel):
-    items: tuple[ProjectAnalysisView, ...] = ()
+    items: tuple[ProjectAnalysisSummary, ...] = ()
 
 
 class AnalysisContentBytesView(_ViewModel):
@@ -656,6 +675,7 @@ __all__ = [
     "ParameterProposalListView",
     "ParameterProposalView",
     "ProjectAnalysisListView",
+    "ProjectAnalysisSummary",
     "ProjectAnalysisView",
     "RunAdmissionView",
     "RunAnalysisListView",

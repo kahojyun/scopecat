@@ -16,7 +16,11 @@ from scopecat.analysis.service import (
 from scopecat.api._remote import analysis_input_payload, analysis_output_payload
 from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.daemon.client import DaemonClient
-from scopecat.daemon.views import ProjectAnalysisListView, ProjectAnalysisView
+from scopecat.daemon.views import (
+    ProjectAnalysisListView,
+    ProjectAnalysisSummary,
+    ProjectAnalysisView,
+)
 from scopecat.daemon.wire import AnalysisSaveCommand
 from scopecat.kernel.json_types import JsonValue
 from scopecat.records.analysis import AnalysisExecution
@@ -69,7 +73,7 @@ class RemoteProjectAnalysisOperations:
 
     def published_analyses(self) -> tuple[PublishedAnalysis, ...]:
         return tuple(
-            PublishedAnalysis(source=self, view=view) for view in self.views().items
+            self.published_analysis(summary.entry.id) for summary in self.summaries()
         )
 
     def published_analysis(self, selector: str) -> PublishedAnalysis:
@@ -79,6 +83,9 @@ class RemoteProjectAnalysisOperations:
 
     def views(self) -> ProjectAnalysisListView:
         return self.client.project_analyses()
+
+    def summaries(self) -> tuple[ProjectAnalysisSummary, ...]:
+        return self.views().items
 
     def view(self, selector: str) -> ProjectAnalysisView:
         return self.client.project_analysis(selector)

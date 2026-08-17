@@ -83,6 +83,7 @@ export type AnalysisTableView = components["schemas"]["AnalysisTableView"];
 export type AnalysisContentBytes =
   GetResponse<"/api/v1/analyses/{analysis_id}/contents/{selector}/bytes">;
 export type ProjectAnalysisList = GetResponse<"/api/v1/analyses">;
+export type ProjectAnalysisSummary = components["schemas"]["ProjectAnalysisSummary"];
 export type ProjectAnalysisView = GetResponse<"/api/v1/analyses/{selector}">;
 export type MeasurementDatasetSchema = components["schemas"]["MeasurementDatasetSchema-Output"];
 export type MeasurementAcquisitionValue = components["schemas"]["MeasurementAcquisitionValue"];

@@ -2217,6 +2217,14 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
                 first.id,
                 revised.id,
             ]
+            assert [
+                (
+                    summary.entry.id,
+                    summary.input_count,
+                    summary.output_count,
+                )
+                for summary in runtime.application.analyses.list().items
+            ] == [(first.id, 2, 3), (revised.id, 2, 3)]
             assert not any(
                 entry.kind == "analysis" for entry in baseline.manifest.records
             )

@@ -3744,11 +3744,11 @@ export interface components {
              * Items
              * @default []
              */
-            items: components["schemas"]["ProjectAnalysisView"][];
+            items: components["schemas"]["ProjectAnalysisSummary"][];
         };
         /**
          * ProjectAnalysisSubject
-         * @description A publication over an explicit snapshot of project run inputs.
+         * @description A publication over explicit immutable inputs owned by a project.
          */
         ProjectAnalysisSubject: {
             /**
@@ -3756,6 +3756,27 @@ export interface components {
              * @enum {string}
              */
             kind: "project";
+        };
+        /**
+         * ProjectAnalysisSummary
+         * @description Bounded list projection for one project-level analysis publication.
+         */
+        ProjectAnalysisSummary: {
+            entry: components["schemas"]["RunContentEntry"];
+            /** Input Count */
+            input_count: number;
+            /** Key */
+            key: string;
+            /** Output Count */
+            output_count: number;
+            /** Publication Hash */
+            publication_hash: string;
+            /** Revision */
+            revision: number;
+            /** Step Id */
+            step_id?: string | null;
+            /** Title */
+            title: string;
         };
         /**
          * ProjectAnalysisView

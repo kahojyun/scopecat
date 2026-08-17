@@ -13,6 +13,7 @@ from scopecat.control.models import DurableEventInput
 from scopecat.daemon.views import (
     AnalysisContentBytesView,
     ProjectAnalysisListView,
+    ProjectAnalysisSummary,
     ProjectAnalysisView,
 )
 from scopecat.daemon.wire import AnalysisSaveCommand, AnalysisSaveReceipt
@@ -63,7 +64,7 @@ class AnalysisService:
         with self._analysis_errors():
             return ProjectAnalysisListView(
                 items=tuple(
-                    self._view(manifest.record.id)
+                    self._summary(manifest.record.id)
                     for manifest in self._repository.list_manifests()
                 )
             )
@@ -273,6 +274,25 @@ class AnalysisService:
             entry=manifest.record,
             analysis=record,
             contents=manifest.contents,
+        )
+
+    def _summary(self, record_id: str) -> ProjectAnalysisSummary:
+        manifest = self._repository.read_manifest(record_id)
+        record = self._repository.read_model(
+            record_id,
+            record_content_ref(record_id=record_id, kind="analysis"),
+            AnalysisRecord,
+        )
+        assert record.key is not None
+        return ProjectAnalysisSummary(
+            entry=manifest.record,
+            title=record.title,
+            key=record.key,
+            revision=record.revision,
+            publication_hash=record.publication_hash,
+            step_id=record.step_id,
+            input_count=len(record.inputs),
+            output_count=len(record.outputs),
         )
 
     @contextmanager
