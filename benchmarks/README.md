@@ -4,6 +4,7 @@ Scopecat benchmarks share one discoverable local entrypoint:
 
 ```console
 uv run python -m benchmarks list
+uv run python -m benchmarks run historical-project --runs 10000
 uv run python -m benchmarks run quantum-program --entities 100,1000
 uv run python -m benchmarks run scan-execution --profile waveform \
   --points 1,10,100 --qubit-counts 1,2,4
@@ -19,7 +20,7 @@ cases and their measurement boundary.
 | Kind | Use | Current cases |
 |---|---|---|
 | `e2e` | User-visible behavior spanning daemon, compiler, runtime, devices, and persistence | `scan-execution` |
-| `component` | One subsystem boundary with realistic inputs and setup outside the measured operation | `adaptive-context`, `list-mode-compiler`, `quantum-program` |
+| `component` | One subsystem boundary with realistic inputs and setup outside the measured operation | `adaptive-context`, `historical-project`, `list-mode-compiler`, `quantum-program` |
 | `micro` | One pure operation or data structure without service or storage setup | `inspection-index` |
 
 The production `scopecat` runner is the end-to-end product result. `adhoc` is a

@@ -214,6 +214,29 @@ bounded independently of total index size. Its deterministic smoke contract is:
 uv run pytest -q -n 0 benchmarks/smoke/test_inspection_index.py
 ```
 
+## Historical Project Baseline
+
+The historical-project probe seeds the current relational schema outside the
+measurement boundary, then reads through the production daemon HTTP API:
+
+```console
+uv run python -m benchmarks run historical-project \
+  --runs 10000 \
+  --project-analyses 1000 \
+  --page-size 100
+```
+
+It records newest and deep keyset pages for runs and project analyses, an exact
+middle-run read, serialized response sizes, database bytes, and repeated warm
+latencies. The default profile represents roughly one hundred retained runs per
+day for one hundred days. Setup time is reported separately and is not included
+in the read measurements. The smoke contract uses a smaller fixture to verify
+that every collection response remains page-bounded:
+
+```console
+uv run pytest -q -n 0 benchmarks/smoke/test_historical_project.py
+```
+
 ## List-Mode Target Compiler Baseline
 
 The target-compiler probe runs the configured reference target rather than a
@@ -697,8 +720,9 @@ remaining total-point scaling is active execution bookkeeping and durable
 results, not launch preparation, waveform retention, or Cartesian row
 materialization. Explicit value sources and non-forward traversal still retain
 point-count-sized declarations. The other profiles establish whether
-acquisition volume or history reaches its resource budget first. Workflow
-scalability awaits a workflow ownership model.
+acquisition volume or history reaches its resource budget first. Run history
+and project-level multi-run publications use relational keyset indexes; their
+long-lived read boundary is covered by the historical-project probe.
 
 ## Development Cadence
 

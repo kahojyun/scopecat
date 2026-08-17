@@ -20,6 +20,7 @@ def test_registry_lists_every_classified_case() -> None:
         ("scan-execution", "e2e"),
         ("adaptive-context", "component"),
         ("list-mode-compiler", "component"),
+        ("historical-project", "component"),
         ("quantum-program", "component"),
         ("inspection-index", "micro"),
     ]
