@@ -33,6 +33,7 @@ describe("project analysis API", () => {
       key: "verify",
       revision: 1,
       publicationHash: "sha256:publication-1",
+      publishedAt: "2026-08-17T12:00:00Z",
       inputCount: 1,
       outputCount: 1,
     });
@@ -123,6 +124,7 @@ function projectAnalysisSummary(id: string, revision: number) {
     key: "verify",
     revision,
     publication_hash: `sha256:publication-${revision}`,
+    published_at: "2026-08-17T12:00:00Z",
     step_id: "candidate-verification",
     input_count: 1,
     output_count: 1,
@@ -139,6 +141,7 @@ function projectAnalysisView(id: string, revision: number) {
   };
   return {
     entry: recordEntry,
+    published_at: "2026-08-17T12:00:00Z",
     analysis: {
       subject: { kind: "project" },
       title: "Candidate verification",

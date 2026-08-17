@@ -77,6 +77,7 @@ class AnalysisService:
                         key=summary.analysis_key,
                         revision=summary.revision,
                         publication_hash=summary.publication_hash,
+                        published_at=summary.published_at,
                         step_id=summary.step_id,
                         input_count=summary.input_count,
                         output_count=summary.output_count,
@@ -310,6 +311,7 @@ class AnalysisService:
         return ProjectAnalysisView(
             entry=publication.record,
             analysis=record,
+            published_at=publication.published_at,
         )
 
     @contextmanager

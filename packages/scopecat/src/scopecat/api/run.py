@@ -22,7 +22,7 @@ from scopecat.api.analysis import (
     AnalysisContext,
     AnalysisStep,
 )
-from scopecat.api.published_analysis import PublishedAnalysis, PublishedAnalysisPage
+from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.daemon.views import (
     MeasurementArrowColumn,
     MeasurementArrowQuery,
@@ -387,31 +387,18 @@ class RunHandle:
 
         return AnalysisContext(run=self, default_title=title, default_key=key)
 
-    def published_analyses(
+    def analysis_summaries(
         self,
         *,
         limit: int = 100,
         before: int | None = None,
-    ) -> PublishedAnalysisPage:
-        """Load one bounded newest-first page of durable publications."""
+    ) -> RunAnalysisPage:
+        """Load one bounded history page without fetching publication bodies."""
 
-        page = self.session.run_operations.analyses(
+        return self.session.run_operations.analyses(
             self.id,
             limit=limit,
             before=before,
-        )
-        return PublishedAnalysisPage(
-            items=tuple(
-                PublishedAnalysis(
-                    source=self,
-                    view=self.session.run_operations.analysis(
-                        self.id,
-                        summary.entry.id,
-                    ),
-                )
-                for summary in page.items
-            ),
-            next_cursor=page.next_cursor,
         )
 
     def published_analysis(self, selector: str) -> PublishedAnalysis:

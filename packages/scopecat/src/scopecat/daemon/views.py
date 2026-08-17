@@ -274,6 +274,7 @@ class RunAnalysisView(_ViewModel):
     run_id: str
     entry: ContentEntry
     analysis: AnalysisRecord
+    published_at: datetime
 
     @model_validator(mode="after")
     def validate_identity(self) -> RunAnalysisView:
@@ -296,6 +297,7 @@ class RunAnalysisSummary(_ViewModel):
     key: str | None = None
     revision: int = Field(ge=1)
     publication_hash: str
+    published_at: datetime
     step_id: str | None = None
     input_count: int = Field(ge=0)
     output_count: int = Field(ge=0)
@@ -334,6 +336,7 @@ class ProjectAnalysisView(_ViewModel):
 
     entry: ContentEntry
     analysis: AnalysisRecord
+    published_at: datetime
 
     @model_validator(mode="after")
     def validate_identity(self) -> ProjectAnalysisView:
@@ -354,6 +357,7 @@ class ProjectAnalysisSummary(_ViewModel):
     key: str
     revision: int = Field(ge=1)
     publication_hash: str
+    published_at: datetime
     step_id: str | None = None
     input_count: int = Field(ge=0)
     output_count: int = Field(ge=0)

@@ -686,7 +686,7 @@ def test_analysis_publishes_typed_facts_and_owned_artifacts(tmp_path: Path) -> N
     assert published.fact("resonance").value == {"value": 5.1, "unit": "GHz"}
     assert published.artifact("fit-report").text() == ("# Fit report\n\nConverged.\n")
     assert published.artifact("fit-report").entry == entry
-    assert handle.published_analyses().items[0].id == "analysis-publication"
+    assert handle.analysis_summaries().items[0].entry.id == "analysis-publication"
     with pytest.raises(TypeError, match="is fact"):
         published.dataset("resonance")
 
@@ -765,10 +765,13 @@ def test_analysis_key_appends_only_changed_publication_revisions(
 
     assert first.id == retried.id == "analysis-fit-result"
     assert second.id == "analysis-fit-result-r2"
+    assert retried.published_at == first.published_at
+    assert second.published_at >= first.published_at
     first_publication = handle.published_analysis("analysis-fit-result")
     latest = handle.published_analysis("fit-result")
     assert first_publication.revision == 1
     assert latest.revision == 2
+    assert first_publication.published_at == first.published_at
     assert first_publication.publication_hash != latest.publication_hash
     assert first_publication.fact("score").value == 0.5
     assert latest.fact("score").value == 0.75

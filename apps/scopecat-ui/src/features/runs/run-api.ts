@@ -347,7 +347,7 @@ export async function getRunAnalysis(
   );
 }
 
-function normalizeRunAnalysis({ entry, analysis }: RunAnalysisView): RunAnalysis {
+function normalizeRunAnalysis({ entry, analysis, published_at }: RunAnalysisView): RunAnalysis {
   return {
     id: entry.id,
     title: analysis.title,
@@ -355,6 +355,7 @@ function normalizeRunAnalysis({ entry, analysis }: RunAnalysisView): RunAnalysis
     stepId: analysis.step_id ?? undefined,
     revision: analysis.revision,
     publicationHash: analysis.publication_hash,
+    publishedAt: published_at,
     subject: "run" as const,
     inputs: analysis.inputs ?? [],
     executions: analysis.executions ?? [],
@@ -377,6 +378,7 @@ function normalizeRunAnalysisSummary(summary: RunAnalysisSummaryView): RunAnalys
     stepId: summary.step_id ?? undefined,
     revision: summary.revision,
     publicationHash: summary.publication_hash,
+    publishedAt: summary.published_at,
     inputCount: summary.input_count,
     outputCount: summary.output_count,
   };

@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS analysis_publications (
     analysis_key TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK (revision >= 1),
     publication_hash TEXT NOT NULL,
+    published_at TEXT NOT NULL,
     title TEXT NOT NULL,
     step_id TEXT,
     input_count INTEGER NOT NULL CHECK (input_count >= 0),

@@ -3866,6 +3866,11 @@ export interface components {
             output_count: number;
             /** Publication Hash */
             publication_hash: string;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
             /** Revision */
             revision: number;
             /** Step Id */
@@ -3880,6 +3885,11 @@ export interface components {
         ProjectAnalysisView: {
             analysis: components["schemas"]["AnalysisRecord"];
             entry: components["schemas"]["ContentEntry"];
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
         };
         /** PropertySpec */
         PropertySpec: {
@@ -4210,6 +4220,11 @@ export interface components {
             output_count: number;
             /** Publication Hash */
             publication_hash: string;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
             /** Revision */
             revision: number;
             /** Run Id */
@@ -4226,6 +4241,11 @@ export interface components {
         RunAnalysisView: {
             analysis: components["schemas"]["AnalysisRecord"];
             entry: components["schemas"]["ContentEntry"];
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
             /** Run Id */
             run_id: string;
         };

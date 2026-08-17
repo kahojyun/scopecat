@@ -371,6 +371,8 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
             assert first.id == "analysis-candidate-verification"
             assert retry.id == first.id
             assert revised.id == "analysis-candidate-verification-r2"
+            assert retry.published_at == first.published_at
+            assert revised.published_at >= first.published_at
             assert revised.revision == 2
             assert revised.view.analysis.subject.kind == "project"
             measurement_inputs = tuple(
@@ -408,14 +410,15 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
             ]
             assert revised.artifact("report").text().endswith("Reviewed comparison.\n")
             assert lab.published_analysis("candidate-verification").id == revised.id
-            published_page = lab.published_analyses(limit=1)
-            assert [item.id for item in published_page.items] == [revised.id]
+            published_page = lab.analysis_summaries(limit=1)
+            assert [item.entry.id for item in published_page.items] == [revised.id]
+            assert published_page.items[0].published_at == revised.published_at
             assert published_page.next_cursor is not None
-            older_published_page = lab.published_analyses(
+            older_published_page = lab.analysis_summaries(
                 limit=1,
                 before=published_page.next_cursor,
             )
-            assert [item.id for item in older_published_page.items] == [first.id]
+            assert [item.entry.id for item in older_published_page.items] == [first.id]
             assert older_published_page.next_cursor is None
             summary_page = runtime.application.analyses.list(limit=1)
             assert [

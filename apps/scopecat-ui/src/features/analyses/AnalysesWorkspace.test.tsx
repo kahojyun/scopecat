@@ -102,6 +102,7 @@ function projectAnalysisSummary(
     stepId: "candidate-verification",
     revision,
     publicationHash: "sha256:publication",
+    publishedAt: "2026-08-17T12:00:00Z",
     inputCount: 1,
     outputCount: 1,
   };
@@ -115,6 +116,7 @@ function projectAnalysis(): ProjectAnalysis {
     stepId: "candidate-verification",
     revision: 2,
     publicationHash: "sha256:publication",
+    publishedAt: "2026-08-17T12:00:00Z",
     subject: "project",
     inputs: [
       {

@@ -14,7 +14,7 @@ from scopecat.analysis.service import (
     SavedAnalysis,
 )
 from scopecat.api._remote import analysis_input_payload, analysis_output_payload
-from scopecat.api.published_analysis import PublishedAnalysis, PublishedAnalysisPage
+from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
     ProjectAnalysisPage,
@@ -68,20 +68,6 @@ class RemoteProjectAnalysisOperations:
             inputs=tuple(inputs),
             executions=tuple(executions),
             outputs=tuple(outputs),
-        )
-
-    def published_analyses(
-        self,
-        *,
-        limit: int = 100,
-        before: int | None = None,
-    ) -> PublishedAnalysisPage:
-        summaries = self.summaries(limit=limit, before=before)
-        return PublishedAnalysisPage(
-            items=tuple(
-                self.published_analysis(summary.entry.id) for summary in summaries.items
-            ),
-            next_cursor=summaries.next_cursor,
         )
 
     def published_analysis(self, selector: str) -> PublishedAnalysis:

@@ -216,6 +216,7 @@ class ServiceRunOperations:
                     key=publication.analysis_key,
                     revision=publication.revision,
                     publication_hash=publication.publication_hash,
+                    published_at=publication.published_at,
                     step_id=publication.step_id,
                     input_count=publication.input_count,
                     output_count=publication.output_count,
@@ -238,9 +239,10 @@ class ServiceRunOperations:
             return self._analysis(run_id, publication.record.id)
 
     def _analysis(self, run_id: str, selector: str) -> RunAnalysisView:
+        publication = self.services.runs.read_analysis_publication(run_id, selector)
         result = read_run_record_json(
             run_id=run_id,
-            selector=selector,
+            selector=publication.record.id,
             expected_kind="analysis",
             services=self.services,
         )
@@ -248,6 +250,7 @@ class ServiceRunOperations:
             run_id=run_id,
             entry=result.record,
             analysis=AnalysisRecord.model_validate(result.content),
+            published_at=publication.published_at,
         )
 
     def attach(

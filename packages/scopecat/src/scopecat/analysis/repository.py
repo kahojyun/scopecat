@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -22,6 +23,7 @@ class AnalysisPublicationSummary(BaseModel):
     analysis_key: str = Field(min_length=1)
     revision: int = Field(ge=1)
     publication_hash: str = Field(min_length=1)
+    published_at: datetime
     step_id: str | None = None
     input_count: int = Field(ge=0)
     output_count: int = Field(ge=0)

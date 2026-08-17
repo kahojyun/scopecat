@@ -249,6 +249,7 @@ describe("run daemon reads", () => {
                 key: "fit",
                 revision: 1,
                 publication_hash: "sha256:analysis",
+                published_at: "2026-08-17T12:00:00Z",
                 input_count: 1,
                 output_count: 1,
                 analysis: {
@@ -362,6 +363,7 @@ describe("run daemon reads", () => {
       key: "fit",
       inputCount: 1,
       outputCount: 1,
+      publishedAt: "2026-08-17T12:00:00Z",
     });
     expect(text).toMatchObject({ format: "text", content: "Converged\n" });
     expect(json).toMatchObject({

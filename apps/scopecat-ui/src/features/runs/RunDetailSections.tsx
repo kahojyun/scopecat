@@ -213,6 +213,10 @@ function RunAnalysisItem({ analysis, runId }: { analysis: RunAnalysisSummary; ru
             {analysis.key ?? analysis.id}
             {analysis.stepId ? ` · ${analysis.stepId}` : ""}
             {analysis.inputCount > 0 ? ` · ${analysis.inputCount} inputs` : ""}
+            {" · "}
+            <time dateTime={analysis.publishedAt} title={formatDateTime(analysis.publishedAt)}>
+              {formatRelative(analysis.publishedAt)}
+            </time>
           </small>
         </span>
         <span className={countBadge}>{analysis.outputCount}</span>

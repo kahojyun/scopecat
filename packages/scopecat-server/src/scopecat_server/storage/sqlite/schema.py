@@ -5,7 +5,7 @@ from scopecat_server.storage.sqlite.config_schema import CONFIG_REGISTRY_TABLES_
 from scopecat_server.storage.sqlite.execution_schema import EXECUTION_TABLES_SQL
 from scopecat_server.storage.sqlite.run_schema import RUN_TABLES_SQL
 
-PROJECT_SCHEMA_VERSION = 35
+PROJECT_SCHEMA_VERSION = 36
 
 _CONTROL_TABLES_SQL = f"""
 CREATE TABLE IF NOT EXISTS project_schema (

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import UTC, datetime
 from typing import cast
 
 from scopecat.analysis.repository import (
@@ -46,18 +47,37 @@ def insert_publication(
             raise AnalysisIndexConflict(publication.record.id)
         return cast("int", existing["sequence"]), False
 
+    (
+        record_entry_json,
+        analysis_key,
+        revision,
+        publication_hash,
+        title,
+        step_id,
+        input_count,
+        output_count,
+    ) = expected
     inserted = connection.execute(
         """
         INSERT INTO analysis_publications(
             subject_kind, run_id, record_id, record_entry_json, analysis_key,
-            revision, publication_hash, title, step_id, input_count, output_count
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            revision, publication_hash, published_at, title, step_id, input_count,
+            output_count
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             subject_kind,
             run_id,
             publication.record.id,
-            *expected,
+            record_entry_json,
+            analysis_key,
+            revision,
+            publication_hash,
+            datetime.now(UTC).isoformat(),
+            title,
+            step_id,
+            input_count,
+            output_count,
         ),
     )
     return cast("int", inserted.lastrowid), True
@@ -81,7 +101,7 @@ def list_publications(
         connection.execute(
             f"""
             SELECT sequence, subject_kind, run_id, record_entry_json, title,
-                   analysis_key, revision, publication_hash, step_id,
+                   analysis_key, revision, publication_hash, published_at, step_id,
                    input_count, output_count
             FROM analysis_publications
             WHERE {" AND ".join(clauses)}
@@ -113,7 +133,8 @@ def read_publication(
         connection.execute(
             f"""
             SELECT subject_kind, run_id, record_entry_json, title, analysis_key,
-                   revision, publication_hash, step_id, input_count, output_count
+                   revision, publication_hash, published_at, step_id, input_count,
+                   output_count
             FROM analysis_publications
             WHERE {_owner_clause(run_id)} AND record_id = ?
             """,  # noqa: S608 - owner clause is a fixed internal SQL fragment
@@ -136,7 +157,8 @@ def latest_publication(
         connection.execute(
             f"""
             SELECT subject_kind, run_id, record_entry_json, title, analysis_key,
-                   revision, publication_hash, step_id, input_count, output_count
+                   revision, publication_hash, published_at, step_id, input_count,
+                   output_count
             FROM analysis_publications
             WHERE {_owner_clause(run_id)} AND analysis_key = ?
             ORDER BY revision DESC
@@ -162,6 +184,7 @@ def summary_from_row(row: sqlite3.Row) -> AnalysisPublicationSummary:
         analysis_key=cast("str", row["analysis_key"]),
         revision=cast("int", row["revision"]),
         publication_hash=cast("str", row["publication_hash"]),
+        published_at=datetime.fromisoformat(cast("str", row["published_at"])),
         step_id=cast("str | None", row["step_id"]),
         input_count=cast("int", row["input_count"]),
         output_count=cast("int", row["output_count"]),

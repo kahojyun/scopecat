@@ -177,6 +177,7 @@ export interface AnalysisPublication {
   stepId?: string;
   revision: number;
   publicationHash: string;
+  publishedAt: string;
   subject: "run" | "project";
   inputs: AnalysisRecordInput[];
   executions: AnalysisExecution[];
@@ -194,6 +195,7 @@ export interface RunAnalysisSummary {
   stepId?: string;
   revision: number;
   publicationHash: string;
+  publishedAt: string;
   inputCount: number;
   outputCount: number;
 }
@@ -209,6 +211,7 @@ export interface ProjectAnalysisSummary {
   stepId?: string;
   revision: number;
   publicationHash: string;
+  publishedAt: string;
   inputCount: number;
   outputCount: number;
 }

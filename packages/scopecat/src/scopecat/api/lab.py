@@ -14,14 +14,14 @@ from scopecat.api._runner import _DaemonRunner
 from scopecat.api.analysis import AnalysisContext, AnalysisStep
 from scopecat.api.instruments import LabInstrumentOperations
 from scopecat.api.project_analysis import RemoteProjectAnalysisOperations
-from scopecat.api.published_analysis import PublishedAnalysis, PublishedAnalysisPage
+from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.api.review import ExperimentReviewHandle
 from scopecat.api.run import RunHandle, RunHandlePage, run_handle_id
 from scopecat.authoring.experiments import Experiment, ExperimentInvocation
 from scopecat.config.candidates import CandidateConfig
 from scopecat.control.models import ControlRunState
 from scopecat.daemon.client import DaemonClient
-from scopecat.daemon.views import DaemonHealth
+from scopecat.daemon.views import DaemonHealth, ProjectAnalysisPage
 from scopecat.inspection import CompiledProgramInspectionQuery
 from scopecat.planning.preview import PreviewCoordinateMode
 from scopecat.planning.preview_models import ExperimentPreview
@@ -227,13 +227,15 @@ class LabClient:
             )
         return analysis.save()
 
-    def published_analyses(
+    def analysis_summaries(
         self,
         *,
         limit: int = 100,
         before: int | None = None,
-    ) -> PublishedAnalysisPage:
-        return self._analyses.published_analyses(limit=limit, before=before)
+    ) -> ProjectAnalysisPage:
+        """Load a bounded history page without fetching publication bodies."""
+
+        return self._analyses.summaries(limit=limit, before=before)
 
     def published_analysis(self, selector: str) -> PublishedAnalysis:
         return self._analyses.published_analysis(selector)

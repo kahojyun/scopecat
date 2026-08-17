@@ -1,7 +1,7 @@
 import { useEffect, useMemo, type ReactNode } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Atom, ChevronDown, CircleOff, LoaderCircle } from "lucide-react";
-import { errorMessage } from "../../lib/presentation";
+import { errorMessage, formatDateTime, formatRelative } from "../../lib/presentation";
 import type { ProjectAnalysis, ProjectAnalysisSummary } from "../../types";
 import { classes, countBadge, secondaryButton } from "../../ui/styles";
 import { AnalysisPublicationView } from "./AnalysisPublicationView";
@@ -130,7 +130,10 @@ export function AnalysesWorkspace({
                 {analysis.key ?? analysis.id}
               </span>
               <span className="text-[0.56rem] text-text-dim">
-                {analysis.inputCount} input{analysis.inputCount === 1 ? "" : "s"} ·{" "}
+                <time dateTime={analysis.publishedAt} title={formatDateTime(analysis.publishedAt)}>
+                  {formatRelative(analysis.publishedAt)}
+                </time>{" "}
+                · {analysis.inputCount} input{analysis.inputCount === 1 ? "" : "s"} ·{" "}
                 {analysis.outputCount} output{analysis.outputCount === 1 ? "" : "s"}
               </span>
             </button>
@@ -207,6 +210,10 @@ function AnalysisDetail({
         <dt className="font-bold text-text-dim">Publication</dt>
         <dd className="m-0 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-text-soft">
           <span title={selected.publicationHash}>{selected.publicationHash}</span>
+        </dd>
+        <dt className="font-bold text-text-dim">Published</dt>
+        <dd className="m-0 text-text-soft">
+          <time dateTime={selected.publishedAt}>{formatDateTime(selected.publishedAt)}</time>
         </dd>
       </dl>
 

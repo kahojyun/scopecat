@@ -321,6 +321,7 @@ describe("ConfigWorkspace", () => {
       key: "fit",
       revision: 1,
       publicationHash: "sha256:analysis-fit",
+      publishedAt: "2026-08-17T12:00:00Z",
       subject: "run",
       inputs: [],
       executions: [],

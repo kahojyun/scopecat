@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol, cast
 
 from scopecat.analysis.datasets import DerivedDataset
@@ -36,14 +37,6 @@ from scopecat.runs.data import (
     RunRecordJsonResult,
 )
 from scopecat.sdk.compute import PYTHON_JSON_CODEC
-
-
-@dataclass(frozen=True, slots=True)
-class PublishedAnalysisPage:
-    """Bounded page of immutable analysis handles."""
-
-    items: tuple[PublishedAnalysis, ...]
-    next_cursor: int | None = None
 
 
 class _PublishedAnalysisSource(Protocol):
@@ -164,6 +157,10 @@ class PublishedAnalysis:
         return self.view.analysis.publication_hash
 
     @property
+    def published_at(self) -> datetime:
+        return self.view.published_at
+
+    @property
     def outputs(self) -> tuple[AnalysisRecordOutput, ...]:
         return tuple(self.view.analysis.outputs)
 
@@ -272,4 +269,4 @@ class PublishedAnalysis:
         return output
 
 
-__all__ = ["PublishedAnalysis", "PublishedAnalysisArtifact", "PublishedAnalysisPage"]
+__all__ = ["PublishedAnalysis", "PublishedAnalysisArtifact"]

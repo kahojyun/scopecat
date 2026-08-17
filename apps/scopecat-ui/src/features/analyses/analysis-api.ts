@@ -89,6 +89,7 @@ function normalizeProjectAnalysisSummary(
     stepId: summary.step_id ?? undefined,
     revision: summary.revision,
     publicationHash: summary.publication_hash,
+    publishedAt: summary.published_at,
     inputCount: summary.input_count,
     outputCount: summary.output_count,
   };
@@ -103,6 +104,7 @@ function normalizeProjectAnalysis(view: ProjectAnalysisView): ProjectAnalysis {
     stepId: analysis.step_id ?? undefined,
     revision: analysis.revision,
     publicationHash: analysis.publication_hash,
+    publishedAt: view.published_at,
     subject: "project",
     inputs: analysis.inputs ?? [],
     executions: analysis.executions ?? [],
