@@ -54,7 +54,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
 )
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments.execution import (
     RunHardwareBatch,
@@ -93,18 +93,18 @@ def daemon_execution_session(
 ) -> ExecutionSession:
     """Bind client-owned code to the admitted daemon-owned run."""
 
-    if admission.manifest.outcome is not None:
+    if admission.snapshot.outcome is not None:
         raise ValueError("terminal run cannot start execution")
     if admission.submission_id != submission.submission_id:
         raise ValueError("submission and admission ids do not match")
-    if admission.manifest.config_content_hash != config_content_hash(submission.config):
+    if admission.snapshot.config_content_hash != config_content_hash(submission.config):
         raise ValueError("submission and admission config snapshots do not match")
-    if admission.manifest.config_source != submission.config_source:
+    if admission.snapshot.config_source != submission.config_source:
         raise ValueError("submission and admission config sources do not match")
 
     authority = _LeaseAuthority(
         client=client,
-        run_id=admission.manifest.run_id,
+        run_id=admission.snapshot.run_id,
         executor_id=executor_id,
         lease_supervisor=lease_supervisor,
     )
@@ -118,7 +118,7 @@ def daemon_execution_session(
             instruments.provision()
 
     return ExecutionSession(
-        accepted=admission.manifest,
+        accepted=admission.snapshot,
         begin=begin,
         commit_terminal=authority.commit_terminal,
         measurements=_DaemonMeasurementRepository(authority),
@@ -205,7 +205,7 @@ class _LeaseAuthority:
             lease = self._lease
         return lease is not None and lease.cancellation_requested_at is not None
 
-    def commit_terminal(self, commit: TerminalRunCommit) -> RunManifest:
+    def commit_terminal(self, commit: TerminalRunCommit) -> RunSnapshot:
         lease_id = self.fence()
         return self.client.commit_terminal(
             self.run_id,

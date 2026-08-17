@@ -20,7 +20,7 @@ from scopecat.analysis.service import (
     PublishedAnalysisOutputInput,
 )
 from scopecat.config.registry import service as config_registry_service
-from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.errors import CheckFailed, NotFound
 from scopecat.measurements.results import Dataset
 from scopecat.records.analysis import (
     ANALYSIS_ARTIFACT_CODEC,
@@ -41,7 +41,6 @@ from scopecat.records.analysis import (
     PublishedAnalysisRecordInput,
     RunAnalysisSubject,
 )
-from scopecat.records.run import RunManifest
 from scopecat.runs.refs import record_content_ref
 from scopecat_testkit.config_registry import activate_candidate_config
 from scopecat_testkit.server.in_process_lab import in_process_lab
@@ -401,11 +400,9 @@ def test_native_dataframe_trace_returns_one_reusable_derived_dataset(
     ]
     assert published.table("table").source is not None
     assert published.figure("figure").projection is not None
-    manifest_entry = next(
-        entry for entry in handle.manifest.datasets if entry.id == dataset_id
-    )
-    assert manifest_entry.kind == "analysis_dataset"
-    assert manifest_entry.content_hash == content["content_hash"]
+    catalog_entry = handle.content("dataset", dataset_id)
+    assert catalog_entry.kind == "analysis_dataset"
+    assert catalog_entry.content_hash == content["content_hash"]
 
 
 def test_analysis_trace_retains_native_dataframe_identity_until_publication(
@@ -682,7 +679,7 @@ def test_analysis_publishes_typed_facts_and_owned_artifacts(tmp_path: Path) -> N
         expected_kind="analysis_artifact",
     )
     assert restored.content == "# Fit report\n\nConverged.\n"
-    entry = next(item for item in handle.manifest.artifacts if item.id == artifact_id)
+    entry = handle.content("artifact", artifact_id)
     assert entry.filename == "fit-report.md"
     assert entry.produced_by == "analysis-publication"
     published = handle.published_analysis("publication")
@@ -777,10 +774,9 @@ def test_analysis_key_appends_only_changed_publication_revisions(
     assert latest.fact("score").value == 0.75
     assert first_publication.artifact("report").text() == "first"
     assert latest.artifact("report").text() == "second"
-    assert [item.id for item in handle.manifest.records if item.kind == "analysis"] == [
-        "analysis-fit-result",
-        "analysis-fit-result-r2",
-    ]
+    assert [
+        item.id for item in handle.contents(role="record", kind="analysis").items
+    ] == ["analysis-fit-result-r2", "analysis-fit-result"]
 
 
 def test_analysis_dataset_input_freezes_the_exact_same_run_output_revision(
@@ -984,9 +980,11 @@ def test_analysis_revision_owns_its_parameter_proposal_identity(tmp_path: Path) 
     assert retried.id == second.id
     assert [
         item.id
-        for item in handle.manifest.records
-        if item.kind == "parameter_change_proposal"
-    ] == ["drive-frequency", "drive-frequency-r2"]
+        for item in handle.contents(
+            role="record",
+            kind="parameter_change_proposal",
+        ).items
+    ] == ["drive-frequency-r2", "drive-frequency"]
 
 
 def test_analysis_proposal_rejects_unknown_or_view_evidence(tmp_path: Path) -> None:
@@ -1129,15 +1127,14 @@ def test_analysis_save_rolls_back_refs_after_manifest_failure(
         storage: SQLiteRunRepository,
         connection: sqlite3.Connection,
         prepared: PreparedContentPublication,
-    ) -> RunManifest:
+    ) -> None:
         nonlocal failed
-        manifest = original_publish(storage, connection, prepared)
+        original_publish(storage, connection, prepared)
         if not failed and any(
-            record.id == analysis_record_id for record in manifest.records
+            record.id == analysis_record_id for record in prepared.publication.entries
         ):
             failed = True
-            raise OSError("injected analysis manifest failure")
-        return manifest
+            raise OSError("injected analysis publication failure")
 
     monkeypatch.setattr(
         SQLiteRunRepository,
@@ -1145,7 +1142,7 @@ def test_analysis_save_rolls_back_refs_after_manifest_failure(
         fail_first_analysis_publication,
     )
 
-    with pytest.raises(OSError, match="injected analysis manifest failure"):
+    with pytest.raises(OSError, match="injected analysis publication failure"):
         analysis.save()
 
     storage = services.runs
@@ -1154,13 +1151,23 @@ def test_analysis_save_rolls_back_refs_after_manifest_failure(
         kind="analysis",
     )
     assert not storage.exists(run.run_id, analysis_ref)
-    failed_manifest = storage.read_manifest(run.run_id)
-    assert all(record.id != analysis_record_id for record in failed_manifest.records)
+    with pytest.raises(NotFound):
+        storage.read_content(
+            run.run_id,
+            role="record",
+            content_id=analysis_record_id,
+        )
 
     saved = analysis.save()
 
-    recovered_manifest = storage.read_manifest(run.run_id)
-    assert any(record.id == analysis_record_id for record in recovered_manifest.records)
+    assert (
+        storage.read_content(
+            run.run_id,
+            role="record",
+            content_id=analysis_record_id,
+        ).id
+        == analysis_record_id
+    )
     assert saved.id == analysis_record_id
 
 

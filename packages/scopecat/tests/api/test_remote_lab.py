@@ -89,7 +89,7 @@ from scopecat.records.config import (
 from scopecat.records.content import ContentEntry
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementScalar
-from scopecat.records.run import ConfigRegistryRunConfigSource, RunManifest
+from scopecat.records.run import ConfigRegistryRunConfigSource, RunSnapshot
 from scopecat.runs.data import RunMeasurementDatasetResult
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments import InstrumentProviderContext
@@ -107,16 +107,15 @@ def test_remote_run_uses_full_dataset_batches_and_projected_arrow_pages() -> Non
         schema=schema.model_dump(mode="json"),
         metadata={"experiment": "remote-page-test"},
     )
-    manifest = RunManifest(
+    snapshot = RunSnapshot(
         run_id="run-batches",
         config_content_hash=config_content_hash(load_config()),
-        contents=(dataset_entry,),
     )
     detail = RunDetail(
         control=RunControlView(
             sequence=1,
             admission=RunAdmissionView(
-                run_id=manifest.run_id,
+                run_id=snapshot.run_id,
                 plan=RunPlanView(
                     experiment_id="remote-batches",
                     experiment_kind="test",
@@ -130,7 +129,7 @@ def test_remote_run_uses_full_dataset_batches_and_projected_arrow_pages() -> Non
             updated_at=_NOW,
             completed_point_count=3,
             point_plan=RunPointPlanView(
-                run_id=manifest.run_id,
+                run_id=snapshot.run_id,
                 initial_point_count=3,
                 accepted_point_count=3,
                 point_limit=3,
@@ -141,10 +140,10 @@ def test_remote_run_uses_full_dataset_batches_and_projected_arrow_pages() -> Non
                 stop_reason="static point plan",
             ),
         ),
-        manifest=manifest,
+        snapshot=snapshot,
     )
     records = tuple(
-        signal_record(point_index=index).model_copy(update={"run_id": manifest.run_id})
+        signal_record(point_index=index).model_copy(update={"run_id": snapshot.run_id})
         for index in range(3)
     )
     requests: list[httpx2.Request] = []
@@ -153,6 +152,10 @@ def test_remote_run_uses_full_dataset_batches_and_projected_arrow_pages() -> Non
         requests.append(request)
         if request.url.path == "/api/v1/runs/run-batches":
             return _model(detail)
+        if request.url.path == (
+            "/api/v1/runs/run-batches/contents/dataset/raw-measurements"
+        ):
+            return _model(dataset_entry)
         if request.url.path == ("/api/v1/runs/run-batches/datasets/raw-measurements"):
             return _model(
                 RunMeasurementDatasetResult(
@@ -198,7 +201,7 @@ def test_remote_run_uses_full_dataset_batches_and_projected_arrow_pages() -> Non
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
     lab = LabClient(_client(handler))
-    run = RunHandle(session=lab, id=manifest.run_id)
+    run = RunHandle(session=lab, id=snapshot.run_id)
 
     reader = cast(
         "Iterator[object]",
@@ -208,13 +211,13 @@ def test_remote_run_uses_full_dataset_batches_and_projected_arrow_pages() -> Non
         .to_record_batch_reader(batch_size=2),
     )
     assert [request.url.path for request in requests] == [
-        "/api/v1/runs/run-batches",
+        "/api/v1/runs/run-batches/contents/dataset/raw-measurements",
         "/api/v1/runs/run-batches/measurements/arrow",
     ]
 
     assert len(list(reader)) == 2
     assert [request.url.path for request in requests] == [
-        "/api/v1/runs/run-batches",
+        "/api/v1/runs/run-batches/contents/dataset/raw-measurements",
         "/api/v1/runs/run-batches/measurements/arrow",
         "/api/v1/runs/run-batches/measurements/arrow",
     ]
@@ -347,7 +350,7 @@ def test_execute_submits_complete_plan_and_heartbeats(
         *,
         program: RunProgram,
         session: ExecutionSession,
-    ) -> RunManifest:
+    ) -> RunSnapshot:
         forwarded["program"] = program
         accepted = session.accepted
         session.begin()
@@ -417,7 +420,7 @@ def test_execute_honors_initial_lease_cancellation_before_remote_effects(
             assert command.outcome.result == "cancelled"
             assert command.outcome.certainty == "known"
             return _model(
-                admissions[-1].manifest.model_copy(
+                admissions[-1].snapshot.model_copy(
                     update={
                         "outcome": command.outcome,
                         "contents": command.contents,
@@ -464,10 +467,10 @@ def test_execute_fences_effects_after_heartbeat_loses_lease(
             return httpx2.Response(409, json={"detail": "executor lease expired"})
         if path.endswith("/terminal"):
             return _model(
-                admissions[-1].manifest.model_copy(
+                admissions[-1].snapshot.model_copy(
                     update={
                         "outcome": RunOutcome(
-                            run_id=admissions[-1].manifest.run_id,
+                            run_id=admissions[-1].snapshot.run_id,
                             result="succeeded",
                             certainty="known",
                         )
@@ -480,7 +483,7 @@ def test_execute_fences_effects_after_heartbeat_loses_lease(
         *,
         program: RunProgram,
         session: ExecutionSession,
-    ) -> RunManifest:
+    ) -> RunSnapshot:
         del program
         session.begin()
         assert heartbeat_attempted.wait(timeout=1)
@@ -755,14 +758,14 @@ def test_run_invocation_plans_against_explicit_snapshot_without_local_storage(
         *,
         executor_id: str,
         submission_id: str | None = None,
-    ) -> RunManifest:
+    ) -> RunSnapshot:
         del self
         captured.update(
             planned=planned,
             executor_id=executor_id,
             submission_id=submission_id,
         )
-        accepted = RunManifest(
+        accepted = RunSnapshot(
             run_id="run-scratch",
             config_content_hash=planned.program.config_content_hash,
         )
@@ -840,11 +843,11 @@ def test_run_invocation_uses_active_config_and_bound_system(
         *,
         executor_id: str,
         submission_id: str | None = None,
-    ) -> RunManifest:
+    ) -> RunSnapshot:
         del self, executor_id, submission_id
         captured["planned"] = planned
         return _terminal_manifest(
-            RunManifest(
+            RunSnapshot(
                 run_id="run-scratch",
                 config_content_hash=planned.program.config_content_hash,
             )
@@ -888,11 +891,11 @@ def test_run_invocation_uses_daemon_catalog_without_a_local_builder(
         *,
         executor_id: str,
         submission_id: str | None = None,
-    ) -> RunManifest:
+    ) -> RunSnapshot:
         del self, executor_id, submission_id
         captured["planned"] = planned
         return _terminal_manifest(
-            RunManifest(
+            RunSnapshot(
                 run_id="run-scratch",
                 config_content_hash=planned.program.config_content_hash,
             )
@@ -1082,7 +1085,7 @@ def _config_draft_default_receipt(
 def _admission(submission: RunSubmission) -> RunAdmission:
     return RunAdmission(
         submission_id=submission.submission_id,
-        manifest=RunManifest(
+        snapshot=RunSnapshot(
             run_id="run-1",
             created_at=_NOW,
             config_content_hash=config_content_hash(submission.config),
@@ -1126,7 +1129,7 @@ def _provisioning_receipt(
     )
 
 
-def _terminal_manifest(accepted: RunManifest) -> RunManifest:
+def _terminal_manifest(accepted: RunSnapshot) -> RunSnapshot:
     outcome = RunOutcome(
         run_id=accepted.run_id,
         result="succeeded",

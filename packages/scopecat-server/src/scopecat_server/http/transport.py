@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path, PurePosixPath
-from typing import Annotated, cast, override
+from typing import Annotated, Literal, cast, override
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi import Path as ApiPath
@@ -72,6 +72,7 @@ from scopecat.daemon.views import (
     RunAnalysisView,
     RunArtifactBytesView,
     RunConfigView,
+    RunContentPage,
     RunDatasetBytesView,
     RunDetail,
     RunRequestView,
@@ -122,7 +123,7 @@ from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.content import ContentEntry
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.runs.data import (
     RunArtifactJsonResult,
     RunArtifactTextResult,
@@ -530,6 +531,34 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     def get_run_request(run_id: str) -> RunRequestView:
         return application.runs.get_run_request(run_id)
 
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/contents")
+    def list_run_contents(
+        run_id: str,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+        role: Literal["artifact", "dataset", "record"] | None = None,
+        kind: str | None = None,
+    ) -> RunContentPage:
+        return application.runs.list_run_contents(
+            run_id,
+            limit=limit,
+            before=before,
+            role=role,
+            kind=kind,
+        )
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/contents/{{role}}/{{content_id}}")
+    def get_run_content(
+        run_id: str,
+        role: Literal["artifact", "dataset", "record"],
+        content_id: str,
+    ) -> ContentEntry:
+        return application.runs.get_run_content(
+            run_id,
+            role=role,
+            content_id=content_id,
+        )
+
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/analyses")
     def list_run_analyses(
         run_id: str,
@@ -933,7 +962,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     def commit_terminal(
         run_id: str,
         command: TerminalRunCommitCommand,
-    ) -> RunManifest:
+    ) -> RunSnapshot:
         _require_run_id(run_id, command.outcome.run_id)
         return application.executor.commit_terminal(run_id, command)
 

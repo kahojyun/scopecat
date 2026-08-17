@@ -113,7 +113,7 @@ class AdmissionService:
             admission = RunAdmissionRecord(
                 submission_id=submission.submission_id,
                 submission_content_hash=submission.intent_content_hash,
-                run_id=skeleton.manifest.run_id,
+                run_id=skeleton.snapshot.run_id,
                 plan=submission.plan,
                 display_name=submission.request.display_name,
                 tags=submission.request.tags,
@@ -126,7 +126,7 @@ class AdmissionService:
                     },
                     domain_target=active_config.domain_target,
                 ),
-                admitted_at=skeleton.manifest.created_at,
+                admitted_at=skeleton.snapshot.created_at,
             )
         except BackendConflict:
             retry = self._replay_admission(submission)
@@ -352,7 +352,7 @@ class AdmissionService:
     def _wire_admission(self, run: ControlRun) -> RunAdmission:
         return RunAdmission(
             submission_id=run.admission.submission_id,
-            manifest=self._runs.read_manifest(run.run_id),
+            snapshot=self._runs.read_snapshot(run.run_id),
         )
 
 

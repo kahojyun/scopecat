@@ -7,7 +7,7 @@ from __future__ import annotations
 from base64 import b64decode, b64encode
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from scopecat.config.changes import (
     list_parameter_change_proposals,
@@ -39,6 +39,7 @@ from scopecat.daemon.views import (
     RunAnalysisView,
     RunArtifactBytesView,
     RunConfigView,
+    RunContentPage,
     RunControlView,
     RunDatasetBytesView,
     RunDetail,
@@ -85,7 +86,6 @@ from scopecat.records.measurement import (
     MeasurementRecord,
 )
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
-from scopecat.runs.access import list_records
 from scopecat.runs.attachments import attach_run_artifact
 from scopecat.runs.data import (
     RunArtifactJsonResult,
@@ -313,7 +313,7 @@ class RunService:
                                 control.run_id,
                             ),
                         ),
-                        manifest=self._runs.read_manifest_in_transaction(
+                        snapshot=self._runs.read_snapshot_in_transaction(
                             connection,
                             control.run_id,
                         ),
@@ -327,7 +327,7 @@ class RunService:
         try:
             with self._control.read_transaction() as connection:
                 control = self._control.get_run_in_transaction(connection, run_id)
-                manifest = self._runs.read_manifest_in_transaction(connection, run_id)
+                snapshot = self._runs.read_snapshot_in_transaction(connection, run_id)
                 claims = {
                     (claim.resource.kind, claim.resource.id): claim
                     for claim in self._control.list_resource_claims_in_transaction(
@@ -385,16 +385,16 @@ class RunService:
                 completed_point_count=completed_point_count,
                 point_plan=point_plan,
             ),
-            manifest=manifest,
+            snapshot=snapshot,
             resources=resources,
         )
 
     def get_run_config(self, run_id: str) -> RunConfigView:
         with self._config_errors():
-            manifest = self._runs.read_manifest(run_id)
+            snapshot = self._runs.read_snapshot(run_id)
             return RunConfigView(
                 run_id=run_id,
-                config_content_hash=manifest.config_content_hash,
+                config_content_hash=snapshot.config_content_hash,
                 config=self._runs.read_config_profile_snapshot(run_id),
             )
 
@@ -405,6 +405,43 @@ class RunService:
                 request=load_run_request(run_id=run_id, services=self._services),
             )
 
+    def list_run_contents(
+        self,
+        run_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+        role: Literal["artifact", "dataset", "record"] | None = None,
+        kind: str | None = None,
+    ) -> RunContentPage:
+        with self._config_errors():
+            page = self._runs.list_contents(
+                run_id,
+                limit=limit,
+                before=before,
+                role=role,
+                kind=kind,
+            )
+            return RunContentPage(
+                run_id=run_id,
+                items=page.items,
+                next_cursor=page.next_cursor,
+            )
+
+    def get_run_content(
+        self,
+        run_id: str,
+        *,
+        role: Literal["artifact", "dataset", "record"],
+        content_id: str,
+    ) -> ContentEntry:
+        with self._config_errors():
+            return self._runs.read_content(
+                run_id,
+                role=role,
+                content_id=content_id,
+            )
+
     def list_run_analyses(
         self,
         run_id: str,
@@ -413,25 +450,22 @@ class RunService:
         before: int | None = None,
     ) -> RunAnalysisPage:
         with self._config_errors():
-            manifest = self._runs.read_manifest(run_id)
-            records = list_records(manifest, kind="analysis")
-            numbered = tuple(enumerate(records, start=1))
-            eligible = tuple(
-                item
-                for item in reversed(numbered)
-                if before is None or item[0] < before
+            page = self._runs.list_contents(
+                run_id,
+                limit=limit,
+                before=before,
+                role="record",
+                kind="analysis",
             )
-            selected = eligible[: limit + 1]
-            page = selected[:limit]
             return RunAnalysisPage(
                 run_id=run_id,
                 items=tuple(
                     self._run_analysis_summary(
                         self._run_analysis_view(run_id, record.id)
                     )
-                    for _, record in page
+                    for record in page.items
                 ),
-                next_cursor=page[-1][0] if len(selected) > limit else None,
+                next_cursor=page.next_cursor,
             )
 
     def get_run_analysis(self, run_id: str, selector: str) -> RunAnalysisView:
@@ -439,21 +473,36 @@ class RunService:
             try:
                 return self._run_analysis_view(run_id, selector)
             except NotFound as exact_error:
-                manifest = self._runs.read_manifest(run_id)
                 analysis_key = artifact_slug(selector, fallback="analysis")
                 base_id = f"analysis-{analysis_key}"
-                matches = tuple(
-                    record
-                    for record in list_records(manifest, kind="analysis")
-                    if record.id == base_id
-                    or (
-                        record.id.startswith(f"{base_id}-r")
-                        and record.id.removeprefix(f"{base_id}-r").isdigit()
-                    )
-                )
-                if not matches:
+                match = self._latest_run_analysis_entry(run_id, base_id)
+                if match is None:
                     raise exact_error
-                return self._run_analysis_view(run_id, matches[-1].id)
+                return self._run_analysis_view(run_id, match.id)
+
+    def _latest_run_analysis_entry(
+        self,
+        run_id: str,
+        base_id: str,
+    ) -> ContentEntry | None:
+        before: int | None = None
+        while True:
+            page = self._runs.list_contents(
+                run_id,
+                limit=100,
+                before=before,
+                role="record",
+                kind="analysis",
+            )
+            for entry in page.items:
+                if entry.id == base_id or (
+                    entry.id.startswith(f"{base_id}-r")
+                    and entry.id.removeprefix(f"{base_id}-r").isdigit()
+                ):
+                    return entry
+            if page.next_cursor is None:
+                return None
+            before = page.next_cursor
 
     def _run_analysis_view(self, run_id: str, selector: str) -> RunAnalysisView:
         result = read_run_record_json(
@@ -510,21 +559,20 @@ class RunService:
             )
             publication = self._runs.prepare_content_publication(prepared.publication)
             with self._control.write_transaction() as connection:
-                existing = {
-                    entry.id: entry.content_hash
-                    for entry in self._runs.read_manifest_in_transaction(
+                try:
+                    existing_hash = self._runs.read_content_in_transaction(
                         connection,
                         run_id,
-                    ).records
-                }
+                        role="record",
+                        content_id=prepared.saved.record.id,
+                    ).content_hash
+                except NotFound:
+                    existing_hash = None
                 self._runs.publish_prepared_content_in_transaction(
                     connection,
                     publication,
                 )
-                if (
-                    existing.get(prepared.saved.record.id)
-                    != prepared.saved.record.content_hash
-                ):
+                if existing_hash != prepared.saved.record.content_hash:
                     self._control.append_event_in_transaction(
                         connection,
                         DurableEventInput(
@@ -696,7 +744,7 @@ class RunService:
 
         variable_ids = tuple(column.variable_id for column in query.columns)
         with self._config_errors():
-            manifest = self._runs.read_manifest(run_id)
+            self._runs.read_snapshot(run_id)
             items, next_offset, schema, snapshot_size = (
                 SQLiteMeasurementDatasetRepository(
                     self._runs,
@@ -710,20 +758,20 @@ class RunService:
             )
         if schema is None:
             raise BackendConflict("measurement dataset has no registered schema")
-        entry = next(
-            (
-                candidate
-                for candidate in manifest.datasets
-                if candidate.id == RAW_MEASUREMENTS_DATASET_ID
-            ),
-            ContentEntry(
+        try:
+            entry = self._runs.read_content(
+                run_id,
+                role="dataset",
+                content_id=RAW_MEASUREMENTS_DATASET_ID,
+            )
+        except NotFound:
+            entry = ContentEntry(
                 role="dataset",
                 id=RAW_MEASUREMENTS_DATASET_ID,
                 kind="measurement_dataset",
                 schema=schema.model_dump(mode="json"),
                 content_hash="live-measurement-dataset",
-            ),
-        )
+            )
         try:
             table = project_measurement_page(
                 items,
@@ -748,7 +796,7 @@ class RunService:
         """Return one bounded record preview for presentation in the operator UI."""
 
         with self._config_errors():
-            manifest = self._runs.read_manifest(run_id)
+            self._runs.read_snapshot(run_id)
             items, next_offset, live_schema, _ = SQLiteMeasurementDatasetRepository(
                 self._runs,
                 run_id=run_id,
@@ -757,14 +805,14 @@ class RunService:
                 offset=0,
                 include_schema=True,
             )
-        dataset = next(
-            (
-                entry
-                for entry in manifest.datasets
-                if entry.id == RAW_MEASUREMENTS_DATASET_ID
-            ),
-            None,
-        )
+        try:
+            dataset = self._runs.read_content(
+                run_id,
+                role="dataset",
+                content_id=RAW_MEASUREMENTS_DATASET_ID,
+            )
+        except NotFound:
+            dataset = None
         terminal_schema = (
             None
             if dataset is None or dataset.data_schema is None
@@ -785,7 +833,7 @@ class RunService:
         """Return daemon-received measurement state without forcing persistence."""
 
         with self._config_errors():
-            self._runs.read_manifest(run_id)
+            self._runs.read_snapshot(run_id)
         return self._active_measurements.preview(
             run_id,
             after_record_count=after_record_count,
@@ -802,7 +850,7 @@ class RunService:
         from scopecat.measurements.recording_arrow import encode_measurement_append
 
         with self._config_errors():
-            self._runs.read_manifest(run_id)
+            self._runs.read_snapshot(run_id)
         preview, header = self._active_measurements.snapshot(
             run_id,
             after_record_count=after_record_count,
@@ -829,7 +877,7 @@ class RunService:
         """Read one bounded product-grid slice by authored axis indices."""
 
         with self._config_errors():
-            self._runs.read_manifest(run_id)
+            self._runs.read_snapshot(run_id)
             repository = SQLiteMeasurementDatasetRepository(self._runs, run_id=run_id)
             schema = repository.measurement_schema()
         if schema is None:
@@ -885,7 +933,7 @@ class RunService:
         """Return bounded numeric trace series for direct plotting."""
 
         with self._config_errors():
-            self._runs.read_manifest(run_id)
+            self._runs.read_snapshot(run_id)
             repository = SQLiteMeasurementDatasetRepository(self._runs, run_id=run_id)
             schema = repository.measurement_schema()
         if schema is None:

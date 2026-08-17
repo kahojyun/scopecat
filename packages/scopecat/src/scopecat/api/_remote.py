@@ -8,6 +8,7 @@ from base64 import b64encode
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
 import pyarrow as pa
 from pydantic import JsonValue
@@ -29,6 +30,7 @@ from scopecat.daemon.views import (
     MeasurementArrowQuery,
     RunAnalysisPage,
     RunAnalysisView,
+    RunContentPage,
 )
 from scopecat.daemon.wire import (
     AnalysisArtifactOutputPayload,
@@ -49,7 +51,7 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.content import ContentEntry
 from scopecat.records.metadata import validate_json_metadata
 from scopecat.records.parameter_change import ParameterChangeProposal
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.data import (
     RunArtifactBytesResult,
@@ -67,14 +69,44 @@ class RemoteRunOperations:
 
     client: DaemonClient
 
-    def load_manifest(self, run_id: str) -> RunManifest:
-        return self.client.get_run(run_id).manifest
+    def load_snapshot(self, run_id: str) -> RunSnapshot:
+        return self.client.get_run(run_id).snapshot
 
     def load_config(self, run_id: str) -> ConfigProfileSnapshot:
         return self.client.run_config(run_id).config
 
     def load_request(self, run_id: str) -> RunRequest:
         return self.client.run_request(run_id).request
+
+    def contents(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+        role: Literal["artifact", "dataset", "record"] | None,
+        kind: str | None,
+    ) -> RunContentPage:
+        return self.client.run_contents(
+            run_id,
+            limit=limit,
+            before=before,
+            role=role,
+            kind=kind,
+        )
+
+    def content_entry(
+        self,
+        run_id: str,
+        *,
+        role: Literal["artifact", "dataset", "record"],
+        content_id: str,
+    ) -> ContentEntry:
+        return self.client.run_content(
+            run_id,
+            role=role,
+            content_id=content_id,
+        )
 
     def load_measurement_dataset(
         self,

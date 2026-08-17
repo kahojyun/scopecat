@@ -51,7 +51,7 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
     RunConfigSource,
-    RunManifest,
+    RunSnapshot,
 )
 
 
@@ -66,7 +66,7 @@ class _DaemonRunner:
         *,
         executor_id: str = "notebook",
         submission_id: str | None = None,
-    ) -> RunManifest:
+    ) -> RunSnapshot:
         """Admit a plan remotely while executing its Python closures locally."""
 
         submission = RunSubmission(
@@ -106,7 +106,7 @@ class _DaemonRunner:
         operator: str | None = None,
         executor_id: str = "notebook",
         submission_id: str | None = None,
-    ) -> RunManifest:
+    ) -> RunSnapshot:
         planned = self._plan(
             experiment,
             config=config,

@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 import pyarrow as pa
 from pydantic import JsonValue
@@ -22,6 +22,7 @@ from scopecat.daemon.views import (
     RunAnalysisPage,
     RunAnalysisSummary,
     RunAnalysisView,
+    RunContentPage,
 )
 from scopecat.kernel.errors import NotFound
 from scopecat.kernel.ids import artifact_slug
@@ -34,9 +35,8 @@ from scopecat.records.analysis import AnalysisExecution, AnalysisRecord
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.content import ContentEntry
 from scopecat.records.parameter_change import ParameterChangeProposal
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
-from scopecat.runs.access import list_records, require_dataset
 from scopecat.runs.attachments import attach_run_artifact
 from scopecat.runs.data import (
     RunArtifactBytesResult,
@@ -65,14 +65,49 @@ from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 class ServiceRunOperations:
     services: ProjectStateServices
 
-    def load_manifest(self, run_id: str) -> RunManifest:
-        return self.services.runs.read_manifest(run_id)
+    def load_snapshot(self, run_id: str) -> RunSnapshot:
+        return self.services.runs.read_snapshot(run_id)
 
     def load_config(self, run_id: str) -> ConfigProfileSnapshot:
         return self.services.runs.read_config_profile_snapshot(run_id)
 
     def load_request(self, run_id: str) -> RunRequest:
         return load_run_request(run_id=run_id, services=self.services)
+
+    def contents(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+        role: Literal["artifact", "dataset", "record"] | None,
+        kind: str | None,
+    ) -> RunContentPage:
+        page = self.services.runs.list_contents(
+            run_id,
+            limit=limit,
+            before=before,
+            role=role,
+            kind=kind,
+        )
+        return RunContentPage(
+            run_id=run_id,
+            items=page.items,
+            next_cursor=page.next_cursor,
+        )
+
+    def content_entry(
+        self,
+        run_id: str,
+        *,
+        role: Literal["artifact", "dataset", "record"],
+        content_id: str,
+    ) -> ContentEntry:
+        return self.services.runs.read_content(
+            run_id,
+            role=role,
+            content_id=content_id,
+        )
 
     def load_measurement_dataset(
         self,
@@ -106,10 +141,10 @@ class ServiceRunOperations:
         *,
         query: MeasurementArrowQuery,
     ) -> tuple[pa.Table, int | None, int]:
-        manifest = self.services.runs.read_manifest(run_id)
-        entry = require_dataset(
-            manifest=manifest,
-            selector=RAW_MEASUREMENTS_DATASET_ID,
+        entry = self.services.runs.read_content(
+            run_id,
+            role="dataset",
+            content_id=RAW_MEASUREMENTS_DATASET_ID,
         )
         variable_ids = tuple(column.variable_id for column in query.columns)
         items, next_offset, schema, snapshot_size = SQLiteMeasurementDatasetRepository(
@@ -166,42 +201,46 @@ class ServiceRunOperations:
         limit: int,
         before: int | None,
     ) -> RunAnalysisPage:
-        manifest = self.services.runs.read_manifest(run_id)
-        records = list_records(manifest, kind="analysis")
-        numbered = tuple(enumerate(records, start=1))
-        eligible = tuple(
-            item for item in reversed(numbered) if before is None or item[0] < before
+        page = self.services.runs.list_contents(
+            run_id,
+            limit=limit,
+            before=before,
+            role="record",
+            kind="analysis",
         )
-        selected = eligible[: limit + 1]
-        page = selected[:limit]
         return RunAnalysisPage(
             run_id=run_id,
             items=tuple(
                 _analysis_summary(self.analysis(run_id, record.id))
-                for _, record in page
+                for record in page.items
             ),
-            next_cursor=page[-1][0] if len(selected) > limit else None,
+            next_cursor=page.next_cursor,
         )
 
     def analysis(self, run_id: str, selector: str) -> RunAnalysisView:
         try:
             return self._analysis(run_id, selector)
         except NotFound as exact_error:
-            manifest = self.services.runs.read_manifest(run_id)
             analysis_key = artifact_slug(selector, fallback="analysis")
             base_id = f"analysis-{analysis_key}"
-            matches = tuple(
-                record
-                for record in list_records(manifest, kind="analysis")
-                if record.id == base_id
-                or (
-                    record.id.startswith(f"{base_id}-r")
-                    and record.id.removeprefix(f"{base_id}-r").isdigit()
+            before: int | None = None
+            while True:
+                page = self.services.runs.list_contents(
+                    run_id,
+                    limit=100,
+                    before=before,
+                    role="record",
+                    kind="analysis",
                 )
-            )
-            if not matches:
-                raise exact_error
-            return self._analysis(run_id, matches[-1].id)
+                for record in page.items:
+                    if record.id == base_id or (
+                        record.id.startswith(f"{base_id}-r")
+                        and record.id.removeprefix(f"{base_id}-r").isdigit()
+                    ):
+                        return self._analysis(run_id, record.id)
+                if page.next_cursor is None:
+                    raise exact_error
+                before = page.next_cursor
 
     def _analysis(self, run_id: str, selector: str) -> RunAnalysisView:
         result = read_run_record_json(

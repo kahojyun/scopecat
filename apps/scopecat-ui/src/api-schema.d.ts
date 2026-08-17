@@ -634,6 +634,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/contents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Run Contents */
+        get: operations["list_run_contents_api_v1_runs__run_id__contents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/contents/{role}/{content_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run Content */
+        get: operations["get_run_content_api_v1_runs__run_id__contents__role___content_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/datasets/{selector}": {
         parameters: {
             query?: never;
@@ -2082,7 +2116,7 @@ export interface components {
         };
         /**
          * ContentEntry
-         * @description One content-addressable manifest entry.
+         * @description One content-addressable catalog entry.
          */
         ContentEntry: {
             /** Content Hash */
@@ -4222,6 +4256,21 @@ export interface components {
         };
         RunConfigSource: components["schemas"]["ConfigRegistryRunConfigSource"] | components["schemas"]["AnalysisCandidateRunConfigSource"];
         /**
+         * RunContentPage
+         * @description Newest-first keyset page from one run's content catalog.
+         */
+        RunContentPage: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["ContentEntry"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
+            /** Run Id */
+            run_id: string;
+        };
+        /**
          * RunControlView
          * @description Run state without durable scheduler internals.
          */
@@ -4249,12 +4298,12 @@ export interface components {
          */
         RunDetail: {
             control: components["schemas"]["RunControlView"];
-            manifest: components["schemas"]["RunManifest"];
             /**
              * Resources
              * @default []
              */
             resources: components["schemas"]["RunResourceView"][];
+            snapshot: components["schemas"]["RunSnapshot"];
         };
         /** RunDomainAroundSourceView */
         RunDomainAroundSourceView: {
@@ -4472,27 +4521,6 @@ export interface components {
             values: components["schemas"]["RunPointCoordinateValue-Output"][];
         };
         /**
-         * RunManifest
-         * @description Accepted snapshot plus content and an optional terminal outcome.
-         */
-        RunManifest: {
-            config_content_hash: components["schemas"]["ConfigContentHash"];
-            config_source?: components["schemas"]["RunConfigSource"] | null;
-            /**
-             * Contents
-             * @default []
-             */
-            contents: components["schemas"]["ContentEntry"][];
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at?: string;
-            outcome?: components["schemas"]["RunOutcome-Output"] | null;
-            /** Run Id */
-            run_id: string;
-        };
-        /**
          * RunMeasurementDatasetResult
          * @description Internal dataset-loading payload wrapped by the public run facade.
          */
@@ -4654,12 +4682,28 @@ export interface components {
             status: "required" | "active" | "quarantined" | "released";
         };
         /**
+         * RunSnapshot
+         * @description Accepted run identity, configuration binding, and terminal outcome.
+         */
+        RunSnapshot: {
+            config_content_hash: components["schemas"]["ConfigContentHash"];
+            config_source?: components["schemas"]["RunConfigSource"] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            outcome?: components["schemas"]["RunOutcome-Output"] | null;
+            /** Run Id */
+            run_id: string;
+        };
+        /**
          * RunSummary
-         * @description Scheduler projection paired with the accepted run snapshot.
+         * @description Scheduler state paired with the durable run snapshot.
          */
         RunSummary: {
             control: components["schemas"]["RunControlView"];
-            manifest: components["schemas"]["RunManifest"];
+            snapshot: components["schemas"]["RunSnapshot"];
         };
         /**
          * RunSummaryPage
@@ -6134,6 +6178,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AttentionResolutionReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_run_contents_api_v1_runs__run_id__contents_get: {
+        parameters: {
+            query?: {
+                before?: number | null;
+                kind?: string | null;
+                limit?: number;
+                role?: ("artifact" | "dataset" | "record") | null;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunContentPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_content_api_v1_runs__run_id__contents__role___content_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                content_id: string;
+                role: "artifact" | "dataset" | "record";
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentEntry"];
                 };
             };
             /** @description Validation Error */

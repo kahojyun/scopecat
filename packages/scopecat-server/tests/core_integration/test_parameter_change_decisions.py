@@ -32,10 +32,10 @@ def test_same_proposal_intent_retry_reuses_durable_entry_hash(
         selector="best-signal",
         services=services,
     )
-    durable_entry = next(
-        entry
-        for entry in services.runs.read_manifest(run_id).records
-        if entry.id == proposal.id
+    durable_entry = services.runs.read_content(
+        run_id,
+        role="record",
+        content_id=proposal.id,
     )
 
     prepared = prepare_parameter_change_proposal_contents(
@@ -103,11 +103,12 @@ def test_parameter_change_approval_is_single_and_idempotent(tmp_path: Path) -> N
         )
         == first
     )
-    records = [
-        entry
-        for entry in services.runs.read_manifest(run_id).records
-        if entry.kind == "parameter_change_approval_record"
-    ]
+    records = services.runs.list_contents(
+        run_id,
+        limit=100,
+        role="record",
+        kind="parameter_change_approval_record",
+    ).items
     assert [entry.id for entry in records] == ["best-signal-approval"]
 
 
@@ -122,11 +123,12 @@ def test_parameter_change_approval_fails_closed_on_corruption(
         reviewer="operator",
     )
     storage = sqlite_run_repository(tmp_path)
-    entry = next(
-        record
-        for record in storage.read_manifest(run_id).records
-        if record.kind == "parameter_change_approval_record"
-    )
+    [entry] = storage.list_contents(
+        run_id,
+        limit=100,
+        role="record",
+        kind="parameter_change_approval_record",
+    ).items
     ref = record_content_ref(record_id=entry.id, kind=entry.kind)
     payload = json.loads(storage.read_text(run_id, ref))
     payload["run_id"] = "different-run"

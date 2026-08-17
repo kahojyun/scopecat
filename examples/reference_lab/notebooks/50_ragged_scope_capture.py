@@ -34,7 +34,7 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
         {sample_dimension: slice(0, 2)},
         variable=voltage_id,
     )
-    status = run.manifest.status
+    status = run.status
 
 ragged_scope_summary = {
     "record_lengths": [4, 7, 10],

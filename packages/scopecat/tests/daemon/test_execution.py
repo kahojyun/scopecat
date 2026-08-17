@@ -67,7 +67,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
 )
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments.commands import InstrumentStateAssignment
@@ -115,7 +115,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     )
     admission = RunAdmission(
         submission_id=submission.submission_id,
-        manifest=RunManifest(
+        snapshot=RunSnapshot(
             run_id="run-1",
             created_at=_NOW,
             config_content_hash=config_content_hash(submission.config),
@@ -125,7 +125,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     header = _measurement_header()
     append = _measurement_append(record, header)
     seal = _measurement_seal(append, header)
-    started_manifest = admission.manifest
+    started_manifest = admission.snapshot
     fences: list[tuple[str, str]] = []
     terminal_commands: list[TerminalRunCommitCommand] = []
     hardware_operation_ids: list[str] = []
@@ -374,7 +374,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     assert measurements.seal(seal) == _seal_receipt(seal)
 
     outcome = _outcome()
-    terminal = RunManifest(
+    terminal = RunSnapshot(
         run_id=admission.run_id,
         created_at=accepted.created_at,
         config_content_hash=accepted.config_content_hash,
@@ -416,7 +416,7 @@ def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> N
     )
     admission = RunAdmission(
         submission_id=submission.submission_id,
-        manifest=RunManifest(
+        snapshot=RunSnapshot(
             run_id="run-1",
             created_at=_NOW,
             config_content_hash=config_content_hash(submission.config),
@@ -462,7 +462,7 @@ def test_initial_lease_cancellation_skips_remote_provisioning() -> None:
     )
     admission = RunAdmission(
         submission_id=submission.submission_id,
-        manifest=RunManifest(
+        snapshot=RunSnapshot(
             run_id="run-1",
             created_at=_NOW,
             config_content_hash=config_content_hash(submission.config),

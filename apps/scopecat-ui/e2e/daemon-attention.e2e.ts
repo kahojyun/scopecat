@@ -21,7 +21,7 @@ interface ActiveConfigView {
 }
 
 interface RunAdmission {
-  manifest: {
+  snapshot: {
     run_id: string;
   };
 }
@@ -31,7 +31,7 @@ interface RunDetail {
     state: string;
     attention_reason?: string | null;
   };
-  manifest: {
+  snapshot: {
     outcome?: {
       problems?: Array<{ code?: string }>;
     } | null;
@@ -145,7 +145,7 @@ test("handles naturally expired executors from the GUI", async ({ daemon, page }
 
   const resolved = await getRunDetail(page, daemon.baseUrl, run.runId);
   expect(resolved.control.state).toBe("closed");
-  expect(resolved.manifest.outcome?.problems?.[0]?.code).toBe("daemon.executor_loss_reconciled");
+  expect(resolved.snapshot.outcome?.problems?.[0]?.code).toBe("daemon.executor_loss_reconciled");
   expect(resolved.resources[0]?.status).toBe("released");
   await expectExpiredLeaseEvents(page, daemon.baseUrl, run.runId);
 });
@@ -219,7 +219,7 @@ async function startAbandonedRun(
     }),
     "POST",
   );
-  const runId = admission.manifest.run_id;
+  const runId = admission.snapshot.run_id;
   await expectResponseOk(
     await page.request.post(`${baseUrl}/api/v1/runs/${encodeURIComponent(runId)}/executor/start`, {
       data: {

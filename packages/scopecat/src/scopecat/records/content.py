@@ -28,7 +28,7 @@ type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
 class ContentEntry(BaseModel):
-    """One content-addressable manifest entry."""
+    """One content-addressable catalog entry."""
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 

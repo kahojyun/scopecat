@@ -37,6 +37,7 @@ from scopecat.daemon.wire import (
     RunCoverageState,
     TerminalRunCommitCommand,
 )
+from scopecat.kernel.errors import NotFound
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.content import ModelWrite
@@ -44,9 +45,8 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetReceipt,
 )
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.runs.terminal import merge_terminal_manifest
 
 from scopecat_server.storage.sqlite.control_plane import (
     ControlPlaneConflict,
@@ -213,9 +213,9 @@ class ExecutorService:
         try:
             with self._control.write_transaction() as connection:
                 current = self._control.get_run_in_transaction(connection, run_id)
-                manifest = self._runs.read_manifest_in_transaction(connection, run_id)
+                snapshot = self._runs.read_snapshot_in_transaction(connection, run_id)
                 if current.state == "closed":
-                    return _cancellation_receipt(current, manifest)
+                    return _cancellation_receipt(current, snapshot)
                 if current.state == "attention_required":
                     raise ControlPlaneConflict(
                         "attention-required run must be reconciled before it can close"
@@ -237,7 +237,7 @@ class ExecutorService:
                     operation_id="point-plan.terminal.cancelled",
                     reason="run cancelled",
                 )
-                manifest = self._runs.commit_prepared_terminal_in_transaction(
+                snapshot = self._runs.commit_prepared_terminal_in_transaction(
                     connection,
                     prepared,
                 )
@@ -246,7 +246,7 @@ class ExecutorService:
                     run_id,
                     at=requested_at,
                 )
-                return _cancellation_receipt(current, manifest)
+                return _cancellation_receipt(current, snapshot)
         except ControlPlaneNotFound as error:
             raise BackendNotFound(str(error)) from error
         except ControlPlaneConflict as error:
@@ -455,7 +455,7 @@ class ExecutorService:
         self,
         run_id: str,
         command: TerminalRunCommitCommand,
-    ) -> RunManifest:
+    ) -> RunSnapshot:
         commit = TerminalRunCommit(
             run_id=run_id,
             outcome=command.outcome,
@@ -471,13 +471,13 @@ class ExecutorService:
         control_run = self._control_run(run_id)
         commit = _honor_cancellation(control_run, commit)
         if control_run.state == "closed":
-            manifest = self._runs.read_manifest(run_id)
-            if not _matches_terminal_intent(manifest, commit):
+            snapshot = self._runs.read_snapshot(run_id)
+            if not _matches_terminal_intent(snapshot, commit, self._runs):
                 raise BackendConflict("run already has a different terminal outcome")
             self._instruments.release_run(run_id)
             self._measurement_repositories.pop(run_id, None)
             self._active_measurements.clear(run_id)
-            return manifest
+            return snapshot
         if commit.outcome.result == "succeeded":
             with self._runs.sqlite.read_transaction() as connection:
                 self._validate_successful_point_progress_in_transaction(
@@ -489,23 +489,24 @@ class ExecutorService:
             token=command.lease_id,
         )
         try:
-            manifest = self.commit_terminal_with_authority(
+            snapshot = self.commit_terminal_with_authority(
                 run_id,
                 token=command.lease_id,
                 commit=commit,
             )
         except BackendConflict:
             current = self._control_run(run_id)
-            manifest = self._runs.read_manifest(run_id)
+            snapshot = self._runs.read_snapshot(run_id)
             if current.state != "closed" or not _matches_terminal_intent(
-                manifest,
+                snapshot,
                 commit,
+                self._runs,
             ):
                 raise
         self._instruments.release_run(run_id)
         self._measurement_repositories.pop(run_id, None)
         self._active_measurements.clear(run_id)
-        return manifest
+        return snapshot
 
     def reconcile_volatile_state(self) -> None:
         """Release measurement state whose executor can no longer write."""
@@ -538,7 +539,7 @@ class ExecutorService:
         try:
             with self._control.write_transaction() as connection:
                 current = self._control.get_run_in_transaction(connection, run_id)
-                latest_manifest = self._runs.read_manifest_in_transaction(
+                latest_snapshot = self._runs.read_snapshot_in_transaction(
                     connection,
                     run_id,
                 )
@@ -551,7 +552,7 @@ class ExecutorService:
                         lease is None
                         or lease.expires_at <= datetime.now(tz=UTC)
                         or lease.executor_id != executor_id
-                        or latest_manifest.outcome is not None
+                        or latest_snapshot.outcome is not None
                     ):
                         raise ControlPlaneConflict(
                             "run is already owned by a different executor intent"
@@ -560,9 +561,9 @@ class ExecutorService:
                         lease,
                         cancellation_requested_at=current.cancellation_requested_at,
                     )
-                if latest_manifest.outcome is not None:
+                if latest_snapshot.outcome is not None:
                     raise ControlPlaneConflict(
-                        "run manifest is not ready to start execution"
+                        "run snapshot is not ready to start execution"
                     )
                 lease = self._control.start_execution_in_transaction(
                     connection,
@@ -650,7 +651,7 @@ class ExecutorService:
         *,
         token: str,
         commit: TerminalRunCommit,
-    ) -> RunManifest:
+    ) -> RunSnapshot:
         prepared = self._runs.prepare_terminal_commit(commit)
         with self.fenced_write(
             run_id,
@@ -671,7 +672,7 @@ class ExecutorService:
                     reason=f"run {commit.outcome.result}",
                 )
             prepared = replace(prepared, commit=commit)
-            manifest = self._runs.commit_prepared_terminal_in_transaction(
+            snapshot = self._runs.commit_prepared_terminal_in_transaction(
                 connection,
                 prepared,
             )
@@ -680,7 +681,7 @@ class ExecutorService:
                 run_id,
                 executor_token=token,
             )
-            return manifest
+            return snapshot
 
     def _validate_successful_point_progress_in_transaction(
         self,
@@ -715,30 +716,31 @@ class ExecutorService:
 
 
 def _matches_terminal_intent(
-    current: RunManifest,
+    current: RunSnapshot,
     commit: TerminalRunCommit,
+    runs: SQLiteRunRepository,
 ) -> bool:
-    if current.outcome != commit.outcome:
+    if current.run_id != commit.run_id or current.outcome != commit.outcome:
         return False
-    try:
-        return (
-            merge_terminal_manifest(
-                current,
-                run_id=commit.run_id,
-                outcome=commit.outcome,
-                contents=commit.contents,
+    for expected in commit.contents:
+        try:
+            actual = runs.read_content(
+                commit.run_id,
+                role=expected.role,
+                content_id=expected.id,
             )
-            == current
-        )
-    except ValueError:
-        return False
+        except NotFound:
+            return False
+        if actual != expected:
+            return False
+    return True
 
 
 def _cancellation_receipt(
     control: ControlRun,
-    manifest: RunManifest,
+    snapshot: RunSnapshot,
 ) -> RunCancellationReceipt:
-    outcome = manifest.outcome
+    outcome = snapshot.outcome
     if outcome is None:
         raise AssertionError("closed cancellation receipt requires a terminal outcome")
     requested_at = control.cancellation_requested_at

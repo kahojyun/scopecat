@@ -25,7 +25,7 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
     )
     data = run.measurements()
     request = run.request
-    status = run.manifest.status
+    status = run.status
     time_s = cast(
         "NDArray[np.float64]",
         data[AWG_OUTPUT_MONITOR.output.time].require_values()[0],

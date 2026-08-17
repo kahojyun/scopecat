@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Protocol, overload
+from typing import Literal, Protocol, overload
 
 import pyarrow as pa
 from pydantic import JsonValue
@@ -28,6 +28,7 @@ from scopecat.daemon.views import (
     MeasurementArrowQuery,
     RunAnalysisPage,
     RunAnalysisView,
+    RunContentPage,
 )
 from scopecat.measurements.dataset import (
     Dataset,
@@ -45,9 +46,8 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.records.parameter_change import ParameterChangeProposal
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
-from scopecat.runs.access import require_artifact, require_dataset
 from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
@@ -62,11 +62,29 @@ from scopecat.runs.selectors import RunSelector, selected_run_id
 class RunOperations(Protocol):
     """Storage-neutral operations used by run and data handles."""
 
-    def load_manifest(self, run_id: str) -> RunManifest: ...
+    def load_snapshot(self, run_id: str) -> RunSnapshot: ...
 
     def load_config(self, run_id: str) -> ConfigProfileSnapshot: ...
 
     def load_request(self, run_id: str) -> RunRequest: ...
+
+    def contents(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+        role: Literal["artifact", "dataset", "record"] | None,
+        kind: str | None,
+    ) -> RunContentPage: ...
+
+    def content_entry(
+        self,
+        run_id: str,
+        *,
+        role: Literal["artifact", "dataset", "record"],
+        content_id: str,
+    ) -> ContentEntry: ...
 
     def load_measurement_dataset(
         self,
@@ -173,10 +191,14 @@ class RunHandle:
     id: str
 
     @property
-    def manifest(self) -> RunManifest:
-        """Load the current durable manifest for this run."""
+    def snapshot(self) -> RunSnapshot:
+        """Load this run's current identity and terminal state."""
 
-        return self.session.run_operations.load_manifest(self.id)
+        return self.session.run_operations.load_snapshot(self.id)
+
+    @property
+    def status(self) -> str:
+        return self.snapshot.status
 
     @property
     def config(self) -> ConfigProfileSnapshot:
@@ -190,20 +212,71 @@ class RunHandle:
 
     @property
     def artifacts(self) -> tuple[str, ...]:
-        return tuple(artifact.id for artifact in self.manifest.artifacts)
+        return self._content_ids("artifact")
 
     @property
     def datasets(self) -> tuple[str, ...]:
-        return tuple(dataset.id for dataset in self.manifest.datasets)
+        return self._content_ids("dataset")
+
+    @property
+    def records(self) -> tuple[str, ...]:
+        return self._content_ids("record")
+
+    def contents(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+        role: Literal["artifact", "dataset", "record"] | None = None,
+        kind: str | None = None,
+    ) -> RunContentPage:
+        """List a bounded newest-first page of this run's published content."""
+
+        return self.session.run_operations.contents(
+            self.id,
+            limit=limit,
+            before=before,
+            role=role,
+            kind=kind,
+        )
+
+    def content(
+        self,
+        role: Literal["artifact", "dataset", "record"],
+        content_id: str,
+    ) -> ContentEntry:
+        """Load one exact entry from this run's content catalog."""
+
+        return self.session.run_operations.content_entry(
+            self.id,
+            role=role,
+            content_id=content_id,
+        )
+
+    def _content_ids(
+        self,
+        role: Literal["artifact", "dataset", "record"],
+    ) -> tuple[str, ...]:
+        selected: list[str] = []
+        before: int | None = None
+        while True:
+            page = self.contents(
+                limit=100,
+                before=before,
+                role=role,
+                kind=None,
+            )
+            selected.extend(entry.id for entry in page.items)
+            if page.next_cursor is None:
+                return tuple(selected)
+            before = page.next_cursor
 
     def measurements(self) -> Dataset:
         """Open this run's measurement dataset for notebook analysis."""
 
-        entry = require_dataset(
-            manifest=self.manifest,
-            selector=RAW_MEASUREMENTS_DATASET_ID,
-            expected_kind=MEASUREMENT_DATASET_KIND,
-        )
+        entry = self.content("dataset", RAW_MEASUREMENTS_DATASET_ID)
+        if entry.kind != MEASUREMENT_DATASET_KIND:
+            raise ValueError("measurement dataset content has the wrong kind")
         if entry.data_schema is None:
             raise ValueError("measurement dataset is missing its semantic schema")
         schema = MeasurementDatasetSchema.model_validate(entry.data_schema)
@@ -514,11 +587,10 @@ class RunHandle:
         selector: str,
     ) -> ContentEntry:
         del analysis_id
-        return require_artifact(
-            manifest=self.manifest,
-            selector=selector,
-            expected_kind="analysis_artifact",
-        )
+        entry = self.content("artifact", selector)
+        if entry.kind != "analysis_artifact":
+            raise ValueError("analysis artifact content has the wrong kind")
+        return entry
 
     def _analysis_artifact_json(
         self,

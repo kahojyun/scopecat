@@ -21,7 +21,7 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
     data = run.measurements()
     q0 = data[invocation.output.q0.probability_1].require_quantities("ratio")
     q1 = data[invocation.output.q1.probability_1].require_quantities("ratio")
-    status = run.manifest.status
+    status = run.status
 
 parallel_ramsey_summary = {
     "points": preview.point_count,

@@ -203,7 +203,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     )
     assert preview_records[temperature_record_id].role == "observable"
     assert preview_records[temperature_record_id].dims == ("point",)
-    assert run.manifest.status == "completed"
+    assert run.status == "completed"
     records = run.measurements().records
     assert len(records) == BIAS_POINTS
     assert all(
@@ -412,7 +412,7 @@ def test_flux_spectroscopy_failure_aborts_with_bias_disabled(
         lab.prepare(flux_spectroscopy()).run()
 
     [run] = lab.runs()
-    assert run.manifest.status == "unknown"
+    assert run.status == "unknown"
     assert not provider.world.dc_source(
         f"{FLUX_SOURCE_ID}:flux.dac_a.ch1"
     ).output_enabled

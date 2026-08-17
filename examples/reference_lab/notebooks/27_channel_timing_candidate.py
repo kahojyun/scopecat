@@ -34,8 +34,8 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
         name="Channel timing candidate check",
         tags=("gallery", "channel-calibration", "candidate"),
     )
-    source = candidate_run.manifest.config_source
-    candidate_status = candidate_run.manifest.status
+    source = candidate_run.snapshot.config_source
+    candidate_status = candidate_run.status
 
 channel_candidate_summary = {
     "analysis": published.id,

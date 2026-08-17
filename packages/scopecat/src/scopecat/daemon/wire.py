@@ -60,7 +60,7 @@ from scopecat.records.parameter_change import (
 )
 from scopecat.records.run import (
     RunConfigSource,
-    RunManifest,
+    RunSnapshot,
 )
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.contracts import InstrumentDescription
@@ -455,14 +455,14 @@ class RunSubmission(_WireModel):
 
 
 class RunAdmission(_WireModel):
-    """Canonical run manifest returned for an idempotent submission."""
+    """Canonical run snapshot returned for an idempotent submission."""
 
     submission_id: NonEmptyText
-    manifest: RunManifest
+    snapshot: RunSnapshot
 
     @property
     def run_id(self) -> str:
-        return self.manifest.run_id
+        return self.snapshot.run_id
 
 
 class ExecutorStartRequest(_WireModel):

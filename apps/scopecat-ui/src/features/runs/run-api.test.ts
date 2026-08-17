@@ -56,57 +56,64 @@ describe("run daemon reads", () => {
     );
   });
 
-  it("normalizes current manifest contents for the run browser", async () => {
+  it("joins the run snapshot with its relational content catalog", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() =>
+      vi.fn((input: string | URL | Request) =>
         Promise.resolve(
-          jsonResponse({
-            control: {
-              state: "closed",
-              completed_point_count: 1,
-              point_plan: staticPointPlan("run/1"),
-              admission: {
-                run_id: "run/1",
-                display_name: "Ramsey calibration",
-                tags: ["calibration"],
-                description: "Calibrate the Ramsey sequence.",
-                plan: {
-                  experiment_id: "ramsey",
-                  experiment_kind: "scratch",
-                  point_count: 1,
-                  initial_point_count: 1,
-                  point_limit: 1,
-                  coordinates: [],
-                  sampled_points: [],
-                  sampled_points_truncated: false,
+          jsonResponse(
+            requestPath(input).includes("/contents?")
+              ? {
+                  run_id: "run/1",
+                  items: [
+                    {
+                      role: "artifact",
+                      id: "fit-notes",
+                      kind: "attachment",
+                      title: "Fit notes",
+                      media_type: "text/markdown",
+                      filename: "fit.md",
+                      content_hash: "sha256:notes",
+                    },
+                    {
+                      role: "record",
+                      id: "analysis-fit",
+                      kind: "analysis",
+                      content_hash: "sha256:analysis",
+                    },
+                  ],
+                  next_cursor: null,
+                }
+              : {
+                  control: {
+                    state: "closed",
+                    completed_point_count: 1,
+                    point_plan: staticPointPlan("run/1"),
+                    admission: {
+                      run_id: "run/1",
+                      display_name: "Ramsey calibration",
+                      tags: ["calibration"],
+                      description: "Calibrate the Ramsey sequence.",
+                      plan: {
+                        experiment_id: "ramsey",
+                        experiment_kind: "scratch",
+                        point_count: 1,
+                        initial_point_count: 1,
+                        point_limit: 1,
+                        coordinates: [],
+                        sampled_points: [],
+                        sampled_points_truncated: false,
+                      },
+                    },
+                  },
+                  snapshot: {
+                    run_id: "run/1",
+                    config_content_hash: "sha256:config",
+                    outcome: { result: "succeeded", certainty: "known" },
+                  },
+                  resources: [],
                 },
-              },
-            },
-            manifest: {
-              run_id: "run/1",
-              config_content_hash: "sha256:config",
-              outcome: { result: "succeeded", certainty: "known" },
-              contents: [
-                {
-                  role: "artifact",
-                  id: "fit-notes",
-                  kind: "attachment",
-                  title: "Fit notes",
-                  media_type: "text/markdown",
-                  filename: "fit.md",
-                  content_hash: "sha256:notes",
-                },
-                {
-                  role: "record",
-                  id: "analysis-fit",
-                  kind: "analysis",
-                  content_hash: "sha256:analysis",
-                },
-              ],
-            },
-            resources: [],
-          }),
+          ),
         ),
       ),
     );
@@ -147,36 +154,43 @@ describe("run daemon reads", () => {
   it("prioritizes scheduler attention over a terminal outcome", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() =>
+      vi.fn((input: string | URL | Request) =>
         Promise.resolve(
-          jsonResponse({
-            control: {
-              state: "attention_required",
-              completed_point_count: 0,
-              point_plan: staticPointPlan("run/attention"),
-              attention_reason: "executor_lease_expired",
-              admission: {
-                run_id: "run/attention",
-                plan: {
-                  experiment_id: "ramsey",
-                  experiment_kind: "scratch",
-                  point_count: 1,
-                  initial_point_count: 1,
-                  point_limit: 1,
-                  coordinates: [],
-                  sampled_points: [],
-                  sampled_points_truncated: false,
+          jsonResponse(
+            requestPath(input).includes("/contents?")
+              ? {
+                  run_id: "run/attention",
+                  items: [],
+                  next_cursor: null,
+                }
+              : {
+                  control: {
+                    state: "attention_required",
+                    completed_point_count: 0,
+                    point_plan: staticPointPlan("run/attention"),
+                    attention_reason: "executor_lease_expired",
+                    admission: {
+                      run_id: "run/attention",
+                      plan: {
+                        experiment_id: "ramsey",
+                        experiment_kind: "scratch",
+                        point_count: 1,
+                        initial_point_count: 1,
+                        point_limit: 1,
+                        coordinates: [],
+                        sampled_points: [],
+                        sampled_points_truncated: false,
+                      },
+                    },
+                  },
+                  snapshot: {
+                    run_id: "run/attention",
+                    config_content_hash: "sha256:config",
+                    outcome: { result: "failed", certainty: "indeterminate" },
+                  },
+                  resources: [],
                 },
-              },
-            },
-            manifest: {
-              run_id: "run/attention",
-              config_content_hash: "sha256:config",
-              outcome: { result: "failed", certainty: "indeterminate" },
-              contents: [],
-            },
-            resources: [],
-          }),
+          ),
         ),
       ),
     );
@@ -393,9 +407,9 @@ describe("run daemon reads", () => {
                   },
                 },
               },
-              manifest: {
+              snapshot: {
                 run_id: path.includes("before=") ? "run-old" : "run-new",
-                contents: [],
+                config_content_hash: "sha256:config",
               },
             },
           ],
@@ -607,9 +621,9 @@ function runSummary(runId: string, state: "queued" | "leased") {
         },
       },
     },
-    manifest: {
+    snapshot: {
       run_id: runId,
-      contents: [],
+      config_content_hash: "sha256:config",
     },
   };
 }

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from types import TracebackType
-from typing import Self
+from typing import Literal, Self
 from urllib.parse import quote
 
 import httpx2
@@ -62,6 +62,7 @@ from scopecat.daemon.views import (
     RunAnalysisView,
     RunArtifactBytesView,
     RunConfigView,
+    RunContentPage,
     RunDatasetBytesView,
     RunDetail,
     RunRequestView,
@@ -125,7 +126,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetBatch,
     MeasurementDatasetReceipt,
 )
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.runs.data import (
     RunArtifactJsonResult,
     RunArtifactTextResult,
@@ -585,6 +586,41 @@ class DaemonClient:
         return self._get_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/request",
             RunRequestView,
+        )
+
+    def run_contents(
+        self,
+        run_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+        role: Literal["artifact", "dataset", "record"] | None = None,
+        kind: str | None = None,
+    ) -> RunContentPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        if role is not None:
+            params["role"] = role
+        if kind is not None:
+            params["kind"] = kind
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/contents",
+            RunContentPage,
+            params=params,
+        )
+
+    def run_content(
+        self,
+        run_id: str,
+        *,
+        role: Literal["artifact", "dataset", "record"],
+        content_id: str,
+    ) -> ContentEntry:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/contents/"
+            f"{role}/{quote(content_id, safe='')}",
+            ContentEntry,
         )
 
     def analyses(
@@ -1077,11 +1113,11 @@ class DaemonClient:
         self,
         run_id: str,
         command: TerminalRunCommitCommand,
-    ) -> RunManifest:
+    ) -> RunSnapshot:
         return self._post_model(
             f"{_API_PREFIX}/runs/{run_id}/terminal",
             command,
-            RunManifest,
+            RunSnapshot,
         )
 
     def _get_model[ModelT: BaseModel](

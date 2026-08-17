@@ -8,7 +8,7 @@ import type {
   RunAnalysisView,
   ContentEntryView,
   RunControlView,
-  RunManifest,
+  RunSnapshot,
   RunResourceView,
   RunSummaryPage,
   RunDomainDecisionPage,
@@ -70,19 +70,41 @@ export async function getOlderRuns(before: number, signal?: AbortSignal): Promis
 
 function normalizeRunPage(response: RunSummaryPage): ProjectRunPage {
   return {
-    items: response.items.map((run) => normalizeRun(run.control, run.manifest)).sort(compareRuns),
+    items: response.items.map((run) => normalizeRun(run.control, run.snapshot)).sort(compareRuns),
     nextCursor: response.next_cursor ?? undefined,
   };
 }
 
 export async function getRun(runId: string, signal?: AbortSignal): Promise<ProjectRun> {
-  const response = await apiData(
-    apiClient.GET("/api/v1/runs/{run_id}", {
-      params: { path: { run_id: runId } },
-      signal,
-    }),
-  );
-  return normalizeRun(response.control, response.manifest, response.resources ?? []);
+  const [response, contents] = await Promise.all([
+    apiData(
+      apiClient.GET("/api/v1/runs/{run_id}", {
+        params: { path: { run_id: runId } },
+        signal,
+      }),
+    ),
+    getAllRunContents(runId, signal),
+  ]);
+  return normalizeRun(response.control, response.snapshot, response.resources ?? [], contents);
+}
+
+async function getAllRunContents(runId: string, signal?: AbortSignal): Promise<ContentEntryView[]> {
+  const items: ContentEntryView[] = [];
+  let before: number | undefined;
+  do {
+    const page = await apiData(
+      apiClient.GET("/api/v1/runs/{run_id}/contents", {
+        params: {
+          path: { run_id: runId },
+          query: { limit: 500, before },
+        },
+        signal,
+      }),
+    );
+    items.push(...page.items);
+    before = page.next_cursor ?? undefined;
+  } while (before !== undefined);
+  return items;
 }
 
 export async function getRunDomainDecisions(
@@ -313,10 +335,7 @@ export async function getRunAnalysis(
   );
 }
 
-function normalizeRunAnalysis({
-  entry,
-  analysis,
-}: RunAnalysisView): RunAnalysis {
+function normalizeRunAnalysis({ entry, analysis }: RunAnalysisView): RunAnalysis {
   return {
     id: entry.id,
     title: analysis.title,
@@ -473,13 +492,14 @@ function normalizeEvents(response: EventPage): ProjectEvent[] {
 
 function normalizeRun(
   control: RunControlView,
-  manifest: RunManifest,
+  snapshot: RunSnapshot,
   detailResources?: RunResourceView[],
+  contents: ContentEntryView[] = [],
 ): ProjectRun {
   const admission = control.admission;
-  const outcome = manifest.outcome ?? undefined;
+  const outcome = snapshot.outcome ?? undefined;
   const plan = admission.plan;
-  const status = normalizeStatus(control, manifest);
+  const status = normalizeStatus(control, snapshot);
   return {
     sequence: control.sequence,
     runId: admission.run_id,
@@ -491,7 +511,7 @@ function normalizeRun(
     stateLabel: statusLabel(status),
     createdAt: admission.admitted_at,
     updatedAt: control.updated_at,
-    configHash: manifest.config_content_hash,
+    configHash: snapshot.config_content_hash,
     attentionReason: control.attention_reason ?? undefined,
     result: outcome?.result,
     certainty: outcome?.certainty,
@@ -526,7 +546,7 @@ function normalizeRun(
       detailResources !== undefined
         ? detailResources.map(normalizeRunResource)
         : (plan.run_resource_requirements ?? []).map(normalizeResourceRequirement),
-    contents: manifest.contents.map(normalizeContentEntry),
+    contents: contents.map(normalizeContentEntry),
   };
 }
 
@@ -590,11 +610,11 @@ function artifactFormat(entry: ContentEntry): RunContentPreview["format"] | unde
   return undefined;
 }
 
-function normalizeStatus(control: RunControlView, manifest: RunManifest): PresentationRunStatus {
+function normalizeStatus(control: RunControlView, snapshot: RunSnapshot): PresentationRunStatus {
   if (control.state === "attention_required") {
     return "attention_required";
   }
-  switch (manifest.outcome?.result) {
+  switch (snapshot.outcome?.result) {
     case "succeeded":
       return "succeeded";
     case "failed":

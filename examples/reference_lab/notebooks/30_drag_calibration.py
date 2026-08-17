@@ -72,11 +72,11 @@ production_run = lab.run(
 restored = lab.config.undo(
     note="restore the previous default after the calibration example",
 )
-candidate_source = candidate_run.manifest.config_source
-production_source = production_run.manifest.config_source
+candidate_source = candidate_run.snapshot.config_source
+production_source = production_run.snapshot.config_source
 
 drag_beta_summary = {
-    "status": baseline_run.manifest.status,
+    "status": baseline_run.status,
     "point_count": preview.point_count,
     "analysis": analysis.id,
     "proposal_id": proposal.id,
@@ -94,7 +94,10 @@ drag_beta_summary = {
     "verification_report": verification_report.entry.filename,
     "verification_is_project_owned": all(
         entry.id != verification.id
-        for entry in (*baseline_run.manifest.records, *candidate_run.manifest.records)
+        for entry in (
+            *baseline_run.contents(role="record").items,
+            *candidate_run.contents(role="record").items,
+        )
     ),
     "accepted_verification": (
         accepted.entry.source.acceptance.decision.analysis_record_id

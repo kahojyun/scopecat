@@ -236,8 +236,8 @@ class AnalysisService:
                 "candidate verification does not include the proposal source run"
             )
         for run_id in input_run_ids - {source_run_id}:
-            manifest = self._services.runs.read_manifest(run_id)
-            source = manifest.config_source
+            snapshot = self._services.runs.read_snapshot(run_id)
+            source = snapshot.config_source
             if (
                 isinstance(source, AnalysisCandidateRunConfigSource)
                 and source.source_run_id == source_run_id

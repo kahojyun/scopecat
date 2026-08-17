@@ -30,8 +30,6 @@ from scopecat.records.parameter_change import (
     ParameterChangeApprovalRecord,
     ParameterChangeProposal,
 )
-from scopecat.records.run import RunManifest
-from scopecat.runs.access import list_records
 from scopecat.runs.refs import record_content_ref
 from scopecat.runs.repository import (
     RunContentPublication,
@@ -129,14 +127,17 @@ def list_parameter_change_proposals(
 ) -> tuple[ParameterChangeProposal, ...]:
     """Load every durable parameter proposal published by one run."""
 
-    manifest = services.runs.read_manifest(run_id)
     return tuple(
         load_parameter_change_proposal(
             run_id=run_id,
             selector=entry.id,
             services=services,
         )
-        for entry in _proposal_records(manifest)
+        for entry in _run_records(
+            storage=services.runs,
+            run_id=run_id,
+            kind="parameter_change_proposal",
+        )
     )
 
 
@@ -223,8 +224,9 @@ def load_parameter_change_approval(
         selector=selector,
     )
     selected: list[ParameterChangeApprovalRecord] = []
-    for entry in list_records(
-        storage.read_manifest(run_id),
+    for entry in _run_records(
+        storage=storage,
+        run_id=run_id,
         kind="parameter_change_approval_record",
     ):
         try:
@@ -416,9 +418,12 @@ def _same_parameter_change_proposal(
 def _resolve_proposal_ref(
     *, storage: RunRepository, run_id: str, selector: str
 ) -> tuple[ParameterChangeProposal, ContentEntry]:
-    manifest = storage.read_manifest(run_id)
     _validate_selector_path(selector)
-    for proposal_record in _proposal_records(manifest):
+    for proposal_record in _run_records(
+        storage=storage,
+        run_id=run_id,
+        kind="parameter_change_proposal",
+    ):
         proposal = _load_proposal_record(
             storage=storage,
             run_id=run_id,
@@ -459,7 +464,10 @@ def _load_proposal_record(
             [
                 _parameter_problem(
                     "parameter_change_proposal_record_missing",
-                    "run manifest references a missing parameter change proposal",
+                    (
+                        "run content catalog references a missing parameter "
+                        "change proposal"
+                    ),
                     phase=ProblemPhase.PERSISTENCE,
                     location=StorageLocation(run_id=run_id, ref=proposal_ref),
                     details={"record_id": proposal_record.id},
@@ -503,8 +511,26 @@ def _load_proposal_record(
     return proposal
 
 
-def _proposal_records(manifest: RunManifest) -> tuple[ContentEntry, ...]:
-    return list_records(manifest, kind="parameter_change_proposal")
+def _run_records(
+    *,
+    storage: RunRepository,
+    run_id: str,
+    kind: str,
+) -> tuple[ContentEntry, ...]:
+    selected: list[ContentEntry] = []
+    before: int | None = None
+    while True:
+        page = storage.list_contents(
+            run_id,
+            limit=100,
+            before=before,
+            role="record",
+            kind=kind,
+        )
+        selected.extend(page.items)
+        if page.next_cursor is None:
+            return tuple(reversed(selected))
+        before = page.next_cursor
 
 
 def _validate_selector_path(value: str) -> None:

@@ -32,14 +32,19 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetHeader
-from scopecat.records.run import RunConfigSource, RunManifest
+from scopecat.records.run import RunConfigSource, RunSnapshot
 from scopecat.runs.admission import RunSkeleton
 from scopecat.runs.provenance import validate_run_config_provenance
 from scopecat.runs.refs import (
     CONFIG_PROFILE_SNAPSHOT_REF,
     RUN_REQUEST_REF,
 )
-from scopecat.runs.repository import RunContentPublication, TerminalRunCommit
+from scopecat.runs.repository import (
+    RunContentPage,
+    RunContentPublication,
+    RunContentRole,
+    TerminalRunCommit,
+)
 
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.object_store import (
@@ -73,7 +78,7 @@ class PreparedTerminalCommit:
 class PreparedRunSkeleton:
     """Immutable admission objects prepared before the database write lock."""
 
-    manifest: RunManifest
+    snapshot: RunSnapshot
     refs: tuple[_PreparedRef, ...]
 
 
@@ -120,29 +125,129 @@ class SQLiteRunRepository:
             raise _storage_failure(run_id=run_id, ref=ref) from error
         return row is not None
 
-    def read_manifest(self, run_id: str) -> RunManifest:
+    def read_snapshot(self, run_id: str) -> RunSnapshot:
         _validate_run_id(run_id)
         try:
             with self.sqlite.read_connection() as connection:
-                return self.read_manifest_in_transaction(connection, run_id)
+                return self.read_snapshot_in_transaction(connection, run_id)
         except sqlite3.Error as error:
             raise _storage_failure(run_id=run_id) from error
 
-    def read_manifest_in_transaction(
+    def read_snapshot_in_transaction(
         self,
         connection: sqlite3.Connection,
         run_id: str,
-    ) -> RunManifest:
-        """Assemble the compatibility run projection in one transaction."""
-
+    ) -> RunSnapshot:
         _validate_run_id(run_id)
-        return self._read_manifest_with_connection(connection, run_id)
+        return self._read_snapshot_with_connection(connection, run_id)
+
+    def list_contents(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None = None,
+        role: RunContentRole | None = None,
+        kind: str | None = None,
+    ) -> RunContentPage:
+        _validate_run_id(run_id)
+        try:
+            with self.sqlite.read_connection() as connection:
+                self._require_run_row(connection, run_id)
+                rows = _all(
+                    connection.execute(
+                        """
+                        SELECT sequence, entry_json
+                        FROM run_contents
+                        WHERE run_id = ?
+                          AND (? IS NULL OR sequence < ?)
+                          AND (? IS NULL OR role = ?)
+                          AND (? IS NULL OR kind = ?)
+                        ORDER BY sequence DESC
+                        LIMIT ?
+                        """,
+                        (
+                            run_id,
+                            before,
+                            before,
+                            role,
+                            role,
+                            kind,
+                            kind,
+                            limit + 1,
+                        ),
+                    )
+                )
+            selected = rows[:limit]
+            return RunContentPage(
+                items=tuple(
+                    ContentEntry.model_validate_json(_text(row, "entry_json"))
+                    for row in selected
+                ),
+                next_cursor=(
+                    cast("int", selected[-1]["sequence"]) if len(rows) > limit else None
+                ),
+            )
+        except NotFound:
+            raise
+        except (sqlite3.Error, ValidationError) as error:
+            raise _storage_failure(run_id=run_id) from error
+
+    def read_content(
+        self,
+        run_id: str,
+        *,
+        role: RunContentRole,
+        content_id: str,
+    ) -> ContentEntry:
+        _validate_run_id(run_id)
+        try:
+            with self.sqlite.read_connection() as connection:
+                return self.read_content_in_transaction(
+                    connection,
+                    run_id,
+                    role=role,
+                    content_id=content_id,
+                )
+        except NotFound, DataIntegrityError:
+            raise
+        except (sqlite3.Error, ValidationError) as error:
+            raise _storage_failure(run_id=run_id) from error
+
+    def read_content_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+        *,
+        role: RunContentRole,
+        content_id: str,
+    ) -> ContentEntry:
+        self._require_run_row(connection, run_id)
+        row = _one(
+            connection.execute(
+                """
+                SELECT entry_json FROM run_contents
+                WHERE run_id = ? AND role = ? AND content_id = ?
+                """,
+                (run_id, role, content_id),
+            )
+        )
+        if row is None:
+            raise _content_not_found(run_id, role, content_id)
+        try:
+            return ContentEntry.model_validate_json(_text(row, "entry_json"))
+        except ValidationError as error:
+            raise _integrity_failure(
+                run_id=run_id,
+                code="run.content_invalid",
+                message="run content metadata does not match its durable schema",
+            ) from error
 
     def prepare_run_skeleton(self, skeleton: RunSkeleton) -> PreparedRunSkeleton:
         """Write immutable admission objects before acquiring the SQLite writer."""
 
-        manifest = skeleton.manifest
-        run_id = manifest.run_id
+        snapshot = skeleton.snapshot
+        run_id = snapshot.run_id
         prepared = [
             self._prepare_model(
                 run_id,
@@ -152,7 +257,7 @@ class SQLiteRunRepository:
             self._prepare_model(run_id, RUN_REQUEST_REF, skeleton.request),
         ]
         return PreparedRunSkeleton(
-            manifest=manifest,
+            snapshot=snapshot,
             refs=tuple(prepared),
         )
 
@@ -163,10 +268,10 @@ class SQLiteRunRepository:
     ) -> None:
         """Publish a prebuilt run skeleton in the caller's transaction."""
 
-        self._replace_run_projection(connection, prepared.manifest)
-        self._publish_refs(connection, prepared.manifest.run_id, prepared.refs)
+        self._replace_run_snapshot(connection, prepared.snapshot)
+        self._publish_refs(connection, prepared.snapshot.run_id, prepared.refs)
 
-    def commit_terminal(self, commit: TerminalRunCommit) -> RunManifest:
+    def commit_terminal(self, commit: TerminalRunCommit) -> RunSnapshot:
         run_id = commit.run_id
         prepared = self.prepare_terminal_commit(commit)
         try:
@@ -195,7 +300,7 @@ class SQLiteRunRepository:
         self,
         connection: sqlite3.Connection,
         prepared: PreparedTerminalCommit,
-    ) -> RunManifest:
+    ) -> RunSnapshot:
         """Publish prepared terminal refs without managing the transaction.
 
         The first terminal outcome wins while independently published contents
@@ -224,16 +329,16 @@ class SQLiteRunRepository:
         )
         self._upsert_contents(connection, run_id, commit.contents)
         self._publish_refs(connection, run_id, prepared.refs)
-        return self._read_manifest_with_connection(connection, run_id)
+        return self._read_snapshot_with_connection(connection, run_id)
 
     def publish_content(
         self,
         publication: RunContentPublication,
-    ) -> RunManifest:
+    ) -> None:
         prepared = self.prepare_content_publication(publication)
         try:
             with self._transaction() as connection:
-                return self.publish_prepared_content_in_transaction(
+                self.publish_prepared_content_in_transaction(
                     connection,
                     prepared,
                 )
@@ -272,7 +377,7 @@ class SQLiteRunRepository:
         self,
         connection: sqlite3.Connection,
         prepared: PreparedContentPublication,
-    ) -> RunManifest:
+    ) -> None:
         """Publish prepared refs and content metadata in one transaction."""
 
         publication = prepared.publication
@@ -280,16 +385,15 @@ class SQLiteRunRepository:
         self._require_run_row(connection, run_id)
         self._upsert_contents(connection, run_id, publication.entries)
         self._publish_refs(connection, run_id, prepared.refs)
-        return self._read_manifest_with_connection(connection, run_id)
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot:
-        manifest = self.read_manifest(run_id)
+        snapshot = self.read_snapshot(run_id)
         config = self.read_model(
             run_id,
             CONFIG_PROFILE_SNAPSHOT_REF,
             ConfigProfileSnapshot,
         )
-        validate_run_config_provenance(manifest=manifest, config=config)
+        validate_run_config_provenance(snapshot=snapshot, config=config)
         return config
 
     def read_model[TModel: BaseModel](
@@ -444,11 +548,11 @@ class SQLiteRunRepository:
             )
         return self._read_object(digest, run_id=run_id, ref=ref)
 
-    def _read_manifest_with_connection(
+    def _read_snapshot_with_connection(
         self,
         connection: sqlite3.Connection,
         run_id: str,
-    ) -> RunManifest:
+    ) -> RunSnapshot:
         row = _one(
             connection.execute(
                 """
@@ -471,20 +575,10 @@ class SQLiteRunRepository:
                     )
                 ]
             )
-        content_rows = _all(
-            connection.execute(
-                """
-                SELECT entry_json FROM run_contents
-                WHERE run_id = ?
-                ORDER BY sequence
-                """,
-                (run_id,),
-            )
-        )
         try:
             config_source_json = cast("str | None", row["config_source_json"])
             outcome_json = cast("str | None", row["outcome_json"])
-            return RunManifest(
+            return RunSnapshot(
                 run_id=run_id,
                 created_at=datetime.fromisoformat(_text(row, "created_at")),
                 config_content_hash=_text(row, "config_content_hash"),
@@ -498,15 +592,11 @@ class SQLiteRunRepository:
                     if outcome_json is None
                     else RunOutcome.model_validate_json(outcome_json)
                 ),
-                contents=tuple(
-                    ContentEntry.model_validate_json(_text(item, "entry_json"))
-                    for item in content_rows
-                ),
             )
         except ValidationError as error:
             raise _integrity_failure(
                 run_id=run_id,
-                code="run.manifest_invalid",
+                code="run.snapshot_invalid",
                 message="run metadata does not match its durable schema",
             ) from error
 
@@ -560,12 +650,12 @@ class SQLiteRunRepository:
             ),
         )
 
-    def _replace_run_projection(
+    def _replace_run_snapshot(
         self,
         connection: sqlite3.Connection,
-        manifest: RunManifest,
+        snapshot: RunSnapshot,
     ) -> None:
-        source = manifest.config_source
+        source = snapshot.config_source
         connection.execute(
             """
             INSERT INTO runs(
@@ -578,17 +668,17 @@ class SQLiteRunRepository:
                 config_source_json = excluded.config_source_json
             """,
             (
-                manifest.run_id,
-                manifest.created_at.isoformat(),
-                manifest.config_content_hash,
+                snapshot.run_id,
+                snapshot.created_at.isoformat(),
+                snapshot.config_content_hash,
                 None if source is None else _encode_model(source).decode(),
             ),
         )
         connection.execute(
             "DELETE FROM run_outcomes WHERE run_id = ?",
-            (manifest.run_id,),
+            (snapshot.run_id,),
         )
-        if (outcome := manifest.outcome) is not None:
+        if (outcome := snapshot.outcome) is not None:
             connection.execute(
                 """
                 INSERT INTO run_outcomes(
@@ -597,18 +687,13 @@ class SQLiteRunRepository:
                 VALUES (?, ?, ?, ?, ?)
                 """,
                 (
-                    manifest.run_id,
+                    snapshot.run_id,
                     outcome.result,
                     outcome.certainty,
                     outcome.finished_at.isoformat(),
                     _encode_model(outcome).decode(),
                 ),
             )
-        connection.execute(
-            "DELETE FROM run_contents WHERE run_id = ?",
-            (manifest.run_id,),
-        )
-        self._upsert_contents(connection, manifest.run_id, manifest.contents)
 
     def _digest(self, run_id: str, ref: str) -> str | None:
         try:
@@ -707,6 +792,26 @@ def _ref_conflict(run_id: str, ref: str) -> Conflict:
                 "immutable run content already contains different data",
                 phase=ProblemPhase.PERSISTENCE,
                 location=StorageLocation(run_id=run_id, ref=ref),
+            )
+        ]
+    )
+
+
+def _content_not_found(
+    run_id: str,
+    role: RunContentRole,
+    content_id: str,
+) -> NotFound:
+    return NotFound(
+        [
+            problem(
+                f"run.{role}_not_found",
+                f"run {role} was not found",
+                phase=ProblemPhase.PERSISTENCE,
+                location=StorageLocation(
+                    run_id=run_id,
+                    path=(role, content_id),
+                ),
             )
         ]
     )

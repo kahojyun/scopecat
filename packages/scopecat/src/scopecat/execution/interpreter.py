@@ -81,7 +81,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetReceipt,
     measurement_record_content_hash,
 )
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS
 from scopecat.sdk.runtime_problems import (
@@ -95,7 +95,7 @@ def execute_admitted_run(
     *,
     program: RunProgram,
     session: ExecutionSession,
-) -> RunManifest:
+) -> RunSnapshot:
     """Execute a transient program against its authoritative accepted snapshot."""
 
     accepted = session.accepted
@@ -116,7 +116,7 @@ def _execute_run(
     *,
     program: RunProgram,
     session: ExecutionSession,
-) -> RunManifest:
+) -> RunSnapshot:
     host = program.host
     projection = program.measurements
     point_state = _ExecutionPointState.create(
@@ -340,7 +340,7 @@ def _execute_run(
                 value=instrument_state,
             )
         )
-    manifest = session.commit_terminal(
+    snapshot = session.commit_terminal(
         TerminalRunCommit(
             run_id=run_id,
             outcome=outcome,
@@ -348,15 +348,15 @@ def _execute_run(
             models=tuple(models),
         )
     )
-    committed_outcome = manifest.outcome
+    committed_outcome = snapshot.outcome
     if committed_outcome is None:
-        raise AssertionError("terminal commit returned a non-terminal manifest")
+        raise AssertionError("terminal commit returned a non-terminal snapshot")
     if interruption is not None:
         interruption.add_note(f"Scopecat run_id: {run_id}")
         raise interruption
     if committed_outcome.result != "succeeded":
         _raise_terminal_run_error(run_id, committed_outcome)
-    return manifest
+    return snapshot
 
 
 def _advance_unrecorded_coverage(

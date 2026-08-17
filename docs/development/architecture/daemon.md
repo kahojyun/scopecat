@@ -20,10 +20,12 @@ object store, and clients open neither store directly.
 ## Durable run ownership
 
 `ControlRun` is the lifecycle authority with four states: `queued`, `leased`,
-`attention_required`, and `closed`. `RunManifest` retains the accepted request,
-configuration snapshot, content index, and optional terminal outcome. Run views
-join those records in one SQLite snapshot rather than duplicating scheduler
-state in the manifest.
+`attention_required`, and `closed`. Relational `runs` and `run_outcomes` rows
+form the lightweight `RunSnapshot`; `run_contents` is the separately paged,
+filterable content catalog. Accepted requests, configuration snapshots, and
+payloads remain immutable objects referenced from SQLite. Run views join control
+state with the lightweight snapshot and load content explicitly, so listing a
+long run history never materializes every run's content metadata.
 
 Admission closes the complete instrument claim set before hardware access. It
 also binds the expected provider and instrument-description fingerprints. The

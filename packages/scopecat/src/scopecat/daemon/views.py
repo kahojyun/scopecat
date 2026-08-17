@@ -55,7 +55,7 @@ from scopecat.records.parameter_change import (
     ParameterChangeProposal,
     ParameterValueDelta,
 )
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.contracts import InstrumentDescription
 
@@ -224,10 +224,10 @@ class RunResourceView(_ViewModel):
 
 
 class RunSummary(_ViewModel):
-    """Scheduler projection paired with the accepted run snapshot."""
+    """Scheduler state paired with the durable run snapshot."""
 
     control: RunControlView
-    manifest: RunManifest
+    snapshot: RunSnapshot
 
     @property
     def run_id(self) -> str:
@@ -319,6 +319,14 @@ class RunAnalysisPage(_ViewModel):
         if any(item.run_id != self.run_id for item in self.items):
             raise ValueError("run analysis page contains a different run")
         return self
+
+
+class RunContentPage(_ViewModel):
+    """Newest-first keyset page from one run's content catalog."""
+
+    run_id: str
+    items: tuple[ContentEntry, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
 
 
 class ProjectAnalysisView(_ViewModel):

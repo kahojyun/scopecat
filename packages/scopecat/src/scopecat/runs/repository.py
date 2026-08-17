@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import BaseModel
 
@@ -11,7 +11,17 @@ from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.content import BytesWrite, ContentEntry, ModelWrite
 from scopecat.records.measurement import MeasurementRecord
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
+
+type RunContentRole = Literal["artifact", "dataset", "record"]
+
+
+@dataclass(frozen=True, slots=True)
+class RunContentPage:
+    """Newest-first bounded page from one run's relational content index."""
+
+    items: tuple[ContentEntry, ...] = ()
+    next_cursor: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +36,7 @@ class TerminalRunCommit:
 
 @dataclass(frozen=True, slots=True)
 class RunContentPublication:
-    """Content refs and manifest entries made visible as one operation."""
+    """Content refs and catalog entries made visible as one operation."""
 
     run_id: str
     entries: tuple[ContentEntry, ...]
@@ -39,14 +49,32 @@ class RunRepository(Protocol):
 
     def exists(self, run_id: str, ref: str) -> bool: ...
 
-    def read_manifest(self, run_id: str) -> RunManifest: ...
+    def read_snapshot(self, run_id: str) -> RunSnapshot: ...
 
-    def commit_terminal(self, commit: TerminalRunCommit) -> RunManifest: ...
+    def list_contents(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None = None,
+        role: RunContentRole | None = None,
+        kind: str | None = None,
+    ) -> RunContentPage: ...
+
+    def read_content(
+        self,
+        run_id: str,
+        *,
+        role: RunContentRole,
+        content_id: str,
+    ) -> ContentEntry: ...
+
+    def commit_terminal(self, commit: TerminalRunCommit) -> RunSnapshot: ...
 
     def publish_content(
         self,
         publication: RunContentPublication,
-    ) -> RunManifest: ...
+    ) -> None: ...
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot: ...
 

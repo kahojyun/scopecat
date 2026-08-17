@@ -18,9 +18,6 @@ from scopecat.runs.access import (
     read_artifact_text,
     read_dataset_bytes,
     read_record_json,
-    require_artifact,
-    require_dataset,
-    require_record,
 )
 from scopecat.runs.data import (
     RunArtifactBytesResult,
@@ -33,7 +30,7 @@ from scopecat.runs.data import (
 from scopecat.runs.refs import (
     RUN_REQUEST_REF,
 )
-from scopecat.runs.repository import RunRepository
+from scopecat.runs.repository import RunContentRole, RunRepository
 
 
 def load_run_request(*, run_id: str, services: ProjectStateServices) -> RunRequest:
@@ -58,7 +55,7 @@ def _require_run_ref(
     code: str,
     label: str,
 ) -> None:
-    storage.read_manifest(run_id)
+    storage.read_snapshot(run_id)
     if storage.exists(run_id, ref):
         return
     raise DataIntegrityError(
@@ -81,8 +78,10 @@ def read_run_artifact_text(
     expected_kind: str | None = None,
 ) -> RunArtifactTextResult:
     storage = services.runs
-    artifact = require_artifact(
-        manifest=storage.read_manifest(run_id),
+    artifact = _require_content(
+        storage=storage,
+        run_id=run_id,
+        role="artifact",
         selector=selector,
         expected_kind=expected_kind,
     )
@@ -93,7 +92,7 @@ def read_run_artifact_text(
                     "run.artifact_media_type_unsupported",
                     "run artifact media type does not support text access",
                     phase=ProblemPhase.ANALYSIS,
-                    location=model_location("run_manifest", "artifacts", selector),
+                    location=model_location("run_content", "artifacts", selector),
                     details={"media_type": _artifact_media_label(artifact)},
                 )
             ]
@@ -116,8 +115,10 @@ def read_run_artifact_json(
     expected_kind: str | None = None,
 ) -> RunArtifactJsonResult:
     storage = services.runs
-    artifact = require_artifact(
-        manifest=storage.read_manifest(run_id),
+    artifact = _require_content(
+        storage=storage,
+        run_id=run_id,
+        role="artifact",
         selector=selector,
         expected_kind=expected_kind,
     )
@@ -141,8 +142,10 @@ def read_run_record_json(
     expected_kind: str | None = None,
 ) -> RunRecordJsonResult:
     storage = services.runs
-    record = require_record(
-        manifest=storage.read_manifest(run_id),
+    record = _require_content(
+        storage=storage,
+        run_id=run_id,
+        role="record",
         selector=selector,
         expected_kind=expected_kind,
     )
@@ -166,8 +169,10 @@ def read_run_artifact_bytes(
     expected_kind: str | None = None,
 ) -> RunArtifactBytesResult:
     storage = services.runs
-    artifact = require_artifact(
-        manifest=storage.read_manifest(run_id),
+    artifact = _require_content(
+        storage=storage,
+        run_id=run_id,
+        role="artifact",
         selector=selector,
         expected_kind=expected_kind,
     )
@@ -189,8 +194,10 @@ def read_run_dataset_bytes(
     expected_kind: str | None = None,
 ) -> RunDatasetBytesResult:
     storage = services.runs
-    dataset = require_dataset(
-        manifest=storage.read_manifest(run_id),
+    dataset = _require_content(
+        storage=storage,
+        run_id=run_id,
+        role="dataset",
         selector=selector,
         expected_kind=expected_kind,
     )
@@ -213,8 +220,10 @@ def read_run_measurement_dataset(
     from scopecat.runs.measurements import read_measurement_dataset
 
     storage = services.runs
-    dataset_entry = require_dataset(
-        manifest=storage.read_manifest(run_id),
+    dataset_entry = _require_content(
+        storage=storage,
+        run_id=run_id,
+        role="dataset",
         selector=selector,
         expected_kind="measurement_dataset",
     )
@@ -224,6 +233,34 @@ def read_run_measurement_dataset(
         dataset=dataset_entry,
     )
     return RunMeasurementDatasetResult(dataset_entry=dataset_entry, dataset=dataset)
+
+
+def _require_content(
+    *,
+    storage: RunRepository,
+    run_id: str,
+    role: RunContentRole,
+    selector: str,
+    expected_kind: str | None,
+) -> ContentEntry:
+    entry = storage.read_content(run_id, role=role, content_id=selector)
+    if expected_kind is None or entry.kind == expected_kind:
+        return entry
+    raise CheckFailed(
+        [
+            problem(
+                f"run.{role}_kind_mismatch",
+                f"run {role} does not have the requested kind",
+                phase=ProblemPhase.ANALYSIS,
+                location=model_location("run_content", role, selector, "kind"),
+                details={
+                    "selector": selector,
+                    "actual_kind": entry.kind,
+                    "expected_kind": expected_kind,
+                },
+            )
+        ]
+    )
 
 
 def _artifact_supports_text(artifact: ContentEntry) -> bool:

@@ -1,4 +1,4 @@
-"""Terminal manifest merge behavior."""
+"""Relational terminal snapshot and content publication behavior."""
 
 from pathlib import Path
 
@@ -21,7 +21,7 @@ from scopecat.records.measurement import (
     MeasurementDimension,
     MeasurementPointCloudPointDomain,
 )
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import (
     RunContentPublication,
     TerminalRunCommit,
@@ -31,18 +31,15 @@ from scopecat_testkit.server.runtime import sqlite_run_repository
 _CONFIG_HASH = "sha256:" + "0" * 64
 
 
-def test_run_manifest_is_an_immutable_snapshot() -> None:
-    manifest = RunManifest(
+def test_run_snapshot_is_immutable() -> None:
+    snapshot = RunSnapshot(
         run_id="run-immutable",
         config_content_hash=_CONFIG_HASH,
     )
 
-    assert manifest.records == ()
-    assert manifest.datasets == ()
-    assert manifest.artifacts == ()
-    assert manifest.status == "planned"
+    assert snapshot.status == "planned"
     with pytest.raises(ValidationError):
-        manifest.__setattr__("run_id", "changed")
+        snapshot.__setattr__("run_id", "changed")
 
 
 def _successful_outcome(run_id: str) -> RunOutcome:
@@ -53,7 +50,7 @@ def _successful_outcome(run_id: str) -> RunOutcome:
     )
 
 
-def test_terminal_outcome_lives_only_in_the_manifest(tmp_path: Path) -> None:
+def test_terminal_outcome_and_content_are_relational(tmp_path: Path) -> None:
     run_id = "run-domain"
     outcome = _successful_outcome(run_id)
     contents = build_terminal_contents(
@@ -65,11 +62,11 @@ def test_terminal_outcome_lives_only_in_the_manifest(tmp_path: Path) -> None:
         instrument_state=None,
     )
     storage = sqlite_run_repository(tmp_path)
-    accepted = RunManifest(
+    accepted = RunSnapshot(
         run_id=run_id,
         config_content_hash=_CONFIG_HASH,
     )
-    storage.write_manifest(accepted)
+    storage.write_snapshot(accepted)
 
     committed = storage.commit_terminal(
         TerminalRunCommit(
@@ -79,12 +76,12 @@ def test_terminal_outcome_lives_only_in_the_manifest(tmp_path: Path) -> None:
         )
     )
 
-    assert committed.records == ()
     assert committed.outcome == outcome
     assert committed.status == "completed"
     assert committed.created_at == accepted.created_at
     assert not storage.exists(run_id, instrument_state_evidence_ref())
-    assert storage.read_manifest(run_id) == committed
+    assert storage.read_snapshot(run_id) == committed
+    assert storage.list_contents(run_id, limit=100).items == contents
 
 
 def test_terminal_contents_publish_a_sealed_empty_measurement_dataset() -> None:
@@ -110,12 +107,12 @@ def test_terminal_contents_publish_a_sealed_empty_measurement_dataset() -> None:
     assert dataset.data_schema == schema.model_dump(mode="json")
 
 
-def test_terminal_manifest_preserves_existing_attachments(tmp_path: Path) -> None:
+def test_terminal_commit_preserves_existing_content(tmp_path: Path) -> None:
     run_id = "run-existing-attachment"
     outcome = _successful_outcome(run_id)
     storage = sqlite_run_repository(tmp_path)
-    storage.write_manifest(
-        RunManifest(
+    storage.write_snapshot(
+        RunSnapshot(
             run_id=run_id,
             config_content_hash=_CONFIG_HASH,
         )
@@ -143,9 +140,23 @@ def test_terminal_manifest_preserves_existing_attachments(tmp_path: Path) -> Non
         TerminalRunCommit(run_id=run_id, outcome=outcome)
     )
 
-    assert committed.artifacts == (attachment,)
-    assert workflow_record in committed.records
-    assert storage.read_manifest(run_id) == committed
+    assert (
+        storage.read_content(
+            run_id,
+            role="artifact",
+            content_id=attachment.id,
+        )
+        == attachment
+    )
+    assert (
+        storage.read_content(
+            run_id,
+            role="record",
+            content_id=workflow_record.id,
+        )
+        == workflow_record
+    )
+    assert storage.read_snapshot(run_id) == committed
 
 
 def test_terminal_contents_index_supplied_instrument_state() -> None:

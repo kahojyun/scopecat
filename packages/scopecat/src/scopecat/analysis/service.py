@@ -27,7 +27,7 @@ from scopecat.kernel.content_identity import (
     sha256_content_hash,
     stable_content_hash,
 )
-from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.errors import CheckFailed, NotFound
 from scopecat.kernel.ids import artifact_slug
 from scopecat.kernel.problems import (
     LocationPathItem,
@@ -70,7 +70,6 @@ from scopecat.records.analysis import (
 from scopecat.records.content import BytesWrite, ContentEntry, ModelWrite
 from scopecat.records.metadata import validate_json_metadata
 from scopecat.records.parameter_change import ParameterChangeProposal
-from scopecat.runs.access import list_records, require_dataset
 from scopecat.runs.refs import (
     artifact_content_ref,
     dataset_content_ref,
@@ -573,15 +572,16 @@ def _validate_project_analysis_inputs(
     storage = services.runs
     for index, input_ref in enumerate(inputs):
         if isinstance(input_ref, MeasurementAnalysisInput):
-            manifest = storage.read_manifest(input_ref.run_id)
-            _require_completed_project_input_run(manifest.status, index=index)
-            entry = require_dataset(
-                manifest=manifest,
-                selector=input_ref.target,
-                expected_kind="measurement_dataset",
+            snapshot = storage.read_snapshot(input_ref.run_id)
+            _require_completed_project_input_run(snapshot.status, index=index)
+            entry = storage.read_content(
+                input_ref.run_id,
+                role="dataset",
+                content_id=input_ref.target,
             )
             if (
-                entry.content_hash != input_ref.content_hash
+                entry.kind != "measurement_dataset"
+                or entry.content_hash != input_ref.content_hash
                 or input_ref.codec != MEASUREMENT_DATASET_CODEC
             ):
                 _raise_analysis_problem(
@@ -624,12 +624,22 @@ def _load_published_analysis_output(
     source = input_ref.source
     if isinstance(source.subject, RunAnalysisSubject):
         run_id = source.subject.run_id
-        manifest = services.runs.read_manifest(run_id)
-        _require_completed_project_input_run(manifest.status, index=index)
-        analysis_entries = {
-            entry.id: entry for entry in list_records(manifest, kind="analysis")
-        }
-        if source.analysis_record_id not in analysis_entries:
+        snapshot = services.runs.read_snapshot(run_id)
+        _require_completed_project_input_run(snapshot.status, index=index)
+        try:
+            analysis_entry = services.runs.read_content(
+                run_id,
+                role="record",
+                content_id=source.analysis_record_id,
+            )
+        except NotFound:
+            _raise_analysis_problem(
+                "analysis_input_source_unknown",
+                "analysis input must identify an existing run analysis",
+                "inputs",
+                index,
+            )
+        if analysis_entry.kind != "analysis":
             _raise_analysis_problem(
                 "analysis_input_source_unknown",
                 "analysis input must identify an existing run analysis",
@@ -723,10 +733,6 @@ def _validate_analysis_inputs(
     inputs: Sequence[AnalysisInput],
 ) -> None:
     storage = services.runs
-    analysis_entries = {
-        entry.id: entry
-        for entry in list_records(storage.read_manifest(run_id), kind="analysis")
-    }
     for index, input_ref in enumerate(inputs):
         if isinstance(input_ref, MeasurementAnalysisInput):
             if input_ref.run_id == run_id:
@@ -738,11 +744,29 @@ def _validate_analysis_inputs(
                 index,
             )
         source = input_ref.source
-        if (
-            not isinstance(source.subject, RunAnalysisSubject)
-            or source.subject.run_id != run_id
-            or source.analysis_record_id not in analysis_entries
+        if not isinstance(source.subject, RunAnalysisSubject) or (
+            source.subject.run_id != run_id
         ):
+            _raise_analysis_problem(
+                "analysis_input_source_unknown",
+                "analysis input must identify an earlier analysis on this run",
+                "inputs",
+                index,
+            )
+        try:
+            source_entry = storage.read_content(
+                run_id,
+                role="record",
+                content_id=source.analysis_record_id,
+            )
+        except NotFound:
+            _raise_analysis_problem(
+                "analysis_input_source_unknown",
+                "analysis input must identify an earlier analysis on this run",
+                "inputs",
+                index,
+            )
+        if source_entry.kind != "analysis":
             _raise_analysis_problem(
                 "analysis_input_source_unknown",
                 "analysis input must identify an earlier analysis on this run",
@@ -779,16 +803,26 @@ def _latest_analysis(
     analysis_key: str,
 ) -> _ExistingAnalysis | None:
     storage = services.runs
-    matches: list[_ExistingAnalysis] = []
-    for entry in list_records(storage.read_manifest(run_id), kind="analysis"):
-        record = storage.read_model(
+    before: int | None = None
+    while True:
+        page = storage.list_contents(
             run_id,
-            record_content_ref(record_id=entry.id, kind="analysis"),
-            AnalysisRecord,
+            limit=100,
+            before=before,
+            role="record",
+            kind="analysis",
         )
-        if record.key == analysis_key:
-            matches.append(_ExistingAnalysis(entry=entry, record=record))
-    return max(matches, key=lambda item: item.record.revision, default=None)
+        for entry in page.items:
+            record = storage.read_model(
+                run_id,
+                record_content_ref(record_id=entry.id, kind="analysis"),
+                AnalysisRecord,
+            )
+            if record.key == analysis_key:
+                return _ExistingAnalysis(entry=entry, record=record)
+        if page.next_cursor is None:
+            return None
+        before = page.next_cursor
 
 
 def _latest_project_analysis(

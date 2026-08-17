@@ -377,7 +377,7 @@ def test_quantum_target_executes_through_reserved_bare_instruments(
 
     run = lab.prepare(drag_beta_experiment()).run()
 
-    assert run.manifest.status == "completed"
+    assert run.status == "completed"
     assert len(run.measurements().records) == 15
     state_evidence = lab.services.runs.read_model(
         run.id,

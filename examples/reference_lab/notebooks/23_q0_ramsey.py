@@ -18,7 +18,7 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
     probability = data[
         invocation.output.probabilities.probability_1
     ].require_quantities("ratio")
-    status = run.manifest.status
+    status = run.status
 
 q0_ramsey_summary = {
     "points": preview.point_count,

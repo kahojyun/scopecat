@@ -6,8 +6,8 @@ entry for later runs and supplies an independent history view for undo.
 Revisions can be saved directly from a
 ``ConfigProfileSnapshot`` or from a candidate configuration.
 
-Runs started from a registry entry carry source coordinates on the run
-manifest. Reporting code can then show which registry selector and entry were
+Runs started from a registry entry carry source coordinates on the durable run
+snapshot. Reporting code can then show which registry selector and entry were
 used without mixing run lifecycle data into the config snapshot. Candidate
 evidence is verified and frozen when the revision is saved; later events do not
 retroactively revoke committed entries.
@@ -69,7 +69,6 @@ from scopecat.records.parameter_change import (
 from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
     RunConfigSource,
-    RunManifest,
 )
 from scopecat.runs.refs import record_content_ref
 from scopecat.runs.repository import RunRepository
@@ -469,11 +468,11 @@ def _validate_candidate_source_records(
 ) -> _ValidatedCandidateSource:
     """Validate a candidate and capture its revision provenance."""
 
-    source_manifest = storage.read_manifest(run_id)
     source_config = storage.read_config_profile_snapshot(run_id)
     source_config_hash = config_content_hash(source_config)
     proposal_record = _require_run_record(
-        source_manifest=source_manifest,
+        storage=storage,
+        run_id=run_id,
         record_id=proposal_id,
         kind="parameter_change_proposal",
     )
@@ -999,31 +998,37 @@ def _validate_required_text(value: str, *, field: str) -> None:
 
 
 def _require_run_record(
-    *, source_manifest: RunManifest, record_id: str, kind: str
+    *,
+    storage: RunRepository,
+    run_id: str,
+    record_id: str,
+    kind: str,
 ) -> ContentEntry:
-    record = next(
-        (entry for entry in source_manifest.records if entry.id == record_id),
-        None,
-    )
-    if record is None:
+    try:
+        record = storage.read_content(
+            run_id,
+            role="record",
+            content_id=record_id,
+        )
+    except NotFound:
         raise _registry_failure(
             NotFound,
             code="config_registry.source_record_not_found",
             message="config registry source record was not found",
             location=StorageLocation(
-                run_id=source_manifest.run_id,
+                run_id=run_id,
                 path=("records", record_id),
             ),
             related_locations=(_registry_model_location("record_id"),),
             details={"record_id": record_id},
-        )
+        ) from None
     if record.kind != kind:
         raise _registry_failure(
             CheckFailed,
             code="config_registry.source_record_kind_mismatch",
             message="config registry source record has the wrong kind",
             location=StorageLocation(
-                run_id=source_manifest.run_id,
+                run_id=run_id,
                 path=("records", record_id, "kind"),
             ),
             related_locations=(_registry_model_location("record_id"),),

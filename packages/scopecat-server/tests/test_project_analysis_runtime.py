@@ -435,10 +435,12 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
                 ).items
             ] == [first.id]
             assert not any(
-                entry.kind == "analysis" for entry in baseline.manifest.records
+                entry.kind == "analysis"
+                for entry in baseline.contents(role="record", kind="analysis").items
             )
             assert not any(
-                entry.kind == "analysis" for entry in candidate.manifest.records
+                entry.kind == "analysis"
+                for entry in candidate.contents(role="record", kind="analysis").items
             )
             project_analysis_events = [
                 event

@@ -145,7 +145,7 @@ reopened = lab.published_analysis("candidate-verification")
 The durable subject is `project`, while every input freezes its binding ID,
 source run ID, content target, hash, codec, role, and optional source-analysis
 revision. Project analysis has its own immutable revision stream and content
-namespace. Its outputs therefore do not appear in any input run manifest, and
+namespace. Its outputs therefore do not appear in any input run content catalog, and
 deleting the notion of a “primary run” does not lose provenance.
 
 Only completed runs are valid inputs. A project analysis may also consume a

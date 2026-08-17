@@ -655,8 +655,8 @@ def run_scopecat_core(
         run = lab.prepare(invocation).run()
         timeline.finish()
         memory.observe()
-    if run.manifest.status != "completed":
-        raise RuntimeError(f"Scopecat run ended as {run.manifest.status}")
+    if run.status != "completed":
+        raise RuntimeError(f"Scopecat run ended as {run.status}")
     points_completed = _completed_point_count(run, scenario)
     durable_bytes, durable_files = _tree_size(root)
     object_store_bytes, object_store_files = _tree_size(
@@ -753,8 +753,8 @@ def run_scopecat(
             run = lab.prepare(invocation, config=config).run()
             timeline.finish()
             memory.observe()
-        if run.manifest.status != "completed":
-            raise RuntimeError(f"Scopecat run ended as {run.manifest.status}")
+        if run.status != "completed":
+            raise RuntimeError(f"Scopecat run ended as {run.status}")
         points_completed = _completed_point_count(run, scenario)
         payload_spool_bytes = runtime.application.payloads.spooled_size_bytes()
         peak_payload_spool_bytes = (

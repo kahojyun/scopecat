@@ -36,7 +36,7 @@ from scopecat.records.measurement import (
     MeasurementUnavailableReason,
 )
 from scopecat.records.parameter import ScalarParameterValue
-from scopecat.records.run import RunConfigSource, RunManifest
+from scopecat.records.run import RunConfigSource, RunSnapshot
 from scopecat.runs.access import dataset_storage_ref
 
 from scopecat_testkit.instrument_host import compose_test_instruments
@@ -231,7 +231,7 @@ def execute_signal_run(
     experiment: ExperimentInvocation,
     project_root: str | Path,
     config_source: RunConfigSource | None = None,
-) -> RunManifest:
+) -> RunSnapshot:
     composition = compose_test_instruments(
         config=config,
         provider=TestSignalInstrumentProvider(),
