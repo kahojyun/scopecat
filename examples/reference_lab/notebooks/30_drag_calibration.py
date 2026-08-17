@@ -54,7 +54,7 @@ if not verification_decision.accepted:
     raise RuntimeError("DRAG beta candidate did not improve the verification scan")
 
 # Only the cross-run verification decision authorizes changing the default.
-accepted = lab.config.accept(
+accepted = lab.config.accept_verified(
     analysis,
     verified_by=(verification, "decision"),
     actor="nightly-calibration",
@@ -97,9 +97,9 @@ drag_beta_summary = {
         for entry in (*baseline_run.manifest.records, *candidate_run.manifest.records)
     ),
     "accepted_verification": (
-        accepted.entry.source.verification.analysis_record_id
+        accepted.entry.source.acceptance.decision.analysis_record_id
         if accepted.entry.source.kind == "candidate_config"
-        and accepted.entry.source.verification is not None
+        and accepted.entry.source.acceptance.kind == "cross_run_verification"
         else None
     ),
     "candidate_run_uses_analysis": (

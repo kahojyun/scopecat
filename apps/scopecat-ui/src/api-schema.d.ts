@@ -1454,6 +1454,8 @@ export interface components {
         };
         /** CandidateConfigRegistrySource */
         CandidateConfigRegistrySource: {
+            /** Acceptance */
+            acceptance: components["schemas"]["ManualCandidateAcceptance"] | components["schemas"]["CrossRunCandidateAcceptance"];
             base_config_content_hash: components["schemas"]["ConfigContentHash"];
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -1464,10 +1466,11 @@ export interface components {
             proposal_id: string;
             /** Run Id */
             run_id: string;
-            verification?: components["schemas"]["ProjectAnalysisOutputReference"] | null;
         };
         /** CandidateConfigRevisionSource */
         CandidateConfigRevisionSource: {
+            /** Acceptance */
+            acceptance: components["schemas"]["ManualCandidateAcceptance"] | components["schemas"]["CrossRunCandidateAcceptance"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -1475,7 +1478,6 @@ export interface components {
             kind: "candidate_config";
             proposal_id: components["schemas"]["NonEmptyText"];
             run_id: components["schemas"]["NonEmptyText"];
-            verification?: components["schemas"]["ProjectAnalysisOutputReference"] | null;
         };
         /**
          * CollectReceipt
@@ -2073,6 +2075,18 @@ export interface components {
         };
         /** @enum {string} */
         ControlRunState: "queued" | "leased" | "attention_required" | "closed";
+        /**
+         * CrossRunCandidateAcceptance
+         * @description Automated acceptance backed by one positive cross-run decision fact.
+         */
+        CrossRunCandidateAcceptance: {
+            decision: components["schemas"]["ProjectAnalysisDecisionReference"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "cross_run_verification";
+        };
         /**
          * DaemonHealth
          * @description Daemon readiness and the one project owned by this process.
@@ -2755,6 +2769,17 @@ export interface components {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
         };
         LocationPathItem: string | number;
+        /**
+         * ManualCandidateAcceptance
+         * @description Operator-reviewed acceptance without an automated verification run.
+         */
+        ManualCandidateAcceptance: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "manual_review";
+        };
         /**
          * ManualConfigDraftRegistrySource
          * @description Provenance for typed parameter edits derived from an active entry.
@@ -3700,6 +3725,16 @@ export interface components {
          * @enum {string}
          */
         ProblemPhase: "definition" | "authoring" | "configuration" | "planning" | "provider_preflight" | "execution" | "persistence" | "analysis";
+        /**
+         * ProjectAnalysisDecisionReference
+         * @description One exact typed fact interpreted as a project-level decision.
+         */
+        ProjectAnalysisDecisionReference: {
+            analysis_record_id: components["schemas"]["_NonEmptyText"];
+            output_id: components["schemas"]["_NonEmptyText"];
+            schema_hash: components["schemas"]["Sha256ContentHash"];
+            schema_id: components["schemas"]["_NonEmptyText"];
+        };
         /** ProjectAnalysisListView */
         ProjectAnalysisListView: {
             /**
@@ -3707,14 +3742,6 @@ export interface components {
              * @default []
              */
             items: components["schemas"]["ProjectAnalysisView"][];
-        };
-        /**
-         * ProjectAnalysisOutputReference
-         * @description One exact project-analysis output used as decision evidence.
-         */
-        ProjectAnalysisOutputReference: {
-            analysis_record_id: components["schemas"]["_NonEmptyText"];
-            output_id: components["schemas"]["_NonEmptyText"];
         };
         /**
          * ProjectAnalysisSubject

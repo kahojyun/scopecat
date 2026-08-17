@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.kernel.run_outcome import utc_now
-from scopecat.records.analysis import ProjectAnalysisOutputReference
+from scopecat.records.analysis import ProjectAnalysisDecisionReference
 from scopecat.records.config import ConfigContentHash
 
 
@@ -38,12 +38,31 @@ class ManualConfigDraftRegistrySource(_FrozenRegistryModel):
         return self
 
 
+class ManualCandidateAcceptance(_FrozenRegistryModel):
+    """Operator-reviewed acceptance without an automated verification run."""
+
+    kind: Literal["manual_review"] = "manual_review"
+
+
+class CrossRunCandidateAcceptance(_FrozenRegistryModel):
+    """Automated acceptance backed by one positive cross-run decision fact."""
+
+    kind: Literal["cross_run_verification"] = "cross_run_verification"
+    decision: ProjectAnalysisDecisionReference
+
+
+CandidateAcceptance = Annotated[
+    ManualCandidateAcceptance | CrossRunCandidateAcceptance,
+    Field(discriminator="kind"),
+]
+
+
 class CandidateConfigRegistrySource(_FrozenRegistryModel):
     kind: Literal["candidate_config"] = "candidate_config"
     run_id: str
     proposal_id: str
     base_config_content_hash: ConfigContentHash
-    verification: ProjectAnalysisOutputReference | None = None
+    acceptance: CandidateAcceptance
 
     @model_validator(mode="after")
     def validate_evidence(self) -> CandidateConfigRegistrySource:

@@ -715,6 +715,13 @@ class ProjectAnalysisOutputReference(_AnalysisContentModel):
     output_id: _NonEmptyText
 
 
+class ProjectAnalysisDecisionReference(ProjectAnalysisOutputReference):
+    """One exact typed fact interpreted as a project-level decision."""
+
+    schema_id: _NonEmptyText
+    schema_hash: Sha256ContentHash
+
+
 type AnalysisSubject = Annotated[
     RunAnalysisSubject | ProjectAnalysisSubject,
     Field(discriminator="kind"),

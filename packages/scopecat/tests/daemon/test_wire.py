@@ -21,6 +21,7 @@ from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
+    CrossRunCandidateAcceptance,
     DirectConfigRegistrySource,
 )
 from scopecat.control.models import (
@@ -72,7 +73,7 @@ from scopecat.records.analysis import (
     AnalysisFigureProjection,
     AnalysisFigureViewSpec,
     AnalysisTableViewSpec,
-    ProjectAnalysisOutputReference,
+    ProjectAnalysisDecisionReference,
 )
 from scopecat.records.config import config_content_hash
 from scopecat.records.instrument import InstrumentStateSnapshot
@@ -310,9 +311,13 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         source=CandidateConfigRevisionSource(
             run_id="run-1",
             proposal_id=proposal.id,
-            verification=ProjectAnalysisOutputReference(
-                analysis_record_id="analysis-candidate-verification",
-                output_id="decision",
+            acceptance=CrossRunCandidateAcceptance(
+                decision=ProjectAnalysisDecisionReference(
+                    analysis_record_id="analysis-candidate-verification",
+                    output_id="decision",
+                    schema_id="candidate-verification.v1",
+                    schema_hash=f"sha256:{'a' * 64}",
+                )
             ),
         ),
         entry_id="candidate-fit",

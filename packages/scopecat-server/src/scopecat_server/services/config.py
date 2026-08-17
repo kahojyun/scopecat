@@ -15,6 +15,7 @@ from scopecat.config.inventory import (
     InstrumentInventoryRenameRekey,
 )
 from scopecat.config.registry import service as config_registry_service
+from scopecat.config.registry.records import CrossRunCandidateAcceptance
 from scopecat.config.registry.service import (
     publish_instrument_inventory_migration_revision,
 )
@@ -134,9 +135,9 @@ class ConfigService:
                 connection, services = transaction
                 source = command.source
                 if isinstance(source, CandidateConfigRevisionSource):
-                    if source.verification is not None:
+                    if isinstance(source.acceptance, CrossRunCandidateAcceptance):
                         self._analyses.validate_candidate_verification(
-                            source.verification,
+                            source.acceptance.decision,
                             source_run_id=source.run_id,
                             proposal_id=source.proposal_id,
                         )
@@ -485,7 +486,7 @@ def _config_revision(
         revision_source = config_registry_service.CandidateConfigRevisionSource(
             run_id=source.run_id,
             proposal_id=source.proposal_id,
-            verification=source.verification,
+            acceptance=source.acceptance,
         )
     return config_registry_service.ConfigRevision(
         source=revision_source,

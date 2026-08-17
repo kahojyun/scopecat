@@ -14,11 +14,14 @@ if TYPE_CHECKING:
         ConfigRegistryUnitOfWorkFactory,
     )
     from scopecat.config.registry.records import (
+        CandidateAcceptance,
         CandidateConfigRegistrySource,
         ConfigRegistryActivationRecord,
         ConfigRegistryEntry,
         ConfigRegistryEntrySource,
+        CrossRunCandidateAcceptance,
         DirectConfigRegistrySource,
+        ManualCandidateAcceptance,
         ManualConfigDraftRegistrySource,
     )
     from scopecat.config.registry.service import (
@@ -55,11 +58,14 @@ if TYPE_CHECKING:
 
 
 _RECORD_EXPORTS = (
+    "CandidateAcceptance",
     "CandidateConfigRegistrySource",
     "ConfigRegistryActivationRecord",
     "ConfigRegistryEntry",
     "ConfigRegistryEntrySource",
+    "CrossRunCandidateAcceptance",
     "DirectConfigRegistrySource",
+    "ManualCandidateAcceptance",
     "ManualConfigDraftRegistrySource",
 )
 _PORT_EXPORTS = (

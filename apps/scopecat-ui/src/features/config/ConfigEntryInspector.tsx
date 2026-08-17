@@ -303,18 +303,26 @@ function EntryProvenance({
                       : "Approval unavailable"}
                 </dd>
               </div>
-              {source.verification && (
+              <div>
+                <dt>Acceptance</dt>
+                <dd>
+                  {source.acceptance.kind === "manual_review"
+                    ? "Manual review"
+                    : "Cross-run verification"}
+                </dd>
+              </div>
+              {source.acceptance.kind === "cross_run_verification" && (
                 <>
                   <div>
                     <dt>Cross-run verification</dt>
                     <dd>
-                      <code>{source.verification.analysis_record_id}</code>
+                      <code>{source.acceptance.decision.analysis_record_id}</code>
                     </dd>
                   </div>
                   <div>
                     <dt>Decision output</dt>
                     <dd>
-                      <code>{source.verification.output_id}</code>
+                      <code>{source.acceptance.decision.output_id}</code>
                     </dd>
                   </div>
                 </>

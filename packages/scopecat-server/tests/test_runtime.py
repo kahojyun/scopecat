@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier, Event, Thread
@@ -16,6 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 from scopecat.adaptive_domains import DomainProposalAttempt, ResolvedDomainFragment
 from scopecat.analysis.datasets import DerivedDataset
+from scopecat.analysis.facts import AnalysisFactSchema
 from scopecat.api.analysis import Analysis, AnalysisContext, analysis_step
 from scopecat.api.lab import LabClient
 from scopecat.api.published_analysis import PublishedAnalysis
@@ -27,6 +29,8 @@ from scopecat.config.parameters import ReplaceParameter, replace_scalar_paramete
 from scopecat.config.registry import (
     ActiveConfigRegistrySnapshot,
     CandidateConfigRegistrySource,
+    CrossRunCandidateAcceptance,
+    ManualCandidateAcceptance,
 )
 from scopecat.control.models import (
     AdaptiveRegionSpec,
@@ -112,7 +116,7 @@ from scopecat.records.analysis import (
     AnalysisFigureProjection,
     AnalysisFigureViewSpec,
     AnalysisTableViewSpec,
-    ProjectAnalysisOutputReference,
+    ProjectAnalysisDecisionReference,
 )
 from scopecat.records.config import (
     ConfigProfileSnapshot,
@@ -168,6 +172,17 @@ _FIXTURE = (
     / "core"
     / "simple_scan"
     / "config-snapshot.json"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _CandidateDecision:
+    accepted: bool
+
+
+_CANDIDATE_DECISION_SCHEMA = AnalysisFactSchema(
+    "tests.candidate-decision.v1",
+    _CandidateDecision,
 )
 
 
@@ -2005,6 +2020,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
                 source=CandidateConfigRevisionSource(
                     run_id=admission.run_id,
                     proposal_id=proposal.id,
+                    acceptance=ManualCandidateAcceptance(),
                 ),
                 entry_id="candidate-fit",
                 actor="nightly-calibration",
@@ -2337,7 +2353,22 @@ def test_candidate_acceptance_requires_matching_cross_run_verification(
                 role="candidate",
             )
             invalid_verification = (
-                invalid_context.result().fact("decision", True).save()
+                invalid_context.result()
+                .fact(
+                    "decision",
+                    _CandidateDecision(accepted=True),
+                    schema=_CANDIDATE_DECISION_SCHEMA,
+                )
+                .save()
+            )
+            invalid_decision = invalid_verification.fact("decision")
+            invalid_acceptance = CrossRunCandidateAcceptance(
+                decision=ProjectAnalysisDecisionReference(
+                    analysis_record_id=invalid_verification.id,
+                    output_id="decision",
+                    schema_id=invalid_decision.schema_id,
+                    schema_hash=invalid_decision.schema_hash,
+                )
             )
             with pytest.raises(
                 BackendConflict,
@@ -2348,10 +2379,7 @@ def test_candidate_acceptance_requires_matching_cross_run_verification(
                         source=CandidateConfigRevisionSource(
                             run_id=baseline_id,
                             proposal_id=proposal.id,
-                            verification=ProjectAnalysisOutputReference(
-                                analysis_record_id=invalid_verification.id,
-                                output_id="decision",
-                            ),
+                            acceptance=invalid_acceptance,
                         ),
                         entry_id="invalid-verified-candidate",
                         actor="nightly-calibration",
@@ -2369,20 +2397,86 @@ def test_candidate_acceptance_requires_matching_cross_run_verification(
                 id="candidate",
                 role="candidate",
             )
-            verification = valid_context.result().fact("decision", True).save()
-            accepted = lab.config.accept(
+            verification = (
+                valid_context.result()
+                .fact(
+                    "decision",
+                    _CandidateDecision(accepted=True),
+                    schema=_CANDIDATE_DECISION_SCHEMA,
+                )
+                .save()
+            )
+            accepted = lab.config.accept_verified(
                 proposal_analysis,
                 verified_by=(verification, "decision"),
                 entry_id="verified-candidate-config",
             )
 
             assert isinstance(accepted.entry.source, CandidateConfigRegistrySource)
-            assert accepted.entry.source.verification == (
-                ProjectAnalysisOutputReference(
-                    analysis_record_id=verification.id,
-                    output_id="decision",
+            assert accepted.entry.source.acceptance == (
+                CrossRunCandidateAcceptance(
+                    decision=ProjectAnalysisDecisionReference(
+                        analysis_record_id=verification.id,
+                        output_id="decision",
+                        schema_id=_CANDIDATE_DECISION_SCHEMA.id,
+                        schema_hash=_CANDIDATE_DECISION_SCHEMA.schema_hash,
+                    )
                 )
             )
+
+            rejected_context = lab.analysis(
+                "Rejected candidate comparison",
+                key="rejected-candidate-comparison",
+            )
+            rejected_context.measurements(baseline, id="baseline", role="baseline")
+            rejected_context.measurements(
+                lab.get_run(candidate_id),
+                id="candidate",
+                role="candidate",
+            )
+            rejected_verification = (
+                rejected_context.result()
+                .fact(
+                    "decision",
+                    _CandidateDecision(accepted=False),
+                    schema=_CANDIDATE_DECISION_SCHEMA,
+                )
+                .save()
+            )
+            rejected_decision = rejected_verification.fact("decision")
+            with pytest.raises(
+                BackendConflict,
+                match="did not accept the candidate",
+            ):
+                runtime.application.config.publish_config(
+                    ConfigPublishCommand(
+                        source=CandidateConfigRevisionSource(
+                            run_id=baseline_id,
+                            proposal_id=proposal.id,
+                            acceptance=CrossRunCandidateAcceptance(
+                                decision=ProjectAnalysisDecisionReference(
+                                    analysis_record_id=rejected_verification.id,
+                                    output_id="decision",
+                                    schema_id=rejected_decision.schema_id,
+                                    schema_hash=rejected_decision.schema_hash,
+                                )
+                            ),
+                        ),
+                        entry_id="rejected-verified-candidate",
+                        actor="nightly-calibration",
+                        expected_generation=2,
+                    )
+                )
+
+            with pytest.raises(
+                ValueError,
+                match="must contain accepted=true",
+            ):
+                lab.config.accept_verified(
+                    proposal_analysis,
+                    verified_by=(rejected_verification, "decision"),
+                    entry_id="client-rejected-candidate",
+                )
 
 
 def test_analysis_publication_rolls_back_refs_manifest_and_event_together(
@@ -2475,6 +2569,7 @@ def test_candidate_publish_rolls_back_approval_with_event(
             source=CandidateConfigRevisionSource(
                 run_id=admission.run_id,
                 proposal_id=proposal.id,
+                acceptance=ManualCandidateAcceptance(),
             ),
             entry_id="candidate-atomic",
             actor="nightly-calibration",

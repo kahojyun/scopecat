@@ -33,6 +33,7 @@ from scopecat.config.registry.ports import (
     ConfigRegistryUnitOfWorkFactory,
 )
 from scopecat.config.registry.records import (
+    CandidateAcceptance,
     CandidateConfigRegistrySource,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
@@ -53,7 +54,6 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     StorageLocation,
 )
-from scopecat.records.analysis import ProjectAnalysisOutputReference
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
     ConfigContentHash,
@@ -103,7 +103,7 @@ class ManualConfigDraftRevisionSource:
 class CandidateConfigRevisionSource:
     run_id: str
     proposal_id: str
-    verification: ProjectAnalysisOutputReference | None = None
+    acceptance: CandidateAcceptance
 
 
 type ConfigRevisionSource = (
@@ -401,7 +401,7 @@ def _save_config_revision_locked(
             storage=work.runs,
             run_id=source.run_id,
             proposal_id=source.proposal_id,
-            verification=source.verification,
+            acceptance=source.acceptance,
         )
         config = validated.config
         entry_source = validated.source
@@ -457,7 +457,7 @@ def _validate_candidate_source_records(
     storage: RunRepository,
     run_id: str,
     proposal_id: str,
-    verification: ProjectAnalysisOutputReference | None,
+    acceptance: CandidateAcceptance,
 ) -> _ValidatedCandidateSource:
     """Validate a candidate and capture its revision provenance."""
 
@@ -500,7 +500,7 @@ def _validate_candidate_source_records(
         run_id=run_id,
         proposal_id=proposal_id,
         base_config_content_hash=source_config_hash,
-        verification=verification,
+        acceptance=acceptance,
     )
     return _ValidatedCandidateSource(
         config=durable_config,

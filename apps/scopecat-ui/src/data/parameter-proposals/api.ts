@@ -34,6 +34,7 @@ export async function acceptProposal(command: AcceptProposalCommand): Promise<vo
       kind: "candidate_config",
       run_id: command.runId,
       proposal_id: command.proposalId,
+      acceptance: { kind: "manual_review" },
     },
     actor: command.actor,
     expected_generation: command.expectedGeneration,

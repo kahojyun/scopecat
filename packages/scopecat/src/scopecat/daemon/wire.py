@@ -24,6 +24,7 @@ from scopecat.analysis.dataset_wire import DerivedDatasetPayload
 from scopecat.config.inventory import InstrumentInventoryChange
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry.records import (
+    CandidateAcceptance,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
 )
@@ -40,7 +41,6 @@ from scopecat.records.analysis import (
     AnalysisFigureViewSpec,
     AnalysisPublishedOutputReference,
     AnalysisTableViewSpec,
-    ProjectAnalysisOutputReference,
 )
 from scopecat.records.artifact import RunContentEntry, Sha256ContentHash
 from scopecat.records.config import (
@@ -102,7 +102,7 @@ class CandidateConfigRevisionSource(_WireModel):
     kind: Literal["candidate_config"] = "candidate_config"
     run_id: NonEmptyText
     proposal_id: NonEmptyText
-    verification: ProjectAnalysisOutputReference | None = None
+    acceptance: CandidateAcceptance
 
 
 type ConfigRevisionSource = Annotated[

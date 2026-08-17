@@ -15,6 +15,11 @@ from scopecat.config.candidates import (
 )
 from scopecat.config.drafts import ConfigDraft
 from scopecat.config.inventory import InstrumentInventoryChange
+from scopecat.config.registry.records import (
+    CandidateAcceptance,
+    CrossRunCandidateAcceptance,
+    ManualCandidateAcceptance,
+)
 from scopecat.config.resolution import config_revision_entry_id
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
@@ -40,7 +45,7 @@ from scopecat.daemon.wire import (
 )
 from scopecat.records.analysis import (
     AnalysisParameterProposalRecordOutput,
-    ProjectAnalysisOutputReference,
+    ProjectAnalysisDecisionReference,
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import (
@@ -260,32 +265,72 @@ class LabConfigOperations:
         entry_id: str | None = None,
         actor: str | None = None,
         note: str = "",
-        verified_by: tuple[PublishedAnalysis, str] | None = None,
     ) -> ConfigPublishReceipt:
-        """Accept a saved analysis proposal or an already selected candidate."""
+        """Accept a candidate through an explicit operator review."""
 
-        if isinstance(candidate, PublishedAnalysis):
-            selected = candidate.candidate_config(selection)
-        else:
-            if selection is not None:
-                raise ValueError("proposal selection belongs on a PublishedAnalysis")
-            selected = candidate
-        verification = None
-        if verified_by is not None:
-            verification_analysis, output_id = verified_by
-            if verification_analysis.view.analysis.subject.kind != "project":
-                raise TypeError("candidate verification must be a project analysis")
-            verification_analysis.output(output_id)
-            verification = ProjectAnalysisOutputReference(
-                analysis_record_id=verification_analysis.id,
-                output_id=output_id,
+        selected = _selected_candidate(candidate, selection)
+        return self._accept_candidate(
+            selected,
+            acceptance=ManualCandidateAcceptance(),
+            entry_id=entry_id,
+            actor=actor,
+            note=note,
+        )
+
+    def accept_verified(
+        self,
+        candidate: CandidateConfig | PublishedAnalysis,
+        *,
+        verified_by: tuple[PublishedAnalysis, str],
+        selection: CandidateSelection = None,
+        entry_id: str | None = None,
+        actor: str | None = None,
+        note: str = "",
+    ) -> ConfigPublishReceipt:
+        """Accept a candidate through one positive cross-run decision fact."""
+
+        selected = _selected_candidate(candidate, selection)
+        verification_analysis, output_id = verified_by
+        if verification_analysis.view.analysis.subject.kind != "project":
+            raise TypeError("candidate verification must be a project analysis")
+        decision = verification_analysis.fact(output_id)
+        if (
+            not isinstance(decision.value, dict)
+            or decision.value.get("accepted") is not True
+        ):
+            raise ValueError(
+                "candidate verification decision must contain accepted=true"
             )
+        return self._accept_candidate(
+            selected,
+            acceptance=CrossRunCandidateAcceptance(
+                decision=ProjectAnalysisDecisionReference(
+                    analysis_record_id=verification_analysis.id,
+                    output_id=output_id,
+                    schema_id=decision.schema_id,
+                    schema_hash=decision.schema_hash,
+                )
+            ),
+            entry_id=entry_id,
+            actor=actor,
+            note=note,
+        )
+
+    def _accept_candidate(
+        self,
+        candidate: CandidateConfig,
+        *,
+        acceptance: CandidateAcceptance,
+        entry_id: str | None,
+        actor: str | None,
+        note: str,
+    ) -> ConfigPublishReceipt:
         return self.client.publish_config(
             ConfigPublishCommand(
                 source=CandidateConfigRevisionSource(
-                    run_id=selected.source_run_id,
-                    proposal_id=selected.proposal_id,
-                    verification=verification,
+                    run_id=candidate.source_run_id,
+                    proposal_id=candidate.proposal_id,
+                    acceptance=acceptance,
                 ),
                 actor=actor or self.operator,
                 expected_generation=self._generation(),
@@ -311,6 +356,17 @@ class LabConfigOperations:
     def _generation(self) -> int:
         activation = self.registry().activation
         return 0 if activation is None else activation.generation
+
+
+def _selected_candidate(
+    candidate: CandidateConfig | PublishedAnalysis,
+    selection: CandidateSelection,
+) -> CandidateConfig:
+    if isinstance(candidate, PublishedAnalysis):
+        return candidate.candidate_config(selection)
+    if selection is not None:
+        raise ValueError("proposal selection belongs on a PublishedAnalysis")
+    return candidate
 
 
 def _reviewed_draft_command(

@@ -16,7 +16,11 @@ from scopecat.daemon.wire import AnalysisSaveCommand, AnalysisSaveReceipt
 from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError, NotFound
 from scopecat.kernel.ids import artifact_slug
 from scopecat.project_state import ProjectStateServices
-from scopecat.records.analysis import AnalysisRecord, ProjectAnalysisOutputReference
+from scopecat.records.analysis import (
+    AnalysisFactRecordOutput,
+    AnalysisRecord,
+    ProjectAnalysisDecisionReference,
+)
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.run import AnalysisCandidateRunConfigSource
 from scopecat.runs.refs import (
@@ -156,7 +160,7 @@ class AnalysisService:
 
     def validate_candidate_verification(
         self,
-        reference: ProjectAnalysisOutputReference,
+        reference: ProjectAnalysisDecisionReference,
         *,
         source_run_id: str,
         proposal_id: str,
@@ -164,11 +168,36 @@ class AnalysisService:
         """Require evidence over both the proposal source and a candidate run."""
 
         view = self.get(reference.analysis_record_id)
-        if not any(
-            output.id == reference.output_id for output in view.analysis.outputs
-        ):
+        output = next(
+            (
+                output
+                for output in view.analysis.outputs
+                if output.id == reference.output_id
+            ),
+            None,
+        )
+        if output is None:
             raise BackendConflict(
                 "candidate verification output does not exist in its project analysis"
+            )
+        if not isinstance(output, AnalysisFactRecordOutput):
+            raise BackendConflict(
+                "candidate verification decision must be a fact output"
+            )
+        decision = output.content
+        if (
+            decision.schema_id != reference.schema_id
+            or decision.schema_hash != reference.schema_hash
+        ):
+            raise BackendConflict(
+                "candidate verification decision schema does not match its reference"
+            )
+        if (
+            not isinstance(decision.value, dict)
+            or decision.value.get("accepted") is not True
+        ):
+            raise BackendConflict(
+                "candidate verification decision did not accept the candidate"
             )
         input_run_ids = {input_ref.run_id for input_ref in view.analysis.inputs}
         if source_run_id not in input_run_ids:

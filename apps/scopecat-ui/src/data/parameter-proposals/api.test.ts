@@ -101,6 +101,7 @@ describe("parameter proposal commands", () => {
         kind: "candidate_config",
         run_id: "run-a",
         proposal_id: "drive-frequency",
+        acceptance: { kind: "manual_review" },
       },
       actor: "Ada",
       expected_generation: 4,

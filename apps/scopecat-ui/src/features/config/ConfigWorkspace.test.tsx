@@ -397,9 +397,14 @@ function runtimeDerivedEntry(
             proposal_id: proposalId,
             run_id: "run-calibration",
             base_config_content_hash: "sha256:baseline",
-            verification: {
-              analysis_record_id: "analysis-candidate-verification",
-              output_id: "decision",
+            acceptance: {
+              kind: "cross_run_verification",
+              decision: {
+                analysis_record_id: "analysis-candidate-verification",
+                output_id: "decision",
+                schema_id: "tests.candidate-decision.v1",
+                schema_hash: `sha256:${"a".repeat(64)}`,
+              },
             },
           },
   };
