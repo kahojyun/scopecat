@@ -97,13 +97,7 @@ export function useConfigRegistry(daemonUnavailable: boolean) {
           ? (activationPages.at(-1)?.next_cursor ?? undefined)
           : head.activation_history_next_cursor,
     };
-  }, [
-    activationHeadCursor,
-    entryHeadCursor,
-    olderActivations,
-    olderEntries,
-    registryQuery.data,
-  ]);
+  }, [activationHeadCursor, entryHeadCursor, olderActivations, olderEntries, registryQuery.data]);
   const selectedId = selection.id;
   const activeEntryId = overview?.activation?.entry_id;
   const activeDetailQuery = useQuery({

@@ -192,13 +192,7 @@ export function AnalysisCard({
   );
 }
 
-function RunAnalysisItem({
-  analysis,
-  runId,
-}: {
-  analysis: RunAnalysisSummary;
-  runId: string;
-}) {
+function RunAnalysisItem({ analysis, runId }: { analysis: RunAnalysisSummary; runId: string }) {
   const [expanded, setExpanded] = useState(false);
   const detail = useQuery({
     queryKey: ["analysis", runId, analysis.id],
@@ -227,11 +221,7 @@ function RunAnalysisItem({
         {detail.isPending ? (
           <InlineEmpty title="Reading analysis" detail="Loading exact publication details." />
         ) : detail.isError ? (
-          <InlineEmpty
-            title="Analysis unavailable"
-            detail={errorMessage(detail.error)}
-            warning
-          />
+          <InlineEmpty title="Analysis unavailable" detail={errorMessage(detail.error)} warning />
         ) : (
           <AnalysisPublicationView
             analysis={detail.data}

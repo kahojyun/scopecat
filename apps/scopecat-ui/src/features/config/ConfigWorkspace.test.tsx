@@ -71,10 +71,7 @@ describe("ConfigWorkspace", () => {
 
     expect(await screen.findByRole("button", { name: /old-active/i })).toBeInTheDocument();
     expect(screen.getAllByText("Default").length).toBeGreaterThan(0);
-    expect(getConfigRegistryEntry).toHaveBeenCalledWith(
-      "old-active",
-      expect.any(AbortSignal),
-    );
+    expect(getConfigRegistryEntry).toHaveBeenCalledWith("old-active", expect.any(AbortSignal));
   });
 
   it("loads older saved versions and activation history independently", async () => {

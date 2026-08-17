@@ -1,10 +1,4 @@
-import {
-  ChevronDown,
-  GitCompareArrows,
-  History,
-  LoaderCircle,
-  RotateCcw,
-} from "lucide-react";
+import { ChevronDown, GitCompareArrows, History, LoaderCircle, RotateCcw } from "lucide-react";
 import type {
   ConfigActivationRecord,
   ConfigRegistryEntry,
