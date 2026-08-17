@@ -16,8 +16,8 @@ from scopecat.analysis.datasets import DERIVED_DATASET_CODEC, DerivedDataset
 from scopecat.analysis.service import (
     AnalysisDatasetOutput,
     AnalysisFigureOutput,
-    AnalysisInput,
     AnalysisTableOutput,
+    PublishedAnalysisOutputInput,
 )
 from scopecat.config.registry import service as config_registry_service
 from scopecat.kernel.errors import CheckFailed
@@ -38,6 +38,8 @@ from scopecat.records.analysis import (
     AnalysisPublishedOutputReference,
     AnalysisTableRecordOutput,
     AnalysisTableViewSpec,
+    PublishedAnalysisRecordInput,
+    RunAnalysisSubject,
 )
 from scopecat.records.run import RunManifest
 from scopecat.runs.refs import record_content_ref
@@ -816,6 +818,7 @@ def test_analysis_dataset_input_freezes_the_exact_same_run_output_revision(
     )
 
     [first_input] = review_v1.inputs
+    assert isinstance(first_input, PublishedAnalysisRecordInput)
     source_v1_output = source_v1.output("fits")
     assert isinstance(source_v1_output, AnalysisDatasetRecordOutput)
     assert first_input.kind == "analysis_dataset"
@@ -823,7 +826,7 @@ def test_analysis_dataset_input_freezes_the_exact_same_run_output_revision(
     assert first_input.content_hash == source_v1_output.content.content_hash
     assert first_input.codec == DERIVED_DATASET_CODEC
     assert first_input.source == AnalysisPublishedOutputReference(
-        run_id=handle.id,
+        subject=RunAnalysisSubject(run_id=handle.id),
         analysis_record_id=source_v1.id,
         output_id="fits",
     )
@@ -861,8 +864,9 @@ def test_analysis_dataset_input_freezes_the_exact_same_run_output_revision(
     assert review_v2.id == "analysis-fit-quality-review-r2"
     assert review_v2.fact("maximum-score").value == first_score
     [second_input] = review_v2.inputs
+    assert isinstance(second_input, PublishedAnalysisRecordInput)
     assert second_input.source == AnalysisPublishedOutputReference(
-        run_id=handle.id,
+        subject=RunAnalysisSubject(run_id=handle.id),
         analysis_record_id=source_v2.id,
         output_id="fits",
     )
@@ -897,16 +901,15 @@ def test_analysis_dataset_input_rejects_a_source_from_another_run(
     invalid = replace(
         second_handle.analysis("Invalid consumer", key="invalid-consumer").result(),
         inputs=(
-            AnalysisInput(
+            PublishedAnalysisOutputInput(
                 id=source_output.content.dataset_id,
-                run_id=second_handle.id,
                 target=source_output.content.dataset_id,
                 kind="analysis_dataset",
                 content_hash=source_output.content.content_hash,
                 codec=source_output.content.codec,
                 role="data",
                 source=AnalysisPublishedOutputReference(
-                    run_id=first_handle.id,
+                    subject=RunAnalysisSubject(run_id=first_handle.id),
                     analysis_record_id=source.id,
                     output_id="fits",
                 ),

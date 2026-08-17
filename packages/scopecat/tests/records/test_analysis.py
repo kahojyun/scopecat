@@ -44,12 +44,13 @@ from scopecat.records.analysis import (
     AnalysisParameterProposalReference,
     AnalysisPublishedOutputReference,
     AnalysisRecord,
-    AnalysisRecordInput,
     AnalysisTable,
     AnalysisTableColumn,
     AnalysisTableRecordOutput,
     AnalysisTableRow,
     AnalysisTableView,
+    MeasurementAnalysisRecordInput,
+    PublishedAnalysisRecordInput,
     RunAnalysisSubject,
 )
 
@@ -495,7 +496,7 @@ def test_analysis_record_rejects_empty_required_text_like_the_wire_contract() ->
             outputs=[],
         )
     with pytest.raises(ValidationError, match="at least 1 character"):
-        AnalysisRecordInput(
+        MeasurementAnalysisRecordInput(
             id="source",
             run_id="run-analysis",
             target="",
@@ -519,15 +520,16 @@ def test_analysis_record_rejects_empty_required_text_like_the_wire_contract() ->
         )
 
 
-def test_analysis_record_input_requires_source_only_for_analysis_datasets() -> None:
+def test_analysis_record_inputs_distinguish_measurements_from_published_outputs() -> (
+    None
+):
     source = AnalysisPublishedOutputReference(
-        run_id="run-analysis",
+        subject=RunAnalysisSubject(run_id="run-analysis"),
         analysis_record_id="analysis-fit-r2",
         output_id="fits",
     )
-    retained = AnalysisRecordInput(
+    retained = PublishedAnalysisRecordInput(
         id="fits",
-        run_id="run-analysis",
         target="analysis-fit-r2-fits",
         kind="analysis_dataset",
         content_hash=f"sha256:{'0' * 64}",
@@ -537,26 +539,29 @@ def test_analysis_record_input_requires_source_only_for_analysis_datasets() -> N
     )
 
     assert retained.source == source
-    with pytest.raises(ValidationError, match="require one published analysis"):
-        AnalysisRecordInput(
-            id="fits",
-            run_id="run-analysis",
-            target="analysis-fit-r2-fits",
-            kind="analysis_dataset",
-            content_hash=f"sha256:{'0' * 64}",
-            codec="scopecat.derived-dataset.arrow-ipc.v2",
-            role="data",
+    with pytest.raises(ValidationError, match="Field required"):
+        PublishedAnalysisRecordInput.model_validate(
+            {
+                "id": "fits",
+                "target": "analysis-fit-r2-fits",
+                "kind": "analysis_dataset",
+                "content_hash": f"sha256:{'0' * 64}",
+                "codec": "scopecat.derived-dataset.arrow-ipc.v2",
+                "role": "data",
+            }
         )
-    with pytest.raises(ValidationError, match="require one published analysis"):
-        AnalysisRecordInput(
-            id="measurements",
-            run_id="run-analysis",
-            target="raw-measurements",
-            kind="measurement_dataset",
-            content_hash=f"sha256:{'0' * 64}",
-            codec="scopecat.measurement-dataset.v12",
-            role="data",
-            source=source,
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        MeasurementAnalysisRecordInput.model_validate(
+            {
+                "id": "measurements",
+                "run_id": "run-analysis",
+                "target": "raw-measurements",
+                "kind": "measurement_dataset",
+                "content_hash": f"sha256:{'0' * 64}",
+                "codec": "scopecat.measurement-dataset.v12",
+                "role": "data",
+                "source": source,
+            }
         )
 
 

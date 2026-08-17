@@ -1309,12 +1309,12 @@ export interface components {
         };
         /**
          * AnalysisPublishedOutputReference
-         * @description Exact output revision consumed from an earlier run analysis.
+         * @description Exact output revision consumed from a run or project analysis.
          */
         AnalysisPublishedOutputReference: {
             analysis_record_id: components["schemas"]["_NonEmptyText"];
             output_id: components["schemas"]["_NonEmptyText"];
-            run_id: components["schemas"]["_NonEmptyText"];
+            subject: components["schemas"]["AnalysisSubject"];
         };
         /** AnalysisRecord */
         AnalysisRecord: {
@@ -1332,24 +1332,7 @@ export interface components {
             subject: components["schemas"]["AnalysisSubject"];
             title: components["schemas"]["_NonEmptyText"];
         };
-        /** AnalysisRecordInput */
-        AnalysisRecordInput: {
-            codec: components["schemas"]["_NonEmptyText"];
-            content_hash: components["schemas"]["_NonEmptyText"];
-            id: components["schemas"]["_NonEmptyText"];
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "measurement_dataset" | "analysis_dataset";
-            metadata?: components["schemas"]["JsonMetadata"] | null;
-            role: components["schemas"]["_NonEmptyText"];
-            run_id: components["schemas"]["_NonEmptyText"];
-            source?: components["schemas"]["AnalysisPublishedOutputReference"] | null;
-            target: components["schemas"]["_NonEmptyText"];
-            /** Title */
-            title?: string | null;
-        };
+        AnalysisRecordInput: components["schemas"]["MeasurementAnalysisRecordInput"] | components["schemas"]["PublishedAnalysisRecordInput"];
         AnalysisRecordOutput: components["schemas"]["AnalysisFactRecordOutput"] | components["schemas"]["AnalysisDatasetRecordOutput"] | components["schemas"]["AnalysisArtifactRecordOutput"] | components["schemas"]["AnalysisTableRecordOutput"] | components["schemas"]["AnalysisFigureRecordOutput"] | components["schemas"]["AnalysisParameterProposalRecordOutput"];
         AnalysisSubject: components["schemas"]["RunAnalysisSubject"] | components["schemas"]["ProjectAnalysisSubject"];
         /**
@@ -2823,6 +2806,26 @@ export interface components {
         };
         MeasurementAcquisitionValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementPartitionedArray"] | components["schemas"]["MeasurementUnavailable"];
         /**
+         * MeasurementAnalysisRecordInput
+         * @description One exact measurement dataset owned by a run.
+         */
+        MeasurementAnalysisRecordInput: {
+            codec: components["schemas"]["_NonEmptyText"];
+            content_hash: components["schemas"]["_NonEmptyText"];
+            id: components["schemas"]["_NonEmptyText"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "measurement_dataset";
+            metadata?: components["schemas"]["JsonMetadata"] | null;
+            role: components["schemas"]["_NonEmptyText"];
+            run_id: components["schemas"]["_NonEmptyText"];
+            target: components["schemas"]["_NonEmptyText"];
+            /** Title */
+            title?: string | null;
+        };
+        /**
          * MeasurementArray
          * @description One rectangular typed array backed by an immutable NumPy buffer.
          */
@@ -3781,6 +3784,26 @@ export interface components {
             /** Label */
             label?: string | null;
             value_type: components["schemas"]["InstrumentPropertyScalarWire"];
+        };
+        /**
+         * PublishedAnalysisRecordInput
+         * @description One exact dataset, fact, or artifact output from an analysis revision.
+         */
+        PublishedAnalysisRecordInput: {
+            codec: components["schemas"]["_NonEmptyText"];
+            content_hash: components["schemas"]["_NonEmptyText"];
+            id: components["schemas"]["_NonEmptyText"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "analysis_artifact" | "analysis_dataset" | "analysis_fact";
+            metadata?: components["schemas"]["JsonMetadata"] | null;
+            role: components["schemas"]["_NonEmptyText"];
+            source: components["schemas"]["AnalysisPublishedOutputReference"];
+            target: components["schemas"]["_NonEmptyText"];
+            /** Title */
+            title?: string | null;
         };
         pydantic__types__JsonValue: unknown;
         /**

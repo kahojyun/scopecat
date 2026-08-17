@@ -14,6 +14,8 @@ from scopecat.records.analysis import (
     AnalysisDatasetRecordOutput,
     AnalysisFactRecordOutput,
     AnalysisPublishedOutputReference,
+    PublishedAnalysisRecordInput,
+    RunAnalysisSubject,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.measurement import (
@@ -332,8 +334,9 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert quality.accepted
     assert quality.worst_complex_rmse < 0.02
     [review_input] = review.inputs
+    assert isinstance(review_input, PublishedAnalysisRecordInput)
     assert review_input.source == AnalysisPublishedOutputReference(
-        run_id=run.id,
+        subject=RunAnalysisSubject(run_id=run.id),
         analysis_record_id=analysis.id,
         output_id="fit-by-bias",
     )

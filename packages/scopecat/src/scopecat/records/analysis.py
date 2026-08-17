@@ -664,37 +664,6 @@ class AnalysisArtifactReference(_AnalysisContentModel):
     filename: _NonEmptyText
 
 
-class AnalysisPublishedOutputReference(_AnalysisContentModel):
-    """Exact output revision consumed from an earlier run analysis."""
-
-    run_id: _NonEmptyText
-    analysis_record_id: _NonEmptyText
-    output_id: _NonEmptyText
-
-
-class AnalysisRecordInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: _NonEmptyText
-    run_id: _NonEmptyText
-    target: _NonEmptyText
-    kind: Literal["measurement_dataset", "analysis_dataset"]
-    content_hash: _NonEmptyText
-    codec: _NonEmptyText
-    role: _NonEmptyText
-    title: str | None = None
-    metadata: JsonMetadata | None = None
-    source: AnalysisPublishedOutputReference | None = None
-
-    @model_validator(mode="after")
-    def validate_source(self) -> AnalysisRecordInput:
-        if (self.kind == "analysis_dataset") != (self.source is not None):
-            raise ValueError(
-                "analysis dataset inputs require one published analysis output source"
-            )
-        return self
-
-
 class RunAnalysisSubject(_AnalysisContentModel):
     """A publication whose scientific subject is one run."""
 
@@ -703,9 +672,55 @@ class RunAnalysisSubject(_AnalysisContentModel):
 
 
 class ProjectAnalysisSubject(_AnalysisContentModel):
-    """A publication over an explicit snapshot of project run inputs."""
+    """A publication over explicit immutable inputs owned by a project."""
 
     kind: Literal["project"] = "project"
+
+
+type AnalysisSubject = Annotated[
+    RunAnalysisSubject | ProjectAnalysisSubject,
+    Field(discriminator="kind"),
+]
+
+
+class AnalysisPublishedOutputReference(_AnalysisContentModel):
+    """Exact output revision consumed from a run or project analysis."""
+
+    subject: AnalysisSubject
+    analysis_record_id: _NonEmptyText
+    output_id: _NonEmptyText
+
+
+class _AnalysisRecordInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: _NonEmptyText
+    target: _NonEmptyText
+    content_hash: _NonEmptyText
+    codec: _NonEmptyText
+    role: _NonEmptyText
+    title: str | None = None
+    metadata: JsonMetadata | None = None
+
+
+class MeasurementAnalysisRecordInput(_AnalysisRecordInput):
+    """One exact measurement dataset owned by a run."""
+
+    kind: Literal["measurement_dataset"] = "measurement_dataset"
+    run_id: _NonEmptyText
+
+
+class PublishedAnalysisRecordInput(_AnalysisRecordInput):
+    """One exact dataset, fact, or artifact output from an analysis revision."""
+
+    kind: Literal["analysis_dataset", "analysis_fact", "analysis_artifact"]
+    source: AnalysisPublishedOutputReference
+
+
+type AnalysisRecordInput = Annotated[
+    MeasurementAnalysisRecordInput | PublishedAnalysisRecordInput,
+    Field(discriminator="kind"),
+]
 
 
 class ProjectAnalysisOutputReference(_AnalysisContentModel):
@@ -720,12 +735,6 @@ class ProjectAnalysisDecisionReference(ProjectAnalysisOutputReference):
 
     schema_id: _NonEmptyText
     schema_hash: Sha256ContentHash
-
-
-type AnalysisSubject = Annotated[
-    RunAnalysisSubject | ProjectAnalysisSubject,
-    Field(discriminator="kind"),
-]
 
 
 class _AnalysisRecordOutput(BaseModel):

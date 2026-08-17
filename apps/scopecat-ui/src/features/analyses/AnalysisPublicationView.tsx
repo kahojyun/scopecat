@@ -24,50 +24,58 @@ export function AnalysisPublicationView({
             Inputs
           </h4>
           <ul className="m-0 grid list-none gap-2 p-0">
-            {analysis.inputs.map((input) => (
-              <li className="min-w-0 text-[0.61rem] text-text-soft" key={input.id}>
-                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                  <strong>{input.title ?? input.target}</strong>
-                  <span className="text-text-dim">
-                    {input.role} · {titleCase(input.kind)}
-                  </span>
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-2">
-                  {onOpenRun ? (
-                    <button
-                      className="cursor-pointer border-0 bg-transparent p-0 font-mono text-[0.59rem] text-blue hover:text-text hover:underline"
-                      onClick={() => onOpenRun(input.run_id)}
-                      type="button"
+            {analysis.inputs.map((input) => {
+              const runId =
+                input.kind === "measurement_dataset"
+                  ? input.run_id
+                  : input.source.subject.kind === "run"
+                    ? input.source.subject.run_id
+                    : undefined;
+              return (
+                <li className="min-w-0 text-[0.61rem] text-text-soft" key={input.id}>
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <strong>{input.title ?? input.target}</strong>
+                    <span className="text-text-dim">
+                      {input.role} · {titleCase(input.kind)}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    {onOpenRun && runId ? (
+                      <button
+                        className="cursor-pointer border-0 bg-transparent p-0 font-mono text-[0.59rem] text-blue hover:text-text hover:underline"
+                        onClick={() => onOpenRun(runId)}
+                        type="button"
+                      >
+                        {runId}
+                      </button>
+                    ) : (
+                      <code className="text-text-dim">{runId ?? "Project analysis"}</code>
+                    )}
+                    <code
+                      className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
+                      title={input.target}
                     >
-                      {input.run_id}
-                    </button>
-                  ) : (
-                    <code className="text-text-dim">{input.run_id}</code>
-                  )}
+                      {input.target}
+                    </code>
+                  </div>
+                  {input.kind !== "measurement_dataset" ? (
+                    <code
+                      className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
+                      title={`${input.source.analysis_record_id}:${input.source.output_id}`}
+                    >
+                      {input.source.analysis_record_id}:{input.source.output_id}
+                    </code>
+                  ) : null}
                   <code
-                    className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
-                    title={input.target}
+                    className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-[0.55rem] text-text-dim"
+                    title={input.content_hash}
                   >
-                    {input.target}
+                    {input.content_hash}
                   </code>
-                </div>
-                {input.source ? (
-                  <code
-                    className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
-                    title={`${input.source.analysis_record_id}:${input.source.output_id}`}
-                  >
-                    {input.source.analysis_record_id}:{input.source.output_id}
-                  </code>
-                ) : null}
-                <code
-                  className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-[0.55rem] text-text-dim"
-                  title={input.content_hash}
-                >
-                  {input.content_hash}
-                </code>
-                <AnalysisMetadataView metadata={input.metadata ?? {}} />
-              </li>
-            ))}
+                  <AnalysisMetadataView metadata={input.metadata ?? {}} />
+                </li>
+              );
+            })}
           </ul>
         </section>
       ) : null}

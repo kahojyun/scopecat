@@ -22,7 +22,10 @@ from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import (
     AnalysisFactRecordOutput,
     AnalysisRecord,
+    MeasurementAnalysisRecordInput,
     ProjectAnalysisDecisionReference,
+    PublishedAnalysisRecordInput,
+    RunAnalysisSubject,
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.run import AnalysisCandidateRunConfigSource
@@ -38,7 +41,7 @@ from scopecat_server.storage.sqlite.analysis_repository import (
 from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
 
 from ..errors import BackendConflict, BackendNotFound
-from .runs import analysis_output_from_payload
+from .runs import analysis_input_from_payload, analysis_output_from_payload
 
 
 class AnalysisService:
@@ -86,24 +89,13 @@ class AnalysisService:
             return max(matches, key=lambda item: item.analysis.revision)
 
     def save(self, command: AnalysisSaveCommand) -> AnalysisSaveReceipt:
-        from scopecat.analysis.service import AnalysisInput, prepare_project_analysis
+        from scopecat.analysis.service import (
+            MeasurementAnalysisInput,
+            prepare_project_analysis,
+        )
 
         with self._publication_lock, self._analysis_errors():
-            inputs = tuple(
-                AnalysisInput(
-                    id=item.id,
-                    run_id=item.run_id,
-                    target=item.target,
-                    kind=item.kind,
-                    content_hash=item.content_hash,
-                    codec=item.codec,
-                    role=item.role,
-                    title=item.title,
-                    metadata=item.metadata,
-                    source=item.source,
-                )
-                for item in command.inputs
-            )
+            inputs = tuple(analysis_input_from_payload(item) for item in command.inputs)
             prepared = prepare_project_analysis(
                 services=self._services,
                 repository=self._repository,
@@ -116,6 +108,20 @@ class AnalysisService:
                     analysis_output_from_payload(item) for item in command.outputs
                 ),
             )
+            input_run_ids: set[str] = set()
+            for input_ref in inputs:
+                if isinstance(input_ref, MeasurementAnalysisInput):
+                    input_run_ids.add(input_ref.run_id)
+                    continue
+                subject = input_ref.source.subject
+                if isinstance(subject, RunAnalysisSubject):
+                    input_run_ids.add(subject.run_id)
+                else:
+                    input_run_ids.update(
+                        self._input_run_ids(
+                            self._view(input_ref.source.analysis_record_id)
+                        )
+                    )
             if prepared.publication is not None:
                 publication = self._repository.prepare_publication(prepared.publication)
                 with self._control.write_transaction() as connection:
@@ -131,9 +137,7 @@ class AnalysisService:
                             "publication_hash": prepared.publication.publication_hash,
                             "input_run_ids": [
                                 cast("JsonValue", run_id)
-                                for run_id in sorted(
-                                    {str(item.run_id) for item in command.inputs}
-                                )
+                                for run_id in sorted(input_run_ids)
                             ],
                         }
                         self._control.append_event_in_transaction(
@@ -212,7 +216,7 @@ class AnalysisService:
             raise BackendConflict(
                 "candidate verification decision did not accept the candidate"
             )
-        input_run_ids = {input_ref.run_id for input_ref in view.analysis.inputs}
+        input_run_ids = self._input_run_ids(view)
         if source_run_id not in input_run_ids:
             raise BackendConflict(
                 "candidate verification does not include the proposal source run"
@@ -229,6 +233,34 @@ class AnalysisService:
         raise BackendConflict(
             "candidate verification does not include a run using this proposal"
         )
+
+    def _input_run_ids(
+        self,
+        view: ProjectAnalysisView,
+        *,
+        visited: frozenset[str] | None = None,
+    ) -> set[str]:
+        visited = frozenset() if visited is None else visited
+        if view.entry.id in visited:
+            raise BackendConflict("project analysis input lineage contains a cycle")
+        lineage = visited | {view.entry.id}
+        run_ids: set[str] = set()
+        for input_ref in view.analysis.inputs:
+            if isinstance(input_ref, MeasurementAnalysisRecordInput):
+                run_ids.add(input_ref.run_id)
+                continue
+            assert isinstance(input_ref, PublishedAnalysisRecordInput)
+            subject = input_ref.source.subject
+            if isinstance(subject, RunAnalysisSubject):
+                run_ids.add(subject.run_id)
+                continue
+            run_ids.update(
+                self._input_run_ids(
+                    self._view(input_ref.source.analysis_record_id),
+                    visited=lineage,
+                )
+            )
+        return run_ids
 
     def _view(self, record_id: str) -> ProjectAnalysisView:
         manifest = self._repository.read_manifest(record_id)

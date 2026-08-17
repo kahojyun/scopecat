@@ -87,7 +87,7 @@ drag_beta_summary = {
     "verification": verification.id,
     "verification_subject": verification.view.analysis.subject.kind,
     "verification_inputs": [
-        (item.id, item.run_id, item.role) for item in verification.inputs
+        (item.id, item.target, item.role) for item in verification.inputs
     ],
     "verification_improvement": verification_decision.improvement,
     "verification_accepted": verification_decision.accepted,

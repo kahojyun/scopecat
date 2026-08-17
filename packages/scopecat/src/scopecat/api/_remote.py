@@ -21,6 +21,7 @@ from scopecat.analysis.service import (
     AnalysisOutput,
     AnalysisParameterProposalOutput,
     AnalysisTableOutput,
+    MeasurementAnalysisInput,
     SavedAnalysis,
 )
 from scopecat.daemon.client import DaemonClient
@@ -39,6 +40,8 @@ from scopecat.daemon.wire import (
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisTableOutputPayload,
+    MeasurementAnalysisInputPayload,
+    PublishedAnalysisInputPayload,
     RunAttachmentCommand,
 )
 from scopecat.records.analysis import AnalysisExecution
@@ -250,18 +253,29 @@ class RemoteRunOperations:
 
 
 def analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
-    return AnalysisInputPayload(
+    metadata = (
+        None if value.metadata is None else validate_json_metadata(value.metadata)
+    )
+    if isinstance(value, MeasurementAnalysisInput):
+        return MeasurementAnalysisInputPayload(
+            id=value.id,
+            run_id=value.run_id,
+            target=value.target,
+            content_hash=value.content_hash,
+            codec=value.codec,
+            role=value.role,
+            title=value.title,
+            metadata=metadata,
+        )
+    return PublishedAnalysisInputPayload(
         id=value.id,
-        run_id=value.run_id,
         target=value.target,
         kind=value.kind,
         content_hash=value.content_hash,
         codec=value.codec,
         role=value.role,
         title=value.title,
-        metadata=(
-            None if value.metadata is None else validate_json_metadata(value.metadata)
-        ),
+        metadata=metadata,
         source=value.source,
     )
 

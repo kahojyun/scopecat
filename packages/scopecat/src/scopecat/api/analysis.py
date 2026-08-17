@@ -42,14 +42,20 @@ from scopecat.analysis.service import (
     AnalysisOutput,
     AnalysisParameterProposalOutput,
     AnalysisTableOutput,
+    MeasurementAnalysisInput,
+    PublishedAnalysisOutputInput,
     SavedAnalysis,
 )
-from scopecat.api.published_analysis import PublishedAnalysis
+from scopecat.api.published_analysis import PublishedAnalysis, PublishedAnalysisArtifact
 from scopecat.config.changes import (
     parameter_change_proposal_from_updates,
 )
 from scopecat.config.parameter_updates import ParameterUpdate
-from scopecat.kernel.content_identity import sha256_content_hash, stable_content_hash
+from scopecat.kernel.content_identity import (
+    model_wire_content_hash,
+    sha256_content_hash,
+    stable_content_hash,
+)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.ids import artifact_slug
 from scopecat.kernel.problems import (
@@ -63,6 +69,7 @@ from scopecat.measurements.dataset import Dataset, ExperimentResultView
 from scopecat.measurements.datasets import MEASUREMENT_DATASET_CODEC
 from scopecat.records.analysis import (
     ANALYSIS_ARTIFACT_CODEC,
+    AnalysisArtifactRecordOutput,
     AnalysisDatasetDerivation,
     AnalysisDatasetRecordOutput,
     AnalysisDatasetViewSource,
@@ -71,6 +78,7 @@ from scopecat.records.analysis import (
     AnalysisExecutionOutput,
     AnalysisExecutionOutputReference,
     AnalysisFact,
+    AnalysisFactRecordOutput,
     AnalysisField,
     AnalysisFigureProjection,
     AnalysisFigureViewSpec,
@@ -657,7 +665,7 @@ class AnalysisContext:
         selected_run = run or self._required_run()
         dataset = selected_run._measurements_for_analysis()  # pyright: ignore[reportPrivateUsage]
         input_id = artifact_slug(id or dataset.entry.id, fallback="data")
-        input_ref = AnalysisInput(
+        input_ref = MeasurementAnalysisInput(
             id=input_id,
             run_id=selected_run.id,
             target=dataset.entry.id,
@@ -676,7 +684,7 @@ class AnalysisContext:
 
     def analysis_dataset(
         self,
-        analysis: str,
+        analysis: str | PublishedAnalysis,
         output: str,
         *,
         run: _AnalysisRun | None = None,
@@ -685,7 +693,7 @@ class AnalysisContext:
         title: str | None = None,
         metadata: Mapping[str, object] | None = None,
     ) -> DerivedDataset:
-        """Load a published run analysis dataset and retain its exact revision."""
+        """Load a published analysis dataset and retain its exact revision."""
 
         if not role.strip():
             _raise_analysis_problem(
@@ -693,8 +701,7 @@ class AnalysisContext:
                 "analysis input role must be a non-empty string",
                 "role",
             )
-        selected_run = run or self._required_run()
-        published = selected_run.published_analysis(analysis)
+        published = self._resolve_published_analysis(analysis, run=run)
         selected = published.output(output)
         if not isinstance(selected, AnalysisDatasetRecordOutput):
             raise TypeError(
@@ -704,13 +711,12 @@ class AnalysisContext:
         reference = selected.content
         input_id = artifact_slug(id or reference.dataset_id, fallback="data")
         source = AnalysisPublishedOutputReference(
-            run_id=selected_run.id,
+            subject=published.view.analysis.subject,
             analysis_record_id=published.id,
             output_id=selected.id,
         )
-        input_ref = AnalysisInput(
+        input_ref = PublishedAnalysisOutputInput(
             id=input_id,
-            run_id=selected_run.id,
             target=reference.dataset_id,
             kind="analysis_dataset",
             content_hash=reference.content_hash,
@@ -725,6 +731,136 @@ class AnalysisContext:
             raise ValueError(f"analysis input id is already bound: {input_id}")
         self._record_input_value(dataset, target=input_id)
         return dataset
+
+    @overload
+    def analysis_fact(
+        self,
+        analysis: str | PublishedAnalysis,
+        output: str,
+        *,
+        schema: None = None,
+        run: _AnalysisRun | None = None,
+        id: str | None = None,
+        role: str = "data",
+        title: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> AnalysisFact: ...
+
+    @overload
+    def analysis_fact[ValueT](
+        self,
+        analysis: str | PublishedAnalysis,
+        output: str,
+        *,
+        schema: AnalysisFactSchema[ValueT],
+        run: _AnalysisRun | None = None,
+        id: str | None = None,
+        role: str = "data",
+        title: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> ValueT: ...
+
+    def analysis_fact[ValueT](
+        self,
+        analysis: str | PublishedAnalysis,
+        output: str,
+        *,
+        schema: AnalysisFactSchema[ValueT] | None = None,
+        run: _AnalysisRun | None = None,
+        id: str | None = None,
+        role: str = "data",
+        title: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> AnalysisFact | ValueT:
+        """Load an exact published fact and retain it as an analysis input."""
+
+        published = self._resolve_published_analysis(analysis, run=run)
+        selected = published.output(output)
+        if not isinstance(selected, AnalysisFactRecordOutput):
+            raise TypeError(
+                f"analysis output {published.id!r}:{output!r} is not a fact"
+            )
+        fact = selected.content
+        input_id = artifact_slug(id or selected.id, fallback="fact")
+        self._retain_input(
+            PublishedAnalysisOutputInput(
+                id=input_id,
+                target=selected.id,
+                kind="analysis_fact",
+                content_hash=f"sha256:{model_wire_content_hash(fact)}",
+                codec=fact.codec,
+                role=role,
+                title=title or selected.title,
+                metadata=metadata,
+                source=AnalysisPublishedOutputReference(
+                    subject=published.view.analysis.subject,
+                    analysis_record_id=published.id,
+                    output_id=selected.id,
+                ),
+            )
+        )
+        value = fact if schema is None else published.fact_as(output, schema)
+        self._record_input_value(value, target=input_id)
+        return value
+
+    def analysis_artifact(
+        self,
+        analysis: str | PublishedAnalysis,
+        output: str,
+        *,
+        run: _AnalysisRun | None = None,
+        id: str | None = None,
+        role: str = "data",
+        title: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> PublishedAnalysisArtifact:
+        """Load an exact published artifact and retain it as an analysis input."""
+
+        published = self._resolve_published_analysis(analysis, run=run)
+        selected = published.output(output)
+        if not isinstance(selected, AnalysisArtifactRecordOutput):
+            raise TypeError(
+                f"analysis output {published.id!r}:{output!r} is not an artifact"
+            )
+        artifact = published.artifact(output)
+        reference = selected.content
+        input_id = artifact_slug(id or selected.id, fallback="artifact")
+        self._retain_input(
+            PublishedAnalysisOutputInput(
+                id=input_id,
+                target=reference.artifact_id,
+                kind="analysis_artifact",
+                content_hash=reference.content_hash,
+                codec=ANALYSIS_ARTIFACT_CODEC,
+                role=role,
+                title=title or selected.title,
+                metadata=metadata,
+                source=AnalysisPublishedOutputReference(
+                    subject=published.view.analysis.subject,
+                    analysis_record_id=published.id,
+                    output_id=selected.id,
+                ),
+            )
+        )
+        self._record_input_value(artifact, target=input_id)
+        return artifact
+
+    def _resolve_published_analysis(
+        self,
+        analysis: str | PublishedAnalysis,
+        *,
+        run: _AnalysisRun | None,
+    ) -> PublishedAnalysis:
+        if isinstance(analysis, PublishedAnalysis):
+            if run is not None:
+                raise TypeError("run is only valid when selecting an analysis by name")
+            return analysis
+        return (run or self._required_run()).published_analysis(analysis)
+
+    def _retain_input(self, input_ref: AnalysisInput) -> None:
+        existing = self._accessed_inputs.setdefault(input_ref.id, input_ref)
+        if existing != input_ref:
+            raise ValueError(f"analysis input id is already bound: {input_ref.id}")
 
     @overload
     def trace[ResultT](
@@ -799,7 +935,7 @@ class AnalysisContext:
             run = self._required_run()
             self._accessed_inputs.setdefault(
                 provenance.target,
-                AnalysisInput(
+                MeasurementAnalysisInput(
                     id=provenance.target,
                     run_id=run.id,
                     target=provenance.target,

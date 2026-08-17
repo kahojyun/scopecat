@@ -116,7 +116,9 @@ from scopecat.records.analysis import (
     AnalysisFigureProjection,
     AnalysisFigureViewSpec,
     AnalysisTableViewSpec,
+    MeasurementAnalysisRecordInput,
     ProjectAnalysisDecisionReference,
+    PublishedAnalysisRecordInput,
 )
 from scopecat.records.config import (
     ConfigProfileSnapshot,
@@ -2176,7 +2178,15 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
             assert revised.id == "analysis-candidate-verification-r2"
             assert revised.revision == 2
             assert revised.view.analysis.subject.kind == "project"
-            assert [(item.id, item.run_id, item.role) for item in revised.inputs] == [
+            measurement_inputs = tuple(
+                item
+                for item in revised.inputs
+                if isinstance(item, MeasurementAnalysisRecordInput)
+            )
+            assert len(measurement_inputs) == len(revised.inputs)
+            assert [
+                (item.id, item.run_id, item.role) for item in measurement_inputs
+            ] == [
                 ("baseline", baseline.id, "baseline"),
                 ("candidate", candidate.id, "candidate"),
             ]
@@ -2234,7 +2244,7 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
             ]
             assert [
                 event.payload["input_run_ids"] for event in project_analysis_events
-            ] == [[baseline.id, candidate.id], [baseline.id, candidate.id]]
+            ] == [sorted([baseline.id, candidate.id])] * 2
 
             missing_analysis = transport.get("/api/v1/analyses/missing")
             missing_content = transport.get(
@@ -2304,6 +2314,79 @@ def test_project_analysis_allocates_distinct_revisions_for_concurrent_saves(
                 )
                 == 2
             )
+
+
+def test_project_analysis_consumes_project_datasets_facts_and_artifacts(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        run_id = _complete_signal_run(
+            runtime,
+            submission_id="project-analysis-inputs",
+            signal=0.8,
+        )
+        with TestClient(runtime.app()) as transport:
+            lab = LabClient(_daemon_client(transport))
+            source_context = lab.analysis("Project source", key="project-source")
+            source_context.measurements(
+                lab.get_run(run_id),
+                id="measurements",
+            )
+            source = (
+                source_context.result()
+                .dataset("summary", pa.table({"signal": [0.8]}))
+                .fact("accepted", True)
+                .artifact(
+                    "report",
+                    text="project source report",
+                    filename="source.md",
+                    media_type="text/markdown",
+                )
+                .save()
+            )
+
+            consumer_context = lab.analysis(
+                "Project consumer",
+                key="project-consumer",
+            )
+            summary = consumer_context.analysis_dataset(source, "summary")
+            accepted = consumer_context.analysis_fact(source, "accepted")
+            report = consumer_context.analysis_artifact(source, "report")
+            consumer = (
+                consumer_context.result()
+                .fact(
+                    "consumed",
+                    bool(accepted.value)
+                    and summary.table.num_rows == 1
+                    and bool(report.text()),
+                )
+                .save()
+            )
+
+            assert consumer.fact("consumed").value is True
+            assert {input_ref.kind for input_ref in consumer.inputs} == {
+                "analysis_dataset",
+                "analysis_fact",
+                "analysis_artifact",
+            }
+            published_inputs = tuple(
+                input_ref
+                for input_ref in consumer.inputs
+                if isinstance(input_ref, PublishedAnalysisRecordInput)
+            )
+            assert len(published_inputs) == len(consumer.inputs)
+            assert all(
+                input_ref.source.subject.kind == "project"
+                and input_ref.source.analysis_record_id == source.id
+                for input_ref in published_inputs
+            )
+            [consumer_event] = [
+                event
+                for event in _events(runtime).items
+                if event.kind == "project_analysis_saved"
+                and event.payload["record_id"] == consumer.id
+            ]
+            assert consumer_event.payload["input_run_ids"] == [run_id]
 
 
 def test_project_analysis_publication_rolls_back_index_and_event_together(

@@ -52,11 +52,14 @@ from scopecat.daemon.wire import (
     AnalysisDatasetOutputPayload,
     AnalysisFactOutputPayload,
     AnalysisFigureOutputPayload,
+    AnalysisInputPayload,
     AnalysisOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
     AnalysisTableOutputPayload,
+    MeasurementAnalysisInputPayload,
+    PublishedAnalysisInputPayload,
     RunAttachmentCommand,
 )
 from scopecat.kernel.errors import (
@@ -114,8 +117,40 @@ from .point_plans import RunPointPlanService
 
 if TYPE_CHECKING:
     import pyarrow as pa
-    from scopecat.analysis.service import AnalysisOutput
+    from scopecat.analysis.service import AnalysisInput, AnalysisOutput
     from scopecat.measurements.traces import MeasurementTraceProjection
+
+
+def analysis_input_from_payload(item: AnalysisInputPayload) -> AnalysisInput:
+    from scopecat.analysis.service import (
+        MeasurementAnalysisInput,
+        PublishedAnalysisOutputInput,
+    )
+
+    if isinstance(item, MeasurementAnalysisInputPayload):
+        return MeasurementAnalysisInput(
+            id=item.id,
+            run_id=item.run_id,
+            target=item.target,
+            kind=item.kind,
+            content_hash=item.content_hash,
+            codec=item.codec,
+            role=item.role,
+            title=item.title,
+            metadata=item.metadata,
+        )
+    assert isinstance(item, PublishedAnalysisInputPayload)
+    return PublishedAnalysisOutputInput(
+        id=item.id,
+        target=item.target,
+        kind=item.kind,
+        content_hash=item.content_hash,
+        codec=item.codec,
+        role=item.role,
+        title=item.title,
+        metadata=item.metadata,
+        source=item.source,
+    )
 
 
 def analysis_output_from_payload(item: AnalysisOutputPayload) -> AnalysisOutput:
@@ -401,23 +436,9 @@ class RunService:
         run_id: str,
         command: AnalysisSaveCommand,
     ) -> AnalysisSaveReceipt:
-        from scopecat.analysis.service import AnalysisInput, prepare_analysis
+        from scopecat.analysis.service import prepare_analysis
 
-        inputs = tuple(
-            AnalysisInput(
-                id=item.id,
-                run_id=item.run_id,
-                target=item.target,
-                kind=item.kind,
-                content_hash=item.content_hash,
-                codec=item.codec,
-                role=item.role,
-                title=item.title,
-                metadata=item.metadata,
-                source=item.source,
-            )
-            for item in command.inputs
-        )
+        inputs = tuple(analysis_input_from_payload(item) for item in command.inputs)
         outputs = tuple(analysis_output_from_payload(item) for item in command.outputs)
         proposals = tuple(
             item.content

@@ -175,27 +175,32 @@ class ConfigActivationReceipt(_WireModel):
     activation: ConfigRegistryActivationRecord
 
 
-class AnalysisInputPayload(_WireModel):
-    """JSON-safe reference consumed by a durable analysis record."""
+class _AnalysisInputPayload(_WireModel):
+    """Shared JSON-safe identity consumed by a durable analysis record."""
 
     id: NonEmptyText
-    run_id: NonEmptyText
     target: NonEmptyText
-    kind: Literal["measurement_dataset", "analysis_dataset"]
     content_hash: NonEmptyText
     codec: NonEmptyText
     role: NonEmptyText
     title: str | None = None
     metadata: dict[str, JsonValue] | None = None
-    source: AnalysisPublishedOutputReference | None = None
 
-    @model_validator(mode="after")
-    def validate_source(self) -> AnalysisInputPayload:
-        if (self.kind == "analysis_dataset") != (self.source is not None):
-            raise ValueError(
-                "analysis dataset inputs require one published analysis output source"
-            )
-        return self
+
+class MeasurementAnalysisInputPayload(_AnalysisInputPayload):
+    kind: Literal["measurement_dataset"] = "measurement_dataset"
+    run_id: NonEmptyText
+
+
+class PublishedAnalysisInputPayload(_AnalysisInputPayload):
+    kind: Literal["analysis_dataset", "analysis_fact", "analysis_artifact"]
+    source: AnalysisPublishedOutputReference
+
+
+type AnalysisInputPayload = Annotated[
+    MeasurementAnalysisInputPayload | PublishedAnalysisInputPayload,
+    Field(discriminator="kind"),
+]
 
 
 class AnalysisTableOutputPayload(_WireModel):
@@ -848,12 +853,14 @@ __all__ = [
     "InstrumentSessionOpenCommand",
     "InstrumentSessionOpenReceipt",
     "ManualConfigDraftRevisionSource",
+    "MeasurementAnalysisInputPayload",
     "MeasurementFlushCommand",
     "MeasurementFlushReceipt",
     "MeasurementHeaderCommand",
     "MeasurementIngestReceipt",
     "MeasurementSealCommand",
     "PayloadObjectReceipt",
+    "PublishedAnalysisInputPayload",
     "RunAdmission",
     "RunAttachmentCommand",
     "RunCancellationReceipt",
