@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from pydantic import BaseModel
 
@@ -12,6 +12,13 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.content import BytesWrite, ContentEntry, ModelWrite
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.run import RunSnapshot
+
+if TYPE_CHECKING:
+    from scopecat.analysis.repository import (
+        AnalysisPublication,
+        AnalysisPublicationPage,
+        AnalysisPublicationSummary,
+    )
 
 type RunContentRole = Literal["artifact", "dataset", "record"]
 
@@ -75,6 +82,28 @@ class RunRepository(Protocol):
         self,
         publication: RunContentPublication,
     ) -> None: ...
+
+    def publish_analysis(self, publication: AnalysisPublication) -> None: ...
+
+    def list_analysis_publications(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None = None,
+    ) -> AnalysisPublicationPage: ...
+
+    def read_analysis_publication(
+        self,
+        run_id: str,
+        record_id: str,
+    ) -> AnalysisPublicationSummary: ...
+
+    def latest_analysis_publication(
+        self,
+        run_id: str,
+        analysis_key: str,
+    ) -> AnalysisPublicationSummary | None: ...
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot: ...
 

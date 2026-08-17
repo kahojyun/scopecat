@@ -14,6 +14,11 @@ from typing import cast
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic_core import PydanticSerializationError
+from scopecat.analysis.repository import (
+    AnalysisPublication,
+    AnalysisPublicationPage,
+    AnalysisPublicationSummary,
+)
 from scopecat.kernel.errors import (
     CheckFailed,
     Conflict,
@@ -28,6 +33,7 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.records.analysis import RunAnalysisSubject
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import MeasurementRecord
@@ -46,6 +52,13 @@ from scopecat.runs.repository import (
     TerminalRunCommit,
 )
 
+from scopecat_server.storage.sqlite.analysis_index import (
+    AnalysisIndexConflict,
+    insert_publication,
+    latest_publication,
+    list_publications,
+    read_publication,
+)
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.object_store import (
     ImmutableObjectStore,
@@ -88,6 +101,14 @@ class PreparedContentPublication:
 
     publication: RunContentPublication
     refs: tuple[_PreparedRef, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedRunAnalysisPublication:
+    """Run analysis index and content prepared for one atomic publication."""
+
+    publication: AnalysisPublication
+    content: PreparedContentPublication
 
 
 class SQLiteRunRepository:
@@ -243,6 +264,69 @@ class SQLiteRunRepository:
                 message="run content metadata does not match its durable schema",
             ) from error
 
+    def list_analysis_publications(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None = None,
+    ) -> AnalysisPublicationPage:
+        _validate_run_id(run_id)
+        try:
+            with self.sqlite.read_connection() as connection:
+                self._require_run_row(connection, run_id)
+                return list_publications(
+                    connection,
+                    run_id=run_id,
+                    limit=limit,
+                    before=before,
+                )
+        except NotFound:
+            raise
+        except (sqlite3.Error, ValidationError) as error:
+            raise _storage_failure(run_id=run_id) from error
+
+    def read_analysis_publication(
+        self,
+        run_id: str,
+        record_id: str,
+    ) -> AnalysisPublicationSummary:
+        _validate_run_id(run_id)
+        try:
+            with self.sqlite.read_connection() as connection:
+                self._require_run_row(connection, run_id)
+                publication = read_publication(
+                    connection,
+                    run_id=run_id,
+                    record_id=record_id,
+                )
+            if publication is None:
+                raise _analysis_not_found(run_id, record_id)
+            return publication
+        except NotFound:
+            raise
+        except (sqlite3.Error, ValidationError) as error:
+            raise _storage_failure(run_id=run_id) from error
+
+    def latest_analysis_publication(
+        self,
+        run_id: str,
+        analysis_key: str,
+    ) -> AnalysisPublicationSummary | None:
+        _validate_run_id(run_id)
+        try:
+            with self.sqlite.read_connection() as connection:
+                self._require_run_row(connection, run_id)
+                return latest_publication(
+                    connection,
+                    run_id=run_id,
+                    analysis_key=analysis_key,
+                )
+        except NotFound:
+            raise
+        except (sqlite3.Error, ValidationError) as error:
+            raise _storage_failure(run_id=run_id) from error
+
     def prepare_run_skeleton(self, skeleton: RunSkeleton) -> PreparedRunSkeleton:
         """Write immutable admission objects before acquiring the SQLite writer."""
 
@@ -344,6 +428,51 @@ class SQLiteRunRepository:
                 )
         except sqlite3.Error as error:
             raise _storage_failure(run_id=publication.run_id) from error
+
+    def publish_analysis(self, publication: AnalysisPublication) -> None:
+        prepared = self.prepare_analysis_publication(publication)
+        run_id = _analysis_run_id(publication)
+        try:
+            with self._transaction() as connection:
+                self.publish_prepared_analysis_in_transaction(connection, prepared)
+        except Conflict, NotFound, DataIntegrityError:
+            raise
+        except sqlite3.Error as error:
+            raise _storage_failure(run_id=run_id) from error
+
+    def prepare_analysis_publication(
+        self,
+        publication: AnalysisPublication,
+    ) -> PreparedRunAnalysisPublication:
+        run_id = _analysis_run_id(publication)
+        return PreparedRunAnalysisPublication(
+            publication=publication,
+            content=self.prepare_content_publication(
+                RunContentPublication(
+                    run_id=run_id,
+                    entries=publication.entries,
+                    models=publication.models,
+                    bytes=publication.bytes,
+                )
+            ),
+        )
+
+    def publish_prepared_analysis_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        prepared: PreparedRunAnalysisPublication,
+    ) -> bool:
+        publication = prepared.publication
+        run_id = _analysis_run_id(publication)
+        self._require_run_row(connection, run_id)
+        self.publish_prepared_content_in_transaction(connection, prepared.content)
+        try:
+            _sequence, created = insert_publication(connection, publication)
+        except AnalysisIndexConflict as error:
+            raise _analysis_conflict(run_id, publication.record.id) from error
+        except sqlite3.IntegrityError as error:
+            raise _analysis_conflict(run_id, publication.record.id) from error
+        return created
 
     def prepare_content_publication(
         self,
@@ -815,6 +944,45 @@ def _content_not_found(
             )
         ]
     )
+
+
+def _analysis_not_found(run_id: str, record_id: str) -> NotFound:
+    return NotFound(
+        [
+            problem(
+                "run.analysis_not_found",
+                "run analysis publication was not found",
+                phase=ProblemPhase.PERSISTENCE,
+                location=StorageLocation(
+                    run_id=run_id,
+                    path=("analysis", record_id),
+                ),
+            )
+        ]
+    )
+
+
+def _analysis_conflict(run_id: str, record_id: str) -> Conflict:
+    return Conflict(
+        [
+            problem(
+                "run.analysis_conflict",
+                "run analysis identity already contains different metadata",
+                phase=ProblemPhase.PERSISTENCE,
+                location=StorageLocation(
+                    run_id=run_id,
+                    path=("analysis", record_id),
+                ),
+            )
+        ]
+    )
+
+
+def _analysis_run_id(publication: AnalysisPublication) -> str:
+    subject = publication.subject
+    if not isinstance(subject, RunAnalysisSubject):
+        raise TypeError("run repository requires a run analysis subject")
+    return subject.run_id
 
 
 def _integrity_failure(

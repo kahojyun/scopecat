@@ -442,6 +442,18 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
                 entry.kind == "analysis"
                 for entry in candidate.contents(role="record", kind="analysis").items
             )
+            content_page = transport.get(
+                f"/api/v1/analyses/{revised.id}/contents",
+                params={"limit": 1},
+            ).json()
+            assert [entry["id"] for entry in content_page["items"]] == [revised.id]
+            assert content_page["next_cursor"] is not None
+            artifact_id = f"{revised.id}-report"
+            exact_content = transport.get(
+                f"/api/v1/analyses/{revised.id}/contents/{artifact_id}"
+            ).json()
+            assert exact_content["id"] == artifact_id
+            assert exact_content["role"] == "artifact"
             project_analysis_events = [
                 event
                 for event in _events(runtime).items

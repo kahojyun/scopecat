@@ -12,8 +12,8 @@ from typing import cast
 from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticSerializationError
 from scopecat.analysis.repository import (
+    AnalysisContentPage,
     AnalysisPublication,
-    AnalysisPublicationManifest,
     AnalysisPublicationPage,
     AnalysisPublicationSummary,
 )
@@ -24,7 +24,16 @@ from scopecat.kernel.problems import (
     StorageLocation,
     problem,
 )
+from scopecat.records.analysis import ProjectAnalysisSubject
+from scopecat.records.content import ContentEntry
 
+from scopecat_server.storage.sqlite.analysis_index import (
+    AnalysisIndexConflict,
+    insert_publication,
+    latest_publication,
+    list_publications,
+    read_publication,
+)
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.object_store import (
     ImmutableObjectStore,
@@ -62,96 +71,110 @@ class SQLiteAnalysisRepository:
 
         try:
             with self.sqlite.read_connection() as connection:
-                if before is None:
-                    rows = cast(
-                        "list[sqlite3.Row]",
-                        connection.execute(
-                            """
-                            SELECT sequence, manifest_json, title, analysis_key,
-                                   revision, publication_hash, step_id,
-                                   input_count, output_count
-                            FROM analysis_publications
-                            ORDER BY sequence DESC
-                            LIMIT ?
-                            """,
-                            (limit + 1,),
-                        ).fetchall(),
-                    )
-                else:
-                    rows = cast(
-                        "list[sqlite3.Row]",
-                        connection.execute(
-                            """
-                            SELECT sequence, manifest_json, title, analysis_key,
-                                   revision, publication_hash, step_id,
-                                   input_count, output_count
-                            FROM analysis_publications
-                            WHERE sequence < ?
-                            ORDER BY sequence DESC
-                            LIMIT ?
-                            """,
-                            (before, limit + 1),
-                        ).fetchall(),
-                    )
+                return list_publications(
+                    connection,
+                    run_id=None,
+                    limit=limit,
+                    before=before,
+                )
+        except (sqlite3.Error, ValidationError) as error:
+            raise _storage_failure("analyses") from error
+
+    def latest_publication(
+        self,
+        analysis_key: str,
+    ) -> AnalysisPublicationSummary | None:
+        try:
+            with self.sqlite.read_connection() as connection:
+                return latest_publication(
+                    connection,
+                    run_id=None,
+                    analysis_key=analysis_key,
+                )
+        except (sqlite3.Error, ValidationError) as error:
+            raise _storage_failure(analysis_key) from error
+
+    def read_publication(self, record_id: str) -> AnalysisPublicationSummary:
+        _validate_identity(record_id, "record.json")
+        try:
+            with self.sqlite.read_connection() as connection:
+                publication = read_publication(
+                    connection,
+                    run_id=None,
+                    record_id=record_id,
+                )
+            if publication is None:
+                raise _not_found(record_id)
+            return publication
+        except (sqlite3.Error, ValidationError) as error:
+            raise _storage_failure(record_id) from error
+
+    def list_contents(
+        self,
+        record_id: str,
+        *,
+        limit: int,
+        before: int | None = None,
+    ) -> AnalysisContentPage:
+        _validate_identity(record_id, "record.json")
+        try:
+            with self.sqlite.read_connection() as connection:
+                publication_sequence = _publication_sequence(connection, record_id)
+                parameters: list[int] = [publication_sequence]
+                before_clause = ""
+                if before is not None:
+                    before_clause = "AND sequence < ?"
+                    parameters.append(before)
+                parameters.append(limit + 1)
+                rows = cast(
+                    "list[sqlite3.Row]",
+                    connection.execute(
+                        f"""
+                        SELECT sequence, entry_json
+                        FROM project_analysis_contents
+                        WHERE publication_sequence = ? {before_clause}
+                        ORDER BY sequence DESC
+                        LIMIT ?
+                        """,  # noqa: S608 - before clause is a fixed fragment
+                        parameters,
+                    ).fetchall(),
+                )
             selected = rows[:limit]
-            return AnalysisPublicationPage(
-                items=tuple(_summary(row) for row in selected),
+            return AnalysisContentPage(
+                items=tuple(
+                    ContentEntry.model_validate_json(cast("str", row["entry_json"]))
+                    for row in selected
+                ),
                 next_cursor=(
                     cast("int", selected[-1]["sequence"]) if len(rows) > limit else None
                 ),
             )
+        except NotFound:
+            raise
         except (sqlite3.Error, ValidationError) as error:
-            raise _storage_failure("analyses") from error
+            raise _storage_failure(record_id) from error
 
-    def latest_manifest(
-        self,
-        analysis_key: str,
-    ) -> AnalysisPublicationManifest | None:
-        try:
-            with self.sqlite.read_connection() as connection:
-                row = cast(
-                    "sqlite3.Row | None",
-                    connection.execute(
-                        """
-                        SELECT manifest_json
-                        FROM analysis_publications
-                        WHERE analysis_key = ?
-                        ORDER BY revision DESC
-                        LIMIT 1
-                        """,
-                        (analysis_key,),
-                    ).fetchone(),
-                )
-            return (
-                None
-                if row is None
-                else AnalysisPublicationManifest.model_validate_json(
-                    cast("str", row["manifest_json"])
-                )
-            )
-        except (sqlite3.Error, ValidationError) as error:
-            raise _storage_failure(analysis_key) from error
-
-    def read_manifest(self, record_id: str) -> AnalysisPublicationManifest:
+    def read_content(self, record_id: str, content_id: str) -> ContentEntry:
         _validate_identity(record_id, "record.json")
         try:
             with self.sqlite.read_connection() as connection:
+                publication_sequence = _publication_sequence(connection, record_id)
                 row = cast(
                     "sqlite3.Row | None",
                     connection.execute(
                         """
-                        SELECT manifest_json
-                        FROM analysis_publications
-                        WHERE record_id = ?
+                        SELECT entry_json
+                        FROM project_analysis_contents
+                        WHERE publication_sequence = ? AND content_id = ?
                         """,
-                        (record_id,),
+                        (publication_sequence, content_id),
                     ).fetchone(),
                 )
             if row is None:
-                raise _not_found(record_id)
-            return AnalysisPublicationManifest.model_validate_json(
-                cast("str", row["manifest_json"])
-            )
+                raise _content_not_found(record_id, content_id)
+            return ContentEntry.model_validate_json(cast("str", row["entry_json"]))
+        except NotFound:
+            raise
         except (sqlite3.Error, ValidationError) as error:
             raise _storage_failure(record_id) from error
 
@@ -163,7 +186,7 @@ class SQLiteAnalysisRepository:
         except Conflict, NotFound, DataIntegrityError:
             raise
         except sqlite3.Error as error:
-            raise _storage_failure(publication.manifest.record.id) from error
+            raise _storage_failure(publication.record.id) from error
 
     def prepare_publication(
         self,
@@ -171,8 +194,9 @@ class SQLiteAnalysisRepository:
     ) -> PreparedAnalysisPublication:
         """Write immutable objects without publishing their logical refs."""
 
-        manifest = publication.manifest
-        record_id = manifest.record.id
+        if not isinstance(publication.subject, ProjectAnalysisSubject):
+            raise TypeError("project analysis repository requires a project subject")
+        record_id = publication.record.id
         prepared: list[tuple[str, StoredObject]] = []
         try:
             for write in publication.models:
@@ -206,52 +230,45 @@ class SQLiteAnalysisRepository:
         """Publish prepared refs through the caller's SQLite transaction."""
 
         publication = prepared.publication
-        manifest = publication.manifest
-        record_id = manifest.record.id
-        manifest_json = manifest.model_dump_json()
+        record_id = publication.record.id
         try:
-            existing = cast(
-                "sqlite3.Row | None",
-                connection.execute(
-                    """
-                    SELECT manifest_json
-                    FROM analysis_publications
-                    WHERE record_id = ?
-                    """,
-                    (record_id,),
-                ).fetchone(),
-            )
-            if existing is not None:
-                if existing["manifest_json"] == manifest_json:
-                    return False
-                raise _conflict(record_id)
-            connection.execute(
+            publication_sequence, created = insert_publication(connection, publication)
+            if not created:
+                return False
+            connection.executemany(
                 """
-                INSERT INTO analysis_publications(
-                    record_id, analysis_key, revision, publication_hash,
-                    title, step_id, input_count, output_count, manifest_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO project_analysis_contents(
+                    publication_sequence, role, content_id, kind, produced_by,
+                    entry_json
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    record_id,
-                    publication.analysis_key,
-                    publication.revision,
-                    publication.publication_hash,
-                    publication.title,
-                    publication.step_id,
-                    publication.input_count,
-                    publication.output_count,
-                    manifest_json,
+                    (
+                        publication_sequence,
+                        entry.role,
+                        entry.id,
+                        entry.kind,
+                        entry.produced_by,
+                        entry.model_dump_json(),
+                    )
+                    for entry in publication.entries
                 ),
             )
             connection.executemany(
                 """
-                INSERT INTO analysis_repository_refs(record_id, ref, digest)
+                INSERT INTO project_analysis_repository_refs(
+                    publication_sequence, ref, digest
+                )
                 VALUES (?, ?, ?)
                 """,
-                ((record_id, ref, stored.digest) for ref, stored in prepared.refs),
+                (
+                    (publication_sequence, ref, stored.digest)
+                    for ref, stored in prepared.refs
+                ),
             )
             return True
+        except AnalysisIndexConflict as error:
+            raise _conflict(record_id) from error
         except Conflict, NotFound:
             raise
         except sqlite3.IntegrityError as error:
@@ -274,14 +291,15 @@ class SQLiteAnalysisRepository:
         _validate_identity(record_id, ref)
         try:
             with self.sqlite.read_connection() as connection:
+                publication_sequence = _publication_sequence(connection, record_id)
                 row = cast(
                     "sqlite3.Row | None",
                     connection.execute(
                         """
-                        SELECT digest FROM analysis_repository_refs
-                        WHERE record_id = ? AND ref = ?
+                        SELECT digest FROM project_analysis_repository_refs
+                        WHERE publication_sequence = ? AND ref = ?
                         """,
-                        (record_id, ref),
+                        (publication_sequence, ref),
                     ).fetchone(),
                 )
             if row is None:
@@ -306,20 +324,21 @@ def _encode_model(model: BaseModel) -> bytes:
     )
 
 
-def _summary(row: sqlite3.Row) -> AnalysisPublicationSummary:
-    manifest = AnalysisPublicationManifest.model_validate_json(
-        cast("str", row["manifest_json"])
+def _publication_sequence(connection: sqlite3.Connection, record_id: str) -> int:
+    row = cast(
+        "sqlite3.Row | None",
+        connection.execute(
+            """
+            SELECT sequence
+            FROM analysis_publications
+            WHERE subject_kind = 'project' AND run_id IS NULL AND record_id = ?
+            """,
+            (record_id,),
+        ).fetchone(),
     )
-    return AnalysisPublicationSummary(
-        record=manifest.record,
-        title=cast("str", row["title"]),
-        analysis_key=cast("str", row["analysis_key"]),
-        revision=cast("int", row["revision"]),
-        publication_hash=cast("str", row["publication_hash"]),
-        step_id=cast("str | None", row["step_id"]),
-        input_count=cast("int", row["input_count"]),
-        output_count=cast("int", row["output_count"]),
-    )
+    if row is None:
+        raise _not_found(record_id)
+    return cast("int", row["sequence"])
 
 
 def _validate_identity(record_id: str, ref: str) -> None:
@@ -350,6 +369,21 @@ def _not_found(record_id: str) -> NotFound:
                 "analysis publication was not found",
                 phase=ProblemPhase.PERSISTENCE,
                 location=StorageLocation(ref=f"analyses/{record_id}"),
+            )
+        ]
+    )
+
+
+def _content_not_found(record_id: str, content_id: str) -> NotFound:
+    return NotFound(
+        [
+            problem(
+                "analysis.content_not_found",
+                "analysis content was not found",
+                phase=ProblemPhase.PERSISTENCE,
+                location=StorageLocation(
+                    ref=f"analyses/{record_id}/contents/{content_id}"
+                ),
             )
         ]
     )

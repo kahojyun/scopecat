@@ -269,7 +269,7 @@ class RunRequestView(_ViewModel):
 
 
 class RunAnalysisView(_ViewModel):
-    """One persisted analysis record and its manifest identity."""
+    """One persisted run analysis and its catalog identity."""
 
     run_id: str
     entry: ContentEntry
@@ -330,11 +330,10 @@ class RunContentPage(_ViewModel):
 
 
 class ProjectAnalysisView(_ViewModel):
-    """One project-level analysis and its owned content entries."""
+    """One project-level analysis record."""
 
     entry: ContentEntry
     analysis: AnalysisRecord
-    contents: tuple[ContentEntry, ...] = ()
 
     @model_validator(mode="after")
     def validate_identity(self) -> ProjectAnalysisView:
@@ -342,7 +341,6 @@ class ProjectAnalysisView(_ViewModel):
             self.entry.role != "record"
             or self.entry.kind != "analysis"
             or self.analysis.subject.kind != "project"
-            or self.entry not in self.contents
         ):
             raise ValueError("project analysis view identity is inconsistent")
         return self
@@ -371,6 +369,14 @@ class ProjectAnalysisPage(_ViewModel):
     """Newest-first keyset page of project analysis summaries."""
 
     items: tuple[ProjectAnalysisSummary, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+
+class ProjectAnalysisContentPage(_ViewModel):
+    """Newest-first keyset page of project-analysis-owned content."""
+
+    analysis_id: str
+    items: tuple[ContentEntry, ...] = ()
     next_cursor: int | None = Field(default=None, ge=1)
 
 
@@ -712,6 +718,7 @@ __all__ = [
     "MeasurementTraceSeries",
     "ParameterProposalListView",
     "ParameterProposalView",
+    "ProjectAnalysisContentPage",
     "ProjectAnalysisPage",
     "ProjectAnalysisSummary",
     "ProjectAnalysisView",

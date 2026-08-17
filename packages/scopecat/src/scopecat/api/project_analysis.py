@@ -118,11 +118,7 @@ class RemoteProjectAnalysisOperations:
         analysis_id: str,
         selector: str,
     ) -> ContentEntry:
-        view = self.view(analysis_id)
-        try:
-            return next(entry for entry in view.contents if entry.id == selector)
-        except StopIteration:
-            raise KeyError(f"analysis has no artifact: {selector}") from None
+        return self.client.project_analysis_content(analysis_id, selector)
 
     def _analysis_artifact_bytes(
         self,

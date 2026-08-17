@@ -2038,7 +2038,7 @@ def test_run_analysis_history_is_paged_and_logical_keys_resolve_latest(
         assert exact.analysis.revision == 1
 
 
-def test_analysis_publication_rolls_back_refs_manifest_and_event_together(
+def test_analysis_publication_rolls_back_refs_index_and_event_together(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

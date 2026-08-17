@@ -2,12 +2,9 @@ import type {
   ProjectAnalysisPage as ProjectAnalysisPageView,
   ProjectAnalysisSummary as ProjectAnalysisSummaryView,
   ProjectAnalysisView,
-  ContentEntryView,
 } from "../../api-contract";
 import { apiClient, apiData } from "../../api-client";
-import { titleCase } from "../../lib/presentation";
 import type {
-  ContentEntry,
   ProjectAnalysis,
   ProjectAnalysisSummary,
   ProjectAnalysisSummaryPage,
@@ -110,20 +107,5 @@ function normalizeProjectAnalysis(view: ProjectAnalysisView): ProjectAnalysis {
     inputs: analysis.inputs ?? [],
     executions: analysis.executions ?? [],
     outputs: analysis.outputs.map(analysisOutput),
-    contents: view.contents.map(projectContentEntry),
-  };
-}
-
-function projectContentEntry(entry: ContentEntryView, index: number): ContentEntry {
-  const mediaType = entry.media_type ?? undefined;
-  const filename = entry.filename ?? undefined;
-  return {
-    id: entry.id,
-    role: entry.role,
-    kind: entry.kind,
-    label: entry.title ?? filename ?? `${titleCase(entry.role)} ${index + 1}`,
-    detail: mediaType ?? entry.kind,
-    mediaType,
-    filename,
   };
 }

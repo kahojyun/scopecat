@@ -12,6 +12,7 @@ from pydantic import JsonValue
 from scopecat.control.models import DurableEventInput
 from scopecat.daemon.views import (
     AnalysisContentBytesView,
+    ProjectAnalysisContentPage,
     ProjectAnalysisPage,
     ProjectAnalysisSummary,
     ProjectAnalysisView,
@@ -88,14 +89,37 @@ class AnalysisService:
     def get(self, selector: str) -> ProjectAnalysisView:
         with self._analysis_errors():
             try:
-                manifest = self._repository.read_manifest(selector)
+                publication = self._repository.read_publication(selector)
             except NotFound as exact_error:
-                manifest = self._repository.latest_manifest(
+                publication = self._repository.latest_publication(
                     artifact_slug(selector, fallback="analysis")
                 )
-                if manifest is None:
+                if publication is None:
                     raise exact_error
-            return self._view(manifest.record.id)
+            return self._view(publication.record.id)
+
+    def list_contents(
+        self,
+        analysis_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ProjectAnalysisContentPage:
+        with self._analysis_errors():
+            page = self._repository.list_contents(
+                analysis_id,
+                limit=limit,
+                before=before,
+            )
+            return ProjectAnalysisContentPage(
+                analysis_id=analysis_id,
+                items=page.items,
+                next_cursor=page.next_cursor,
+            )
+
+    def content(self, analysis_id: str, selector: str) -> ContentEntry:
+        with self._analysis_errors():
+            return self._repository.read_content(analysis_id, selector)
 
     def save(self, command: AnalysisSaveCommand) -> AnalysisSaveReceipt:
         from scopecat.analysis.service import (
@@ -168,8 +192,8 @@ class AnalysisService:
         selector: str,
     ) -> AnalysisContentBytesView:
         with self._analysis_errors():
-            view = self._view(analysis_id)
-            entry = _content_entry(view, selector)
+            publication = self._repository.read_publication(analysis_id)
+            entry = self._repository.read_content(analysis_id, selector)
             if entry.role == "dataset":
                 ref = dataset_content_ref(dataset_id=entry.id, kind=entry.kind)
             elif entry.role == "artifact":
@@ -177,10 +201,10 @@ class AnalysisService:
             else:
                 ref = record_content_ref(record_id=entry.id, kind=entry.kind)
             return AnalysisContentBytesView(
-                analysis_id=view.entry.id,
+                analysis_id=publication.record.id,
                 entry=entry,
                 content_base64=b64encode(
-                    self._repository.read_bytes(view.entry.id, ref)
+                    self._repository.read_bytes(publication.record.id, ref)
                 ).decode("ascii"),
             )
 
@@ -277,16 +301,15 @@ class AnalysisService:
         return run_ids
 
     def _view(self, record_id: str) -> ProjectAnalysisView:
-        manifest = self._repository.read_manifest(record_id)
+        publication = self._repository.read_publication(record_id)
         record = self._repository.read_model(
             record_id,
             record_content_ref(record_id=record_id, kind="analysis"),
             AnalysisRecord,
         )
         return ProjectAnalysisView(
-            entry=manifest.record,
+            entry=publication.record,
             analysis=record,
-            contents=manifest.contents,
         )
 
     @contextmanager
@@ -297,13 +320,6 @@ class AnalysisService:
             raise BackendNotFound(str(error)) from error
         except (CheckFailed, Conflict, DataIntegrityError) as error:
             raise BackendConflict(str(error)) from error
-
-
-def _content_entry(view: ProjectAnalysisView, selector: str) -> ContentEntry:
-    try:
-        return next(entry for entry in view.contents if entry.id == selector)
-    except StopIteration:
-        raise BackendNotFound(f"analysis has no content: {selector}") from None
 
 
 __all__ = ["AnalysisService"]

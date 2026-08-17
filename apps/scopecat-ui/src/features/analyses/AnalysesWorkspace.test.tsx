@@ -116,7 +116,6 @@ function projectAnalysis(): ProjectAnalysis {
     revision: 2,
     publicationHash: "sha256:publication",
     subject: "project",
-    contents: [],
     inputs: [
       {
         id: "candidate",

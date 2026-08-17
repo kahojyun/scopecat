@@ -42,10 +42,11 @@ kinds of output:
   its validation and acceptance lineage. It may cite authoritative fact,
   dataset, or artifact outputs from the same analysis as structured evidence.
 
-The analysis record is the manifest for this publication. Large datasets and
-artifacts live as separate content entries under the same run or project owner;
-the record stores typed references. This keeps one atomic publication without
-embedding every payload in one JSON record.
+The analysis record is the root provenance record for this publication. Large
+datasets and artifacts live as separate content entries under the same run or
+project owner; the record stores typed references. This keeps one atomic
+publication without embedding every payload or content index in one JSON
+record.
 
 ## Publish ordinary Python results
 

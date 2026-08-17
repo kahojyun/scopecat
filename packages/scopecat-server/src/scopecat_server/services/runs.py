@@ -9,6 +9,7 @@ from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Literal
 
+from scopecat.analysis.repository import AnalysisPublicationSummary
 from scopecat.config.changes import (
     list_parameter_change_proposals,
     load_parameter_change_approval,
@@ -450,20 +451,16 @@ class RunService:
         before: int | None = None,
     ) -> RunAnalysisPage:
         with self._config_errors():
-            page = self._runs.list_contents(
+            page = self._runs.list_analysis_publications(
                 run_id,
                 limit=limit,
                 before=before,
-                role="record",
-                kind="analysis",
             )
             return RunAnalysisPage(
                 run_id=run_id,
                 items=tuple(
-                    self._run_analysis_summary(
-                        self._run_analysis_view(run_id, record.id)
-                    )
-                    for record in page.items
+                    self._run_analysis_summary(publication)
+                    for publication in page.items
                 ),
                 next_cursor=page.next_cursor,
             )
@@ -474,35 +471,13 @@ class RunService:
                 return self._run_analysis_view(run_id, selector)
             except NotFound as exact_error:
                 analysis_key = artifact_slug(selector, fallback="analysis")
-                base_id = f"analysis-{analysis_key}"
-                match = self._latest_run_analysis_entry(run_id, base_id)
-                if match is None:
+                publication = self._runs.latest_analysis_publication(
+                    run_id,
+                    analysis_key,
+                )
+                if publication is None:
                     raise exact_error
-                return self._run_analysis_view(run_id, match.id)
-
-    def _latest_run_analysis_entry(
-        self,
-        run_id: str,
-        base_id: str,
-    ) -> ContentEntry | None:
-        before: int | None = None
-        while True:
-            page = self._runs.list_contents(
-                run_id,
-                limit=100,
-                before=before,
-                role="record",
-                kind="analysis",
-            )
-            for entry in page.items:
-                if entry.id == base_id or (
-                    entry.id.startswith(f"{base_id}-r")
-                    and entry.id.removeprefix(f"{base_id}-r").isdigit()
-                ):
-                    return entry
-            if page.next_cursor is None:
-                return None
-            before = page.next_cursor
+                return self._run_analysis_view(run_id, publication.record.id)
 
     def _run_analysis_view(self, run_id: str, selector: str) -> RunAnalysisView:
         result = read_run_record_json(
@@ -518,17 +493,21 @@ class RunService:
         )
 
     @staticmethod
-    def _run_analysis_summary(view: RunAnalysisView) -> RunAnalysisSummary:
+    def _run_analysis_summary(
+        publication: AnalysisPublicationSummary,
+    ) -> RunAnalysisSummary:
+        subject = publication.subject
+        assert subject.kind == "run"
         return RunAnalysisSummary(
-            run_id=view.run_id,
-            entry=view.entry,
-            title=view.analysis.title,
-            key=view.analysis.key,
-            revision=view.analysis.revision,
-            publication_hash=view.analysis.publication_hash,
-            step_id=view.analysis.step_id,
-            input_count=len(view.analysis.inputs),
-            output_count=len(view.analysis.outputs),
+            run_id=subject.run_id,
+            entry=publication.record,
+            title=publication.title,
+            key=publication.analysis_key,
+            revision=publication.revision,
+            publication_hash=publication.publication_hash,
+            step_id=publication.step_id,
+            input_count=publication.input_count,
+            output_count=publication.output_count,
         )
 
     def save_run_analysis(
@@ -557,22 +536,20 @@ class RunService:
                 outputs=outputs,
                 parameter_proposals=proposals,
             )
-            publication = self._runs.prepare_content_publication(prepared.publication)
+            if prepared.publication is None:
+                return AnalysisSaveReceipt(
+                    record=prepared.saved.record,
+                    analysis_key=prepared.saved.analysis_key,
+                    inputs=command.inputs,
+                    parameter_proposals=prepared.saved.parameter_proposals,
+                )
+            publication = self._runs.prepare_analysis_publication(prepared.publication)
             with self._control.write_transaction() as connection:
-                try:
-                    existing_hash = self._runs.read_content_in_transaction(
-                        connection,
-                        run_id,
-                        role="record",
-                        content_id=prepared.saved.record.id,
-                    ).content_hash
-                except NotFound:
-                    existing_hash = None
-                self._runs.publish_prepared_content_in_transaction(
+                created = self._runs.publish_prepared_analysis_in_transaction(
                     connection,
                     publication,
                 )
-                if existing_hash != prepared.saved.record.content_hash:
+                if created:
                     self._control.append_event_in_transaction(
                         connection,
                         DurableEventInput(

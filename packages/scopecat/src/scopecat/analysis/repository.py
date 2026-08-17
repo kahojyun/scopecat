@@ -1,4 +1,4 @@
-"""Repository boundary for project-level analysis publications."""
+"""Repository boundary for durable analysis publications."""
 
 from __future__ import annotations
 
@@ -7,34 +7,16 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from scopecat.records.analysis import AnalysisSubject
 from scopecat.records.content import BytesWrite, ContentEntry, ModelWrite
 
 
-class AnalysisPublicationManifest(BaseModel):
-    """Atomic project-level publication index and its owned content."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    record: ContentEntry
-    contents: tuple[ContentEntry, ...] = ()
-
-    @model_validator(mode="after")
-    def validate_contents(self) -> AnalysisPublicationManifest:
-        if self.record.role != "record" or self.record.kind != "analysis":
-            raise ValueError("analysis publication record identity is invalid")
-        ids = tuple(entry.id for entry in self.contents)
-        if self.record.id not in ids:
-            raise ValueError("analysis publication contents must include its record")
-        if len(ids) != len(set(ids)):
-            raise ValueError("analysis publication content ids must be unique")
-        return self
-
-
 class AnalysisPublicationSummary(BaseModel):
-    """Bounded index projection for one project-level publication."""
+    """Bounded index projection for one analysis publication."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    subject: AnalysisSubject
     record: ContentEntry
     title: str = Field(min_length=1)
     analysis_key: str = Field(min_length=1)
@@ -62,9 +44,11 @@ class AnalysisPublicationPage(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class AnalysisPublication:
-    """Prepared project-level analysis content published atomically."""
+    """Prepared analysis index, content, and payload refs published atomically."""
 
-    manifest: AnalysisPublicationManifest
+    subject: AnalysisSubject
+    record: ContentEntry
+    entries: tuple[ContentEntry, ...]
     analysis_key: str
     revision: int
     publication_hash: str
@@ -86,12 +70,22 @@ class AnalysisRepository(Protocol):
         before: int | None,
     ) -> AnalysisPublicationPage: ...
 
-    def read_manifest(self, record_id: str) -> AnalysisPublicationManifest: ...
+    def read_publication(self, record_id: str) -> AnalysisPublicationSummary: ...
 
-    def latest_manifest(
+    def latest_publication(
         self,
         analysis_key: str,
-    ) -> AnalysisPublicationManifest | None: ...
+    ) -> AnalysisPublicationSummary | None: ...
+
+    def list_contents(
+        self,
+        record_id: str,
+        *,
+        limit: int,
+        before: int | None = None,
+    ) -> AnalysisContentPage: ...
+
+    def read_content(self, record_id: str, content_id: str) -> ContentEntry: ...
 
     def publish(self, publication: AnalysisPublication) -> None: ...
 
@@ -105,9 +99,17 @@ class AnalysisRepository(Protocol):
     def read_bytes(self, record_id: str, ref: str) -> bytes: ...
 
 
+@dataclass(frozen=True, slots=True)
+class AnalysisContentPage:
+    """Newest-first bounded page of project-analysis-owned content."""
+
+    items: tuple[ContentEntry, ...] = ()
+    next_cursor: int | None = None
+
+
 __all__ = [
+    "AnalysisContentPage",
     "AnalysisPublication",
-    "AnalysisPublicationManifest",
     "AnalysisPublicationPage",
     "AnalysisPublicationSummary",
     "AnalysisRepository",

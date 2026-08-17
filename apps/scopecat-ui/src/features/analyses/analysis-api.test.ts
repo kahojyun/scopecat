@@ -139,7 +139,6 @@ function projectAnalysisView(id: string, revision: number) {
   };
   return {
     entry: recordEntry,
-    contents: [recordEntry],
     analysis: {
       subject: { kind: "project" },
       title: "Candidate verification",

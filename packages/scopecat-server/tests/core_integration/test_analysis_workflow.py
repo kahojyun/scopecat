@@ -1105,7 +1105,7 @@ def test_analysis_trace_records_named_inline_inputs(tmp_path: Path) -> None:
     assert scale_input.value == 2
 
 
-def test_analysis_save_rolls_back_refs_after_manifest_failure(
+def test_analysis_save_rolls_back_refs_after_publication_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

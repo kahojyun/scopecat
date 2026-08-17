@@ -195,7 +195,6 @@ export interface RunAnalysisSummary {
 
 export interface ProjectAnalysis extends AnalysisPublication {
   subject: "project";
-  contents: ContentEntry[];
 }
 
 export interface ProjectAnalysisSummary {

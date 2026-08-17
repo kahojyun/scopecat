@@ -3873,15 +3873,10 @@ export interface components {
         };
         /**
          * ProjectAnalysisView
-         * @description One project-level analysis and its owned content entries.
+         * @description One project-level analysis record.
          */
         ProjectAnalysisView: {
             analysis: components["schemas"]["AnalysisRecord"];
-            /**
-             * Contents
-             * @default []
-             */
-            contents: components["schemas"]["ContentEntry"][];
             entry: components["schemas"]["ContentEntry"];
         };
         /** PropertySpec */

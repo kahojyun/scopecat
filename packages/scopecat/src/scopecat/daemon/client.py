@@ -56,6 +56,7 @@ from scopecat.daemon.views import (
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
     ParameterProposalListView,
+    ProjectAnalysisContentPage,
     ProjectAnalysisPage,
     ProjectAnalysisView,
     RunAnalysisPage,
@@ -677,6 +678,34 @@ class DaemonClient:
         return self._get_model(
             f"{_API_PREFIX}/analyses/{quote(selector, safe='')}",
             ProjectAnalysisView,
+        )
+
+    def project_analysis_contents(
+        self,
+        analysis_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ProjectAnalysisContentPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/analyses/{quote(analysis_id, safe='')}/contents",
+            ProjectAnalysisContentPage,
+            params=params,
+        )
+
+    def project_analysis_content(
+        self,
+        analysis_id: str,
+        selector: str,
+    ) -> ContentEntry:
+        selected_analysis = quote(analysis_id, safe="")
+        selected_content = quote(selector, safe="")
+        return self._get_model(
+            f"{_API_PREFIX}/analyses/{selected_analysis}/contents/{selected_content}",
+            ContentEntry,
         )
 
     def save_project_analysis(

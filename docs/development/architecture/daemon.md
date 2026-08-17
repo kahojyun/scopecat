@@ -199,7 +199,7 @@ serializable catalog and opaque handles.
 | Owner | Contents |
 |---|---|
 | User project and Git | Experiment, system, and configuration code; `scopecat.toml`; exported snapshots |
-| Lab daemon | Requests, manifests, events, measurements, analysis, proposals, immutable configurations, activation history |
+| Lab daemon | Requests, run state, events, measurements, analysis, proposals, immutable configurations, activation history |
 | GUI and notebooks | Views, commands, and transient client-planned computation |
 
 One process-owner lock prevents two daemons from opening the same lab instance.

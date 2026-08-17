@@ -13,7 +13,6 @@ from scopecat.analysis.datasets import (
 )
 from scopecat.analysis.repository import (
     AnalysisPublication,
-    AnalysisPublicationManifest,
     AnalysisRepository,
 )
 from scopecat.config.changes import (
@@ -75,7 +74,6 @@ from scopecat.runs.refs import (
     dataset_content_ref,
     record_content_ref,
 )
-from scopecat.runs.repository import RunContentPublication
 
 
 @dataclass(frozen=True)
@@ -194,7 +192,7 @@ class SavedAnalysis:
 @dataclass(frozen=True, slots=True)
 class PreparedAnalysis:
     saved: SavedAnalysis
-    publication: RunContentPublication
+    publication: AnalysisPublication | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,7 +238,8 @@ def save_analysis(
         outputs=outputs,
         parameter_proposals=parameter_proposals,
     )
-    services.runs.publish_content(prepared.publication)
+    if prepared.publication is not None:
+        services.runs.publish_analysis(prepared.publication)
     return prepared.saved
 
 
@@ -323,7 +322,7 @@ def prepare_analysis(
                 outputs=saved_outputs,
                 parameter_proposals=saved_proposals,
             ),
-            publication=RunContentPublication(run_id=run_id, entries=()),
+            publication=None,
         )
 
     revision = 1 if existing is None else existing.record.revision + 1
@@ -369,12 +368,20 @@ def prepare_analysis(
     )
     return PreparedAnalysis(
         saved=saved,
-        publication=RunContentPublication(
-            run_id=run_id,
+        publication=AnalysisPublication(
+            subject=RunAnalysisSubject(run_id=run_id),
+            record=prepared_contents.record,
             entries=(
                 *prepared_proposals.entries,
                 *prepared_contents.entries,
             ),
+            analysis_key=analysis_key,
+            revision=revision,
+            publication_hash=publication_hash,
+            title=title,
+            step_id=step_id,
+            input_count=len(inputs),
+            output_count=len(outputs),
             models=(
                 *prepared_proposals.writes,
                 *prepared_contents.models,
@@ -468,10 +475,9 @@ def prepare_project_analysis(
     return PreparedProjectAnalysis(
         saved=saved,
         publication=AnalysisPublication(
-            manifest=AnalysisPublicationManifest(
-                record=prepared_contents.record,
-                contents=prepared_contents.entries,
-            ),
+            subject=ProjectAnalysisSubject(),
+            record=prepared_contents.record,
+            entries=prepared_contents.entries,
             analysis_key=analysis_key,
             revision=revision,
             publication_hash=publication_hash,
@@ -655,10 +661,13 @@ def _load_published_analysis_output(
             AnalysisRecord,
         )
     else:
-        manifest = repository.read_manifest(source.analysis_record_id)
+        publication = repository.read_publication(source.analysis_record_id)
         source_record = repository.read_model(
-            manifest.record.id,
-            record_content_ref(record_id=manifest.record.id, kind="analysis"),
+            publication.record.id,
+            record_content_ref(
+                record_id=publication.record.id,
+                kind="analysis",
+            ),
             AnalysisRecord,
         )
     if source_record.subject != source.subject:
@@ -803,26 +812,18 @@ def _latest_analysis(
     analysis_key: str,
 ) -> _ExistingAnalysis | None:
     storage = services.runs
-    before: int | None = None
-    while True:
-        page = storage.list_contents(
+    publication = storage.latest_analysis_publication(run_id, analysis_key)
+    if publication is None:
+        return None
+    entry = publication.record
+    return _ExistingAnalysis(
+        entry=entry,
+        record=storage.read_model(
             run_id,
-            limit=100,
-            before=before,
-            role="record",
-            kind="analysis",
-        )
-        for entry in page.items:
-            record = storage.read_model(
-                run_id,
-                record_content_ref(record_id=entry.id, kind="analysis"),
-                AnalysisRecord,
-            )
-            if record.key == analysis_key:
-                return _ExistingAnalysis(entry=entry, record=record)
-        if page.next_cursor is None:
-            return None
-        before = page.next_cursor
+            record_content_ref(record_id=entry.id, kind="analysis"),
+            AnalysisRecord,
+        ),
+    )
 
 
 def _latest_project_analysis(
@@ -830,10 +831,10 @@ def _latest_project_analysis(
     repository: AnalysisRepository,
     analysis_key: str,
 ) -> _ExistingAnalysis | None:
-    manifest = repository.latest_manifest(analysis_key)
-    if manifest is None:
+    publication = repository.latest_publication(analysis_key)
+    if publication is None:
         return None
-    entry = manifest.record
+    entry = publication.record
     return _ExistingAnalysis(
         entry=entry,
         record=repository.read_model(

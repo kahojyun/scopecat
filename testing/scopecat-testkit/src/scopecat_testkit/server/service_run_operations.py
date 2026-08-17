@@ -201,18 +201,26 @@ class ServiceRunOperations:
         limit: int,
         before: int | None,
     ) -> RunAnalysisPage:
-        page = self.services.runs.list_contents(
+        page = self.services.runs.list_analysis_publications(
             run_id,
             limit=limit,
             before=before,
-            role="record",
-            kind="analysis",
         )
         return RunAnalysisPage(
             run_id=run_id,
             items=tuple(
-                _analysis_summary(self.analysis(run_id, record.id))
-                for record in page.items
+                RunAnalysisSummary(
+                    run_id=run_id,
+                    entry=publication.record,
+                    title=publication.title,
+                    key=publication.analysis_key,
+                    revision=publication.revision,
+                    publication_hash=publication.publication_hash,
+                    step_id=publication.step_id,
+                    input_count=publication.input_count,
+                    output_count=publication.output_count,
+                )
+                for publication in page.items
             ),
             next_cursor=page.next_cursor,
         )
@@ -221,26 +229,13 @@ class ServiceRunOperations:
         try:
             return self._analysis(run_id, selector)
         except NotFound as exact_error:
-            analysis_key = artifact_slug(selector, fallback="analysis")
-            base_id = f"analysis-{analysis_key}"
-            before: int | None = None
-            while True:
-                page = self.services.runs.list_contents(
-                    run_id,
-                    limit=100,
-                    before=before,
-                    role="record",
-                    kind="analysis",
-                )
-                for record in page.items:
-                    if record.id == base_id or (
-                        record.id.startswith(f"{base_id}-r")
-                        and record.id.removeprefix(f"{base_id}-r").isdigit()
-                    ):
-                        return self._analysis(run_id, record.id)
-                if page.next_cursor is None:
-                    raise exact_error
-                before = page.next_cursor
+            publication = self.services.runs.latest_analysis_publication(
+                run_id,
+                artifact_slug(selector, fallback="analysis"),
+            )
+            if publication is None:
+                raise exact_error
+            return self._analysis(run_id, publication.record.id)
 
     def _analysis(self, run_id: str, selector: str) -> RunAnalysisView:
         result = read_run_record_json(
@@ -336,17 +331,3 @@ class ServiceRunOperations:
             selector=selector,
             expected_kind=expected_kind,
         )
-
-
-def _analysis_summary(view: RunAnalysisView) -> RunAnalysisSummary:
-    return RunAnalysisSummary(
-        run_id=view.run_id,
-        entry=view.entry,
-        title=view.analysis.title,
-        key=view.analysis.key,
-        revision=view.analysis.revision,
-        publication_hash=view.analysis.publication_hash,
-        step_id=view.analysis.step_id,
-        input_count=len(view.analysis.inputs),
-        output_count=len(view.analysis.outputs),
-    )

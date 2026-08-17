@@ -37,6 +37,10 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         scheduler_run_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(scheduler_runs)")
         }
+        analysis_publication_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(analysis_publications)")
+        }
     assert journal_mode == ("wal",)
     assert {
         "project_schema",
@@ -46,11 +50,16 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         "run_outcomes",
         "run_contents",
         "run_repository_refs",
+        "analysis_publications",
+        "project_analysis_contents",
+        "project_analysis_repository_refs",
         "config_registry_entries",
         "config_registry_activations",
     } <= tables
     assert {"renewed_at", "expires_at"} <= instrument_session_columns
     assert "cancellation_requested_at" in scheduler_run_columns
+    assert "record_entry_json" in analysis_publication_columns
+    assert "manifest_json" not in analysis_publication_columns
 
 
 @pytest.mark.parametrize("version", (0, 99))
