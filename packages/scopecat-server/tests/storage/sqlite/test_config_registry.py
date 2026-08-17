@@ -25,7 +25,7 @@ from scopecat.config.registry.service import (
 )
 from scopecat.kernel.errors import Conflict, StorageError
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.run import ConfigRegistryRunConfigSource
+from scopecat.records.run import ConfigRegistryRunConfigSource, RunSnapshot
 from scopecat_testkit.config_registry import load_config_registry_config
 from scopecat_testkit.paths import CORE_FIXTURE_DIR
 from scopecat_testkit.server.runtime import SQLiteTestRunRepository
@@ -170,7 +170,14 @@ def test_activation_uses_generation_cas_and_resolves_source(
 
 def test_registry_and_run_reads_share_one_database(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    cast("SQLiteTestRunRepository", store.runs).write_text(
+    runs = cast("SQLiteTestRunRepository", store.runs)
+    runs.write_snapshot(
+        RunSnapshot(
+            run_id="run-shared",
+            config_content_hash=f"sha256:{'0' * 64}",
+        )
+    )
+    runs.write_text(
         "run-shared",
         "records/value.txt",
         "value",

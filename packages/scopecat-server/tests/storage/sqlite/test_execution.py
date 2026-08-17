@@ -433,7 +433,18 @@ def _commit_header(
 ) -> None:
     prepared = repository.prepare_header(header)
     with _sqlite_transaction(runs) as connection:
+        _ensure_run_owner(connection, header.run_id)
         repository.header_prepared_in_transaction(connection, prepared)
+
+
+def _ensure_run_owner(connection: sqlite3.Connection, run_id: str) -> None:
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO runs(run_id, created_at, config_content_hash)
+        VALUES (?, ?, ?)
+        """,
+        (run_id, datetime.now(UTC).isoformat(), f"sha256:{'0' * 64}"),
+    )
 
 
 def _commit_seal(
@@ -491,6 +502,7 @@ def test_in_transaction_primitives_report_created_and_replay_durable_values(
     prepared_seal = measurements.prepare_seal(seal)
 
     with _sqlite_transaction(runs) as connection:
+        _ensure_run_owner(connection, run_id)
         header_receipt, header_created = measurements.header_prepared_in_transaction(
             connection,
             prepared_header,

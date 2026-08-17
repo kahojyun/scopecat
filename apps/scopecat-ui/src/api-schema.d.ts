@@ -4219,7 +4219,7 @@ export interface components {
         };
         /**
          * RunAnalysisView
-         * @description One persisted analysis record and its manifest identity.
+         * @description One persisted run analysis and its catalog identity.
          */
         RunAnalysisView: {
             analysis: components["schemas"]["AnalysisRecord"];
