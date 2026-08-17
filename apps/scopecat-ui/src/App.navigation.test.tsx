@@ -197,7 +197,7 @@ describe("config provenance navigation", () => {
     expect(window.location.hash).toBe("#instruments");
   });
 
-  it("invalidates instrument queries after project events", async () => {
+  it("invalidates canonical queries after project events", async () => {
     window.history.replaceState(null, "", "/#instruments");
     const queryClient = createQueryClient();
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
@@ -207,7 +207,11 @@ describe("config provenance navigation", () => {
 
     act(() => emitProjectEvent("run-1", "instrument_session_opened"));
 
-    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["instruments"] }));
+    await waitFor(() => {
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["instruments"] });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["run-contents"] });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["run-content"] });
+    });
   });
 
   it("does not mount the run browser while configuration is active", async () => {
