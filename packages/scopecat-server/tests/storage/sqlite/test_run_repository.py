@@ -222,6 +222,44 @@ def test_run_projection_is_relational_without_a_manifest_object(tmp_path: Path) 
     )
 
 
+@pytest.mark.parametrize(
+    ("where_clause", "expected_index"),
+    (
+        ("run_id = ?", "run_contents_owner_sequence"),
+        ("run_id = ? AND role = ?", "run_contents_owner_role_sequence"),
+        ("run_id = ? AND kind = ?", "run_contents_owner_kind_sequence"),
+        (
+            "run_id = ? AND role = ? AND kind = ?",
+            "run_contents_owner_role_kind_sequence",
+        ),
+    ),
+)
+def test_run_content_pages_use_owner_specific_sequence_indexes(
+    tmp_path: Path,
+    where_clause: str,
+    expected_index: str,
+) -> None:
+    repository = _repository(tmp_path)
+    parameters = ("run", "record", "analysis")[: where_clause.count("?")]
+    with sqlite3.connect(repository.database) as connection:
+        plan = " ".join(
+            row[3]
+            for row in connection.execute(
+                f"""
+                EXPLAIN QUERY PLAN
+                SELECT sequence, entry_json
+                FROM run_contents
+                WHERE {where_clause}
+                ORDER BY sequence DESC
+                LIMIT 101
+                """,  # noqa: S608 - fixed test cases above
+                parameters,
+            )
+        )
+    assert expected_index in plan
+    assert "TEMP B-TREE" not in plan
+
+
 def test_run_content_index_supports_exact_and_bounded_reads(tmp_path: Path) -> None:
     repository = _repository(tmp_path)
     run_id = "run-content-index"
@@ -557,13 +595,13 @@ def test_config_read_remains_independent_for_capture_runs(tmp_path: Path) -> Non
     repository = _repository(tmp_path)
     run_id = "capture-config"
     config = load_config()
-    repository.write_model(run_id, CONFIG_PROFILE_SNAPSHOT_REF, config)
     repository.write_snapshot(
         RunSnapshot(
             run_id=run_id,
             config_content_hash=config_content_hash(config),
         )
     )
+    repository.write_model(run_id, CONFIG_PROFILE_SNAPSHOT_REF, config)
 
     assert repository.read_config_profile_snapshot(run_id) == config
 
@@ -592,6 +630,8 @@ def test_rejects_refs_outside_run_namespace(tmp_path: Path, ref: str) -> None:
 def test_equal_content_reuses_one_immutable_object(tmp_path: Path) -> None:
     repository = _repository(tmp_path)
 
+    repository.write_snapshot(_portable_snapshot("run-a", 1))
+    repository.write_snapshot(_portable_snapshot("run-b", 1))
     repository.write_bytes("run-a", "artifacts/a.bin", b"same")
     repository.write_bytes("run-b", "artifacts/b.bin", b"same")
 
@@ -604,6 +644,23 @@ def test_equal_content_reuses_one_immutable_object(tmp_path: Path) -> None:
         }
     assert len(digests) == 1
     assert len(_object_files(repository)) == 1
+
+
+def test_run_refs_follow_the_relational_owner_lifecycle(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    run_id = "run-ref-owner"
+    repository.write_snapshot(_portable_snapshot(run_id, 1))
+    repository.write_bytes(run_id, "artifacts/value.bin", b"value")
+
+    with repository.sqlite.write_transaction() as connection:
+        connection.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
+        remaining = connection.execute(
+            "SELECT COUNT(*) FROM run_repository_refs WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+
+    assert remaining is not None
+    assert remaining[0] == 0
 
 
 def test_terminal_commit_rolls_back_all_refs_if_outcome_publish_fails(
@@ -855,6 +912,7 @@ def test_content_publications_merge_relational_rows_across_writers(
 
 def test_corrupt_indexed_object_is_data_integrity_failure(tmp_path: Path) -> None:
     repository = _repository(tmp_path)
+    repository.write_snapshot(_portable_snapshot("run-corrupt", 1))
     repository.write_bytes("run-corrupt", "artifacts/value.bin", b"original")
     with sqlite3.connect(repository.database) as connection:
         row = connection.execute(

@@ -175,28 +175,28 @@ class SQLiteRunRepository:
         try:
             with self.sqlite.read_connection() as connection:
                 self._require_run_row(connection, run_id)
+                clauses = ["run_id = ?"]
+                parameters: list[str | int] = [run_id]
+                if before is not None:
+                    clauses.append("sequence < ?")
+                    parameters.append(before)
+                if role is not None:
+                    clauses.append("role = ?")
+                    parameters.append(role)
+                if kind is not None:
+                    clauses.append("kind = ?")
+                    parameters.append(kind)
+                parameters.append(limit + 1)
                 rows = _all(
                     connection.execute(
-                        """
+                        f"""
                         SELECT sequence, entry_json
                         FROM run_contents
-                        WHERE run_id = ?
-                          AND (? IS NULL OR sequence < ?)
-                          AND (? IS NULL OR role = ?)
-                          AND (? IS NULL OR kind = ?)
+                        WHERE {" AND ".join(clauses)}
                         ORDER BY sequence DESC
                         LIMIT ?
-                        """,
-                        (
-                            run_id,
-                            before,
-                            before,
-                            role,
-                            role,
-                            kind,
-                            kind,
-                            limit + 1,
-                        ),
+                        """,  # noqa: S608 - clauses are fixed internal fragments
+                        parameters,
                     )
                 )
             selected = rows[:limit]
