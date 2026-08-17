@@ -1,11 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, GitCompareArrows, LoaderCircle, SlidersHorizontal } from "lucide-react";
-import { getRunAnalyses } from "../runs/run-api";
+import { getRunAnalysis } from "../runs/run-api";
 import type { ConfigProfileSnapshot, ConfigRegistryEntry } from "../../api-contract";
 import { getRunParameterProposals } from "../../data/parameter-proposals/api";
 import type { ParameterProposal } from "../../data/parameter-proposals/types";
 import { errorMessage, formatDateTime, shorten } from "../../lib/presentation";
-import type { RunAnalysis } from "../../types";
 import { classes, primaryButton, secondaryButton } from "../../ui/styles";
 import { ConfigParameters } from "./ConfigParameters";
 import { ActionNote, ConfigFact, ConfigInlineEmpty } from "./ConfigUi";
@@ -51,10 +50,14 @@ export function ConfigEntryInspector({
     queryFn: ({ signal }) => getRunParameterProposals(candidateRunId!, signal),
     enabled: candidateRunId !== undefined,
   });
-  const candidateAnalysesQuery = useQuery({
-    queryKey: ["analyses", candidateRunId],
-    queryFn: ({ signal }) => getRunAnalyses(candidateRunId!, signal),
-    enabled: candidateRunId !== undefined,
+  const candidateProposal = candidateProposalsQuery.data?.items.find(
+    (proposal) => proposal.id === entry.source.proposal_id,
+  );
+  const candidateAnalysisId = candidateProposal?.analysisRecordId;
+  const candidateAnalysisQuery = useQuery({
+    queryKey: ["analysis", candidateRunId, candidateAnalysisId],
+    queryFn: ({ signal }) => getRunAnalysis(candidateRunId!, candidateAnalysisId!, signal),
+    enabled: candidateRunId !== undefined && candidateAnalysisId !== undefined,
   });
 
   return (
@@ -124,9 +127,9 @@ export function ConfigEntryInspector({
         candidateProposals={candidateProposalsQuery.data?.items}
         candidateProposalsPending={candidateProposalsQuery.isPending}
         candidateProposalsError={candidateProposalsQuery.error}
-        candidateAnalyses={candidateAnalysesQuery.data}
-        candidateAnalysesPending={candidateAnalysesQuery.isPending}
-        candidateAnalysesError={candidateAnalysesQuery.error}
+        candidateAnalysis={candidateAnalysisQuery.data}
+        candidateAnalysisPending={candidateAnalysisQuery.isPending}
+        candidateAnalysisError={candidateAnalysisQuery.error}
       />
       {snapshot ? (
         <>
@@ -166,9 +169,9 @@ function EntryProvenance({
   candidateProposals,
   candidateProposalsPending,
   candidateProposalsError,
-  candidateAnalyses,
-  candidateAnalysesPending,
-  candidateAnalysesError,
+  candidateAnalysis,
+  candidateAnalysisPending,
+  candidateAnalysisError,
 }: {
   entry: ConfigRegistryEntry;
   onSelectEntry: (entryId: string) => void;
@@ -176,9 +179,9 @@ function EntryProvenance({
   candidateProposals?: ParameterProposal[];
   candidateProposalsPending: boolean;
   candidateProposalsError: Error | null;
-  candidateAnalyses?: RunAnalysis[];
-  candidateAnalysesPending: boolean;
-  candidateAnalysesError: Error | null;
+  candidateAnalysis?: { id: string; title: string };
+  candidateAnalysisPending: boolean;
+  candidateAnalysisError: Error | null;
 }) {
   const source = entry.source;
   if (source.kind === "direct_config_profile") {
@@ -226,11 +229,9 @@ function EntryProvenance({
   const proposalsById = new Map(
     (candidateProposals ?? []).map((proposal) => [proposal.id, proposal]),
   );
-  const analysesById = new Map(
-    (candidateAnalyses ?? []).map((analysis) => [analysis.id, analysis]),
-  );
   const proposal = proposalsById.get(proposalId);
-  const analysis = proposal ? analysesById.get(proposal.analysisRecordId) : undefined;
+  const analysis =
+    proposal && candidateAnalysis?.id === proposal.analysisRecordId ? candidateAnalysis : undefined;
   const approval = proposal?.approval;
   return (
     <div className={provenance}>
@@ -259,9 +260,9 @@ function EntryProvenance({
             Proposal evidence unavailable: {errorMessage(candidateProposalsError)}
           </p>
         )}
-        {candidateAnalysesError && (
+        {candidateAnalysisError && (
           <p className="rounded-md border border-[rgb(255_140_136_/_18%)] bg-red-soft px-[9px] py-[7px]">
-            Analysis details unavailable: {errorMessage(candidateAnalysesError)}
+            Analysis details unavailable: {errorMessage(candidateAnalysisError)}
           </p>
         )}
 
@@ -284,7 +285,7 @@ function EntryProvenance({
                     <>
                       <code>{proposal.analysisRecordId}</code>
                       {analysis && <span>{analysis.title}</span>}
-                      {!analysis && candidateAnalysesPending && " · Loading details"}
+                      {!analysis && candidateAnalysisPending && " · Loading details"}
                     </>
                   ) : candidateProposalsPending ? (
                     "Loading proposal"

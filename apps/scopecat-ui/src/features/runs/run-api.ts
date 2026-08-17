@@ -4,6 +4,7 @@ import type {
   MeasurementTracePreview,
   MeasurementTracePreviewQuery,
   RunContentEntry,
+  RunAnalysisView,
   RunControlView,
   RunManifest,
   RunResourceView,
@@ -267,7 +268,29 @@ export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promi
       signal,
     }),
   );
-  return (response.items ?? []).map(({ entry, analysis }) => ({
+  return (response.items ?? []).map(normalizeRunAnalysis);
+}
+
+export async function getRunAnalysis(
+  runId: string,
+  selector: string,
+  signal?: AbortSignal,
+): Promise<RunAnalysis> {
+  return normalizeRunAnalysis(
+    await apiData(
+      apiClient.GET("/api/v1/runs/{run_id}/analyses/{selector}", {
+        params: { path: { run_id: runId, selector } },
+        signal,
+      }),
+    ),
+  );
+}
+
+function normalizeRunAnalysis({
+  entry,
+  analysis,
+}: RunAnalysisView): RunAnalysis {
+  return {
     id: entry.id,
     title: analysis.title,
     key: analysis.key ?? undefined,
@@ -278,7 +301,7 @@ export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promi
     inputs: analysis.inputs ?? [],
     executions: analysis.executions ?? [],
     outputs: analysis.outputs.map(analysisOutput),
-  }));
+  };
 }
 
 export async function getRunArtifactDownload(

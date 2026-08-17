@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getRunAnalyses } from "../runs/run-api";
+import { getRunAnalysis } from "../runs/run-api";
 import {
   activateConfigEntry,
   getConfigRegistry,
@@ -17,7 +17,7 @@ import { getRunParameterProposals } from "../../data/parameter-proposals/api";
 
 vi.mock("../runs/run-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../runs/run-api")>()),
-  getRunAnalyses: vi.fn(),
+  getRunAnalysis: vi.fn(),
 }));
 
 vi.mock("./config-api", async (importOriginal) => ({
@@ -38,7 +38,7 @@ beforeEach(() => {
     runId: "run-calibration",
     items: [],
   });
-  vi.mocked(getRunAnalyses).mockResolvedValue([]);
+  vi.mocked(getRunAnalysis).mockRejectedValue(new Error("analysis unavailable"));
 });
 
 afterEach(() => {
@@ -257,19 +257,17 @@ describe("ConfigWorkspace", () => {
         },
       ],
     });
-    vi.mocked(getRunAnalyses).mockResolvedValue([
-      {
-        id: "analysis-fit",
-        title: "Frequency fit",
-        key: "fit",
-        revision: 1,
-        publicationHash: "sha256:analysis-fit",
-        subject: "run",
-        inputs: [],
-        executions: [],
-        outputs: [],
-      },
-    ]);
+    vi.mocked(getRunAnalysis).mockResolvedValue({
+      id: "analysis-fit",
+      title: "Frequency fit",
+      key: "fit",
+      revision: 1,
+      publicationHash: "sha256:analysis-fit",
+      subject: "run",
+      inputs: [],
+      executions: [],
+      outputs: [],
+    });
     const openRun = vi.fn();
 
     renderWorkspace(openRun);
@@ -295,6 +293,11 @@ describe("ConfigWorkspace", () => {
     expect(screen.getByText("decision")).toBeInTheDocument();
     expect(screen.getByText("High-confidence fit")).toBeInTheDocument();
     expect(document.querySelector('time[datetime="2026-07-24T08:00:00Z"]')).toBeInTheDocument();
+    expect(getRunAnalysis).toHaveBeenCalledWith(
+      "run-calibration",
+      "analysis-fit",
+      expect.any(AbortSignal),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Open producing run" }));
     expect(openRun).toHaveBeenCalledWith("run-calibration");

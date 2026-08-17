@@ -134,6 +134,7 @@ export type CompiledArtifactInspection = components["schemas"]["CompiledArtifact
 export type CompiledPointInspection = components["schemas"]["CompiledPointInspection-Output"];
 export type CompiledWaveformInspection = components["schemas"]["CompiledWaveformInspection"];
 export type RunContentEntry = components["schemas"]["RunContentEntry"];
+export type RunAnalysisView = components["schemas"]["RunAnalysisView"];
 export type RunManifest = components["schemas"]["RunManifest"];
 export type RunResourceView = components["schemas"]["RunResourceView"];
 export type StoredParameterValue = components["schemas"]["StoredParameterValue-Input"];
