@@ -15,7 +15,10 @@ from scopecat.config.inventory import (
     InstrumentInventoryRenameRekey,
 )
 from scopecat.config.registry import service as config_registry_service
-from scopecat.config.registry.records import CrossRunCandidateAcceptance
+from scopecat.config.registry.records import (
+    ConfigActivationOperation,
+    CrossRunCandidateAcceptance,
+)
 from scopecat.config.registry.service import (
     publish_instrument_inventory_migration_revision,
 )
@@ -39,6 +42,7 @@ from scopecat.daemon.wire import (
     ConfigPublishCommand,
     ConfigPublishReceipt,
     ConfigUndoCommand,
+    ConfigUndoReceipt,
     DirectConfigRevisionSource,
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
@@ -140,6 +144,25 @@ class ConfigService:
                 unit_of_work=self._config_registry.read_unit_of_work,
             )
             return ConfigEntryView(entry=snapshot.entry, config=snapshot.config)
+
+    def get_config_activation_operation(
+        self,
+        operation_id: str,
+    ) -> ConfigActivationReceipt:
+        with self._config_errors():
+            operation = self._config_registry.find_activation_operation(operation_id)
+            if operation is None:
+                raise BackendNotFound(
+                    f"config activation operation was not found: {operation_id}"
+                )
+            activation = config_registry_service.load_config_registry_activation(
+                generation=operation.activation_generation,
+                unit_of_work=self._config_registry.read_unit_of_work,
+            )
+            return ConfigActivationReceipt(
+                operation=operation,
+                activation=activation,
+            )
 
     def publish_config(
         self,
@@ -332,6 +355,28 @@ class ConfigService:
         with self._mutation_lock, self._config_errors():
             with self._config_transaction() as transaction:
                 connection, services = transaction
+                existing = (
+                    self._config_registry.find_activation_operation_in_transaction(
+                        connection,
+                        command.operation_id,
+                    )
+                )
+                if existing is not None:
+                    if existing.intent_hash != command.intent_hash:
+                        raise BackendConflict(
+                            "config activation operation id is already committed for "
+                            f"a different intent: {command.operation_id}"
+                        )
+                    activation = (
+                        config_registry_service.load_config_registry_activation(
+                            generation=existing.activation_generation,
+                            unit_of_work=services.config_registry,
+                        )
+                    )
+                    return ConfigActivationReceipt(
+                        operation=existing,
+                        activation=activation,
+                    )
                 result = config_registry_service.activate_config_registry_entry(
                     entry_id=command.entry_id,
                     unit_of_work=services.config_registry,
@@ -353,15 +398,29 @@ class ConfigService:
                             occurred_at=activation.recorded_at,
                         ),
                     )
+                operation = ConfigActivationOperation(
+                    operation_id=command.operation_id,
+                    intent_hash=command.intent_hash,
+                    entry_id=command.entry_id,
+                    expected_generation=command.expected_generation,
+                    actor=command.actor,
+                    note=command.note,
+                    activation_generation=activation.generation,
+                )
                 receipt = ConfigActivationReceipt(
+                    operation=operation,
                     activation=activation,
+                )
+                self._config_registry.commit_activation_operation_in_transaction(
+                    connection,
+                    operation,
                 )
             return receipt
 
     def undo_config(
         self,
         command: ConfigUndoCommand,
-    ) -> ConfigActivationReceipt:
+    ) -> ConfigUndoReceipt:
         with self._mutation_lock, self._config_errors():
             with self._config_transaction() as transaction:
                 connection, services = transaction
@@ -385,7 +444,7 @@ class ConfigService:
                             occurred_at=activation.recorded_at,
                         ),
                     )
-                receipt = ConfigActivationReceipt(
+                receipt = ConfigUndoReceipt(
                     activation=activation,
                 )
             return receipt

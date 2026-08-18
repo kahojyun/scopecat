@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier, Event, Thread
 from typing import Literal, Never, cast
+from urllib.parse import quote
 
 import pyarrow as pa
 import pytest
@@ -78,6 +79,7 @@ from scopecat.daemon.wire import (
     ConfigPublishCommand,
     ConfigPublishReceipt,
     ConfigUndoCommand,
+    ConfigUndoReceipt,
     DirectConfigRevisionSource,
     ExecutorHeartbeat,
     ExecutorLease,
@@ -95,6 +97,7 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.kernel.errors import StorageError
 from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.quantity import Quantity
@@ -145,7 +148,7 @@ from scopecat.runs.refs import dataset_content_ref, record_content_ref
 from scopecat_testkit.server.runtime import list_test_runs
 
 import scopecat_server.services.leases as lease_supervisor_services
-from scopecat_server import BackendConflict, LocalDaemonRuntime
+from scopecat_server import BackendConflict, BackendNotFound, LocalDaemonRuntime
 from scopecat_server.instruments.actors import InstrumentActorRetirement
 from scopecat_server.services.admission import AdmissionService
 from scopecat_server.services.leases import OwnershipLeaseSupervisor
@@ -810,6 +813,7 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
 ) -> None:
     baseline = _config().model_copy(update={"id": "baseline"})
     updated = baseline.model_copy(update={"id": "updated"})
+    operation_id = "activation/baseline?attempt=1"
     with LocalDaemonRuntime(tmp_path) as runtime:
         client = TestClient(runtime.app())
 
@@ -834,28 +838,68 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
                 expected_generation=1,
             ).model_dump(mode="json"),
         )
+        activation_command = ConfigEntryActivationCommand(
+            operation_id=operation_id,
+            entry_id="baseline",
+            actor="operator",
+            expected_generation=2,
+            note="restore baseline",
+        )
         current_activation = client.post(
-            "/api/v1/config-registry/active",
+            "/api/v1/config-registry/activation-operations",
+            json=activation_command.model_dump(mode="json"),
+        )
+        repeated_activation = client.post(
+            "/api/v1/config-registry/activation-operations",
+            json=activation_command.model_dump(mode="json"),
+        )
+        operation_lookup = client.get(
+            "/api/v1/config-registry/activation-operations/"
+            f"{quote(operation_id, safe='')}"
+        )
+        operation_conflict = client.post(
+            "/api/v1/config-registry/activation-operations",
+            json=activation_command.model_copy(
+                update={"note": "different intent"}
+            ).model_dump(mode="json"),
+        )
+        noop_activation = client.post(
+            "/api/v1/config-registry/activation-operations",
             json=ConfigEntryActivationCommand(
-                entry_id="updated",
+                operation_id="activation:baseline-noop",
+                entry_id="baseline",
                 actor="operator",
-                expected_generation=2,
+                expected_generation=3,
             ).model_dump(mode="json"),
         )
         stale_activation = client.post(
-            "/api/v1/config-registry/active",
+            "/api/v1/config-registry/activation-operations",
             json=ConfigEntryActivationCommand(
+                operation_id="activation:stale",
                 entry_id="baseline",
                 actor="stale-notebook",
                 expected_generation=1,
             ).model_dump(mode="json"),
         )
+        stale_operation_lookup = client.get(
+            "/api/v1/config-registry/activation-operations/activation%3Astale"
+        )
         undo_response = client.post(
             "/api/v1/config-registry/undo",
             json=ConfigUndoCommand(
                 actor="operator",
-                expected_generation=2,
+                expected_generation=3,
             ).model_dump(mode="json"),
+        )
+        late_replay = client.post(
+            "/api/v1/config-registry/activation-operations",
+            json=activation_command.model_dump(mode="json"),
+        )
+        noop_operation_lookup = client.get(
+            "/api/v1/config-registry/activation-operations/activation%3Abaseline-noop"
+        )
+        missing_operation = client.get(
+            "/api/v1/config-registry/activation-operations/missing"
         )
 
         registry = ConfigRegistryPage.model_validate(
@@ -878,24 +922,49 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         assert first_receipt.entry.id == "baseline"
         assert first_receipt.activation.generation == 1
         assert second_receipt.activation.generation == 2
-        assert (
-            ConfigActivationReceipt.model_validate(current_activation.json()).activation
-            == second_receipt.activation
+        activation_receipt = ConfigActivationReceipt.model_validate(
+            current_activation.json()
         )
+        assert activation_receipt.operation.operation_id == operation_id
+        assert activation_receipt.activation.generation == 3
+        assert activation_receipt.activation.entry_id == "baseline"
+        assert (
+            ConfigActivationReceipt.model_validate(repeated_activation.json())
+            == activation_receipt
+        )
+        assert (
+            ConfigActivationReceipt.model_validate(operation_lookup.json())
+            == activation_receipt
+        )
+        noop_receipt = ConfigActivationReceipt.model_validate(noop_activation.json())
+        assert noop_receipt.operation.activation_generation == 3
+        assert noop_receipt.activation == activation_receipt.activation
+        assert (
+            ConfigActivationReceipt.model_validate(noop_operation_lookup.json())
+            == noop_receipt
+        )
+        assert operation_conflict.status_code == 409
         assert stale_activation.status_code == 409
-        undo = ConfigActivationReceipt.model_validate(undo_response.json())
+        assert stale_operation_lookup.status_code == 404
+        assert missing_operation.status_code == 404
+        assert (
+            ConfigActivationReceipt.model_validate(late_replay.json())
+            == activation_receipt
+        )
+        undo = ConfigUndoReceipt.model_validate(undo_response.json())
         assert undo.activation.action == "undo"
-        assert undo.activation.generation == 3
-        assert undo.activation.entry_id == "baseline"
+        assert undo.activation.generation == 4
+        assert undo.activation.entry_id == "updated"
         assert [entry.id for entry in registry.entries] == ["updated", "baseline"]
         assert registry.activation is not None
         assert [record.action for record in activation_history.items] == [
             "undo",
             "activation",
             "activation",
+            "activation",
         ]
-        assert active.entry.id == "baseline"
-        assert active.config == baseline
+        assert active.entry.id == "updated"
+        assert active.config == updated
         assert [(event.kind, event.payload, event.run_id) for event in events] == [
             ("config_saved", {"entry_id": "baseline"}, None),
             (
@@ -910,18 +979,27 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
                 None,
             ),
             (
-                "config_undone",
+                "config_activated",
                 {"entry_id": "baseline", "generation": 3},
+                None,
+            ),
+            (
+                "config_undone",
+                {"entry_id": "updated", "generation": 4},
                 None,
             ),
         ]
 
     with LocalDaemonRuntime(tmp_path) as reopened:
         active = reopened.application.config.get_active_config()
+        operation = reopened.application.config.get_config_activation_operation(
+            operation_id
+        )
         events = _events(reopened).items
 
-        assert active.entry.id == "baseline"
-        assert active.config == baseline
+        assert active.entry.id == "updated"
+        assert active.config == updated
+        assert operation == activation_receipt
         assert events[-1].kind == "config_undone"
 
 
@@ -1290,6 +1368,65 @@ def test_config_publish_rolls_back_registry_and_event_when_event_fails(
             "config_saved",
             "config_activated",
         ]
+
+
+def test_config_activation_rolls_back_when_operation_commit_fails(
+    tmp_path: Path,
+) -> None:
+    baseline = _config().model_copy(update={"id": "operation-baseline"})
+    current = baseline.model_copy(update={"id": "operation-current"})
+    operation_id = "activation:rollback"
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=baseline) as runtime:
+        service = runtime.application.config
+        baseline_entry = service.get_active_config().entry
+        service.publish_config(
+            _direct_publish_command(
+                entry_id=current.id,
+                config=current,
+                actor="notebook",
+                expected_generation=1,
+            )
+        )
+        command = ConfigEntryActivationCommand(
+            operation_id=operation_id,
+            entry_id=baseline_entry.id,
+            actor="operator",
+            expected_generation=2,
+        )
+        history_before = service.get_config_activation_history().items
+        events_before = _events(runtime).items
+        database = runtime.state_dir / "control.sqlite3"
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                """
+                CREATE TRIGGER reject_config_activation_operation
+                BEFORE INSERT ON config_activation_operations
+                BEGIN
+                    SELECT RAISE(ABORT, 'injected operation failure');
+                END
+                """
+            )
+
+        with pytest.raises(StorageError):
+            service.activate_config_entry(command)
+
+        active_after_failure = service.get_active_config()
+        assert active_after_failure.entry.id == current.id
+        assert active_after_failure.activation.generation == 2
+        assert service.get_config_activation_history().items == history_before
+        assert _events(runtime).items == events_before
+        with pytest.raises(BackendNotFound):
+            service.get_config_activation_operation(operation_id)
+
+        with sqlite3.connect(database) as connection:
+            connection.execute("DROP TRIGGER reject_config_activation_operation")
+
+        receipt = service.activate_config_entry(command)
+
+        assert receipt.activation.generation == 3
+        assert receipt.activation.entry_id == baseline_entry.id
+        assert service.get_config_activation_operation(operation_id) == receipt
+        assert len(_events(runtime).items) == len(events_before) + 1
 
 
 def test_config_draft_http_workflow_previews_and_atomically_sets_default(

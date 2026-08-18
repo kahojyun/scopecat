@@ -120,6 +120,7 @@ from scopecat.daemon.wire import (
     ConfigPublishCommand,
     ConfigPublishReceipt,
     ConfigUndoCommand,
+    ConfigUndoReceipt,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -329,7 +330,15 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> ConfigDraftPreview:
         return application.config.preview_config_draft(command)
 
-    @app.post(f"{_API_PREFIX}/config-registry/active")
+    @app.get(
+        f"{_API_PREFIX}/config-registry/activation-operations/{{operation_id:path}}"
+    )
+    def get_config_activation_operation(
+        operation_id: str,
+    ) -> ConfigActivationReceipt:
+        return application.config.get_config_activation_operation(operation_id)
+
+    @app.post(f"{_API_PREFIX}/config-registry/activation-operations")
     def activate_config_entry(
         command: ConfigEntryActivationCommand,
     ) -> ConfigActivationReceipt:
@@ -338,7 +347,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.post(f"{_API_PREFIX}/config-registry/undo")
     def undo_config(
         command: ConfigUndoCommand,
-    ) -> ConfigActivationReceipt:
+    ) -> ConfigUndoReceipt:
         return application.config.undo_config(command)
 
     @app.get(f"{_API_PREFIX}/instruments")

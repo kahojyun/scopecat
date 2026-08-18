@@ -10,6 +10,7 @@ from typing import Self, cast
 from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticSerializationError
 from scopecat.config.registry.records import (
+    ConfigActivationOperation,
     ConfigRegistryActivationPage,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
@@ -33,6 +34,7 @@ from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 
 CONFIG_REGISTRY_ROOT = "config-registry"
 CONFIG_REGISTRY_ACTIVATIONS_REF = f"{CONFIG_REGISTRY_ROOT}/activations"
+CONFIG_ACTIVATION_OPERATIONS_REF = f"{CONFIG_REGISTRY_ROOT}/activation-operations"
 
 
 class SQLiteConfigRegistryRepository:
@@ -493,6 +495,81 @@ class SQLiteConfigRegistryStore:
             write=True,
             _borrowed_connection=connection,
         )
+
+    def find_activation_operation(
+        self,
+        operation_id: str,
+    ) -> ConfigActivationOperation | None:
+        with self.sqlite.read_connection() as connection:
+            return self.find_activation_operation_in_transaction(
+                connection,
+                operation_id,
+            )
+
+    def find_activation_operation_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        operation_id: str,
+    ) -> ConfigActivationOperation | None:
+        ref = _activation_operation_ref(operation_id)
+        try:
+            row = _one(
+                connection.execute(
+                    """
+                    SELECT operation_json
+                    FROM config_activation_operations
+                    WHERE operation_id = ?
+                    """,
+                    (operation_id,),
+                )
+            )
+        except sqlite3.Error as error:
+            raise _storage_failure(ref) from error
+        if row is None:
+            return None
+        return _parse_model(
+            _text(row, "operation_json"),
+            ConfigActivationOperation,
+            ref=ref,
+            code="config_registry.activation_operation_invalid",
+        )
+
+    def commit_activation_operation_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        operation: ConfigActivationOperation,
+    ) -> None:
+        ref = _activation_operation_ref(operation.operation_id)
+        try:
+            connection.execute(
+                """
+                INSERT INTO config_activation_operations(
+                    operation_id,
+                    intent_hash,
+                    entry_id,
+                    expected_generation,
+                    activation_generation,
+                    operation_json,
+                    recorded_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    operation.operation_id,
+                    operation.intent_hash,
+                    operation.entry_id,
+                    operation.expected_generation,
+                    operation.activation_generation,
+                    _encode_model(operation, ref=ref),
+                    operation.recorded_at.isoformat(),
+                ),
+            )
+        except sqlite3.Error as error:
+            raise _storage_failure(ref) from error
+
+
+def _activation_operation_ref(operation_id: str) -> str:
+    return f"{CONFIG_ACTIVATION_OPERATIONS_REF}/{operation_id}.json"
 
 
 def _parse_model[TModel: BaseModel](

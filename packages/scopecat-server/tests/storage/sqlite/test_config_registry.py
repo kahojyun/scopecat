@@ -7,6 +7,10 @@ from typing import cast
 
 import pytest
 from scopecat.config.documents import load_config_snapshot_document
+from scopecat.config.registry.records import (
+    ConfigActivationOperation,
+    config_activation_intent_hash,
+)
 from scopecat.config.registry.service import (
     ConfigRegistryMutationResult,
     ConfigRegistryUnitOfWorkFactory,
@@ -166,6 +170,47 @@ def test_activation_uses_generation_cas_and_resolves_source(
             expected_generation=0,
         )
     assert repeated.value.problems[0].code == "config_registry.conflict"
+
+
+def test_activation_operation_round_trips(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
+    result = _publish_direct_revision(
+        config=config,
+        unit_of_work=store.write_unit_of_work,
+        entry_id="operation-entry",
+        actor="contract",
+        expected_generation=0,
+    )
+    activation = result.activation
+    assert activation is not None
+    operation = ConfigActivationOperation(
+        operation_id="activation:round-trip",
+        intent_hash=config_activation_intent_hash(
+            entry_id=result.entry.id,
+            expected_generation=1,
+            actor="operator",
+            note="already active",
+        ),
+        entry_id=result.entry.id,
+        expected_generation=1,
+        actor="operator",
+        note="already active",
+        activation_generation=activation.generation,
+    )
+
+    assert store.find_activation_operation(operation.operation_id) is None
+    with store.sqlite.write_transaction() as connection:
+        store.commit_activation_operation_in_transaction(connection, operation)
+        assert (
+            store.find_activation_operation_in_transaction(
+                connection,
+                operation.operation_id,
+            )
+            == operation
+        )
+
+    assert store.find_activation_operation(operation.operation_id) == operation
 
 
 def test_registry_and_run_reads_share_one_database(tmp_path: Path) -> None:

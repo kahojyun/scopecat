@@ -58,6 +58,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         "procedure_leases",
         "config_registry_entries",
         "config_registry_activations",
+        "config_activation_operations",
     } <= tables
     assert {"renewed_at", "expires_at"} <= instrument_session_columns
     assert "cancellation_requested_at" in scheduler_run_columns
