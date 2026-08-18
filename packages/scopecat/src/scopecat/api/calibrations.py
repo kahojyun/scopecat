@@ -7,6 +7,16 @@ from scopecat.api.calibration_planner import (
     CalibrationPlanningContext,
     ProjectCalibrationEvaluator,
 )
+from scopecat.api.calibration_publication import (
+    CalibrationCohortMergeSteps,
+    CalibrationCohortPublicationPlan,
+    CalibrationPublicationReadSession,
+    build_calibration_cohort_merge_contribution,
+    calibration_cohort_merge_revision_source,
+    publish_calibration_cohort,
+    reopen_calibration_cohort_publication,
+)
+from scopecat.api.procedures import LabProcedureOperations, ProcedureHandle
 from scopecat.automation.calibration_definition import CalibrationRegistry
 from scopecat.automation.calibration_wire import (
     CalibrationCohortCreateCommand,
@@ -19,32 +29,51 @@ from scopecat.automation.calibration_wire import (
 )
 from scopecat.automation.calibrations import (
     CalibrationCohort,
+    CalibrationCohortMember,
     CalibrationCohortSpec,
     CalibrationConfigSourceRef,
     CalibrationStatusSnapshot,
 )
-from scopecat.automation.definition import ProcedureRegistry
+from scopecat.config.registry.records import (
+    CalibrationCohortMergeContribution,
+    ConfigCompositionPolicyRef,
+)
 from scopecat.daemon.client import DaemonClient
+from scopecat.daemon.wire import (
+    CalibrationCohortMergeRevisionSource,
+    ConfigPublishReceipt,
+)
+from scopecat.records.config import ConfigContentHash
+from scopecat.records.content import Sha256ContentHash
 from scopecat.records.run import ConfigRegistryRunConfigSource
 
 
 class LabCalibrationOperations:
     """Evaluate, admit, and inspect project-owned calibration cohorts."""
 
-    __slots__ = ("_client", "_config", "_registry")
+    __slots__ = (
+        "_client",
+        "_config",
+        "_procedures",
+        "_publication_session",
+        "_registry",
+    )
 
     def __init__(
         self,
         *,
         client: DaemonClient,
         config: LabConfigOperations,
-        procedures: ProcedureRegistry,
+        procedures: LabProcedureOperations,
+        publication_session: CalibrationPublicationReadSession,
         registry: CalibrationRegistry[CalibrationPlanningContext],
     ) -> None:
         for definition in registry.values():
-            procedures.resolve(definition.procedure.ref)
+            procedures.registry.resolve(definition.procedure.ref)
         self._client = client
         self._config = config
+        self._procedures = procedures
+        self._publication_session = publication_session
         self._registry = registry
 
     @property
@@ -130,6 +159,86 @@ class LabCalibrationOperations:
                 limit=limit,
             )
         )
+
+    def build_merge_contribution(
+        self,
+        *,
+        cohort: CalibrationCohort,
+        member: CalibrationCohortMember,
+        procedure: ProcedureHandle,
+        steps: CalibrationCohortMergeSteps,
+        proposal_id: str,
+        decision_output_id: str,
+        result_input_fingerprint: Sha256ContentHash,
+    ) -> CalibrationCohortMergeContribution:
+        """Freeze one exact successful member into merge evidence."""
+
+        if procedure.operations is not self._procedures:
+            raise ValueError(
+                "calibration contribution procedure belongs to another lab client"
+            )
+        return build_calibration_cohort_merge_contribution(
+            cohort=cohort,
+            member=member,
+            procedure=procedure,
+            steps=steps,
+            proposal_id=proposal_id,
+            decision_output_id=decision_output_id,
+            result_input_fingerprint=result_input_fingerprint,
+            session=self._publication_session,
+        )
+
+    def merge_source(
+        self,
+        *,
+        cohort: CalibrationCohort,
+        member_page: CalibrationCohortMemberPage,
+        composition_policy_ref: ConfigCompositionPolicyRef,
+        candidate_id: str,
+        contributions: tuple[CalibrationCohortMergeContribution, ...],
+        expected_result_content_hash: ConfigContentHash,
+    ) -> CalibrationCohortMergeRevisionSource:
+        """Build a merge source that exactly covers one complete cohort."""
+
+        return calibration_cohort_merge_revision_source(
+            cohort=cohort,
+            member_page=member_page,
+            composition_policy_ref=composition_policy_ref,
+            candidate_id=candidate_id,
+            contributions=contributions,
+            expected_result_content_hash=expected_result_content_hash,
+        )
+
+    def publication_plan(
+        self,
+        source: CalibrationCohortMergeRevisionSource,
+        *,
+        actor: str,
+        note: str = "",
+    ) -> CalibrationCohortPublicationPlan:
+        """Freeze deterministic config entry and operation identities."""
+
+        return CalibrationCohortPublicationPlan.create(
+            source,
+            actor=actor,
+            note=note,
+        )
+
+    def publish(
+        self,
+        plan: CalibrationCohortPublicationPlan,
+    ) -> ConfigPublishReceipt:
+        """Publish an exact cohort plan with unknown-outcome reconciliation."""
+
+        return publish_calibration_cohort(self._config, plan)
+
+    def reopen_publication(
+        self,
+        plan: CalibrationCohortPublicationPlan,
+    ) -> ConfigPublishReceipt:
+        """Reopen a deterministic publication without issuing a mutation."""
+
+        return reopen_calibration_cohort_publication(self._config, plan)
 
 
 __all__ = ["LabCalibrationOperations"]

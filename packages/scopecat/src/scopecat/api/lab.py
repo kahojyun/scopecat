@@ -164,7 +164,8 @@ class LabClient:
         self._calibrations = LabCalibrationOperations(
             client=self._client,
             config=self._config,
-            procedures=self._procedures.registry,
+            procedures=self._procedures,
+            publication_session=self,
             registry=(
                 calibrations if calibrations is not None else CalibrationRegistry()
             ),
