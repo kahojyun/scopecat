@@ -5,9 +5,12 @@ import sys
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Self
 
 import pytest
 from scopecat.application import LabApplication
+from scopecat.automation import ProcedureControlError
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.daemon.endpoint import DaemonEndpointRecord
 from scopecat.project import Project
@@ -239,6 +242,145 @@ def test_hidden_executor_lease_ttl_option_reaches_start_and_serve(
     assert start_ttls == [None, timedelta(seconds=1.25)]
     assert serve_ttls == [timedelta(seconds=1.25)]
     assert "--executor-lease-ttl-seconds" not in help_result.output
+
+
+def test_procedure_worker_cli_supports_once_and_resident_polling(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_manifest(tmp_path)
+    procedure_operations = object()
+    calls: list[tuple[object, ...]] = []
+
+    class FakeLab:
+        procedures = procedure_operations
+
+        def __enter__(self) -> Self:
+            calls.append(("enter",))
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            calls.append(("exit",))
+
+    class FakeWorker:
+        worker_id = "worker-cli"
+
+        def __init__(self, operations: object) -> None:
+            calls.append(("worker", operations))
+
+        def cycle(self) -> object:
+            calls.append(("cycle",))
+            return SimpleNamespace(
+                materialized_schedules=2,
+                dispatched_procedures=1,
+                schedule_failures=0,
+                procedure_failures=0,
+                procedure_conflicts=0,
+                schedule_conflicts=1,
+                lease_conflicts=0,
+            )
+
+        def run_forever(
+            self,
+            stop: object,
+            *,
+            poll_seconds: float,
+            on_cycle: Callable[[object], None],
+            on_retry: object,
+        ) -> None:
+            del stop, on_retry
+            calls.append(("run_forever", poll_seconds))
+            on_cycle(
+                SimpleNamespace(
+                    schedule_failures=1,
+                    procedure_failures=0,
+                    procedure_conflicts=1,
+                )
+            )
+
+    def connect(_project: Project) -> FakeLab:
+        return FakeLab()
+
+    monkeypatch.setattr(Project, "connect", connect)
+    monkeypatch.setattr(
+        "scopecat.api.procedure_worker.ProjectProcedureWorkerLoop",
+        FakeWorker,
+    )
+    runner = CliRunner()
+
+    once = runner.invoke(
+        app,
+        ["procedures", "work", str(tmp_path), "--once"],
+    )
+    resident = runner.invoke(
+        app,
+        ["procedures", "work", str(tmp_path), "--poll-seconds", "2.5"],
+    )
+
+    assert once.exit_code == 0, once.output
+    assert "materialized=2" in once.output
+    assert "dispatched=1" in once.output
+    assert resident.exit_code == 0, resident.output
+    assert "worker worker-cli" in resident.output
+    assert "procedure cycle needs review" in resident.output
+    assert "procedure_conflicts=1" in resident.output
+    assert ("run_forever", 2.5) in calls
+
+    class OutcomeFailureWorker:
+        worker_id = "worker-outcome-failure"
+
+        def __init__(self, _operations: object) -> None:
+            pass
+
+        def cycle(self) -> object:
+            return SimpleNamespace(
+                materialized_schedules=0,
+                dispatched_procedures=0,
+                schedule_failures=1,
+                procedure_failures=0,
+                procedure_conflicts=0,
+                schedule_conflicts=0,
+                lease_conflicts=0,
+            )
+
+    monkeypatch.setattr(
+        "scopecat.api.procedure_worker.ProjectProcedureWorkerLoop",
+        OutcomeFailureWorker,
+    )
+    failed_outcome = runner.invoke(
+        app,
+        ["procedures", "work", str(tmp_path), "--once"],
+    )
+
+    assert failed_outcome.exit_code == 1
+    assert "cycle completed with failures" in failed_outcome.output
+    assert "schedule_failures=1" in failed_outcome.output
+    assert "error: procedure worker cycle reported 1 failure" in failed_outcome.output
+
+    class FailingWorker:
+        worker_id = "worker-failing"
+
+        def __init__(self, _operations: object) -> None:
+            pass
+
+        def cycle(self) -> object:
+            raise ProcedureControlError(
+                "list_due_procedure_schedules",
+                RuntimeError("daemon is unavailable"),
+            )
+
+    monkeypatch.setattr(
+        "scopecat.api.procedure_worker.ProjectProcedureWorkerLoop",
+        FailingWorker,
+    )
+    failed = runner.invoke(
+        app,
+        ["procedures", "work", str(tmp_path), "--once"],
+    )
+
+    assert failed.exit_code == 1
+    assert "error: procedure control operation" in failed.output
+    assert "daemon is unavailable" in failed.output
 
 
 def _write_manifest(project: Path) -> None:

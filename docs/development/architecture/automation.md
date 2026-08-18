@@ -114,6 +114,41 @@ retry policy, fan-out scheduler, cron trigger, or dynamic loop checkpoint. A
 linear Python procedure with durable step checkpoints is easier to inspect and
 already covers the first multi-run calibration loop.
 
+## One-shot schedules and project workers
+
+A durable procedure schedule freezes one exact definition reference, canonical
+intent, and UTC due time. Materialization derives a stable request key from that
+whole schedule and atomically admits one `ProcedureRun`. Recreating the same
+schedule is idempotent; changing its exact content under the same schedule ID is
+a conflict. Due-time processing never rebuilds intent from the active
+configuration or the worker's current Python environment.
+
+`scopecat procedures work PROJECT` runs the project-owned Python worker as a
+process separate from the daemon. Each bounded cycle first materializes due
+schedules, then asks the daemon for oldest-first runnable procedures matching
+the worker registry's exact definition references. A live lease or acquisition
+race does not stop later work. A definition unavailable in this worker is not
+returned by capability-filtered discovery and is not changed to operator
+attention; another exact-version worker can claim it later.
+
+Due discovery is keyset-paged in durable insertion order, oldest insertion
+first; `due_at` remains a server-clock eligibility filter rather than the sort
+key. Each traversal freezes the current highest durable sequence, so sustained
+new arrivals cannot make that scan infinite. Reaching the high-water clears the
+cursor and the next traversal wraps to the beginning, where it can observe a
+lower-sequence schedule that became due after the prior cursor passed it. A
+still-pending materialization conflict therefore cannot pin all later due
+schedules behind the first bounded page.
+
+`--once` performs one bounded cycle for manual operation and testing. The
+resident form polls with interruptible waits and exponential control-plane
+backoff. There is intentionally no interval or cron model yet. A future interval
+trigger should materialize a separately auditable exact one-shot occurrence for
+each selected slot rather than execute a mutable intent directly. Shutdown stops
+new polling on `SIGINT` or `SIGTERM` but currently waits for the active procedure
+to return; there is no step-boundary yield or mid-effect cancellation contract
+yet.
+
 ## Capabilities needed at larger chip scale
 
 Moving from one calibration to hundreds or thousands of related calibrations
@@ -128,12 +163,13 @@ requires additional control-plane concepts, not a larger procedure function:
   calibrations do not publish whole-device snapshots over one another;
 - explicit quality gates, approval policy, stop conditions, and rollback to an
   exact entry rather than a relative undo;
-- durable scheduling and worker discovery, including version availability,
-  heartbeats, cancellation, and operator attention queues;
+- recurring scheduling and worker-fleet discovery, including version
+  availability, worker heartbeats, maintenance windows, and operator attention
+  queues;
 - bounded procedure, cohort, and lineage queries plus aggregate progress and
   failure summaries for the project console;
-- operation receipts for other mutating non-run effects, including any future
-  publish or exact rollback commands;
+- operation receipts for other mutating non-run effects, including inventory
+  migration or exact rollback commands;
 - simulation, dry-run planning, workload budgets, and reference-device scale
   tests before enabling a large cohort.
 
@@ -145,9 +181,10 @@ authority inside an automation subsystem.
 
 The next safe increments are:
 
-1. add durable schedules and a project worker loop over ready procedures;
-2. add immutable cohorts, freshness/dependency evaluation, and bounded fan-out;
-3. add policy gates and hierarchical proposal merge for device-wide campaigns.
+1. add immutable cohorts, freshness/dependency evaluation, and bounded fan-out;
+2. add policy gates and hierarchical proposal merge for device-wide campaigns;
+3. add interval materialization only when missed-slot and maintenance-window
+   policy are explicit.
 
 A DAG becomes useful only when fan-out and dependency scheduling are real
 requirements. Until then, persisted imperative checkpoints remain the smaller

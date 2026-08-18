@@ -31,6 +31,17 @@ port.
 `config apply` accepts `--actor` and `--note`. `config export` refuses to replace
 an existing destination unless `--force` is supplied.
 
+## Procedures
+
+| Command | Purpose |
+| --- | --- |
+| `scopecat procedures work [PROJECT]` | Run the project-owned resident procedure worker. |
+| `scopecat procedures work [PROJECT] --once` | Materialize and dispatch one bounded cycle, then exit. |
+
+The resident worker loads the project's exact procedure registry in its own
+process; the daemon never executes user-authored procedure closures.
+`--poll-seconds` controls the idle polling interval.
+
 Use `scopecat COMMAND --help` as the authority for all current options. See the
 [configuration how-to](../how-to/manage-configuration.md) for the intended
 review workflow.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from textwrap import dedent
 from typing import Protocol
 from uuid import uuid4
@@ -26,7 +27,18 @@ from scopecat.automation import (
     ProcedureRegistry,
     ProcedureRun,
     ProcedureRunListQuery,
+    ProcedureRunnablePage,
+    ProcedureRunnableQuery,
     ProcedureRunState,
+    ProcedureSchedule,
+    ProcedureScheduleCancelCommand,
+    ProcedureScheduleCreateCommand,
+    ProcedureScheduleDuePage,
+    ProcedureScheduleDueQuery,
+    ProcedureScheduleListQuery,
+    ProcedureScheduleMaterializeCommand,
+    ProcedureSchedulePage,
+    ProcedureScheduleState,
     ProcedureStepAttempt,
     ProcedureStepAttemptListQuery,
     ProcedureStepAttemptPage,
@@ -631,6 +643,20 @@ class LabProcedureOperations:
         )
         return ProcedureHandle(self, run.procedure_run_id)
 
+    def resume_snapshot(
+        self,
+        run: ProcedureRun,
+        *,
+        worker_id: str | None = None,
+    ) -> ProcedureHandle:
+        """Resume one runnable snapshot returned for this exact registry."""
+
+        resumed = self._worker().resume_snapshot(
+            run,
+            worker_id=self._worker_id if worker_id is None else worker_id,
+        )
+        return ProcedureHandle(self, resumed.procedure_run_id)
+
     def get(self, procedure_run_id: str) -> ProcedureHandle:
         self._client.get_procedure(procedure_run_id)
         return ProcedureHandle(self, procedure_run_id)
@@ -665,6 +691,99 @@ class LabProcedureOperations:
                 ProcedureHandle(self, run.procedure_run_id) for run in page.items
             ),
             next_cursor=page.next_cursor,
+        )
+
+    def create_schedule(
+        self,
+        definition: RegisteredProcedure,
+        intent: object,
+        *,
+        schedule_id: str,
+        due_at: datetime,
+    ) -> ProcedureSchedule:
+        """Create one exact one-shot invocation in the project registry."""
+
+        selected = self._registry.resolve(definition.ref)
+        receipt = self._client.create_procedure_schedule(
+            ProcedureScheduleCreateCommand(
+                schedule_id=schedule_id,
+                definition=selected.ref,
+                intent=selected.encode_intent(intent),
+                due_at=due_at,
+            )
+        )
+        return receipt.schedule
+
+    def get_schedule(self, schedule_id: str) -> ProcedureSchedule:
+        return self._client.get_procedure_schedule(schedule_id)
+
+    def list_schedules(
+        self,
+        *,
+        limit: int = 50,
+        before: int | None = None,
+        state: ProcedureScheduleState | None = None,
+    ) -> ProcedureSchedulePage:
+        return self._client.list_procedure_schedules(
+            ProcedureScheduleListQuery(
+                limit=limit,
+                cursor=before,
+                state=state,
+            )
+        )
+
+    def list_due_schedules(
+        self,
+        *,
+        limit: int = 50,
+        cursor: int | None = None,
+        through_sequence: int | None = None,
+    ) -> ProcedureScheduleDuePage:
+        return self._client.list_due_procedure_schedules(
+            ProcedureScheduleDueQuery(
+                limit=limit,
+                cursor=cursor,
+                through_sequence=through_sequence,
+            )
+        )
+
+    def cancel_schedule(
+        self,
+        schedule_id: str,
+        *,
+        expected_revision: int,
+        actor: str,
+        reason: str,
+    ) -> ProcedureSchedule:
+        receipt = self._client.cancel_procedure_schedule(
+            ProcedureScheduleCancelCommand(
+                schedule_id=schedule_id,
+                expected_schedule_revision=expected_revision,
+                actor=actor,
+                reason=reason,
+            )
+        )
+        return receipt.schedule
+
+    def materialize_schedule(
+        self,
+        schedule_id: str,
+        *,
+        expected_revision: int,
+    ) -> ProcedureSchedule:
+        receipt = self._client.materialize_procedure_schedule(
+            ProcedureScheduleMaterializeCommand(
+                schedule_id=schedule_id,
+                expected_schedule_revision=expected_revision,
+            )
+        )
+        return receipt.schedule
+
+    def list_runnable(self, *, limit: int = 50) -> ProcedureRunnablePage:
+        """List work matching exact definitions loaded by this application."""
+
+        return self._client.list_runnable_procedures(
+            ProcedureRunnableQuery(definitions=self._registry.refs, limit=limit)
         )
 
     def _worker(self) -> ProcedureWorker:

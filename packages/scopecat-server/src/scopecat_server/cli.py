@@ -22,7 +22,12 @@ config_app = typer.Typer(
     help="Inspect project configuration sources.",
     no_args_is_help=True,
 )
+procedures_app = typer.Typer(
+    help="Run project-owned durable procedure automation.",
+    no_args_is_help=True,
+)
 app.add_typer(config_app, name="config")
+app.add_typer(procedures_app, name="procedures")
 console = Console()
 error_console = Console(stderr=True)
 
@@ -223,6 +228,121 @@ def config_export(
         f"content_hash={result.content_hash}",
         soft_wrap=True,
     )
+
+
+@procedures_app.command("work")
+def procedures_work(
+    project: Annotated[
+        Path,
+        typer.Argument(help="Project directory or scopecat.toml."),
+    ] = _CURRENT_DIRECTORY,
+    once: Annotated[
+        bool,
+        typer.Option("--once", help="Run one bounded worker cycle and exit."),
+    ] = False,
+    poll_seconds: Annotated[
+        float,
+        typer.Option(
+            "--poll-seconds",
+            help="Idle polling interval for the resident project worker.",
+            min=0.001,
+        ),
+    ] = 1.0,
+) -> None:
+    """Materialize due schedules and execute exact registered procedures."""
+
+    import signal
+    from threading import Event
+    from types import FrameType
+
+    from scopecat.api.procedure_worker import (
+        ProcedureWorkerCycleResult,
+        ProjectProcedureWorkerLoop,
+    )
+    from scopecat.project import open_project
+
+    try:
+        selected = open_project(project)
+        with selected.connect() as lab:
+            worker = ProjectProcedureWorkerLoop(lab.procedures)
+            if once:
+                result = worker.cycle()
+                failure_count = (
+                    result.schedule_failures
+                    + result.procedure_failures
+                    + result.procedure_conflicts
+                )
+                outcome = (
+                    "[green]cycle complete[/green]"
+                    if failure_count == 0
+                    else "[red]cycle completed with failures[/red]"
+                )
+                console.print(
+                    f"{outcome} "
+                    f"materialized={result.materialized_schedules} "
+                    f"dispatched={result.dispatched_procedures} "
+                    f"schedule_failures={result.schedule_failures} "
+                    f"procedure_failures={result.procedure_failures} "
+                    f"procedure_conflicts={result.procedure_conflicts} "
+                    f"benign_conflicts="
+                    f"{result.schedule_conflicts + result.lease_conflicts}",
+                    soft_wrap=True,
+                )
+                if failure_count:
+                    raise RuntimeError(
+                        f"procedure worker cycle reported {failure_count} failure(s)"
+                    )
+                return
+
+            console.print(
+                f"[green]working[/green] {selected.root} "
+                f"[dim](worker {worker.worker_id})[/dim]",
+                soft_wrap=True,
+            )
+            stop_event = Event()
+
+            def report_retry(error: Exception, delay: float) -> None:
+                error_console.print(
+                    f"[yellow]procedure control unavailable:[/yellow] {error}; "
+                    f"retrying in {delay:g}s",
+                    soft_wrap=True,
+                )
+
+            def report_cycle(result: ProcedureWorkerCycleResult) -> None:
+                if (
+                    result.schedule_failures
+                    or result.procedure_failures
+                    or result.procedure_conflicts
+                ):
+                    error_console.print(
+                        "[yellow]procedure cycle needs review:[/yellow] "
+                        f"schedule_failures={result.schedule_failures} "
+                        f"procedure_failures={result.procedure_failures} "
+                        f"procedure_conflicts={result.procedure_conflicts}",
+                        soft_wrap=True,
+                    )
+
+            def request_stop(_signum: int, _frame: FrameType | None) -> None:
+                stop_event.set()
+
+            previous_sigint = signal.getsignal(signal.SIGINT)
+            previous_sigterm = signal.getsignal(signal.SIGTERM)
+            signal.signal(signal.SIGINT, request_stop)
+            signal.signal(signal.SIGTERM, request_stop)
+            try:
+                worker.run_forever(
+                    stop_event,
+                    poll_seconds=poll_seconds,
+                    on_cycle=report_cycle,
+                    on_retry=report_retry,
+                )
+            except KeyboardInterrupt:
+                stop_event.set()
+            finally:
+                signal.signal(signal.SIGINT, previous_sigint)
+                signal.signal(signal.SIGTERM, previous_sigterm)
+    except _project_config_errors() as error:
+        _fail(error)
 
 
 @app.command()
