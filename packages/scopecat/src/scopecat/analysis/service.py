@@ -64,6 +64,7 @@ from scopecat.records.analysis import (
     ProjectAnalysisSubject,
     PublishedAnalysisRecordInput,
     RunAnalysisSubject,
+    analysis_record_id,
     validate_analysis_output_content_budget,
 )
 from scopecat.records.content import BytesWrite, ContentEntry, ModelWrite
@@ -257,7 +258,7 @@ def prepare_analysis(
 ) -> PreparedAnalysis:
     """Prepare analysis content for publication in a caller-owned unit."""
 
-    base_record_id = f"analysis-{analysis_key}"
+    proposed_record_id = analysis_record_id(analysis_key, 1)
     _validate_analysis_output_ids(outputs)
     _validate_analysis_input_ids(inputs)
     analysis_views = _prepare_analysis_views(outputs)
@@ -280,7 +281,7 @@ def prepare_analysis(
         )
     _validate_analysis_proposal_evidence(outputs, parameter_proposals)
     if any(
-        proposal.analysis_record_id != base_record_id
+        proposal.analysis_record_id != proposed_record_id
         for proposal in parameter_proposals
     ):
         _raise_analysis_problem(
@@ -326,9 +327,7 @@ def prepare_analysis(
         )
 
     revision = 1 if existing is None else existing.record.revision + 1
-    selected_record_id = (
-        base_record_id if revision == 1 else f"{base_record_id}-r{revision}"
-    )
+    selected_record_id = analysis_record_id(analysis_key, revision)
     saved_outputs = _revisioned_outputs(
         outputs,
         analysis_record_id=selected_record_id,
@@ -450,8 +449,7 @@ def prepare_project_analysis(
         )
 
     revision = 1 if existing is None else existing.record.revision + 1
-    base_record_id = f"analysis-{analysis_key}"
-    record_id = base_record_id if revision == 1 else f"{base_record_id}-r{revision}"
+    record_id = analysis_record_id(analysis_key, revision)
     prepared_contents = _prepare_analysis_contents(
         subject=ProjectAnalysisSubject(),
         record_id=record_id,
@@ -580,22 +578,11 @@ def _validate_project_analysis_inputs(
         if isinstance(input_ref, MeasurementAnalysisInput):
             snapshot = storage.read_snapshot(input_ref.run_id)
             _require_completed_project_input_run(snapshot.status, index=index)
-            entry = storage.read_content(
-                input_ref.run_id,
-                role="dataset",
-                content_id=input_ref.target,
+            _validate_measurement_analysis_input(
+                services=services,
+                input_ref=input_ref,
+                index=index,
             )
-            if (
-                entry.kind != "measurement_dataset"
-                or entry.content_hash != input_ref.content_hash
-                or input_ref.codec != MEASUREMENT_DATASET_CODEC
-            ):
-                _raise_analysis_problem(
-                    "analysis_input_content_mismatch",
-                    "measurement dataset input must match its exact run content",
-                    "inputs",
-                    index,
-                )
             continue
         source_output = _load_published_analysis_output(
             services=services,
@@ -615,6 +602,38 @@ def _require_completed_project_input_run(status: str, *, index: int) -> None:
         _raise_analysis_problem(
             "project_analysis_input_run_incomplete",
             "project analysis run inputs must belong to completed runs",
+            "inputs",
+            index,
+        )
+
+
+def _validate_measurement_analysis_input(
+    *,
+    services: ProjectStateServices,
+    input_ref: MeasurementAnalysisInput,
+    index: int,
+) -> None:
+    try:
+        entry = services.runs.read_content(
+            input_ref.run_id,
+            role="dataset",
+            content_id=input_ref.target,
+        )
+    except NotFound:
+        _raise_analysis_problem(
+            "analysis_input_content_mismatch",
+            "measurement dataset input must match its exact run content",
+            "inputs",
+            index,
+        )
+    if (
+        entry.kind != "measurement_dataset"
+        or entry.content_hash != input_ref.content_hash
+        or input_ref.codec != MEASUREMENT_DATASET_CODEC
+    ):
+        _raise_analysis_problem(
+            "analysis_input_content_mismatch",
+            "measurement dataset input must match its exact run content",
             "inputs",
             index,
         )
@@ -744,14 +763,19 @@ def _validate_analysis_inputs(
     storage = services.runs
     for index, input_ref in enumerate(inputs):
         if isinstance(input_ref, MeasurementAnalysisInput):
-            if input_ref.run_id == run_id:
-                continue
-            _raise_analysis_problem(
-                "analysis_input_run_invalid",
-                "run analysis inputs must belong to their subject run",
-                "inputs",
-                index,
+            if input_ref.run_id != run_id:
+                _raise_analysis_problem(
+                    "analysis_input_run_invalid",
+                    "run analysis inputs must belong to their subject run",
+                    "inputs",
+                    index,
+                )
+            _validate_measurement_analysis_input(
+                services=services,
+                input_ref=input_ref,
+                index=index,
             )
+            continue
         source = input_ref.source
         if not isinstance(source.subject, RunAnalysisSubject) or (
             source.subject.run_id != run_id

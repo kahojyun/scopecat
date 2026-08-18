@@ -32,7 +32,7 @@ def seed_best_signal_parameter_change(*, tmp_path: Path, run_id: str) -> None:
         source_run_id=run_id,
         source_config=config,
         analysis_title="best signal fixture",
-        analysis_record_id="analysis-best-signal-fixture",
+        analysis_record_id="analysis-best-signal-fixture-r1",
         proposal_id="best-signal",
         updates=(
             replace_scalar_parameter(

@@ -41,6 +41,7 @@ from scopecat.records.analysis import (
     AnalysisFigureViewSpec,
     AnalysisPublishedOutputReference,
     AnalysisTableViewSpec,
+    analysis_record_id,
 )
 from scopecat.records.config import (
     ConfigContentHash,
@@ -304,7 +305,7 @@ class AnalysisSaveCommand(_WireModel):
             for output in self.outputs
             if isinstance(output, AnalysisParameterProposalOutputPayload)
         )
-        expected_analysis_record_id = f"analysis-{self.analysis_key}"
+        expected_analysis_record_id = analysis_record_id(self.analysis_key, 1)
         if any(
             proposal.analysis_record_id != expected_analysis_record_id
             for proposal in proposals

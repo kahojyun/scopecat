@@ -248,7 +248,7 @@ def _run_seed(ordinal: int) -> tuple[str, str, str, str]:
 
 
 def _analysis_seed(ordinal: int) -> tuple[str, str, str, str, str, str]:
-    record_id = f"analysis-history-{ordinal:08d}"
+    record_id = f"analysis-history-{ordinal:08d}-r1"
     entry: dict[str, object] = {
         "role": "record",
         "id": record_id,

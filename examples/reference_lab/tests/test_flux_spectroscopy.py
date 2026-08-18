@@ -277,7 +277,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
 
     analysis = run.analyze(flux_spectroscopy_analysis())
     candidate = lab.resolve_config(config=analysis.candidate_config())
-    assert analysis.id == "analysis-reference_lab-flux_spectroscopy-analysis"
+    assert analysis.id == "analysis-reference_lab-flux_spectroscopy-analysis-r1"
     assert [output.kind for output in analysis.outputs] == [
         "dataset",
         "fact",
@@ -326,7 +326,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert float(active_frequency.to("GHz").value) == pytest.approx(5.0)
 
     review = run.analyze(flux_spectroscopy_fit_review())
-    assert review.id == "analysis-reference_lab-flux_spectroscopy-fit-review"
+    assert review.id == "analysis-reference_lab-flux_spectroscopy-fit-review-r1"
     quality = review.fact_as(
         "quality-review",
         FLUX_SPECTROSCOPY_FIT_REVIEW_SCHEMA,
@@ -376,11 +376,11 @@ def test_flux_spectroscopy_notebook_completes_through_the_project_daemon(
     assert summary["point_count"] == BIAS_POINTS
     assert summary["measurement_records"] == BIAS_POINTS
     assert summary["analysis_id"] == (
-        "analysis-reference_lab-flux_spectroscopy-analysis"
+        "analysis-reference_lab-flux_spectroscopy-analysis-r1"
     )
     assert summary["analysis_revision"] == 1
     assert summary["fit_review_id"] == (
-        "analysis-reference_lab-flux_spectroscopy-fit-review"
+        "analysis-reference_lab-flux_spectroscopy-fit-review-r1"
     )
     assert summary["fit_review_accepted"]
     assert summary["fit_report"] == "flux-spectroscopy-fit.md"

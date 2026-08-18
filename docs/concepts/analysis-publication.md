@@ -170,12 +170,14 @@ existing proposal is accepted.
 
 ## Logical keys and immutable revisions
 
-The author supplies one logical analysis `key`, not a version number. The first
-publication uses `analysis-<key>`. Repeating the same logical content is an
-idempotent notebook or step retry and returns that existing publication. If any
-input snapshot, output content, title, metadata, or other durable meaning
-changes, Scopecat appends `analysis-<key>-r2`, then `-r3`, without replacing the
-earlier record.
+The author supplies one logical analysis `key`, not a version number. Durable
+record IDs always make the revision explicit: the first publication uses
+`analysis-<key>-r1`, followed by `-r2`, then `-r3`. This keeps record identity
+unambiguous even when a logical key itself ends in revision-shaped text.
+Repeating the same logical content is an idempotent notebook or step retry and
+returns the existing publication; changing an input snapshot, output content,
+title, metadata, or other durable meaning appends a new record without replacing
+an earlier one.
 
 Datasets, artifacts, and parameter proposals use the allocated analysis record
 ID as part of their durable identity, so a revision never leaves a supposedly

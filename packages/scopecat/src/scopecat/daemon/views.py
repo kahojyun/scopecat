@@ -393,7 +393,12 @@ class AnalysisContentBytesView(_ViewModel):
 
     @model_validator(mode="after")
     def validate_content(self) -> AnalysisContentBytesView:
-        if self.entry.produced_by != self.analysis_id:
+        owns_record = (
+            self.entry.role == "record"
+            and self.entry.kind == "analysis"
+            and self.entry.id == self.analysis_id
+        )
+        if not owns_record and self.entry.produced_by != self.analysis_id:
             raise ValueError("analysis content producer is inconsistent")
         _validate_base64(self.content_base64)
         return self

@@ -232,7 +232,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         source_run_id="run-1",
         source_config=load_config(),
         analysis_title="fit",
-        analysis_record_id="analysis-fit",
+        analysis_record_id="analysis-fit-r1",
         proposal_id="drive-frequency",
         updates=(
             replace_scalar_parameter(
@@ -313,7 +313,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
             proposal_id=proposal.id,
             acceptance=CrossRunCandidateAcceptance(
                 decision=ProjectAnalysisDecisionReference(
-                    analysis_record_id="analysis-candidate-verification",
+                    analysis_record_id="analysis-candidate-verification-r1",
                     output_id="decision",
                     schema_id="candidate-verification.v1",
                     schema_hash=f"sha256:{'a' * 64}",

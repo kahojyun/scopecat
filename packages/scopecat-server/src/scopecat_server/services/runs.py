@@ -7,6 +7,7 @@ from __future__ import annotations
 from base64 import b64decode, b64encode
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
+from threading import Lock
 from typing import TYPE_CHECKING, Literal
 
 from scopecat.analysis.repository import AnalysisPublicationSummary
@@ -286,6 +287,7 @@ class RunService:
         self._services = services
         self._active_measurements = active_measurements
         self._point_plans = point_plans
+        self._analysis_publication_lock = Lock()
 
     def list_runs(
         self,
@@ -528,7 +530,7 @@ class RunService:
             for item in command.outputs
             if isinstance(item, AnalysisParameterProposalOutputPayload)
         )
-        with self._config_errors():
+        with self._analysis_publication_lock, self._config_errors():
             prepared = prepare_analysis(
                 services=self._services,
                 run_id=run_id,

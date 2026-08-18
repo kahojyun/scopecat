@@ -85,6 +85,7 @@ from scopecat.daemon.wire import (
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
     ManualConfigDraftRevisionSource,
+    MeasurementAnalysisInputPayload,
     MeasurementFlushCommand,
     MeasurementHeaderCommand,
     RunAdmission,
@@ -360,7 +361,7 @@ def _analysis_proposal(run_id: str) -> ParameterChangeProposal:
         source_run_id=run_id,
         source_config=_config(),
         analysis_title="fit",
-        analysis_record_id="analysis-fit",
+        analysis_record_id="analysis-fit-r1",
         proposal_id="drive-frequency",
         updates=(
             replace_scalar_parameter(
@@ -1855,22 +1856,21 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             json=analysis_command.model_dump(mode="json"),
         )
         analyses = client.get(analysis_url)
-        analysis_detail = client.get(
-            f"{analysis_url}/analysis-{analysis_command.analysis_key}"
-        )
+        analysis_detail = client.get(f"{analysis_url}/{analysis_command.analysis_key}")
         analysis_record = client.get(
             f"/api/v1/runs/{admission.run_id}/records/"
-            f"analysis-{analysis_command.analysis_key}/json",
+            f"analysis-{analysis_command.analysis_key}-r1/json",
             params={"expected_kind": "analysis"},
         )
         dataset_bytes = RunDatasetBytesView.model_validate(
             client.get(
-                f"/api/v1/runs/{admission.run_id}/datasets/analysis-fit-fits/bytes",
+                f"/api/v1/runs/{admission.run_id}/datasets/analysis-fit-r1-fits/bytes",
                 params={"expected_kind": "analysis_dataset"},
             ).json()
         )
         analysis_artifact = client.get(
-            f"/api/v1/runs/{admission.run_id}/artifacts/analysis-fit-fit-report/text",
+            f"/api/v1/runs/{admission.run_id}/artifacts/"
+            "analysis-fit-r1-fit-report/text",
             params={"expected_kind": "analysis_artifact"},
         )
         attachment_command = RunAttachmentCommand(
@@ -1927,7 +1927,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         assert retry == saved
         assert exact_proposal.proposal == proposal
         assert analyses.json()["items"][0]["key"] == "fit"
-        assert analysis_detail.json()["entry"]["id"] == "analysis-fit"
+        assert analysis_detail.json()["entry"]["id"] == "analysis-fit-r1"
         assert analysis_record.json()["content"]["title"] == "fit"
         persisted_outputs = analysis_record.json()["content"]["outputs"]
         assert persisted_outputs[0]["content"]["preview"] == {
@@ -1936,7 +1936,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         }
         assert persisted_outputs[0]["content"]["total_rows"] == 2
         assert not persisted_outputs[0]["content"]["truncated"]
-        assert persisted_outputs[1]["content"]["dataset_id"] == "analysis-fit-fits"
+        assert persisted_outputs[1]["content"]["dataset_id"] == "analysis-fit-r1-fits"
         restored_dataset = DerivedDataset.from_arrow_ipc(
             dataset_bytes.content_bytes(),
             schema=DerivedDataset.from_payload(
@@ -1959,7 +1959,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         assert not persisted_outputs[2]["content"]["truncated"]
         assert persisted_outputs[3]["content"]["proposal_id"] == proposal.id
         assert persisted_outputs[4]["content"]["artifact_id"] == (
-            "analysis-fit-fit-report"
+            "analysis-fit-r1-fit-report"
         )
         assert analysis_artifact.json()["content"] == "# Fit report\n"
         assert attachment.json()["filename"] == "notes.md"
@@ -2030,7 +2030,7 @@ def test_run_analysis_history_is_paged_and_logical_keys_resolve_latest(
             client.get(f"{analysis_url}/history").json()
         )
         exact = RunAnalysisView.model_validate(
-            client.get(f"{analysis_url}/analysis-history").json()
+            client.get(f"{analysis_url}/analysis-history-r1").json()
         )
 
         assert [item.entry.id for item in head.items] == [
@@ -2038,11 +2038,80 @@ def test_run_analysis_history_is_paged_and_logical_keys_resolve_latest(
             "analysis-history-r2",
         ]
         assert head.next_cursor is not None
-        assert [item.entry.id for item in tail.items] == ["analysis-history"]
+        assert [item.entry.id for item in tail.items] == ["analysis-history-r1"]
         assert tail.next_cursor is None
         assert latest.entry.id == "analysis-history-r3"
         assert latest.analysis.revision == 3
         assert exact.analysis.revision == 1
+
+
+def test_run_analysis_rejects_missing_measurement_input_content(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        client = TestClient(runtime.app())
+        admission = runtime.application.submit_run(
+            _submission("analysis-missing-measurement-input")
+        )
+        command = AnalysisSaveCommand(
+            title="Forged input",
+            analysis_key="forged-input",
+            inputs=(
+                MeasurementAnalysisInputPayload(
+                    id="measurement",
+                    run_id=admission.run_id,
+                    target="missing-measurements",
+                    content_hash="sha256:missing",
+                    codec="scopecat.measurement-dataset.v12",
+                    role="data",
+                ),
+            ),
+        )
+
+        response = client.post(
+            f"/api/v1/runs/{admission.run_id}/analyses",
+            json=command.model_dump(mode="json"),
+        )
+
+        assert response.status_code == 409
+        assert "analysis_input_content_mismatch" in response.json()["detail"]
+
+
+def test_run_analysis_allocates_distinct_revisions_for_concurrent_saves(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        client = TestClient(runtime.app())
+        admission = runtime.application.submit_run(
+            _submission("concurrent-run-analysis")
+        )
+        commands = tuple(
+            AnalysisSaveCommand(
+                title=f"Concurrent analysis {ordinal}",
+                analysis_key="concurrent-analysis",
+            )
+            for ordinal in range(2)
+        )
+        ready = Barrier(len(commands))
+
+        def save(command: AnalysisSaveCommand) -> AnalysisSaveReceipt:
+            ready.wait()
+            response = client.post(
+                f"/api/v1/runs/{admission.run_id}/analyses",
+                json=command.model_dump(mode="json"),
+            )
+            assert response.status_code == 201
+            return AnalysisSaveReceipt.model_validate(response.json())
+
+        with ThreadPoolExecutor(max_workers=len(commands)) as executor:
+            saved = tuple(executor.map(save, commands))
+
+        assert {item.record.id for item in saved} == {
+            "analysis-concurrent-analysis-r1",
+            "analysis-concurrent-analysis-r2",
+        }
+        page = runtime.application.runs.list_run_analyses(admission.run_id)
+        assert len(page.items) == 2
 
 
 def test_analysis_publication_rolls_back_refs_index_and_event_together(
@@ -2089,12 +2158,12 @@ def test_analysis_publication_rolls_back_refs_index_and_event_together(
         )
         assert not repository.exists(
             admission.run_id,
-            record_content_ref(record_id="analysis-fit", kind="analysis"),
+            record_content_ref(record_id="analysis-fit-r1", kind="analysis"),
         )
         assert not repository.exists(
             admission.run_id,
             dataset_content_ref(
-                dataset_id="analysis-fit-fits",
+                dataset_id="analysis-fit-r1-fits",
                 kind="analysis_dataset",
             ),
         )
@@ -2109,7 +2178,7 @@ def test_analysis_publication_rolls_back_refs_index_and_event_together(
             command,
         )
 
-        assert saved.record.id == "analysis-fit"
+        assert saved.record.id == "analysis-fit-r1"
         assert (
             len(runtime.application.runs.list_run_analyses(admission.run_id).items) == 1
         )

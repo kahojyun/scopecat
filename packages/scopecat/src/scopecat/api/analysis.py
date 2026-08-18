@@ -84,6 +84,7 @@ from scopecat.records.analysis import (
     AnalysisFigureViewSpec,
     AnalysisPublishedOutputReference,
     AnalysisTableViewSpec,
+    analysis_record_id,
     is_analysis_rows,
 )
 from scopecat.records.config import ConfigProfileSnapshot
@@ -543,7 +544,7 @@ class Analysis:
                 source_run_id=self._required_proposal_run().id,
                 source_config=self._required_proposal_run().config,
                 analysis_title=self.title,
-                analysis_record_id=f"analysis-{self.analysis_key}",
+                analysis_record_id=analysis_record_id(self.analysis_key, 1),
                 proposal_id=proposal_id,
                 updates=updates,
                 reason=reason,

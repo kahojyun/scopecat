@@ -1892,7 +1892,7 @@ def test_analysis_candidate_run_keeps_connection_until_shutdown(
             source_run_id=source_admission.run_id,
             source_config=config,
             analysis_title="candidate",
-            analysis_record_id="analysis-candidate",
+            analysis_record_id="analysis-candidate-r1",
             proposal_id="proposal-candidate",
             updates=(
                 replace_scalar_parameter(

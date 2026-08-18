@@ -51,6 +51,7 @@ from scopecat.measurements.recording_arrow import (
     encode_measurement_append,
 )
 from scopecat.records.analysis import (
+    AnalysisRecord,
     MeasurementAnalysisRecordInput,
     ProjectAnalysisDecisionReference,
     PublishedAnalysisRecordInput,
@@ -271,7 +272,7 @@ def _analysis_proposal(run_id: str) -> ParameterChangeProposal:
         source_run_id=run_id,
         source_config=_config(),
         analysis_title="fit",
-        analysis_record_id="analysis-fit",
+        analysis_record_id="analysis-fit-r1",
         proposal_id="drive-frequency",
         updates=(
             replace_scalar_parameter(
@@ -368,7 +369,7 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
             retry = publish("# Candidate verification\n\nInitial comparison.\n")
             revised = publish("# Candidate verification\n\nReviewed comparison.\n")
 
-            assert first.id == "analysis-candidate-verification"
+            assert first.id == "analysis-candidate-verification-r1"
             assert retry.id == first.id
             assert revised.id == "analysis-candidate-verification-r2"
             assert retry.published_at == first.published_at
@@ -457,6 +458,17 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
             ).json()
             assert exact_content["id"] == artifact_id
             assert exact_content["role"] == "artifact"
+            record_bytes = _daemon_client(transport).project_analysis_content_bytes(
+                revised.id,
+                revised.id,
+            )
+            assert record_bytes.entry.role == "record"
+            assert (
+                AnalysisRecord.model_validate_json(
+                    record_bytes.content_bytes()
+                ).revision
+                == 2
+            )
             project_analysis_events = [
                 event
                 for event in _events(runtime).items
@@ -529,7 +541,7 @@ def test_project_analysis_allocates_distinct_revisions_for_concurrent_saves(
                 saved = tuple(executor.map(save, pending))
 
             assert {item.id for item in saved} == {
-                "analysis-concurrent-comparison",
+                "analysis-concurrent-comparison-r1",
                 "analysis-concurrent-comparison-r2",
             }
             assert {item.revision for item in saved} == {1, 2}
@@ -674,7 +686,7 @@ def test_project_analysis_publication_rolls_back_index_and_event_together(
 
             saved = result.save()
 
-            assert saved.id == "analysis-atomic-comparison"
+            assert saved.id == "analysis-atomic-comparison-r1"
             assert [
                 event.kind
                 for event in _events(runtime).items
