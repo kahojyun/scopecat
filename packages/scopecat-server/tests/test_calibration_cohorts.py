@@ -48,9 +48,7 @@ from scopecat.automation import (
     ProcedureRunPage,
     ProcedureRunState,
     ProcedureSubmitCommand,
-    ProcedureWaitCommand,
     ProcedureWorkerLeaseAcquireCommand,
-    RunTerminalWait,
     calibration_cohort_member_request_key,
     calibration_freshness_fingerprint,
     calibration_key,
@@ -205,7 +203,7 @@ def _command(
     return CalibrationCohortCreateCommand(
         cohort_id=cohort_id,
         spec=CalibrationCohortSpec(
-            planner=members[0].definition,
+            definition=members[0].definition,
             automatic_publication=automatic_publication,
             config_source=source,
             fanout_scope=status.fanout_scope,
@@ -652,16 +650,6 @@ def _move_to_active_state(
     )
     if state == "leased":
         return
-    if state == "waiting":
-        harness.automation.wait(
-            ProcedureWaitCommand(
-                procedure_run_id=member.procedure_run_id,
-                lease_token=acquired.lease.lease_token,
-                expected_run_revision=acquired.run.revision,
-                condition=RunTerminalWait(run_id="dependency-run"),
-            )
-        )
-        return
     assert state == "attention_required"
     harness.automation.require_run_attention(
         ProcedureRunAttentionCommand(
@@ -805,7 +793,7 @@ def test_success_publication_requires_an_exact_anchored_merge_receipt(
 
     with pytest.raises(
         CalibrationCohortConflict,
-        match="exact config receipt",
+        match="calibration publication config operation",
     ):
         _attach_success_publication(harness, pending)
     projected = _status(harness, (member,)).snapshot.statuses[0]
@@ -980,7 +968,7 @@ def test_status_clock_is_sampled_after_the_database_snapshot(
 
 @pytest.mark.parametrize(
     "state",
-    ("ready", "leased", "waiting", "attention_required"),
+    ("ready", "leased", "attention_required"),
 )
 def test_cohort_rejects_every_nonclosed_latest_attempt(
     tmp_path: Path,

@@ -48,8 +48,6 @@ from scopecat.automation import (
     ProcedureStepFailReceipt,
     ProcedureSubmitCommand,
     ProcedureSubmitReceipt,
-    ProcedureWaitCommand,
-    ProcedureWaitReceipt,
     ProcedureWorkerLeaseAcquireCommand,
     ProcedureWorkerLeaseAcquireReceipt,
     ProcedureWorkerLeaseHeartbeatCommand,
@@ -150,6 +148,8 @@ from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
     AttentionResolutionReceipt,
+    CalibrationPublicationCommand,
+    CalibrationPublicationReceipt,
     ConfigActivationReceipt,
     ConfigDraftCommand,
     ConfigEntryActivationCommand,
@@ -646,6 +646,18 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
             CalibrationPublicationGetQuery(cohort_id=cohort_id)
         )
 
+    @app.get(f"{_API_PREFIX}/calibration-publications/operations/{{operation_id:path}}")
+    def get_calibration_publication_operation(
+        operation_id: str,
+    ) -> CalibrationPublicationReceipt:
+        return application.config.get_calibration_publication_operation(operation_id)
+
+    @app.post(f"{_API_PREFIX}/calibration-publications/operations")
+    def publish_calibration(
+        command: CalibrationPublicationCommand,
+    ) -> CalibrationPublicationReceipt:
+        return application.config.publish_calibration(command)
+
     @app.post(f"{_API_PREFIX}/calibration-publication-attentions/{{cohort_id:path}}")
     def require_calibration_publication_attention(
         cohort_id: str,
@@ -857,14 +869,6 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> ProcedureRunAttentionReceipt:
         _require_procedure_run_id(procedure_run_id, command.procedure_run_id)
         return application.automation.require_run_attention(command)
-
-    @app.post(f"{_API_PREFIX}/procedures/{{procedure_run_id}}/wait")
-    def wait_procedure(
-        procedure_run_id: str,
-        command: ProcedureWaitCommand,
-    ) -> ProcedureWaitReceipt:
-        _require_procedure_run_id(procedure_run_id, command.procedure_run_id)
-        return application.automation.wait(command)
 
     @app.post(f"{_API_PREFIX}/procedures/{{procedure_run_id}}/close")
     def close_procedure(

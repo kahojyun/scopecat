@@ -46,8 +46,6 @@ from scopecat.automation import (
     ProcedureStepFailReceipt,
     ProcedureSubmitCommand,
     ProcedureSubmitReceipt,
-    ProcedureWaitCommand,
-    ProcedureWaitReceipt,
     ProcedureWorkerLeaseAcquireCommand,
     ProcedureWorkerLeaseAcquireReceipt,
     ProcedureWorkerLeaseHeartbeatCommand,
@@ -136,6 +134,8 @@ from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
     AttentionResolutionReceipt,
+    CalibrationPublicationCommand,
+    CalibrationPublicationReceipt,
     ConfigActivationReceipt,
     ConfigDraftCommand,
     ConfigEntryActivationCommand,
@@ -448,6 +448,28 @@ class DaemonClient:
             CalibrationPublicationGetReceipt,
         )
 
+    def publish_calibration(
+        self,
+        command: CalibrationPublicationCommand,
+    ) -> CalibrationPublicationReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/calibration-publications/operations",
+            command,
+            CalibrationPublicationReceipt,
+        )
+
+    def calibration_publication_operation(
+        self,
+        operation_id: str,
+    ) -> CalibrationPublicationReceipt:
+        return self._get_model(
+            (
+                f"{_API_PREFIX}/calibration-publications/operations/"
+                f"{quote(operation_id, safe='')}"
+            ),
+            CalibrationPublicationReceipt,
+        )
+
     def require_calibration_publication_attention(
         self,
         command: CalibrationPublicationAttentionCommand,
@@ -682,16 +704,6 @@ class DaemonClient:
             self._procedure_path(command.procedure_run_id, "attention"),
             command,
             ProcedureRunAttentionReceipt,
-        )
-
-    def wait_procedure(
-        self,
-        command: ProcedureWaitCommand,
-    ) -> ProcedureWaitReceipt:
-        return self._post_idempotent_model(
-            self._procedure_path(command.procedure_run_id, "wait"),
-            command,
-            ProcedureWaitReceipt,
         )
 
     def close_procedure(

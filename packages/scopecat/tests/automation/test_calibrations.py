@@ -283,7 +283,7 @@ def _cohort_spec(
         )
     )
     return CalibrationCohortSpec(
-        planner=selected_member.definition,
+        definition=selected_member.definition,
         automatic_publication=automatic_publication,
         config_source=_frozen_config_source(),
         fanout_scope="chip-alpha",
@@ -563,15 +563,15 @@ def test_cohort_spec_binds_observations_dependencies_and_capacity() -> None:
         _cohort_spec(max_in_flight=3, observed_active=3)
 
 
-def test_cohort_spec_rejects_missing_observation_and_mixed_planner() -> None:
+def test_cohort_spec_rejects_missing_observation_and_mixed_definition() -> None:
     member = _member_spec()
     with pytest.raises(ValidationError, match="cover every member"):
         _cohort_spec(member=member, observations=())
 
     other_definition = _definition(definition_id="readout")
     data = _cohort_spec().model_dump()
-    data["planner"] = other_definition
-    with pytest.raises(ValidationError, match="planner definition"):
+    data["definition"] = other_definition
+    with pytest.raises(ValidationError, match="exact definition"):
         CalibrationCohortSpec.model_validate(data)
 
 
@@ -597,7 +597,7 @@ def test_automatic_publication_policy_pins_exact_published_result_meaning() -> N
     mismatched = policy.model_copy(
         update={"calibration": definition.model_copy(update={"version": "other"})}
     )
-    with pytest.raises(ValidationError, match="exact planner"):
+    with pytest.raises(ValidationError, match="exact calibration definition"):
         _cohort_spec(member=member, automatic_publication=mismatched)
 
 
@@ -798,7 +798,7 @@ def test_publication_base_change_reason_binds_pending_success_and_cohort_source(
         due_reasons=(reason,),
     )
     spec = CalibrationCohortSpec(
-        planner=member.definition,
+        definition=member.definition,
         config_source=current_source,
         fanout_scope="chip-alpha",
         max_in_flight=2,
@@ -812,7 +812,7 @@ def test_publication_base_change_reason_binds_pending_success_and_cohort_source(
 
     with pytest.raises(ValidationError, match="cohort config source"):
         CalibrationCohortSpec(
-            planner=member.definition,
+            definition=member.definition,
             config_source=current_source.model_copy(
                 update={"entry_id": "other-current-config"}
             ),

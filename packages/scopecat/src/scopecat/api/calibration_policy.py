@@ -49,27 +49,48 @@ class CalibrationPublicationPolicyRegistration(Protocol):
 class CalibrationPublicationPolicyRegistry(
     Mapping[CalibrationPublicationPolicyKey, CalibrationPublicationPolicyRegistration]
 ):
-    """Immutable exact-version registry that retains historical policies."""
+    """Exact historical capabilities plus active admission bindings.
 
-    __slots__ = ("_by_calibration", "_policies", "_refs")
+    Omitting ``active`` infers one active binding only when every exact
+    calibration definition has a single registered capability. Callers that
+    retain multiple policies for the same definition must select the active
+    policy explicitly; unselected policies remain available to drain cohorts
+    that already pin them.
+    """
+
+    __slots__ = (
+        "_active_bindings",
+        "_active_by_calibration",
+        "_capabilities",
+        "_policies",
+    )
 
     _policies: Mapping[
         CalibrationPublicationPolicyKey,
         CalibrationPublicationPolicyRegistration,
     ]
-    _by_calibration: Mapping[str, CalibrationPublicationPolicyRegistration]
-    _refs: tuple[CalibrationPublicationPolicyRef, ...]
+    _active_by_calibration: Mapping[
+        str,
+        CalibrationPublicationPolicyRegistration,
+    ]
+    _active_bindings: tuple[CalibrationPublicationPolicyRef, ...]
+    _capabilities: tuple[CalibrationPublicationPolicyRef, ...]
 
     def __init__(
         self,
         policies: Iterable[CalibrationPublicationPolicyRegistration] = (),
+        *,
+        active: Iterable[CalibrationPublicationPolicyRef] | None = None,
     ) -> None:
         selected: dict[
             CalibrationPublicationPolicyKey,
             CalibrationPublicationPolicyRegistration,
         ] = {}
-        by_calibration: dict[str, CalibrationPublicationPolicyRegistration] = {}
-        history_by_id: dict[str, tuple[str, set[str]]] = {}
+        by_calibration: dict[
+            str,
+            list[CalibrationPublicationPolicyRegistration],
+        ] = {}
+        calibration_id_by_policy_id: dict[str, str] = {}
         for policy in policies:
             expected_ref = CalibrationPublicationPolicyRef(
                 id=policy.id,
@@ -94,44 +115,93 @@ class CalibrationPublicationPolicyRegistry(
                     "calibration publication policy registry supports at most "
                     f"{MAX_CALIBRATION_PUBLICATION_POLICY_REGISTRY_SIZE} policies"
                 )
-            calibration_key = policy.calibration.model_dump_json()
-            if calibration_key in by_calibration:
-                existing = by_calibration[calibration_key]
+            historical_calibration_id = calibration_id_by_policy_id.get(policy.id)
+            if (
+                historical_calibration_id is not None
+                and policy.calibration.id != historical_calibration_id
+            ):
                 raise ValueError(
-                    "exact calibration definition is bound to more than one "
+                    "historical versions of one calibration publication policy "
+                    "must bind the same logical calibration definition"
+                )
+            selected[key] = policy
+            calibration_id_by_policy_id[policy.id] = policy.calibration.id
+            by_calibration.setdefault(
+                policy.calibration.model_dump_json(),
+                [],
+            ).append(policy)
+
+        ordered = dict(sorted(selected.items()))
+        if active is None:
+            ambiguous = tuple(
+                candidates
+                for candidates in by_calibration.values()
+                if len(candidates) > 1
+            )
+            if ambiguous:
+                rendered = ", ".join(
+                    candidates[0].calibration.model_dump_json()
+                    for candidates in ambiguous
+                )
+                raise ValueError(
+                    "active calibration publication policy must be selected "
+                    "explicitly for definitions with multiple capabilities: "
+                    f"{rendered}"
+                )
+            active_policies = tuple(
+                candidates[0] for candidates in by_calibration.values()
+            )
+        else:
+            resolved_active: list[CalibrationPublicationPolicyRegistration] = []
+            for ref in active:
+                policy = ordered.get((ref.id, ref.version))
+                if policy is None:
+                    raise ValueError(
+                        "active calibration publication policy is not a registered "
+                        f"capability: {ref.id!r} version {ref.version!r}"
+                    )
+                if policy.ref != ref:
+                    raise ValueError(
+                        "active calibration publication policy does not match its "
+                        "registered exact fingerprint/bindings"
+                    )
+                resolved_active.append(policy)
+            active_policies = tuple(resolved_active)
+
+        active_by_calibration: dict[
+            str,
+            CalibrationPublicationPolicyRegistration,
+        ] = {}
+        for policy in active_policies:
+            calibration_key = policy.calibration.model_dump_json()
+            existing = active_by_calibration.get(calibration_key)
+            if existing is not None:
+                raise ValueError(
+                    "exact calibration definition has more than one active "
                     "publication policy "
                     f"({existing.id!r} {existing.version!r} and "
                     f"{policy.id!r} {policy.version!r})"
                 )
-            historical = history_by_id.get(policy.id)
-            if historical is not None and (
-                policy.calibration.id != historical[0]
-                or policy.calibration.version in historical[1]
-            ):
-                raise ValueError(
-                    "historical versions of one calibration publication policy "
-                    "must bind distinct versions of the same calibration definition"
-                )
-            selected[key] = policy
-            by_calibration[calibration_key] = policy
-            if historical is None:
-                history_by_id[policy.id] = (
-                    policy.calibration.id,
-                    {policy.calibration.version},
-                )
-            else:
-                historical[1].add(policy.calibration.version)
+            active_by_calibration[calibration_key] = policy
 
-        ordered = dict(sorted(selected.items()))
         self._policies = MappingProxyType(ordered)
-        self._by_calibration = MappingProxyType(by_calibration)
-        self._refs = tuple(policy.ref for policy in ordered.values())
+        self._active_by_calibration = MappingProxyType(active_by_calibration)
+        self._capabilities = tuple(policy.ref for policy in ordered.values())
+        self._active_bindings = tuple(
+            policy.ref for _, policy in sorted(active_by_calibration.items())
+        )
 
     @property
-    def refs(self) -> tuple[CalibrationPublicationPolicyRef, ...]:
-        """Return the deterministic exact capabilities exposed to discovery."""
+    def capabilities(self) -> tuple[CalibrationPublicationPolicyRef, ...]:
+        """Return every exact capability retained for cohort draining."""
 
-        return self._refs
+        return self._capabilities
+
+    @property
+    def active_bindings(self) -> tuple[CalibrationPublicationPolicyRef, ...]:
+        """Return deterministic exact policies selected for new admissions."""
+
+        return self._active_bindings
 
     @override
     def __getitem__(
@@ -177,9 +247,9 @@ class CalibrationPublicationPolicyRegistry(
         self,
         ref: CalibrationDefinitionRef,
     ) -> CalibrationPublicationPolicyRegistration | None:
-        """Select the unique policy bound to one exact calibration definition."""
+        """Select the active policy bound to one exact calibration definition."""
 
-        return self._by_calibration.get(ref.model_dump_json())
+        return self._active_by_calibration.get(ref.model_dump_json())
 
 
 __all__ = [

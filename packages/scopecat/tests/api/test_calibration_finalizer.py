@@ -13,12 +13,12 @@ from scopecat.api.calibration_finalizer import (
     CalibrationPublicationDeferred,
     CalibrationPublicationPlanningContext,
     CalibrationPublicationPolicy,
-    CalibrationPublicationPolicyRegistry,
     CalibrationPublicationPrepare,
     CalibrationPublicationProcedureView,
     CalibrationPublicationRunView,
     ProjectCalibrationPublicationFinalizer,
 )
+from scopecat.api.calibration_policy import CalibrationPublicationPolicyRegistry
 from scopecat.api.calibration_publication import (
     CalibrationCohortPublicationPlan,
     CalibrationPublicationDriftError,
@@ -61,7 +61,7 @@ from scopecat.config.registry.records import (
     ConfigCompositionStepRef,
 )
 from scopecat.daemon.client import DaemonConflictError
-from scopecat.daemon.wire import ConfigPublishReceipt
+from scopecat.daemon.wire import CalibrationPublicationReceipt
 from scopecat.records.analysis import ProjectAnalysisDecisionReference
 
 _NOW = datetime(2026, 8, 19, 9, tzinfo=UTC)
@@ -237,7 +237,8 @@ def test_policy_fingerprint_covers_exact_contract_and_registry_history() -> None
         calibration=_CALIBRATION_V2,
     )
     registry = CalibrationPublicationPolicyRegistry((historical, first))
-    assert registry.refs == (first.ref, historical.ref)
+    assert registry.capabilities == (first.ref, historical.ref)
+    assert registry.active_bindings == (first.ref, historical.ref)
     assert registry.resolve(first.ref) is first
     assert registry.resolve(historical.ref) is historical
     assert registry.for_calibration(_CALIBRATION) is first
@@ -249,8 +250,45 @@ def test_policy_fingerprint_covers_exact_contract_and_registry_history() -> None
         _prepare_success,
         id="tests.publication-finalizer.another-policy",
     )
-    with pytest.raises(ValueError, match="exact calibration definition"):
+    with pytest.raises(ValueError, match="must be selected explicitly"):
         CalibrationPublicationPolicyRegistry((first, separately_named))
+    selected = CalibrationPublicationPolicyRegistry(
+        (separately_named, first),
+        active=(separately_named.ref,),
+    )
+    assert selected.capabilities == (separately_named.ref, first.ref)
+    assert selected.active_bindings == (separately_named.ref,)
+    assert selected.for_calibration(_CALIBRATION) is separately_named
+    assert selected.resolve(first.ref) is first
+
+    inactive = CalibrationPublicationPolicyRegistry(
+        (first, separately_named),
+        active=(),
+    )
+    assert inactive.capabilities == (separately_named.ref, first.ref)
+    assert inactive.active_bindings == ()
+    assert inactive.for_calibration(_CALIBRATION) is None
+
+    with pytest.raises(ValueError, match="more than one active"):
+        CalibrationPublicationPolicyRegistry(
+            (first, separately_named),
+            active=(first.ref, separately_named.ref),
+        )
+    next_version = _policy(_prepare_alternative, version="2")
+    versioned = CalibrationPublicationPolicyRegistry(
+        (next_version, first),
+        active=(next_version.ref,),
+    )
+    assert versioned.capabilities == (first.ref, next_version.ref)
+    assert versioned.for_calibration(_CALIBRATION) is next_version
+    assert versioned.resolve(first.ref) is first
+    retargeted = _policy(
+        _prepare_alternative,
+        version="3",
+        calibration=_CALIBRATION.model_copy(update={"id": "tests.other-calibration"}),
+    )
+    with pytest.raises(ValueError, match="same logical calibration"):
+        CalibrationPublicationPolicyRegistry((first, retargeted))
     with pytest.raises(ValueError, match="exact fingerprint"):
         registry.resolve(first.ref.model_copy(update={"fingerprint": _HASH_E}))
     fixture = _fixture(first, cohort_id="cohort-malformed-policy-ref")
@@ -317,7 +355,7 @@ def test_candidate_and_policy_reject_cross_response_or_plan_drift() -> None:
         fixture.plan.source,
         actor="wrong-actor",
         note=policy.note,
-        expected_calibration_finalization_revision=fixture.finalization.revision,
+        expected_finalization_revision=fixture.finalization.revision,
     )
     try:
         with pytest.raises(ValueError, match="exact policy/candidate"):
@@ -335,7 +373,7 @@ def test_finalizer_validates_plan_from_any_registered_policy_protocol() -> None:
             fixture.plan.source,
             actor="wrong-actor",
             note=policy.note,
-            expected_calibration_finalization_revision=fixture.finalization.revision,
+            expected_finalization_revision=fixture.finalization.revision,
         ),
     )
     operations = _operations_for(fixture)
@@ -822,12 +860,14 @@ class _Operations:
             raise self.finalization_error
         return self.finalizations[cohort_id]
 
-    def publish(self, plan: CalibrationCohortPublicationPlan) -> ConfigPublishReceipt:
+    def publish(
+        self, plan: CalibrationCohortPublicationPlan
+    ) -> CalibrationPublicationReceipt:
         self.plans.append(plan)
         result = self.publish_results.pop(0) if self.publish_results else None
         if isinstance(result, BaseException):
             raise result
-        return cast("ConfigPublishReceipt", object())
+        return cast("CalibrationPublicationReceipt", object())
 
     def require_publication_attention(
         self,
@@ -908,7 +948,7 @@ def _fixture(
         due_reasons=(CalibrationMissingSuccessDueReason(),),
     )
     spec = CalibrationCohortSpec(
-        planner=policy.calibration,
+        definition=policy.calibration,
         automatic_publication=policy.ref,
         config_source=_BASE,
         fanout_scope="tests.publication-finalizer",
@@ -988,7 +1028,7 @@ def _fixture(
         source,
         actor=policy.actor,
         note=policy.note,
-        expected_calibration_finalization_revision=finalization.revision,
+        expected_finalization_revision=finalization.revision,
     )
     _PLANS[cohort_id] = plan
     context = _Context(

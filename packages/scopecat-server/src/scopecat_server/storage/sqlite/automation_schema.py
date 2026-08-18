@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS procedure_runs (
     intent_hash TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK (revision >= 1),
     state TEXT NOT NULL CHECK (
-        state IN ('ready', 'leased', 'waiting', 'attention_required', 'closed')
+        state IN ('ready', 'leased', 'attention_required', 'closed')
     ),
     closure_status TEXT CHECK (
         closure_status IS NULL

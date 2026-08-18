@@ -376,7 +376,7 @@ class ProjectCalibrationEvaluator:
                 continue
 
             spec = CalibrationCohortSpec(
-                planner=definition.ref,
+                definition=definition.ref,
                 automatic_publication=(
                     None if publication_policy is None else publication_policy.ref
                 ),

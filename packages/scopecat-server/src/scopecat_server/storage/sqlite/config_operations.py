@@ -7,14 +7,24 @@ from typing import Literal, cast
 
 from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
-from scopecat.daemon.wire import ConfigActivationReceipt, ConfigPublishReceipt
+from scopecat.daemon.wire import (
+    CalibrationPublicationReceipt,
+    ConfigActivationReceipt,
+    ConfigPublishReceipt,
+)
 from scopecat.kernel.errors import DataIntegrityError, StorageError
 from scopecat.kernel.problems import ProblemPhase, StorageLocation, problem
 
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 
-type ConfigOperationKind = Literal["activate_entry", "publish_revision"]
-type ConfigOperationReceipt = ConfigActivationReceipt | ConfigPublishReceipt
+type ConfigOperationKind = Literal[
+    "activate_entry",
+    "publish_revision",
+    "publish_calibration",
+]
+type ConfigOperationReceipt = (
+    ConfigActivationReceipt | ConfigPublishReceipt | CalibrationPublicationReceipt
+)
 
 _CONFIG_OPERATIONS_REF = "config-registry/operations"
 
@@ -60,6 +70,10 @@ class SQLiteConfigOperationStore:
                 )
             elif kind == "publish_revision":
                 receipt = ConfigPublishReceipt.model_validate_json(receipt_json)
+            elif kind == "publish_calibration":
+                receipt = CalibrationPublicationReceipt.model_validate_json(
+                    receipt_json
+                )
             else:
                 raise ValueError("config operation kind is not supported")
         except (ValidationError, ValueError) as error:
@@ -112,6 +126,8 @@ class SQLiteConfigOperationStore:
 def config_operation_kind(receipt: ConfigOperationReceipt) -> ConfigOperationKind:
     if isinstance(receipt, ConfigActivationReceipt):
         return "activate_entry"
+    if isinstance(receipt, CalibrationPublicationReceipt):
+        return "publish_calibration"
     return "publish_revision"
 
 

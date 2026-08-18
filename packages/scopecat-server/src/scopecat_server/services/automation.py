@@ -40,9 +40,6 @@ from scopecat.automation import (
     ProcedureStepOutputRef,
     ProcedureSubmitCommand,
     ProcedureSubmitReceipt,
-    ProcedureWaitCommand,
-    ProcedureWaitCondition,
-    ProcedureWaitReceipt,
     ProcedureWorkerLease,
     ProcedureWorkerLeaseAcquireCommand,
     ProcedureWorkerLeaseAcquireReceipt,
@@ -265,16 +262,6 @@ class AutomationService:
                 token=command.lease_token,
                 expected_revision=command.expected_run_revision,
                 reason=command.reason,
-            )
-        )
-
-    def wait(self, command: ProcedureWaitCommand) -> ProcedureWaitReceipt:
-        return ProcedureWaitReceipt(
-            run=self._wait(
-                command.procedure_run_id,
-                token=command.lease_token,
-                expected_revision=command.expected_run_revision,
-                condition=command.condition,
             )
         )
 
@@ -563,7 +550,8 @@ class AutomationService:
                 if existing.state in {"running", "succeeded"}:
                     return ProcedureStepTransition(run=run, attempt=existing)
                 raise AutomationConflict(
-                    "failed or attention-required procedure step needs explicit retry"
+                    "failed or attention-required procedure step is terminal for "
+                    "this procedure run"
                 )
             self._require_revision(run, expected_run_revision)
             running = self._store.running_step_attempt_in_transaction(
@@ -863,99 +851,6 @@ class AutomationService:
                 attempt=updated_attempt,
             )
 
-    def _wait(
-        self,
-        procedure_run_id: str,
-        *,
-        token: str,
-        expected_revision: int,
-        condition: ProcedureWaitCondition,
-    ) -> ProcedureRun:
-        """Persist one exact wake condition and release worker authority."""
-
-        now = self._now()
-        with (
-            _translate_store_errors(),
-            self._store.write_transaction() as connection,
-        ):
-            run = self._store.read_run_in_transaction(connection, procedure_run_id)
-            lease = self._store.read_lease_in_transaction(
-                connection,
-                procedure_run_id,
-            )
-            if (
-                run.state == "waiting"
-                and run.wait_condition == condition
-                and lease is None
-            ):
-                return run
-            self._require_revision(run, expected_revision)
-            if run.state != "leased":
-                raise AutomationConflict("only a leased procedure can wait")
-            self._require_live_lease(
-                connection,
-                procedure_run_id,
-                token,
-                now,
-            )
-            if (
-                self._store.running_step_attempt_in_transaction(
-                    connection,
-                    procedure_run_id,
-                )
-                is not None
-            ):
-                raise AutomationConflict(
-                    "procedure cannot wait while a step attempt is running"
-                )
-            updated = _run_state(
-                run,
-                state="waiting",
-                at=now,
-                wait_condition=condition,
-            )
-            self._store.replace_run_in_transaction(
-                connection,
-                updated,
-                expected_revision=expected_revision,
-            )
-            self._store.delete_lease_in_transaction(
-                connection,
-                procedure_run_id,
-                token=token,
-            )
-            return updated
-
-    def _wake(
-        self,
-        procedure_run_id: str,
-        *,
-        expected_revision: int,
-        condition: ProcedureWaitCondition,
-    ) -> ProcedureRun:
-        """Make a waiting procedure ready after its exact condition is observed."""
-
-        now = self._now()
-        with (
-            _translate_store_errors(),
-            self._store.write_transaction() as connection,
-        ):
-            run = self._store.read_run_in_transaction(connection, procedure_run_id)
-            if run.state == "ready":
-                return run
-            self._require_revision(run, expected_revision)
-            if run.state != "waiting" or run.wait_condition != condition:
-                raise AutomationConflict(
-                    "procedure wake does not match its durable wait condition"
-                )
-            updated = _run_state(run, state="ready", at=now)
-            self._store.replace_run_in_transaction(
-                connection,
-                updated,
-                expected_revision=expected_revision,
-            )
-            return updated
-
     def _close(
         self,
         procedure_run_id: str,
@@ -1080,7 +975,6 @@ def _run_state(
     *,
     state: ProcedureRunState,
     at: datetime,
-    wait_condition: ProcedureWaitCondition | None = None,
     attention_reason: str | None = None,
     closure: ProcedureClosure | None = None,
 ) -> ProcedureRun:
@@ -1090,7 +984,6 @@ def _run_state(
             "revision": run.revision + 1,
             "state": state,
             "updated_at": at,
-            "wait_condition": wait_condition,
             "attention_reason": attention_reason,
             "closure": closure,
         }

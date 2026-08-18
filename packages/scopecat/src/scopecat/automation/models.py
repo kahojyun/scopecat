@@ -47,7 +47,6 @@ type ProcedureIntent = Annotated[
 type ProcedureRunState = Literal[
     "ready",
     "leased",
-    "waiting",
     "attention_required",
     "closed",
 ]
@@ -96,27 +95,6 @@ def procedure_intent_hash(
         "intent": cast("dict[str, JsonValue]", thaw_json_value(intent)),
     }
     return f"sha256:{stable_content_hash(identity)}"
-
-
-class RunTerminalWait(_ProcedureModel):
-    """Wake the procedure after one exact child run becomes terminal."""
-
-    kind: Literal["run_terminal"] = "run_terminal"
-    run_id: _NonEmptyText
-
-
-class AnalysisPublicationWait(_ProcedureModel):
-    """Wake the procedure after one exact analysis publication exists."""
-
-    kind: Literal["analysis_publication"] = "analysis_publication"
-    subject: AnalysisSubject
-    analysis_record_id: _NonEmptyText
-
-
-type ProcedureWaitCondition = Annotated[
-    RunTerminalWait | AnalysisPublicationWait,
-    Field(discriminator="kind"),
-]
 
 
 class ProcedureClosure(_ProcedureModel):
@@ -190,7 +168,6 @@ class ProcedureRun(_ProcedureModel):
     state: ProcedureRunState
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
-    wait_condition: ProcedureWaitCondition | None = None
     attention_reason: str | None = None
     closure: ProcedureClosure | None = None
 
@@ -203,12 +180,6 @@ class ProcedureRun(_ProcedureModel):
             )
         if self.updated_at < self.created_at:
             raise ValueError("procedure run cannot be updated before it is created")
-
-        if self.state == "waiting":
-            if self.wait_condition is None:
-                raise ValueError("waiting procedure run requires a wait condition")
-        elif self.wait_condition is not None:
-            raise ValueError("wait condition is only valid for a waiting procedure run")
 
         if self.state == "attention_required":
             if self.attention_reason is None or not self.attention_reason.strip():

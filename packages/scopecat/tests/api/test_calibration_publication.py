@@ -70,7 +70,10 @@ from scopecat.daemon.client import (
     DaemonNotFoundError,
     DaemonUnavailableError,
 )
-from scopecat.daemon.wire import ConfigPublishCommand, ConfigPublishReceipt
+from scopecat.daemon.wire import (
+    CalibrationPublicationCommand,
+    CalibrationPublicationReceipt,
+)
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.analysis import (
     AnalysisFact,
@@ -209,22 +212,22 @@ def test_automatic_plan_revision_fence_does_not_change_identity() -> None:
     first = CalibrationCohortPublicationPlan.create(
         automatic_source,
         actor="calibration-finalizer",
-        expected_calibration_finalization_revision=2,
+        expected_finalization_revision=2,
     )
     rebased = CalibrationCohortPublicationPlan.create(
         automatic_source,
         actor=first.actor,
-        expected_calibration_finalization_revision=3,
+        expected_finalization_revision=3,
     )
 
-    assert first.expected_calibration_finalization_revision == 2
-    assert rebased.expected_calibration_finalization_revision == 3
+    assert first.expected_finalization_revision == 2
+    assert rebased.expected_finalization_revision == 3
     assert first.entry_id == rebased.entry_id
     assert first.operation_id == rebased.operation_id
     assert first.command.intent_hash == rebased.command.intent_hash
 
     invalid = first.model_dump(mode="python")
-    invalid["expected_calibration_finalization_revision"] = None
+    invalid["expected_finalization_revision"] = None
     with pytest.raises(ValidationError, match="plan requires an expected"):
         CalibrationCohortPublicationPlan.model_validate(invalid)
 
@@ -232,7 +235,7 @@ def test_automatic_plan_revision_fence_does_not_change_identity() -> None:
         CalibrationCohortPublicationPlan.create(
             source,
             actor="calibration-finalizer",
-            expected_calibration_finalization_revision=2,
+            expected_finalization_revision=2,
         )
 
 
@@ -419,22 +422,28 @@ def test_lab_client_wires_its_exact_procedure_and_read_session() -> None:
 
 @dataclass(slots=True)
 class _ConfigOperations:
-    publish_result: ConfigPublishReceipt | BaseException
-    lookup_result: ConfigPublishReceipt | BaseException
+    publish_result: CalibrationPublicationReceipt | BaseException
+    lookup_result: CalibrationPublicationReceipt | BaseException
     publish_calls: int = 0
     lookup_ids: list[str] | None = None
 
     def __post_init__(self) -> None:
         self.lookup_ids = []
 
-    def publish_config(self, command: ConfigPublishCommand) -> ConfigPublishReceipt:
+    def publish_calibration(
+        self,
+        command: CalibrationPublicationCommand,
+    ) -> CalibrationPublicationReceipt:
         del command
         self.publish_calls += 1
         if isinstance(self.publish_result, BaseException):
             raise self.publish_result
         return self.publish_result
 
-    def publish_operation(self, operation_id: str) -> ConfigPublishReceipt:
+    def calibration_publication_operation(
+        self,
+        operation_id: str,
+    ) -> CalibrationPublicationReceipt:
         assert self.lookup_ids is not None
         self.lookup_ids.append(operation_id)
         if isinstance(self.lookup_result, BaseException):
@@ -445,7 +454,7 @@ class _ConfigOperations:
 def _cohort_and_members() -> tuple[CalibrationCohort, CalibrationCohortMemberPage]:
     specs = tuple(_member_spec(target_id) for target_id in ("q0", "q1"))
     spec = CalibrationCohortSpec(
-        planner=_DEFINITION,
+        definition=_DEFINITION,
         config_source=_BASE_SOURCE,
         fanout_scope="tests.calibration",
         max_in_flight=2,
@@ -555,7 +564,7 @@ def _receipt(
     page: CalibrationCohortMemberPage,
     *,
     resolved_candidate_id: str | None = None,
-) -> ConfigPublishReceipt:
+) -> CalibrationPublicationReceipt:
     source = plan.source
     resolved = CalibrationCohortMergeRegistrySource(
         cohort_id=source.cohort_id,
@@ -614,7 +623,7 @@ def _receipt(
         )
         for contribution in source.contributions
     )
-    return ConfigPublishReceipt(
+    return CalibrationPublicationReceipt(
         operation=operation,
         entry=entry,
         activation=activation,

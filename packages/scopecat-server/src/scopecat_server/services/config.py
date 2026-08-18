@@ -59,6 +59,8 @@ from scopecat.daemon.views import (
 )
 from scopecat.daemon.wire import (
     CalibrationCohortMergeRevisionSource,
+    CalibrationPublicationCommand,
+    CalibrationPublicationReceipt,
     CandidateConfigRevisionSource,
     ConfigActivationReceipt,
     ConfigDraftCommand,
@@ -229,9 +231,25 @@ class ConfigService:
                 raise BackendNotFound(
                     f"config publish operation was not found: {operation_id}"
                 )
-            if not isinstance(receipt, ConfigPublishReceipt):
+            if type(receipt) is not ConfigPublishReceipt:
                 raise BackendConflict(
-                    f"config operation is not a publication: {operation_id}"
+                    f"config operation is not a config publication: {operation_id}"
+                )
+            return receipt
+
+    def get_calibration_publication_operation(
+        self,
+        operation_id: str,
+    ) -> CalibrationPublicationReceipt:
+        with self._config_errors():
+            receipt = self._config_operations.find(operation_id)
+            if receipt is None:
+                raise BackendNotFound(
+                    f"calibration publication operation was not found: {operation_id}"
+                )
+            if not isinstance(receipt, CalibrationPublicationReceipt):
+                raise BackendConflict(
+                    f"config operation is not a calibration publication: {operation_id}"
                 )
             return receipt
 
@@ -241,6 +259,29 @@ class ConfigService:
     ) -> ConfigPublishReceipt:
         """Publish one revision; candidate approval shares the same commit."""
 
+        receipt = self._publish_revision(command)
+        assert type(receipt) is ConfigPublishReceipt
+        return receipt
+
+    def publish_calibration(
+        self,
+        command: CalibrationPublicationCommand,
+    ) -> CalibrationPublicationReceipt:
+        """Publish one verified cohort and finalize it in the same commit."""
+
+        receipt = self._publish_revision(command)
+        assert isinstance(receipt, CalibrationPublicationReceipt)
+        return receipt
+
+    def _publish_revision(
+        self,
+        command: ConfigPublishCommand | CalibrationPublicationCommand,
+    ) -> ConfigPublishReceipt | CalibrationPublicationReceipt:
+        calibration_publication = isinstance(
+            command,
+            CalibrationPublicationCommand,
+        )
+
         with self._mutation_lock, self._config_errors():
             with self._config_transaction() as transaction:
                 connection, services = transaction
@@ -249,8 +290,13 @@ class ConfigService:
                     command.operation_id,
                 )
                 if existing is not None:
+                    expected_type = (
+                        CalibrationPublicationReceipt
+                        if calibration_publication
+                        else ConfigPublishReceipt
+                    )
                     if (
-                        not isinstance(existing, ConfigPublishReceipt)
+                        type(existing) is not expected_type
                         or existing.operation.intent_hash != command.intent_hash
                     ):
                         raise BackendConflict(
@@ -260,7 +306,19 @@ class ConfigService:
                     return existing
                 source = command.source
                 calibration_merge: _PreparedCalibrationMerge | None = None
-                if isinstance(source, CandidateConfigRevisionSource):
+                if calibration_publication:
+                    assert isinstance(command, CalibrationPublicationCommand)
+                    assert isinstance(source, CalibrationCohortMergeRevisionSource)
+                    calibration_merge = self._prepare_calibration_merge(
+                        connection,
+                        command,
+                    )
+                    self._publish_calibration_merge_approvals(
+                        connection,
+                        calibration_merge,
+                        actor=command.actor,
+                    )
+                elif isinstance(source, CandidateConfigRevisionSource):
                     if isinstance(source.acceptance, CrossRunCandidateAcceptance):
                         self._analyses.validate_candidate_verification(
                             source.acceptance.decision,
@@ -294,17 +352,6 @@ class ConfigService:
                                 occurred_at=prepared.approval.approved_at,
                             ),
                         )
-                elif isinstance(source, CalibrationCohortMergeRevisionSource):
-                    calibration_merge = self._prepare_calibration_merge(
-                        connection,
-                        command,
-                        source,
-                    )
-                    self._publish_calibration_merge_approvals(
-                        connection,
-                        calibration_merge,
-                        actor=command.actor,
-                    )
                 result = config_registry_service.publish_config_revision(
                     revision=_config_revision(
                         command,
@@ -326,45 +373,49 @@ class ConfigService:
                     note=command.note,
                     activation_generation=activation.generation,
                 )
-                calibration_successes = (
-                    ()
-                    if calibration_merge is None
-                    else _calibration_successes(
+                if calibration_merge is None:
+                    receipt: ConfigPublishReceipt | CalibrationPublicationReceipt = (
+                        ConfigPublishReceipt(
+                            operation=operation,
+                            entry=result.entry,
+                            deltas=result.deltas,
+                            activation=activation,
+                        )
+                    )
+                else:
+                    calibration_successes = _calibration_successes(
                         calibration_merge,
                         operation=operation,
                         result_entry=result.entry,
                         activation=activation,
                     )
-                )
-                receipt = ConfigPublishReceipt(
-                    operation=operation,
-                    entry=result.entry,
-                    deltas=result.deltas,
-                    activation=activation,
-                    calibration_successes=calibration_successes,
-                )
+                    receipt = CalibrationPublicationReceipt(
+                        operation=operation,
+                        entry=result.entry,
+                        deltas=result.deltas,
+                        activation=activation,
+                        calibration_successes=calibration_successes,
+                    )
                 self._config_operations.commit_in_transaction(connection, receipt)
-                for success in calibration_successes:
-                    self._calibration_cohorts.insert_success_publication_in_transaction(
-                        connection,
-                        success,
-                    )
-                if (
-                    isinstance(source, CalibrationCohortMergeRevisionSource)
-                    and source.automatic_publication is not None
-                ):
-                    expected_revision = (
-                        command.expected_calibration_finalization_revision
-                    )
-                    assert expected_revision is not None
-                    self._calibration_cohorts.complete_publication_in_transaction(
-                        connection,
-                        cohort_id=source.cohort_id,
-                        policy=source.automatic_publication,
-                        expected_revision=expected_revision,
-                        operation_id=operation.operation_id,
-                        at=activation.recorded_at,
-                    )
+                if isinstance(receipt, CalibrationPublicationReceipt):
+                    for success in receipt.calibration_successes:
+                        self._calibration_cohorts.insert_success_publication_in_transaction(
+                            connection,
+                            success,
+                        )
+                    assert isinstance(command, CalibrationPublicationCommand)
+                    source = command.source
+                    if source.automatic_publication is not None:
+                        expected_revision = command.expected_finalization_revision
+                        assert expected_revision is not None
+                        self._calibration_cohorts.complete_publication_in_transaction(
+                            connection,
+                            cohort_id=source.cohort_id,
+                            policy=source.automatic_publication,
+                            expected_revision=expected_revision,
+                            operation_id=operation.operation_id,
+                            at=activation.recorded_at,
+                        )
                 self._calibration_cohorts.supersede_stale_publications_in_transaction(
                     connection,
                     active_generation=activation.generation,
@@ -375,10 +426,11 @@ class ConfigService:
     def _prepare_calibration_merge(
         self,
         connection: sqlite3.Connection,
-        command: ConfigPublishCommand,
-        source: CalibrationCohortMergeRevisionSource,
+        command: CalibrationPublicationCommand,
     ) -> _PreparedCalibrationMerge:
         """Resolve every immutable proof before publishing any logical state."""
+
+        source = command.source
 
         try:
             cohort = self._calibration_cohorts.read_in_transaction(
@@ -411,7 +463,7 @@ class ConfigService:
                 "calibration merge cohort or base config does not match its source"
             )
         if source.automatic_publication is not None:
-            expected_revision = command.expected_calibration_finalization_revision
+            expected_revision = command.expected_finalization_revision
             assert expected_revision is not None
             try:
                 finalization = (
@@ -906,7 +958,7 @@ class ConfigService:
     def _append_revision_events(
         self,
         connection: sqlite3.Connection,
-        command: ConfigPublishCommand,
+        command: ConfigPublishCommand | CalibrationPublicationCommand,
         result: config_registry_service.ConfigRegistryMutationResult,
     ) -> None:
         source = command.source
@@ -969,7 +1021,7 @@ class ConfigService:
 
 
 def _config_revision(
-    command: ConfigPublishCommand,
+    command: ConfigPublishCommand | CalibrationPublicationCommand,
     *,
     calibration_merge: _PreparedCalibrationMerge | None = None,
 ) -> config_registry_service.ConfigRevision:

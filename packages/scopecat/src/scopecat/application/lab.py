@@ -36,6 +36,10 @@ class LabApplication:
     do not read seed inputs. Later accepted entries and activation state belong
     to the daemon. Instrument backend composition is declared separately in the
     project manifest and loaded only by the isolated worker.
+
+    Calibration publication capabilities may retain historical policy versions
+    for already-admitted cohorts. Their registry separately selects the exact
+    active bindings used when this application admits new cohorts.
     """
 
     build_experiment_system: ExperimentSystemBuilder | None = field(

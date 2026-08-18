@@ -108,7 +108,7 @@ def _fixture() -> tuple[
         due_reasons=(CalibrationMissingSuccessDueReason(),),
     )
     spec = CalibrationCohortSpec(
-        planner=definition,
+        definition=definition,
         automatic_publication=publication_policy,
         config_source=CalibrationConfigSourceRef.from_run_config_source(
             ConfigRegistryRunConfigSource(

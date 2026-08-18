@@ -11,9 +11,9 @@ from scopecat.api.calibration_finalizer import (
     CalibrationPublicationCandidate,
     CalibrationPublicationPlanningContext,
     CalibrationPublicationPolicy,
-    CalibrationPublicationPolicyRegistry,
 )
 from scopecat.api.calibration_planner import CalibrationPlanningContext
+from scopecat.api.calibration_policy import CalibrationPublicationPolicyRegistry
 from scopecat.api.calibration_publication import CalibrationCohortPublicationPlan
 from scopecat.api.lab import LabClient
 from scopecat.api.procedure_planner import ProcedurePlanningContext
@@ -220,7 +220,10 @@ def test_direct_lab_client_rejects_calibration_target_missing_from_registry() ->
 
 
 def test_application_owns_historical_calibration_publication_registry() -> None:
-    publications = CalibrationPublicationPolicyRegistry((_PUBLICATION_POLICY,))
+    publications = CalibrationPublicationPolicyRegistry(
+        (_PUBLICATION_POLICY,),
+        active=(_PUBLICATION_POLICY.ref,),
+    )
     application = LabApplication(
         procedures=(_example_procedure,),
         calibrations=(_PUBLISHED_CALIBRATION,),
@@ -230,10 +233,14 @@ def test_application_owns_historical_calibration_publication_registry() -> None:
 
     assert application.calibration_publications is publications
     assert replaced.calibration_publications is publications
+    assert publications.active_bindings == (_PUBLICATION_POLICY.ref,)
 
 
 def test_direct_lab_client_retains_calibration_publication_registry() -> None:
-    publications = CalibrationPublicationPolicyRegistry((_PUBLICATION_POLICY,))
+    publications = CalibrationPublicationPolicyRegistry(
+        (_PUBLICATION_POLICY,),
+        active=(_PUBLICATION_POLICY.ref,),
+    )
     lab = LabClient(
         cast("DaemonClient", object()),
         procedures=ProcedureRegistry((_example_procedure,)),

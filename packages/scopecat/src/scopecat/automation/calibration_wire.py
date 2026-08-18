@@ -268,7 +268,7 @@ class CalibrationPublicationReadyItem(_CalibrationWireModel):
         if (
             finalization.cohort_id != self.cohort.cohort_id
             or finalization.spec_hash != self.cohort.spec_hash
-            or finalization.policy.calibration != self.cohort.planner
+            or finalization.policy.calibration != self.cohort.definition
         ):
             raise ValueError(
                 "publication ready item must match its exact cohort summary"

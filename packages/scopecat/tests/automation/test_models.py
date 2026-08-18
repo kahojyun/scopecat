@@ -12,12 +12,10 @@ from scopecat.automation import (
     ProcedureClosure,
     ProcedureDefinitionRef,
     ProcedureRun,
-    ProcedureRunState,
     ProcedureStepAttempt,
     ProcedureStepOperation,
     ProcedureStepOutputRef,
     RunOutputRef,
-    RunTerminalWait,
     procedure_intent_hash,
 )
 from scopecat.records.analysis import ProjectAnalysisSubject
@@ -37,45 +35,26 @@ def _definition() -> ProcedureDefinitionRef:
     )
 
 
-def test_procedure_run_round_trips_versioned_definition_and_wait() -> None:
+def test_procedure_run_round_trips_versioned_definition() -> None:
     run = ProcedureRun(
         procedure_run_id="procedure-1",
         request_key="drag-q0",
         definition=_definition(),
         intent=_INTENT,
         intent_hash=procedure_intent_hash(_definition(), _INTENT),
-        revision=3,
-        state="waiting",
+        revision=1,
+        state="ready",
         created_at=_START,
         updated_at=_END,
-        wait_condition=RunTerminalWait(run_id="run-1"),
     )
 
     restored = assert_model_round_trip(run)
 
     assert restored == run
     assert restored.definition.version == "1"
-    assert isinstance(restored.wait_condition, RunTerminalWait)
 
 
-@pytest.mark.parametrize("state", ["ready", "leased"])
-def test_active_procedure_run_rejects_state_details(
-    state: ProcedureRunState,
-) -> None:
-    with pytest.raises(ValidationError, match="wait condition is only valid"):
-        ProcedureRun(
-            procedure_run_id="procedure-1",
-            request_key="drag-q0",
-            definition=_definition(),
-            intent=_INTENT,
-            intent_hash=procedure_intent_hash(_definition(), _INTENT),
-            revision=1,
-            state=state,
-            wait_condition=RunTerminalWait(run_id="run-1"),
-        )
-
-
-def test_procedure_run_requires_details_for_wait_attention_and_close() -> None:
+def test_procedure_run_rejects_waiting_and_requires_terminal_details() -> None:
     common = {
         "procedure_run_id": "procedure-1",
         "request_key": "drag-q0",
@@ -85,7 +64,7 @@ def test_procedure_run_requires_details_for_wait_attention_and_close() -> None:
         "revision": 1,
     }
 
-    with pytest.raises(ValidationError, match="requires a wait condition"):
+    with pytest.raises(ValidationError, match="Input should be"):
         ProcedureRun.model_validate({**common, "state": "waiting"})
     with pytest.raises(ValidationError, match="requires a reason"):
         ProcedureRun.model_validate({**common, "state": "attention_required"})

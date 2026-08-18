@@ -52,7 +52,7 @@ from scopecat.config.registry.records import (
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.wire import (
     CalibrationCohortMergeRevisionSource,
-    ConfigPublishReceipt,
+    CalibrationPublicationReceipt,
 )
 from scopecat.records.config import ConfigContentHash
 from scopecat.records.content import Sha256ContentHash
@@ -83,6 +83,8 @@ class LabCalibrationOperations:
     ) -> None:
         for definition in registry.values():
             procedures.registry.resolve(definition.procedure.ref)
+        for policy in publication_registry.active_bindings:
+            registry.resolve(policy.calibration)
         self._client = client
         self._config = config
         self._procedures = procedures
@@ -328,24 +330,24 @@ class LabCalibrationOperations:
             source,
             actor=actor,
             note=note,
-            expected_calibration_finalization_revision=(expected_finalization_revision),
+            expected_finalization_revision=expected_finalization_revision,
         )
 
     def publish(
         self,
         plan: CalibrationCohortPublicationPlan,
-    ) -> ConfigPublishReceipt:
+    ) -> CalibrationPublicationReceipt:
         """Publish an exact cohort plan with unknown-outcome reconciliation."""
 
-        return publish_calibration_cohort(self._config, plan)
+        return publish_calibration_cohort(self._client, plan)
 
     def reopen_publication(
         self,
         plan: CalibrationCohortPublicationPlan,
-    ) -> ConfigPublishReceipt:
+    ) -> CalibrationPublicationReceipt:
         """Reopen a deterministic publication without issuing a mutation."""
 
-        return reopen_calibration_cohort_publication(self._config, plan)
+        return reopen_calibration_cohort_publication(self._client, plan)
 
 
 __all__ = ["LabCalibrationOperations"]

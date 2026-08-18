@@ -16,7 +16,6 @@ from pydantic import ValidationError
 from scopecat.api._config import LabConfigOperations
 from scopecat.api.calibration_policy import (
     MAX_CALIBRATION_PUBLICATION_POLICY_REGISTRY_SIZE,
-    CalibrationPublicationPolicyKey,
     CalibrationPublicationPolicyRegistration,
     CalibrationPublicationPolicyRegistry,
 )
@@ -69,7 +68,7 @@ from scopecat.daemon.client import (
 from scopecat.daemon.views import ConfigEntryView
 from scopecat.daemon.wire import (
     CalibrationCohortMergeRevisionSource,
-    ConfigPublishReceipt,
+    CalibrationPublicationReceipt,
 )
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.records.config import ConfigContentHash, ConfigProfileSnapshot
@@ -265,7 +264,7 @@ class CalibrationPublicationPlanningContext:
         *,
         actor: str,
         note: str = "",
-        expected_calibration_finalization_revision: int,
+        expected_finalization_revision: int,
     ) -> CalibrationCohortPublicationPlan:
         """Freeze deterministic publication identities without mutating config."""
 
@@ -273,9 +272,7 @@ class CalibrationPublicationPlanningContext:
             source,
             actor=actor,
             note=note,
-            expected_calibration_finalization_revision=(
-                expected_calibration_finalization_revision
-            ),
+            expected_finalization_revision=expected_finalization_revision,
         )
 
 
@@ -473,7 +470,7 @@ class CalibrationPublicationFinalizerOperations(Protocol):
     def publish(
         self,
         plan: CalibrationCohortPublicationPlan,
-    ) -> ConfigPublishReceipt: ...
+    ) -> CalibrationPublicationReceipt: ...
 
     def require_publication_attention(
         self,
@@ -547,7 +544,7 @@ class ProjectCalibrationPublicationFinalizer:
 
         page = self._operations.ready_publications(
             CalibrationPublicationReadyQuery(
-                capabilities=self._policies.refs,
+                capabilities=self._policies.capabilities,
                 cursor=self._cursor,
                 through_sequence=self._through_sequence,
                 limit=self._page_limit,
@@ -902,8 +899,7 @@ def _validate_policy_plan(
     if (
         plan.actor != policy.actor
         or plan.note != policy.note
-        or plan.expected_calibration_finalization_revision
-        != candidate.finalization.revision
+        or plan.expected_finalization_revision != candidate.finalization.revision
         or source.cohort_id != cohort.cohort_id
         or source.spec_hash != cohort.spec_hash
         or source.automatic_publication != policy.ref
@@ -1110,15 +1106,12 @@ def _empty_cycle(
 
 
 __all__ = [
-    "MAX_CALIBRATION_PUBLICATION_POLICY_REGISTRY_SIZE",
     "CalibrationPublicationCandidate",
     "CalibrationPublicationDeferred",
     "CalibrationPublicationFinalizerCycleResult",
     "CalibrationPublicationFinalizerOperations",
     "CalibrationPublicationPlanningContext",
     "CalibrationPublicationPolicy",
-    "CalibrationPublicationPolicyKey",
-    "CalibrationPublicationPolicyRegistry",
     "CalibrationPublicationPrepare",
     "CalibrationPublicationProcedureView",
     "CalibrationPublicationRunView",

@@ -50,7 +50,8 @@ def test_drag_beta_automatic_policy_binds_its_exact_contract() -> None:
     assert policy.composition_policy == DRAG_BETA_COMPOSITION_POLICY_REF
     assert policy.actor == DRAG_BETA_PUBLICATION_ACTOR
     assert policy.note == DRAG_BETA_PUBLICATION_NOTE
-    assert DRAG_BETA_PUBLICATION_POLICY_REGISTRY.refs == (policy.ref,)
+    assert DRAG_BETA_PUBLICATION_POLICY_REGISTRY.capabilities == (policy.ref,)
+    assert DRAG_BETA_PUBLICATION_POLICY_REGISTRY.active_bindings == (policy.ref,)
     assert DRAG_BETA_PUBLICATION_POLICY_REGISTRY.resolve(policy.ref) is policy
     assert (
         DRAG_BETA_PUBLICATION_POLICY_REGISTRY.for_calibration(policy.calibration)
@@ -178,9 +179,9 @@ class _PlanningContext:
         *,
         actor: str,
         note: str = "",
-        expected_calibration_finalization_revision: int,
+        expected_finalization_revision: int,
     ) -> CalibrationCohortPublicationPlan:
         assert actor == DRAG_BETA_PUBLICATION_ACTOR
         assert note == DRAG_BETA_PUBLICATION_NOTE
-        self.finalization_revisions.append(expected_calibration_finalization_revision)
+        self.finalization_revisions.append(expected_finalization_revision)
         return self.plan

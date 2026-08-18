@@ -25,7 +25,6 @@ from scopecat.automation import (
     ProcedureScheduleMaterializeCommand,
     ProcedureScheduleMaterializeReceipt,
     ProcedureSchedulePage,
-    RunTerminalWait,
     procedure_intent_hash,
     procedure_schedule_request_key,
 )
@@ -109,8 +108,8 @@ def _run(
     run_id: str = "procedure-q0",
 ) -> ProcedureRun:
     details: dict[str, object] = {}
-    if state == "waiting":
-        details["wait_condition"] = RunTerminalWait(run_id="run-child")
+    if state == "attention_required":
+        details["attention_reason"] = "worker cannot continue"
     return ProcedureRun.model_validate(
         {
             "procedure_run_id": run_id,
@@ -245,6 +244,6 @@ def test_runnable_query_is_exact_bounded_and_page_is_runnable() -> None:
             definitions=tuple(_definition(version=str(i)) for i in range(201))
         )
     with pytest.raises(ValidationError, match="requires runnable states"):
-        ProcedureRunnablePage(items=(_run("waiting"),))
+        ProcedureRunnablePage(items=(_run("attention_required"),))
     with pytest.raises(ValidationError, match="ids must be unique"):
         ProcedureRunnablePage(items=(_run("ready"), _run("ready")))

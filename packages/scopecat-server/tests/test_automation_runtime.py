@@ -30,13 +30,11 @@ from scopecat.automation import (
     ProcedureStepCompleteCommand,
     ProcedureStepFailCommand,
     ProcedureSubmitCommand,
-    ProcedureWaitCommand,
     ProcedureWorker,
     ProcedureWorkerLeaseAcquireCommand,
     ProcedureWorkerLeaseHeartbeatCommand,
     ProcedureWorkerLeaseReleaseCommand,
     RunOutputRef,
-    RunTerminalWait,
     procedure,
     procedure_step_operation_id,
 )
@@ -344,24 +342,6 @@ def test_procedure_http_exposes_worker_state_transitions(tmp_path: Path) -> None
             )
         ).run
         assert released.state == "ready"
-
-        waiting_run = _submit(client, "wait")
-        waiting_lease = client.acquire_procedure_worker_lease(
-            ProcedureWorkerLeaseAcquireCommand(
-                procedure_run_id=waiting_run.procedure_run_id,
-                worker_id="waiting-worker",
-                expected_run_revision=waiting_run.revision,
-            )
-        )
-        waiting = client.wait_procedure(
-            ProcedureWaitCommand(
-                procedure_run_id=waiting_run.procedure_run_id,
-                lease_token=waiting_lease.lease.lease_token,
-                expected_run_revision=waiting_lease.run.revision,
-                condition=RunTerminalWait(run_id="child-run"),
-            )
-        ).run
-        assert waiting.state == "waiting"
 
         run_attention = _submit(client, "run-attention")
         run_attention_lease = client.acquire_procedure_worker_lease(

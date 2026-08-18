@@ -16,12 +16,10 @@ from scopecat.automation import (
     ProcedureStepCompleteCommand,
     ProcedureStepFailCommand,
     ProcedureSubmitCommand,
-    ProcedureWaitCommand,
     ProcedureWorkerLeaseAcquireCommand,
     ProcedureWorkerLeaseHeartbeatCommand,
     ProcedureWorkerLeaseReleaseCommand,
     RunOutputRef,
-    RunTerminalWait,
 )
 
 from scopecat_server import BackendConflict, LocalDaemonRuntime
@@ -285,37 +283,23 @@ def test_expired_lease_takeover_reuses_running_attempt_and_fences_old_worker(
     )
     assert failed.run.state == "leased"
     assert failed.step.state == "failed"
+    with pytest.raises(BackendConflict, match="terminal for this procedure run"):
+        service.begin_step(
+            ProcedureStepBeginCommand(
+                procedure_run_id=admitted.procedure_run_id,
+                lease_token=takeover.lease.lease_token,
+                expected_run_revision=failed.run.revision,
+                step_key="baseline",
+                operation="run",
+                intent_hash=_STEP_HASH,
+            )
+        )
 
 
-def test_wait_release_and_attention_transitions_invalidate_lease(
+def test_release_and_attention_transitions_invalidate_lease(
     tmp_path: Path,
 ) -> None:
     service, _ = _service(tmp_path)
-
-    waiting_run = _submit(service, key="wait")
-    waiting_lease = service.acquire_lease(
-        ProcedureWorkerLeaseAcquireCommand(
-            procedure_run_id=waiting_run.procedure_run_id,
-            worker_id="worker-wait",
-            expected_run_revision=1,
-        )
-    )
-    waiting = service.wait(
-        ProcedureWaitCommand(
-            procedure_run_id=waiting_run.procedure_run_id,
-            lease_token=waiting_lease.lease.lease_token,
-            expected_run_revision=waiting_lease.run.revision,
-            condition=RunTerminalWait(run_id="run-child"),
-        )
-    ).run
-    assert waiting.state == "waiting"
-    with pytest.raises(BackendConflict, match="leased"):
-        service.heartbeat_lease(
-            ProcedureWorkerLeaseHeartbeatCommand(
-                procedure_run_id=waiting.procedure_run_id,
-                lease_token=waiting_lease.lease.lease_token,
-            )
-        )
 
     released_run = _submit(service, key="release")
     released_lease = service.acquire_lease(
@@ -333,6 +317,13 @@ def test_wait_release_and_attention_transitions_invalidate_lease(
         )
     ).run
     assert released.state == "ready"
+    with pytest.raises(BackendConflict, match="leased"):
+        service.heartbeat_lease(
+            ProcedureWorkerLeaseHeartbeatCommand(
+                procedure_run_id=released.procedure_run_id,
+                lease_token=released_lease.lease.lease_token,
+            )
+        )
 
     run_attention = _submit(service, key="run-attention")
     run_lease = service.acquire_lease(
@@ -351,6 +342,13 @@ def test_wait_release_and_attention_transitions_invalidate_lease(
         )
     ).run
     assert attention.state == "attention_required"
+    with pytest.raises(BackendConflict, match="leased"):
+        service.heartbeat_lease(
+            ProcedureWorkerLeaseHeartbeatCommand(
+                procedure_run_id=attention.procedure_run_id,
+                lease_token=run_lease.lease.lease_token,
+            )
+        )
 
     step_attention = _submit(service, key="step-attention")
     step_lease = service.acquire_lease(

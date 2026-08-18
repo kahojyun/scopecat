@@ -74,8 +74,9 @@ contents, admits immutable bounded cohorts, and runs independent durable
 procedures through baseline, fit, candidate, and verification. These automated
 members are verify-only: successful closure leaves each result pending a
 published freshness anchor and makes the complete cohort durable finalization
-work. The application binds the exact DRAG v2 definition to a fingerprinted
-automatic-publication policy. The resident worker resolves that same policy
+work. The application selects an active binding from the exact DRAG v2
+definition to a fingerprinted automatic-publication policy while retaining it
+as a historical drain capability. The resident worker resolves that same policy
 after restart and calls `prepare_drag_beta_cohort_publication` through a narrow
 read-only facade. The preparation resolves the exact four-step proofs, rejects
 edits outside each target's owned beta cell, previews the common-base cell

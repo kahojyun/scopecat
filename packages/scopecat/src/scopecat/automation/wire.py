@@ -17,7 +17,6 @@ from scopecat.automation.models import (
     ProcedureStepAttempt,
     ProcedureStepOperation,
     ProcedureStepOutputRef,
-    ProcedureWaitCondition,
     procedure_intent_hash,
 )
 from scopecat.kernel.content_identity import stable_content_hash
@@ -375,20 +374,6 @@ class ProcedureRunAttentionReceipt(_WireModel):
     def validate_result(self) -> ProcedureRunAttentionReceipt:
         if self.run.state != "attention_required":
             raise ValueError("procedure run attention receipt requires attention")
-        return self
-
-
-class ProcedureWaitCommand(_FencedProcedureCommand):
-    condition: ProcedureWaitCondition
-
-
-class ProcedureWaitReceipt(_WireModel):
-    run: ProcedureRun
-
-    @model_validator(mode="after")
-    def validate_result(self) -> ProcedureWaitReceipt:
-        if self.run.state != "waiting":
-            raise ValueError("procedure wait receipt requires a waiting run")
         return self
 
 

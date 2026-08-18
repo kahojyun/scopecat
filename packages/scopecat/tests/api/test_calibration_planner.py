@@ -13,13 +13,13 @@ from scopecat.api.calibration_finalizer import (
     CalibrationPublicationCandidate,
     CalibrationPublicationPlanningContext,
     CalibrationPublicationPolicy,
-    CalibrationPublicationPolicyRegistry,
 )
 from scopecat.api.calibration_planner import (
     CalibrationPlanningContext,
     ProjectCalibrationEvaluator,
     calibration_cohort_id,
 )
+from scopecat.api.calibration_policy import CalibrationPublicationPolicyRegistry
 from scopecat.api.calibration_publication import CalibrationCohortPublicationPlan
 from scopecat.automation import (
     CalibrationAttemptRef,
@@ -242,7 +242,7 @@ class _UnknownCreateOperations(_Operations):
         if self.outcome == "drift":
             source = attempted_spec.config_source
             existing_spec = CalibrationCohortSpec(
-                planner=attempted_spec.planner,
+                definition=attempted_spec.definition,
                 config_source=CalibrationConfigSourceRef(
                     entry_id="drifted-config-entry",
                     config_ref=source.config_ref,

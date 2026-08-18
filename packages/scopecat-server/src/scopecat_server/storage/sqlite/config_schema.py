@@ -19,7 +19,9 @@ CREATE TABLE IF NOT EXISTS config_registry_activations (
 
 CREATE TABLE IF NOT EXISTS config_operations (
     operation_id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL CHECK (kind IN ('activate_entry', 'publish_revision')),
+    kind TEXT NOT NULL CHECK (
+        kind IN ('activate_entry', 'publish_revision', 'publish_calibration')
+    ),
     intent_hash TEXT NOT NULL,
     expected_generation INTEGER NOT NULL CHECK (expected_generation >= 0),
     result_entry_id TEXT NOT NULL,

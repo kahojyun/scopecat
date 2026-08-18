@@ -29,7 +29,7 @@ from scopecat.automation.calibrations import (
     CalibrationSuccessRef,
 )
 from scopecat.automation.models import ProcedureRun
-from scopecat.daemon.wire import ConfigPublishReceipt
+from scopecat.daemon.wire import CalibrationPublicationReceipt
 
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 
@@ -41,7 +41,7 @@ JOIN calibration_cohorts AS cohorts
 JOIN procedure_runs AS runs
   ON runs.procedure_run_id = members.procedure_run_id
 WHERE cohorts.fanout_scope = ?
-  AND runs.state IN ('ready', 'leased', 'waiting', 'attention_required')
+  AND runs.state IN ('ready', 'leased', 'attention_required')
 """
 
 
@@ -768,7 +768,8 @@ class SQLiteCalibrationCohortStore:
             connection.execute(
                 """
                 INSERT INTO calibration_cohorts(
-                    cohort_id, planner_id, planner_version, planner_fingerprint,
+                    cohort_id, definition_id, definition_version,
+                    definition_fingerprint,
                     spec_hash, fanout_scope, member_count, config_generation,
                     publication_policy_id, publication_policy_version,
                     publication_policy_fingerprint, composition_policy_id,
@@ -779,9 +780,9 @@ class SQLiteCalibrationCohortStore:
                 """,
                 (
                     cohort.cohort_id,
-                    cohort.spec.planner.id,
-                    cohort.spec.planner.version,
-                    cohort.spec.planner.fingerprint,
+                    cohort.spec.definition.id,
+                    cohort.spec.definition.version,
+                    cohort.spec.definition.fingerprint,
                     cohort.spec_hash,
                     cohort.spec.fanout_scope,
                     len(cohort.spec.members),
@@ -927,7 +928,7 @@ class SQLiteCalibrationCohortStore:
                     """
                     SELECT receipt_json
                     FROM config_operations
-                    WHERE operation_id = ? AND kind = 'publish_revision'
+                    WHERE operation_id = ? AND kind = 'publish_calibration'
                     """,
                     (publication.operation_id,),
                 )
@@ -936,7 +937,7 @@ class SQLiteCalibrationCohortStore:
                 raise CalibrationCohortConflict(
                     "calibration publication config operation was not found"
                 )
-            receipt = ConfigPublishReceipt.model_validate_json(
+            receipt = CalibrationPublicationReceipt.model_validate_json(
                 _text(operation_row, "receipt_json")
             )
             recorded_success = next(

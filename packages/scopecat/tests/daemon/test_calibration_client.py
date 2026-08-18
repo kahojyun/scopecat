@@ -359,7 +359,7 @@ def _fixture(
         else None
     )
     spec = CalibrationCohortSpec(
-        planner=definition,
+        definition=definition,
         automatic_publication=publication_policy,
         config_source=CalibrationConfigSourceRef(
             selector="active",

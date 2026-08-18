@@ -49,7 +49,7 @@ type CalibrationCohortFinalizationState = Literal[
 
 _CALIBRATION_KEY_CODEC = "scopecat.calibration-key.v1"
 _CALIBRATION_FRESHNESS_CODEC = "scopecat.calibration-freshness.v2"
-_CALIBRATION_COHORT_SPEC_CODEC = "scopecat.calibration-cohort-spec.v3"
+_CALIBRATION_COHORT_SPEC_CODEC = "scopecat.calibration-cohort-spec.v4"
 _CALIBRATION_COHORT_MEMBER_REQUEST_CODEC = (
     "scopecat.calibration-cohort-member-request.v1"
 )
@@ -864,7 +864,7 @@ class CalibrationCohortMember(_CalibrationModel):
 class CalibrationCohortSpec(_CalibrationModel):
     """Complete immutable basis for one bounded cohort admission."""
 
-    planner: CalibrationDefinitionRef
+    definition: CalibrationDefinitionRef
     automatic_publication: CalibrationPublicationPolicyRef | None = None
     config_source: CalibrationConfigSourceRef
     fanout_scope: _NonEmptyText
@@ -893,10 +893,10 @@ class CalibrationCohortSpec(_CalibrationModel):
     def validate_spec(self) -> CalibrationCohortSpec:
         if (
             self.automatic_publication is not None
-            and self.automatic_publication.calibration != self.planner
+            and self.automatic_publication.calibration != self.definition
         ):
             raise ValueError(
-                "automatic publication policy must pin the exact planner definition"
+                "automatic publication policy must pin the exact calibration definition"
             )
         if self.observed_fanout_active_count + len(self.members) > self.max_in_flight:
             raise ValueError(
@@ -921,9 +921,9 @@ class CalibrationCohortSpec(_CalibrationModel):
             for observation in self.observations
         }
         for member in self.members:
-            if member.definition != self.planner:
+            if member.definition != self.definition:
                 raise ValueError(
-                    "calibration cohort members must use its planner definition"
+                    "calibration cohort members must use its exact definition"
                 )
             observation = observations_by_key.get(member.calibration_key)
             if observation is None:
@@ -1020,7 +1020,7 @@ class CalibrationCohortSummary(_CalibrationModel):
     """Bounded list projection without repeating the complete member specs."""
 
     cohort_id: _NonEmptyText
-    planner: CalibrationDefinitionRef
+    definition: CalibrationDefinitionRef
     fanout_scope: _NonEmptyText
     spec_hash: Sha256ContentHash
     member_count: int = Field(ge=1, le=MAX_CALIBRATION_COHORT_MEMBERS)
@@ -1044,7 +1044,7 @@ class CalibrationCohortSummary(_CalibrationModel):
     def from_cohort(cls, cohort: CalibrationCohort) -> CalibrationCohortSummary:
         return cls(
             cohort_id=cohort.cohort_id,
-            planner=cohort.spec.planner,
+            definition=cohort.spec.definition,
             fanout_scope=cohort.spec.fanout_scope,
             spec_hash=cohort.spec_hash,
             member_count=len(cohort.spec.members),

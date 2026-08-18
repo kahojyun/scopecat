@@ -89,7 +89,9 @@ only the procedure because every preceding effect is already known. An unknown
 child-run, publication, or configuration-operation outcome instead moves the
 owning step and procedure to `attention_required`; each domain service keeps its
 own authoritative result. Restart does not retry the effect or execute later
-steps. Operator reconciliation remains explicit.
+steps. `attention_required` is a durable quarantine with no transition back to
+runnable work in the current procedure control plane. An operator must reconcile
+the authoritative external state before authoring a new procedure request.
 
 ## Present supported slice
 
@@ -319,24 +321,28 @@ campaign that needs crosstalk, simultaneous-operation, or device-wide validation
 must publish that additional evidence explicitly rather than infer it from the
 cell merge.
 
-One config-publish command is the transaction boundary. After resolving an exact
-operation replay, automatic publication also fences the exact still-ready
-finalization revision and its server-clock availability. The server then prepares
-every proposal approval, executes one registry save-and-activate CAS against the
-cohort base generation, emits config events, commits one receipt containing the
-complete typed member-success tuple, records the operation ledger, marks the
-finalization published, and inserts one publication anchor per member in the same
-transaction. Any proof, state fence, merge, result-hash, generation, receipt, or
-anchor failure rolls the logical transaction back. A successful two-member
-finalization therefore creates two anchors but only one entry and one new
-registry generation; when both proposals were previously unapproved, it also
-creates their two approvals.
+A dedicated calibration-publication command is the transaction boundary. Its
+config revision intent uses the same source-intent and operation identity rules
+as an ordinary config publication, while its optional finalization-revision
+fence remains calibration-specific. After resolving an exact operation replay,
+automatic publication also fences the exact still-ready finalization revision
+and its server-clock availability. The server then prepares every proposal
+approval, executes one registry save-and-activate CAS against the cohort base
+generation, emits config events, commits one dedicated receipt containing the
+complete typed member-success tuple, records it in the shared config-operation
+ledger, marks the finalization published, and inserts one publication anchor per
+member in the same transaction. Any proof, state fence, merge, result-hash,
+generation, receipt, or anchor failure rolls the logical transaction back. A
+successful two-member finalization therefore creates two anchors but only one
+entry and one new registry generation; when both proposals were previously
+unapproved, it also creates their two approvals.
 
 Each anchor binds the exact member success and closure time to the cohort base,
 publish operation and source-intent hash, semantic result-input fingerprint,
 server-recomputed result freshness fingerprint, result entry and generation,
-and publication time. The receipt must cover exactly the resolved contribution
-set; normal config publications cannot carry calibration anchors. Status loads
+and publication time. The calibration receipt must cover exactly the resolved
+contribution set; the generic config command and receipt do not expose
+finalization fences or calibration anchors. Status loads
 the anchor by the exact successful procedure-run key, so a stored anchor cannot
 be substituted from another operation or member. Once anchored, the result is
 an effective success and may supply flat dependency evidence.
@@ -353,14 +359,17 @@ resident backoff loop, even when the immediate cause was response validation or
 receipt drift.
 
 Automatic publication policies are immutable, fingerprinted, and pinned into
-the cohort spec. The application registry retains historical versions and binds
-at most one policy to each exact calibration-definition reference. The planning
-callback sees only read-only procedure/run projections and plan builders; the
-resident engine alone owns publish, defer, and attention mutations. Ready work is
-durable and capability-filtered by exact policy reference. Discovery uses a
-finite insertion-sequence high-water, wrapping only after the terminal page, so
-late readiness cannot be lost and continuous arrivals cannot make a cycle
-unbounded.
+the cohort spec. The application registry retains every exact historical
+capability needed to drain already-admitted cohorts, independently of its active
+admission bindings. Multiple policy versions may therefore target the same exact
+calibration definition; the application must explicitly select one active policy
+when that selection is otherwise ambiguous. The planning callback sees only
+read-only procedure/run projections and plan builders; the resident engine alone
+owns publish, defer, and attention mutations. Ready work is durable and
+capability-filtered by every retained exact policy reference, while new cohorts
+pin only the selected active binding. Discovery uses a finite insertion-sequence
+high-water, wrapping only after the terminal page, so late readiness cannot be
+lost and continuous arrivals cannot make a cycle unbounded.
 
 Workers do not persist a second claim or lease. They prepare deterministically
 and race through the finalization revision plus base-generation fences. A lost

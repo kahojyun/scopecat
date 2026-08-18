@@ -67,6 +67,8 @@ from scopecat.daemon.wire import (
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     CalibrationCohortMergeRevisionSource,
+    CalibrationPublicationCommand,
+    CalibrationPublicationReceipt,
     CandidateConfigRevisionSource,
     ConfigPublishCommand,
     ConfigPublishReceipt,
@@ -943,7 +945,7 @@ def test_candidate_acceptance_requires_matching_cross_run_verification(
 
 @dataclass(frozen=True, slots=True)
 class _CalibrationMergeFixture:
-    command: ConfigPublishCommand
+    command: CalibrationPublicationCommand
     members: tuple[CalibrationCohortMember, ...]
     baseline_run_ids: tuple[str, ...]
     calibration_keys: tuple[str, ...]
@@ -1037,7 +1039,7 @@ def _prepare_calibration_merge(
         CalibrationCohortCreateCommand(
             cohort_id=f"merge-cohort-{suffix}",
             spec=CalibrationCohortSpec(
-                planner=specs[0].definition,
+                definition=specs[0].definition,
                 automatic_publication=publication_policy,
                 config_source=base,
                 fanout_scope=status.fanout_scope,
@@ -1232,12 +1234,12 @@ def _prepare_calibration_merge(
         assert finalization.state == "ready"
         expected_finalization_revision = finalization.revision
     return _CalibrationMergeFixture(
-        command=ConfigPublishCommand(
+        command=CalibrationPublicationCommand(
             operation_id=f"publish:calibration-merge:{suffix}",
             source=source,
             actor="calibration-finalizer",
             expected_generation=base.registry_generation,
-            expected_calibration_finalization_revision=(expected_finalization_revision),
+            expected_finalization_revision=expected_finalization_revision,
             entry_id=f"calibration-merge-{suffix}",
         ),
         members=created.members,
@@ -1300,10 +1302,35 @@ def test_calibration_merge_publishes_one_replayable_atomic_revision(
         reversed_payload["source"]["contributions"] = tuple(
             reversed(source.contributions)
         )
-        reversed_command = ConfigPublishCommand.model_validate(reversed_payload)
+        reversed_command = CalibrationPublicationCommand.model_validate(
+            reversed_payload
+        )
         assert reversed_command == fixture.command
+        assert fixture.command.expected_finalization_revision is None
 
-        receipt = client.publish_config(fixture.command)
+        receipt = client.publish_calibration(fixture.command)
+
+        with sqlite3.connect(runtime.state_dir / "control.sqlite3") as connection:
+            operation_kind = connection.execute(
+                "SELECT kind FROM config_operations WHERE operation_id = ?",
+                (fixture.command.operation_id,),
+            ).fetchone()
+        assert operation_kind is not None
+        assert operation_kind[0] == "publish_calibration"
+        with pytest.raises(BackendConflict, match="not a config publication"):
+            runtime.application.config.get_config_publish_operation(
+                fixture.command.operation_id
+            )
+        with pytest.raises(BackendConflict, match="different intent"):
+            runtime.application.config.publish_config(
+                ConfigPublishCommand(
+                    operation_id=fixture.command.operation_id,
+                    source=DirectConfigRevisionSource(config=_config()),
+                    actor="operator",
+                    expected_generation=fixture.command.expected_generation,
+                    entry_id="cross-kind-collision",
+                )
+            )
 
         assert receipt.operation.activation_generation == 2
         assert receipt.activation.generation == 2
@@ -1319,7 +1346,7 @@ def test_calibration_merge_publishes_one_replayable_atomic_revision(
             for success in receipt.calibration_successes
         )
         assert (
-            ConfigPublishReceipt(
+            CalibrationPublicationReceipt(
                 operation=receipt.operation,
                 entry=receipt.entry,
                 deltas=receipt.deltas,
@@ -1329,7 +1356,7 @@ def test_calibration_merge_publishes_one_replayable_atomic_revision(
             == receipt
         )
         with pytest.raises(ValidationError, match="cover every resolved"):
-            ConfigPublishReceipt(
+            CalibrationPublicationReceipt(
                 operation=receipt.operation,
                 entry=receipt.entry,
                 deltas=receipt.deltas,
@@ -1371,7 +1398,7 @@ def test_calibration_merge_publishes_one_replayable_atomic_revision(
             wrong_result_success,
         ):
             with pytest.raises(ValidationError, match="does not match"):
-                ConfigPublishReceipt(
+                CalibrationPublicationReceipt(
                     operation=receipt.operation,
                     entry=receipt.entry,
                     deltas=receipt.deltas,
@@ -1404,17 +1431,20 @@ def test_calibration_merge_publishes_one_replayable_atomic_revision(
             == fixture.command.operation_id
             for item in projected
         )
-        assert client.publish_config(reversed_command) == receipt
+        assert client.publish_calibration(reversed_command) == receipt
 
     with (
         LocalDaemonRuntime(tmp_path) as restarted,
         TestClient(restarted.app()) as transport,
     ):
         client = _daemon_client(transport)
-        assert client.config_publish_operation(fixture.command.operation_id) == receipt
+        assert (
+            client.calibration_publication_operation(fixture.command.operation_id)
+            == receipt
+        )
         # The active head is now generation 2 while this command names base 1;
         # success therefore proves replay occurs before live proof and CAS checks.
-        assert client.publish_config(fixture.command) == receipt
+        assert client.publish_calibration(fixture.command) == receipt
 
 
 def test_single_member_calibration_merge_is_atomic_and_replayable(
@@ -1435,7 +1465,7 @@ def test_single_member_calibration_merge_is_atomic_and_replayable(
         assert isinstance(source, CalibrationCohortMergeRevisionSource)
         assert len(source.contributions) == 1
 
-        receipt = client.publish_config(fixture.command)
+        receipt = client.publish_calibration(fixture.command)
 
         assert receipt.operation.activation_generation == 2
         assert receipt.activation.generation == 2
@@ -1471,7 +1501,7 @@ def test_single_member_calibration_merge_is_atomic_and_replayable(
         assert projected_success.is_effective
 
         after_publish = _publication_side_effects(runtime, fixture)
-        assert client.publish_config(fixture.command) == receipt
+        assert client.publish_calibration(fixture.command) == receipt
         assert _publication_side_effects(runtime, fixture) == after_publish
 
     with (
@@ -1479,8 +1509,11 @@ def test_single_member_calibration_merge_is_atomic_and_replayable(
         TestClient(restarted.app()) as transport,
     ):
         client = _daemon_client(transport)
-        assert client.config_publish_operation(fixture.command.operation_id) == receipt
-        assert client.publish_config(fixture.command) == receipt
+        assert (
+            client.calibration_publication_operation(fixture.command.operation_id)
+            == receipt
+        )
+        assert client.publish_calibration(fixture.command) == receipt
         assert len(restarted.application.config.get_config_registry().entries) == 2
         assert _approval_count(restarted, fixture.baseline_run_ids) == 1
 
@@ -1506,10 +1539,7 @@ def test_automatic_calibration_merge_completes_ready_work_atomically(
 
         before = client.get_calibration_publication(source.cohort_id).finalization
         assert before.state == "ready"
-        assert (
-            fixture.command.expected_calibration_finalization_revision
-            == before.revision
-        )
+        assert fixture.command.expected_finalization_revision == before.revision
         page = client.list_ready_calibration_publications(
             CalibrationPublicationReadyQuery(capabilities=(policy,))
         )
@@ -1517,7 +1547,7 @@ def test_automatic_calibration_merge_completes_ready_work_atomically(
             source.cohort_id,
         )
 
-        receipt = client.publish_config(fixture.command)
+        receipt = client.publish_calibration(fixture.command)
 
         completed = client.get_calibration_publication(source.cohort_id).finalization
         assert completed.state == "published"
@@ -1543,7 +1573,7 @@ def test_automatic_calibration_merge_completes_ready_work_atomically(
         after = _publication_side_effects(runtime, fixture)
         # Model a committed response that the worker did not observe. Operation
         # replay must win before the now-stale finalization fence is inspected.
-        assert client.publish_config(fixture.command) == receipt
+        assert client.publish_calibration(fixture.command) == receipt
         assert _publication_side_effects(runtime, fixture) == after
         assert (
             client.get_calibration_publication(source.cohort_id).finalization
@@ -1555,7 +1585,7 @@ def test_automatic_calibration_merge_completes_ready_work_atomically(
         TestClient(restarted.app()) as transport,
     ):
         client = _daemon_client(transport)
-        assert client.publish_config(fixture.command) == receipt
+        assert client.publish_calibration(fixture.command) == receipt
         assert (
             client.get_calibration_publication(source.cohort_id).finalization
             == completed
@@ -1581,7 +1611,7 @@ def test_automatic_calibration_merge_fences_stale_ready_occurrences(
         source = fixture.command.source
         assert isinstance(source, CalibrationCohortMergeRevisionSource)
         policy = source.automatic_publication
-        expected_revision = fixture.command.expected_calibration_finalization_revision
+        expected_revision = fixture.command.expected_finalization_revision
         assert policy is not None
         assert expected_revision is not None
         before_effects = _publication_side_effects(runtime, fixture)
@@ -1613,15 +1643,15 @@ def test_automatic_calibration_merge_fences_stale_ready_occurrences(
         assert changed.revision == expected_revision + 1
 
         with pytest.raises(BackendConflict, match="not eligible"):
-            runtime.application.config.publish_config(fixture.command)
+            runtime.application.config.publish_calibration(fixture.command)
 
         rebased_payload = fixture.command.model_dump(mode="python")
-        rebased_payload["expected_calibration_finalization_revision"] = changed.revision
-        rebased = ConfigPublishCommand.model_validate(rebased_payload)
+        rebased_payload["expected_finalization_revision"] = changed.revision
+        rebased = CalibrationPublicationCommand.model_validate(rebased_payload)
         assert rebased.operation_id == fixture.command.operation_id
         assert rebased.intent_hash == fixture.command.intent_hash
         with pytest.raises(BackendConflict, match="not eligible"):
-            runtime.application.config.publish_config(rebased)
+            runtime.application.config.publish_calibration(rebased)
 
         assert _publication_side_effects(runtime, fixture) == before_effects
         assert (
@@ -1631,7 +1661,7 @@ def test_automatic_calibration_merge_fences_stale_ready_occurrences(
             == changed
         )
         with pytest.raises(BackendNotFound):
-            runtime.application.config.get_config_publish_operation(
+            runtime.application.config.get_calibration_publication_operation(
                 fixture.command.operation_id
             )
 
@@ -1690,7 +1720,7 @@ def test_calibration_merge_proof_and_result_failures_have_no_side_effects(
             ),
         )
         for index, invalid_source in enumerate(invalid_sources):
-            command = ConfigPublishCommand(
+            command = CalibrationPublicationCommand(
                 operation_id=f"invalid-calibration-publication-{index}",
                 source=invalid_source,
                 actor=fixture.command.actor,
@@ -1698,10 +1728,10 @@ def test_calibration_merge_proof_and_result_failures_have_no_side_effects(
                 entry_id=f"invalid-calibration-entry-{index}",
             )
             with pytest.raises(BackendConflict):
-                runtime.application.config.publish_config(command)
+                runtime.application.config.publish_calibration(command)
             assert _publication_side_effects(runtime, fixture) == before
             with pytest.raises(BackendNotFound):
-                runtime.application.config.get_config_publish_operation(
+                runtime.application.config.get_calibration_publication_operation(
                     command.operation_id
                 )
 
@@ -1733,7 +1763,7 @@ def test_calibration_merge_cas_and_final_anchor_failures_roll_back(
                 entry_id="intervening",
             )
         )
-        assert normal.calibration_successes == ()
+        assert type(normal) is ConfigPublishReceipt
         superseded = runtime.application.calibration_cohorts.get_publication(
             CalibrationPublicationGetQuery(cohort_id=merge_source.cohort_id)
         ).finalization
@@ -1759,8 +1789,8 @@ def test_calibration_merge_cas_and_final_anchor_failures_roll_back(
             .latest_success
         )
         assert pending is not None
-        with pytest.raises(ValidationError, match="non-merge"):
-            ConfigPublishReceipt(
+        with pytest.raises(ValidationError, match="requires a cohort merge"):
+            CalibrationPublicationReceipt(
                 operation=normal.operation,
                 entry=normal.entry,
                 deltas=normal.deltas,
@@ -1769,11 +1799,11 @@ def test_calibration_merge_cas_and_final_anchor_failures_roll_back(
             )
         before_cas = _publication_side_effects(runtime, fixture)
         with pytest.raises(BackendConflict):
-            runtime.application.config.publish_config(fixture.command)
+            runtime.application.config.publish_calibration(fixture.command)
         assert _publication_side_effects(runtime, fixture) == before_cas
         assert _approval_count(runtime, fixture.baseline_run_ids) == 0
         with pytest.raises(BackendNotFound):
-            runtime.application.config.get_config_publish_operation(
+            runtime.application.config.get_calibration_publication_operation(
                 fixture.command.operation_id
             )
 
@@ -1809,15 +1839,15 @@ def test_calibration_merge_cas_and_final_anchor_failures_roll_back(
                 fail_second_anchor,
             )
             with pytest.raises(BackendConflict, match="final anchor failure"):
-                runtime.application.config.publish_config(fixture.command)
+                runtime.application.config.publish_calibration(fixture.command)
 
         assert calls == 2
         assert _publication_side_effects(runtime, fixture) == before_anchor
         with pytest.raises(BackendNotFound):
-            runtime.application.config.get_config_publish_operation(
+            runtime.application.config.get_calibration_publication_operation(
                 fixture.command.operation_id
             )
-        retried = runtime.application.config.publish_config(fixture.command)
+        retried = runtime.application.config.publish_calibration(fixture.command)
         assert retried.activation.generation == 2
 
     finalization_root = tmp_path / "finalization-failure"
@@ -1858,7 +1888,7 @@ def test_calibration_merge_cas_and_final_anchor_failures_roll_back(
                 fail_finalization,
             )
             with pytest.raises(BackendConflict, match="finalization failure"):
-                runtime.application.config.publish_config(fixture.command)
+                runtime.application.config.publish_calibration(fixture.command)
 
         assert _publication_side_effects(runtime, fixture) == before_effects
         assert (
@@ -1868,10 +1898,10 @@ def test_calibration_merge_cas_and_final_anchor_failures_roll_back(
             == before_finalization
         )
         with pytest.raises(BackendNotFound):
-            runtime.application.config.get_config_publish_operation(
+            runtime.application.config.get_calibration_publication_operation(
                 fixture.command.operation_id
             )
-        retried = runtime.application.config.publish_config(fixture.command)
+        retried = runtime.application.config.publish_calibration(fixture.command)
         assert retried.activation.generation == 2
         assert (
             runtime.application.calibration_cohorts.get_publication(

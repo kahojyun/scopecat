@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, cast
 from scopecat.api.calibration_finalizer import (
     CalibrationPublicationCandidate,
     CalibrationPublicationPlanningContext,
-    CalibrationPublicationPolicyRegistry,
     CalibrationPublicationProcedureView,
     CalibrationPublicationRunView,
     calibration_publication_policy,
 )
+from scopecat.api.calibration_policy import CalibrationPublicationPolicyRegistry
 from scopecat.api.calibration_publication import (
     CalibrationCohortMergeSteps,
     CalibrationCohortPublicationPlan,
@@ -127,9 +127,7 @@ class _CandidateCalibrationOperations:
             source,
             actor=actor,
             note=note,
-            expected_calibration_finalization_revision=(
-                self.candidate.finalization.revision
-            ),
+            expected_finalization_revision=self.candidate.finalization.revision,
         )
 
     def _require_cohort(self, cohort_id: str) -> None:
@@ -206,7 +204,8 @@ def prepare_drag_beta_automatic_publication(
 DRAG_BETA_PUBLICATION_POLICY_REF = prepare_drag_beta_automatic_publication.ref
 DRAG_BETA_PUBLICATION_POLICY_FINGERPRINT = DRAG_BETA_PUBLICATION_POLICY_REF.fingerprint
 DRAG_BETA_PUBLICATION_POLICY_REGISTRY = CalibrationPublicationPolicyRegistry(
-    (prepare_drag_beta_automatic_publication,)
+    (prepare_drag_beta_automatic_publication,),
+    active=(prepare_drag_beta_automatic_publication.ref,),
 )
 
 

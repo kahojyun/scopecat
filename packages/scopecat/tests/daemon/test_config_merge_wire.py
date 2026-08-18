@@ -16,6 +16,7 @@ from scopecat.config.registry.records import (
 )
 from scopecat.daemon.wire import (
     CalibrationCohortMergeRevisionSource,
+    CalibrationPublicationCommand,
     ConfigPublishCommand,
 )
 from scopecat.records.analysis import ProjectAnalysisDecisionReference
@@ -42,7 +43,8 @@ def test_calibration_merge_source_is_canonical_and_hashes_exact_proof() -> None:
         "member-q1",
     )
     assert (
-        ConfigPublishCommand.model_validate_json(forward.model_dump_json()) == forward
+        CalibrationPublicationCommand.model_validate_json(forward.model_dump_json())
+        == forward
     )
 
     changed = _command(
@@ -58,7 +60,8 @@ def test_calibration_merge_accepts_one_contribution_but_not_zero() -> None:
     contribution = _contribution("q0")
     command = _command((contribution,))
     assert (
-        ConfigPublishCommand.model_validate_json(command.model_dump_json()) == command
+        CalibrationPublicationCommand.model_validate_json(command.model_dump_json())
+        == command
     )
 
     resolved = _registry_source((_resolved_contribution("q0"),))
@@ -78,8 +81,19 @@ def test_calibration_merge_accepts_one_contribution_but_not_zero() -> None:
 def test_calibration_merge_command_requires_base_generation_cas() -> None:
     source = _source((_contribution("q0"), _contribution("q1")))
 
+    with pytest.raises(ValidationError):
+        ConfigPublishCommand.model_validate(
+            {
+                "operation_id": "merge-op",
+                "source": source.model_dump(mode="json"),
+                "actor": "automation",
+                "expected_generation": 7,
+                "entry_id": "merged-entry",
+            }
+        )
+
     with pytest.raises(ValidationError, match="must equal its base_generation"):
-        ConfigPublishCommand(
+        CalibrationPublicationCommand(
             operation_id="merge-op",
             source=source,
             actor="automation",
@@ -92,7 +106,7 @@ def test_automatic_merge_requires_revision_fence_outside_publish_intent() -> Non
     source = _automatic_source((_contribution("q0"), _contribution("q1")))
 
     with pytest.raises(ValidationError, match="requires an expected finalization"):
-        ConfigPublishCommand(
+        CalibrationPublicationCommand(
             operation_id="merge-op",
             source=source,
             actor="automation",
@@ -100,25 +114,25 @@ def test_automatic_merge_requires_revision_fence_outside_publish_intent() -> Non
             entry_id="merged-entry",
         )
 
-    first = ConfigPublishCommand(
+    first = CalibrationPublicationCommand(
         operation_id="merge-op",
         source=source,
         actor="automation",
         expected_generation=7,
-        expected_calibration_finalization_revision=2,
+        expected_finalization_revision=2,
         entry_id="merged-entry",
     )
-    rebased = first.model_copy(update={"expected_calibration_finalization_revision": 3})
+    rebased = first.model_copy(update={"expected_finalization_revision": 3})
     assert first.source_intent_hash == rebased.source_intent_hash
     assert first.intent_hash == rebased.intent_hash
 
     with pytest.raises(ValidationError, match="only valid for automatic"):
-        ConfigPublishCommand(
+        CalibrationPublicationCommand(
             operation_id="manual-merge-op",
             source=_source((_contribution("q0"),)),
             actor="automation",
             expected_generation=7,
-            expected_calibration_finalization_revision=2,
+            expected_finalization_revision=2,
             entry_id="manual-merged-entry",
         )
 
@@ -178,8 +192,8 @@ def _registry_source(
 
 def _command(
     contributions: tuple[CalibrationCohortMergeContribution, ...],
-) -> ConfigPublishCommand:
-    return ConfigPublishCommand(
+) -> CalibrationPublicationCommand:
+    return CalibrationPublicationCommand(
         operation_id="merge-op",
         source=_source(contributions),
         actor="automation",

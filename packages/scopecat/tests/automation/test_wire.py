@@ -27,8 +27,6 @@ from scopecat.automation import (
     ProcedureStepFailCommand,
     ProcedureStepFailReceipt,
     ProcedureSubmitCommand,
-    ProcedureWaitCommand,
-    ProcedureWaitReceipt,
     ProcedureWorkerLease,
     ProcedureWorkerLeaseAcquireCommand,
     ProcedureWorkerLeaseAcquireReceipt,
@@ -37,7 +35,6 @@ from scopecat.automation import (
     ProcedureWorkerLeaseReleaseCommand,
     ProcedureWorkerLeaseReleaseReceipt,
     RunOutputRef,
-    RunTerminalWait,
     procedure_intent_hash,
     procedure_step_operation_id,
 )
@@ -65,9 +62,7 @@ def _run(
     revision: int = 1,
 ) -> ProcedureRun:
     details: dict[str, object] = {}
-    if state == "waiting":
-        details["wait_condition"] = RunTerminalWait(run_id="run-child")
-    elif state == "attention_required":
+    if state == "attention_required":
         details["attention_reason"] = "worker cannot continue"
     elif state == "closed":
         details["closure"] = ProcedureClosure(
@@ -167,7 +162,10 @@ def test_submit_command_rejects_non_json_intent_with_intent_path() -> None:
 def test_procedure_run_page_is_bounded_and_has_unique_runs() -> None:
     run = _run("ready")
 
-    assert ProcedureRunListQuery(limit=200, state="waiting").state == "waiting"
+    assert (
+        ProcedureRunListQuery(limit=200, state="attention_required").state
+        == "attention_required"
+    )
     assert assert_model_round_trip(ProcedureRunPage(items=(run,))) == (
         ProcedureRunPage(items=(run,))
     )
@@ -360,14 +358,7 @@ def test_step_and_run_attention_are_distinct_fenced_mutations() -> None:
     )
 
 
-def test_wait_and_close_are_fenced_and_return_state_specific_receipts() -> None:
-    condition = RunTerminalWait(run_id="run-child")
-    wait = ProcedureWaitCommand(
-        procedure_run_id="procedure-1",
-        lease_token=_FENCE,
-        expected_run_revision=2,
-        condition=condition,
-    )
+def test_close_is_fenced_and_returns_state_specific_receipt() -> None:
     close = ProcedureCloseCommand(
         procedure_run_id="procedure-1",
         lease_token=_FENCE,
@@ -375,9 +366,7 @@ def test_wait_and_close_are_fenced_and_return_state_specific_receipts() -> None:
         status="succeeded",
     )
 
-    assert assert_model_round_trip(wait).condition == condition
     assert assert_model_round_trip(close).status == "succeeded"
-    assert ProcedureWaitReceipt(run=_run("waiting")).run.wait_condition == condition
     assert ProcedureCloseReceipt(run=_run("closed")).run.closure is not None
     with pytest.raises(ValidationError, match="requires a reason"):
         ProcedureCloseCommand(

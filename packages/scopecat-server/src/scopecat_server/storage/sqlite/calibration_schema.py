@@ -4,9 +4,9 @@ CALIBRATION_COHORT_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS calibration_cohorts (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     cohort_id TEXT NOT NULL UNIQUE,
-    planner_id TEXT NOT NULL,
-    planner_version TEXT NOT NULL,
-    planner_fingerprint TEXT NOT NULL,
+    definition_id TEXT NOT NULL,
+    definition_version TEXT NOT NULL,
+    definition_fingerprint TEXT NOT NULL,
     spec_hash TEXT NOT NULL,
     fanout_scope TEXT NOT NULL,
     member_count INTEGER NOT NULL CHECK (member_count BETWEEN 1 AND 200),

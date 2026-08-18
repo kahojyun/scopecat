@@ -93,7 +93,6 @@ from scopecat.automation.intervals import (
 )
 from scopecat.automation.models import (
     AnalysisPublicationOutputRef,
-    AnalysisPublicationWait,
     ConfigActivationOutputRef,
     ConfigPublishOutputRef,
     ProcedureCloseStatus,
@@ -106,9 +105,7 @@ from scopecat.automation.models import (
     ProcedureStepAttemptState,
     ProcedureStepOperation,
     ProcedureStepOutputRef,
-    ProcedureWaitCondition,
     RunOutputRef,
-    RunTerminalWait,
     procedure_intent_hash,
 )
 from scopecat.automation.schedule_wire import (
@@ -151,8 +148,6 @@ from scopecat.automation.wire import (
     ProcedureStepFailReceipt,
     ProcedureSubmitCommand,
     ProcedureSubmitReceipt,
-    ProcedureWaitCommand,
-    ProcedureWaitReceipt,
     ProcedureWorkerLease,
     ProcedureWorkerLeaseAcquireCommand,
     ProcedureWorkerLeaseAcquireReceipt,
@@ -179,7 +174,6 @@ __all__ = [
     "MAX_PROCEDURE_REGISTRY_SIZE",
     "MAX_PROCEDURE_SCHEDULE_REGISTRY_SIZE",
     "AnalysisPublicationOutputRef",
-    "AnalysisPublicationWait",
     "CalibrationAttemptRef",
     "CalibrationAttemptStatus",
     "CalibrationCohort",
@@ -295,9 +289,6 @@ __all__ = [
     "ProcedureStepOutputRef",
     "ProcedureSubmitCommand",
     "ProcedureSubmitReceipt",
-    "ProcedureWaitCommand",
-    "ProcedureWaitCondition",
-    "ProcedureWaitReceipt",
     "ProcedureWorker",
     "ProcedureWorkerLease",
     "ProcedureWorkerLeaseAcquireCommand",
@@ -310,7 +301,6 @@ __all__ = [
     "RegisteredProcedure",
     "RegisteredProcedureSchedule",
     "RunOutputRef",
-    "RunTerminalWait",
     "calibration",
     "calibration_cohort_member_request_key",
     "calibration_cohort_spec_hash",

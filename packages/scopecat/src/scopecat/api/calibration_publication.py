@@ -41,8 +41,8 @@ from scopecat.daemon.client import (
 )
 from scopecat.daemon.wire import (
     CalibrationCohortMergeRevisionSource,
-    ConfigPublishCommand,
-    ConfigPublishReceipt,
+    CalibrationPublicationCommand,
+    CalibrationPublicationReceipt,
 )
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.records.analysis import (
@@ -100,7 +100,7 @@ class CalibrationCohortPublicationPlan(_PublicationModel):
     source: CalibrationCohortMergeRevisionSource
     actor: _NonEmptyText
     note: str = ""
-    expected_calibration_finalization_revision: int | None = Field(
+    expected_finalization_revision: int | None = Field(
         default=None,
         ge=1,
     )
@@ -121,7 +121,7 @@ class CalibrationCohortPublicationPlan(_PublicationModel):
         *,
         actor: str,
         note: str = "",
-        expected_calibration_finalization_revision: int | None = None,
+        expected_finalization_revision: int | None = None,
     ) -> Self:
         entry_id = calibration_cohort_publication_entry_id(
             source,
@@ -133,17 +133,13 @@ class CalibrationCohortPublicationPlan(_PublicationModel):
             actor=actor,
             note=note,
             entry_id=entry_id,
-            expected_calibration_finalization_revision=(
-                expected_calibration_finalization_revision
-            ),
+            expected_finalization_revision=expected_finalization_revision,
         )
         return cls(
             source=source,
             actor=actor,
             note=note,
-            expected_calibration_finalization_revision=(
-                expected_calibration_finalization_revision
-            ),
+            expected_finalization_revision=expected_finalization_revision,
             entry_id=entry_id,
             operation_id=operation_id,
         )
@@ -151,15 +147,12 @@ class CalibrationCohortPublicationPlan(_PublicationModel):
     @model_validator(mode="after")
     def validate_derived_identity(self) -> CalibrationCohortPublicationPlan:
         automatic_merge = self.source.automatic_publication is not None
-        if automatic_merge and self.expected_calibration_finalization_revision is None:
+        if automatic_merge and self.expected_finalization_revision is None:
             raise ValueError(
                 "automatic calibration publication plan requires an expected "
                 "finalization revision"
             )
-        if (
-            not automatic_merge
-            and self.expected_calibration_finalization_revision is not None
-        ):
+        if not automatic_merge and self.expected_finalization_revision is not None:
             raise ValueError(
                 "expected calibration finalization revision is only valid for "
                 "automatic calibration publication plans"
@@ -178,9 +171,7 @@ class CalibrationCohortPublicationPlan(_PublicationModel):
             actor=self.actor,
             note=self.note,
             entry_id=self.entry_id,
-            expected_calibration_finalization_revision=(
-                self.expected_calibration_finalization_revision
-            ),
+            expected_finalization_revision=self.expected_finalization_revision,
         )
         if self.operation_id != expected_operation_id:
             raise ValueError(
@@ -189,15 +180,13 @@ class CalibrationCohortPublicationPlan(_PublicationModel):
         return self
 
     @property
-    def command(self) -> ConfigPublishCommand:
-        return ConfigPublishCommand(
+    def command(self) -> CalibrationPublicationCommand:
+        return CalibrationPublicationCommand(
             operation_id=self.operation_id,
             source=self.source,
             actor=self.actor,
             expected_generation=self.source.base_generation,
-            expected_calibration_finalization_revision=(
-                self.expected_calibration_finalization_revision
-            ),
+            expected_finalization_revision=self.expected_finalization_revision,
             entry_id=self.entry_id,
             note=self.note,
         )
@@ -224,10 +213,16 @@ class CalibrationPublicationDriftError(RuntimeError):
     """A publication receipt does not match its exact project-side plan."""
 
 
-class _ConfigPublicationOperations(Protocol):
-    def publish_config(self, command: ConfigPublishCommand) -> ConfigPublishReceipt: ...
+class _CalibrationPublicationOperations(Protocol):
+    def publish_calibration(
+        self,
+        command: CalibrationPublicationCommand,
+    ) -> CalibrationPublicationReceipt: ...
 
-    def publish_operation(self, operation_id: str) -> ConfigPublishReceipt: ...
+    def calibration_publication_operation(
+        self,
+        operation_id: str,
+    ) -> CalibrationPublicationReceipt: ...
 
 
 class CalibrationPublicationReadSession(Protocol):
@@ -263,18 +258,16 @@ def calibration_cohort_publication_operation_id(
     actor: str,
     entry_id: str,
     note: str = "",
-    expected_calibration_finalization_revision: int | None = None,
+    expected_finalization_revision: int | None = None,
 ) -> str:
     """Derive the replay key from the final config-publish intent hash."""
 
-    probe = ConfigPublishCommand(
+    probe = CalibrationPublicationCommand(
         operation_id=_OPERATION_ID_PROBE,
         source=source,
         actor=actor,
         expected_generation=source.base_generation,
-        expected_calibration_finalization_revision=(
-            expected_calibration_finalization_revision
-        ),
+        expected_finalization_revision=expected_finalization_revision,
         entry_id=entry_id,
         note=note,
     )
@@ -457,13 +450,13 @@ def build_calibration_cohort_merge_contribution(
 
 
 def publish_calibration_cohort(
-    config: _ConfigPublicationOperations,
+    config: _CalibrationPublicationOperations,
     plan: CalibrationCohortPublicationPlan,
-) -> ConfigPublishReceipt:
+) -> CalibrationPublicationReceipt:
     """Publish once, reconciling only outcomes that may have committed."""
 
     try:
-        receipt = config.publish_config(plan.command)
+        receipt = config.publish_calibration(plan.command)
         _validate_publication_receipt(receipt, plan)
         return receipt
     except (httpx2.TransportError, DaemonUnavailableError, ValidationError) as error:
@@ -477,13 +470,13 @@ def publish_calibration_cohort(
 
 
 def reopen_calibration_cohort_publication(
-    config: _ConfigPublicationOperations,
+    config: _CalibrationPublicationOperations,
     plan: CalibrationCohortPublicationPlan,
-) -> ConfigPublishReceipt:
+) -> CalibrationPublicationReceipt:
     """Read and validate the exact durable result without issuing a publish."""
 
     try:
-        receipt = config.publish_operation(plan.operation_id)
+        receipt = config.calibration_publication_operation(plan.operation_id)
     except ValidationError as error:
         raise CalibrationPublicationDriftError(
             "calibration publication durable receipt is invalid"
@@ -625,11 +618,11 @@ def _step_ref(attempt: ProcedureStepAttempt) -> ConfigCompositionStepRef:
 
 
 def _reconcile_unknown_publication(
-    config: _ConfigPublicationOperations,
+    config: _CalibrationPublicationOperations,
     plan: CalibrationCohortPublicationPlan,
     *,
     cause: BaseException,
-) -> ConfigPublishReceipt:
+) -> CalibrationPublicationReceipt:
     try:
         return reopen_calibration_cohort_publication(config, plan)
     except (
@@ -648,7 +641,7 @@ def _reconcile_unknown_publication(
 
 
 def _validate_publication_receipt(
-    receipt: ConfigPublishReceipt,
+    receipt: CalibrationPublicationReceipt,
     plan: CalibrationCohortPublicationPlan,
 ) -> None:
     command = plan.command

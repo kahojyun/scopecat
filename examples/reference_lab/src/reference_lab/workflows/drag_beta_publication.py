@@ -30,7 +30,7 @@ from scopecat.config.registry.records import (
     CalibrationCohortMergeContribution,
     ConfigCompositionPolicyRef,
 )
-from scopecat.daemon.wire import ConfigPublishReceipt
+from scopecat.daemon.wire import CalibrationPublicationReceipt
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.value_identity import scalar_values_equal
@@ -247,7 +247,7 @@ def publish_verified_drag_beta_cohort(
     *,
     actor: str = DRAG_BETA_PUBLICATION_ACTOR,
     note: str = DRAG_BETA_PUBLICATION_NOTE,
-) -> ConfigPublishReceipt:
+) -> CalibrationPublicationReceipt:
     """Publish one exact verified cohort, or replay its deterministic receipt."""
 
     prepared = prepare_drag_beta_cohort_publication(
@@ -342,7 +342,7 @@ def _drag_beta_cohort_base(
         )
     )
     if (
-        cohort.spec.planner != expected_ref
+        cohort.spec.definition != expected_ref
         or cohort.spec.fanout_scope != DRAG_BETA_CALIBRATION_FANOUT_SCOPE
         or member_page.cohort_id != cohort.cohort_id
         or member_page.next_cursor is not None
