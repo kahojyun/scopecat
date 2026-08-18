@@ -445,6 +445,11 @@ def test_status_query_bounds_rows_to_latest_attempt_and_success(
         "calibration_cohort_members_success_key_sequence" in detail
         for detail in status_plan
     )
+    assert any(
+        "SEARCH members USING INTEGER PRIMARY KEY (rowid=?)" in detail
+        for detail in status_plan
+    )
+    assert not any("SCAN members" in detail for detail in status_plan)
     assert any("procedure_runs_state_sequence" in detail for detail in active_plan)
     assert len(projections) == 65
     assert all(

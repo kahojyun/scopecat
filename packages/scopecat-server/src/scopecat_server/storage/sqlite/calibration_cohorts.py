@@ -414,9 +414,9 @@ def _status_rows_query(
            members.sequence AS member_sequence,
            runs.run_json, members.closure_status, members.closed_at
     FROM selected
-    JOIN calibration_cohort_members AS members
+    CROSS JOIN calibration_cohort_members AS members
       ON members.sequence = selected.sequence
-    JOIN procedure_runs AS runs
+    CROSS JOIN procedure_runs AS runs
       ON runs.procedure_run_id = members.procedure_run_id
     ORDER BY members.sequence DESC
     """  # noqa: S608 - requested contains only generated placeholders
