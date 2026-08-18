@@ -18,6 +18,8 @@ from scopecat.automation.calibrations import (
     CalibrationDefinitionRef,
     CalibrationDependencyChangedDueReason,
     CalibrationDependencyEvidence,
+    CalibrationDueReason,
+    CalibrationInputsChangedDueReason,
     CalibrationMissingSuccessDueReason,
     CalibrationStatus,
     CalibrationStatusSnapshot,
@@ -163,16 +165,19 @@ def _member_spec(
     *,
     definition: CalibrationDefinitionRef | None = None,
     target: CalibrationTargetRef | None = None,
+    procedure: ProcedureDefinitionRef | None = None,
+    input_fingerprint: str = _HASH_3,
     dependencies: tuple[CalibrationDependencyEvidence, ...] = (),
+    due_reasons: tuple[CalibrationDueReason, ...] | None = None,
 ) -> CalibrationCohortMemberSpec:
     selected_definition = definition or _definition()
     selected_target = target or _target()
-    procedure = _procedure()
+    selected_procedure = procedure or _procedure()
     freshness = calibration_freshness_fingerprint(
         definition=selected_definition,
         target=selected_target,
-        procedure=procedure,
-        input_fingerprint=_HASH_3,
+        procedure=selected_procedure,
+        input_fingerprint=input_fingerprint,
         dependencies=dependencies,
     )
     return CalibrationCohortMemberSpec(
@@ -180,12 +185,12 @@ def _member_spec(
         calibration_key=calibration_key(selected_definition.id, selected_target),
         definition=selected_definition,
         target=selected_target,
-        procedure=procedure,
+        procedure=selected_procedure,
         intent={"target_id": selected_target.id},
-        input_fingerprint=_HASH_3,
+        input_fingerprint=input_fingerprint,
         dependencies=dependencies,
         freshness_fingerprint=freshness,
-        due_reasons=(CalibrationMissingSuccessDueReason(),),
+        due_reasons=due_reasons or (CalibrationMissingSuccessDueReason(),),
     )
 
 
@@ -258,6 +263,40 @@ def test_attempt_carries_flat_dependency_evidence_and_exact_freshness() -> None:
     invalid["input_fingerprint"] = _HASH_2
     with pytest.raises(ValidationError, match="freshness"):
         CalibrationAttemptRef.model_validate(invalid)
+
+
+def test_dependency_evidence_is_a_canonical_order_independent_set() -> None:
+    first, _ = _success(
+        definition=_definition(definition_id="readout"),
+        target=_target(target_id="q1"),
+    )
+    second, _ = _success(
+        definition=_definition(definition_id="resonator"),
+        target=_target(target_id="q2"),
+    )
+    unordered = (second.dependency_evidence, first.dependency_evidence)
+    canonical = tuple(
+        sorted(unordered, key=lambda dependency: dependency.calibration_key)
+    )
+
+    success, _ = _success(dependencies=unordered)
+    member = _member_spec(dependencies=unordered)
+
+    assert success.attempt.dependencies == canonical
+    assert member.dependencies == canonical
+    assert calibration_freshness_fingerprint(
+        definition=_definition(),
+        target=_target(),
+        procedure=_procedure(),
+        input_fingerprint=_HASH_3,
+        dependencies=unordered,
+    ) == calibration_freshness_fingerprint(
+        definition=_definition(),
+        target=_target(),
+        procedure=_procedure(),
+        input_fingerprint=_HASH_3,
+        dependencies=tuple(reversed(unordered)),
+    )
 
 
 def test_status_snapshot_uses_one_server_clock_and_unique_keys() -> None:
@@ -380,6 +419,22 @@ def test_due_reasons_are_typed_and_match_observed_evidence() -> None:
     assert spec.members[0].due_reasons[0].kind == "definition_changed"
 
 
+def test_cohort_rejects_false_definition_and_input_change_claims() -> None:
+    previous, previous_status = _success()
+
+    false_definition = _member_spec(
+        due_reasons=(CalibrationDefinitionChangedDueReason(previous_success=previous),)
+    )
+    with pytest.raises(ValidationError, match="prior definition or procedure"):
+        _cohort_spec(member=false_definition, observations=(previous_status,))
+
+    false_inputs = _member_spec(
+        due_reasons=(CalibrationInputsChangedDueReason(previous_success=previous),)
+    )
+    with pytest.raises(ValidationError, match="prior input change"):
+        _cohort_spec(member=false_inputs, observations=(previous_status,))
+
+
 def test_dependency_changed_reason_uses_current_flat_evidence() -> None:
     old, _ = _success(
         definition=_definition(definition_id="readout"),
@@ -398,6 +453,84 @@ def test_dependency_changed_reason_uses_current_flat_evidence() -> None:
     )
 
     assert reason.previous_success != reason.current_success
+
+    removed = CalibrationDependencyChangedDueReason(
+        dependency_key=old.attempt.calibration_key,
+        previous_success=old.dependency_evidence,
+        current_success=None,
+    )
+    assert removed.current_success is None
+
+    with pytest.raises(ValidationError, match="previous or current"):
+        CalibrationDependencyChangedDueReason(
+            dependency_key=old.attempt.calibration_key,
+            previous_success=None,
+            current_success=None,
+        )
+
+
+def test_cohort_rejects_forged_dependency_change_evidence() -> None:
+    dependency_definition = _definition(definition_id="readout")
+    dependency_target = _target(target_id="q1")
+    old, _ = _success(
+        definition=dependency_definition,
+        target=dependency_target,
+        cohort_id="old",
+        procedure_run_id="old-run",
+    )
+    current, current_status = _success(
+        definition=dependency_definition,
+        target=dependency_target,
+        cohort_id="current",
+        procedure_run_id="current-run",
+    )
+    forged, _ = _success(
+        definition=dependency_definition,
+        target=dependency_target,
+        cohort_id="forged",
+        procedure_run_id="forged-run",
+    )
+    _, previous_status = _success(dependencies=(old.dependency_evidence,))
+
+    forged_previous = CalibrationDependencyChangedDueReason(
+        dependency_key=current.attempt.calibration_key,
+        previous_success=forged.dependency_evidence,
+        current_success=current.dependency_evidence,
+    )
+    member = _member_spec(
+        dependencies=(current.dependency_evidence,),
+        due_reasons=(forged_previous,),
+    )
+    with pytest.raises(ValidationError, match="observed prior dependency"):
+        _cohort_spec(
+            member=member,
+            observations=(previous_status, current_status),
+        )
+
+    wrong_current = CalibrationDependencyChangedDueReason(
+        dependency_key=current.attempt.calibration_key,
+        previous_success=old.dependency_evidence,
+        current_success=forged.dependency_evidence,
+    )
+    with pytest.raises(ValidationError, match="current dependency evidence"):
+        _member_spec(
+            dependencies=(current.dependency_evidence,),
+            due_reasons=(wrong_current,),
+        )
+
+    false_change_without_prior_success = CalibrationDependencyChangedDueReason(
+        dependency_key=current.attempt.calibration_key,
+        current_success=current.dependency_evidence,
+    )
+    member_without_prior_success = _member_spec(
+        dependencies=(current.dependency_evidence,),
+        due_reasons=(false_change_without_prior_success,),
+    )
+    with pytest.raises(ValidationError, match="observed latest success"):
+        _cohort_spec(
+            member=member_without_prior_success,
+            observations=(_missing_status(), current_status),
+        )
 
 
 def test_cohort_and_member_validate_hash_request_key_and_utc() -> None:

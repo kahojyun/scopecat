@@ -37,7 +37,7 @@ MAX_CALIBRATION_COHORT_MEMBERS = 200
 MAX_CALIBRATION_STATUS_KEYS = 200
 
 _CALIBRATION_KEY_CODEC = "scopecat.calibration-key.v1"
-_CALIBRATION_FRESHNESS_CODEC = "scopecat.calibration-freshness.v1"
+_CALIBRATION_FRESHNESS_CODEC = "scopecat.calibration-freshness.v2"
 _CALIBRATION_COHORT_SPEC_CODEC = "scopecat.calibration-cohort-spec.v1"
 _CALIBRATION_COHORT_MEMBER_REQUEST_CODEC = (
     "scopecat.calibration-cohort-member-request.v1"
@@ -204,6 +204,17 @@ class CalibrationAttemptRef(_CalibrationModel):
     def canonicalize_admitted_at(cls, value: datetime) -> datetime:
         return _canonical_utc(value, field_name="admitted_at")
 
+    @field_validator("dependencies")
+    @classmethod
+    def canonicalize_dependencies(
+        cls,
+        value: tuple[CalibrationDependencyEvidence, ...],
+    ) -> tuple[CalibrationDependencyEvidence, ...]:
+        return _canonical_dependencies(
+            value,
+            label="calibration attempt dependency key",
+        )
+
     @model_validator(mode="after")
     def validate_calibration_key(self) -> CalibrationAttemptRef:
         expected = calibration_key(self.definition.id, self.target)
@@ -211,10 +222,6 @@ class CalibrationAttemptRef(_CalibrationModel):
             raise ValueError(
                 "calibration attempt key must identify its definition and target"
             )
-        _require_unique(
-            (dependency.calibration_key for dependency in self.dependencies),
-            label="calibration attempt dependency key",
-        )
         if any(
             dependency.calibration_key == self.calibration_key
             for dependency in self.dependencies
@@ -438,7 +445,7 @@ class CalibrationDependencyChangedDueReason(_CalibrationModel):
     kind: Literal["dependency_changed"] = "dependency_changed"
     dependency_key: _NonEmptyText
     previous_success: CalibrationDependencyEvidence | None = None
-    current_success: CalibrationDependencyEvidence
+    current_success: CalibrationDependencyEvidence | None = None
 
     @field_validator("dependency_key")
     @classmethod
@@ -447,7 +454,12 @@ class CalibrationDependencyChangedDueReason(_CalibrationModel):
 
     @model_validator(mode="after")
     def validate_evidence(self) -> CalibrationDependencyChangedDueReason:
-        if self.current_success.calibration_key != self.dependency_key:
+        if self.previous_success is None and self.current_success is None:
+            raise ValueError("changed dependency requires previous or current success")
+        if (
+            self.current_success is not None
+            and self.current_success.calibration_key != self.dependency_key
+        ):
             raise ValueError("current dependency success must match its key")
         if (
             self.previous_success is not None
@@ -488,7 +500,16 @@ def calibration_freshness_fingerprint(
     input_fingerprint: Sha256ContentHash,
     dependencies: tuple[CalibrationDependencyEvidence, ...],
 ) -> Sha256ContentHash:
-    """Hash every exact input that determines calibration freshness."""
+    """Hash every exact input that determines calibration freshness.
+
+    Dependency evidence is a set keyed by ``calibration_key``; authoring order
+    therefore cannot change freshness identity.
+    """
+
+    canonical_dependencies = _canonical_dependencies(
+        dependencies,
+        label="calibration freshness dependency key",
+    )
 
     digest = stable_content_hash(
         {
@@ -497,9 +518,9 @@ def calibration_freshness_fingerprint(
             "target": target.model_dump(mode="json"),
             "procedure": procedure.model_dump(mode="json"),
             "input_fingerprint": input_fingerprint,
-            # Dependency ordering is part of the definition-owned contract.
             "dependencies": [
-                dependency.model_dump(mode="json") for dependency in dependencies
+                dependency.model_dump(mode="json")
+                for dependency in canonical_dependencies
             ],
         }
     )
@@ -537,11 +558,10 @@ class CalibrationCohortMemberSpec(_CalibrationModel):
         cls,
         value: tuple[CalibrationDependencyEvidence, ...],
     ) -> tuple[CalibrationDependencyEvidence, ...]:
-        _require_unique(
-            (dependency.calibration_key for dependency in value),
+        return _canonical_dependencies(
+            value,
             label="calibration dependency key",
         )
-        return value
 
     @field_validator("due_reasons")
     @classmethod
@@ -584,12 +604,7 @@ class CalibrationCohortMemberSpec(_CalibrationModel):
             dependency.calibration_key: dependency for dependency in self.dependencies
         }
         for reason in self.due_reasons:
-            if isinstance(
-                reason,
-                CalibrationExpiredDueReason
-                | CalibrationDefinitionChangedDueReason
-                | CalibrationInputsChangedDueReason,
-            ):
+            if isinstance(reason, CalibrationExpiredDueReason):
                 if (
                     reason.previous_success.attempt.calibration_key
                     != self.calibration_key
@@ -597,13 +612,21 @@ class CalibrationCohortMemberSpec(_CalibrationModel):
                     raise ValueError(
                         "member due reason success must match its calibration key"
                     )
+            elif isinstance(
+                reason,
+                CalibrationDefinitionChangedDueReason
+                | CalibrationInputsChangedDueReason,
+            ):
+                previous = reason.previous_success.attempt
+                if previous.calibration_key != self.calibration_key:
+                    raise ValueError(
+                        "member due reason success must match its calibration key"
+                    )
             elif isinstance(reason, CalibrationDependencyChangedDueReason):
                 dependency = dependencies_by_key.get(reason.dependency_key)
-                if dependency is None:
-                    raise ValueError("changed due reason must name a member dependency")
                 if reason.current_success != dependency:
                     raise ValueError(
-                        "changed due reason must use current dependency evidence"
+                        "changed due reason must match current dependency evidence"
                     )
         return self
 
@@ -868,22 +891,88 @@ def _validate_member_due_observation(
     member: CalibrationCohortMemberSpec,
     observation: CalibrationStatus,
 ) -> None:
+    latest_success = observation.latest_success
+    previous_dependencies = (
+        {}
+        if latest_success is None
+        else {
+            dependency.calibration_key: dependency
+            for dependency in latest_success.attempt.dependencies
+        }
+    )
+    current_dependencies = {
+        dependency.calibration_key: dependency for dependency in member.dependencies
+    }
     for reason in member.due_reasons:
         if isinstance(reason, CalibrationMissingSuccessDueReason):
-            if observation.latest_success is not None:
+            if latest_success is not None:
                 raise ValueError(
                     "missing-success due reason requires no observed success"
                 )
-        elif (
-            isinstance(
-                reason,
-                CalibrationExpiredDueReason
-                | CalibrationDefinitionChangedDueReason
-                | CalibrationInputsChangedDueReason,
-            )
-            and reason.previous_success != observation.latest_success
-        ):
-            raise ValueError("member due reason must reference observed latest success")
+        elif isinstance(reason, CalibrationExpiredDueReason):
+            if reason.previous_success != latest_success:
+                raise ValueError(
+                    "member due reason must reference observed latest success"
+                )
+        elif isinstance(reason, CalibrationDefinitionChangedDueReason):
+            if reason.previous_success != latest_success:
+                raise ValueError(
+                    "member due reason must reference observed latest success"
+                )
+            previous = reason.previous_success.attempt
+            if (
+                previous.definition == member.definition
+                and previous.procedure == member.procedure
+            ):
+                raise ValueError(
+                    "definition-changed due reason requires a prior definition "
+                    "or procedure change"
+                )
+        elif isinstance(reason, CalibrationInputsChangedDueReason):
+            if reason.previous_success != latest_success:
+                raise ValueError(
+                    "member due reason must reference observed latest success"
+                )
+            if (
+                reason.previous_success.attempt.input_fingerprint
+                == member.input_fingerprint
+            ):
+                raise ValueError(
+                    "inputs-changed due reason requires a prior input change"
+                )
+        elif isinstance(reason, CalibrationDependencyChangedDueReason):
+            if latest_success is None:
+                raise ValueError(
+                    "dependency-changed due reason requires an observed latest success"
+                )
+            if reason.previous_success != previous_dependencies.get(
+                reason.dependency_key
+            ):
+                raise ValueError(
+                    "dependency-changed due reason must reference observed prior "
+                    "dependency evidence"
+                )
+            if reason.current_success != current_dependencies.get(
+                reason.dependency_key
+            ):
+                raise ValueError(
+                    "dependency-changed due reason must reference current member "
+                    "dependency evidence"
+                )
+
+
+def _canonical_dependencies(
+    dependencies: tuple[CalibrationDependencyEvidence, ...],
+    *,
+    label: str,
+) -> tuple[CalibrationDependencyEvidence, ...]:
+    _require_unique(
+        (dependency.calibration_key for dependency in dependencies),
+        label=label,
+    )
+    return tuple(
+        sorted(dependencies, key=lambda dependency: dependency.calibration_key)
+    )
 
 
 def _canonical_utc(value: datetime, *, field_name: str) -> datetime:
