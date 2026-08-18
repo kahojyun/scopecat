@@ -22,8 +22,11 @@ from scopecat.automation.calibrations import (
     CalibrationForcedDueReason,
     CalibrationInputsChangedDueReason,
     CalibrationMissingSuccessDueReason,
+    CalibrationPublicationBaseChangedDueReason,
     CalibrationStatus,
     CalibrationStatusSnapshot,
+    CalibrationSuccessPolicy,
+    CalibrationSuccessPublication,
     CalibrationSuccessRef,
     CalibrationTargetRef,
     calibration_cohort_member_request_key,
@@ -45,11 +48,13 @@ def _definition(
     *,
     definition_id: str = "drag",
     version: str = "2",
+    success_policy: CalibrationSuccessPolicy = "procedure_success",
 ) -> CalibrationDefinitionRef:
     return CalibrationDefinitionRef(
         id=definition_id,
         version=version,
         fingerprint=_HASH_1,
+        success_policy=success_policy,
     )
 
 
@@ -102,6 +107,7 @@ def _success(
     member_id: str = "member-prior",
     procedure_run_id: str = "procedure-prior",
     dependencies: tuple[CalibrationDependencyEvidence, ...] = (),
+    base_config_source: CalibrationConfigSourceRef | None = None,
 ) -> tuple[CalibrationSuccessRef, CalibrationStatus]:
     selected_definition = definition or _definition()
     selected_target = target or _target()
@@ -131,6 +137,7 @@ def _success(
     )
     success = CalibrationSuccessRef(
         attempt=attempt,
+        base_config_source=base_config_source or _frozen_config_source(),
         succeeded_at=succeeded_at,
     )
     status = CalibrationStatus(
@@ -148,6 +155,42 @@ def _success(
         latest_success=success,
     )
     return success, status
+
+
+def _published_success(
+    pending: CalibrationSuccessRef,
+    *,
+    result_input_fingerprint: str = _HASH_2,
+    published_at: datetime | None = None,
+) -> CalibrationSuccessRef:
+    result_source = pending.base_config_source.model_copy(
+        update={
+            "entry_id": "config-18",
+            "config_ref": "configs/18",
+            "content_hash": _HASH_2,
+            "registry_generation": (pending.base_config_source.registry_generation + 1),
+        }
+    )
+    publication = CalibrationSuccessPublication(
+        operation_id="publish-calibration-result",
+        source_intent_hash=_HASH_1,
+        result_input_fingerprint=result_input_fingerprint,
+        result_freshness_fingerprint=calibration_freshness_fingerprint(
+            definition=pending.attempt.definition,
+            target=pending.attempt.target,
+            procedure=pending.attempt.procedure,
+            input_fingerprint=result_input_fingerprint,
+            dependencies=pending.attempt.dependencies,
+        ),
+        result_config_source=result_source,
+        published_at=published_at or _EVALUATED - timedelta(minutes=30),
+    )
+    return CalibrationSuccessRef(
+        attempt=pending.attempt,
+        base_config_source=pending.base_config_source,
+        succeeded_at=pending.succeeded_at,
+        publication=publication,
+    )
 
 
 def _missing_status(
@@ -264,6 +307,87 @@ def test_attempt_carries_flat_dependency_evidence_and_exact_freshness() -> None:
     invalid["input_fingerprint"] = _HASH_2
     with pytest.raises(ValidationError, match="freshness"):
         CalibrationAttemptRef.model_validate(invalid)
+
+
+def test_published_result_is_pending_until_exact_publication_is_attached() -> None:
+    pending, status = _success(
+        definition=_definition(success_policy="published_result"),
+    )
+
+    assert pending.is_effective is False
+    with pytest.raises(ValueError, match="pending calibration publication"):
+        _ = pending.dependency_evidence
+    with pytest.raises(ValueError, match="no effective freshness"):
+        _ = pending.effective_freshness_fingerprint
+    with pytest.raises(ValueError, match="no effective inputs"):
+        _ = pending.effective_input_fingerprint
+    with pytest.raises(ValueError, match="no effective config source"):
+        _ = pending.effective_config_source
+
+    published = _published_success(pending)
+    anchored_status = CalibrationStatus(
+        calibration_key=status.calibration_key,
+        latest_attempt=status.latest_attempt,
+        latest_success=published,
+    )
+
+    assert published.is_effective is True
+    assert published.publication is not None
+    assert (
+        published.effective_config_source == published.publication.result_config_source
+    )
+    assert published.effective_input_fingerprint == _HASH_2
+    assert published.dependency_evidence.freshness_fingerprint == (
+        published.effective_freshness_fingerprint
+    )
+    assert (
+        published.dependency_evidence.publication_operation_id
+        == "publish-calibration-result"
+    )
+    assert assert_model_round_trip(anchored_status) == anchored_status
+
+
+def test_success_publication_validates_policy_generation_and_freshness() -> None:
+    procedure_success, _ = _success()
+    published_result, _ = _success(
+        definition=_definition(success_policy="published_result"),
+    )
+    valid_publication = _published_success(published_result).publication
+    assert valid_publication is not None
+
+    with pytest.raises(ValidationError, match="procedure-success"):
+        CalibrationSuccessRef(
+            attempt=procedure_success.attempt,
+            base_config_source=procedure_success.base_config_source,
+            succeeded_at=procedure_success.succeeded_at,
+            publication=valid_publication,
+        )
+
+    with pytest.raises(ValidationError, match="generation after its base"):
+        CalibrationSuccessRef(
+            attempt=published_result.attempt,
+            base_config_source=published_result.base_config_source,
+            succeeded_at=published_result.succeeded_at,
+            publication=valid_publication.model_copy(
+                update={
+                    "result_config_source": (
+                        valid_publication.result_config_source.model_copy(
+                            update={"registry_generation": 25}
+                        )
+                    )
+                }
+            ),
+        )
+
+    with pytest.raises(ValidationError, match="result inputs"):
+        CalibrationSuccessRef(
+            attempt=published_result.attempt,
+            base_config_source=published_result.base_config_source,
+            succeeded_at=published_result.succeeded_at,
+            publication=valid_publication.model_copy(
+                update={"result_freshness_fingerprint": _HASH_3}
+            ),
+        )
 
 
 def test_dependency_evidence_is_a_canonical_order_independent_set() -> None:
@@ -434,6 +558,75 @@ def test_cohort_rejects_false_definition_and_input_change_claims() -> None:
     )
     with pytest.raises(ValidationError, match="prior input change"):
         _cohort_spec(member=false_inputs, observations=(previous_status,))
+
+
+def test_publication_base_change_reason_binds_pending_success_and_cohort_source() -> (
+    None
+):
+    pending, pending_status = _success(
+        definition=_definition(success_policy="published_result"),
+    )
+    current_source = pending.base_config_source.model_copy(
+        update={
+            "entry_id": "config-current",
+            "config_ref": "configs/current",
+            "registry_generation": 24,
+        }
+    )
+    reason = CalibrationPublicationBaseChangedDueReason(
+        previous_success=pending,
+        current_config_source=current_source,
+    )
+    member = _member_spec(
+        definition=pending.attempt.definition,
+        due_reasons=(reason,),
+    )
+    spec = CalibrationCohortSpec(
+        planner=member.definition,
+        config_source=current_source,
+        fanout_scope="chip-alpha",
+        max_in_flight=2,
+        observed_fanout_active_count=0,
+        evaluated_at=_EVALUATED,
+        observations=(pending_status,),
+        members=(member,),
+    )
+
+    assert spec.members[0].due_reasons == (reason,)
+
+    with pytest.raises(ValidationError, match="cohort config source"):
+        CalibrationCohortSpec(
+            planner=member.definition,
+            config_source=current_source.model_copy(
+                update={"entry_id": "other-current-config"}
+            ),
+            fanout_scope="chip-alpha",
+            max_in_flight=2,
+            observed_fanout_active_count=0,
+            evaluated_at=_EVALUATED,
+            observations=(pending_status,),
+            members=(member,),
+        )
+
+
+def test_status_snapshot_rejects_publication_after_observation() -> None:
+    pending, status = _success(
+        definition=_definition(success_policy="published_result"),
+    )
+    published = _published_success(pending, published_at=_EVALUATED)
+    anchored_status = CalibrationStatus(
+        calibration_key=status.calibration_key,
+        latest_attempt=status.latest_attempt,
+        latest_success=published,
+    )
+
+    with pytest.raises(ValidationError, match="publication cannot follow"):
+        CalibrationStatusSnapshot(
+            observed_at=_EVALUATED - timedelta(seconds=1),
+            fanout_scope="chip-alpha",
+            fanout_active_count=0,
+            statuses=(anchored_status,),
+        )
 
 
 def test_same_freshness_failed_retry_requires_explicit_force() -> None:

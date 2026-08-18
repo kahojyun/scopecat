@@ -74,6 +74,10 @@ def test_definition_fingerprint_covers_procedure_scope_and_capacity() -> None:
     changed_procedure = replace(_DEFINITION, procedure=_procedure_two)
     changed_scope = replace(_DEFINITION, fanout_scope="device-b")
     changed_capacity = replace(_DEFINITION, max_in_flight=3)
+    changed_success_policy = replace(
+        _DEFINITION,
+        success_policy="published_result",
+    )
 
     assert (
         len(
@@ -82,10 +86,13 @@ def test_definition_fingerprint_covers_procedure_scope_and_capacity() -> None:
                 changed_procedure.fingerprint,
                 changed_scope.fingerprint,
                 changed_capacity.fingerprint,
+                changed_success_policy.fingerprint,
             }
         )
-        == 4
+        == 5
     )
+    assert _DEFINITION.ref.success_policy == "procedure_success"
+    assert changed_success_policy.ref.success_policy == "published_result"
 
 
 def test_registry_allows_only_one_active_version_per_logical_id() -> None:

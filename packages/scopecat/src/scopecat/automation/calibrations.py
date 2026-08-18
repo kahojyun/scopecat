@@ -36,9 +36,11 @@ type _NonEmptyText = Annotated[str, Field(min_length=1)]
 MAX_CALIBRATION_COHORT_MEMBERS = 200
 MAX_CALIBRATION_STATUS_KEYS = 200
 
+type CalibrationSuccessPolicy = Literal["procedure_success", "published_result"]
+
 _CALIBRATION_KEY_CODEC = "scopecat.calibration-key.v1"
 _CALIBRATION_FRESHNESS_CODEC = "scopecat.calibration-freshness.v2"
-_CALIBRATION_COHORT_SPEC_CODEC = "scopecat.calibration-cohort-spec.v1"
+_CALIBRATION_COHORT_SPEC_CODEC = "scopecat.calibration-cohort-spec.v2"
 _CALIBRATION_COHORT_MEMBER_REQUEST_CODEC = (
     "scopecat.calibration-cohort-member-request.v1"
 )
@@ -58,6 +60,7 @@ class CalibrationDefinitionRef(_CalibrationModel):
     id: _NonEmptyText
     version: _NonEmptyText
     fingerprint: Sha256ContentHash
+    success_policy: CalibrationSuccessPolicy = "procedure_success"
 
     @field_validator("id", "version")
     @classmethod
@@ -140,6 +143,8 @@ class CalibrationDependencyEvidence(_CalibrationModel):
     cohort_id: _NonEmptyText
     member_id: _NonEmptyText
     procedure_run_id: _NonEmptyText
+    freshness_fingerprint: Sha256ContentHash
+    publication_operation_id: _NonEmptyText | None = None
     succeeded_at: datetime
 
     @field_validator(
@@ -162,11 +167,21 @@ class CalibrationDependencyEvidence(_CalibrationModel):
         cls,
         success: CalibrationSuccessRef,
     ) -> CalibrationDependencyEvidence:
+        if not success.is_effective:
+            raise ValueError(
+                "pending calibration publication cannot be dependency evidence"
+            )
         return cls(
             calibration_key=success.attempt.calibration_key,
             cohort_id=success.attempt.cohort_id,
             member_id=success.attempt.member_id,
             procedure_run_id=success.attempt.procedure_run_id,
+            freshness_fingerprint=success.effective_freshness_fingerprint,
+            publication_operation_id=(
+                None
+                if success.publication is None
+                else success.publication.operation_id
+            ),
             succeeded_at=success.succeeded_at,
         )
 
@@ -241,11 +256,34 @@ class CalibrationAttemptRef(_CalibrationModel):
         return self
 
 
+class CalibrationSuccessPublication(_CalibrationModel):
+    """One successful calibration result atomically published as configuration."""
+
+    operation_id: _NonEmptyText
+    source_intent_hash: Sha256ContentHash
+    result_input_fingerprint: Sha256ContentHash
+    result_freshness_fingerprint: Sha256ContentHash
+    result_config_source: CalibrationConfigSourceRef
+    published_at: datetime
+
+    @field_validator("operation_id")
+    @classmethod
+    def validate_identity(cls, value: str) -> str:
+        return _non_blank(value, field_name="calibration publication operation id")
+
+    @field_validator("published_at")
+    @classmethod
+    def canonicalize_published_at(cls, value: datetime) -> datetime:
+        return _canonical_utc(value, field_name="published_at")
+
+
 class CalibrationSuccessRef(_CalibrationModel):
-    """Exact successful attempt admitted before a dependent cohort."""
+    """Exact successful attempt and any effective result publication."""
 
     attempt: CalibrationAttemptRef
+    base_config_source: CalibrationConfigSourceRef
     succeeded_at: datetime
+    publication: CalibrationSuccessPublication | None = None
 
     @field_validator("succeeded_at")
     @classmethod
@@ -253,10 +291,77 @@ class CalibrationSuccessRef(_CalibrationModel):
         return _canonical_utc(value, field_name="succeeded_at")
 
     @model_validator(mode="after")
-    def validate_success_time(self) -> CalibrationSuccessRef:
+    def validate_success(self) -> CalibrationSuccessRef:
         if self.succeeded_at < self.attempt.admitted_at:
             raise ValueError("calibration success cannot precede attempt admission")
+        publication = self.publication
+        if self.attempt.definition.success_policy == "procedure_success":
+            if publication is not None:
+                raise ValueError(
+                    "procedure-success calibration cannot have a result publication"
+                )
+            return self
+        if publication is None:
+            return self
+        if publication.published_at < self.succeeded_at:
+            raise ValueError("calibration publication cannot precede its success")
+        if (
+            publication.result_config_source.registry_generation
+            != self.base_config_source.registry_generation + 1
+        ):
+            raise ValueError(
+                "calibration publication must activate the generation after its base"
+            )
+        expected_freshness = calibration_freshness_fingerprint(
+            definition=self.attempt.definition,
+            target=self.attempt.target,
+            procedure=self.attempt.procedure,
+            input_fingerprint=publication.result_input_fingerprint,
+            dependencies=self.attempt.dependencies,
+        )
+        if publication.result_freshness_fingerprint != expected_freshness:
+            raise ValueError(
+                "calibration publication freshness must cover its result inputs"
+            )
         return self
+
+    @property
+    def is_effective(self) -> bool:
+        return (
+            self.attempt.definition.success_policy == "procedure_success"
+            or self.publication is not None
+        )
+
+    @property
+    def effective_input_fingerprint(self) -> Sha256ContentHash:
+        if self.attempt.definition.success_policy == "procedure_success":
+            return self.attempt.input_fingerprint
+        publication = self.publication
+        if publication is None:
+            raise ValueError("pending calibration publication has no effective inputs")
+        return publication.result_input_fingerprint
+
+    @property
+    def effective_freshness_fingerprint(self) -> Sha256ContentHash:
+        if self.attempt.definition.success_policy == "procedure_success":
+            return self.attempt.freshness_fingerprint
+        publication = self.publication
+        if publication is None:
+            raise ValueError(
+                "pending calibration publication has no effective freshness"
+            )
+        return publication.result_freshness_fingerprint
+
+    @property
+    def effective_config_source(self) -> CalibrationConfigSourceRef:
+        if self.attempt.definition.success_policy == "procedure_success":
+            return self.base_config_source
+        publication = self.publication
+        if publication is None:
+            raise ValueError(
+                "pending calibration publication has no effective config source"
+            )
+        return publication.result_config_source
 
     @property
     def dependency_evidence(self) -> CalibrationDependencyEvidence:
@@ -349,13 +454,20 @@ class CalibrationStatus(_CalibrationModel):
                 )
             return self
 
-        expected = _success_from_attempt_status(attempt_status)
-        if expected is not None and expected != latest_success:
-            raise ValueError("successful latest attempt must be the latest success")
+        closure = attempt_status.closure
         if (
+            attempt_status.procedure_state == "closed"
+            and closure is not None
+            and closure.status == "succeeded"
+        ):
+            if (
+                latest_success.attempt != attempt_status.attempt
+                or latest_success.succeeded_at != closure.closed_at
+            ):
+                raise ValueError("successful latest attempt must be the latest success")
+        elif (
             attempt_status.attempt.procedure_run_id
             == latest_success.attempt.procedure_run_id
-            and expected != latest_success
         ):
             raise ValueError("latest success must exactly match its successful attempt")
         return self
@@ -431,6 +543,30 @@ class CalibrationInputsChangedDueReason(_CalibrationModel):
     previous_success: CalibrationSuccessRef
 
 
+class CalibrationPublicationBaseChangedDueReason(_CalibrationModel):
+    kind: Literal["publication_base_changed"] = "publication_base_changed"
+    previous_success: CalibrationSuccessRef
+    current_config_source: CalibrationConfigSourceRef
+
+    @model_validator(mode="after")
+    def validate_pending_publication(
+        self,
+    ) -> CalibrationPublicationBaseChangedDueReason:
+        previous = self.previous_success
+        if (
+            previous.attempt.definition.success_policy != "published_result"
+            or previous.publication is not None
+        ):
+            raise ValueError(
+                "publication-base change requires an unpublished result success"
+            )
+        if previous.base_config_source == self.current_config_source:
+            raise ValueError(
+                "publication-base change requires a different current config source"
+            )
+        return self
+
+
 class CalibrationDependencyChangedDueReason(_CalibrationModel):
     kind: Literal["dependency_changed"] = "dependency_changed"
     dependency_key: _NonEmptyText
@@ -476,6 +612,7 @@ type CalibrationDueReason = Annotated[
     | CalibrationExpiredDueReason
     | CalibrationDefinitionChangedDueReason
     | CalibrationInputsChangedDueReason
+    | CalibrationPublicationBaseChangedDueReason
     | CalibrationDependencyChangedDueReason
     | CalibrationForcedDueReason,
     Field(discriminator="kind"),
@@ -612,6 +749,14 @@ class CalibrationCohortMemberSpec(_CalibrationModel):
                     raise ValueError(
                         "member due reason success must match its calibration key"
                     )
+            elif isinstance(reason, CalibrationPublicationBaseChangedDueReason):
+                if (
+                    reason.previous_success.attempt.calibration_key
+                    != self.calibration_key
+                ):
+                    raise ValueError(
+                        "member due reason success must match its calibration key"
+                    )
             elif isinstance(reason, CalibrationDependencyChangedDueReason):
                 dependency = dependencies_by_key.get(reason.dependency_key)
                 if reason.current_success != dependency:
@@ -745,7 +890,11 @@ class CalibrationCohortSpec(_CalibrationModel):
                 raise ValueError(
                     "cohort observations must cover every member calibration key"
                 )
-            _validate_member_due_observation(member, observation)
+            _validate_member_due_observation(
+                member,
+                observation,
+                config_source=self.config_source,
+            )
             for reason in member.due_reasons:
                 if (
                     isinstance(reason, CalibrationExpiredDueReason)
@@ -769,6 +918,7 @@ class CalibrationCohortSpec(_CalibrationModel):
                 latest_success = dependency_observation.latest_success
                 if (
                     latest_success is None
+                    or not latest_success.is_effective
                     or latest_success.dependency_evidence != dependency
                 ):
                     raise ValueError(
@@ -863,24 +1013,11 @@ class CalibrationCohortSummary(_CalibrationModel):
         )
 
 
-def _success_from_attempt_status(
-    status: CalibrationAttemptStatus,
-) -> CalibrationSuccessRef | None:
-    if (
-        status.procedure_state != "closed"
-        or status.closure is None
-        or status.closure.status != "succeeded"
-    ):
-        return None
-    return CalibrationSuccessRef(
-        attempt=status.attempt,
-        succeeded_at=status.closure.closed_at,
-    )
-
-
 def _validate_member_due_observation(
     member: CalibrationCohortMemberSpec,
     observation: CalibrationStatus,
+    *,
+    config_source: CalibrationConfigSourceRef,
 ) -> None:
     latest_success = observation.latest_success
     latest_attempt = observation.latest_attempt
@@ -940,12 +1077,23 @@ def _validate_member_due_observation(
                 raise ValueError(
                     "member due reason must reference observed latest success"
                 )
-            if (
-                reason.previous_success.attempt.input_fingerprint
-                == member.input_fingerprint
-            ):
+            previous_input = (
+                reason.previous_success.effective_input_fingerprint
+                if reason.previous_success.is_effective
+                else reason.previous_success.attempt.input_fingerprint
+            )
+            if previous_input == member.input_fingerprint:
                 raise ValueError(
                     "inputs-changed due reason requires a prior input change"
+                )
+        elif isinstance(reason, CalibrationPublicationBaseChangedDueReason):
+            if reason.previous_success != latest_success:
+                raise ValueError(
+                    "member due reason must reference observed latest success"
+                )
+            if reason.current_config_source != config_source:
+                raise ValueError(
+                    "publication-base due reason must match the cohort config source"
                 )
         elif isinstance(reason, CalibrationDependencyChangedDueReason):
             if latest_success is None:
@@ -976,6 +1124,14 @@ def _validate_statuses_as_of(
         success = status.latest_success
         if success is not None and success.succeeded_at > observed_at:
             raise ValueError("calibration success cannot follow its status observation")
+        if (
+            success is not None
+            and success.publication is not None
+            and success.publication.published_at > observed_at
+        ):
+            raise ValueError(
+                "calibration publication cannot follow its status observation"
+            )
         attempt = status.latest_attempt
         if attempt is not None and attempt.updated_at > observed_at:
             raise ValueError(
@@ -1035,8 +1191,11 @@ __all__ = [
     "CalibrationForcedDueReason",
     "CalibrationInputsChangedDueReason",
     "CalibrationMissingSuccessDueReason",
+    "CalibrationPublicationBaseChangedDueReason",
     "CalibrationStatus",
     "CalibrationStatusSnapshot",
+    "CalibrationSuccessPolicy",
+    "CalibrationSuccessPublication",
     "CalibrationSuccessRef",
     "CalibrationTargetRef",
     "calibration_cohort_member_request_key",

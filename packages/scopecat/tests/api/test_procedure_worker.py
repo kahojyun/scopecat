@@ -300,6 +300,7 @@ def test_cycle_admits_calibration_frontier_before_due_work() -> None:
             definitions=1,
             selected_targets=3,
             fresh_members=1,
+            pending_publication_members=0,
             blocked_members=1,
             suppressed_active_members=0,
             suppressed_failed_members=0,

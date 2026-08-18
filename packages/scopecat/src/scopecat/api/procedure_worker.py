@@ -87,6 +87,7 @@ class ProcedureWorkerCycleResult:
     planner_failures: int
     selected_calibration_targets: int
     fresh_calibrations: int
+    pending_publication_calibrations: int
     blocked_calibrations: int
     suppressed_active_calibrations: int
     suppressed_failed_calibrations: int
@@ -390,6 +391,7 @@ def _empty_calibration_cycle() -> CalibrationEvaluatorCycleResult:
         definitions=0,
         selected_targets=0,
         fresh_members=0,
+        pending_publication_members=0,
         blocked_members=0,
         suppressed_active_members=0,
         suppressed_failed_members=0,
@@ -420,6 +422,7 @@ def _worker_cycle_result(
         planner_failures=planning.failures,
         selected_calibration_targets=calibrations.selected_targets,
         fresh_calibrations=calibrations.fresh_members,
+        pending_publication_calibrations=(calibrations.pending_publication_members),
         blocked_calibrations=calibrations.blocked_members,
         suppressed_active_calibrations=calibrations.suppressed_active_members,
         suppressed_failed_calibrations=calibrations.suppressed_failed_members,

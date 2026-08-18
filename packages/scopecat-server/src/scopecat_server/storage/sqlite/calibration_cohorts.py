@@ -17,9 +17,11 @@ from scopecat.automation.calibrations import (
     CalibrationCohortSummary,
     CalibrationStatus,
     CalibrationStatusSnapshot,
+    CalibrationSuccessPublication,
     CalibrationSuccessRef,
 )
 from scopecat.automation.models import ProcedureRun
+from scopecat.daemon.wire import ConfigPublishReceipt
 
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 
@@ -371,6 +373,126 @@ class SQLiteCalibrationCohortStore:
                 "failed to insert calibration cohort member"
             ) from error
 
+    def insert_success_publication_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        success: CalibrationSuccessRef,
+    ) -> None:
+        """Attach one config publication to its exact successful cohort member."""
+
+        publication = success.publication
+        if publication is None:
+            raise ValueError("calibration success publication is required")
+        try:
+            row = _one(
+                connection.execute(
+                    """
+                    SELECT members.member_json, members.closure_status,
+                           members.closed_at, cohorts.cohort_json, runs.run_json
+                    FROM calibration_cohort_members AS members
+                    CROSS JOIN calibration_cohorts AS cohorts
+                      ON cohorts.cohort_id = members.cohort_id
+                    CROSS JOIN procedure_runs AS runs
+                      ON runs.procedure_run_id = members.procedure_run_id
+                    WHERE members.procedure_run_id = ?
+                    """,
+                    (success.attempt.procedure_run_id,),
+                )
+            )
+            if row is None:
+                raise CalibrationCohortConflict(
+                    "calibration publication member was not found"
+                )
+            member = _member(row)
+            cohort = _cohort(row)
+            run = _run(row)
+            if (
+                member.cohort_id != cohort.cohort_id
+                or success.attempt != member.attempt_ref
+                or success.base_config_source != cohort.spec.config_source
+                or run.state != "closed"
+                or run.closure is None
+                or run.closure.status != "succeeded"
+                or success.succeeded_at != run.closure.closed_at
+            ):
+                raise CalibrationCohortConflict(
+                    "calibration publication does not match its exact member success"
+                )
+            operation_row = _one(
+                connection.execute(
+                    """
+                    SELECT receipt_json
+                    FROM config_operations
+                    WHERE operation_id = ? AND kind = 'publish_revision'
+                    """,
+                    (publication.operation_id,),
+                )
+            )
+            if operation_row is None:
+                raise CalibrationCohortConflict(
+                    "calibration publication config operation was not found"
+                )
+            receipt = ConfigPublishReceipt.model_validate_json(
+                _text(operation_row, "receipt_json")
+            )
+            result_source = publication.result_config_source
+            base_source = success.base_config_source
+            if (
+                receipt.operation.operation_id != publication.operation_id
+                or receipt.operation.source_intent_hash
+                != publication.source_intent_hash
+                or receipt.operation.expected_generation
+                != base_source.registry_generation
+                or receipt.activation.previous_entry_id != base_source.entry_id
+                or receipt.activation.previous_entry_content_hash
+                != base_source.content_hash
+                or receipt.entry.id != result_source.entry_id
+                or receipt.entry.config_ref != result_source.config_ref
+                or receipt.entry.content_hash != result_source.content_hash
+                or receipt.activation.generation != result_source.registry_generation
+                or receipt.activation.recorded_at != publication.published_at
+            ):
+                raise CalibrationCohortConflict(
+                    "calibration publication does not match its config operation"
+                )
+            connection.execute(
+                """
+                INSERT INTO calibration_success_publications(
+                    procedure_run_id, cohort_id, member_id, calibration_key,
+                    operation_id, source_intent_hash, result_input_fingerprint,
+                    result_freshness_fingerprint, result_entry_id,
+                    result_config_ref, result_content_hash,
+                    result_registry_generation, published_at, publication_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    success.attempt.procedure_run_id,
+                    success.attempt.cohort_id,
+                    success.attempt.member_id,
+                    success.attempt.calibration_key,
+                    publication.operation_id,
+                    publication.source_intent_hash,
+                    publication.result_input_fingerprint,
+                    publication.result_freshness_fingerprint,
+                    result_source.entry_id,
+                    result_source.config_ref,
+                    result_source.content_hash,
+                    result_source.registry_generation,
+                    _timestamp(publication.published_at),
+                    publication.model_dump_json(),
+                ),
+            )
+        except CalibrationCohortConflict:
+            raise
+        except sqlite3.IntegrityError as error:
+            raise CalibrationCohortConflict(
+                "calibration success already has a different publication"
+            ) from error
+        except (sqlite3.Error, ValidationError) as error:
+            raise CalibrationCohortStoreError(
+                "failed to insert calibration success publication"
+            ) from error
+
 
 def _status_rows_query(
     calibration_keys: tuple[str, ...],
@@ -410,14 +532,19 @@ def _status_rows_query(
         FROM chosen
         WHERE latest_success_sequence IS NOT NULL
     )
-    SELECT members.calibration_key, members.member_json,
+    SELECT members.calibration_key, members.member_json, cohorts.cohort_json,
            members.sequence AS member_sequence,
-           runs.run_json, members.closure_status, members.closed_at
+           runs.run_json, members.closure_status, members.closed_at,
+           publications.publication_json
     FROM selected
     CROSS JOIN calibration_cohort_members AS members
       ON members.sequence = selected.sequence
     CROSS JOIN procedure_runs AS runs
       ON runs.procedure_run_id = members.procedure_run_id
+    CROSS JOIN calibration_cohorts AS cohorts
+      ON cohorts.cohort_id = members.cohort_id
+    LEFT JOIN calibration_success_publications AS publications
+      ON publications.procedure_run_id = members.procedure_run_id
     ORDER BY members.sequence DESC
     """  # noqa: S608 - requested contains only generated placeholders
     return query, calibration_keys
@@ -432,6 +559,11 @@ def _statuses(
     for row in rows:
         key = _text(row, "calibration_key")
         member = _member(row)
+        cohort = _cohort(row)
+        if member.cohort_id != cohort.cohort_id:
+            raise CalibrationCohortStoreError(
+                "calibration status member does not match its cohort"
+            )
         run = _run(row)
         attempt = CalibrationAttemptStatus(
             attempt=member.attempt_ref,
@@ -451,7 +583,9 @@ def _statuses(
                 key,
                 CalibrationSuccessRef(
                     attempt=member.attempt_ref,
+                    base_config_source=cohort.spec.config_source,
                     succeeded_at=datetime.fromisoformat(closed_at),
+                    publication=_publication(row),
                 ),
             )
     return tuple(
@@ -488,6 +622,18 @@ def _run(row: sqlite3.Row) -> ProcedureRun:
     except ValidationError as error:
         raise CalibrationCohortStoreError(
             "invalid durable calibration procedure run"
+        ) from error
+
+
+def _publication(row: sqlite3.Row) -> CalibrationSuccessPublication | None:
+    publication_json = _optional_text(row, "publication_json")
+    if publication_json is None:
+        return None
+    try:
+        return CalibrationSuccessPublication.model_validate_json(publication_json)
+    except ValidationError as error:
+        raise CalibrationCohortStoreError(
+            "invalid durable calibration success publication"
         ) from error
 
 

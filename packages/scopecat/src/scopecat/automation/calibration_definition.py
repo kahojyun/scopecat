@@ -16,6 +16,7 @@ from scopecat.automation.calibrations import (
     MAX_CALIBRATION_COHORT_MEMBERS,
     CalibrationDefinitionRef,
     CalibrationDependencyEvidence,
+    CalibrationSuccessPolicy,
     CalibrationTargetRef,
     calibration_key,
 )
@@ -23,7 +24,7 @@ from scopecat.automation.definition import ProcedureDefinition, RegisteredProced
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.records.content import Sha256ContentHash
 
-_CALIBRATION_DEFINITION_FINGERPRINT_CODEC = "scopecat.calibration-definition.v1"
+_CALIBRATION_DEFINITION_FINGERPRINT_CODEC = "scopecat.calibration-definition.v2"
 _CALIBRATION_INPUT_FINGERPRINT_CODEC = "scopecat.calibration-input.v1"
 MAX_CALIBRATION_REGISTRY_SIZE = 200
 
@@ -96,6 +97,9 @@ class RegisteredCalibration[ContextT](Protocol):
     @property
     def max_in_flight(self) -> int: ...
 
+    @property
+    def success_policy(self) -> CalibrationSuccessPolicy: ...
+
     def select_targets(self, context: ContextT) -> tuple[CalibrationTargetRef, ...]: ...
 
     def observe(
@@ -141,6 +145,7 @@ class CalibrationDefinition[ContextT, InputsT: BaseModel, IntentT: BaseModel]:
         ],
         IntentT,
     ] = field(repr=False, compare=False)
+    success_policy: CalibrationSuccessPolicy = "procedure_success"
     fingerprint: Sha256ContentHash = field(init=False)
 
     def __post_init__(self) -> None:
@@ -170,6 +175,7 @@ class CalibrationDefinition[ContextT, InputsT: BaseModel, IntentT: BaseModel]:
                 procedure=self.procedure,
                 fanout_scope=self.fanout_scope,
                 max_in_flight=self.max_in_flight,
+                success_policy=self.success_policy,
                 selector=self._select_targets,
                 observer=self._observe,
                 builder=self._build_intent,
@@ -182,6 +188,7 @@ class CalibrationDefinition[ContextT, InputsT: BaseModel, IntentT: BaseModel]:
             id=self.id,
             version=self.version,
             fingerprint=self.fingerprint,
+            success_policy=self.success_policy,
         )
 
     def select_targets(self, context: ContextT) -> tuple[CalibrationTargetRef, ...]:
@@ -243,6 +250,7 @@ def calibration[
     procedure: ProcedureDefinition[IntentT],
     fanout_scope: str,
     max_in_flight: int,
+    success_policy: CalibrationSuccessPolicy = "procedure_success",
     select: Callable[[ContextT], tuple[CalibrationTargetRef, ...]],
     observe: Callable[
         [ContextT, CalibrationTargetRef], CalibrationObservation[InputsT]
@@ -284,6 +292,7 @@ def calibration[
             _select_targets=select,
             _observe=observe,
             _build_intent=builder,
+            success_policy=success_policy,
         )
 
     return decorate
@@ -466,6 +475,7 @@ def _calibration_definition_fingerprint(
     procedure: RegisteredProcedure,
     fanout_scope: str,
     max_in_flight: int,
+    success_policy: CalibrationSuccessPolicy,
     selector: Callable[..., object],
     observer: Callable[..., object],
     builder: Callable[..., object],
@@ -482,6 +492,7 @@ def _calibration_definition_fingerprint(
         "procedure": procedure.ref.model_dump(mode="json"),
         "fanout_scope": fanout_scope,
         "max_in_flight": max_in_flight,
+        "success_policy": success_policy,
         "selector": _function_identity(selector, label="calibration selector"),
         "observer": _function_identity(observer, label="calibration observer"),
         "builder": _function_identity(builder, label="calibration intent builder"),

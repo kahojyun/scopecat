@@ -21,7 +21,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
     store.bootstrap()
     store.bootstrap()
 
-    assert store.schema_version() == 42
+    assert store.schema_version() == 43
     with sqlite3.connect(database) as connection:
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
         tables = {
@@ -60,6 +60,18 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
                 "PRAGMA index_list(calibration_cohort_members)"
             )
         }
+        calibration_publication_columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(calibration_success_publications)"
+            )
+        }
+        calibration_publication_indexes = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA index_list(calibration_success_publications)"
+            )
+        }
         triggers = {
             row[0]
             for row in connection.execute(
@@ -84,6 +96,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         "procedure_schedules",
         "calibration_cohorts",
         "calibration_cohort_members",
+        "calibration_success_publications",
         "config_registry_entries",
         "config_registry_activations",
         "config_operations",
@@ -112,6 +125,17 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         "calibration_cohort_members_key_sequence",
         "calibration_cohort_members_success_key_sequence",
     } <= calibration_member_indexes
+    assert {
+        "procedure_run_id",
+        "operation_id",
+        "result_input_fingerprint",
+        "result_freshness_fingerprint",
+        "result_registry_generation",
+        "publication_json",
+    } <= calibration_publication_columns
+    assert (
+        "calibration_success_publications_operation" in calibration_publication_indexes
+    )
     assert "calibration_cohort_members_sync_terminal_closure" in triggers
 
 
@@ -193,6 +217,28 @@ def test_bootstrap_refuses_v41_before_calibration_cohort_boundary(
 
     store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
     with pytest.raises(SchemaVersionError, match="version: 41"):
+        store.bootstrap()
+
+
+def test_bootstrap_refuses_v42_before_calibration_publication_boundary(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "control.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            CREATE TABLE project_schema (
+                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                version INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO project_schema(singleton, version) VALUES (1, 42)"
+        )
+
+    store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
+    with pytest.raises(SchemaVersionError, match="version: 42"):
         store.bootstrap()
 
 

@@ -31,8 +31,10 @@ from scopecat.automation.calibrations import (
     CalibrationExpiredDueReason,
     CalibrationInputsChangedDueReason,
     CalibrationMissingSuccessDueReason,
+    CalibrationPublicationBaseChangedDueReason,
     CalibrationStatus,
     CalibrationStatusSnapshot,
+    CalibrationSuccessRef,
     CalibrationTargetRef,
     calibration_cohort_spec_hash,
     calibration_freshness_fingerprint,
@@ -83,6 +85,7 @@ class CalibrationEvaluatorCycleResult:
     definitions: int
     selected_targets: int
     fresh_members: int
+    pending_publication_members: int
     blocked_members: int
     suppressed_active_members: int
     suppressed_failed_members: int
@@ -238,7 +241,7 @@ class ProjectCalibrationEvaluator:
                 dependencies: list[CalibrationDependencyEvidence] = []
                 for requirement in member.observation.dependencies:
                     success = statuses[requirement.calibration_key].latest_success
-                    if success is None:
+                    if success is None or not success.is_effective:
                         break
                     dependencies.append(success.dependency_evidence)
                 else:
@@ -266,12 +269,22 @@ class ProjectCalibrationEvaluator:
                     ):
                         totals.suppressed_failed += 1
                         continue
+                    success = status.latest_success
+                    if success is not None and _pending_publication_matches(
+                        success,
+                        definition=definition,
+                        freshness_fingerprint=freshness,
+                        config_source=context.config_source,
+                    ):
+                        totals.pending_publication += 1
+                        continue
                     reasons = _due_reasons(
                         definition,
                         member,
                         status,
                         input_fingerprint=input_fingerprint,
                         dependencies=exact_dependencies,
+                        config_source=context.config_source,
                         evaluated_at=snapshot.observed_at,
                     )
                     if reasons:
@@ -418,6 +431,7 @@ class _MutableCycle:
     definitions: int = 0
     selected_targets: int = 0
     fresh: int = 0
+    pending_publication: int = 0
     blocked: int = 0
     suppressed_active: int = 0
     suppressed_failed: int = 0
@@ -436,6 +450,7 @@ class _MutableCycle:
             definitions=self.definitions,
             selected_targets=self.selected_targets,
             fresh_members=self.fresh,
+            pending_publication_members=self.pending_publication,
             blocked_members=self.blocked,
             suppressed_active_members=self.suppressed_active,
             suppressed_failed_members=self.suppressed_failed,
@@ -508,6 +523,7 @@ def _due_reasons(
     *,
     input_fingerprint: str,
     dependencies: tuple[CalibrationDependencyEvidence, ...],
+    config_source: CalibrationConfigSourceRef,
     evaluated_at: datetime,
 ) -> tuple[CalibrationDueReason, ...]:
     success = status.latest_success
@@ -523,8 +539,24 @@ def _due_reasons(
             reasons.append(
                 CalibrationDefinitionChangedDueReason(previous_success=success)
             )
-        if previous.input_fingerprint != input_fingerprint:
+        previous_input = (
+            success.effective_input_fingerprint
+            if success.is_effective
+            else previous.input_fingerprint
+        )
+        if previous_input != input_fingerprint:
             reasons.append(CalibrationInputsChangedDueReason(previous_success=success))
+        if (
+            previous.definition.success_policy == "published_result"
+            and success.publication is None
+            and success.base_config_source != config_source
+        ):
+            reasons.append(
+                CalibrationPublicationBaseChangedDueReason(
+                    previous_success=success,
+                    current_config_source=config_source,
+                )
+            )
         previous_dependencies = {
             dependency.calibration_key: dependency
             for dependency in previous.dependencies
@@ -558,6 +590,24 @@ def _due_reasons(
     return tuple(reasons)
 
 
+def _pending_publication_matches(
+    success: CalibrationSuccessRef,
+    *,
+    definition: RegisteredCalibration[CalibrationPlanningContext],
+    freshness_fingerprint: str,
+    config_source: CalibrationConfigSourceRef,
+) -> bool:
+    attempt = success.attempt
+    return (
+        attempt.definition.success_policy == "published_result"
+        and success.publication is None
+        and attempt.definition == definition.ref
+        and attempt.procedure == definition.procedure.ref
+        and attempt.freshness_fingerprint == freshness_fingerprint
+        and success.base_config_source == config_source
+    )
+
+
 def _matches_cohort(
     cohort: CalibrationCohort,
     cohort_id: str,
@@ -588,6 +638,7 @@ def _empty_cycle(*, has_more: bool = False) -> CalibrationEvaluatorCycleResult:
         definitions=0,
         selected_targets=0,
         fresh_members=0,
+        pending_publication_members=0,
         blocked_members=0,
         suppressed_active_members=0,
         suppressed_failed_members=0,

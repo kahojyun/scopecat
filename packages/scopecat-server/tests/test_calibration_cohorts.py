@@ -24,6 +24,9 @@ from scopecat.automation import (
     CalibrationForcedDueReason,
     CalibrationStatusQuery,
     CalibrationStatusReceipt,
+    CalibrationSuccessPolicy,
+    CalibrationSuccessPublication,
+    CalibrationSuccessRef,
     CalibrationTargetRef,
     ProcedureCloseCommand,
     ProcedureCloseStatus,
@@ -41,11 +44,19 @@ from scopecat.automation import (
     calibration_freshness_fingerprint,
     calibration_key,
 )
+from scopecat.config.registry.records import ConfigPublishOperation
 from scopecat.config.registry.service import (
     ConfigRevision,
     DirectConfigRevisionSource,
     publish_config_revision,
     resolve_config_registry_config_source,
+)
+from scopecat.daemon.wire import (
+    ConfigPublishCommand,
+    ConfigPublishReceipt,
+)
+from scopecat.daemon.wire import (
+    DirectConfigRevisionSource as WireDirectConfigRevisionSource,
 )
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat_testkit.workflow_fixtures import load_config
@@ -62,6 +73,7 @@ from scopecat_server.storage.sqlite.calibration_cohorts import (
     CalibrationCohortConflict,
     SQLiteCalibrationCohortStore,
 )
+from scopecat_server.storage.sqlite.config_operations import SQLiteConfigOperationStore
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
@@ -71,6 +83,7 @@ _START = datetime(2026, 8, 18, 9, tzinfo=UTC)
 _DEFINITION_HASH = "sha256:" + "1" * 64
 _PROCEDURE_HASH = "sha256:" + "2" * 64
 _INPUT_HASH = "sha256:" + "3" * 64
+_RESULT_INPUT_HASH = "sha256:" + "4" * 64
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,11 +141,16 @@ def _harness(tmp_path: Path) -> _Harness:
     )
 
 
-def _member(target_id: str) -> CalibrationCohortMemberSpec:
+def _member(
+    target_id: str,
+    *,
+    success_policy: CalibrationSuccessPolicy = "procedure_success",
+) -> CalibrationCohortMemberSpec:
     definition = CalibrationDefinitionRef(
         id="drag-calibration",
         version="1",
         fingerprint=_DEFINITION_HASH,
+        success_policy=success_policy,
     )
     target = CalibrationTargetRef(kind="qubit", id=target_id)
     procedure = ProcedureDefinitionRef(
@@ -219,6 +237,85 @@ def _close(
             reason=None if status == "succeeded" else "test failure",
         )
     )
+
+
+def _attach_success_publication(
+    harness: _Harness,
+    pending: CalibrationSuccessRef,
+) -> CalibrationSuccessRef:
+    result_config = load_config().model_copy(update={"id": "calibration-result"})
+    result = publish_config_revision(
+        revision=ConfigRevision(
+            source=DirectConfigRevisionSource(result_config),
+            entry_id="calibration-result-entry",
+            actor="test",
+        ),
+        unit_of_work=harness.config_registry.write_unit_of_work,
+        expected_generation=pending.base_config_source.registry_generation,
+    )
+    activation = result.activation
+    assert activation is not None
+    command = ConfigPublishCommand(
+        operation_id="publish:calibration-result",
+        source=WireDirectConfigRevisionSource(config=result_config),
+        actor="test",
+        expected_generation=pending.base_config_source.registry_generation,
+        entry_id=result.entry.id,
+    )
+    operation = ConfigPublishOperation(
+        operation_id=command.operation_id,
+        intent_hash=command.intent_hash,
+        source_intent_hash=command.source_intent_hash,
+        entry_id=command.entry_id,
+        expected_generation=command.expected_generation,
+        actor=command.actor,
+        note=command.note,
+        activation_generation=activation.generation,
+        recorded_at=activation.recorded_at,
+    )
+    receipt = ConfigPublishReceipt(
+        operation=operation,
+        entry=result.entry,
+        deltas=result.deltas,
+        activation=activation,
+    )
+    result_source = CalibrationConfigSourceRef(
+        entry_id=result.entry.id,
+        config_ref=result.entry.config_ref,
+        content_hash=result.entry.content_hash,
+        registry_generation=activation.generation,
+    )
+    publication = CalibrationSuccessPublication(
+        operation_id=operation.operation_id,
+        source_intent_hash=operation.source_intent_hash,
+        result_input_fingerprint=_RESULT_INPUT_HASH,
+        result_freshness_fingerprint=calibration_freshness_fingerprint(
+            definition=pending.attempt.definition,
+            target=pending.attempt.target,
+            procedure=pending.attempt.procedure,
+            input_fingerprint=_RESULT_INPUT_HASH,
+            dependencies=pending.attempt.dependencies,
+        ),
+        result_config_source=result_source,
+        published_at=activation.recorded_at,
+    )
+    anchored = CalibrationSuccessRef(
+        attempt=pending.attempt,
+        base_config_source=pending.base_config_source,
+        succeeded_at=pending.succeeded_at,
+        publication=publication,
+    )
+    with harness.store.write_transaction() as connection:
+        SQLiteConfigOperationStore(harness.store.sqlite).commit_in_transaction(
+            connection,
+            receipt,
+        )
+        harness.store.insert_success_publication_in_transaction(
+            connection,
+            anchored,
+        )
+    harness.now[0] = max(harness.now[0], activation.recorded_at)
+    return anchored
 
 
 def _move_to_active_state(
@@ -365,6 +462,64 @@ def test_cohort_status_tracks_latest_attempt_and_prior_success(
     )
     # Exact replay is resolved before changed config, status, and fanout checks.
     assert harness.service.create(command) == created
+
+
+def test_success_publication_attaches_to_exact_member_and_status_projection(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    member = _member("q0", success_policy="published_result")
+    created = harness.service.create(
+        _command(
+            "published-result",
+            source=harness.source,
+            snapshot=_status(harness, (member,)),
+            members=(member,),
+        )
+    )
+    _close(harness, created.members[0], status="succeeded")
+    pending_status = _status(harness, (member,)).snapshot.statuses[0]
+    pending = pending_status.latest_success
+    assert pending is not None
+    assert pending.base_config_source == harness.source
+    assert pending.publication is None
+    assert pending.is_effective is False
+
+    anchored = _attach_success_publication(harness, pending)
+    projected = _status(harness, (member,)).snapshot.statuses[0]
+
+    assert projected.latest_success == anchored
+    assert projected.latest_success is not None
+    assert projected.latest_success.dependency_evidence.publication_operation_id == (
+        "publish:calibration-result"
+    )
+    with harness.store.read_transaction() as connection:
+        query, parameters = calibration_storage._status_rows_query(
+            (member.calibration_key,)
+        )
+        plan = tuple(
+            row["detail"]
+            for row in connection.execute(
+                f"EXPLAIN QUERY PLAN {query}",
+                parameters,
+            )
+        )
+    assert any(
+        "SEARCH publications" in detail
+        and "procedure_run_id=?" in detail
+        and "LEFT-JOIN" in detail
+        for detail in plan
+    )
+    assert not any("SCAN publications" in detail for detail in plan)
+
+    with (
+        pytest.raises(CalibrationCohortConflict, match="already has"),
+        harness.store.write_transaction() as connection,
+    ):
+        harness.store.insert_success_publication_in_transaction(
+            connection,
+            anchored,
+        )
 
 
 def test_status_query_bounds_rows_to_latest_attempt_and_success(

@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS calibration_cohort_members (
     UNIQUE (cohort_id, member_index),
     UNIQUE (cohort_id, member_id),
     UNIQUE (cohort_id, calibration_key),
+    UNIQUE (cohort_id, member_id, procedure_run_id),
     CHECK (
         (closure_status IS NULL AND closed_at IS NULL)
         OR (closure_status IS NOT NULL AND closed_at IS NOT NULL)
@@ -62,6 +63,35 @@ BEGIN
         closed_at = NEW.closed_at
     WHERE procedure_run_id = NEW.procedure_run_id;
 END;
+
+CREATE TABLE IF NOT EXISTS calibration_success_publications (
+    procedure_run_id TEXT PRIMARY KEY,
+    cohort_id TEXT NOT NULL,
+    member_id TEXT NOT NULL,
+    calibration_key TEXT NOT NULL,
+    operation_id TEXT NOT NULL
+        REFERENCES config_operations(operation_id) ON DELETE RESTRICT,
+    source_intent_hash TEXT NOT NULL,
+    result_input_fingerprint TEXT NOT NULL,
+    result_freshness_fingerprint TEXT NOT NULL,
+    result_entry_id TEXT NOT NULL
+        REFERENCES config_registry_entries(entry_id) ON DELETE RESTRICT,
+    result_config_ref TEXT NOT NULL,
+    result_content_hash TEXT NOT NULL,
+    result_registry_generation INTEGER NOT NULL CHECK (
+        result_registry_generation >= 1
+    ) REFERENCES config_registry_activations(generation) ON DELETE RESTRICT,
+    published_at TEXT NOT NULL,
+    publication_json TEXT NOT NULL,
+    UNIQUE (cohort_id, member_id),
+    FOREIGN KEY (cohort_id, member_id, procedure_run_id)
+        REFERENCES calibration_cohort_members(
+            cohort_id, member_id, procedure_run_id
+        ) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS calibration_success_publications_operation
+ON calibration_success_publications(operation_id);
 """
 
 

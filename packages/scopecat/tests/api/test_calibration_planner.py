@@ -25,8 +25,11 @@ from scopecat.automation import (
     CalibrationDependencyChangedDueReason,
     CalibrationDependencyEvidence,
     CalibrationInputsChangedDueReason,
+    CalibrationPublicationBaseChangedDueReason,
     CalibrationStatus,
     CalibrationStatusSnapshot,
+    CalibrationSuccessPolicy,
+    CalibrationSuccessPublication,
     CalibrationSuccessRef,
     CalibrationTargetRef,
     ProcedureCloseStatus,
@@ -52,6 +55,7 @@ _EVENTS: list[str] = []
 _targets: tuple[CalibrationTargetRef, ...] = ()
 _values: dict[str, int] = {}
 _dependencies: dict[str, tuple[CalibrationDependencyRequirement, ...]] = {}
+_valid_for: dict[str, timedelta] = {}
 
 
 class _Inputs(BaseModel):
@@ -84,6 +88,7 @@ def _observe(
     return CalibrationObservation(
         inputs=_Inputs(value=_values[target.id]),
         dependencies=_dependencies.get(target.id, ()),
+        valid_for=_valid_for.get(target.id),
     )
 
 
@@ -105,6 +110,7 @@ def _definition(
     id: str = "tests.calibration",
     *,
     max_in_flight: int = 10,
+    success_policy: CalibrationSuccessPolicy = "procedure_success",
 ) -> CalibrationDefinition[CalibrationPlanningContext, _Inputs, _Intent]:
     return CalibrationDefinition(
         id=id,
@@ -116,6 +122,7 @@ def _definition(
         _select_targets=_select,
         _observe=_observe,
         _build_intent=_build,
+        success_policy=success_policy,
     )
 
 
@@ -250,6 +257,7 @@ def reset_authoring_state() -> None:
     _targets = ()
     _values.clear()
     _dependencies.clear()
+    _valid_for.clear()
     _EVENTS.clear()
 
 
@@ -639,6 +647,177 @@ def test_changed_inputs_after_failed_need_admit_new_work() -> None:
     assert result.admitted_members == 1
 
 
+def test_published_result_success_waits_for_publication_without_rerunning() -> None:
+    global _targets
+    target = _target("a")
+    _targets = (target,)
+    _values["a"] = 1
+    _valid_for["a"] = timedelta(minutes=30)
+    definition = _definition(success_policy="published_result")
+    operations = _Operations(
+        statuses={
+            calibration_key(definition.id, target): _attempt_status(
+                definition,
+                target,
+                procedure_state="closed",
+                closure_status="succeeded",
+            )
+        }
+    )
+
+    result = _evaluator(definition, operations).cycle()
+
+    assert result.pending_publication_members == 1
+    assert result.fresh_members == 0
+    assert result.ready_members == 0
+    assert result.admitted_members == 0
+    assert _EVENTS == ["status"]
+
+
+def test_pending_publication_is_not_usable_as_dependency() -> None:
+    global _targets
+    target = _target("a")
+    dependency_target = _target("dependency")
+    _targets = (target,)
+    _values["a"] = 1
+    definition = _definition()
+    dependency_definition = _definition(
+        id="tests.dependency",
+        success_policy="published_result",
+    )
+    _dependencies["a"] = (
+        CalibrationDependencyRequirement(
+            definition_id=dependency_definition.id,
+            target=dependency_target,
+        ),
+    )
+    dependency_status = _attempt_status(
+        dependency_definition,
+        dependency_target,
+        procedure_state="closed",
+        closure_status="succeeded",
+    )
+    operations = _Operations(
+        statuses={dependency_status.calibration_key: dependency_status}
+    )
+
+    result = _evaluator(definition, operations).cycle()
+
+    assert result.blocked_members == 1
+    assert result.ready_members == 0
+    assert result.admitted_members == 0
+
+
+def test_pending_publication_base_drift_admits_a_new_truthful_need() -> None:
+    global _targets
+    target = _target("a")
+    _targets = (target,)
+    _values["a"] = 1
+    definition = _definition(success_policy="published_result")
+    pending_status = _attempt_status(
+        definition,
+        target,
+        procedure_state="closed",
+        closure_status="succeeded",
+    )
+    operations = _Operations(statuses={pending_status.calibration_key: pending_status})
+    evaluator = ProjectCalibrationEvaluator(
+        operations,
+        CalibrationRegistry((definition,)),
+        lambda: _context(registry_generation=2),
+    )
+
+    result = evaluator.cycle()
+
+    assert result.pending_publication_members == 0
+    assert result.admitted_members == 1
+    member = next(iter(operations.cohorts.values())).cohort.spec.members[0]
+    reasons = tuple(
+        reason
+        for reason in member.due_reasons
+        if isinstance(reason, CalibrationPublicationBaseChangedDueReason)
+    )
+    assert len(reasons) == 1
+    assert reasons[0].previous_success == pending_status.latest_success
+    assert (
+        reasons[0].current_config_source
+        == _context(registry_generation=2).config_source
+    )
+
+
+def test_published_result_uses_result_inputs_as_effective_freshness() -> None:
+    global _targets
+    target = _target("a")
+    _targets = (target,)
+    _values["a"] = 2
+    definition = _definition(success_policy="published_result")
+    pending_status = _attempt_status(
+        definition,
+        target,
+        input_value=1,
+        procedure_state="closed",
+        closure_status="succeeded",
+    )
+    published_status = _published_status(
+        pending_status,
+        definition,
+        result_input_value=2,
+    )
+    operations = _Operations(
+        statuses={published_status.calibration_key: published_status}
+    )
+    evaluator = ProjectCalibrationEvaluator(
+        operations,
+        CalibrationRegistry((definition,)),
+        lambda: _context(registry_generation=2),
+    )
+
+    result = evaluator.cycle()
+
+    assert result.fresh_members == 1
+    assert result.pending_publication_members == 0
+    assert result.admitted_members == 0
+    assert _EVENTS == ["status"]
+
+
+def test_published_result_ttl_still_starts_at_procedure_closure() -> None:
+    global _targets
+    target = _target("a")
+    _targets = (target,)
+    _values["a"] = 2
+    _valid_for["a"] = timedelta(minutes=45)
+    definition = _definition(success_policy="published_result")
+    pending_status = _attempt_status(
+        definition,
+        target,
+        input_value=1,
+        procedure_state="closed",
+        closure_status="succeeded",
+    )
+    published_status = _published_status(
+        pending_status,
+        definition,
+        result_input_value=2,
+    )
+    operations = _Operations(
+        statuses={published_status.calibration_key: published_status}
+    )
+    evaluator = ProjectCalibrationEvaluator(
+        operations,
+        CalibrationRegistry((definition,)),
+        lambda: _context(registry_generation=2),
+    )
+
+    result = evaluator.cycle()
+
+    assert result.fresh_members == 0
+    assert result.admitted_members == 1
+    member = next(iter(operations.cohorts.values())).cohort.spec.members[0]
+    expired = tuple(reason for reason in member.due_reasons if reason.kind == "expired")
+    assert len(expired) == 1
+    assert expired[0].expired_at == _NOW - timedelta(minutes=15)
+
+
 def test_generation_only_context_change_does_not_stale_semantic_inputs() -> None:
     global _targets
     target = _target("a")
@@ -730,9 +909,9 @@ def _context(*, registry_generation: int = 1) -> CalibrationPlanningContext:
         config=cast("ConfigProfileSnapshot", object()),
         config_source=CalibrationConfigSourceRef(
             selector="active",
-            entry_id="config-entry",
-            config_ref="config-entry@r1",
-            content_hash=f"sha256:{'1' * 64}",
+            entry_id=f"config-entry-{registry_generation}",
+            config_ref=f"config-entry-{registry_generation}@r1",
+            content_hash=f"sha256:{str(registry_generation % 10) * 64}",
             registry_generation=registry_generation,
         ),
     )
@@ -802,10 +981,49 @@ def _attempt_status(
         assert closure is not None
         success = CalibrationSuccessRef(
             attempt=attempt,
+            base_config_source=_context().config_source,
             succeeded_at=closure.closed_at,
         )
     return CalibrationStatus(
         calibration_key=key,
         latest_attempt=attempt_status,
         latest_success=success,
+    )
+
+
+def _published_status(
+    status: CalibrationStatus,
+    definition: CalibrationDefinition[CalibrationPlanningContext, _Inputs, _Intent],
+    *,
+    result_input_value: int,
+) -> CalibrationStatus:
+    pending = status.latest_success
+    assert pending is not None
+    result_input_fingerprint = definition.input_fingerprint(
+        _Inputs(value=result_input_value)
+    )
+    publication = CalibrationSuccessPublication(
+        operation_id=f"publish-{pending.attempt.target.id}",
+        source_intent_hash=f"sha256:{'8' * 64}",
+        result_input_fingerprint=result_input_fingerprint,
+        result_freshness_fingerprint=calibration_freshness_fingerprint(
+            definition=pending.attempt.definition,
+            target=pending.attempt.target,
+            procedure=pending.attempt.procedure,
+            input_fingerprint=result_input_fingerprint,
+            dependencies=pending.attempt.dependencies,
+        ),
+        result_config_source=_context(registry_generation=2).config_source,
+        published_at=_NOW - timedelta(minutes=30),
+    )
+    published = CalibrationSuccessRef(
+        attempt=pending.attempt,
+        base_config_source=pending.base_config_source,
+        succeeded_at=pending.succeeded_at,
+        publication=publication,
+    )
+    return CalibrationStatus(
+        calibration_key=status.calibration_key,
+        latest_attempt=status.latest_attempt,
+        latest_success=published,
     )
