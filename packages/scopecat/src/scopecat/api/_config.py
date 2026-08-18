@@ -38,6 +38,7 @@ from scopecat.daemon.wire import (
     ConfigPublishCommand,
     ConfigPublishReceipt,
     ConfigUndoCommand,
+    ConfigUndoReceipt,
     DirectConfigRevisionSource,
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
@@ -223,22 +224,25 @@ class LabConfigOperations:
         self,
         entry_id: str,
         *,
+        operation_id: str,
+        expected_generation: int,
         actor: str | None = None,
-        expected_generation: int | None = None,
         note: str = "",
     ) -> ConfigActivationReceipt:
         return self.client.activate_config_entry(
             ConfigEntryActivationCommand(
+                operation_id=operation_id,
                 entry_id=entry_id,
                 actor=actor or self.operator,
-                expected_generation=(
-                    self._generation()
-                    if expected_generation is None
-                    else expected_generation
-                ),
+                expected_generation=expected_generation,
                 note=note,
             )
         )
+
+    def activation_operation(self, operation_id: str) -> ConfigActivationReceipt:
+        """Reopen the exact durable result of an activate-entry command."""
+
+        return self.client.config_activation_operation(operation_id)
 
     def migrate_instrument_inventory(
         self,
@@ -362,7 +366,7 @@ class LabConfigOperations:
         *,
         actor: str | None = None,
         note: str = "",
-    ) -> ConfigActivationReceipt:
+    ) -> ConfigUndoReceipt:
         return self.client.undo_config(
             ConfigUndoCommand(
                 actor=actor or self.operator,

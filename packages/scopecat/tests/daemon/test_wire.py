@@ -19,6 +19,7 @@ from scopecat.config.inventory import (
 )
 from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.registry.records import (
+    ConfigActivationOperation,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
     CrossRunCandidateAcceptance,
@@ -43,6 +44,7 @@ from scopecat.daemon.wire import (
     ConfigPublishCommand,
     ConfigPublishReceipt,
     ConfigUndoCommand,
+    ConfigUndoReceipt,
     DirectConfigRevisionSource,
     ExecutorLease,
     InstrumentConfiguredDefaultsApplyCommand,
@@ -110,9 +112,24 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         entry_content_hash=entry.content_hash,
         actor="operator",
     )
+    operation = ConfigActivationOperation(
+        operation_id="activate-baseline",
+        intent_hash=ConfigEntryActivationCommand(
+            operation_id="activate-baseline",
+            entry_id=entry.id,
+            actor="operator",
+            expected_generation=0,
+        ).intent_hash,
+        entry_id=entry.id,
+        expected_generation=0,
+        actor="operator",
+        activation_generation=activation.generation,
+    )
     activated = ConfigActivationReceipt(
+        operation=operation,
         activation=activation,
     )
+    undone = ConfigUndoReceipt(activation=activation)
     published = ConfigPublishReceipt(
         entry=entry,
         activation=activation,
@@ -124,6 +141,7 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         expected_generation=0,
     )
     activation_command = ConfigEntryActivationCommand(
+        operation_id="activate-baseline",
         entry_id=entry.id,
         actor="operator",
         expected_generation=0,
@@ -137,6 +155,7 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         ConfigActivationReceipt.model_validate_json(activated.model_dump_json())
         == activated
     )
+    assert ConfigUndoReceipt.model_validate_json(undone.model_dump_json()) == undone
     assert (
         ConfigPublishReceipt.model_validate_json(published.model_dump_json())
         == published
@@ -155,6 +174,39 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         ConfigPublishCommand.model_validate_json(publish_command.model_dump_json())
         == publish_command
     )
+
+
+def test_config_activation_operation_binds_intent_and_result_generation() -> None:
+    first = ConfigEntryActivationCommand(
+        operation_id="activation-1",
+        entry_id="baseline",
+        actor="operator",
+        expected_generation=3,
+        note="select baseline",
+    )
+    replay_key = first.model_copy(update={"operation_id": "activation-2"})
+
+    assert first.intent_hash == replay_key.intent_hash
+    with pytest.raises(ValidationError, match="intent hash is inconsistent"):
+        ConfigActivationOperation(
+            operation_id=first.operation_id,
+            intent_hash=f"sha256:{'0' * 64}",
+            entry_id=first.entry_id,
+            expected_generation=first.expected_generation,
+            actor=first.actor,
+            note=first.note,
+            activation_generation=4,
+        )
+    with pytest.raises(ValidationError, match="observed or next generation"):
+        ConfigActivationOperation(
+            operation_id=first.operation_id,
+            intent_hash=first.intent_hash,
+            entry_id=first.entry_id,
+            expected_generation=first.expected_generation,
+            actor=first.actor,
+            note=first.note,
+            activation_generation=5,
+        )
 
 
 def test_instrument_inventory_migration_is_discriminated_closed_json() -> None:

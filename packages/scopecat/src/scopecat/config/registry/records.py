@@ -7,9 +7,13 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.run_outcome import utc_now
 from scopecat.records.analysis import ProjectAnalysisDecisionReference
 from scopecat.records.config import ConfigContentHash
+from scopecat.records.content import Sha256ContentHash
+
+_CONFIG_ACTIVATION_INTENT_CODEC = "scopecat.config-activation-intent.v1"
 
 
 class _FrozenRegistryModel(BaseModel):
@@ -118,6 +122,60 @@ class ConfigRegistryActivationRecord(_FrozenRegistryModel):
         ):
             msg = "previous registry entry id and content hash must be paired"
             raise ValueError(msg)
+        return self
+
+
+def config_activation_intent_hash(
+    *,
+    entry_id: str,
+    expected_generation: int,
+    actor: str,
+    note: str = "",
+) -> Sha256ContentHash:
+    """Identify one exact activate-entry intent independently of its retry key."""
+
+    identity = {
+        "codec": _CONFIG_ACTIVATION_INTENT_CODEC,
+        "entry_id": entry_id,
+        "expected_generation": expected_generation,
+        "actor": actor,
+        "note": note,
+    }
+    return f"sha256:{stable_content_hash(identity)}"
+
+
+class ConfigActivationOperation(_FrozenRegistryModel):
+    """Durable result identity for one idempotent activate-entry command."""
+
+    operation_id: str
+    intent_hash: Sha256ContentHash
+    entry_id: str
+    expected_generation: int = Field(ge=0)
+    actor: str
+    note: str = ""
+    activation_generation: int = Field(ge=1)
+    recorded_at: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> ConfigActivationOperation:
+        if not self.operation_id or not self.entry_id or not self.actor.strip():
+            raise ValueError("config activation operation identity must be non-empty")
+        expected_hash = config_activation_intent_hash(
+            entry_id=self.entry_id,
+            expected_generation=self.expected_generation,
+            actor=self.actor,
+            note=self.note,
+        )
+        if self.intent_hash != expected_hash:
+            raise ValueError("config activation operation intent hash is inconsistent")
+        if self.activation_generation not in {
+            self.expected_generation,
+            self.expected_generation + 1,
+        }:
+            raise ValueError(
+                "config activation operation generation must be the observed or next "
+                "generation"
+            )
         return self
 
 

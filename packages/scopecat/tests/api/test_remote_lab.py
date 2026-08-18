@@ -31,6 +31,7 @@ from scopecat.api.run import RunHandle
 from scopecat.config.drafts import ConfigDraft
 from scopecat.config.inventory import InstrumentInventoryRekey
 from scopecat.config.registry.records import (
+    ConfigActivationOperation,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
@@ -58,9 +59,11 @@ from scopecat.daemon.views import (
 )
 from scopecat.daemon.wire import (
     ConfigActivationReceipt,
+    ConfigEntryActivationCommand,
     ConfigPublishCommand,
     ConfigPublishReceipt,
     ConfigUndoCommand,
+    ConfigUndoReceipt,
     DirectConfigRevisionSource,
     ExecutorLease,
     InstrumentContractCatalogRequest,
@@ -819,7 +822,7 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
             command = ConfigUndoCommand.model_validate_json(request.content)
             seen.append(command)
             return _model(
-                ConfigActivationReceipt(
+                ConfigUndoReceipt(
                     activation=activation,
                 )
             )
@@ -846,6 +849,60 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
             note="restore prior values",
         ),
     ]
+
+
+def test_lab_config_activation_uses_explicit_operation_and_exact_lookup() -> None:
+    config = load_config()
+    entry, activation = _config_registry_records(config)
+    command = ConfigEntryActivationCommand(
+        operation_id="activate-baseline",
+        entry_id=entry.id,
+        actor="notebook-operator",
+        expected_generation=activation.generation,
+        note="confirm baseline",
+    )
+    receipt = ConfigActivationReceipt(
+        operation=ConfigActivationOperation(
+            operation_id=command.operation_id,
+            intent_hash=command.intent_hash,
+            entry_id=command.entry_id,
+            expected_generation=command.expected_generation,
+            actor=command.actor,
+            note=command.note,
+            activation_generation=activation.generation,
+        ),
+        activation=activation,
+    )
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if request.method == "POST":
+            assert request.url.path == ("/api/v1/config-registry/activation-operations")
+            assert (
+                ConfigEntryActivationCommand.model_validate_json(request.content)
+                == command
+            )
+            return _model(receipt)
+        assert request.method == "GET"
+        assert request.url.path == (
+            "/api/v1/config-registry/activation-operations/activate-baseline"
+        )
+        return _model(receipt)
+
+    lab = LabClient(_client(handler), operator="notebook-operator")
+
+    activated = lab.config.activate_entry(
+        entry.id,
+        operation_id=command.operation_id,
+        expected_generation=command.expected_generation,
+        note=command.note,
+    )
+    reopened = lab.config.activation_operation(command.operation_id)
+
+    assert activated == receipt
+    assert reopened == receipt
+    assert [request.method for request in requests] == ["POST", "GET"]
 
 
 def test_lab_config_inventory_migration_assembles_registry_coordination() -> None:

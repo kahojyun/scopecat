@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from scopecat.config.registry.records import (
         CandidateAcceptance,
         CandidateConfigRegistrySource,
+        ConfigActivationOperation,
         ConfigRegistryActivationPage,
         ConfigRegistryActivationRecord,
         ConfigRegistryEntry,
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
         DirectConfigRegistrySource,
         ManualCandidateAcceptance,
         ManualConfigDraftRegistrySource,
+        config_activation_intent_hash,
     )
     from scopecat.config.registry.service import (
         ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR,
@@ -66,6 +68,7 @@ if TYPE_CHECKING:
 _RECORD_EXPORTS = (
     "CandidateAcceptance",
     "CandidateConfigRegistrySource",
+    "ConfigActivationOperation",
     "ConfigRegistryActivationPage",
     "ConfigRegistryActivationRecord",
     "ConfigRegistryEntry",
@@ -75,6 +78,7 @@ _RECORD_EXPORTS = (
     "DirectConfigRegistrySource",
     "ManualCandidateAcceptance",
     "ManualConfigDraftRegistrySource",
+    "config_activation_intent_hash",
 )
 _PORT_EXPORTS = (
     "ConfigRegistryRepository",

@@ -25,8 +25,10 @@ from scopecat.config.inventory import InstrumentInventoryChange
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry.records import (
     CandidateAcceptance,
+    ConfigActivationOperation,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
+    config_activation_intent_hash,
 )
 from scopecat.control.models import RunPlanSummary
 from scopecat.kernel.content_identity import stable_content_hash
@@ -158,10 +160,20 @@ class InstrumentInventoryMigrationReceipt(_WireModel):
 class ConfigEntryActivationCommand(_WireModel):
     """Select a saved revision with generation compare-and-swap."""
 
+    operation_id: NonEmptyText
     entry_id: NonEmptyText
     actor: NonEmptyText
     expected_generation: int = Field(ge=0)
     note: str = ""
+
+    @property
+    def intent_hash(self) -> Sha256ContentHash:
+        return config_activation_intent_hash(
+            entry_id=self.entry_id,
+            expected_generation=self.expected_generation,
+            actor=self.actor,
+            note=self.note,
+        )
 
 
 class ConfigUndoCommand(_WireModel):
@@ -173,6 +185,22 @@ class ConfigUndoCommand(_WireModel):
 
 
 class ConfigActivationReceipt(_WireModel):
+    operation: ConfigActivationOperation
+    activation: ConfigRegistryActivationRecord
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> ConfigActivationReceipt:
+        if (
+            self.operation.activation_generation != self.activation.generation
+            or self.operation.entry_id != self.activation.entry_id
+        ):
+            raise ValueError(
+                "config activation receipt operation and activation do not match"
+            )
+        return self
+
+
+class ConfigUndoReceipt(_WireModel):
     activation: ConfigRegistryActivationRecord
 
 
@@ -839,6 +867,7 @@ __all__ = [
     "ConfigPublishReceipt",
     "ConfigRevisionSource",
     "ConfigUndoCommand",
+    "ConfigUndoReceipt",
     "DirectConfigRevisionSource",
     "ExecutorHeartbeat",
     "ExecutorLease",
