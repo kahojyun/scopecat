@@ -31,6 +31,8 @@ from scopecat.daemon.views import (
     RunSummaryPage,
 )
 from scopecat.daemon.wire import (
+    AnalysisSaveCommand,
+    AnalysisSaveReceipt,
     ExecutorLease,
     ExecutorStartRequest,
     InstrumentConfiguredDefaultsApplyCommand,
@@ -56,6 +58,7 @@ from scopecat.records.config import (
 )
 from scopecat.records.content import (
     BlobPayloadBody,
+    ContentEntry,
     InlinePayloadBody,
     command_payload_from_bytes,
 )
@@ -274,6 +277,56 @@ def test_run_instrument_provision_retries_the_same_operation_after_response_loss
     assert [
         RunInstrumentProvisionCommand.model_validate_json(request.content)
         for request in requests
+    ] == [command, command]
+
+
+@pytest.mark.parametrize("scope", ["run", "project"])
+def test_analysis_save_retries_the_exact_command_after_response_loss(
+    scope: str,
+) -> None:
+    requests: list[httpx2.Request] = []
+    command = AnalysisSaveCommand(
+        title="fit",
+        analysis_key="fit",
+        step_id="tests.fit",
+    )
+    receipt = AnalysisSaveReceipt(
+        record=ContentEntry(
+            role="record",
+            id="analysis-fit-r1",
+            kind="analysis",
+            content_hash=_HASH,
+        ),
+        analysis_key=command.analysis_key,
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if len(requests) == 1:
+            raise httpx2.ReadError("analysis response was lost", request=request)
+        return _model(receipt, status_code=201)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    saved = (
+        client.save_analysis("run-1", command)
+        if scope == "run"
+        else client.save_project_analysis(command)
+    )
+
+    assert saved == receipt
+    expected_path = (
+        "/api/v1/runs/run-1/analyses" if scope == "run" else "/api/v1/analyses"
+    )
+    assert [request.url.path for request in requests] == [
+        expected_path,
+        expected_path,
+    ]
+    assert [
+        AnalysisSaveCommand.model_validate_json(request.content) for request in requests
     ] == [command, command]
 
 

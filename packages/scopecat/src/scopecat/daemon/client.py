@@ -828,7 +828,7 @@ class DaemonClient:
         run_id: str,
         command: AnalysisSaveCommand,
     ) -> AnalysisSaveReceipt:
-        return self._post_model(
+        return self._post_idempotent_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/analyses",
             command,
             AnalysisSaveReceipt,
@@ -887,7 +887,7 @@ class DaemonClient:
         self,
         command: AnalysisSaveCommand,
     ) -> AnalysisSaveReceipt:
-        return self._post_model(
+        return self._post_idempotent_model(
             f"{_API_PREFIX}/analyses",
             command,
             AnalysisSaveReceipt,

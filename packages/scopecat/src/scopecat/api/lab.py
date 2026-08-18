@@ -13,11 +13,13 @@ from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.analysis import AnalysisContext, AnalysisStep
 from scopecat.api.instruments import LabInstrumentOperations
+from scopecat.api.procedures import LabProcedureOperations
 from scopecat.api.project_analysis import RemoteProjectAnalysisOperations
 from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.api.review import ExperimentReviewHandle
 from scopecat.api.run import RunHandle, RunHandlePage, run_handle_id
 from scopecat.authoring.experiments import Experiment, ExperimentInvocation
+from scopecat.automation import ProcedureRegistry
 from scopecat.config.candidates import CandidateConfig
 from scopecat.control.models import ControlRunState
 from scopecat.daemon.client import DaemonClient
@@ -120,6 +122,7 @@ class LabClient:
         *,
         build_experiment_system: ExperimentSystemBuilder | None = None,
         config: ConfigProfileSnapshot | None = None,
+        procedures: ProcedureRegistry | None = None,
         operator: str = "operator",
     ) -> None:
         self._owns_client = isinstance(daemon, str)
@@ -138,6 +141,13 @@ class LabClient:
             operator=operator,
         )
         self._runner = _DaemonRunner(self._client, build_experiment_system)
+        self._procedures = LabProcedureOperations(
+            client=self._client,
+            runner=self._runner,
+            config=self._config,
+            session=self,
+            registry=procedures if procedures is not None else ProcedureRegistry(),
+        )
 
     def __enter__(self) -> Self:
         return self
@@ -170,6 +180,10 @@ class LabClient:
     @property
     def instruments(self) -> LabInstrumentOperations:
         return self._instruments
+
+    @property
+    def procedures(self) -> LabProcedureOperations:
+        return self._procedures
 
     def health(self) -> DaemonHealth:
         return self._control.health()

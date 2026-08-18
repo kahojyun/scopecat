@@ -7,6 +7,7 @@ import mimetypes
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from pathlib import Path, PurePosixPath
+from textwrap import dedent
 from typing import (
     Concatenate,
     Literal,
@@ -52,6 +53,7 @@ from scopecat.config.changes import (
 )
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.kernel.content_identity import (
+    content_fingerprint,
     model_wire_content_hash,
     sha256_content_hash,
     stable_content_hash,
@@ -88,6 +90,7 @@ from scopecat.records.analysis import (
     is_analysis_rows,
 )
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.content import Sha256ContentHash
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.sdk.compute import (
     PYTHON_JSON_CODEC,
@@ -1232,6 +1235,30 @@ class AnalysisInvocation:
     id: str
     _definition: AnalysisFunction
     arguments: tuple[tuple[str, object], ...]
+
+    @property
+    def implementation_fingerprint(self) -> Sha256ContentHash:
+        """Identify the exact Python analysis implementation used by automation."""
+
+        try:
+            source = dedent(inspect.getsource(self._definition)).strip()
+        except (OSError, TypeError) as error:
+            raise TypeError(
+                "analysis implementation source must be available to fingerprint"
+            ) from error
+        identity = {
+            "codec": "scopecat.analysis-implementation.v1",
+            "id": self.id,
+            "module": self._definition.__module__,
+            "qualname": self._definition.__qualname__,
+            "source": source,
+            "defaults": content_fingerprint(self._definition.__defaults__),
+            "keyword_defaults": content_fingerprint(self._definition.__kwdefaults__),
+            "closure": content_fingerprint(
+                inspect.getclosurevars(self._definition).nonlocals
+            ),
+        }
+        return f"sha256:{stable_content_hash(identity)}"
 
     def run(self, context: AnalysisContext) -> Analysis:
         """Evaluate the analysis function against its declared inputs."""

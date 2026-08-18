@@ -42,6 +42,7 @@ if TYPE_CHECKING:
         instrument,
         temporary_instrument,
     )
+    from scopecat.api.procedures import LabProcedureContext
     from scopecat.api.published_analysis import (
         PublishedAnalysis,
         PublishedAnalysisArtifact,
@@ -112,6 +113,7 @@ if TYPE_CHECKING:
         parameter_schema,
         resource_role,
     )
+    from scopecat.automation import procedure
     from scopecat.config.parameters import (
         delete_parameter_rows,
         insert_parameter_rows,
@@ -224,6 +226,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "parameter_field": ("scopecat.authoring", "parameter_field"),
     "parameter_lookup": ("scopecat.authoring", "parameter_lookup"),
     "parameter_schema": ("scopecat.authoring", "parameter_schema"),
+    "procedure": ("scopecat.automation", "procedure"),
     "resource_role": ("scopecat.authoring", "resource_role"),
     "axis": ("scopecat.authoring", "axis"),
     "ExperimentSystem": ("scopecat.planning.system", "ExperimentSystem"),
@@ -265,6 +268,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "InstrumentClientFactory",
     ),
     "InstrumentRef": ("scopecat.api.instruments", "InstrumentRef"),
+    "LabProcedureContext": (
+        "scopecat.api.procedures",
+        "LabProcedureContext",
+    ),
     "TemporaryInstrumentRef": (
         "scopecat.api.instruments",
         "TemporaryInstrumentRef",

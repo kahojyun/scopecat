@@ -1,0 +1,676 @@
+"""Notebook-facing execution of durable multi-run procedures."""
+
+from __future__ import annotations
+
+import inspect
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from textwrap import dedent
+from typing import Protocol
+from uuid import uuid4
+
+import httpx2
+
+from scopecat.api._config import LabConfigOperations
+from scopecat.api._runner import _DaemonRunner, _prepare_run_submission
+from scopecat.api.analysis import AnalysisInvocation, AnalysisStep
+from scopecat.api.published_analysis import PublishedAnalysis
+from scopecat.api.run import RunHandle
+from scopecat.authoring.experiments import Experiment, ExperimentInvocation
+from scopecat.automation import (
+    AnalysisPublicationOutputRef,
+    ProcedureContext,
+    ProcedureRegistry,
+    ProcedureRun,
+    ProcedureRunListQuery,
+    ProcedureRunState,
+    ProcedureStepAttempt,
+    ProcedureStepAttemptListQuery,
+    ProcedureStepAttemptPage,
+    ProcedureStepOperation,
+    ProcedureStepOutputRef,
+    ProcedureSubmitCommand,
+    ProcedureWorker,
+    RegisteredProcedure,
+    RunOutputRef,
+)
+from scopecat.automation.worker import ProcedureNeedsAttention
+from scopecat.config.candidates import CandidateConfig
+from scopecat.daemon.client import DaemonClient, DaemonNotFoundError
+from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
+from scopecat.kernel.errors import RunIndeterminate
+from scopecat.kernel.ids import artifact_slug
+from scopecat.program.values import MetadataValue
+from scopecat.records.analysis import (
+    MeasurementAnalysisRecordInput,
+    ProjectAnalysisSubject,
+    RunAnalysisSubject,
+    analysis_record_id,
+)
+from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.content import Sha256ContentHash
+from scopecat.records.run import RunConfigSource
+from scopecat.runs.selectors import RunSelector
+
+type ExperimentSpec = ExperimentInvocation | Experiment[...]
+
+_ANALYSIS_STEP_INTENT_CODEC = "scopecat.procedure-analysis-step.v1"
+
+
+class ProcedureLabSession(Protocol):
+    """Notebook operations required by a lab-bound procedure context."""
+
+    def get_run(self, run: RunSelector | RunHandle) -> RunHandle: ...
+
+    def analyze(
+        self,
+        step: AnalysisStep,
+        *,
+        key: str | None = None,
+    ) -> PublishedAnalysis: ...
+
+    def published_analysis(self, selector: str) -> PublishedAnalysis: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ProcedureHandlePage:
+    """One bounded newest-first page of notebook procedure handles."""
+
+    items: tuple[ProcedureHandle, ...] = ()
+    next_cursor: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProcedureHandle:
+    """Reopenable handle for one daemon-owned procedure invocation."""
+
+    operations: LabProcedureOperations
+    id: str
+
+    @property
+    def snapshot(self) -> ProcedureRun:
+        return self.operations.snapshot(self.id)
+
+    @property
+    def state(self) -> ProcedureRunState:
+        return self.snapshot.state
+
+    def steps(
+        self,
+        *,
+        limit: int = 50,
+        before: int | None = None,
+    ) -> ProcedureStepAttemptPage:
+        return self.operations.steps(self.id, limit=limit, before=before)
+
+    def step(self, step_key: str) -> ProcedureStepAttempt:
+        """Find the newest attempt for one stable step using bounded pages."""
+
+        cursor: int | None = None
+        while True:
+            page = self.steps(limit=200, before=cursor)
+            for attempt in page.items:
+                if attempt.step_key == step_key:
+                    return attempt
+            if page.next_cursor is None:
+                raise KeyError(f"procedure has no step {step_key!r}")
+            cursor = page.next_cursor
+
+    def output(self, step_key: str) -> ProcedureStepOutputRef:
+        attempt = self.step(step_key)
+        if attempt.state != "succeeded" or attempt.output is None:
+            raise RuntimeError(f"procedure step {step_key!r} has no successful output")
+        return attempt.output
+
+    def resume(self, *, worker_id: str | None = None) -> ProcedureHandle:
+        return self.operations.resume(self, worker_id=worker_id)
+
+
+class LabProcedureContext:
+    """Lab effects layered over one lease-fenced durable procedure context."""
+
+    __slots__ = ("_config", "_durable", "_runner", "_session")
+
+    def __init__(
+        self,
+        durable: ProcedureContext,
+        *,
+        runner: _DaemonRunner,
+        config: LabConfigOperations,
+        session: ProcedureLabSession,
+    ) -> None:
+        self._durable = durable
+        self._runner = runner
+        self._config = config
+        self._session = session
+
+    @property
+    def procedure_run_id(self) -> str:
+        return self._durable.procedure_run_id
+
+    def step[OutputT: ProcedureStepOutputRef](
+        self,
+        step_key: str,
+        *,
+        operation: ProcedureStepOperation,
+        intent_hash: Sha256ContentHash,
+        effect: Callable[[str], OutputT],
+        inputs: tuple[ProcedureStepOutputRef, ...] = (),
+    ) -> OutputT:
+        """Use the domain-neutral checkpoint primitive for a custom effect."""
+
+        return self._durable.step(
+            step_key,
+            operation=operation,
+            intent_hash=intent_hash,
+            effect=effect,
+            inputs=inputs,
+        )
+
+    def run(
+        self,
+        step_key: str,
+        experiment: ExperimentSpec,
+        *,
+        config: ConfigProfileSnapshot | CandidateConfig,
+        config_source: RunConfigSource | None = None,
+        inputs: tuple[ProcedureStepOutputRef, ...] = (),
+        name: str | None = None,
+        tags: tuple[str, ...] = (),
+        description: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+        operator: str | None = None,
+    ) -> RunOutputRef:
+        """Plan and execute one exactly identified child run."""
+
+        selected_config, inferred_source = self._config.resolve_with_source(config)
+        if inferred_source is not None and config_source is not None:
+            raise TypeError(
+                "config_source cannot override provenance inferred from a candidate"
+            )
+        selected_source = inferred_source or config_source
+        if (
+            selected_source is not None
+            and selected_source.content_hash != config_content_hash(selected_config)
+        ):
+            raise ValueError("config_source content hash does not match config")
+        invocation = _experiment_invocation(experiment)
+        planned = self._runner._plan(  # pyright: ignore[reportPrivateUsage]
+            invocation,
+            config=selected_config,
+            config_source=selected_source,
+            name=name,
+            tags=tags,
+            description=description,
+            metadata=metadata,
+            operator=operator,
+        )
+        _, intent_hash = _prepare_run_submission(
+            planned,
+            submission_id="procedure-step-intent",
+        )
+
+        def execute(operation_id: str) -> RunOutputRef:
+            try:
+                snapshot = self._runner.execute(
+                    planned,
+                    submission_id=operation_id,
+                    executor_id=operation_id,
+                )
+            except httpx2.TransportError as error:
+                raise ProcedureNeedsAttention(
+                    "child run transport outcome for operation "
+                    f"{operation_id!r} is unknown"
+                ) from error
+            except RunIndeterminate as error:
+                raise ProcedureNeedsAttention(
+                    f"child run {error.run_id!r} has an indeterminate outcome"
+                ) from error
+            return RunOutputRef(run_id=snapshot.run_id)
+
+        return self.step(
+            step_key,
+            operation="run",
+            intent_hash=intent_hash,
+            effect=execute,
+            inputs=inputs,
+        )
+
+    def run_handle(self, ref: RunOutputRef) -> RunHandle:
+        """Rehydrate an exact durable child-run reference."""
+
+        return self._session.get_run(ref.run_id)
+
+    def analyze_run(
+        self,
+        step_key: str,
+        run: RunOutputRef,
+        analysis: AnalysisStep,
+        *,
+        inputs: tuple[ProcedureStepOutputRef, ...] | None = None,
+    ) -> AnalysisPublicationOutputRef:
+        """Publish or replay one analysis whose subject is an exact child run."""
+
+        selected_inputs = (run,) if inputs is None else inputs
+        if run not in selected_inputs:
+            raise ValueError("run analysis inputs must include its subject run")
+        key = _procedure_analysis_key(self.procedure_run_id, step_key)
+        intent_hash = _analysis_step_intent_hash(
+            procedure_run_id=self.procedure_run_id,
+            step_key=step_key,
+            analysis=analysis,
+            key=key,
+            inputs=selected_inputs,
+        )
+        handle = self.run_handle(run)
+
+        def publish(_operation_id: str) -> AnalysisPublicationOutputRef:
+            published = _existing_run_analysis(handle, key=key)
+            if published is None:
+                try:
+                    published = handle.analyze(analysis, key=key)
+                except httpx2.TransportError as error:
+                    published = _existing_run_analysis(handle, key=key)
+                    if published is None:
+                        raise ProcedureNeedsAttention(
+                            f"run analysis publication {key!r} has an unknown outcome"
+                        ) from error
+            _validate_run_analysis(
+                published,
+                run_id=run.run_id,
+                step_id=analysis.id,
+                key=key,
+                inputs=selected_inputs,
+            )
+            return AnalysisPublicationOutputRef(
+                subject=RunAnalysisSubject(run_id=run.run_id),
+                analysis_record_id=published.id,
+            )
+
+        return self.step(
+            step_key,
+            operation="analysis",
+            intent_hash=intent_hash,
+            effect=publish,
+            inputs=selected_inputs,
+        )
+
+    def analyze_project(
+        self,
+        step_key: str,
+        analysis: AnalysisStep,
+        *,
+        inputs: tuple[ProcedureStepOutputRef, ...],
+    ) -> AnalysisPublicationOutputRef:
+        """Publish or replay one project analysis over exact durable inputs."""
+
+        key = _procedure_analysis_key(self.procedure_run_id, step_key)
+        intent_hash = _analysis_step_intent_hash(
+            procedure_run_id=self.procedure_run_id,
+            step_key=step_key,
+            analysis=analysis,
+            key=key,
+            inputs=inputs,
+        )
+
+        def publish(_operation_id: str) -> AnalysisPublicationOutputRef:
+            published = _existing_project_analysis(self._session, key=key)
+            if published is None:
+                try:
+                    published = self._session.analyze(analysis, key=key)
+                except httpx2.TransportError as error:
+                    published = _existing_project_analysis(self._session, key=key)
+                    if published is None:
+                        raise ProcedureNeedsAttention(
+                            "project analysis publication "
+                            f"{key!r} has an unknown outcome"
+                        ) from error
+            _validate_project_analysis(
+                published,
+                step_id=analysis.id,
+                key=key,
+                inputs=inputs,
+            )
+            return AnalysisPublicationOutputRef(
+                subject=ProjectAnalysisSubject(),
+                analysis_record_id=published.id,
+            )
+
+        return self.step(
+            step_key,
+            operation="analysis",
+            intent_hash=intent_hash,
+            effect=publish,
+            inputs=inputs,
+        )
+
+    def published_analysis(
+        self,
+        ref: AnalysisPublicationOutputRef,
+    ) -> PublishedAnalysis:
+        """Open one exact publication without resolving a mutable logical key."""
+
+        if isinstance(ref.subject, RunAnalysisSubject):
+            return self._session.get_run(ref.subject.run_id).published_analysis(
+                ref.analysis_record_id
+            )
+        return self._session.published_analysis(ref.analysis_record_id)
+
+
+class LabProcedureOperations:
+    """Submit, execute, inspect, and resume registered lab procedures."""
+
+    __slots__ = (
+        "_client",
+        "_config",
+        "_registry",
+        "_runner",
+        "_session",
+        "_worker_id",
+    )
+
+    def __init__(
+        self,
+        *,
+        client: DaemonClient,
+        runner: _DaemonRunner,
+        config: LabConfigOperations,
+        session: ProcedureLabSession,
+        registry: ProcedureRegistry,
+        worker_id: str | None = None,
+    ) -> None:
+        self._client = client
+        self._runner = runner
+        self._config = config
+        self._session = session
+        self._registry = registry
+        self._worker_id = worker_id or f"notebook-procedure-{uuid4().hex}"
+
+    @property
+    def registry(self) -> ProcedureRegistry:
+        return self._registry
+
+    def submit(
+        self,
+        definition: RegisteredProcedure,
+        intent: object,
+        *,
+        request_key: str,
+    ) -> ProcedureHandle:
+        selected = self._registry.resolve(definition.ref)
+        receipt = self._client.submit_procedure(
+            ProcedureSubmitCommand(
+                request_key=request_key,
+                definition=selected.ref,
+                intent=selected.encode_intent(intent),
+            )
+        )
+        return ProcedureHandle(self, receipt.run.procedure_run_id)
+
+    def start(
+        self,
+        definition: RegisteredProcedure,
+        intent: object,
+        *,
+        request_key: str,
+        worker_id: str | None = None,
+    ) -> ProcedureHandle:
+        selected = self._registry.resolve(definition.ref)
+        run = self._worker().execute(
+            selected,
+            intent,
+            request_key,
+            self._worker_id if worker_id is None else worker_id,
+        )
+        return ProcedureHandle(self, run.procedure_run_id)
+
+    def resume(
+        self,
+        procedure: str | ProcedureHandle,
+        *,
+        worker_id: str | None = None,
+    ) -> ProcedureHandle:
+        procedure_run_id = (
+            procedure.id if isinstance(procedure, ProcedureHandle) else procedure
+        )
+        run = self._worker().resume(
+            procedure_run_id,
+            worker_id=self._worker_id if worker_id is None else worker_id,
+        )
+        return ProcedureHandle(self, run.procedure_run_id)
+
+    def get(self, procedure_run_id: str) -> ProcedureHandle:
+        self._client.get_procedure(procedure_run_id)
+        return ProcedureHandle(self, procedure_run_id)
+
+    def snapshot(self, procedure_run_id: str) -> ProcedureRun:
+        return self._client.get_procedure(procedure_run_id)
+
+    def steps(
+        self,
+        procedure_run_id: str,
+        *,
+        limit: int = 50,
+        before: int | None = None,
+    ) -> ProcedureStepAttemptPage:
+        return self._client.list_procedure_step_attempts(
+            procedure_run_id,
+            ProcedureStepAttemptListQuery(limit=limit, cursor=before),
+        )
+
+    def list(
+        self,
+        *,
+        limit: int = 50,
+        before: int | None = None,
+        state: ProcedureRunState | None = None,
+    ) -> ProcedureHandlePage:
+        page = self._client.list_procedures(
+            ProcedureRunListQuery(limit=limit, cursor=before, state=state)
+        )
+        return ProcedureHandlePage(
+            items=tuple(
+                ProcedureHandle(self, run.procedure_run_id) for run in page.items
+            ),
+            next_cursor=page.next_cursor,
+        )
+
+    def _worker(self) -> ProcedureWorker:
+        return ProcedureWorker(
+            self._client,
+            self._registry,
+            context_factory=lambda durable: LabProcedureContext(
+                durable,
+                runner=self._runner,
+                config=self._config,
+                session=self._session,
+            ),
+        )
+
+
+def _experiment_invocation(experiment: ExperimentSpec) -> ExperimentInvocation:
+    return experiment.bind() if isinstance(experiment, Experiment) else experiment
+
+
+def _procedure_analysis_key(procedure_run_id: str, step_key: str) -> str:
+    digest = stable_content_hash(
+        {
+            "procedure_run_id": procedure_run_id,
+            "step_key": step_key,
+        }
+    )
+    label = artifact_slug(step_key, fallback="analysis")[:32]
+    return f"procedure-{label}-{digest}"
+
+
+def _analysis_step_intent_hash(
+    *,
+    procedure_run_id: str,
+    step_key: str,
+    analysis: AnalysisStep,
+    key: str,
+    inputs: tuple[ProcedureStepOutputRef, ...],
+) -> Sha256ContentHash:
+    identity = {
+        "codec": _ANALYSIS_STEP_INTENT_CODEC,
+        "procedure_run_id": procedure_run_id,
+        "step_key": step_key,
+        "analysis_id": analysis.id,
+        "analysis_implementation": _analysis_implementation_fingerprint(analysis),
+        "analysis_arguments": _analysis_arguments_identity(analysis),
+        "analysis_key": key,
+        "inputs": [item.model_dump(mode="json") for item in inputs],
+    }
+    return f"sha256:{stable_content_hash(identity)}"
+
+
+def _analysis_arguments_identity(analysis: AnalysisStep) -> object:
+    if not isinstance(analysis, AnalysisInvocation):
+        return {
+            "kind": "analysis_step",
+            "type": f"{type(analysis).__module__}.{type(analysis).__qualname__}",
+        }
+    return {
+        "kind": "analysis_invocation",
+        "arguments": [
+            [name, _analysis_argument_identity(value)]
+            for name, value in analysis.arguments
+        ],
+    }
+
+
+def _analysis_implementation_fingerprint(
+    analysis: AnalysisStep,
+) -> Sha256ContentHash:
+    if isinstance(analysis, AnalysisInvocation):
+        return analysis.implementation_fingerprint
+    implementation = type(analysis)
+    try:
+        source = dedent(inspect.getsource(implementation)).strip()
+    except (OSError, TypeError) as error:
+        raise TypeError(
+            "custom procedure analysis source must be available to fingerprint"
+        ) from error
+    try:
+        state = content_fingerprint(analysis)
+    except TypeError as error:
+        try:
+            state = content_fingerprint(vars(analysis))
+        except TypeError:
+            raise TypeError(
+                "custom procedure analysis steps with opaque state must implement "
+                "__scopecat_fingerprint__()"
+            ) from error
+    identity = {
+        "codec": "scopecat.analysis-implementation.v1",
+        "id": analysis.id,
+        "module": implementation.__module__,
+        "qualname": implementation.__qualname__,
+        "source": source,
+        "state": state,
+    }
+    return f"sha256:{stable_content_hash(identity)}"
+
+
+def _analysis_argument_identity(value: object) -> object:
+    if isinstance(value, RunHandle):
+        return {"kind": "run", "run_id": value.id}
+    if isinstance(value, PublishedAnalysis):
+        return {
+            "kind": "analysis",
+            "subject": value.view.analysis.subject.model_dump(mode="json"),
+            "analysis_record_id": value.id,
+        }
+    return content_fingerprint(value)
+
+
+def _existing_run_analysis(
+    run: RunHandle,
+    *,
+    key: str,
+) -> PublishedAnalysis | None:
+    try:
+        return run.published_analysis(analysis_record_id(key, 1))
+    except DaemonNotFoundError:
+        return None
+
+
+def _existing_project_analysis(
+    lab: ProcedureLabSession,
+    *,
+    key: str,
+) -> PublishedAnalysis | None:
+    try:
+        return lab.published_analysis(analysis_record_id(key, 1))
+    except DaemonNotFoundError:
+        return None
+
+
+def _validate_run_analysis(
+    published: PublishedAnalysis,
+    *,
+    run_id: str,
+    step_id: str,
+    key: str,
+    inputs: tuple[ProcedureStepOutputRef, ...],
+) -> None:
+    subject = published.view.analysis.subject
+    if not isinstance(subject, RunAnalysisSubject) or subject.run_id != run_id:
+        raise ValueError("procedure run analysis has the wrong exact subject")
+    if published.step_id != step_id or published.key != key:
+        raise ValueError("procedure run analysis identity does not match its step")
+    if published.id != analysis_record_id(key, 1) or published.revision != 1:
+        raise ValueError("procedure run analysis must resolve the exact first revision")
+    _validate_analysis_upstreams(published, inputs=inputs)
+
+
+def _validate_project_analysis(
+    published: PublishedAnalysis,
+    *,
+    step_id: str,
+    key: str,
+    inputs: tuple[ProcedureStepOutputRef, ...],
+) -> None:
+    if not isinstance(published.view.analysis.subject, ProjectAnalysisSubject):
+        raise ValueError("procedure project analysis has the wrong subject")
+    if published.step_id != step_id or published.key != key:
+        raise ValueError("procedure project analysis identity does not match its step")
+    if published.id != analysis_record_id(key, 1) or published.revision != 1:
+        raise ValueError(
+            "procedure project analysis must resolve the exact first revision"
+        )
+    _validate_analysis_upstreams(published, inputs=inputs)
+
+
+def _validate_analysis_upstreams(
+    published: PublishedAnalysis,
+    *,
+    inputs: tuple[ProcedureStepOutputRef, ...],
+) -> None:
+    """Compare durable owner-level refs, not individual publication outputs."""
+
+    declared_inputs = {item.model_dump_json() for item in inputs}
+    actual_inputs: set[str] = set()
+    for item in published.inputs:
+        if isinstance(item, MeasurementAnalysisRecordInput):
+            actual_inputs.add(RunOutputRef(run_id=item.run_id).model_dump_json())
+        else:
+            actual_inputs.add(
+                AnalysisPublicationOutputRef(
+                    subject=item.source.subject,
+                    analysis_record_id=item.source.analysis_record_id,
+                ).model_dump_json()
+            )
+    if actual_inputs != declared_inputs:
+        raise ValueError(
+            "procedure analysis upstreams do not match declared durable inputs"
+        )
+
+
+__all__ = [
+    "LabProcedureContext",
+    "LabProcedureOperations",
+    "ProcedureHandle",
+    "ProcedureHandlePage",
+    "ProcedureLabSession",
+]
