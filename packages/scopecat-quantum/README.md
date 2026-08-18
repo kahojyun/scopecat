@@ -58,10 +58,10 @@ Program inputs may bind directly to Scopecat values such as
 `scopecat.parameter_lookup(...)`. A `Program` call is a native domain
 occurrence that owns its effect, execution options, and named result products.
 Place it with `context.use(call)` inside either `@sc.module` or
-`@sc.experiment`. A lab can own a fixed experiment that
-injects compiler inputs, measurement measurement computing, recording policy, and
-independent auxiliary-device work; the program call remains one domain effect
-rather than becoming the whole experiment. The
+`@sc.experiment`. A lab can own a fixed experiment that injects compiler inputs,
+measurement compute, recording policy, and independent auxiliary-device work;
+the program call remains one domain effect rather than becoming the whole
+experiment. The
 [reference lab runner](../../examples/reference_lab/README.md) shows that path.
 
 Variable-size programs use a retained `QubitSet` port and `parallel_each`:

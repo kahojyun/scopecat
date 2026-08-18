@@ -5,11 +5,11 @@ test is the [reference-lab calibration workflow](../tutorials/reference-lab.md):
 users should be able to publish, review, accept, use, and undo a proposal without
 managing storage identities or revision mechanics directly.
 
-Analysis replaces the run-adjacent scripts and personal file layouts that turn
-measurements into fitted values, reusable datasets, plots, reports, and proposed
-parameter changes. It is an atomic publication owned either by one source run
-or by the project when its inputs span runs. It is not a dataframe API, a
-compute runtime, or a workflow scheduler.
+An analysis publication provides a durable boundary for fitted values, reusable
+datasets, plots, reports, and proposed parameter changes that might otherwise
+remain in run-adjacent scripts or personal file layouts. The atomic publication
+is owned either by one source run or by the project when its inputs span runs.
+It is not a dataframe API, compute runtime, or workflow scheduler.
 
 Users should keep doing numerical work with NumPy, pandas, Polars, Xarray,
 PyArrow, SciPy, and domain libraries. Scopecat owns the durable boundary after

@@ -5,16 +5,23 @@ from a first scan to sustained, large-scale quantum experiments. It combines an
 approachable starting point with typed experiment structure, bounded execution,
 live visibility, and durable results as a workflow grows.
 
-It integrates naturally with notebooks and existing Python projects. Ordinary
-Python remains available for composition, analysis, and adaptive orchestration,
-while declarative experiment abstractions capture the structure needed for
-planning, compilation, reproducibility, and scalable execution.
+It can coexist with notebooks and existing Python projects. Ordinary Python
+remains available for composition, analysis, and adaptive orchestration, while
+declarative experiment abstractions capture the structure needed for planning,
+compilation, reproducibility, and scalable execution.
 
 ## Current Stage
 
-Scopecat is an early, single-user project. Its current goal is to prove that
-researchers can adopt it with little more effort than an ad hoc experiment and
-continue using the same experiment and data model as their work grows.
+Scopecat is an early, single-user project. Its current goal is to make
+structured experiments easy to adopt and increasingly valuable as they are
+repeated, compared, inspected, and maintained. Simple one-off experiments may
+remain clearest as ad hoc Python; Scopecat does not need to match their initial
+implementation simplicity.
+
+Adoption should be possible one workflow at a time alongside existing experiment
+systems. Moving an imperative workflow into Scopecat-managed execution may
+require rewriting it at the execution boundary; this is distinct from requiring
+a laboratory to migrate its entire codebase at once.
 
 Success currently means:
 
@@ -28,10 +35,17 @@ Success currently means:
   easy to inspect beyond the originating notebook;
 - datasets larger than notebook memory remain usable through bounded notebook
   batches and GUI previews;
-- exploratory work can grow into reusable, time-bounded runs and related
-  analysis-driven workflows incrementally rather than through a rewrite.
+- durable, time-bounded execution can be introduced for selected workflows
+  without requiring a codebase-wide migration.
 
 Features and abstractions should advance one of these adoption or growth paths.
+
+Compatibility work should focus on explicit adoption seams rather than a broad
+brownfield promise. A lower-level external-run recording path, for example,
+could let legacy code retain execution ownership while Scopecat records declared
+points, measurements, and optional live telemetry. Such runs must remain
+distinguishable from Scopecat-managed runs: recording observations does not
+imply planning, resource ownership, cleanup, or reproducibility guarantees.
 
 ## Scalability Direction
 
