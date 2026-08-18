@@ -20,7 +20,20 @@ from scopecat.automation import (
     ProcedureRunAttentionCommand,
     ProcedureRunAttentionReceipt,
     ProcedureRunListQuery,
+    ProcedureRunnablePage,
+    ProcedureRunnableQuery,
     ProcedureRunPage,
+    ProcedureSchedule,
+    ProcedureScheduleCancelCommand,
+    ProcedureScheduleCancelReceipt,
+    ProcedureScheduleCreateCommand,
+    ProcedureScheduleCreateReceipt,
+    ProcedureScheduleDuePage,
+    ProcedureScheduleDueQuery,
+    ProcedureScheduleListQuery,
+    ProcedureScheduleMaterializeCommand,
+    ProcedureScheduleMaterializeReceipt,
+    ProcedureSchedulePage,
     ProcedureStepAttemptListQuery,
     ProcedureStepAttemptPage,
     ProcedureStepAttentionCommand,
@@ -352,6 +365,83 @@ class DaemonClient:
         return self._get_model(
             f"{_API_PREFIX}/procedures/{quote(procedure_run_id, safe='')}",
             ProcedureRun,
+        )
+
+    def list_runnable_procedures(
+        self,
+        query: ProcedureRunnableQuery,
+    ) -> ProcedureRunnablePage:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/procedures/runnable/query",
+            query,
+            ProcedureRunnablePage,
+        )
+
+    def create_procedure_schedule(
+        self,
+        command: ProcedureScheduleCreateCommand,
+    ) -> ProcedureScheduleCreateReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/procedure-schedules",
+            command,
+            ProcedureScheduleCreateReceipt,
+        )
+
+    def list_procedure_schedules(
+        self,
+        query: ProcedureScheduleListQuery,
+    ) -> ProcedureSchedulePage:
+        params: dict[str, str | int] = {"limit": query.limit}
+        if query.cursor is not None:
+            params["cursor"] = query.cursor
+        if query.state is not None:
+            params["state"] = query.state
+        return self._get_model(
+            f"{_API_PREFIX}/procedure-schedules",
+            ProcedureSchedulePage,
+            params=params,
+        )
+
+    def list_due_procedure_schedules(
+        self,
+        query: ProcedureScheduleDueQuery,
+    ) -> ProcedureScheduleDuePage:
+        return self._get_model(
+            f"{_API_PREFIX}/procedure-schedules/due",
+            ProcedureScheduleDuePage,
+            params={"limit": query.limit},
+        )
+
+    def get_procedure_schedule(self, schedule_id: str) -> ProcedureSchedule:
+        return self._get_model(
+            f"{_API_PREFIX}/procedure-schedules/by-id/{quote(schedule_id, safe='')}",
+            ProcedureSchedule,
+        )
+
+    def cancel_procedure_schedule(
+        self,
+        command: ProcedureScheduleCancelCommand,
+    ) -> ProcedureScheduleCancelReceipt:
+        return self._post_idempotent_model(
+            (
+                f"{_API_PREFIX}/procedure-schedule-cancellations/"
+                f"{quote(command.schedule_id, safe='')}"
+            ),
+            command,
+            ProcedureScheduleCancelReceipt,
+        )
+
+    def materialize_procedure_schedule(
+        self,
+        command: ProcedureScheduleMaterializeCommand,
+    ) -> ProcedureScheduleMaterializeReceipt:
+        return self._post_idempotent_model(
+            (
+                f"{_API_PREFIX}/procedure-schedule-materializations/"
+                f"{quote(command.schedule_id, safe='')}"
+            ),
+            command,
+            ProcedureScheduleMaterializeReceipt,
         )
 
     def list_procedure_step_attempts(

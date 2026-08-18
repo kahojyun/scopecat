@@ -77,6 +77,44 @@ class ProcedureRunPage(_WireModel):
         return value
 
 
+class ProcedureRunnableQuery(_WireModel):
+    """Bound work discovery to exact definitions available in one worker."""
+
+    definitions: tuple[ProcedureDefinitionRef, ...] = Field(max_length=200)
+    limit: int = Field(default=50, ge=1, le=200)
+
+    @field_validator("definitions")
+    @classmethod
+    def validate_unique_definitions(
+        cls,
+        value: tuple[ProcedureDefinitionRef, ...],
+    ) -> tuple[ProcedureDefinitionRef, ...]:
+        identities = tuple(item.model_dump_json() for item in value)
+        if len(identities) != len(set(identities)):
+            raise ValueError("runnable procedure definitions must be unique")
+        return value
+
+
+class ProcedureRunnablePage(_WireModel):
+    """Oldest-first runnable snapshots, bounded independently of work claims."""
+
+    items: tuple[ProcedureRun, ...] = ()
+    has_more: bool = False
+
+    @field_validator("items")
+    @classmethod
+    def validate_runnable_runs(
+        cls,
+        value: tuple[ProcedureRun, ...],
+    ) -> tuple[ProcedureRun, ...]:
+        ids = tuple(item.procedure_run_id for item in value)
+        if len(ids) != len(set(ids)):
+            raise ValueError("runnable procedure page ids must be unique")
+        if any(item.state not in {"ready", "leased"} for item in value):
+            raise ValueError("runnable procedure page requires runnable states")
+        return value
+
+
 class ProcedureStepAttemptListQuery(_WireModel):
     """Bounded keyset query over attempts belonging to one procedure run."""
 
