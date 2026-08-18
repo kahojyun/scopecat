@@ -596,8 +596,19 @@ def _reconcile_unknown_publication(
 ) -> ConfigPublishReceipt:
     try:
         return reopen_calibration_cohort_publication(config, plan)
-    except DaemonNotFoundError as lookup_error:
+    except (
+        DaemonNotFoundError,
+        DaemonUnavailableError,
+        httpx2.TransportError,
+    ) as lookup_error:
         raise CalibrationPublicationOutcomeUnknown(plan, cause=cause) from lookup_error
+    except httpx2.HTTPStatusError as lookup_error:
+        if lookup_error.response.status_code < 500:
+            raise
+        raise CalibrationPublicationOutcomeUnknown(
+            plan,
+            cause=cause,
+        ) from lookup_error
 
 
 def _validate_publication_receipt(

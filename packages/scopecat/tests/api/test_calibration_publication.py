@@ -66,6 +66,7 @@ from scopecat.daemon.client import (
     DaemonClient,
     DaemonConflictError,
     DaemonNotFoundError,
+    DaemonUnavailableError,
 )
 from scopecat.daemon.wire import ConfigPublishCommand, ConfigPublishReceipt
 from scopecat.kernel.run_outcome import RunOutcome
@@ -289,6 +290,53 @@ def test_publish_unknown_missing_is_typed_and_conflict_does_not_reopen() -> None
     with pytest.raises(DaemonConflictError, match="stale base"):
         publish_calibration_cohort(operations, plan)
     assert operations.lookup_ids == []
+
+
+@pytest.mark.parametrize(
+    "lookup_kind",
+    ["transport", "unavailable", "server-error"],
+)
+def test_publish_unknown_lookup_failure_preserves_original_outcome(
+    lookup_kind: str,
+) -> None:
+    if lookup_kind == "transport":
+        lookup_error: BaseException = httpx2.ConnectError(
+            "lookup transport failed",
+            request=httpx2.Request(
+                "GET",
+                "http://daemon.test/config/publish-operation",
+            ),
+        )
+    elif lookup_kind == "unavailable":
+        lookup_error = DaemonUnavailableError(
+            "lookup unavailable",
+            response=_response(503),
+        )
+    else:
+        lookup_error = httpx2.HTTPStatusError(
+            "lookup failed",
+            request=httpx2.Request(
+                "GET",
+                "http://daemon.test/config/publish-operation",
+            ),
+            response=_response(500),
+        )
+    cohort, page = _cohort_and_members()
+    plan = _plan(cohort, page)
+    publish_error = httpx2.ConnectError(
+        "publish outcome unknown",
+        request=httpx2.Request("POST", "http://daemon.test/config/publish"),
+    )
+    operations = _ConfigOperations(
+        publish_result=publish_error,
+        lookup_result=lookup_error,
+    )
+
+    with pytest.raises(CalibrationPublicationOutcomeUnknown) as captured:
+        publish_calibration_cohort(operations, plan)
+    assert captured.value.cause is publish_error
+    assert captured.value.plan == plan
+    assert captured.value.__cause__ is lookup_error
 
 
 def test_reopen_rejects_exact_operation_drift_without_republishing() -> None:
