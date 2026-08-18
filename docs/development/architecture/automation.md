@@ -93,7 +93,8 @@ steps. Operator reconciliation remains explicit.
 
 ## Present supported slice
 
-The reference DRAG procedure demonstrates the supported boundary:
+The original single-target reference DRAG procedure demonstrates the durable
+procedure boundary:
 
 1. run a baseline scan against an exact configuration snapshot and source;
 2. publish the run-scoped fit and parameter proposal;
@@ -108,6 +109,13 @@ fact authorizes DRAG candidate acceptance. The production run remains outside
 the procedure, and final cleanup reactivates the exact starting entry instead of
 calling relative `undo()`. Relative `undo()` is not a replayable compensation
 action.
+
+The bounded calibration path uses a second, verify-only DRAG procedure. Each
+cohort member performs the first four steps and closes successfully without
+publishing configuration. An explicit cohort finalizer then composes the exact
+verified member proposals and publishes one revision for the whole cohort. This
+keeps per-target scientific work restartable without letting independently
+finishing members overwrite the shared active configuration.
 
 The procedure replay layer deliberately has no DAG representation, automatic
 retry policy, cron trigger, or dynamic loop checkpoint. A linear Python
@@ -210,13 +218,31 @@ project-side forced flag because a constant force value would create a cohort on
 every poll; an operator-forced retry must be an explicit manually authored
 cohort with a stable external identity.
 
-A prior success is fresh only when its definition, target procedure, input
-fingerprint, dependency-success identities, and optional validity duration all
-still match. Missing dependency success blocks that member. Dependencies can
-reference only successful attempts present in the status snapshot taken before
-cohort creation. A member cannot depend on a success created in its own cohort,
-so the daemon never persists a dynamic closure or performs recursive scheduling.
-Later cycles converge after upstream successes become visible.
+Each definition also declares how success becomes effective.
+`procedure_success` means a successful procedure closure is immediately fresh.
+`published_result` means the closure has produced a verified proposal but has
+not yet changed authoritative configuration. That closure is reported as
+pending publication: the same exact definition, procedure, freshness
+fingerprint, and base configuration suppress another run, but the pending result
+is neither fresh nor valid dependency evidence. If the active configuration
+source changes before publication, suppression ends and the evaluator emits a
+typed `publication_base_changed` reason. The old finalizer still names its old
+base and must lose the registry generation CAS; a later cycle may admit work
+against the new base.
+
+A prior effective success is fresh only when its definition, target procedure,
+semantic input fingerprint, dependency-success identities, and optional
+validity duration all still match. For `published_result`, those comparisons use
+the result input and freshness fingerprints attached by the atomic publication,
+not the inputs observed before its procedure started. An unrelated later
+configuration revision therefore need not invalidate a result when the
+definition's observer projects the same semantic inputs. Missing or pending
+dependency success blocks that member. Dependencies can reference only effective
+successes present in the status snapshot taken before cohort creation, including
+the publication operation identity where one is required. A member cannot
+depend on a success created in its own cohort, so the daemon never persists a
+dynamic closure or performs recursive scheduling. Later cycles converge after
+upstream successes become visible.
 
 Available admission capacity is
 `max_in_flight - observed_fanout_active_count`. The evaluator takes at most that
@@ -228,14 +254,15 @@ cohort ID and exact member spec. Concurrent workers can therefore race safely:
 one atomic admission wins, exact replay returns the winner, and a stale
 observation is a benign admission conflict retried by a later cycle.
 
-The calibration-definition fingerprint covers its ID/version, input schema,
-selector, observer, builder, exact procedure reference, fan-out scope, and
-capacity. A transitive imported-code change still requires an explicit version
-bump. The server stores immutable cohorts, member/run associations, flat prior
-success evidence, and ordinary procedure runs. It does not store selectors,
-Python closures, graph edges, or a traversal cursor. The hard 200-member first
-slice makes every evaluation bounded; larger cohorts will require an explicit
-durable traversal policy rather than an in-memory cursor.
+The calibration-definition fingerprint covers its ID/version, success policy,
+input schema, selector, observer, builder, exact procedure reference, fan-out
+scope, and capacity. A transitive imported-code change still requires an
+explicit version bump. The server stores immutable cohorts, member/run
+associations, flat prior success evidence, publication anchors, and ordinary
+procedure runs. It does not store selectors, Python closures, graph edges, or a
+traversal cursor. The hard 200-member first slice makes every evaluation bounded;
+larger cohorts will require an explicit durable traversal policy rather than an
+in-memory cursor.
 
 The worker cycle is now interval planning, calibration evaluation/admission,
 due-schedule materialization, then runnable procedure dispatch. Stop is checked
@@ -245,6 +272,75 @@ After an unknown cohort-create transport outcome, the evaluator reopens the
 deterministic cohort ID; not-found retries the original transport error, while a
 different deterministic 4xx is fatal because the durable outcome cannot be
 classified safely.
+
+## Exact cohort finalization and published freshness
+
+Publication is an explicit project-side operation, not another procedure step or
+an implicit daemon reaction to procedure closure. The caller reopens one exact
+cohort and its complete member page, then supplies one contribution for every
+member. A contribution names the member and procedure run, the exact successful
+baseline, fit, candidate, and verification step attempts, the proposal and
+accepted project decision, and the semantic result-input fingerprint. Only
+`published_result` members whose parent procedures closed successfully are
+eligible.
+
+The server resolves all evidence before publishing logical state. It checks the
+cohort spec and base source, complete member coverage, the four-step input/output
+reference sets, successful baseline and candidate runs, the fit analysis and its
+proposal record, the candidate run's exact proposal source, and an accepted
+project analysis whose direct inputs are exactly that baseline and candidate.
+The durable registry source records the resolved run and analysis identities, so
+later readers do not have to trust the caller's abbreviated contribution.
+
+All proposals must branch from the cohort's one exact base. The generic
+`common_base_cells_v1` merge combines non-conflicting whole scalar values and
+keyed-table cells deterministically; incompatible edits to the same atomic value
+or cell are a conflict. The finalizer also names a versioned and fingerprinted
+project composition policy. Project code may use that policy to check how the
+merged snapshot maps back to each member's semantic result inputs, but the
+daemon neither imports the policy nor treats it as executable code.
+
+This evidence means that every contribution was verified independently and that
+their composition obeyed the declared deterministic policy. It does **not** mean
+the merged device configuration received a joint scientific verification. A
+campaign that needs crosstalk, simultaneous-operation, or device-wide validation
+must publish that additional evidence explicitly rather than infer it from the
+cell merge.
+
+One config-publish command is the transaction boundary. After resolving an exact
+operation replay, the server prepares every proposal approval, executes one
+registry save-and-activate CAS against the cohort base generation, emits config
+events, commits one receipt containing the complete typed member-success tuple,
+records the operation ledger, and inserts one publication anchor per member.
+Any proof, merge, result-hash, generation, receipt, or anchor failure rolls the
+logical transaction back. A successful two-member finalization therefore creates
+two anchors but only one entry and one new registry generation; when both
+proposals were previously unapproved, it also creates their two approvals.
+
+Each anchor binds the exact member success and closure time to the cohort base,
+publish operation and source-intent hash, semantic result-input fingerprint,
+server-recomputed result freshness fingerprint, result entry and generation,
+and publication time. The receipt must cover exactly the resolved contribution
+set; normal config publications cannot carry calibration anchors. Status loads
+the anchor by the exact successful procedure-run key, so a stored anchor cannot
+be substituted from another operation or member. Once anchored, the result is
+an effective success and may supply flat dependency evidence.
+
+The project finalizer derives deterministic entry and operation IDs from the
+complete merge source, actor, and note. A successful response is validated
+against that frozen plan. If transport loss, a server failure, or an invalid
+response leaves the outcome uncertain, reconciliation only reopens the exact
+operation and validates its durable receipt; it does not refresh the active head,
+rebuild contributions, or issue a new intent. If the exact result cannot be
+classified, the caller receives an unknown-outcome error carrying the original
+plan and can reopen it later.
+
+The resident project worker does not yet discover and finalize pending cohorts.
+Evaluation counts an exact pending publication to suppress duplicate work, while
+an operator or project workflow invokes the finalizer with the known cohort and
+complete member evidence. A bounded durable pending-publication scan, ownership
+policy, and retry queue are deliberately deferred until autonomous resident
+finalization is required.
 
 ## Capabilities needed at larger chip scale
 
@@ -257,10 +353,13 @@ procedure function:
   which downstream values become stale after a change;
 - resource-aware bounded fan-out, backpressure, priorities, and maintenance
   windows while retaining stable per-unit step identities;
-- hierarchical configuration proposals and merge/conflict checks, so parallel
-  calibrations do not publish whole-device snapshots over one another;
+- hierarchical ownership and composition policies extending the current
+  common-base cell merge across regions and device layers, with explicit
+  conflict summaries and any required joint-verification evidence;
 - explicit quality gates, approval policy, stop conditions, and rollback to an
   exact entry rather than a relative undo;
+- bounded pending-publication discovery, finalizer ownership, retry policy, and
+  operator reconciliation before resident workers publish completed campaigns;
 - richer recurring scheduling and worker-fleet discovery, including cron/civil
   time, version availability, worker heartbeats, maintenance windows, and
   operator attention queues;
@@ -281,8 +380,13 @@ The next safe increments are:
 
 1. add durable cohort traversal, priority, and workload budgets beyond the
    bounded in-memory 200-member selector;
-2. add policy gates and hierarchical proposal merge for device-wide campaigns;
-3. extend fixed-UTC latest-only intervals with explicit maintenance-window and
+2. extend the exact common-base merge with hierarchical ownership, policy gates,
+   conflict reporting, and optional joint verification for device-wide
+   campaigns;
+3. add a bounded durable pending-publication scan and explicit resident
+   finalizer ownership only when autonomous publication is operationally
+   required;
+4. extend fixed-UTC latest-only intervals with explicit maintenance-window and
    richer missed-slot policies only when operators require them.
 
 A DAG becomes useful only when fan-out and dependency scheduling are real
