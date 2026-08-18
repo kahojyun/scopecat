@@ -75,9 +75,15 @@ from scopecat.daemon.wire import (
 )
 from scopecat.execution.program import RunProgram
 from scopecat.execution.services import ExecutionSession
-from scopecat.kernel.errors import RunCancelled
+from scopecat.kernel.errors import (
+    RunCancelled,
+    RunFailed,
+    RunFailure,
+    RunIndeterminate,
+)
+from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.kernel.run_outcome import RunCertainty, RunOutcome, RunResult
 from scopecat.measurements.results import MeasurementDataset
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.preview import build_run_program_preview
@@ -447,6 +453,119 @@ def test_execute_submits_complete_plan_and_heartbeats(
     assert result.status == "completed"
     assert completed_heartbeats >= 1
     assert heartbeat_count == completed_heartbeats
+
+
+def test_execute_replays_terminal_success_after_submission_response_loss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    planned = _planned()
+    prepared, intent_hash = runner_module._prepare_run_submission(
+        planned,
+        submission_id="stable-submission",
+    )
+    assert intent_hash == f"sha256:{prepared.intent_content_hash}"
+
+    durable_admission: RunAdmission | None = None
+    submissions: list[RunSubmission] = []
+    requests: list[str] = []
+
+    def handler(http_request: httpx2.Request) -> httpx2.Response:
+        nonlocal durable_admission
+        path = http_request.url.path
+        requests.append(path)
+        if not path.endswith("/runs"):
+            raise AssertionError(f"terminal replay must not execute: {path}")
+        submission = RunSubmission.model_validate_json(http_request.content)
+        submissions.append(submission)
+        if durable_admission is None:
+            accepted = _admission(submission)
+            durable_admission = accepted.model_copy(
+                update={"snapshot": _terminal_manifest(accepted.snapshot)}
+            )
+            raise httpx2.ReadError("submission response was lost", request=http_request)
+        return _model(durable_admission, status_code=201)
+
+    def fail_execution(**_kwargs: object) -> RunSnapshot:
+        pytest.fail("terminal admission must not restart execution")
+
+    monkeypatch.setattr(runner_module, "execute_admitted_run", fail_execution)
+    runner = _DaemonRunner(_client(handler), None)
+
+    with pytest.raises(httpx2.ReadError, match="response was lost"):
+        runner.execute(
+            planned,
+            submission_id="stable-submission",
+            executor_id="stable-executor",
+        )
+    replayed = runner.execute(
+        planned,
+        submission_id="stable-submission",
+        executor_id="stable-executor",
+    )
+
+    assert durable_admission is not None
+    assert replayed == durable_admission.snapshot
+    assert replayed.status == "completed"
+    assert submissions == [prepared, prepared]
+    assert requests == ["/api/v1/runs", "/api/v1/runs"]
+
+
+@pytest.mark.parametrize(
+    ("result", "certainty", "error_type"),
+    [
+        ("failed", "known", RunFailed),
+        ("cancelled", "known", RunCancelled),
+        ("failed", "indeterminate", RunIndeterminate),
+    ],
+)
+def test_execute_replays_terminal_failure_with_existing_kernel_semantics(
+    result: RunResult,
+    certainty: RunCertainty,
+    error_type: type[RunFailure],
+) -> None:
+    planned = _planned()
+    requests: list[str] = []
+    outcome = RunOutcome(
+        run_id="run-1",
+        result=result,
+        certainty=certainty,
+        problems=(
+            problem(
+                "execution.replayed_terminal",
+                "the durable run already terminated",
+                phase=ProblemPhase.EXECUTION,
+            ),
+        ),
+    )
+
+    def handler(http_request: httpx2.Request) -> httpx2.Response:
+        path = http_request.url.path
+        requests.append(path)
+        if not path.endswith("/runs"):
+            raise AssertionError(f"terminal replay must not execute: {path}")
+        submission = RunSubmission.model_validate_json(http_request.content)
+        admitted = _admission(submission)
+        return _model(
+            admitted.model_copy(
+                update={
+                    "snapshot": admitted.snapshot.model_copy(
+                        update={"outcome": outcome}
+                    )
+                }
+            ),
+            status_code=201,
+        )
+
+    with pytest.raises(error_type) as error:
+        _DaemonRunner(_client(handler), None).execute(
+            planned,
+            submission_id="stable-submission",
+            executor_id="stable-executor",
+        )
+
+    assert error.value.run_id == "run-1"
+    assert error.value.outcome == outcome
+    assert requests == ["/api/v1/runs"]
 
 
 def test_execute_honors_initial_lease_cancellation_before_remote_effects(
