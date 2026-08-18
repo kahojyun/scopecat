@@ -72,14 +72,20 @@ The application also registers one bounded q0/q1 DRAG calibration definition.
 Its project-side policy evaluates semantic freshness from active configuration
 contents, admits immutable bounded cohorts, and runs independent durable
 procedures through baseline, fit, candidate, and verification. These automated
-members are verify-only: successful closure leaves each result pending explicit
-publication. `prepare_drag_beta_cohort_publication` resolves the exact four-step
-proofs, rejects edits outside each target's owned beta cell, previews the
-common-base cell merge, and requires each verified candidate to retain the same
-semantic inputs in the merged result. `publish_verified_drag_beta_cohort` then
-performs one generation-checked activation and records one published freshness
-anchor per contribution. Its deterministic operation identity makes an exact
-retry return the original receipt rather than publish another generation.
+members are verify-only: successful closure leaves each result pending a
+published freshness anchor and makes the complete cohort durable finalization
+work. The application binds the exact DRAG v2 definition to a fingerprinted
+automatic-publication policy. The resident worker resolves that same policy
+after restart and calls `prepare_drag_beta_cohort_publication` through a narrow
+read-only facade. The preparation resolves the exact four-step proofs, rejects
+edits outside each target's owned beta cell, previews the common-base cell
+merge, and requires each verified candidate to retain the same semantic inputs
+in the merged result. The generic finalizer then performs one
+generation-checked activation and records one published freshness anchor per
+contribution before freshness is evaluated in the same worker cycle.
+`publish_verified_drag_beta_cohort` remains the explicit operator/debug path;
+both paths derive the same deterministic plan, so an exact retry returns the
+original receipt rather than publishing another generation.
 
 ## Source map
 
