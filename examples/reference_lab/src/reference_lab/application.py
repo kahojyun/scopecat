@@ -8,6 +8,9 @@ from scopecat.application import LabApplication
 
 from reference_lab.configuration import bootstrap_config
 from reference_lab.lab import reference_lab_system
+from reference_lab.workflows.drag_beta_automatic_publication import (
+    DRAG_BETA_PUBLICATION_POLICY_REGISTRY,
+)
 from reference_lab.workflows.drag_beta_freshness import (
     DRAG_BETA_CALIBRATION_REGISTRY,
 )
@@ -33,6 +36,7 @@ def create_application(project_root: Path) -> LabApplication:
             drag_beta_verification_procedure,
         ),
         calibrations=DRAG_BETA_CALIBRATION_REGISTRY,
+        calibration_publications=DRAG_BETA_PUBLICATION_POLICY_REGISTRY,
     )
 
 
