@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from scopecat.automation import (
+    ConfigPublishOutputRef,
     ProcedureDefinitionRef,
     ProcedureRun,
     ProcedureStepAttempt,
@@ -143,6 +144,46 @@ def test_store_bounds_step_history_and_enforces_one_running_attempt(
         limit=1,
         before=first_page.next_cursor,
     ).items == (succeeded,)
+
+
+def test_v40_round_trips_config_publish_step_attempt(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run()
+    running = _attempt(step_key="accept-candidate").model_copy(
+        update={"operation": "config_publish"}
+    )
+    with store.write_transaction() as connection:
+        store.insert_run_in_transaction(connection, run)
+        store.insert_step_attempt_in_transaction(connection, running)
+
+    finished_at = _START + timedelta(seconds=1)
+    succeeded = running.model_copy(
+        update={
+            "revision": 2,
+            "state": "succeeded",
+            "updated_at": finished_at,
+            "finished_at": finished_at,
+            "output": ConfigPublishOutputRef(
+                generation=2,
+                entry_id="accepted-candidate",
+                entry_content_hash=_HASH,
+            ),
+        }
+    )
+    with store.write_transaction() as connection:
+        store.replace_step_attempt_in_transaction(
+            connection,
+            succeeded,
+            expected_revision=1,
+        )
+        persisted = store.read_step_attempt_in_transaction(
+            connection,
+            run.procedure_run_id,
+            running.step_key,
+            running.attempt,
+        )
+
+    assert persisted == succeeded
 
 
 def test_store_replaces_worker_lease_for_expired_takeover(tmp_path: Path) -> None:

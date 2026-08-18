@@ -1,7 +1,8 @@
 # Durable procedure automation
 
 Scopecat's first automation boundary coordinates a small number of related runs,
-analysis publications, and exact saved-entry activations without moving
+analysis publications, exact configuration publications, and saved-entry
+activations without moving
 user-authored Python into the daemon.
 It is intended for one-lab calibration procedures that must survive a notebook
 or worker restart. It is not yet a scheduler for a whole device.
@@ -33,6 +34,7 @@ lease-fenced ProcedureContext
         |
         +-- run step ----------> RunOutputRef
         +-- analysis step -----> AnalysisPublicationOutputRef
+        +-- config publish ----> ConfigPublishOutputRef
         `-- config activation -> ConfigActivationOutputRef
                  |
                  v
@@ -65,6 +67,14 @@ the worker reopens that exact operation before checkpointing a
 `ConfigActivationOutputRef`. The target entry and expected generation are
 explicit step intent; the worker never refreshes the generation during replay.
 
+A config-publish step uses the same contract for a new immutable revision. Its
+intent pins the exact candidate proposal, project-owned decision fact, target
+entry, and expected generation. The candidate analysis and verification
+publication are exact step inputs. Proposal approval, entry creation, activation,
+and the operation receipt share one transaction; a lost response is reconciled
+through the exact publish-operation lookup before the worker checkpoints a
+`ConfigPublishOutputRef`.
+
 Workers hold renewable leases. Every state change is fenced by the lease token
 and expected revision; heartbeat renewal does not change the business revision.
 An expired worker may be replaced, but it cannot checkpoint late work. The
@@ -73,11 +83,12 @@ another process waits for lease expiry or supplies its own operator-managed
 identity rather than impersonating the previous worker.
 
 A known failure inside a step records a failed attempt and closes the procedure
-as failed. A validation failure between steps, such as a rejected verification,
-closes only the procedure because every preceding effect is already known. An
-unknown child-run, publication, or configuration-operation outcome instead moves
-the owning step and procedure to `attention_required`; each domain service keeps
-its own authoritative result. Restart does not retry the effect or execute later
+as failed; a rejected verification therefore fails the candidate-publication
+step without changing the registry. A validation failure between steps closes
+only the procedure because every preceding effect is already known. An unknown
+child-run, publication, or configuration-operation outcome instead moves the
+owning step and procedure to `attention_required`; each domain service keeps its
+own authoritative result. Restart does not retry the effect or execute later
 steps. Operator reconciliation remains explicit.
 
 ## Present supported slice
@@ -87,14 +98,16 @@ The reference DRAG procedure demonstrates the supported boundary:
 1. run a baseline scan against an exact configuration snapshot and source;
 2. publish the run-scoped fit and parameter proposal;
 3. run the candidate configuration with exact analysis provenance;
-4. publish a project-owned comparison and require an accepted decision.
+4. publish a project-owned comparison and require an accepted decision;
+5. publish and activate that candidate using the exact proposal and decision.
 
-The procedure API can now activate one already-saved configuration entry with
-generation compare-and-swap and an exact operation receipt. It does not publish
-or accept a candidate or choose policy evidence. Candidate acceptance and the
-production run remain explicit in the reference DRAG flow; its final cleanup
-reactivates the exact starting entry instead of calling relative `undo()`.
-Relative `undo()` is not a replayable compensation action.
+The procedure API can publish a verified candidate or activate one already-saved
+configuration entry with generation compare-and-swap and an exact operation
+receipt. Policy remains explicit in the procedure: only the project verification
+fact authorizes DRAG candidate acceptance. The production run remains outside
+the procedure, and final cleanup reactivates the exact starting entry instead of
+calling relative `undo()`. Relative `undo()` is not a replayable compensation
+action.
 
 The initial implementation deliberately has no DAG representation, automatic
 retry policy, fan-out scheduler, cron trigger, or dynamic loop checkpoint. A
@@ -132,11 +145,9 @@ authority inside an automation subsystem.
 
 The next safe increments are:
 
-1. design an idempotent candidate-publication command before moving DRAG
-   acceptance into its procedure;
-2. add durable schedules and a project worker loop over ready procedures;
-3. add immutable cohorts, freshness/dependency evaluation, and bounded fan-out;
-4. add policy gates and hierarchical proposal merge for device-wide campaigns.
+1. add durable schedules and a project worker loop over ready procedures;
+2. add immutable cohorts, freshness/dependency evaluation, and bounded fan-out;
+3. add policy gates and hierarchical proposal merge for device-wide campaigns.
 
 A DAG becomes useful only when fan-out and dependency scheduling are real
 requirements. Until then, persisted imperative checkpoints remain the smaller

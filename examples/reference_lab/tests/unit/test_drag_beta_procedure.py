@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 from scopecat.automation import (
     AnalysisPublicationOutputRef,
+    ConfigPublishOutputRef,
     ProcedureStepOutputRef,
     RunOutputRef,
 )
@@ -25,7 +26,6 @@ from reference_lab.workflows.drag_beta_procedure import (
 )
 from reference_lab.workflows.drag_beta_verification import (
     DRAG_BETA_MINIMUM_IMPROVEMENT,
-    DRAG_BETA_VERIFICATION_SCHEMA,
     DragBetaVerification,
 )
 
@@ -80,7 +80,7 @@ def test_drag_beta_request_key_tracks_exact_registry_generation() -> None:
     )
 
     assert drag_beta_calibration_request_key(source) == (
-        "reference-lab.drag-beta-calibration.v1:config-entry-1:1"
+        "reference-lab.drag-beta-calibration.v2:config-entry-1:1"
     )
     assert drag_beta_calibration_request_key(
         source.model_copy(update={"registry_generation": 2})
@@ -92,7 +92,17 @@ def test_drag_beta_request_key_tracks_exact_registry_generation() -> None:
 
 
 def test_drag_beta_procedure_intent_is_frozen_and_forbids_extra_fields() -> None:
-    intent = DragBetaProcedureIntent(initial_config=bootstrap_config())
+    initial_config = bootstrap_config()
+    intent = DragBetaProcedureIntent(
+        initial_config=initial_config,
+        initial_config_source=ConfigRegistryRunConfigSource(
+            selector="active",
+            entry_id="config-entry-1",
+            config_ref="active@1",
+            content_hash=config_content_hash(initial_config),
+            registry_generation=1,
+        ),
+    )
 
     with pytest.raises(ValidationError, match="frozen"):
         intent.minimum_improvement = 0.0
@@ -102,6 +112,36 @@ def test_drag_beta_procedure_intent_is_frozen_and_forbids_extra_fields() -> None
                 **intent.model_dump(mode="python"),
                 "accept_candidate": True,
             }
+        )
+
+
+def test_drag_beta_procedure_intent_requires_exact_initial_registry_state() -> None:
+    initial_config = bootstrap_config()
+    source = ConfigRegistryRunConfigSource(
+        selector="active",
+        entry_id="config-entry-1",
+        config_ref="active@1",
+        content_hash=config_content_hash(initial_config),
+        registry_generation=1,
+    )
+
+    with pytest.raises(ValidationError, match="initial_config_source"):
+        DragBetaProcedureIntent.model_validate(
+            {"initial_config": initial_config.model_dump(mode="json")}
+        )
+    with pytest.raises(ValidationError, match="registry generation"):
+        DragBetaProcedureIntent(
+            initial_config=initial_config,
+            initial_config_source=source.model_copy(
+                update={"registry_generation": None}
+            ),
+        )
+    with pytest.raises(ValidationError, match="hash does not match"):
+        DragBetaProcedureIntent(
+            initial_config=initial_config,
+            initial_config_source=source.model_copy(
+                update={"content_hash": "sha256:" + "f" * 64}
+            ),
         )
 
 
@@ -124,7 +164,7 @@ def test_drag_beta_procedure_builds_exact_durable_dependency_graph() -> None:
         fit,
         candidate_run,
         verification,
-        verification_publication,
+        _verification_publication,
     ) = _procedure_context(accepted=True)
 
     drag_beta_calibration_procedure.run(context, intent)
@@ -140,27 +180,60 @@ def test_drag_beta_procedure_builds_exact_durable_dependency_graph() -> None:
     assert context.project_analysis_calls == [
         ("verification", (baseline, candidate_run))
     ]
-    assert context.published_refs == [fit, verification]
-    assert verification_publication.fact_requests == [
-        ("decision", DRAG_BETA_VERIFICATION_SCHEMA)
+    assert context.published_refs == [fit]
+    assert context.accept_calls == [
+        _AcceptCall(
+            step_key="accept",
+            candidate=fit,
+            proposal_id="drag-beta-fit",
+            verification=verification,
+            decision_output_id="decision",
+            expected_generation=1,
+            actor="nightly-calibration",
+            entry_id="drag-beta-procedure-test",
+            note="accept the project-verified DRAG candidate",
+        )
     ]
 
 
-def test_drag_beta_procedure_fails_after_publishing_rejected_verification() -> None:
+def test_drag_beta_procedure_fails_rejected_candidate_in_accept_step() -> None:
     context, _baseline, _fit, _candidate_run, verification, _publication = (
         _procedure_context(accepted=False)
     )
+    initial_config = bootstrap_config()
 
-    with pytest.raises(RuntimeError, match="did not improve"):
+    with pytest.raises(ValueError, match="accepted=true"):
         drag_beta_calibration_procedure.run(
             context,
-            DragBetaProcedureIntent(initial_config=bootstrap_config()),
+            DragBetaProcedureIntent(
+                initial_config=initial_config,
+                initial_config_source=ConfigRegistryRunConfigSource(
+                    selector="active",
+                    entry_id="config-entry-1",
+                    config_ref="active@1",
+                    content_hash=config_content_hash(initial_config),
+                    registry_generation=1,
+                ),
+            ),
         )
 
     assert context.project_analysis_calls == [
         ("verification", (context.baseline, context.candidate_run))
     ]
-    assert context.published_refs[-1] == verification
+    assert context.published_refs == [context.fit]
+    assert context.accept_calls == [
+        _AcceptCall(
+            step_key="accept",
+            candidate=context.fit,
+            proposal_id="drag-beta-fit",
+            verification=verification,
+            decision_output_id="decision",
+            expected_generation=1,
+            actor="nightly-calibration",
+            entry_id="drag-beta-procedure-test",
+            note="accept the project-verified DRAG candidate",
+        )
+    ]
 
 
 def _procedure_context(
@@ -184,7 +257,9 @@ def _procedure_context(
         subject=ProjectAnalysisSubject(),
         analysis_record_id="verification-analysis-record",
     )
-    fit_publication = _FakePublishedAnalysis(candidate=object())
+    fit_publication = _FakePublishedAnalysis(
+        candidate=_FakeCandidate(proposal_id="drag-beta-fit")
+    )
     verification_publication = _FakePublishedAnalysis(
         decision=DragBetaVerification(
             baseline_mean_probability_1=0.02,
@@ -221,6 +296,24 @@ class _RunCall:
 
 
 @dataclass(frozen=True, slots=True)
+class _AcceptCall:
+    step_key: str
+    candidate: AnalysisPublicationOutputRef
+    proposal_id: str
+    verification: AnalysisPublicationOutputRef
+    decision_output_id: str
+    expected_generation: int
+    actor: str
+    entry_id: str
+    note: str
+
+
+@dataclass(frozen=True, slots=True)
+class _FakeCandidate:
+    proposal_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class _FakeRunHandle:
     id: str
 
@@ -234,25 +327,21 @@ class _FakePublishedAnalysis:
     ) -> None:
         self._candidate = candidate
         self._decision = decision
-        self.fact_requests: list[tuple[str, object]] = []
 
     def candidate_config(self) -> object:
         if self._candidate is None:
             raise AssertionError("publication has no candidate")
         return self._candidate
 
-    def fact_as(
-        self,
-        id: str,
-        schema: object,
-    ) -> DragBetaVerification:
-        self.fact_requests.append((id, schema))
+    def verification_accepted(self) -> bool:
         if self._decision is None:
             raise AssertionError("publication has no verification decision")
-        return self._decision
+        return self._decision.accepted
 
 
 class _RecordingProcedureContext:
+    procedure_run_id = "procedure-test"
+
     def __init__(
         self,
         *,
@@ -275,6 +364,7 @@ class _RecordingProcedureContext:
             tuple[str, tuple[ProcedureStepOutputRef, ...]]
         ] = []
         self.published_refs: list[AnalysisPublicationOutputRef] = []
+        self.accept_calls: list[_AcceptCall] = []
 
     def run(
         self,
@@ -336,3 +426,39 @@ class _RecordingProcedureContext:
         if ref == self.verification:
             return self._verification_publication
         raise AssertionError(f"unexpected analysis reference: {ref}")
+
+    def accept_verified_candidate(
+        self,
+        step_key: str,
+        candidate_ref: AnalysisPublicationOutputRef,
+        *,
+        proposal_id: str,
+        verification: AnalysisPublicationOutputRef,
+        decision_output_id: str,
+        expected_generation: int,
+        actor: str,
+        entry_id: str,
+        note: str = "",
+    ) -> ConfigPublishOutputRef:
+        self.accept_calls.append(
+            _AcceptCall(
+                step_key=step_key,
+                candidate=candidate_ref,
+                proposal_id=proposal_id,
+                verification=verification,
+                decision_output_id=decision_output_id,
+                expected_generation=expected_generation,
+                actor=actor,
+                entry_id=entry_id,
+                note=note,
+            )
+        )
+        if not self._verification_publication.verification_accepted():
+            raise ValueError(
+                "candidate verification decision must contain accepted=true"
+            )
+        return ConfigPublishOutputRef(
+            generation=expected_generation + 1,
+            entry_id=entry_id,
+            entry_content_hash="sha256:" + "8" * 64,
+        )

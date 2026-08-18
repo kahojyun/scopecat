@@ -8,6 +8,7 @@ from scopecat_testkit.records import assert_model_round_trip
 from scopecat.automation import (
     AnalysisPublicationOutputRef,
     ConfigActivationOutputRef,
+    ConfigPublishOutputRef,
     ProcedureClosure,
     ProcedureDefinitionRef,
     ProcedureRun,
@@ -167,6 +168,14 @@ def test_procedure_intent_is_recursively_immutable_and_json_round_trips() -> Non
             ConfigActivationOutputRef(
                 generation=3,
                 entry_id="config-3",
+                entry_content_hash=_HASH,
+            ),
+        ),
+        (
+            "config_publish",
+            ConfigPublishOutputRef(
+                generation=4,
+                entry_id="config-4",
                 entry_content_hash=_HASH,
             ),
         ),

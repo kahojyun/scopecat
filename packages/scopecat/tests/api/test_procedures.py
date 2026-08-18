@@ -22,7 +22,9 @@ from scopecat.api.procedures import (
 from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.api.run import RunHandle
 from scopecat.automation import (
+    AnalysisPublicationOutputRef,
     ConfigActivationOutputRef,
+    ConfigPublishOutputRef,
     ProcedureContext,
     ProcedureStepOperation,
     ProcedureStepOutputRef,
@@ -30,9 +32,15 @@ from scopecat.automation import (
 )
 from scopecat.automation.worker import ProcedureNeedsAttention
 from scopecat.config.candidates import CandidateConfig
+from scopecat.config.changes import parameter_change_proposal_from_updates
+from scopecat.config.drafts import ConfigDraft
 from scopecat.config.registry import (
+    CandidateConfigRegistrySource,
     ConfigActivationOperation,
+    ConfigPublishOperation,
     ConfigRegistryActivationRecord,
+    ConfigRegistryEntry,
+    CrossRunCandidateAcceptance,
     config_activation_intent_hash,
 )
 from scopecat.daemon.client import (
@@ -41,15 +49,24 @@ from scopecat.daemon.client import (
     DaemonUnavailableError,
 )
 from scopecat.daemon.views import RunAnalysisView
-from scopecat.daemon.wire import ConfigActivationReceipt
+from scopecat.daemon.wire import (
+    CandidateConfigRevisionSource,
+    ConfigActivationReceipt,
+    ConfigPublishCommand,
+    ConfigPublishReceipt,
+)
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.analysis import (
+    AnalysisFact,
     AnalysisRecord,
     MeasurementAnalysisRecordInput,
+    ProjectAnalysisSubject,
     RunAnalysisSubject,
     analysis_record_id,
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.content import ContentEntry, Sha256ContentHash
+from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunConfigSource, RunSnapshot
 from scopecat.runs.selectors import RunSelector
 
@@ -126,6 +143,50 @@ class _ExistingStepProcedureContext:
         raise AssertionError("test requires a changed step identity")
 
 
+class _SucceededStepProcedureContext:
+    procedure_run_id = "procedure-test"
+
+    def __init__(
+        self,
+        existing: _StepCall,
+        output: ProcedureStepOutputRef,
+    ) -> None:
+        self.existing = existing
+        self.output = output
+
+    def step(
+        self,
+        step_key: str,
+        *,
+        operation: ProcedureStepOperation,
+        intent_hash: Sha256ContentHash,
+        effect: Callable[[str], ProcedureStepOutputRef],
+        inputs: tuple[ProcedureStepOutputRef, ...] = (),
+    ) -> ProcedureStepOutputRef:
+        del effect
+        assert _StepCall(step_key, operation, intent_hash, inputs) == self.existing
+        return self.output
+
+
+class _UnavailableAnalysisSession:
+    def get_run(self, run: RunSelector | RunHandle) -> RunHandle:
+        del run
+        raise httpx2.ReadError("analysis evidence is temporarily unavailable")
+
+    def analyze(
+        self,
+        step: AnalysisStep,
+        *,
+        key: str | None = None,
+    ) -> PublishedAnalysis:
+        del step, key
+        raise AssertionError("analysis publication is outside this acceptance test")
+
+    def published_analysis(self, selector: str) -> PublishedAnalysis:
+        del selector
+        raise httpx2.ReadError("analysis evidence is temporarily unavailable")
+
+
 class _ActivationConfig:
     operator = "lab-operator"
 
@@ -165,6 +226,120 @@ class _ActivationConfig:
         if self.lookup_error is not None:
             raise self.lookup_error
         return self.lookup_receipt or self.receipt
+
+
+@dataclass(frozen=True, slots=True)
+class _FakeAnalysisRecord:
+    subject: RunAnalysisSubject | ProjectAnalysisSubject
+
+
+@dataclass(frozen=True, slots=True)
+class _FakeAnalysisView:
+    analysis: _FakeAnalysisRecord
+
+
+class _ExactPublishedAnalysis:
+    def __init__(
+        self,
+        *,
+        record_id: str,
+        subject: RunAnalysisSubject | ProjectAnalysisSubject,
+        proposals: tuple[ParameterChangeProposal, ...] = (),
+        decision: AnalysisFact | None = None,
+    ) -> None:
+        self.id = record_id
+        self.view = _FakeAnalysisView(_FakeAnalysisRecord(subject))
+        self.parameter_proposals = proposals
+        self._decision = decision
+
+    def fact(self, output_id: str) -> AnalysisFact:
+        if output_id != "decision" or self._decision is None:
+            raise KeyError(f"analysis has no fact {output_id!r}")
+        return self._decision
+
+
+@dataclass(frozen=True, slots=True)
+class _ExactRunAnalyses:
+    run_id: str
+    publication: _ExactPublishedAnalysis
+
+    def published_analysis(self, record_id: str) -> PublishedAnalysis:
+        if record_id != self.publication.id:
+            raise KeyError(record_id)
+        return cast("PublishedAnalysis", cast("object", self.publication))
+
+
+class _ExactAnalysisSession:
+    def __init__(
+        self,
+        *,
+        candidate: _ExactPublishedAnalysis,
+        verification: _ExactPublishedAnalysis,
+    ) -> None:
+        subject = candidate.view.analysis.subject
+        assert isinstance(subject, RunAnalysisSubject)
+        self._candidate_run = _ExactRunAnalyses(subject.run_id, candidate)
+        self._verification = verification
+
+    def get_run(self, run: RunSelector | RunHandle) -> RunHandle:
+        run_id = run.id if isinstance(run, RunHandle) else run
+        if run_id != self._candidate_run.run_id:
+            raise KeyError(run_id)
+        return cast("RunHandle", cast("object", self._candidate_run))
+
+    def analyze(
+        self,
+        step: AnalysisStep,
+        *,
+        key: str | None = None,
+    ) -> PublishedAnalysis:
+        del step, key
+        raise AssertionError("analysis publication is outside this acceptance test")
+
+    def published_analysis(self, selector: str) -> PublishedAnalysis:
+        if selector != self._verification.id:
+            raise KeyError(selector)
+        return cast("PublishedAnalysis", cast("object", self._verification))
+
+
+class _PublishConfig:
+    operator = "lab-operator"
+
+    def __init__(
+        self,
+        *,
+        publish_error: Exception | None = None,
+        lookup_error: Exception | None = None,
+        receipt_operation_id: str | None = None,
+        receipt_base_config_content_hash: Sha256ContentHash | None = None,
+    ) -> None:
+        self.publish_error = publish_error
+        self.lookup_error = lookup_error
+        self.receipt_operation_id = receipt_operation_id
+        self.receipt_base_config_content_hash = receipt_base_config_content_hash
+        self.commands: list[ConfigPublishCommand] = []
+        self.lookup_calls: list[str] = []
+
+    def publish_config(self, command: ConfigPublishCommand) -> ConfigPublishReceipt:
+        self.commands.append(command)
+        if self.publish_error is not None:
+            raise self.publish_error
+        return _publish_receipt(
+            command,
+            operation_id=self.receipt_operation_id or command.operation_id,
+            base_config_content_hash=self.receipt_base_config_content_hash,
+        )
+
+    def publish_operation(self, operation_id: str) -> ConfigPublishReceipt:
+        self.lookup_calls.append(operation_id)
+        if self.lookup_error is not None:
+            raise self.lookup_error
+        [command] = self.commands
+        return _publish_receipt(
+            command,
+            operation_id=self.receipt_operation_id or operation_id,
+            base_config_content_hash=self.receipt_base_config_content_hash,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -325,6 +500,296 @@ def test_run_analysis_rejects_durable_upstream_mismatch() -> None:
                 RunOutputRef(run_id="run-unpublished-upstream"),
             ),
         )
+
+
+def test_verified_candidate_publish_uses_exact_refs_and_stable_operation() -> None:
+    durable = _RecordingProcedureContext()
+    config = _PublishConfig()
+    context, candidate_ref, verification, proposal = _verified_candidate_context(
+        durable,
+        config,
+    )
+
+    output = context.accept_verified_candidate(
+        "accept",
+        candidate_ref,
+        proposal_id=proposal.id,
+        verification=verification,
+        decision_output_id="decision",
+        expected_generation=4,
+        actor="automation",
+        entry_id="drag-beta-procedure-test",
+        note="accept verified DRAG beta",
+    )
+
+    [command] = config.commands
+    assert output == ConfigPublishOutputRef(
+        generation=5,
+        entry_id=command.entry_id,
+        entry_content_hash=config_content_hash(load_config()),
+    )
+    assert command.operation_id == "operation-test"
+    assert isinstance(command.source, CandidateConfigRevisionSource)
+    assert isinstance(candidate_ref.subject, RunAnalysisSubject)
+    assert command.source.run_id == candidate_ref.subject.run_id
+    assert command.source.proposal_id == proposal.id
+    acceptance = command.source.acceptance
+    assert isinstance(acceptance, CrossRunCandidateAcceptance)
+    assert acceptance.decision.analysis_record_id == (verification.analysis_record_id)
+    assert acceptance.decision.output_id == "decision"
+    [step] = durable.calls
+    assert step.step_key == "accept"
+    assert step.operation == "config_publish"
+    assert step.intent_hash.startswith("sha256:")
+    assert step.inputs == (candidate_ref, verification)
+    assert config.lookup_calls == []
+
+
+def test_succeeded_candidate_publish_replays_without_reopening_evidence() -> None:
+    first_durable = _RecordingProcedureContext()
+    first_config = _PublishConfig()
+    first, candidate_ref, verification, proposal = _verified_candidate_context(
+        first_durable,
+        first_config,
+    )
+    output = first.accept_verified_candidate(
+        "accept",
+        candidate_ref,
+        proposal_id=proposal.id,
+        verification=verification,
+        decision_output_id="decision",
+        expected_generation=4,
+        actor="automation",
+        entry_id="drag-beta-procedure-test",
+    )
+    [existing] = first_durable.calls
+    replay_config = _PublishConfig()
+    replay = LabProcedureContext(
+        cast(
+            "ProcedureContext",
+            cast(
+                "object",
+                _SucceededStepProcedureContext(existing, output),
+            ),
+        ),
+        runner=cast("_DaemonRunner", object()),
+        config=cast("LabConfigOperations", cast("object", replay_config)),
+        session=_UnavailableAnalysisSession(),
+    )
+
+    assert (
+        replay.accept_verified_candidate(
+            "accept",
+            candidate_ref,
+            proposal_id=proposal.id,
+            verification=verification,
+            decision_output_id="decision",
+            expected_generation=4,
+            actor="automation",
+            entry_id="drag-beta-procedure-test",
+        )
+        == output
+    )
+    assert replay_config.commands == []
+
+
+def test_candidate_publish_unavailable_evidence_requires_attention() -> None:
+    durable = _RecordingProcedureContext()
+    config = _PublishConfig()
+    _, candidate_ref, verification, proposal = _verified_candidate_context(
+        durable,
+        config,
+    )
+    context = LabProcedureContext(
+        cast("ProcedureContext", cast("object", durable)),
+        runner=cast("_DaemonRunner", object()),
+        config=cast("LabConfigOperations", cast("object", config)),
+        session=_UnavailableAnalysisSession(),
+    )
+
+    with pytest.raises(
+        ProcedureNeedsAttention,
+        match=r"analysis publication.*reopened exactly",
+    ):
+        context.accept_verified_candidate(
+            "accept",
+            candidate_ref,
+            proposal_id=proposal.id,
+            verification=verification,
+            decision_output_id="decision",
+            expected_generation=4,
+            actor="automation",
+            entry_id="drag-beta-procedure-test",
+        )
+
+    [step] = durable.calls
+    assert step.operation == "config_publish"
+    assert config.commands == []
+
+
+def test_rejected_candidate_verification_records_failed_effect_without_publish() -> (
+    None
+):
+    durable = _RecordingProcedureContext()
+    config = _PublishConfig()
+    context, candidate_ref, verification, proposal = _verified_candidate_context(
+        durable,
+        config,
+        accepted=False,
+    )
+
+    with pytest.raises(ValueError, match="accepted=true"):
+        context.accept_verified_candidate(
+            "accept",
+            candidate_ref,
+            proposal_id=proposal.id,
+            verification=verification,
+            decision_output_id="decision",
+            expected_generation=4,
+            actor="automation",
+            entry_id="drag-beta-procedure-test",
+        )
+
+    [step] = durable.calls
+    assert step.operation == "config_publish"
+    assert step.inputs == (candidate_ref, verification)
+    assert config.commands == []
+
+
+def test_verified_candidate_publish_recovers_transport_loss_by_exact_operation() -> (
+    None
+):
+    config = _PublishConfig(publish_error=httpx2.ReadError("publish response was lost"))
+    context, candidate_ref, verification, proposal = _verified_candidate_context(
+        _RecordingProcedureContext(),
+        config,
+    )
+
+    output = context.accept_verified_candidate(
+        "accept",
+        candidate_ref,
+        proposal_id=proposal.id,
+        verification=verification,
+        decision_output_id="decision",
+        expected_generation=4,
+        actor="automation",
+        entry_id="drag-beta-procedure-test",
+    )
+
+    assert output.generation == 5
+    assert config.lookup_calls == ["operation-test"]
+
+
+def test_verified_candidate_publish_unknown_lookup_requires_attention() -> None:
+    response = httpx2.Response(
+        404,
+        request=httpx2.Request(
+            "GET",
+            "http://daemon.local/config-registry/publish-operations/operation-test",
+        ),
+    )
+    config = _PublishConfig(
+        publish_error=httpx2.ReadError("publish response was lost"),
+        lookup_error=DaemonNotFoundError(
+            "publish operation does not exist",
+            response=response,
+        ),
+    )
+    context, candidate_ref, verification, proposal = _verified_candidate_context(
+        _RecordingProcedureContext(),
+        config,
+    )
+
+    with pytest.raises(ProcedureNeedsAttention, match=r"publish outcome.*unknown"):
+        context.accept_verified_candidate(
+            "accept",
+            candidate_ref,
+            proposal_id=proposal.id,
+            verification=verification,
+            decision_output_id="decision",
+            expected_generation=4,
+            actor="automation",
+            entry_id="drag-beta-procedure-test",
+        )
+
+
+def test_verified_candidate_publish_known_conflict_does_not_lookup() -> None:
+    response = httpx2.Response(
+        409,
+        request=httpx2.Request(
+            "POST",
+            "http://daemon.local/config-registry/publish-operations",
+        ),
+    )
+    config = _PublishConfig(
+        publish_error=DaemonConflictError("stale generation", response=response)
+    )
+    context, candidate_ref, verification, proposal = _verified_candidate_context(
+        _RecordingProcedureContext(),
+        config,
+    )
+
+    with pytest.raises(DaemonConflictError, match="stale generation"):
+        context.accept_verified_candidate(
+            "accept",
+            candidate_ref,
+            proposal_id=proposal.id,
+            verification=verification,
+            decision_output_id="decision",
+            expected_generation=4,
+            actor="automation",
+            entry_id="drag-beta-procedure-test",
+        )
+
+    assert config.lookup_calls == []
+
+
+def test_verified_candidate_publish_mismatched_exact_receipt_requires_attention() -> (
+    None
+):
+    config = _PublishConfig(receipt_operation_id="different-operation")
+    context, candidate_ref, verification, proposal = _verified_candidate_context(
+        _RecordingProcedureContext(),
+        config,
+    )
+
+    with pytest.raises(ProcedureNeedsAttention, match=r"publish outcome.*unknown"):
+        context.accept_verified_candidate(
+            "accept",
+            candidate_ref,
+            proposal_id=proposal.id,
+            verification=verification,
+            decision_output_id="decision",
+            expected_generation=4,
+            actor="automation",
+            entry_id="drag-beta-procedure-test",
+        )
+
+    assert config.lookup_calls == ["operation-test"]
+
+
+def test_verified_candidate_publish_rejects_mismatched_base_provenance() -> None:
+    config = _PublishConfig(
+        receipt_base_config_content_hash="sha256:" + "f" * 64,
+    )
+    context, candidate_ref, verification, proposal = _verified_candidate_context(
+        _RecordingProcedureContext(),
+        config,
+    )
+
+    with pytest.raises(ProcedureNeedsAttention, match=r"publish outcome.*unknown"):
+        context.accept_verified_candidate(
+            "accept",
+            candidate_ref,
+            proposal_id=proposal.id,
+            verification=verification,
+            decision_output_id="decision",
+            expected_generation=4,
+            actor="automation",
+            entry_id="drag-beta-procedure-test",
+        )
+
+    assert config.lookup_calls == ["operation-test"]
 
 
 def test_config_activation_uses_exact_step_intent_and_operation_id() -> None:
@@ -636,6 +1101,119 @@ def test_config_activation_step_conflict_does_not_execute_effect(
         )
 
     assert config.activate_calls == []
+
+
+def _verified_candidate_context(
+    durable: _RecordingProcedureContext,
+    config: _PublishConfig,
+    *,
+    accepted: bool = True,
+) -> tuple[
+    LabProcedureContext,
+    AnalysisPublicationOutputRef,
+    AnalysisPublicationOutputRef,
+    ParameterChangeProposal,
+]:
+    source_config = load_config()
+    candidate_ref = AnalysisPublicationOutputRef(
+        subject=RunAnalysisSubject(run_id="baseline-run"),
+        analysis_record_id="analysis-fit-r1",
+    )
+    verification = AnalysisPublicationOutputRef(
+        subject=ProjectAnalysisSubject(),
+        analysis_record_id="analysis-verification-r1",
+    )
+    draft = ConfigDraft(source_config).replace_scalar(
+        "drive_frequency",
+        Quantity(value=5.1, unit="GHz"),
+    )
+    proposal = parameter_change_proposal_from_updates(
+        source_run_id="baseline-run",
+        source_config=source_config,
+        analysis_title="DRAG beta fit",
+        analysis_record_id=candidate_ref.analysis_record_id,
+        proposal_id="drag-beta-fit",
+        updates=draft.updates,
+        reason="quadratic fit converged",
+        confidence=0.9,
+    )
+    candidate_analysis = _ExactPublishedAnalysis(
+        record_id=candidate_ref.analysis_record_id,
+        subject=candidate_ref.subject,
+        proposals=(proposal,),
+    )
+    verification_analysis = _ExactPublishedAnalysis(
+        record_id=verification.analysis_record_id,
+        subject=verification.subject,
+        decision=AnalysisFact(
+            schema_id="reference-lab.drag-beta-verification.v1",
+            schema_codec="scopecat.analysis-fact-schema.v1",
+            schema_hash="sha256:" + "9" * 64,
+            codec="scopecat.python-json.v1",
+            value={"accepted": accepted},
+        ),
+    )
+    session = _ExactAnalysisSession(
+        candidate=candidate_analysis,
+        verification=verification_analysis,
+    )
+    return (
+        LabProcedureContext(
+            cast("ProcedureContext", cast("object", durable)),
+            runner=cast("_DaemonRunner", object()),
+            config=cast("LabConfigOperations", cast("object", config)),
+            session=session,
+        ),
+        candidate_ref,
+        verification,
+        proposal,
+    )
+
+
+def _publish_receipt(
+    command: ConfigPublishCommand,
+    *,
+    operation_id: str,
+    base_config_content_hash: Sha256ContentHash | None = None,
+) -> ConfigPublishReceipt:
+    source = command.source
+    assert isinstance(source, CandidateConfigRevisionSource)
+    content_hash = config_content_hash(load_config())
+    entry = ConfigRegistryEntry(
+        id=command.entry_id,
+        config_ref=f"config-registry/entries/{command.entry_id}/config.json",
+        content_hash=content_hash,
+        source=CandidateConfigRegistrySource(
+            run_id=source.run_id,
+            proposal_id=source.proposal_id,
+            base_config_content_hash=base_config_content_hash or content_hash,
+            acceptance=source.acceptance,
+        ),
+        actor=command.actor,
+        note=command.note,
+    )
+    activation = ConfigRegistryActivationRecord(
+        generation=command.expected_generation + 1,
+        action="activation",
+        entry_id=entry.id,
+        entry_content_hash=entry.content_hash,
+        actor=command.actor,
+        note=command.note,
+    )
+    return ConfigPublishReceipt(
+        operation=ConfigPublishOperation(
+            operation_id=operation_id,
+            intent_hash=command.intent_hash,
+            source_intent_hash=command.source_intent_hash,
+            entry_id=command.entry_id,
+            expected_generation=command.expected_generation,
+            actor=command.actor,
+            note=command.note,
+            activation_generation=activation.generation,
+        ),
+        entry=entry,
+        activation=activation,
+    )
 
 
 def _activation_context(

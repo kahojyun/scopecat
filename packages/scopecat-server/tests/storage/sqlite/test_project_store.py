@@ -21,7 +21,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
     store.bootstrap()
     store.bootstrap()
 
-    store.schema_version()
+    assert store.schema_version() == 40
     with sqlite3.connect(database) as connection:
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
         tables = {
@@ -79,6 +79,28 @@ def test_bootstrap_refuses_a_noncurrent_project_schema(
         connection.execute("UPDATE project_schema SET version = ?", (version,))
 
     with pytest.raises(SchemaVersionError, match=f"version: {version}"):
+        store.bootstrap()
+
+
+def test_bootstrap_refuses_v39_before_config_publish_step_boundary(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "control.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            CREATE TABLE project_schema (
+                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                version INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO project_schema(singleton, version) VALUES (1, 39)"
+        )
+
+    store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
+    with pytest.raises(SchemaVersionError, match="version: 39"):
         store.bootstrap()
 
 

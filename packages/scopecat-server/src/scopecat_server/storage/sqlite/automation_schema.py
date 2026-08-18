@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS procedure_step_attempts (
     step_key TEXT NOT NULL,
     attempt INTEGER NOT NULL CHECK (attempt >= 1),
     operation TEXT NOT NULL CHECK (
-        operation IN ('run', 'analysis', 'config_activation')
+        operation IN ('run', 'analysis', 'config_activation', 'config_publish')
     ),
     intent_hash TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK (revision >= 1),

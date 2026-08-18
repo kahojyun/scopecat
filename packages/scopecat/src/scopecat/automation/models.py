@@ -51,7 +51,12 @@ type ProcedureRunState = Literal[
     "attention_required",
     "closed",
 ]
-type ProcedureStepOperation = Literal["run", "analysis", "config_activation"]
+type ProcedureStepOperation = Literal[
+    "run",
+    "analysis",
+    "config_activation",
+    "config_publish",
+]
 type ProcedureStepAttemptState = Literal[
     "running",
     "succeeded",
@@ -155,8 +160,20 @@ class ConfigActivationOutputRef(_ProcedureModel):
     entry_content_hash: ConfigContentHash
 
 
+class ConfigPublishOutputRef(_ProcedureModel):
+    """Exact configuration revision published and activated by a procedure step."""
+
+    kind: Literal["config_publish"] = "config_publish"
+    generation: int = Field(ge=1)
+    entry_id: _NonEmptyText
+    entry_content_hash: ConfigContentHash
+
+
 type ProcedureStepOutputRef = Annotated[
-    RunOutputRef | AnalysisPublicationOutputRef | ConfigActivationOutputRef,
+    RunOutputRef
+    | AnalysisPublicationOutputRef
+    | ConfigActivationOutputRef
+    | ConfigPublishOutputRef,
     Field(discriminator="kind"),
 ]
 

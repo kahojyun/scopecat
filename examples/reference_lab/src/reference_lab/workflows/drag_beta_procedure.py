@@ -2,23 +2,22 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from scopecat.api.procedures import LabProcedureContext
 from scopecat.automation import procedure
 from scopecat.kernel.frozen import thaw_json_value
-from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.run import ConfigRegistryRunConfigSource, RunConfigSource
+from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.run import ConfigRegistryRunConfigSource
 
 from reference_lab.workflows.drag_beta_analysis import drag_beta_analysis
 from reference_lab.workflows.drag_beta_experiment import drag_beta_experiment
 from reference_lab.workflows.drag_beta_verification import (
     DRAG_BETA_MINIMUM_IMPROVEMENT,
-    DRAG_BETA_VERIFICATION_SCHEMA,
     drag_beta_candidate_verification,
 )
 
 DRAG_BETA_PROCEDURE_ID = "reference-lab.drag-beta-calibration"
-DRAG_BETA_PROCEDURE_VERSION = "1"
+DRAG_BETA_PROCEDURE_VERSION = "2"
 
 
 def drag_beta_calibration_request_key(
@@ -40,7 +39,7 @@ class DragBetaProcedureIntent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     initial_config: ConfigProfileSnapshot
-    initial_config_source: RunConfigSource | None = None
+    initial_config_source: ConfigRegistryRunConfigSource
     minimum_improvement: float = Field(
         default=DRAG_BETA_MINIMUM_IMPROVEMENT,
         ge=0.0,
@@ -52,6 +51,16 @@ class DragBetaProcedureIntent(BaseModel):
         """Restore ordinary JSON containers from the durable intent snapshot."""
 
         return thaw_json_value(value)
+
+    @model_validator(mode="after")
+    def validate_initial_registry_state(self) -> DragBetaProcedureIntent:
+        if self.initial_config_source.registry_generation is None:
+            raise ValueError("initial config source requires a registry generation")
+        if self.initial_config_source.content_hash != config_content_hash(
+            self.initial_config
+        ):
+            raise ValueError("initial config source hash does not match its snapshot")
+        return self
 
 
 @procedure(
@@ -96,12 +105,19 @@ def drag_beta_calibration_procedure(
         ),
         inputs=(baseline, candidate_run),
     )
-    decision = context.published_analysis(verification).fact_as(
-        "decision",
-        DRAG_BETA_VERIFICATION_SCHEMA,
+    initial_generation = intent.initial_config_source.registry_generation
+    assert initial_generation is not None
+    context.accept_verified_candidate(
+        "accept",
+        fit,
+        proposal_id=candidate.proposal_id,
+        verification=verification,
+        decision_output_id="decision",
+        expected_generation=initial_generation,
+        actor="nightly-calibration",
+        entry_id=f"drag-beta-{context.procedure_run_id}",
+        note="accept the project-verified DRAG candidate",
     )
-    if not decision.accepted:
-        raise RuntimeError("DRAG beta candidate did not improve the verification scan")
 
 
 __all__ = [
