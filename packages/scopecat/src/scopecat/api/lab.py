@@ -12,6 +12,7 @@ from scopecat.api._control import LabControlOperations
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.analysis import AnalysisContext, AnalysisStep
+from scopecat.api.calibration_finalizer import CalibrationPublicationPolicyRegistry
 from scopecat.api.calibration_planner import CalibrationPlanningContext
 from scopecat.api.calibrations import LabCalibrationOperations
 from scopecat.api.instruments import LabInstrumentOperations
@@ -131,6 +132,7 @@ class LabClient:
             ProcedureScheduleRegistry[ProcedurePlanningContext] | None
         ) = None,
         calibrations: CalibrationRegistry[CalibrationPlanningContext] | None = None,
+        calibration_publications: CalibrationPublicationPolicyRegistry | None = None,
         operator: str = "operator",
     ) -> None:
         self._owns_client = isinstance(daemon, str)
@@ -168,6 +170,11 @@ class LabClient:
             publication_session=self,
             registry=(
                 calibrations if calibrations is not None else CalibrationRegistry()
+            ),
+            publication_registry=(
+                calibration_publications
+                if calibration_publications is not None
+                else CalibrationPublicationPolicyRegistry()
             ),
         )
 

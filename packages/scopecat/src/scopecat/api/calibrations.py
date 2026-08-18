@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 from scopecat.api._config import LabConfigOperations
+from scopecat.api.calibration_finalizer import (
+    CalibrationPublicationPlanningContext,
+    CalibrationPublicationPolicyRegistry,
+    ProjectCalibrationPublicationFinalizer,
+)
 from scopecat.api.calibration_planner import (
     CalibrationPlanningContext,
     ProjectCalibrationEvaluator,
@@ -25,10 +30,16 @@ from scopecat.automation.calibration_wire import (
     CalibrationCohortMemberListQuery,
     CalibrationCohortMemberPage,
     CalibrationCohortPage,
+    CalibrationPublicationAttentionCommand,
+    CalibrationPublicationDeferCommand,
+    CalibrationPublicationReadyPage,
+    CalibrationPublicationReadyQuery,
+    CalibrationPublicationRetryCommand,
     CalibrationStatusQuery,
 )
 from scopecat.automation.calibrations import (
     CalibrationCohort,
+    CalibrationCohortFinalization,
     CalibrationCohortMember,
     CalibrationCohortSpec,
     CalibrationConfigSourceRef,
@@ -55,6 +66,7 @@ class LabCalibrationOperations:
         "_client",
         "_config",
         "_procedures",
+        "_publication_registry",
         "_publication_session",
         "_registry",
     )
@@ -67,6 +79,7 @@ class LabCalibrationOperations:
         procedures: LabProcedureOperations,
         publication_session: CalibrationPublicationReadSession,
         registry: CalibrationRegistry[CalibrationPlanningContext],
+        publication_registry: CalibrationPublicationPolicyRegistry,
     ) -> None:
         for definition in registry.values():
             procedures.registry.resolve(definition.procedure.ref)
@@ -75,10 +88,15 @@ class LabCalibrationOperations:
         self._procedures = procedures
         self._publication_session = publication_session
         self._registry = registry
+        self._publication_registry = publication_registry
 
     @property
     def registry(self) -> CalibrationRegistry[CalibrationPlanningContext]:
         return self._registry
+
+    @property
+    def publication_registry(self) -> CalibrationPublicationPolicyRegistry:
+        return self._publication_registry
 
     def planning_context(self) -> CalibrationPlanningContext:
         config, source = self._config.resolve_with_source("active")
@@ -102,6 +120,34 @@ class LabCalibrationOperations:
             self,
             self._registry,
             self.planning_context,
+            publication_policies=self._publication_registry,
+        )
+
+    def publication_planning_context(
+        self,
+    ) -> CalibrationPublicationPlanningContext:
+        """Build the read-only project facade given to publication policies."""
+
+        return CalibrationPublicationPlanningContext(
+            self._client,
+            self._config,
+            self._procedures,
+            self._publication_session,
+        )
+
+    def publication_finalizer(
+        self,
+        *,
+        page_limit: int = 50,
+        actor: str = "calibration-publication-finalizer",
+    ) -> ProjectCalibrationPublicationFinalizer:
+        """Build one stateful finite-traversal automatic finalizer."""
+
+        return ProjectCalibrationPublicationFinalizer(
+            self,
+            self._publication_registry,
+            page_limit=page_limit,
+            actor=actor,
         )
 
     def status(
@@ -159,6 +205,49 @@ class LabCalibrationOperations:
                 limit=limit,
             )
         )
+
+    def ready_publications(
+        self,
+        query: CalibrationPublicationReadyQuery,
+    ) -> CalibrationPublicationReadyPage:
+        """Discover one finite page of exact supported publication work."""
+
+        return self._client.list_ready_calibration_publications(query)
+
+    def publication_finalization(
+        self,
+        cohort_id: str,
+    ) -> CalibrationCohortFinalization:
+        """Read exact durable automatic-publication state for one cohort."""
+
+        return self._client.get_calibration_publication(cohort_id).finalization
+
+    def require_publication_attention(
+        self,
+        command: CalibrationPublicationAttentionCommand,
+    ) -> CalibrationCohortFinalization:
+        """Move one exact ready finalization to durable operator attention."""
+
+        receipt = self._client.require_calibration_publication_attention(command)
+        return receipt.finalization
+
+    def retry_publication(
+        self,
+        command: CalibrationPublicationRetryCommand,
+    ) -> CalibrationCohortFinalization:
+        """Return one exact attention state to the durable ready queue."""
+
+        receipt = self._client.retry_calibration_publication(command)
+        return receipt.finalization
+
+    def defer_publication(
+        self,
+        command: CalibrationPublicationDeferCommand,
+    ) -> CalibrationCohortFinalization:
+        """Delay one exact ready occurrence using the server clock."""
+
+        receipt = self._client.defer_calibration_publication(command)
+        return receipt.finalization
 
     def build_merge_contribution(
         self,

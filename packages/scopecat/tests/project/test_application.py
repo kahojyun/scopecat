@@ -7,7 +7,14 @@ from typing import cast
 import pytest
 from pydantic import BaseModel, ConfigDict
 
+from scopecat.api.calibration_finalizer import (
+    CalibrationPublicationCandidate,
+    CalibrationPublicationPlanningContext,
+    CalibrationPublicationPolicy,
+    CalibrationPublicationPolicyRegistry,
+)
 from scopecat.api.calibration_planner import CalibrationPlanningContext
+from scopecat.api.calibration_publication import CalibrationCohortPublicationPlan
 from scopecat.api.lab import LabClient
 from scopecat.api.procedure_planner import ProcedurePlanningContext
 from scopecat.application.lab import LabApplication
@@ -24,6 +31,7 @@ from scopecat.automation import (
     procedure,
 )
 from scopecat.automation.calibration_definition import CalibrationDefinition
+from scopecat.config.registry.records import ConfigCompositionPolicyRef
 from scopecat.daemon.client import DaemonClient
 
 
@@ -110,6 +118,34 @@ _CALIBRATION = CalibrationDefinition(
     _build_intent=_build_calibration_intent,
 )
 
+_PUBLISHED_CALIBRATION = replace(
+    _CALIBRATION,
+    id="tests.application.published-calibration",
+    success_policy="published_result",
+)
+
+
+def _unused_publication_prepare(
+    _context: CalibrationPublicationPlanningContext,
+    _candidate: CalibrationPublicationCandidate,
+) -> CalibrationCohortPublicationPlan:
+    raise AssertionError("application composition does not prepare publications")
+
+
+_PUBLICATION_POLICY = CalibrationPublicationPolicy(
+    id="tests.application.calibration-publication",
+    version="1",
+    calibration=_PUBLISHED_CALIBRATION.ref,
+    composition_policy=ConfigCompositionPolicyRef(
+        id="tests.application.composition",
+        version="1",
+        fingerprint=f"sha256:{'9' * 64}",
+    ),
+    actor="calibration-finalizer",
+    note="publish exact cohort",
+    _prepare=_unused_publication_prepare,
+)
+
 
 def test_application_canonicalizes_procedure_iterable() -> None:
     application = LabApplication(procedures=(_example_procedure,))
@@ -181,3 +217,28 @@ def test_direct_lab_client_rejects_calibration_target_missing_from_registry() ->
             procedures=ProcedureRegistry((_other_procedure,)),
             calibrations=CalibrationRegistry((_CALIBRATION,)),
         )
+
+
+def test_application_owns_historical_calibration_publication_registry() -> None:
+    publications = CalibrationPublicationPolicyRegistry((_PUBLICATION_POLICY,))
+    application = LabApplication(
+        procedures=(_example_procedure,),
+        calibrations=(_PUBLISHED_CALIBRATION,),
+        calibration_publications=publications,
+    )
+    replaced = replace(application, bootstrap_config=lambda: {"id": "bootstrap"})
+
+    assert application.calibration_publications is publications
+    assert replaced.calibration_publications is publications
+
+
+def test_direct_lab_client_retains_calibration_publication_registry() -> None:
+    publications = CalibrationPublicationPolicyRegistry((_PUBLICATION_POLICY,))
+    lab = LabClient(
+        cast("DaemonClient", object()),
+        procedures=ProcedureRegistry((_example_procedure,)),
+        calibrations=CalibrationRegistry((_PUBLISHED_CALIBRATION,)),
+        calibration_publications=publications,
+    )
+
+    assert lab.calibrations.publication_registry is publications

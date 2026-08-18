@@ -6,12 +6,16 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from scopecat.api.calibration_finalizer import CalibrationPublicationPolicyRegistry
 from scopecat.automation.calibration_definition import CalibrationRegistry
 from scopecat.automation.definition import ProcedureRegistry
 from scopecat.automation.intervals import ProcedureScheduleRegistry
 from scopecat.records.config import ConfigProfileSnapshot
 
 if TYPE_CHECKING:
+    from scopecat.api.calibration_finalizer import (
+        RegisteredCalibrationPublicationPolicy,
+    )
     from scopecat.api.calibration_planner import CalibrationPlanningContext
     from scopecat.api.lab import LabClient
     from scopecat.api.procedure_planner import ProcedurePlanningContext
@@ -56,6 +60,10 @@ class LabApplication:
         default_factory=CalibrationRegistry,
         repr=False,
     )
+    calibration_publications: CalibrationPublicationPolicyRegistry = field(
+        default_factory=CalibrationPublicationPolicyRegistry,
+        repr=False,
+    )
 
     def __init__(
         self,
@@ -69,6 +77,10 @@ class LabApplication:
         calibrations: (
             Iterable[RegisteredCalibration[CalibrationPlanningContext]]
             | CalibrationRegistry[CalibrationPlanningContext]
+        ) = (),
+        calibration_publications: (
+            Iterable[RegisteredCalibrationPublicationPolicy]
+            | CalibrationPublicationPolicyRegistry
         ) = (),
     ) -> None:
         object.__setattr__(
@@ -96,9 +108,22 @@ class LabApplication:
         )
         for definition in calibration_registry.values():
             procedure_registry.resolve(definition.procedure.ref)
+        publication_registry = (
+            calibration_publications
+            if isinstance(
+                calibration_publications,
+                CalibrationPublicationPolicyRegistry,
+            )
+            else CalibrationPublicationPolicyRegistry(calibration_publications)
+        )
         object.__setattr__(self, "procedures", procedure_registry)
         object.__setattr__(self, "procedure_schedules", schedule_registry)
         object.__setattr__(self, "calibrations", calibration_registry)
+        object.__setattr__(
+            self,
+            "calibration_publications",
+            publication_registry,
+        )
 
     def connect(
         self,
@@ -116,6 +141,7 @@ class LabApplication:
             procedures=self.procedures,
             procedure_schedules=self.procedure_schedules,
             calibrations=self.calibrations,
+            calibration_publications=self.calibration_publications,
             operator=operator,
         )
 

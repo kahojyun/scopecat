@@ -12,6 +12,7 @@ from typing import Literal, Protocol
 import httpx2
 from pydantic import BaseModel
 
+from scopecat.api.calibration_finalizer import CalibrationPublicationPolicyRegistry
 from scopecat.automation.calibration_definition import (
     CalibrationObservation,
     CalibrationRegistry,
@@ -122,17 +123,29 @@ type _Suppression = Literal["active", "failed", "attention"]
 class ProjectCalibrationEvaluator:
     """Evaluate flat freshness evidence and atomically admit one ready frontier."""
 
-    __slots__ = ("_context", "_operations", "_registry")
+    __slots__ = (
+        "_context",
+        "_operations",
+        "_publication_policies",
+        "_registry",
+    )
 
     def __init__(
         self,
         operations: CalibrationPlanningOperations,
         registry: CalibrationRegistry[CalibrationPlanningContext],
         context: Callable[[], CalibrationPlanningContext],
+        *,
+        publication_policies: CalibrationPublicationPolicyRegistry | None = None,
     ) -> None:
         self._operations = operations
         self._registry = registry
         self._context = context
+        self._publication_policies = (
+            publication_policies
+            if publication_policies is not None
+            else CalibrationPublicationPolicyRegistry()
+        )
 
     def cycle(  # noqa: C901 - explicit bounded planning phase boundaries
         self,
@@ -152,6 +165,9 @@ class ProjectCalibrationEvaluator:
                 totals.has_more = True
                 break
             totals.definitions += 1
+            publication_policy = self._publication_policies.for_calibration(
+                definition.ref
+            )
             try:
                 selected = definition.select_targets(context)
             except Exception as error:
@@ -361,6 +377,9 @@ class ProjectCalibrationEvaluator:
 
             spec = CalibrationCohortSpec(
                 planner=definition.ref,
+                automatic_publication=(
+                    None if publication_policy is None else publication_policy.ref
+                ),
                 config_source=context.config_source,
                 fanout_scope=definition.fanout_scope,
                 max_in_flight=definition.max_in_flight,

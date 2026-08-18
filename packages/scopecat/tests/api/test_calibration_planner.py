@@ -9,11 +9,18 @@ import httpx2
 import pytest
 from pydantic import BaseModel, ConfigDict
 
+from scopecat.api.calibration_finalizer import (
+    CalibrationPublicationCandidate,
+    CalibrationPublicationPlanningContext,
+    CalibrationPublicationPolicy,
+    CalibrationPublicationPolicyRegistry,
+)
 from scopecat.api.calibration_planner import (
     CalibrationPlanningContext,
     ProjectCalibrationEvaluator,
     calibration_cohort_id,
 )
+from scopecat.api.calibration_publication import CalibrationCohortPublicationPlan
 from scopecat.automation import (
     CalibrationAttemptRef,
     CalibrationAttemptStatus,
@@ -47,6 +54,7 @@ from scopecat.automation.calibration_definition import (
     CalibrationObservation,
     CalibrationRegistry,
 )
+from scopecat.config.registry.records import ConfigCompositionPolicyRef
 from scopecat.daemon.client import DaemonConflictError, DaemonNotFoundError
 from scopecat.records.config import ConfigProfileSnapshot
 
@@ -104,6 +112,13 @@ def _build(
         value=inputs.value,
         dependency_runs=tuple(item.procedure_run_id for item in dependencies),
     )
+
+
+def _unused_publication_prepare(
+    _context: CalibrationPublicationPlanningContext,
+    _candidate: CalibrationPublicationCandidate,
+) -> CalibrationCohortPublicationPlan:
+    raise AssertionError("evaluator must only pin the policy ref")
 
 
 def _definition(
@@ -743,6 +758,40 @@ def test_pending_publication_base_drift_admits_a_new_truthful_need() -> None:
         reasons[0].current_config_source
         == _context(registry_generation=2).config_source
     )
+
+
+def test_evaluator_pins_exact_automatic_publication_policy_into_cohort() -> None:
+    global _targets
+    target = _target("a")
+    _targets = (target,)
+    _values["a"] = 1
+    definition = _definition(success_policy="published_result")
+    policy = CalibrationPublicationPolicy(
+        id="tests.calibration.automatic-publication",
+        version="1",
+        calibration=definition.ref,
+        composition_policy=ConfigCompositionPolicyRef(
+            id="tests.calibration.composition",
+            version="1",
+            fingerprint=f"sha256:{'8' * 64}",
+        ),
+        actor="calibration-finalizer",
+        note="publish exact cohort",
+        _prepare=_unused_publication_prepare,
+    )
+    operations = _Operations()
+    evaluator = ProjectCalibrationEvaluator(
+        operations,
+        CalibrationRegistry((definition,)),
+        _context,
+        publication_policies=CalibrationPublicationPolicyRegistry((policy,)),
+    )
+
+    result = evaluator.cycle()
+
+    assert result.created_cohorts == 1
+    [receipt] = operations.cohorts.values()
+    assert receipt.cohort.spec.automatic_publication == policy.ref
 
 
 def test_published_result_uses_result_inputs_as_effective_freshness() -> None:
