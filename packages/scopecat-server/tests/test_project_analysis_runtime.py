@@ -988,6 +988,7 @@ def _prepare_calibration_merge(
     *,
     suffix: str,
     reverse_verification_inputs: bool = False,
+    target_ids: tuple[str, ...] = ("q0", "q1"),
 ) -> _CalibrationMergeFixture:
     active = runtime.application.config.get_active_config()
     base = CalibrationConfigSourceRef(
@@ -1003,7 +1004,7 @@ def _prepare_calibration_merge(
         content_hash=base.content_hash,
         registry_generation=base.registry_generation,
     )
-    specs = (_calibration_member_spec("q0"), _calibration_member_spec("q1"))
+    specs = tuple(_calibration_member_spec(target_id) for target_id in target_ids)
     status = runtime.application.calibration_cohorts.status(
         CalibrationStatusQuery(
             calibration_keys=tuple(item.calibration_key for item in specs),
@@ -1017,7 +1018,7 @@ def _prepare_calibration_merge(
                 planner=specs[0].definition,
                 config_source=base,
                 fanout_scope=status.fanout_scope,
-                max_in_flight=2,
+                max_in_flight=len(specs),
                 observed_fanout_active_count=status.fanout_active_count,
                 evaluated_at=status.observed_at,
                 observations=status.statuses,
@@ -1386,6 +1387,74 @@ def test_calibration_merge_publishes_one_replayable_atomic_revision(
         # The active head is now generation 2 while this command names base 1;
         # success therefore proves replay occurs before live proof and CAS checks.
         assert client.publish_config(fixture.command) == receipt
+
+
+def test_single_member_calibration_merge_is_atomic_and_replayable(
+    tmp_path: Path,
+) -> None:
+    with (
+        LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime,
+        TestClient(runtime.app()) as transport,
+    ):
+        client = _daemon_client(transport)
+        fixture = _prepare_calibration_merge(
+            runtime,
+            LabClient(client),
+            suffix="single",
+            target_ids=("q0",),
+        )
+        source = fixture.command.source
+        assert isinstance(source, CalibrationCohortMergeRevisionSource)
+        assert len(source.contributions) == 1
+
+        receipt = client.publish_config(fixture.command)
+
+        assert receipt.operation.activation_generation == 2
+        assert receipt.activation.generation == 2
+        assert receipt.entry.content_hash == source.expected_result_content_hash
+        assert len(receipt.calibration_successes) == 1
+        success = receipt.calibration_successes[0]
+        assert success.attempt.member_id == "drag-q0"
+        assert success.publication is not None
+        assert success.publication.operation_id == fixture.command.operation_id
+        assert success.publication.result_config_source.entry_id == receipt.entry.id
+        assert len(runtime.application.config.get_config_registry().entries) == 2
+        assert _approval_count(runtime, fixture.baseline_run_ids) == 1
+        assert (
+            len(
+                [
+                    event
+                    for event in _events(runtime).items
+                    if event.kind == "parameter_proposal_approved"
+                ]
+            )
+            == 1
+        )
+        status = runtime.application.calibration_cohorts.status(
+            CalibrationStatusQuery(
+                calibration_keys=fixture.calibration_keys,
+                fanout_scope="calibration-workers",
+            )
+        ).snapshot.statuses
+        assert len(status) == 1
+        projected_success = status[0].latest_success
+        assert projected_success == success
+        assert projected_success is not None
+        assert projected_success.is_effective
+
+        after_publish = _publication_side_effects(runtime, fixture)
+        assert client.publish_config(fixture.command) == receipt
+        assert _publication_side_effects(runtime, fixture) == after_publish
+
+    with (
+        LocalDaemonRuntime(tmp_path) as restarted,
+        TestClient(restarted.app()) as transport,
+    ):
+        client = _daemon_client(transport)
+        assert client.config_publish_operation(fixture.command.operation_id) == receipt
+        assert client.publish_config(fixture.command) == receipt
+        assert len(restarted.application.config.get_config_registry().entries) == 2
+        assert _approval_count(restarted, fixture.baseline_run_ids) == 1
 
 
 def test_calibration_merge_proof_and_result_failures_have_no_side_effects(

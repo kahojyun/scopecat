@@ -61,10 +61,10 @@ def merge_common_base_parameter_proposals(
     cannot affect the resulting snapshot or delta order.
     """
 
-    if not 2 <= len(proposals) <= MAX_COMMON_BASE_PROPOSALS:
+    if not 1 <= len(proposals) <= MAX_COMMON_BASE_PROPOSALS:
         raise _merge_check(
             "parameter_merge.proposal_count",
-            "common-base merge requires between 2 and "
+            "common-base merge requires between 1 and "
             f"{MAX_COMMON_BASE_PROPOSALS} proposals",
             path=("proposals",),
         )

@@ -485,11 +485,11 @@ def _validate_config_revision(
                 message="calibration merge base generation must be positive",
                 location=_registry_model_location("revision", "source"),
             )
-        if not 2 <= len(source.contributions) <= 200:
+        if not 1 <= len(source.contributions) <= 200:
             raise _registry_failure(
                 CheckFailed,
                 code="config_registry.calibration_merge_contributions_invalid",
-                message=("calibration merge requires between 2 and 200 contributions"),
+                message=("calibration merge requires between 1 and 200 contributions"),
                 location=_registry_model_location(
                     "revision",
                     "source",

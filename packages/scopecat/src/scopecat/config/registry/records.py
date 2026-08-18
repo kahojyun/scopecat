@@ -277,7 +277,7 @@ class CalibrationCohortMergeRegistrySource(_FrozenRegistryModel):
     base_registry_generation: int = Field(ge=1)
     candidate_id: _NonEmptyText
     contributions: tuple[ResolvedCalibrationCohortMergeContribution, ...] = Field(
-        min_length=2,
+        min_length=1,
         max_length=_MAX_CALIBRATION_MERGE_CONTRIBUTIONS,
     )
 

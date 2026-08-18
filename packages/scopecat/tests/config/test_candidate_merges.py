@@ -61,6 +61,38 @@ def test_common_base_keyed_table_merge_is_cell_aware_and_order_independent() -> 
     assert merged.rows[1]["beta"] == -0.5
 
 
+def test_common_base_merge_accepts_one_proposal_as_identity_composition() -> None:
+    base = _base_config()
+    proposal = _proposal(
+        base,
+        run_id="procedure-q0",
+        proposal_id="proposal-q0",
+        after=_qubits(base, q0_beta=0.25),
+    )
+
+    result = merge_common_base_parameter_proposals(
+        (proposal,),
+        base_config=base,
+        candidate_id="single-drag",
+    )
+
+    assert result.deltas == proposal.deltas
+    assert result.config.id == "single-drag"
+    assert result.config.parameter_snapshot.id == "single-drag.parameters"
+    assert result.config.parameter_snapshot.get("qubits") == proposal.deltas[0].after
+
+
+def test_common_base_merge_still_rejects_an_empty_composition() -> None:
+    with pytest.raises(CheckFailed) as error:
+        merge_common_base_parameter_proposals(
+            (),
+            base_config=_base_config(),
+            candidate_id="empty",
+        )
+
+    assert error.value.problems[0].code == "parameter_merge.proposal_count"
+
+
 def test_common_base_keyed_table_merges_different_cells_in_one_row() -> None:
     base = _base_config()
     beta = _proposal(

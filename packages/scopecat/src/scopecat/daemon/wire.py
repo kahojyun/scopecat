@@ -130,7 +130,7 @@ class CalibrationCohortMergeRevisionSource(_WireModel):
     base_generation: int = Field(ge=1)
     candidate_id: NonEmptyText
     contributions: tuple[CalibrationCohortMergeContribution, ...] = Field(
-        min_length=2,
+        min_length=1,
         max_length=200,
     )
     expected_result_content_hash: ConfigContentHash

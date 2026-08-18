@@ -49,6 +49,27 @@ def test_calibration_merge_source_is_canonical_and_hashes_exact_proof() -> None:
     assert changed.source_intent_hash != forward.source_intent_hash
 
 
+def test_calibration_merge_accepts_one_contribution_but_not_zero() -> None:
+    contribution = _contribution("q0")
+    command = _command((contribution,))
+    assert (
+        ConfigPublishCommand.model_validate_json(command.model_dump_json()) == command
+    )
+
+    resolved = _registry_source((_resolved_contribution("q0"),))
+    assert (
+        CalibrationCohortMergeRegistrySource.model_validate_json(
+            resolved.model_dump_json()
+        )
+        == resolved
+    )
+
+    with pytest.raises(ValidationError):
+        _source(())
+    with pytest.raises(ValidationError):
+        _registry_source(())
+
+
 def test_calibration_merge_command_requires_base_generation_cas() -> None:
     source = _source((_contribution("q0"), _contribution("q1")))
 
@@ -83,16 +104,7 @@ def test_calibration_merge_contribution_requires_distinct_step_attempts() -> Non
 def test_resolved_calibration_merge_registry_source_preserves_exact_outputs() -> None:
     q0 = _resolved_contribution("q0")
     q1 = _resolved_contribution("q1")
-    source = CalibrationCohortMergeRegistrySource(
-        cohort_id="cohort-1",
-        spec_hash=_SPEC_HASH,
-        composition_policy_ref=_policy(),
-        base_entry_id="base-entry",
-        base_config_content_hash=_CONFIG_HASH,
-        base_registry_generation=7,
-        candidate_id="merged-candidate",
-        contributions=(q1, q0),
-    )
+    source = _registry_source((q1, q0))
 
     assert tuple(item.member_id for item in source.contributions) == (
         "member-q0",
@@ -106,6 +118,21 @@ def test_resolved_calibration_merge_registry_source_preserves_exact_outputs() ->
             source.model_dump_json()
         )
         == source
+    )
+
+
+def _registry_source(
+    contributions: tuple[ResolvedCalibrationCohortMergeContribution, ...],
+) -> CalibrationCohortMergeRegistrySource:
+    return CalibrationCohortMergeRegistrySource(
+        cohort_id="cohort-1",
+        spec_hash=_SPEC_HASH,
+        composition_policy_ref=_policy(),
+        base_entry_id="base-entry",
+        base_config_content_hash=_CONFIG_HASH,
+        base_registry_generation=7,
+        candidate_id="merged-candidate",
+        contributions=contributions,
     )
 
 
