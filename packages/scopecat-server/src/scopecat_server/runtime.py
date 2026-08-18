@@ -27,6 +27,7 @@ from scopecat_server.services.active_measurements import ActiveMeasurementStore
 from scopecat_server.services.admission import AdmissionService
 from scopecat_server.services.analyses import AnalysisService
 from scopecat_server.services.application import DaemonApplication
+from scopecat_server.services.automation import AutomationService
 from scopecat_server.services.config import ConfigService
 from scopecat_server.services.executor import ExecutorService
 from scopecat_server.services.leases import OwnershipLeaseSupervisor
@@ -34,6 +35,7 @@ from scopecat_server.services.point_plans import RunPointPlanService
 from scopecat_server.services.reviews import ReviewService
 from scopecat_server.services.runs import RunService
 from scopecat_server.storage.sqlite.analysis_repository import SQLiteAnalysisRepository
+from scopecat_server.storage.sqlite.automation import SQLiteAutomationStore
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
@@ -108,6 +110,7 @@ class LocalDaemonRuntime:
             project_store.bootstrap()
 
             control = SQLiteControlPlane(sqlite)
+            automation_store = SQLiteAutomationStore(sqlite)
             runs = SQLiteRunRepository(sqlite, objects)
             analyses = SQLiteAnalysisRepository(sqlite, objects)
             config_registry = SQLiteConfigRegistryStore(
@@ -122,6 +125,7 @@ class LocalDaemonRuntime:
             )
             active_measurements = ActiveMeasurementStore()
             reviews = ReviewService()
+            automation = AutomationService(automation_store)
             instrument_actors = InstrumentActorRegistry()
             analysis_service = AnalysisService(
                 repository=analyses,
@@ -187,6 +191,7 @@ class LocalDaemonRuntime:
                 payloads=payloads,
                 lease_supervisor=lease_supervisor,
                 reviews=reviews,
+                automation=automation,
                 point_plans=point_plans,
             )
             try:

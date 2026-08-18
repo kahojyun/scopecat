@@ -18,6 +18,7 @@ from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
 from ..command_payloads import CommandPayloadService
 from .admission import AdmissionService
 from .analyses import AnalysisService
+from .automation import AutomationService
 from .config import ConfigService
 from .executor import ExecutorService
 from .leases import OwnershipLeaseSupervisor
@@ -47,6 +48,7 @@ class DaemonApplication:
         payloads: CommandPayloadService,
         lease_supervisor: OwnershipLeaseSupervisor,
         reviews: ReviewService,
+        automation: AutomationService,
         point_plans: RunPointPlanService,
     ) -> None:
         self.project_root = Path(project_root).resolve()
@@ -60,6 +62,7 @@ class DaemonApplication:
         self.instruments = instruments
         self.payloads = payloads
         self.reviews = reviews
+        self.automation = automation
         self.point_plans = point_plans
         self._lease_supervisor = lease_supervisor
 

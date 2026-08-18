@@ -53,6 +53,9 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         "analysis_publications",
         "project_analysis_contents",
         "project_analysis_repository_refs",
+        "procedure_runs",
+        "procedure_step_attempts",
+        "procedure_leases",
         "config_registry_entries",
         "config_registry_activations",
     } <= tables
