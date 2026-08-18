@@ -10,6 +10,8 @@ from scopecat.automation.calibrations import (
     CalibrationAttemptRef,
     CalibrationAttemptStatus,
     CalibrationCohort,
+    CalibrationCohortFinalization,
+    CalibrationCohortFinalizationState,
     CalibrationCohortMember,
     CalibrationCohortMemberSpec,
     CalibrationCohortSpec,
@@ -22,7 +24,12 @@ from scopecat.automation.calibrations import (
     CalibrationForcedDueReason,
     CalibrationInputsChangedDueReason,
     CalibrationMissingSuccessDueReason,
+    CalibrationPublicationAttention,
     CalibrationPublicationBaseChangedDueReason,
+    CalibrationPublicationCompletion,
+    CalibrationPublicationFailure,
+    CalibrationPublicationPolicyRef,
+    CalibrationPublicationSupersession,
     CalibrationStatus,
     CalibrationStatusSnapshot,
     CalibrationSuccessPolicy,
@@ -35,6 +42,7 @@ from scopecat.automation.calibrations import (
     calibration_key,
 )
 from scopecat.automation.models import ProcedureClosure, ProcedureDefinitionRef
+from scopecat.config.registry.records import ConfigCompositionPolicyRef
 from scopecat.records.run import ConfigRegistryRunConfigSource
 
 _HASH_1 = "sha256:" + "1" * 64
@@ -55,6 +63,23 @@ def _definition(
         version=version,
         fingerprint=_HASH_1,
         success_policy=success_policy,
+    )
+
+
+def _publication_policy(
+    calibration: CalibrationDefinitionRef | None = None,
+) -> CalibrationPublicationPolicyRef:
+    selected_calibration = calibration or _definition(success_policy="published_result")
+    return CalibrationPublicationPolicyRef(
+        id="automatic-calibration-merge",
+        version="3",
+        fingerprint=_HASH_2,
+        calibration=selected_calibration,
+        composition_policy=ConfigCompositionPolicyRef(
+            id="merge-calibration-results",
+            version="5",
+            fingerprint=_HASH_3,
+        ),
     )
 
 
@@ -244,6 +269,7 @@ def _cohort_spec(
     observations: tuple[CalibrationStatus, ...] | None = None,
     max_in_flight: int = 2,
     observed_active: int = 0,
+    automatic_publication: CalibrationPublicationPolicyRef | None = None,
 ) -> CalibrationCohortSpec:
     selected_member = member or _member_spec()
     selected_observations = (
@@ -258,6 +284,7 @@ def _cohort_spec(
     )
     return CalibrationCohortSpec(
         planner=selected_member.definition,
+        automatic_publication=automatic_publication,
         config_source=_frozen_config_source(),
         fanout_scope="chip-alpha",
         max_in_flight=max_in_flight,
@@ -275,6 +302,41 @@ def _cohort() -> CalibrationCohort:
         spec=spec,
         spec_hash=calibration_cohort_spec_hash(spec),
         created_at=_CREATED,
+    )
+
+
+def _finalization(
+    *,
+    policy: CalibrationPublicationPolicyRef,
+    base_config_source: CalibrationConfigSourceRef,
+    revision: int,
+    state: CalibrationCohortFinalizationState,
+    attempt_count: int,
+    created_at: datetime,
+    updated_at: datetime,
+    ready_at: datetime | None = None,
+    available_at: datetime | None = None,
+    attention: CalibrationPublicationAttention | None = None,
+    failure: CalibrationPublicationFailure | None = None,
+    supersession: CalibrationPublicationSupersession | None = None,
+    publication: CalibrationPublicationCompletion | None = None,
+) -> CalibrationCohortFinalization:
+    return CalibrationCohortFinalization(
+        cohort_id="cohort-automatic",
+        spec_hash=_HASH_1,
+        policy=policy,
+        base_config_source=base_config_source,
+        revision=revision,
+        state=state,
+        attempt_count=attempt_count,
+        created_at=created_at,
+        updated_at=updated_at,
+        ready_at=ready_at,
+        available_at=available_at,
+        attention=attention,
+        failure=failure,
+        supersession=supersession,
+        publication=publication,
     )
 
 
@@ -511,6 +573,160 @@ def test_cohort_spec_rejects_missing_observation_and_mixed_planner() -> None:
     data["planner"] = other_definition
     with pytest.raises(ValidationError, match="planner definition"):
         CalibrationCohortSpec.model_validate(data)
+
+
+def test_automatic_publication_policy_pins_exact_published_result_meaning() -> None:
+    definition = _definition(success_policy="published_result")
+    policy = _publication_policy(definition)
+    member = _member_spec(definition=definition)
+    manual = _cohort_spec(member=member)
+    automatic = _cohort_spec(
+        member=member,
+        automatic_publication=policy,
+    )
+
+    assert automatic.automatic_publication == policy
+    assert assert_model_round_trip(policy) == policy
+    assert calibration_cohort_spec_hash(automatic) != calibration_cohort_spec_hash(
+        manual
+    )
+
+    with pytest.raises(ValidationError, match="published-result"):
+        _publication_policy(_definition(success_policy="procedure_success"))
+
+    mismatched = policy.model_copy(
+        update={"calibration": definition.model_copy(update={"version": "other"})}
+    )
+    with pytest.raises(ValidationError, match="exact planner"):
+        _cohort_spec(member=member, automatic_publication=mismatched)
+
+
+def test_publication_finalization_states_require_exact_conditional_audit() -> None:
+    policy = _publication_policy()
+    base = _frozen_config_source()
+    created_at = _CREATED
+    ready_at = created_at + timedelta(minutes=1)
+    terminal_at = ready_at + timedelta(minutes=1)
+    finalizations = (
+        _finalization(
+            policy=policy,
+            base_config_source=base,
+            revision=1,
+            state="waiting",
+            attempt_count=0,
+            created_at=created_at,
+            updated_at=created_at,
+        ),
+        _finalization(
+            policy=policy,
+            base_config_source=base,
+            revision=2,
+            state="ready",
+            attempt_count=0,
+            created_at=created_at,
+            updated_at=ready_at,
+            ready_at=ready_at,
+            available_at=ready_at,
+        ),
+        _finalization(
+            policy=policy,
+            base_config_source=base,
+            revision=3,
+            state="attention_required",
+            attempt_count=1,
+            created_at=created_at,
+            updated_at=terminal_at,
+            ready_at=ready_at,
+            attention=CalibrationPublicationAttention(
+                actor="resident-worker",
+                reason="policy proof is invalid",
+                required_at=terminal_at,
+            ),
+        ),
+        _finalization(
+            policy=policy,
+            base_config_source=base,
+            revision=2,
+            state="failed",
+            attempt_count=0,
+            created_at=created_at,
+            updated_at=terminal_at,
+            failure=CalibrationPublicationFailure(failed_at=terminal_at),
+        ),
+        _finalization(
+            policy=policy,
+            base_config_source=base,
+            revision=3,
+            state="superseded",
+            attempt_count=1,
+            created_at=created_at,
+            updated_at=terminal_at,
+            ready_at=ready_at,
+            supersession=CalibrationPublicationSupersession(
+                superseded_by_generation=base.registry_generation + 1,
+                superseded_at=terminal_at,
+            ),
+        ),
+        _finalization(
+            policy=policy,
+            base_config_source=base,
+            revision=3,
+            state="published",
+            attempt_count=1,
+            created_at=created_at,
+            updated_at=terminal_at,
+            ready_at=ready_at,
+            publication=CalibrationPublicationCompletion(
+                operation_id="publish-cohort-automatic",
+                published_at=terminal_at,
+            ),
+        ),
+    )
+
+    assert {item.state for item in finalizations} == {
+        "waiting",
+        "ready",
+        "attention_required",
+        "failed",
+        "superseded",
+        "published",
+    }
+    for finalization in finalizations:
+        assert assert_model_round_trip(finalization) == finalization
+
+    ready = finalizations[1]
+    with pytest.raises(ValidationError, match="availability"):
+        CalibrationCohortFinalization.model_validate(
+            {
+                **ready.model_dump(),
+                "available_at": ready.updated_at - timedelta(seconds=1),
+            }
+        )
+    with pytest.raises(ValidationError, match="newer config generation"):
+        _finalization(
+            policy=policy,
+            base_config_source=base,
+            revision=2,
+            state="superseded",
+            attempt_count=0,
+            created_at=created_at,
+            updated_at=terminal_at,
+            supersession=CalibrationPublicationSupersession(
+                superseded_by_generation=base.registry_generation,
+                superseded_at=terminal_at,
+            ),
+        )
+    with pytest.raises(ValidationError, match="incompatible audit detail"):
+        CalibrationCohortFinalization.model_validate(
+            {
+                **ready.model_dump(),
+                "attention": CalibrationPublicationAttention(
+                    actor="resident-worker",
+                    reason="invalid",
+                    required_at=ready.updated_at,
+                ),
+            }
+        )
 
 
 def test_due_reasons_are_typed_and_match_observed_evidence() -> None:

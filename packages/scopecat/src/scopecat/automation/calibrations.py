@@ -26,6 +26,7 @@ from scopecat.automation.models import (
     ProcedureIntent,
     ProcedureRunState,
 )
+from scopecat.config.registry.records import ConfigCompositionPolicyRef
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.records.config import ConfigContentHash
 from scopecat.records.content import Sha256ContentHash
@@ -37,10 +38,18 @@ MAX_CALIBRATION_COHORT_MEMBERS = 200
 MAX_CALIBRATION_STATUS_KEYS = 200
 
 type CalibrationSuccessPolicy = Literal["procedure_success", "published_result"]
+type CalibrationCohortFinalizationState = Literal[
+    "waiting",
+    "ready",
+    "attention_required",
+    "failed",
+    "superseded",
+    "published",
+]
 
 _CALIBRATION_KEY_CODEC = "scopecat.calibration-key.v1"
 _CALIBRATION_FRESHNESS_CODEC = "scopecat.calibration-freshness.v2"
-_CALIBRATION_COHORT_SPEC_CODEC = "scopecat.calibration-cohort-spec.v2"
+_CALIBRATION_COHORT_SPEC_CODEC = "scopecat.calibration-cohort-spec.v3"
 _CALIBRATION_COHORT_MEMBER_REQUEST_CODEC = (
     "scopecat.calibration-cohort-member-request.v1"
 )
@@ -66,6 +75,29 @@ class CalibrationDefinitionRef(_CalibrationModel):
     @classmethod
     def validate_identity(cls, value: str) -> str:
         return _non_blank(value, field_name="calibration definition identity")
+
+
+class CalibrationPublicationPolicyRef(_CalibrationModel):
+    """Exact automatic publication policy pinned into one cohort decision."""
+
+    id: _NonEmptyText
+    version: _NonEmptyText
+    fingerprint: Sha256ContentHash
+    calibration: CalibrationDefinitionRef
+    composition_policy: ConfigCompositionPolicyRef
+
+    @field_validator("id", "version")
+    @classmethod
+    def validate_identity(cls, value: str) -> str:
+        return _non_blank(value, field_name="calibration publication policy identity")
+
+    @model_validator(mode="after")
+    def validate_calibration_policy(self) -> CalibrationPublicationPolicyRef:
+        if self.calibration.success_policy != "published_result":
+            raise ValueError(
+                "automatic publication policy requires published-result calibration"
+            )
+        return self
 
 
 class CalibrationTargetRef(_CalibrationModel):
@@ -833,6 +865,7 @@ class CalibrationCohortSpec(_CalibrationModel):
     """Complete immutable basis for one bounded cohort admission."""
 
     planner: CalibrationDefinitionRef
+    automatic_publication: CalibrationPublicationPolicyRef | None = None
     config_source: CalibrationConfigSourceRef
     fanout_scope: _NonEmptyText
     max_in_flight: int = Field(ge=1, le=MAX_CALIBRATION_COHORT_MEMBERS)
@@ -858,6 +891,13 @@ class CalibrationCohortSpec(_CalibrationModel):
 
     @model_validator(mode="after")
     def validate_spec(self) -> CalibrationCohortSpec:
+        if (
+            self.automatic_publication is not None
+            and self.automatic_publication.calibration != self.planner
+        ):
+            raise ValueError(
+                "automatic publication policy must pin the exact planner definition"
+            )
         if self.observed_fanout_active_count + len(self.members) > self.max_in_flight:
             raise ValueError(
                 "calibration cohort members exceed observed fanout capacity"
@@ -1011,6 +1051,193 @@ class CalibrationCohortSummary(_CalibrationModel):
             evaluated_at=cohort.spec.evaluated_at,
             created_at=cohort.created_at,
         )
+
+
+class CalibrationPublicationAttention(_CalibrationModel):
+    """Operator-visible deterministic publication failure."""
+
+    actor: _NonEmptyText
+    reason: _NonEmptyText
+    required_at: datetime
+
+    @field_validator("actor", "reason")
+    @classmethod
+    def validate_identity(cls, value: str) -> str:
+        return _non_blank(value, field_name="calibration publication attention")
+
+    @field_validator("required_at")
+    @classmethod
+    def canonicalize_required_at(cls, value: datetime) -> datetime:
+        return _canonical_utc(value, field_name="required_at")
+
+
+class CalibrationPublicationFailure(_CalibrationModel):
+    """Terminal cohort-member failure observed by publication finalization."""
+
+    failed_at: datetime
+
+    @field_validator("failed_at")
+    @classmethod
+    def canonicalize_failed_at(cls, value: datetime) -> datetime:
+        return _canonical_utc(value, field_name="failed_at")
+
+
+class CalibrationPublicationSupersession(_CalibrationModel):
+    """Terminal base drift that makes this cohort unsafe to publish."""
+
+    superseded_by_generation: int = Field(ge=1)
+    superseded_at: datetime
+
+    @field_validator("superseded_at")
+    @classmethod
+    def canonicalize_superseded_at(cls, value: datetime) -> datetime:
+        return _canonical_utc(value, field_name="superseded_at")
+
+
+class CalibrationPublicationCompletion(_CalibrationModel):
+    """Exact durable config publication that completed finalization."""
+
+    operation_id: _NonEmptyText
+    published_at: datetime
+
+    @field_validator("operation_id")
+    @classmethod
+    def validate_operation_id(cls, value: str) -> str:
+        return _non_blank(value, field_name="calibration publication operation id")
+
+    @field_validator("published_at")
+    @classmethod
+    def canonicalize_published_at(cls, value: datetime) -> datetime:
+        return _canonical_utc(value, field_name="published_at")
+
+
+class CalibrationCohortFinalization(_CalibrationModel):
+    """Durable automatic-publication state for one immutable cohort."""
+
+    cohort_id: _NonEmptyText
+    spec_hash: Sha256ContentHash
+    policy: CalibrationPublicationPolicyRef
+    base_config_source: CalibrationConfigSourceRef
+    revision: int = Field(ge=1)
+    state: CalibrationCohortFinalizationState
+    attempt_count: int = Field(ge=0)
+    created_at: datetime
+    updated_at: datetime
+    ready_at: datetime | None = None
+    available_at: datetime | None = None
+    attention: CalibrationPublicationAttention | None = None
+    failure: CalibrationPublicationFailure | None = None
+    supersession: CalibrationPublicationSupersession | None = None
+    publication: CalibrationPublicationCompletion | None = None
+
+    @field_validator("cohort_id")
+    @classmethod
+    def validate_identity(cls, value: str) -> str:
+        return _non_blank(value, field_name="calibration publication cohort id")
+
+    @field_validator("created_at", "updated_at", "ready_at", "available_at")
+    @classmethod
+    def canonicalize_time(
+        cls,
+        value: datetime | None,
+        info: ValidationInfo,
+    ) -> datetime | None:
+        if value is None:
+            return None
+        return _canonical_utc(
+            value,
+            field_name=info.field_name or "calibration publication time",
+        )
+
+    @model_validator(mode="after")
+    def validate_state(self) -> CalibrationCohortFinalization:
+        if self.updated_at < self.created_at:
+            raise ValueError("calibration publication update cannot precede creation")
+        if self.ready_at is not None and not (
+            self.created_at <= self.ready_at <= self.updated_at
+        ):
+            raise ValueError(
+                "calibration publication readiness must fall within its lifetime"
+            )
+
+        if self.state == "waiting":
+            self._validate_waiting()
+        elif self.state == "ready":
+            self._validate_ready()
+        elif self.state == "attention_required":
+            self._validate_attention()
+        elif self.state == "failed":
+            self._validate_failure()
+        elif self.state == "superseded":
+            self._validate_supersession()
+        else:
+            self._validate_completion()
+        if self.state != "ready" and self.available_at is not None:
+            raise ValueError("only ready publication may have an available time")
+        return self
+
+    def _validate_waiting(self) -> None:
+        if self.ready_at is not None or self.available_at is not None:
+            raise ValueError("waiting publication cannot be ready or available")
+        self._require_only_detail()
+
+    def _validate_ready(self) -> None:
+        if self.ready_at is None or self.available_at is None:
+            raise ValueError("ready publication requires ready and available times")
+        if self.available_at < self.updated_at:
+            raise ValueError("ready publication availability cannot precede its update")
+        self._require_only_detail()
+
+    def _validate_attention(self) -> None:
+        if self.ready_at is None or self.attention is None:
+            raise ValueError(
+                "publication attention requires prior readiness and audit detail"
+            )
+        self._require_only_detail("attention")
+        if self.attention.required_at != self.updated_at:
+            raise ValueError("publication attention time must match its state update")
+
+    def _validate_failure(self) -> None:
+        if self.ready_at is not None or self.failure is None:
+            raise ValueError("failed publication requires failure before readiness")
+        self._require_only_detail("failure")
+        if self.failure.failed_at != self.updated_at:
+            raise ValueError("publication failure time must match its state update")
+
+    def _validate_supersession(self) -> None:
+        if self.supersession is None:
+            raise ValueError("superseded publication requires audit detail")
+        self._require_only_detail("supersession")
+        if (
+            self.supersession.superseded_by_generation
+            <= self.base_config_source.registry_generation
+        ):
+            raise ValueError(
+                "publication supersession must name a newer config generation"
+            )
+        if self.supersession.superseded_at != self.updated_at:
+            raise ValueError(
+                "publication supersession time must match its state update"
+            )
+
+    def _validate_completion(self) -> None:
+        if self.ready_at is None or self.publication is None:
+            raise ValueError(
+                "published finalization requires prior readiness and completion"
+            )
+        self._require_only_detail("publication")
+        if self.publication.published_at != self.updated_at:
+            raise ValueError("publication completion time must match its state update")
+
+    def _require_only_detail(self, selected: str | None = None) -> None:
+        details = {
+            "attention": self.attention,
+            "failure": self.failure,
+            "supersession": self.supersession,
+            "publication": self.publication,
+        }
+        if any(value is not None for key, value in details.items() if key != selected):
+            raise ValueError("publication state contains incompatible audit detail")
 
 
 def _validate_member_due_observation(
@@ -1177,6 +1404,8 @@ __all__ = [
     "CalibrationAttemptRef",
     "CalibrationAttemptStatus",
     "CalibrationCohort",
+    "CalibrationCohortFinalization",
+    "CalibrationCohortFinalizationState",
     "CalibrationCohortMember",
     "CalibrationCohortMemberSpec",
     "CalibrationCohortSpec",
@@ -1191,7 +1420,12 @@ __all__ = [
     "CalibrationForcedDueReason",
     "CalibrationInputsChangedDueReason",
     "CalibrationMissingSuccessDueReason",
+    "CalibrationPublicationAttention",
     "CalibrationPublicationBaseChangedDueReason",
+    "CalibrationPublicationCompletion",
+    "CalibrationPublicationFailure",
+    "CalibrationPublicationPolicyRef",
+    "CalibrationPublicationSupersession",
     "CalibrationStatus",
     "CalibrationStatusSnapshot",
     "CalibrationSuccessPolicy",

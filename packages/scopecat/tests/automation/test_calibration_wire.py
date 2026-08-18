@@ -10,6 +10,7 @@ from scopecat.automation import (
     CalibrationCohort,
     CalibrationCohortCreateCommand,
     CalibrationCohortCreateReceipt,
+    CalibrationCohortFinalization,
     CalibrationCohortGetQuery,
     CalibrationCohortGetReceipt,
     CalibrationCohortListQuery,
@@ -23,6 +24,19 @@ from scopecat.automation import (
     CalibrationConfigSourceRef,
     CalibrationDefinitionRef,
     CalibrationMissingSuccessDueReason,
+    CalibrationPublicationAttention,
+    CalibrationPublicationAttentionCommand,
+    CalibrationPublicationAttentionReceipt,
+    CalibrationPublicationDeferCommand,
+    CalibrationPublicationDeferReceipt,
+    CalibrationPublicationGetQuery,
+    CalibrationPublicationGetReceipt,
+    CalibrationPublicationPolicyRef,
+    CalibrationPublicationReadyItem,
+    CalibrationPublicationReadyPage,
+    CalibrationPublicationReadyQuery,
+    CalibrationPublicationRetryCommand,
+    CalibrationPublicationRetryReceipt,
     CalibrationStatus,
     CalibrationStatusQuery,
     CalibrationStatusReceipt,
@@ -34,6 +48,7 @@ from scopecat.automation import (
     calibration_freshness_fingerprint,
     calibration_key,
 )
+from scopecat.config.registry.records import ConfigCompositionPolicyRef
 from scopecat.records.run import ConfigRegistryRunConfigSource
 
 _HASH_1 = "sha256:" + "1" * 64
@@ -52,6 +67,18 @@ def _fixture() -> tuple[
         id="drag",
         version="2",
         fingerprint=_HASH_1,
+        success_policy="published_result",
+    )
+    publication_policy = CalibrationPublicationPolicyRef(
+        id="automatic-calibration-merge",
+        version="3",
+        fingerprint=_HASH_2,
+        calibration=definition,
+        composition_policy=ConfigCompositionPolicyRef(
+            id="merge-calibration-results",
+            version="5",
+            fingerprint=_HASH_3,
+        ),
     )
     target = CalibrationTargetRef(kind="qubit", id="q0")
     procedure = ProcedureDefinitionRef(
@@ -82,6 +109,7 @@ def _fixture() -> tuple[
     )
     spec = CalibrationCohortSpec(
         planner=definition,
+        automatic_publication=publication_policy,
         config_source=CalibrationConfigSourceRef.from_run_config_source(
             ConfigRegistryRunConfigSource(
                 selector="active",
@@ -122,6 +150,33 @@ def _fixture() -> tuple[
         statuses=spec.observations,
     )
     return cohort, member, snapshot
+
+
+def _ready_finalization(
+    cohort: CalibrationCohort,
+    *,
+    revision: int = 2,
+    attempt_count: int = 0,
+    updated_at: datetime | None = None,
+    available_at: datetime | None = None,
+) -> CalibrationCohortFinalization:
+    policy = cohort.spec.automatic_publication
+    assert policy is not None
+    ready_at = _CREATED + timedelta(minutes=1)
+    selected_updated_at = updated_at or ready_at
+    return CalibrationCohortFinalization(
+        cohort_id=cohort.cohort_id,
+        spec_hash=cohort.spec_hash,
+        policy=policy,
+        base_config_source=cohort.spec.config_source,
+        revision=revision,
+        state="ready",
+        attempt_count=attempt_count,
+        created_at=cohort.created_at,
+        updated_at=selected_updated_at,
+        ready_at=ready_at,
+        available_at=available_at or selected_updated_at,
+    )
 
 
 def test_status_query_and_receipt_are_bounded_and_round_trip() -> None:
@@ -227,3 +282,169 @@ def test_wire_models_forbid_unknown_fields_and_are_frozen() -> None:
         )
     with pytest.raises(ValidationError):
         command.cohort_id = "other"
+
+
+def test_publication_ready_traversal_is_policy_filtered_and_high_water_bounded() -> (
+    None
+):
+    cohort, _, _ = _fixture()
+    policy = cohort.spec.automatic_publication
+    assert policy is not None
+    finalization = _ready_finalization(cohort)
+    assert finalization.ready_at is not None
+    item = CalibrationPublicationReadyItem(
+        sequence=11,
+        cohort=CalibrationCohortSummary.from_cohort(cohort),
+        finalization=finalization,
+        enqueued_at=finalization.ready_at,
+    )
+    query = CalibrationPublicationReadyQuery(capabilities=(policy,), limit=20)
+    continuation = CalibrationPublicationReadyQuery(
+        capabilities=(policy,),
+        cursor=11,
+        through_sequence=20,
+        limit=20,
+    )
+    page = CalibrationPublicationReadyPage(
+        items=(item,),
+        next_cursor=11,
+        through_sequence=20,
+    )
+
+    assert assert_model_round_trip(query) == query
+    assert assert_model_round_trip(continuation) == continuation
+    assert assert_model_round_trip(page) == page
+    with pytest.raises(ValidationError, match="provided together"):
+        CalibrationPublicationReadyQuery(cursor=11)
+    with pytest.raises(ValidationError, match="unique"):
+        CalibrationPublicationReadyQuery(capabilities=(policy, policy))
+    with pytest.raises(ValidationError, match="last ready sequence"):
+        CalibrationPublicationReadyPage(
+            items=(item,),
+            next_cursor=12,
+            through_sequence=20,
+        )
+
+
+def test_publication_defer_preserves_ready_occurrence_sequence() -> None:
+    cohort, _, _ = _fixture()
+    ready = _ready_finalization(cohort)
+    assert ready.ready_at is not None
+    deferred_at = ready.updated_at + timedelta(seconds=5)
+    deferred = _ready_finalization(
+        cohort,
+        revision=ready.revision + 1,
+        attempt_count=ready.attempt_count + 1,
+        updated_at=deferred_at,
+        available_at=deferred_at + timedelta(seconds=30),
+    )
+    assert deferred.ready_at is not None
+
+    original = CalibrationPublicationReadyItem(
+        sequence=11,
+        cohort=CalibrationCohortSummary.from_cohort(cohort),
+        finalization=ready,
+        enqueued_at=ready.ready_at,
+    )
+    after_defer = CalibrationPublicationReadyItem(
+        sequence=original.sequence,
+        cohort=original.cohort,
+        finalization=deferred,
+        enqueued_at=original.enqueued_at,
+    )
+
+    assert after_defer.sequence == original.sequence
+    assert after_defer.enqueued_at == deferred.ready_at
+    assert deferred.updated_at > deferred.ready_at
+    assert assert_model_round_trip(after_defer) == after_defer
+
+
+def test_publication_reconciliation_and_cas_commands_return_exact_state() -> None:
+    cohort, _, _ = _fixture()
+    policy = cohort.spec.automatic_publication
+    assert policy is not None
+    ready = _ready_finalization(cohort)
+    attention_at = ready.updated_at + timedelta(minutes=1)
+    attention = CalibrationCohortFinalization(
+        cohort_id=cohort.cohort_id,
+        spec_hash=cohort.spec_hash,
+        policy=policy,
+        base_config_source=cohort.spec.config_source,
+        revision=ready.revision + 1,
+        state="attention_required",
+        attempt_count=ready.attempt_count + 1,
+        created_at=cohort.created_at,
+        updated_at=attention_at,
+        ready_at=ready.ready_at,
+        attention=CalibrationPublicationAttention(
+            actor="resident-worker",
+            reason="invalid composition proof",
+            required_at=attention_at,
+        ),
+    )
+    retry_at = attention_at + timedelta(minutes=1)
+    retried = CalibrationCohortFinalization(
+        cohort_id=cohort.cohort_id,
+        spec_hash=cohort.spec_hash,
+        policy=policy,
+        base_config_source=cohort.spec.config_source,
+        revision=attention.revision + 1,
+        state="ready",
+        attempt_count=attention.attempt_count,
+        created_at=cohort.created_at,
+        updated_at=retry_at,
+        ready_at=retry_at,
+        available_at=retry_at,
+    )
+    deferred_at = ready.updated_at + timedelta(seconds=5)
+    deferred = _ready_finalization(
+        cohort,
+        revision=ready.revision + 1,
+        attempt_count=ready.attempt_count + 1,
+        updated_at=deferred_at,
+        available_at=deferred_at + timedelta(seconds=30),
+    )
+
+    models = (
+        CalibrationPublicationGetQuery(cohort_id=cohort.cohort_id),
+        CalibrationPublicationGetReceipt(finalization=ready),
+        CalibrationPublicationAttentionCommand(
+            cohort_id=cohort.cohort_id,
+            policy=policy,
+            expected_finalization_revision=ready.revision,
+            actor="resident-worker",
+            reason="invalid composition proof",
+        ),
+        CalibrationPublicationAttentionReceipt(finalization=attention),
+        CalibrationPublicationRetryCommand(
+            cohort_id=cohort.cohort_id,
+            policy=policy,
+            expected_finalization_revision=attention.revision,
+            actor="operator",
+            reason="policy implementation repaired",
+        ),
+        CalibrationPublicationRetryReceipt(finalization=retried),
+        CalibrationPublicationDeferCommand(
+            cohort_id=cohort.cohort_id,
+            policy=policy,
+            expected_finalization_revision=ready.revision,
+            retry_after_seconds=30,
+            reason="config service unavailable",
+        ),
+        CalibrationPublicationDeferReceipt(finalization=deferred),
+    )
+    for model in models:
+        assert assert_model_round_trip(model) == model
+
+    with pytest.raises(ValidationError, match="ready state"):
+        CalibrationPublicationRetryReceipt(finalization=attention)
+    with pytest.raises(ValidationError, match="future server availability"):
+        CalibrationPublicationDeferReceipt(finalization=ready)
+    with pytest.raises(ValidationError):
+        CalibrationPublicationDeferCommand(
+            cohort_id=cohort.cohort_id,
+            policy=policy,
+            expected_finalization_revision=ready.revision,
+            retry_after_seconds=3601,
+            reason="config service unavailable",
+        )
