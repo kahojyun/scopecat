@@ -17,6 +17,7 @@ from scopecat.config.inventory import (
 from scopecat.config.registry import service as config_registry_service
 from scopecat.config.registry.records import (
     ConfigActivationOperation,
+    ConfigPublishOperation,
     CrossRunCandidateAcceptance,
 )
 from scopecat.config.registry.service import (
@@ -57,6 +58,7 @@ from scopecat.kernel.errors import (
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import config_content_hash
 
+from scopecat_server.storage.sqlite.config_operations import SQLiteConfigOperationStore
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
@@ -78,6 +80,7 @@ class ConfigService:
         *,
         control: SQLiteControlPlane,
         config_registry: SQLiteConfigRegistryStore,
+        config_operations: SQLiteConfigOperationStore,
         runs: SQLiteRunRepository,
         services: ProjectStateServices,
         actors: InstrumentActorRegistry,
@@ -85,6 +88,7 @@ class ConfigService:
     ) -> None:
         self._control = control
         self._config_registry = config_registry
+        self._config_operations = config_operations
         self._runs = runs
         self._services = services
         self._actors = actors
@@ -150,19 +154,32 @@ class ConfigService:
         operation_id: str,
     ) -> ConfigActivationReceipt:
         with self._config_errors():
-            operation = self._config_registry.find_activation_operation(operation_id)
-            if operation is None:
+            receipt = self._config_operations.find(operation_id)
+            if receipt is None:
                 raise BackendNotFound(
                     f"config activation operation was not found: {operation_id}"
                 )
-            activation = config_registry_service.load_config_registry_activation(
-                generation=operation.activation_generation,
-                unit_of_work=self._config_registry.read_unit_of_work,
-            )
-            return ConfigActivationReceipt(
-                operation=operation,
-                activation=activation,
-            )
+            if not isinstance(receipt, ConfigActivationReceipt):
+                raise BackendConflict(
+                    f"config operation is not an activation: {operation_id}"
+                )
+            return receipt
+
+    def get_config_publish_operation(
+        self,
+        operation_id: str,
+    ) -> ConfigPublishReceipt:
+        with self._config_errors():
+            receipt = self._config_operations.find(operation_id)
+            if receipt is None:
+                raise BackendNotFound(
+                    f"config publish operation was not found: {operation_id}"
+                )
+            if not isinstance(receipt, ConfigPublishReceipt):
+                raise BackendConflict(
+                    f"config operation is not a publication: {operation_id}"
+                )
+            return receipt
 
     def publish_config(
         self,
@@ -173,6 +190,20 @@ class ConfigService:
         with self._mutation_lock, self._config_errors():
             with self._config_transaction() as transaction:
                 connection, services = transaction
+                existing = self._config_operations.find_in_transaction(
+                    connection,
+                    command.operation_id,
+                )
+                if existing is not None:
+                    if (
+                        not isinstance(existing, ConfigPublishReceipt)
+                        or existing.operation.intent_hash != command.intent_hash
+                    ):
+                        raise BackendConflict(
+                            "config operation id is already committed for a different "
+                            f"intent: {command.operation_id}"
+                        )
+                    return existing
                 source = command.source
                 if isinstance(source, CandidateConfigRevisionSource):
                     if isinstance(source.acceptance, CrossRunCandidateAcceptance):
@@ -216,11 +247,23 @@ class ConfigService:
                 self._append_revision_events(connection, command, result)
                 activation = result.activation
                 assert activation is not None
+                operation = ConfigPublishOperation(
+                    operation_id=command.operation_id,
+                    intent_hash=command.intent_hash,
+                    source_intent_hash=command.source_intent_hash,
+                    entry_id=command.entry_id,
+                    expected_generation=command.expected_generation,
+                    actor=command.actor,
+                    note=command.note,
+                    activation_generation=activation.generation,
+                )
                 receipt = ConfigPublishReceipt(
+                    operation=operation,
                     entry=result.entry,
                     deltas=result.deltas,
                     activation=activation,
                 )
+                self._config_operations.commit_in_transaction(connection, receipt)
             return receipt
 
     def migrate_instrument_inventory(
@@ -355,28 +398,20 @@ class ConfigService:
         with self._mutation_lock, self._config_errors():
             with self._config_transaction() as transaction:
                 connection, services = transaction
-                existing = (
-                    self._config_registry.find_activation_operation_in_transaction(
-                        connection,
-                        command.operation_id,
-                    )
+                existing = self._config_operations.find_in_transaction(
+                    connection,
+                    command.operation_id,
                 )
                 if existing is not None:
-                    if existing.intent_hash != command.intent_hash:
+                    if (
+                        not isinstance(existing, ConfigActivationReceipt)
+                        or existing.operation.intent_hash != command.intent_hash
+                    ):
                         raise BackendConflict(
-                            "config activation operation id is already committed for "
-                            f"a different intent: {command.operation_id}"
+                            "config operation id is already committed for a different "
+                            f"intent: {command.operation_id}"
                         )
-                    activation = (
-                        config_registry_service.load_config_registry_activation(
-                            generation=existing.activation_generation,
-                            unit_of_work=services.config_registry,
-                        )
-                    )
-                    return ConfigActivationReceipt(
-                        operation=existing,
-                        activation=activation,
-                    )
+                    return existing
                 result = config_registry_service.activate_config_registry_entry(
                     entry_id=command.entry_id,
                     unit_of_work=services.config_registry,
@@ -411,9 +446,9 @@ class ConfigService:
                     operation=operation,
                     activation=activation,
                 )
-                self._config_registry.commit_activation_operation_in_transaction(
+                self._config_operations.commit_in_transaction(
                     connection,
-                    operation,
+                    receipt,
                 )
             return receipt
 

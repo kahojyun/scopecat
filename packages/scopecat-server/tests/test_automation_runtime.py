@@ -497,6 +497,7 @@ def test_procedure_config_activation_recovers_two_lost_http_responses(
         target_config = config.model_copy(update={"id": "procedure-target-config"})
         target = client.publish_config(
             ConfigPublishCommand(
+                operation_id="publish:procedure-target-entry",
                 source=DirectConfigRevisionSource(config=target_config),
                 entry_id="procedure-target-entry",
                 actor="test-setup",
@@ -506,6 +507,7 @@ def test_procedure_config_activation_recovers_two_lost_http_responses(
         current_config = config.model_copy(update={"id": "procedure-current-config"})
         current = client.publish_config(
             ConfigPublishCommand(
+                operation_id="publish:procedure-current-entry",
                 source=DirectConfigRevisionSource(config=current_config),
                 entry_id="procedure-current-entry",
                 actor="test-setup",

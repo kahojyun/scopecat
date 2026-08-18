@@ -36,6 +36,7 @@ from scopecat_server.services.reviews import ReviewService
 from scopecat_server.services.runs import RunService
 from scopecat_server.storage.sqlite.analysis_repository import SQLiteAnalysisRepository
 from scopecat_server.storage.sqlite.automation import SQLiteAutomationStore
+from scopecat_server.storage.sqlite.config_operations import SQLiteConfigOperationStore
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
@@ -117,6 +118,7 @@ class LocalDaemonRuntime:
                 sqlite,
                 runs=runs,
             )
+            config_operations = SQLiteConfigOperationStore(sqlite)
             payloads = CommandPayloadService()
 
             services = ProjectStateServices(
@@ -135,6 +137,7 @@ class LocalDaemonRuntime:
             config_service = ConfigService(
                 control=control,
                 config_registry=config_registry,
+                config_operations=config_operations,
                 runs=runs,
                 services=services,
                 actors=instrument_actors,
@@ -261,10 +264,12 @@ def _bootstrap_config_registry(
     selected = config() if callable(config) else config
     validated = validate_config_profile(selected)
     digest = config_content_hash(validated).removeprefix("sha256:")
+    entry_id = f"daemon-{digest}"
     config_service.publish_config(
         ConfigPublishCommand(
+            operation_id=f"bootstrap-config:{entry_id}",
             source=DirectConfigRevisionSource(config=validated),
-            entry_id=f"daemon-{digest}",
+            entry_id=entry_id,
             actor="scopecat",
             expected_generation=0,
             note="imported while bootstrapping a new lab instance",

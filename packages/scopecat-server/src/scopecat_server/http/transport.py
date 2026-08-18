@@ -314,7 +314,11 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     def get_config_entry(entry_id: str) -> ConfigEntryView:
         return application.config.get_config_entry(entry_id)
 
-    @app.post(f"{_API_PREFIX}/config-registry/default")
+    @app.get(f"{_API_PREFIX}/config-registry/publish-operations/{{operation_id:path}}")
+    def get_config_publish_operation(operation_id: str) -> ConfigPublishReceipt:
+        return application.config.get_config_publish_operation(operation_id)
+
+    @app.post(f"{_API_PREFIX}/config-registry/publish-operations")
     def publish_config(command: ConfigPublishCommand) -> ConfigPublishReceipt:
         return application.config.publish_config(command)
 

@@ -770,6 +770,7 @@ def test_candidate_acceptance_requires_matching_cross_run_verification(
             ):
                 runtime.application.config.publish_config(
                     ConfigPublishCommand(
+                        operation_id="publish:invalid-verified-candidate",
                         source=CandidateConfigRevisionSource(
                             run_id=baseline_id,
                             proposal_id=proposal.id,
@@ -807,6 +808,7 @@ def test_candidate_acceptance_requires_matching_cross_run_verification(
             ):
                 runtime.application.config.publish_config(
                     ConfigPublishCommand(
+                        operation_id="publish:logical-key-verification",
                         source=CandidateConfigRevisionSource(
                             run_id=baseline_id,
                             proposal_id=proposal.id,
@@ -868,6 +870,7 @@ def test_candidate_acceptance_requires_matching_cross_run_verification(
             ):
                 runtime.application.config.publish_config(
                     ConfigPublishCommand(
+                        operation_id="publish:rejected-verified-candidate",
                         source=CandidateConfigRevisionSource(
                             run_id=baseline_id,
                             proposal_id=proposal.id,

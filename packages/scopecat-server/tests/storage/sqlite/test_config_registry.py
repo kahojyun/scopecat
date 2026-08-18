@@ -9,6 +9,7 @@ import pytest
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.registry.records import (
     ConfigActivationOperation,
+    ConfigPublishOperation,
     config_activation_intent_hash,
 )
 from scopecat.config.registry.service import (
@@ -27,6 +28,14 @@ from scopecat.config.registry.service import (
     resolve_config_registry_config_source,
     undo_config_registry,
 )
+from scopecat.daemon.wire import (
+    ConfigActivationReceipt,
+    ConfigPublishCommand,
+    ConfigPublishReceipt,
+)
+from scopecat.daemon.wire import (
+    DirectConfigRevisionSource as WireDirectConfigRevisionSource,
+)
 from scopecat.kernel.errors import Conflict, StorageError
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import ConfigRegistryRunConfigSource, RunSnapshot
@@ -34,6 +43,7 @@ from scopecat_testkit.config_registry import load_config_registry_config
 from scopecat_testkit.paths import CORE_FIXTURE_DIR
 from scopecat_testkit.server.runtime import SQLiteTestRunRepository
 
+from scopecat_server.storage.sqlite.config_operations import SQLiteConfigOperationStore
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
@@ -174,6 +184,7 @@ def test_activation_uses_generation_cas_and_resolves_source(
 
 def test_activation_operation_round_trips(tmp_path: Path) -> None:
     store = _store(tmp_path)
+    operations = SQLiteConfigOperationStore(store.sqlite)
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
     result = _publish_direct_revision(
         config=config,
@@ -198,19 +209,65 @@ def test_activation_operation_round_trips(tmp_path: Path) -> None:
         note="already active",
         activation_generation=activation.generation,
     )
+    receipt = ConfigActivationReceipt(
+        operation=operation,
+        activation=activation,
+    )
 
-    assert store.find_activation_operation(operation.operation_id) is None
+    assert operations.find(operation.operation_id) is None
     with store.sqlite.write_transaction() as connection:
-        store.commit_activation_operation_in_transaction(connection, operation)
+        operations.commit_in_transaction(connection, receipt)
         assert (
-            store.find_activation_operation_in_transaction(
+            operations.find_in_transaction(
                 connection,
                 operation.operation_id,
             )
-            == operation
+            == receipt
         )
 
-    assert store.find_activation_operation(operation.operation_id) == operation
+    assert operations.find(operation.operation_id) == receipt
+
+
+def test_publish_operation_round_trips_exact_receipt(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    operations = SQLiteConfigOperationStore(store.sqlite)
+    config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
+    result = _publish_direct_revision(
+        config=config,
+        unit_of_work=store.write_unit_of_work,
+        entry_id="publish-operation-entry",
+        actor="contract",
+        expected_generation=0,
+    )
+    activation = result.activation
+    assert activation is not None
+    command = ConfigPublishCommand(
+        operation_id="publish:round-trip",
+        source=WireDirectConfigRevisionSource(config=config),
+        entry_id=result.entry.id,
+        actor="contract",
+        expected_generation=0,
+    )
+    operation = ConfigPublishOperation(
+        operation_id=command.operation_id,
+        intent_hash=command.intent_hash,
+        source_intent_hash=command.source_intent_hash,
+        entry_id=command.entry_id,
+        expected_generation=command.expected_generation,
+        actor=command.actor,
+        note=command.note,
+        activation_generation=activation.generation,
+    )
+    receipt = ConfigPublishReceipt(
+        operation=operation,
+        entry=result.entry,
+        activation=activation,
+    )
+
+    with store.sqlite.write_transaction() as connection:
+        operations.commit_in_transaction(connection, receipt)
+
+    assert operations.find(operation.operation_id) == receipt
 
 
 def test_registry_and_run_reads_share_one_database(tmp_path: Path) -> None:

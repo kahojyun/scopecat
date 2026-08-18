@@ -181,8 +181,10 @@ def _direct_publish_command(
     actor: str,
     expected_generation: int = 0,
     note: str = "",
+    operation_id: str | None = None,
 ) -> ConfigPublishCommand:
     return ConfigPublishCommand(
+        operation_id=operation_id or f"publish:{entry_id}",
         source=DirectConfigRevisionSource(config=config),
         entry_id=entry_id,
         actor=actor,
@@ -822,7 +824,7 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         )
         missing = client.get("/api/v1/config-registry/active")
         baseline_publish = client.post(
-            "/api/v1/config-registry/default",
+            "/api/v1/config-registry/publish-operations",
             json=_direct_publish_command(
                 entry_id="baseline",
                 config=baseline,
@@ -830,7 +832,7 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
             ).model_dump(mode="json"),
         )
         updated_publish = client.post(
-            "/api/v1/config-registry/default",
+            "/api/v1/config-registry/publish-operations",
             json=_direct_publish_command(
                 entry_id="updated",
                 config=updated,
@@ -1001,6 +1003,133 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         assert active.config == updated
         assert operation == activation_receipt
         assert events[-1].kind == "config_undone"
+
+
+def test_config_publish_operation_replays_exact_receipt_across_head_changes(
+    tmp_path: Path,
+) -> None:
+    baseline = _config().model_copy(update={"id": "publish-baseline"})
+    updated = baseline.model_copy(update={"id": "publish-updated"})
+    later = baseline.model_copy(update={"id": "publish-later"})
+    operation_id = "publish/updated?attempt=1"
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=baseline) as runtime:
+        client = TestClient(runtime.app())
+        initial = runtime.application.config.get_active_config()
+        command = ConfigPublishCommand(
+            operation_id=operation_id,
+            source=DirectConfigRevisionSource(config=updated),
+            entry_id=updated.id,
+            actor="operator",
+            expected_generation=initial.activation.generation,
+        )
+
+        first = client.post(
+            "/api/v1/config-registry/publish-operations",
+            json=command.model_dump(mode="json"),
+        )
+        replay = client.post(
+            "/api/v1/config-registry/publish-operations",
+            json=command.model_dump(mode="json"),
+        )
+        lookup = client.get(
+            f"/api/v1/config-registry/publish-operations/{quote(operation_id, safe='')}"
+        )
+        changed_intent = client.post(
+            "/api/v1/config-registry/publish-operations",
+            json=command.model_copy(update={"note": "different"}).model_dump(
+                mode="json"
+            ),
+        )
+        cross_kind = client.post(
+            "/api/v1/config-registry/activation-operations",
+            json=ConfigEntryActivationCommand(
+                operation_id=operation_id,
+                entry_id=initial.entry.id,
+                actor="operator",
+                expected_generation=2,
+            ).model_dump(mode="json"),
+        )
+        later_receipt = runtime.application.config.publish_config(
+            _direct_publish_command(
+                operation_id="publish:later",
+                entry_id=later.id,
+                config=later,
+                actor="operator",
+                expected_generation=2,
+            )
+        )
+        late_replay = client.post(
+            "/api/v1/config-registry/publish-operations",
+            json=command.model_dump(mode="json"),
+        )
+        noop_command = _direct_publish_command(
+            operation_id="publish:later-noop",
+            entry_id=later.id,
+            config=later,
+            actor="operator",
+            expected_generation=3,
+        )
+        noop_response = client.post(
+            "/api/v1/config-registry/publish-operations",
+            json=noop_command.model_dump(mode="json"),
+        )
+        noop_lookup = client.get(
+            "/api/v1/config-registry/publish-operations/publish%3Alater-noop"
+        )
+        stale_command = _direct_publish_command(
+            operation_id="publish:stale",
+            entry_id="publish-stale",
+            config=baseline.model_copy(update={"id": "publish-stale"}),
+            actor="operator",
+            expected_generation=1,
+        )
+        stale = client.post(
+            "/api/v1/config-registry/publish-operations",
+            json=stale_command.model_dump(mode="json"),
+        )
+        stale_lookup = client.get(
+            "/api/v1/config-registry/publish-operations/publish%3Astale"
+        )
+
+        assert first.status_code == 200
+        original_receipt = ConfigPublishReceipt.model_validate(first.json())
+        assert original_receipt.operation.operation_id == operation_id
+        assert original_receipt.activation.generation == 2
+        assert ConfigPublishReceipt.model_validate(replay.json()) == original_receipt
+        assert ConfigPublishReceipt.model_validate(lookup.json()) == original_receipt
+        assert changed_intent.status_code == 409
+        assert cross_kind.status_code == 409
+        assert later_receipt.activation.generation == 3
+        assert (
+            ConfigPublishReceipt.model_validate(late_replay.json()) == original_receipt
+        )
+        noop_receipt = ConfigPublishReceipt.model_validate(noop_response.json())
+        assert noop_receipt.operation.activation_generation == 3
+        assert noop_receipt.activation == later_receipt.activation
+        assert ConfigPublishReceipt.model_validate(noop_lookup.json()) == noop_receipt
+        assert stale.status_code == 409
+        assert stale_lookup.status_code == 404
+        assert [
+            item.generation
+            for item in runtime.application.config.get_config_activation_history().items
+        ] == [3, 2, 1]
+        assert "publish-stale" not in {
+            item.id for item in runtime.application.config.get_config_registry().entries
+        }
+        assert [event.kind for event in _events(runtime).items] == [
+            "config_saved",
+            "config_activated",
+            "config_saved",
+            "config_activated",
+            "config_saved",
+            "config_activated",
+        ]
+
+    with LocalDaemonRuntime(tmp_path) as reopened:
+        assert (
+            reopened.application.config.get_config_publish_operation(operation_id)
+            == original_receipt
+        )
 
 
 def test_inventory_migration_http_workflow_activates_only_when_drained(
@@ -1400,7 +1529,7 @@ def test_config_activation_rolls_back_when_operation_commit_fails(
             connection.execute(
                 """
                 CREATE TRIGGER reject_config_activation_operation
-                BEFORE INSERT ON config_activation_operations
+                BEFORE INSERT ON config_operations
                 BEGIN
                     SELECT RAISE(ABORT, 'injected operation failure');
                 END
@@ -1459,8 +1588,9 @@ def test_config_draft_http_workflow_previews_and_atomically_sets_default(
         preview = ConfigDraftPreview.model_validate(preview_response.json())
         assert preview.result_content_hash is not None
         default_response = client.post(
-            "/api/v1/config-registry/default",
+            "/api/v1/config-registry/publish-operations",
             json=ConfigPublishCommand(
+                operation_id="publish:manual-tuning",
                 source=ManualConfigDraftRevisionSource(
                     draft=draft,
                     expected_result_content_hash=preview.result_content_hash,
@@ -1650,6 +1780,7 @@ def test_config_publish_rejects_rekey_with_a_queued_run(tmp_path: Path) -> None:
         ):
             runtime.application.config.publish_config(
                 ConfigPublishCommand(
+                    operation_id="publish:rekeyed",
                     source=DirectConfigRevisionSource(config=rekeyed),
                     entry_id="rekeyed",
                     actor="operator",
@@ -1678,6 +1809,7 @@ def test_admission_fences_an_activation_after_active_resolution(
             resolved = resolve_active()
             runtime.application.config.publish_config(
                 ConfigPublishCommand(
+                    operation_id="publish:activated-during-submit",
                     source=DirectConfigRevisionSource(
                         config=config.model_copy(
                             update={"id": "activated-during-submit"}
@@ -1746,6 +1878,7 @@ def test_registry_admission_replays_but_uses_current_inventory_for_new_runs(
         )
         runtime.application.config.publish_config(
             ConfigPublishCommand(
+                operation_id="publish:changed-inventory",
                 source=DirectConfigRevisionSource(config=changed),
                 entry_id="changed-inventory",
                 actor="operator",
@@ -1822,6 +1955,7 @@ def test_authority_failure_replays_a_concurrently_admitted_submission(
             )
             runtime.application.config.publish_config(
                 ConfigPublishCommand(
+                    operation_id="publish:concurrent-inventory-change",
                     source=DirectConfigRevisionSource(
                         config=config.model_copy(
                             update={
@@ -2036,8 +2170,9 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             ).json()
         )
         activated = client.post(
-            "/api/v1/config-registry/default",
+            "/api/v1/config-registry/publish-operations",
             json=ConfigPublishCommand(
+                operation_id="publish:candidate-fit",
                 source=CandidateConfigRevisionSource(
                     run_id=admission.run_id,
                     proposal_id=proposal.id,
@@ -2338,6 +2473,7 @@ def test_candidate_publish_rolls_back_approval_with_event(
             _analysis_command(proposal),
         )
         command = ConfigPublishCommand(
+            operation_id="publish:candidate-atomic",
             source=CandidateConfigRevisionSource(
                 run_id=admission.run_id,
                 proposal_id=proposal.id,
@@ -2348,6 +2484,7 @@ def test_candidate_publish_rolls_back_approval_with_event(
             expected_generation=1,
         )
         before = _run_state(runtime, admission.run_id)
+        events_before = _events(runtime, run_id=admission.run_id).items
         append_event = SQLiteControlPlane.append_event_in_transaction
 
         def fail_decision_event(
@@ -2384,12 +2521,55 @@ def test_candidate_publish_rolls_back_approval_with_event(
             for event in _events(runtime, run_id=admission.run_id).items
             if event.kind == "parameter_proposal_approved"
         ] == []
+        assert _events(runtime, run_id=admission.run_id).items == events_before
+        with pytest.raises(BackendNotFound):
+            runtime.application.config.get_config_publish_operation(
+                command.operation_id
+            )
+
+        database = runtime.state_dir / "control.sqlite3"
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                """
+                CREATE TRIGGER reject_config_publish_operation
+                BEFORE INSERT ON config_operations
+                WHEN NEW.kind = 'publish_revision'
+                BEGIN
+                    SELECT RAISE(ABORT, 'injected publish operation failure');
+                END
+                """
+            )
+
+        with pytest.raises(StorageError):
+            runtime.application.config.publish_config(command)
+
+        proposals = runtime.application.runs.list_parameter_proposals(admission.run_id)
+        assert _run_state(runtime, admission.run_id) == before
+        assert proposals.items[0].approval is None
+        assert _events(runtime, run_id=admission.run_id).items == events_before
+        assert "candidate-atomic" not in {
+            entry.id
+            for entry in runtime.application.config.get_config_registry().entries
+        }
+        with pytest.raises(BackendNotFound):
+            runtime.application.config.get_config_publish_operation(
+                command.operation_id
+            )
+
+        with sqlite3.connect(database) as connection:
+            connection.execute("DROP TRIGGER reject_config_publish_operation")
 
         receipt = runtime.application.config.publish_config(command)
         proposals = runtime.application.runs.list_parameter_proposals(admission.run_id)
 
         assert proposals.items[0].approval is not None
         assert receipt.entry.id == "candidate-atomic"
+        assert (
+            runtime.application.config.get_config_publish_operation(
+                command.operation_id
+            )
+            == receipt
+        )
         assert [
             event.kind
             for event in _events(runtime, run_id=admission.run_id).items
