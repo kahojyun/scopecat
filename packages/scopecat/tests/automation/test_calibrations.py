@@ -19,6 +19,7 @@ from scopecat.automation.calibrations import (
     CalibrationDependencyChangedDueReason,
     CalibrationDependencyEvidence,
     CalibrationDueReason,
+    CalibrationForcedDueReason,
     CalibrationInputsChangedDueReason,
     CalibrationMissingSuccessDueReason,
     CalibrationStatus,
@@ -433,6 +434,46 @@ def test_cohort_rejects_false_definition_and_input_change_claims() -> None:
     )
     with pytest.raises(ValidationError, match="prior input change"):
         _cohort_spec(member=false_inputs, observations=(previous_status,))
+
+
+def test_same_freshness_failed_retry_requires_explicit_force() -> None:
+    member = _member_spec()
+    _, successful_status = _success()
+    assert successful_status.latest_attempt is not None
+    previous_attempt = successful_status.latest_attempt.attempt
+    failed_at = _EVALUATED - timedelta(minutes=30)
+    failed_status = CalibrationStatus(
+        calibration_key=previous_attempt.calibration_key,
+        latest_attempt=CalibrationAttemptStatus(
+            attempt=previous_attempt,
+            procedure_state="closed",
+            procedure_revision=8,
+            updated_at=failed_at,
+            closure=ProcedureClosure(
+                status="failed",
+                closed_at=failed_at,
+                reason="calibration failed",
+            ),
+        ),
+    )
+
+    with pytest.raises(ValidationError, match="explicit forced"):
+        _cohort_spec(member=member, observations=(failed_status,))
+
+    forced_member = member.model_copy(
+        update={
+            "due_reasons": (
+                CalibrationMissingSuccessDueReason(),
+                CalibrationForcedDueReason(reason="operator retry"),
+            )
+        }
+    )
+    spec = _cohort_spec(member=forced_member, observations=(failed_status,))
+
+    assert any(
+        isinstance(reason, CalibrationForcedDueReason)
+        for reason in spec.members[0].due_reasons
+    )
 
 
 def test_dependency_changed_reason_uses_current_flat_evidence() -> None:

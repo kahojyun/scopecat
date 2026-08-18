@@ -892,6 +892,22 @@ def _validate_member_due_observation(
     observation: CalibrationStatus,
 ) -> None:
     latest_success = observation.latest_success
+    latest_attempt = observation.latest_attempt
+    if (
+        latest_attempt is not None
+        and latest_attempt.procedure_state == "closed"
+        and latest_attempt.closure is not None
+        and latest_attempt.closure.status != "succeeded"
+        and latest_attempt.attempt.freshness_fingerprint == member.freshness_fingerprint
+        and not any(
+            isinstance(reason, CalibrationForcedDueReason)
+            for reason in member.due_reasons
+        )
+    ):
+        raise ValueError(
+            "retrying a failed calibration with unchanged freshness requires "
+            "an explicit forced due reason"
+        )
     previous_dependencies = (
         {}
         if latest_success is None
