@@ -155,6 +155,7 @@ describe("ConfigWorkspace", () => {
 
     await waitFor(() =>
       expect(activateConfigEntry).toHaveBeenCalledWith({
+        operation_id: expect.stringMatching(/^ui-config-activate-/),
         entry_id: "calibrated",
         actor: "local-operator",
         note: "",
@@ -171,7 +172,7 @@ describe("ConfigWorkspace", () => {
     await waitFor(() => expect(undoConfig).toHaveBeenCalled());
   });
 
-  it.each(["manual_parameter_updates", "candidate_config"] as const)(
+  it.each(["manual_parameter_updates", "candidate_config", "calibration_cohort_merge"] as const)(
     "marks a %s default as runtime-derived without claiming source drift",
     async (sourceKind) => {
       const entry = runtimeDerivedEntry(sourceKind);
@@ -224,6 +225,38 @@ describe("ConfigWorkspace", () => {
 
     expect(await screen.findByRole("heading", { name: "baseline" })).toBeInTheDocument();
     expect(screen.getByText("Direct configuration profile")).toBeInTheDocument();
+  });
+
+  it("renders calibration cohort provenance without treating it as one candidate", async () => {
+    const entry = runtimeDerivedEntry("calibration_cohort_merge");
+    const baseline = configEntry("baseline", "sha256:baseline");
+    const entries = [entry, baseline];
+    vi.mocked(getConfigRegistry).mockResolvedValue({
+      activation: activation(3, entry.id, entry.content_hash),
+      activation_history: [activation(3, entry.id, entry.content_hash)],
+      entries,
+    });
+    vi.mocked(getConfigRegistryEntry).mockImplementation(async (entryId) => {
+      const selected = entries.find((item) => item.id === entryId)!;
+      return entryDetail(selected);
+    });
+    const openRun = vi.fn();
+
+    renderWorkspace(openRun);
+
+    expect(await screen.findByText("Verified calibration cohort")).toBeInTheDocument();
+    expect(screen.getAllByText("Calibration cohort merge").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Analysis candidate")).not.toBeInTheDocument();
+    expect(screen.getByText("drag-nightly-2026-07-24")).toBeInTheDocument();
+    expect(screen.getByText("reference_lab.drag-composition@1")).toBeInTheDocument();
+    expect(screen.getByRole("article", { name: "Calibration member q0" })).toHaveTextContent(
+      "procedure-drag-q0",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open candidate run" }));
+    expect(openRun).toHaveBeenCalledWith("run-candidate-q0");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open base version baseline" }));
+    expect(await screen.findByRole("heading", { name: "baseline" })).toBeInTheDocument();
   });
 
   it("follows a refreshed default until the operator selects a saved version", async () => {
@@ -440,10 +473,51 @@ function configEntry(id: string, contentHash: string): ConfigRegistryEntry {
 }
 
 function runtimeDerivedEntry(
-  kind: "manual_parameter_updates" | "candidate_config",
+  kind: "manual_parameter_updates" | "candidate_config" | "calibration_cohort_merge",
   proposalId = "fit-result",
 ): ConfigRegistryEntry {
   const entry = configEntry("runtime-default", "sha256:runtime-default");
+  if (kind === "calibration_cohort_merge") {
+    return {
+      ...entry,
+      source: {
+        kind,
+        cohort_id: "drag-nightly-2026-07-24",
+        spec_hash: `sha256:${"b".repeat(64)}`,
+        composition_policy_ref: {
+          id: "reference_lab.drag-composition",
+          version: "1",
+          fingerprint: `sha256:${"c".repeat(64)}`,
+        },
+        merge_policy: "common_base_cells_v1",
+        base_entry_id: "baseline",
+        base_config_content_hash: "sha256:baseline",
+        base_registry_generation: 2,
+        candidate_id: "drag-nightly-merged",
+        contributions: [
+          {
+            member_id: "q0",
+            procedure_run_id: "procedure-drag-q0",
+            baseline_step: { step_key: "baseline", attempt: 1 },
+            baseline_run_id: "run-baseline-q0",
+            fit_step: { step_key: "fit", attempt: 1 },
+            fit_analysis_record_id: "analysis-fit-q0",
+            candidate_step: { step_key: "candidate", attempt: 1 },
+            candidate_run_id: "run-candidate-q0",
+            proposal_id: "proposal-q0",
+            verification_step: { step_key: "verification", attempt: 1 },
+            decision: {
+              analysis_record_id: "analysis-verify-q0",
+              output_id: "decision",
+              schema_id: "reference_lab.drag-decision.v1",
+              schema_hash: `sha256:${"d".repeat(64)}`,
+            },
+            result_input_fingerprint: `sha256:${"e".repeat(64)}`,
+          },
+        ],
+      },
+    };
+  }
   return {
     ...entry,
     source:

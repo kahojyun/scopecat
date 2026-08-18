@@ -5,8 +5,9 @@ import { errorMessage } from "../../lib/presentation";
 import { useConfirmationDialog } from "../../ui/ConfirmationDialog";
 import {
   activateConfigEntry,
+  createConfigOperationId,
   parseConfigProfileJson,
-  setConfigDefault,
+  publishConfig,
   undoConfig,
 } from "./config-api";
 import { safeConfigEntryId } from "./config-utils";
@@ -44,13 +45,18 @@ export function useConfigMutationWorkflow(overview?: ConfigRegistryOverview) {
       }
       switch (action.kind) {
         case "activate-entry":
-          await activateConfigEntry({ ...command, entry_id: action.entryId });
+          await activateConfigEntry({
+            ...command,
+            operation_id: createConfigOperationId("activate"),
+            entry_id: action.entryId,
+          });
           return;
         case "undo":
           await undoConfig(command);
           return;
         case "import":
-          await setConfigDefault({
+          await publishConfig({
+            operation_id: createConfigOperationId("import"),
             source: {
               kind: "direct_config_profile",
               config: action.draft.config,

@@ -101,6 +101,9 @@ describe("parameter proposal commands", () => {
   it("accepts and publishes a proposal in one generation-checked request", async () => {
     const fetchMock = vi.fn((_input: string | URL | Request) => Promise.resolve(jsonResponse({})));
     vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", {
+      randomUUID: () => "123e4567-e89b-12d3-a456-426614174000",
+    });
 
     await acceptProposal({
       runId: "run-a",
@@ -111,7 +114,8 @@ describe("parameter proposal commands", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    await expectRequest(fetchMock, "/api/v1/config-registry/default", {
+    await expectRequest(fetchMock, "/api/v1/config-registry/publish-operations", {
+      operation_id: "ui-config-accept-proposal-123e4567-e89b-12d3-a456-426614174000",
       source: {
         kind: "candidate_config",
         run_id: "run-a",
@@ -119,6 +123,7 @@ describe("parameter proposal commands", () => {
         acceptance: { kind: "manual_review" },
       },
       actor: "Ada",
+      entry_id: "drive-frequency-ui-config-accept-proposal-123e4567-e89b-12d3-a456-426614174000",
       expected_generation: 4,
       note: "Promote calibrated frequency",
     });

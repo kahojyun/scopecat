@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Eye, LoaderCircle, Pencil, X } from "lucide-react";
 import { ApiError } from "../../api-client";
 import { classes, eyebrow, iconButton, primaryButton, secondaryButton } from "../../ui/styles";
-import { previewConfigDraft, setConfigDefault } from "./config-api";
+import { createConfigOperationId, previewConfigDraft, publishConfig } from "./config-api";
 import { deriveConfigDraftUpdates } from "./config-draft";
 import { ConfigParameters } from "./ConfigParameters";
 import { ParameterEditor } from "./ConfigValueEditors";
@@ -105,7 +105,8 @@ export function ConfigDraftEditor({
       if (!checked.valid || !checked.result_content_hash) {
         return { preview: checked, revision };
       }
-      const receipt = await setConfigDefault({
+      const receipt = await publishConfig({
+        operation_id: createConfigOperationId("draft"),
         source: {
           kind: "manual_parameter_updates",
           draft: command,

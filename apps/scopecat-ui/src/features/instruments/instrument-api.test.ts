@@ -7,7 +7,7 @@ import type {
   InstrumentSession,
 } from "../../api-contract";
 import { requestHeaders, requestJson, requestMethod, requestPath } from "../../test/http";
-import { setConfigDefault } from "../config/config-api";
+import { publishConfig } from "../config/config-api";
 import {
   applyInstrumentConfiguredDefaults,
   applyInstrumentState,
@@ -25,7 +25,7 @@ import {
 } from "./instrument-api";
 
 vi.mock("../config/config-api", () => ({
-  setConfigDefault: vi.fn(),
+  publishConfig: vi.fn(),
 }));
 
 afterEach(() => {
@@ -57,9 +57,10 @@ describe("instrument configuration publishing", () => {
       note: "Move to the instrument VLAN",
     });
 
-    expect(setConfigDefault).toHaveBeenCalledOnce();
-    const command = vi.mocked(setConfigDefault).mock.calls[0]![0];
+    expect(publishConfig).toHaveBeenCalledOnce();
+    const command = vi.mocked(publishConfig).mock.calls[0]![0];
     expect(command).toMatchObject({
+      operation_id: "ui-config-123e4567-e89b-12d3-a456-426614174000",
       actor: "Ada",
       note: "Move to the instrument VLAN",
       expected_generation: 7,
@@ -145,7 +146,7 @@ describe("instrument configuration publishing", () => {
       note: "",
     });
 
-    const command = vi.mocked(setConfigDefault).mock.calls[0]![0];
+    const command = vi.mocked(publishConfig).mock.calls[0]![0];
     if (command.source.kind !== "direct_config_profile") {
       throw new Error("Expected a direct config profile revision.");
     }

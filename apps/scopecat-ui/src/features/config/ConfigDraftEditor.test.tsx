@@ -13,13 +13,13 @@ import type {
 
 const apiMocks = vi.hoisted(() => ({
   previewConfigDraft: vi.fn(),
-  setConfigDefault: vi.fn(),
+  publishConfig: vi.fn(),
 }));
 
 vi.mock("./config-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./config-api")>()),
   previewConfigDraft: apiMocks.previewConfigDraft,
-  setConfigDefault: apiMocks.setConfigDefault,
+  publishConfig: apiMocks.publishConfig,
 }));
 
 const HASH_A = `sha256:${"a".repeat(64)}`;
@@ -29,7 +29,7 @@ afterEach(cleanup);
 
 beforeEach(() => {
   apiMocks.previewConfigDraft.mockReset();
-  apiMocks.setConfigDefault.mockReset();
+  apiMocks.publishConfig.mockReset();
 });
 
 describe("ConfigDraftEditor", () => {
@@ -39,7 +39,7 @@ describe("ConfigDraftEditor", () => {
     const preview = validPreview(seed, candidate);
     const receipt = defaultReceipt();
     apiMocks.previewConfigDraft.mockResolvedValue(preview);
-    apiMocks.setConfigDefault.mockResolvedValue(receipt);
+    apiMocks.publishConfig.mockResolvedValue(receipt);
     const published = vi.fn();
 
     renderEditor(seed, published);
@@ -70,8 +70,9 @@ describe("ConfigDraftEditor", () => {
         },
       ],
     });
-    await waitFor(() => expect(apiMocks.setConfigDefault).toHaveBeenCalled());
-    expect(apiMocks.setConfigDefault.mock.calls[0]?.[0]).toEqual({
+    await waitFor(() => expect(apiMocks.publishConfig).toHaveBeenCalled());
+    expect(apiMocks.publishConfig.mock.calls[0]?.[0]).toEqual({
+      operation_id: expect.stringMatching(/^ui-config-draft-/),
       source: {
         kind: "manual_parameter_updates",
         draft: expect.objectContaining({
@@ -248,6 +249,17 @@ function validPreview(
 function defaultReceipt(): ConfigPublishReceipt {
   const entryId = "profile-edit-bbbbbbbbbbbb";
   return {
+    operation: {
+      operation_id: "ui-config-draft-test",
+      intent_hash: HASH_A,
+      source_intent_hash: HASH_B,
+      entry_id: entryId,
+      expected_generation: 3,
+      actor: "Ada",
+      note: "fresh calibration",
+      activation_generation: 4,
+      recorded_at: "2026-07-24T08:10:00Z",
+    },
     entry: {
       id: entryId,
       content_hash: HASH_B,

@@ -346,7 +346,7 @@ test("starter project closes the notebook, run, and config loop", async ({ daemo
   const setDefaultResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
-      response.url().endsWith("/api/v1/config-registry/default"),
+      response.url().endsWith("/api/v1/config-registry/publish-operations"),
   );
   await page.getByRole("button", { name: "Set as default" }).click();
   await expectResponseOk(await setDefaultResponse, "POST");
@@ -404,7 +404,7 @@ test("accepts a notebook candidate in the GUI and preserves its provenance", asy
   const acceptResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
-      response.url().endsWith("/api/v1/config-registry/default"),
+      response.url().endsWith("/api/v1/config-registry/publish-operations"),
   );
   await proposals.getByRole("button", { name: "Accept as default" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Accept as default" }).click();
