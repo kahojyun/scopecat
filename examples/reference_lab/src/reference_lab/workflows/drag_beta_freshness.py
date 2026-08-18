@@ -141,6 +141,7 @@ def _observe_drag_beta_target(
     procedure=drag_beta_verification_procedure,
     fanout_scope=DRAG_BETA_CALIBRATION_FANOUT_SCOPE,
     max_in_flight=2,
+    success_policy="published_result",
     select=_select_drag_beta_targets,
     observe=_observe_drag_beta_target,
 )

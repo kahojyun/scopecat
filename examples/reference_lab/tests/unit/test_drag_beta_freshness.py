@@ -222,6 +222,7 @@ def test_drag_beta_freshness_has_two_bounded_independent_targets() -> None:
         CalibrationTargetRef(kind="logical_qubit", id="q1"),
     )
     assert drag_beta_freshness_calibration.max_in_flight == 2
+    assert drag_beta_freshness_calibration.success_policy == "published_result"
 
     observation = drag_beta_freshness_calibration.observe(
         context,

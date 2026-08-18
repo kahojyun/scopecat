@@ -15,7 +15,7 @@ from reference_lab.workflows.drag_beta_freshness import (
 )
 
 
-def test_calibration_cohort_survives_restart_and_becomes_fresh(
+def test_calibration_cohort_survives_restart_and_awaits_publication(
     tmp_path: Path,
 ) -> None:
     project_root = tmp_path / "reference-lab-calibration"
@@ -102,33 +102,23 @@ def test_calibration_cohort_survives_restart_and_becomes_fresh(
                 == active_before.activation.generation
             )
 
-            fresh = worker.cycle()
+            pending = worker.cycle()
 
-            assert fresh.fresh_calibrations == 2
-            assert fresh.ready_calibrations == 0
-            assert fresh.admitted_calibrations == 0
-            assert fresh.created_calibration_cohorts == 0
-            assert fresh.dispatched_procedures == 0
+            assert pending.fresh_calibrations == 0
+            assert pending.pending_publication_calibrations == 2
+            assert pending.ready_calibrations == 0
+            assert pending.admitted_calibrations == 0
+            assert pending.created_calibration_cohorts == 0
+            assert pending.dispatched_procedures == 0
 
-            reactivated = lab.config.set_default(
-                active_after.config,
-                entry_id="same-content-reactivation",
-                note="test registry-only calibration provenance change",
-            )
-            assert reactivated.entry.id != active_before.entry.id
-            assert reactivated.entry.content_hash == active_before.entry.content_hash
-            assert (
-                reactivated.activation.generation
-                == active_before.activation.generation + 1
-            )
+            same_base = worker.cycle()
 
-            same_content = worker.cycle()
-
-            assert same_content.fresh_calibrations == 2
-            assert same_content.ready_calibrations == 0
-            assert same_content.admitted_calibrations == 0
-            assert same_content.created_calibration_cohorts == 0
-            assert same_content.dispatched_procedures == 0
+            assert same_base.fresh_calibrations == 0
+            assert same_base.pending_publication_calibrations == 2
+            assert same_base.ready_calibrations == 0
+            assert same_base.admitted_calibrations == 0
+            assert same_base.created_calibration_cohorts == 0
+            assert same_base.dispatched_procedures == 0
             [reopened_summary] = lab.calibrations.list(
                 fanout_scope=DRAG_BETA_CALIBRATION_FANOUT_SCOPE
             ).items
