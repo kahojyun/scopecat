@@ -2,8 +2,9 @@
 
 Scopecat is a local-first Python toolkit for laboratory experiment workflows.
 It connects notebooks, typed experiment authoring, instrument control, live
-visibility, and durable results without requiring a lab to replace its existing
-Python projects.
+visibility, and durable results. A lab can introduce it alongside existing
+Python projects one workflow at a time; adopting Scopecat-managed execution may
+still require rewriting an imperative workflow at its execution boundary.
 
 This documentation follows the supported workflows and user concepts that the
 project is trying to make simple. UI labels and source-checkout preparation may
