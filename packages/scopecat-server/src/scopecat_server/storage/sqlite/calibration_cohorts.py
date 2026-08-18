@@ -435,10 +435,19 @@ class SQLiteCalibrationCohortStore:
             receipt = ConfigPublishReceipt.model_validate_json(
                 _text(operation_row, "receipt_json")
             )
+            recorded_success = next(
+                (
+                    item
+                    for item in receipt.calibration_successes
+                    if item.attempt.procedure_run_id == success.attempt.procedure_run_id
+                ),
+                None,
+            )
             result_source = publication.result_config_source
             base_source = success.base_config_source
             if (
-                receipt.operation.operation_id != publication.operation_id
+                recorded_success != success
+                or receipt.operation.operation_id != publication.operation_id
                 or receipt.operation.source_intent_hash
                 != publication.source_intent_hash
                 or receipt.operation.expected_generation
@@ -453,7 +462,7 @@ class SQLiteCalibrationCohortStore:
                 or receipt.activation.recorded_at != publication.published_at
             ):
                 raise CalibrationCohortConflict(
-                    "calibration publication does not match its config operation"
+                    "calibration publication does not match its exact config receipt"
                 )
             connection.execute(
                 """

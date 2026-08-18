@@ -464,7 +464,7 @@ def test_cohort_status_tracks_latest_attempt_and_prior_success(
     assert harness.service.create(command) == created
 
 
-def test_success_publication_attaches_to_exact_member_and_status_projection(
+def test_success_publication_requires_an_exact_anchored_merge_receipt(
     tmp_path: Path,
 ) -> None:
     harness = _harness(tmp_path)
@@ -485,14 +485,16 @@ def test_success_publication_attaches_to_exact_member_and_status_projection(
     assert pending.publication is None
     assert pending.is_effective is False
 
-    anchored = _attach_success_publication(harness, pending)
+    with pytest.raises(
+        CalibrationCohortConflict,
+        match="exact config receipt",
+    ):
+        _attach_success_publication(harness, pending)
     projected = _status(harness, (member,)).snapshot.statuses[0]
 
-    assert projected.latest_success == anchored
+    assert projected.latest_success == pending
     assert projected.latest_success is not None
-    assert projected.latest_success.dependency_evidence.publication_operation_id == (
-        "publish:calibration-result"
-    )
+    assert projected.latest_success.publication is None
     with harness.store.read_transaction() as connection:
         query, parameters = calibration_storage._status_rows_query(
             (member.calibration_key,)
@@ -511,15 +513,6 @@ def test_success_publication_attaches_to_exact_member_and_status_projection(
         for detail in plan
     )
     assert not any("SCAN publications" in detail for detail in plan)
-
-    with (
-        pytest.raises(CalibrationCohortConflict, match="already has"),
-        harness.store.write_transaction() as connection,
-    ):
-        harness.store.insert_success_publication_in_transaction(
-            connection,
-            anchored,
-        )
 
 
 def test_status_query_bounds_rows_to_latest_attempt_and_success(

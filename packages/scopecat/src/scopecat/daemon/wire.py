@@ -21,10 +21,12 @@ from pydantic import (
 )
 
 from scopecat.analysis.dataset_wire import DerivedDatasetPayload
+from scopecat.automation.calibrations import CalibrationSuccessRef
 from scopecat.config.inventory import InstrumentInventoryChange
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry.records import (
     CalibrationCohortMergeContribution,
+    CalibrationCohortMergeRegistrySource,
     CandidateAcceptance,
     ConfigActivationOperation,
     ConfigCompositionPolicyRef,
@@ -197,6 +199,32 @@ class ConfigPublishReceipt(_WireModel):
     entry: ConfigRegistryEntry
     deltas: tuple[ParameterValueDelta, ...] = ()
     activation: ConfigRegistryActivationRecord
+    calibration_successes: tuple[CalibrationSuccessRef, ...] = ()
+
+    @field_validator("calibration_successes")
+    @classmethod
+    def canonicalize_calibration_successes(
+        cls,
+        value: tuple[CalibrationSuccessRef, ...],
+    ) -> tuple[CalibrationSuccessRef, ...]:
+        selected = tuple(
+            sorted(
+                value,
+                key=lambda success: (
+                    success.attempt.member_id,
+                    success.attempt.procedure_run_id,
+                ),
+            )
+        )
+        identities = (
+            tuple(success.attempt.member_id for success in selected),
+            tuple(success.attempt.procedure_run_id for success in selected),
+        )
+        if any(len(items) != len(set(items)) for items in identities):
+            raise ValueError(
+                "config publication calibration success identities must be unique"
+            )
+        return selected
 
     @model_validator(mode="after")
     def validate_identity(self) -> ConfigPublishReceipt:
@@ -211,6 +239,58 @@ class ConfigPublishReceipt(_WireModel):
             raise ValueError(
                 "config publish receipt operation, entry, and activation do not match"
             )
+        source = self.entry.source
+        if not isinstance(source, CalibrationCohortMergeRegistrySource):
+            if self.calibration_successes:
+                raise ValueError(
+                    "non-merge config publication cannot carry calibration successes"
+                )
+            return self
+
+        contributions = {item.member_id: item for item in source.contributions}
+        successes = {
+            success.attempt.member_id: success for success in self.calibration_successes
+        }
+        if successes.keys() != contributions.keys():
+            raise ValueError(
+                "merge config publication must cover every resolved contribution"
+            )
+        if (
+            self.operation.expected_generation != source.base_registry_generation
+            or self.activation.previous_entry_id != source.base_entry_id
+            or self.activation.previous_entry_content_hash
+            != source.base_config_content_hash
+        ):
+            raise ValueError("merge config publication does not follow its exact base")
+        for member_id, contribution in contributions.items():
+            success = successes[member_id]
+            publication = success.publication
+            result_source = (
+                None if publication is None else publication.result_config_source
+            )
+            if (
+                publication is None
+                or success.attempt.cohort_id != source.cohort_id
+                or success.attempt.procedure_run_id != contribution.procedure_run_id
+                or success.base_config_source.entry_id != source.base_entry_id
+                or success.base_config_source.content_hash
+                != source.base_config_content_hash
+                or success.base_config_source.registry_generation
+                != source.base_registry_generation
+                or contribution.result_input_fingerprint
+                != publication.result_input_fingerprint
+                or publication.operation_id != self.operation.operation_id
+                or publication.source_intent_hash != self.operation.source_intent_hash
+                or result_source is None
+                or result_source.entry_id != self.entry.id
+                or result_source.config_ref != self.entry.config_ref
+                or result_source.content_hash != self.entry.content_hash
+                or result_source.registry_generation != self.activation.generation
+                or publication.published_at != self.activation.recorded_at
+            ):
+                raise ValueError(
+                    "merge calibration success does not match its config receipt"
+                )
         return self
 
 

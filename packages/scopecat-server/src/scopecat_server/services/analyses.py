@@ -9,6 +9,7 @@ from threading import Lock
 from typing import cast
 
 from pydantic import JsonValue
+from scopecat.config.changes import parameter_change_proposal_record_ref
 from scopecat.control.models import DurableEventInput
 from scopecat.daemon.views import (
     AnalysisContentBytesView,
@@ -23,12 +24,14 @@ from scopecat.kernel.ids import artifact_slug
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import (
     AnalysisFactRecordOutput,
+    AnalysisParameterProposalRecordOutput,
     AnalysisRecord,
     MeasurementAnalysisRecordInput,
     ProjectAnalysisDecisionReference,
     PublishedAnalysisRecordInput,
     RunAnalysisSubject,
 )
+from scopecat.records.config import ConfigContentHash
 from scopecat.records.content import ContentEntry
 from scopecat.records.run import AnalysisCandidateRunConfigSource
 from scopecat.runs.refs import (
@@ -218,6 +221,110 @@ class AnalysisService:
     ) -> None:
         """Require evidence over both the proposal source and a candidate run."""
 
+        view = self._validated_decision_view(reference)
+        input_run_ids = self._input_run_ids(view)
+        if source_run_id not in input_run_ids:
+            raise BackendConflict(
+                "candidate verification does not include the proposal source run"
+            )
+        for run_id in input_run_ids - {source_run_id}:
+            snapshot = self._services.runs.read_snapshot(run_id)
+            source = snapshot.config_source
+            if (
+                isinstance(source, AnalysisCandidateRunConfigSource)
+                and source.source_run_id == source_run_id
+                and source.proposal_id == proposal_id
+            ):
+                return
+        raise BackendConflict(
+            "candidate verification does not include a run using this proposal"
+        )
+
+    def validate_calibration_merge_verification(
+        self,
+        reference: ProjectAnalysisDecisionReference,
+        *,
+        source_run_id: str,
+        fit_analysis_record_id: str,
+        proposal_id: str,
+        candidate_run_id: str,
+        base_config_content_hash: ConfigContentHash,
+    ) -> None:
+        """Require one exact fit, candidate run, and two-run verification proof."""
+
+        try:
+            publication = self._services.runs.read_analysis_publication(
+                source_run_id,
+                fit_analysis_record_id,
+            )
+            fit = self._services.runs.read_model(
+                source_run_id,
+                record_content_ref(
+                    record_id=fit_analysis_record_id,
+                    kind="analysis",
+                ),
+                AnalysisRecord,
+            )
+        except NotFound as error:
+            raise BackendConflict(
+                "calibration merge fit must identify an exact run analysis"
+            ) from error
+        if (
+            publication.record.id != fit_analysis_record_id
+            or fit.subject != RunAnalysisSubject(run_id=source_run_id)
+            or not any(
+                isinstance(output, AnalysisParameterProposalRecordOutput)
+                and output.content.proposal_id == proposal_id
+                and output.content.record_ref
+                == parameter_change_proposal_record_ref(proposal_id)
+                for output in fit.outputs
+            )
+        ):
+            raise BackendConflict(
+                "calibration merge fit does not own its exact proposal record"
+            )
+
+        try:
+            candidate = self._services.runs.read_snapshot(candidate_run_id)
+        except NotFound as error:
+            raise BackendConflict(
+                "calibration merge candidate must identify an exact run"
+            ) from error
+        candidate_source = candidate.config_source
+        if (
+            candidate.outcome is None
+            or candidate.outcome.result != "succeeded"
+            or not isinstance(candidate_source, AnalysisCandidateRunConfigSource)
+            or candidate_source.source_run_id != source_run_id
+            or candidate_source.analysis_record_id != fit_analysis_record_id
+            or candidate_source.proposal_id != proposal_id
+            or candidate_source.base_config_content_hash != base_config_content_hash
+        ):
+            raise BackendConflict(
+                "calibration merge candidate run does not use its exact proposal"
+            )
+
+        view = self._validated_decision_view(reference)
+        direct_inputs = view.analysis.inputs
+        if any(
+            not isinstance(input_ref, MeasurementAnalysisRecordInput)
+            for input_ref in direct_inputs
+        ) or tuple(
+            sorted(
+                input_ref.run_id
+                for input_ref in direct_inputs
+                if isinstance(input_ref, MeasurementAnalysisRecordInput)
+            )
+        ) != tuple(sorted((source_run_id, candidate_run_id))):
+            raise BackendConflict(
+                "calibration merge verification inputs must be the exact baseline "
+                "and candidate runs"
+            )
+
+    def _validated_decision_view(
+        self,
+        reference: ProjectAnalysisDecisionReference,
+    ) -> ProjectAnalysisView:
         try:
             view = self._view(reference.analysis_record_id)
         except NotFound as error:
@@ -255,23 +362,7 @@ class AnalysisService:
             raise BackendConflict(
                 "candidate verification decision did not accept the candidate"
             )
-        input_run_ids = self._input_run_ids(view)
-        if source_run_id not in input_run_ids:
-            raise BackendConflict(
-                "candidate verification does not include the proposal source run"
-            )
-        for run_id in input_run_ids - {source_run_id}:
-            snapshot = self._services.runs.read_snapshot(run_id)
-            source = snapshot.config_source
-            if (
-                isinstance(source, AnalysisCandidateRunConfigSource)
-                and source.source_run_id == source_run_id
-                and source.proposal_id == proposal_id
-            ):
-                return
-        raise BackendConflict(
-            "candidate verification does not include a run using this proposal"
-        )
+        return view
 
     def _input_run_ids(
         self,
