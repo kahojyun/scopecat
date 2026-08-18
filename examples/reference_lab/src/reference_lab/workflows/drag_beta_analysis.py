@@ -13,16 +13,22 @@ import scopecat as sc
 from scopecat import Quantity
 from scopecat.measurements.results import Dataset
 
-from reference_lab.parameters import Q0_DRAG_BETA
+from reference_lab.parameters import Q0_DRAG_BETA, Q1_DRAG_BETA
 from reference_lab.workflows.drag_beta_calibration import (
     NEGATIVE_CANDIDATE_ID,
     POSITIVE_CANDIDATE_ID,
 )
-from reference_lab.workflows.drag_beta_experiment import DRAG_BETA_EXPERIMENT
+from reference_lab.workflows.drag_beta_experiment import (
+    DragBetaQubit,
+    drag_beta_experiment,
+)
 
 _DRAG_BETA_FIT_MODEL_ID = "reference_lab.drag_beta.shared_n2_quadratic.v1"
 _DRAG_BETA_ANALYSIS_KEY = "drag-beta-calibration"
-_DRAG_BETA_PROPOSAL_ID = "q0-drag-beta"
+_DRAG_BETA_PARAMETERS = {
+    "q0": Q0_DRAG_BETA,
+    "q1": Q1_DRAG_BETA,
+}
 _BETA_FIELD = sc.AnalysisField(
     id="beta_ns",
     role="coordinate",
@@ -134,16 +140,20 @@ def fit_drag_beta(observations: Sequence[DragBetaObservation]) -> DragBetaFit:
 
 
 @sc.analysis_step(id=_DRAG_BETA_ANALYSIS_KEY)
-def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
+def drag_beta_analysis(
+    context: sc.AnalysisContext,
+    *,
+    qubit: DragBetaQubit = "q0",
+) -> sc.Analysis:
     """Fit one DRAG run and author its table, figure, and proposal."""
 
     observations = _observations_from_frame(
-        drag_beta_observation_frame(context.measurements())
+        drag_beta_observation_frame(context.measurements(), qubit=qubit)
     )
     fit = fit_drag_beta(observations)
 
     return (
-        context.result("DRAG beta calibration")
+        context.result(f"{qubit} DRAG beta calibration")
         .dataset(
             "observations",
             observations,
@@ -177,10 +187,10 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
             title="DRAG beta fit report",
         )
         .propose(
-            _DRAG_BETA_PROPOSAL_ID,
-            Q0_DRAG_BETA.update(fit.beta_hat),
+            f"{qubit}-drag-beta",
+            _DRAG_BETA_PARAMETERS[qubit].update(fit.beta_hat),
             reason=(
-                "Shared N² quadratic fit selected the q0 DRAG beta used by "
+                f"Shared N² quadratic fit selected the {qubit} DRAG beta used by "
                 f"{POSITIVE_CANDIDATE_ID!r} and {NEGATIVE_CANDIDATE_ID!r}; "
                 f"RMSE={fit.rmse:.6g}."
             ),
@@ -189,10 +199,14 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     )
 
 
-def drag_beta_observation_frame(dataset: Dataset) -> pl.DataFrame:
+def drag_beta_observation_frame(
+    dataset: Dataset,
+    *,
+    qubit: DragBetaQubit = "q0",
+) -> pl.DataFrame:
     """Project one DRAG run into the canonical comparison columns."""
 
-    schema = DRAG_BETA_EXPERIMENT.output
+    schema = drag_beta_experiment(qubit).output
     frame = (
         dataset.bind(schema)
         .project(

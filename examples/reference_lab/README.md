@@ -68,6 +68,14 @@ The scripts are ordinary Python with `# %%` cells and can be followed in order.
 | `40_measurement_workbench.py` | Selection, grouping, Xarray, Arrow, and paged reads |
 | `50_ragged_scope_capture.py` | Point-varying oscilloscope record length and ragged waveform slicing |
 
+The application also registers one bounded q0/q1 DRAG calibration definition.
+Its project-side policy evaluates freshness from active configuration contents,
+admits an immutable two-member cohort, and runs independent durable procedures
+through baseline, fit, candidate, and verification. These automated members are
+verify-only: a successful closure is freshness evidence, while candidate
+configuration publication and activation remain an explicit operator-facing
+workflow.
+
 ## Source map
 
 | Path | Responsibility |
@@ -79,7 +87,7 @@ The scripts are ordinary Python with `# %%` cells and can be followed in order.
 | `src/reference_lab/physical_policies.py` | Lab-owned IQ-offset coupling and host preparation policy |
 | `src/reference_lab/provider.py` | Bare virtual device provider and coupled AWG/scope world |
 | `src/reference_lab/virtual_lab/` | Injected deterministic quantum plant adapter |
-| `src/reference_lab/workflows/` | Copyable experiment, analysis, and production workflows |
+| `src/reference_lab/workflows/` | Copyable experiment, analysis, production, and calibration automation workflows |
 | `notebooks/` | User-facing recipes and their intent |
 | `tests/` | Daemon, worker, target, storage, analysis, and configuration checks |
 

@@ -51,6 +51,7 @@ Q1 = QUBITS.row(
 Q2 = QUBITS.row(QUBIT.key("q2"))
 Q3 = QUBITS.row(QUBIT.key("q3"))
 Q0_DRAG_BETA = Q0[DRAG_BETA]
+Q1_DRAG_BETA = Q1[DRAG_BETA]
 
 IQ_CHAIN = sc.parameter_field("chain", sc.StringType())
 MIXER_II = sc.parameter_field("mixer_ii", sc.FloatType())
@@ -405,6 +406,7 @@ __all__ = [
     "Q0_READOUT",
     "Q1",
     "Q1_CHANNEL_CALIBRATION",
+    "Q1_DRAG_BETA",
     "Q1_READOUT",
     "Q2",
     "Q2_CHANNEL_CALIBRATION",

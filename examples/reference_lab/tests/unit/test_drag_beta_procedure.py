@@ -17,12 +17,20 @@ from scopecat.records.run import ConfigRegistryRunConfigSource, RunConfigSource
 
 from reference_lab.application import create_application
 from reference_lab.configuration import EXAMPLE_ROOT, bootstrap_config
+from reference_lab.workflows.drag_beta_experiment import DragBetaQubit
+from reference_lab.workflows.drag_beta_freshness import (
+    DRAG_BETA_CALIBRATION_REGISTRY,
+    drag_beta_freshness_calibration,
+)
 from reference_lab.workflows.drag_beta_procedure import (
     DRAG_BETA_PROCEDURE_ID,
     DRAG_BETA_PROCEDURE_VERSION,
+    DragBetaCandidateRejectedError,
     DragBetaProcedureIntent,
+    DragBetaVerificationIntent,
     drag_beta_calibration_procedure,
     drag_beta_calibration_request_key,
+    drag_beta_verification_procedure,
 )
 from reference_lab.workflows.drag_beta_verification import (
     DRAG_BETA_MINIMUM_IMPROVEMENT,
@@ -33,12 +41,19 @@ from reference_lab.workflows.drag_beta_verification import (
 def test_application_registers_exact_drag_beta_procedure_source() -> None:
     application = create_application(EXAMPLE_ROOT)
 
-    assert application.procedures.refs == (drag_beta_calibration_procedure.ref,)
+    assert application.procedures.refs == (
+        drag_beta_calibration_procedure.ref,
+        drag_beta_verification_procedure.ref,
+    )
     assert application.procedures.resolve(drag_beta_calibration_procedure.ref) is (
         drag_beta_calibration_procedure
     )
     assert drag_beta_calibration_procedure.id == DRAG_BETA_PROCEDURE_ID
     assert drag_beta_calibration_procedure.version == DRAG_BETA_PROCEDURE_VERSION
+    assert application.calibrations is DRAG_BETA_CALIBRATION_REGISTRY
+    assert application.calibrations.require(drag_beta_freshness_calibration.id) is (
+        drag_beta_freshness_calibration
+    )
 
 
 def test_drag_beta_procedure_intent_retains_exact_initial_snapshot() -> None:
@@ -236,6 +251,57 @@ def test_drag_beta_procedure_fails_rejected_candidate_in_accept_step() -> None:
     ]
 
 
+def test_verify_only_drag_beta_member_has_no_config_publish_step() -> None:
+    context, baseline, fit, candidate_run, verification, _publication = (
+        _procedure_context(accepted=True)
+    )
+
+    drag_beta_verification_procedure.run(
+        context,
+        _verification_intent("q1"),
+    )
+
+    assert tuple(call.step_key for call in context.run_calls) == (
+        "baseline",
+        "candidate",
+    )
+    assert context.run_analysis_calls == [("fit", baseline)]
+    assert context.project_analysis_calls == [
+        ("verification", (baseline, candidate_run))
+    ]
+    assert context.published_refs == [fit, verification]
+    assert context.accept_calls == []
+
+
+def test_verify_only_drag_beta_rejection_is_a_known_failed_result() -> None:
+    context, _baseline, _fit, _candidate_run, _verification, _publication = (
+        _procedure_context(accepted=False)
+    )
+
+    with pytest.raises(DragBetaCandidateRejectedError, match="accepted=false"):
+        drag_beta_verification_procedure.run(
+            context,
+            _verification_intent("q0"),
+        )
+
+    assert context.accept_calls == []
+
+
+def _verification_intent(qubit: DragBetaQubit) -> DragBetaVerificationIntent:
+    initial_config = bootstrap_config()
+    return DragBetaVerificationIntent(
+        qubit=qubit,
+        initial_config=initial_config,
+        initial_config_source=ConfigRegistryRunConfigSource(
+            selector="active",
+            entry_id="config-entry-1",
+            config_ref="active@1",
+            content_hash=config_content_hash(initial_config),
+            registry_generation=1,
+        ),
+    )
+
+
 def _procedure_context(
     *,
     accepted: bool,
@@ -337,6 +403,16 @@ class _FakePublishedAnalysis:
         if self._decision is None:
             raise AssertionError("publication has no verification decision")
         return self._decision.accepted
+
+    def fact_as(
+        self,
+        id: str,
+        schema: object,
+    ) -> DragBetaVerification:
+        del schema
+        if id != "decision" or self._decision is None:
+            raise AssertionError("publication has no verification decision")
+        return self._decision
 
 
 class _RecordingProcedureContext:
