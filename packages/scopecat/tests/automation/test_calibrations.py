@@ -476,6 +476,21 @@ def test_same_freshness_failed_retry_requires_explicit_force() -> None:
     )
 
 
+def test_cohort_observations_cannot_follow_their_evaluation_time() -> None:
+    _, previous_status = _success()
+    forced_member = _member_spec(
+        due_reasons=(CalibrationForcedDueReason(reason="operator retry"),)
+    )
+    data = _cohort_spec(
+        member=forced_member,
+        observations=(previous_status,),
+    ).model_dump()
+    data["evaluated_at"] = _EVALUATED - timedelta(minutes=90)
+
+    with pytest.raises(ValidationError, match="cannot follow its status observation"):
+        CalibrationCohortSpec.model_validate(data)
+
+
 def test_dependency_changed_reason_uses_current_flat_evidence() -> None:
     old, _ = _success(
         definition=_definition(definition_id="readout"),

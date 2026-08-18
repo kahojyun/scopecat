@@ -396,17 +396,7 @@ class CalibrationStatusSnapshot(_CalibrationModel):
 
     @model_validator(mode="after")
     def validate_as_of_time(self) -> CalibrationStatusSnapshot:
-        for status in self.statuses:
-            success = status.latest_success
-            if success is not None and success.succeeded_at > self.observed_at:
-                raise ValueError(
-                    "calibration success cannot follow its status observation"
-                )
-            attempt = status.latest_attempt
-            if attempt is not None and attempt.updated_at > self.observed_at:
-                raise ValueError(
-                    "calibration attempt update cannot follow its status observation"
-                )
+        _validate_statuses_as_of(self.statuses, self.observed_at)
         return self
 
 
@@ -739,6 +729,7 @@ class CalibrationCohortSpec(_CalibrationModel):
             (member.calibration_key for member in self.members),
             label="calibration cohort member key",
         )
+        _validate_statuses_as_of(self.observations, self.evaluated_at)
 
         observations_by_key = {
             observation.calibration_key: observation
@@ -975,6 +966,21 @@ def _validate_member_due_observation(
                     "dependency-changed due reason must reference current member "
                     "dependency evidence"
                 )
+
+
+def _validate_statuses_as_of(
+    statuses: tuple[CalibrationStatus, ...],
+    observed_at: datetime,
+) -> None:
+    for status in statuses:
+        success = status.latest_success
+        if success is not None and success.succeeded_at > observed_at:
+            raise ValueError("calibration success cannot follow its status observation")
+        attempt = status.latest_attempt
+        if attempt is not None and attempt.updated_at > observed_at:
+            raise ValueError(
+                "calibration attempt update cannot follow its status observation"
+            )
 
 
 def _canonical_dependencies(
