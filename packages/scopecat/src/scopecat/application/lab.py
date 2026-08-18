@@ -7,11 +7,14 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from scopecat.automation.definition import ProcedureRegistry
+from scopecat.automation.intervals import ProcedureScheduleRegistry
 from scopecat.records.config import ConfigProfileSnapshot
 
 if TYPE_CHECKING:
     from scopecat.api.lab import LabClient
+    from scopecat.api.procedure_planner import ProcedurePlanningContext
     from scopecat.automation.definition import RegisteredProcedure
+    from scopecat.automation.intervals import RegisteredProcedureSchedule
     from scopecat.planning.system import ExperimentSystemBuilder
 
 type BootstrapConfigFactory = Callable[[], ConfigProfileSnapshot]
@@ -42,12 +45,20 @@ class LabApplication:
         default_factory=ProcedureRegistry,
         repr=False,
     )
+    procedure_schedules: ProcedureScheduleRegistry[ProcedurePlanningContext] = field(
+        default_factory=ProcedureScheduleRegistry,
+        repr=False,
+    )
 
     def __init__(
         self,
         build_experiment_system: ExperimentSystemBuilder | None = None,
         bootstrap_config: BootstrapConfigFactory | None = None,
         procedures: Iterable[RegisteredProcedure] | ProcedureRegistry = (),
+        procedure_schedules: (
+            Iterable[RegisteredProcedureSchedule[ProcedurePlanningContext]]
+            | ProcedureScheduleRegistry[ProcedurePlanningContext]
+        ) = (),
     ) -> None:
         object.__setattr__(
             self,
@@ -55,13 +66,20 @@ class LabApplication:
             build_experiment_system,
         )
         object.__setattr__(self, "bootstrap_config", bootstrap_config)
-        object.__setattr__(
-            self,
-            "procedures",
+        procedure_registry = (
             procedures
             if isinstance(procedures, ProcedureRegistry)
-            else ProcedureRegistry(procedures),
+            else ProcedureRegistry(procedures)
         )
+        schedule_registry = (
+            procedure_schedules
+            if isinstance(procedure_schedules, ProcedureScheduleRegistry)
+            else ProcedureScheduleRegistry(procedure_schedules)
+        )
+        for schedule in schedule_registry.values():
+            procedure_registry.resolve(schedule.procedure.ref)
+        object.__setattr__(self, "procedures", procedure_registry)
+        object.__setattr__(self, "procedure_schedules", schedule_registry)
 
     def connect(
         self,
@@ -77,6 +95,7 @@ class LabApplication:
             daemon,
             build_experiment_system=self.build_experiment_system,
             procedures=self.procedures,
+            procedure_schedules=self.procedure_schedules,
             operator=operator,
         )
 

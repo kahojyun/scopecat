@@ -11,6 +11,7 @@ from uuid import uuid4
 
 import httpx2
 
+from scopecat.api.procedure_planner import ProcedurePlannerCycleResult
 from scopecat.api.procedures import ProcedureHandle
 from scopecat.automation import (
     ProcedureControlError,
@@ -61,10 +62,22 @@ class ProcedureWorkerOperations(Protocol):
     ) -> ProcedureHandle: ...
 
 
+class ProcedureIntervalPlanner(Protocol):
+    """Project-side latest-only planner invoked before due discovery."""
+
+    def cycle(self, stop: Event | None = None) -> ProcedurePlannerCycleResult: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ProcedureWorkerCycleResult:
     """Bounded work and benign races observed during one worker cycle."""
 
+    eligible_interval_occurrences: int
+    created_interval_schedules: int
+    existing_interval_schedules: int
+    reconciled_interval_schedules: int
+    interval_schedule_drifts: int
+    planner_failures: int
     due_schedules: int
     materialized_schedules: int
     schedule_conflicts: int
@@ -107,6 +120,7 @@ class ProjectProcedureWorkerLoop:
         "_backoff_max_seconds",
         "_due_traversal",
         "_operations",
+        "_planner",
         "_runnable_limit",
         "_schedule_limit",
         "_worker_id",
@@ -116,6 +130,7 @@ class ProjectProcedureWorkerLoop:
         self,
         operations: ProcedureWorkerOperations,
         *,
+        planner: ProcedureIntervalPlanner | None = None,
         worker_id: str | None = None,
         schedule_limit: int = _DEFAULT_BATCH_LIMIT,
         runnable_limit: int = _DEFAULT_BATCH_LIMIT,
@@ -137,6 +152,7 @@ class ProjectProcedureWorkerLoop:
             raise ValueError("procedure worker id must be non-empty")
 
         self._operations = operations
+        self._planner = planner
         self._worker_id = selected_worker_id
         self._schedule_limit = schedule_limit
         self._runnable_limit = runnable_limit
@@ -149,36 +165,29 @@ class ProjectProcedureWorkerLoop:
         return self._worker_id
 
     def cycle(self, stop: Event | None = None) -> ProcedureWorkerCycleResult:
-        """Run one bounded materialization-then-dispatch cycle."""
+        """Run one bounded plan-materialize-dispatch cycle."""
 
+        planning = (
+            _empty_planner_cycle()
+            if self._planner is None
+            else self._planner.cycle(stop)
+        )
+        if stop is not None and stop.is_set():
+            return _worker_cycle_result(
+                planning,
+                _ScheduleCycleResult(0, 0, 0, 0, False),
+                _ProcedureCycleResult(0, 0, 0, 0, 0, False),
+            )
         schedules = self._materialize_due(stop)
         if stop is not None and stop.is_set():
-            return ProcedureWorkerCycleResult(
-                due_schedules=schedules.discovered,
-                materialized_schedules=schedules.materialized,
-                schedule_conflicts=schedules.conflicts,
-                schedule_failures=schedules.failures,
-                runnable_procedures=0,
-                dispatched_procedures=0,
-                procedure_failures=0,
-                procedure_conflicts=0,
-                lease_conflicts=0,
-                has_more=schedules.has_more,
+            return _worker_cycle_result(
+                planning,
+                schedules,
+                _ProcedureCycleResult(0, 0, 0, 0, 0, False),
             )
 
         procedures = self._dispatch_runnable(stop)
-        return ProcedureWorkerCycleResult(
-            due_schedules=schedules.discovered,
-            materialized_schedules=schedules.materialized,
-            schedule_conflicts=schedules.conflicts,
-            schedule_failures=schedules.failures,
-            runnable_procedures=procedures.discovered,
-            dispatched_procedures=procedures.dispatched,
-            procedure_failures=procedures.failures,
-            procedure_conflicts=procedures.conflicts,
-            lease_conflicts=procedures.lease_conflicts,
-            has_more=schedules.has_more or procedures.has_more,
-        )
+        return _worker_cycle_result(planning, schedules, procedures)
 
     def _materialize_due(self, stop: Event | None) -> _ScheduleCycleResult:
         cursor, through_sequence = self._due_traversal or (None, None)
@@ -326,6 +335,44 @@ def _is_deterministic_client_error(error: Exception) -> bool:
     )
 
 
+def _empty_planner_cycle() -> ProcedurePlannerCycleResult:
+    return ProcedurePlannerCycleResult(
+        definitions=0,
+        eligible_occurrences=0,
+        existing_schedules=0,
+        created_schedules=0,
+        reconciled_schedules=0,
+        drifted_schedules=0,
+        failures=0,
+        has_more=False,
+    )
+
+
+def _worker_cycle_result(
+    planning: ProcedurePlannerCycleResult,
+    schedules: _ScheduleCycleResult,
+    procedures: _ProcedureCycleResult,
+) -> ProcedureWorkerCycleResult:
+    return ProcedureWorkerCycleResult(
+        eligible_interval_occurrences=planning.eligible_occurrences,
+        created_interval_schedules=planning.created_schedules,
+        existing_interval_schedules=planning.existing_schedules,
+        reconciled_interval_schedules=planning.reconciled_schedules,
+        interval_schedule_drifts=planning.drifted_schedules,
+        planner_failures=planning.failures,
+        due_schedules=schedules.discovered,
+        materialized_schedules=schedules.materialized,
+        schedule_conflicts=schedules.conflicts,
+        schedule_failures=schedules.failures,
+        runnable_procedures=procedures.discovered,
+        dispatched_procedures=procedures.dispatched,
+        procedure_failures=procedures.failures,
+        procedure_conflicts=procedures.conflicts,
+        lease_conflicts=procedures.lease_conflicts,
+        has_more=(planning.has_more or schedules.has_more or procedures.has_more),
+    )
+
+
 def _is_retryable_control_error(error: Exception) -> bool:
     cause = _control_cause(error)
     if isinstance(cause, httpx2.TransportError):
@@ -360,6 +407,7 @@ def _worker_control_errors() -> tuple[type[Exception], ...]:
 
 
 __all__ = [
+    "ProcedureIntervalPlanner",
     "ProcedureWorkerCycleResult",
     "ProcedureWorkerOperations",
     "ProjectProcedureWorkerLoop",

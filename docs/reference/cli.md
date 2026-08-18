@@ -35,11 +35,12 @@ an existing destination unless `--force` is supplied.
 
 | Command | Purpose |
 | --- | --- |
-| `scopecat procedures work [PROJECT]` | Run the project-owned resident procedure worker. |
-| `scopecat procedures work [PROJECT] --once` | Materialize and dispatch one bounded cycle, then exit. |
+| `scopecat procedures work [PROJECT]` | Run the project-owned resident procedure planner and worker. |
+| `scopecat procedures work [PROJECT] --once` | Plan, materialize, and dispatch one bounded cycle, then exit. |
 
 The resident worker loads the project's exact procedure registry in its own
-process; the daemon never executes user-authored procedure closures.
+process and turns latest-only fixed UTC interval occurrences into ordinary exact
+one-shot schedules; the daemon never executes user-authored procedure closures.
 `--poll-seconds` controls the idle polling interval.
 
 Use `scopecat COMMAND --help` as the authority for all current options. See the

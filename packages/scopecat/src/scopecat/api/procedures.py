@@ -16,6 +16,11 @@ from pydantic import ValidationError
 from scopecat.api._config import LabConfigOperations
 from scopecat.api._runner import _DaemonRunner, _prepare_run_submission
 from scopecat.api.analysis import AnalysisInvocation, AnalysisStep
+from scopecat.api.procedure_planner import (
+    ProcedurePlanningConfig,
+    ProcedurePlanningContext,
+    ProjectProcedureIntervalPlanner,
+)
 from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.api.run import RunHandle
 from scopecat.authoring.experiments import Experiment, ExperimentInvocation
@@ -38,6 +43,7 @@ from scopecat.automation import (
     ProcedureScheduleListQuery,
     ProcedureScheduleMaterializeCommand,
     ProcedureSchedulePage,
+    ProcedureScheduleRegistry,
     ProcedureScheduleState,
     ProcedureStepAttempt,
     ProcedureStepAttemptListQuery,
@@ -71,6 +77,7 @@ from scopecat.daemon.wire import (
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import RunIndeterminate
 from scopecat.kernel.ids import artifact_slug
+from scopecat.kernel.run_outcome import utc_now
 from scopecat.program.values import MetadataValue
 from scopecat.records.analysis import (
     MeasurementAnalysisRecordInput,
@@ -569,6 +576,7 @@ class LabProcedureOperations:
         "_config",
         "_registry",
         "_runner",
+        "_schedule_registry",
         "_session",
         "_worker_id",
     )
@@ -581,6 +589,7 @@ class LabProcedureOperations:
         config: LabConfigOperations,
         session: ProcedureLabSession,
         registry: ProcedureRegistry,
+        schedule_registry: ProcedureScheduleRegistry[ProcedurePlanningContext],
         worker_id: str | None = None,
     ) -> None:
         self._client = client
@@ -588,11 +597,38 @@ class LabProcedureOperations:
         self._config = config
         self._session = session
         self._registry = registry
+        for schedule in schedule_registry.values():
+            registry.resolve(schedule.procedure.ref)
+        self._schedule_registry = schedule_registry
         self._worker_id = worker_id or f"notebook-procedure-{uuid4().hex}"
 
     @property
     def registry(self) -> ProcedureRegistry:
         return self._registry
+
+    @property
+    def schedule_registry(
+        self,
+    ) -> ProcedureScheduleRegistry[ProcedurePlanningContext]:
+        return self._schedule_registry
+
+    @property
+    def planning_context(self) -> ProcedurePlanningContext:
+        return ProcedurePlanningContext(config=ProcedurePlanningConfig(self._config))
+
+    def interval_planner(
+        self,
+        *,
+        clock: Callable[[], datetime] = utc_now,
+    ) -> ProjectProcedureIntervalPlanner:
+        """Build the project-side planner over this exact application registry."""
+
+        return ProjectProcedureIntervalPlanner(
+            self,
+            self._schedule_registry,
+            self.planning_context,
+            clock=clock,
+        )
 
     def submit(
         self,

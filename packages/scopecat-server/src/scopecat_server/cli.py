@@ -264,11 +264,16 @@ def procedures_work(
     try:
         selected = open_project(project)
         with selected.connect() as lab:
-            worker = ProjectProcedureWorkerLoop(lab.procedures)
+            worker = ProjectProcedureWorkerLoop(
+                lab.procedures,
+                planner=lab.procedures.interval_planner(),
+            )
             if once:
                 result = worker.cycle()
                 failure_count = (
-                    result.schedule_failures
+                    result.planner_failures
+                    + result.interval_schedule_drifts
+                    + result.schedule_failures
                     + result.procedure_failures
                     + result.procedure_conflicts
                 )
@@ -279,8 +284,11 @@ def procedures_work(
                 )
                 console.print(
                     f"{outcome} "
+                    f"interval_created={result.created_interval_schedules} "
                     f"materialized={result.materialized_schedules} "
                     f"dispatched={result.dispatched_procedures} "
+                    f"planner_failures={result.planner_failures} "
+                    f"interval_drifts={result.interval_schedule_drifts} "
                     f"schedule_failures={result.schedule_failures} "
                     f"procedure_failures={result.procedure_failures} "
                     f"procedure_conflicts={result.procedure_conflicts} "
@@ -310,12 +318,16 @@ def procedures_work(
 
             def report_cycle(result: ProcedureWorkerCycleResult) -> None:
                 if (
-                    result.schedule_failures
+                    result.planner_failures
+                    or result.interval_schedule_drifts
+                    or result.schedule_failures
                     or result.procedure_failures
                     or result.procedure_conflicts
                 ):
                     error_console.print(
                         "[yellow]procedure cycle needs review:[/yellow] "
+                        f"planner_failures={result.planner_failures} "
+                        f"interval_drifts={result.interval_schedule_drifts} "
                         f"schedule_failures={result.schedule_failures} "
                         f"procedure_failures={result.procedure_failures} "
                         f"procedure_conflicts={result.procedure_conflicts}",

@@ -249,8 +249,14 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _write_manifest(tmp_path)
-    procedure_operations = object()
     calls: list[tuple[object, ...]] = []
+
+    class FakeProcedureOperations:
+        def interval_planner(self) -> object:
+            calls.append(("planner",))
+            return "interval-planner"
+
+    procedure_operations = FakeProcedureOperations()
 
     class FakeLab:
         procedures = procedure_operations
@@ -265,12 +271,15 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
     class FakeWorker:
         worker_id = "worker-cli"
 
-        def __init__(self, operations: object) -> None:
-            calls.append(("worker", operations))
+        def __init__(self, operations: object, *, planner: object) -> None:
+            calls.append(("worker", operations, planner))
 
         def cycle(self) -> object:
             calls.append(("cycle",))
             return SimpleNamespace(
+                created_interval_schedules=1,
+                planner_failures=0,
+                interval_schedule_drifts=0,
                 materialized_schedules=2,
                 dispatched_procedures=1,
                 schedule_failures=0,
@@ -292,6 +301,8 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
             calls.append(("run_forever", poll_seconds))
             on_cycle(
                 SimpleNamespace(
+                    planner_failures=0,
+                    interval_schedule_drifts=0,
                     schedule_failures=1,
                     procedure_failures=0,
                     procedure_conflicts=1,
@@ -318,6 +329,7 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
     )
 
     assert once.exit_code == 0, once.output
+    assert "interval_created=1" in once.output
     assert "materialized=2" in once.output
     assert "dispatched=1" in once.output
     assert resident.exit_code == 0, resident.output
@@ -329,14 +341,17 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
     class OutcomeFailureWorker:
         worker_id = "worker-outcome-failure"
 
-        def __init__(self, _operations: object) -> None:
-            pass
+        def __init__(self, _operations: object, *, planner: object) -> None:
+            assert planner == "interval-planner"
 
         def cycle(self) -> object:
             return SimpleNamespace(
+                created_interval_schedules=0,
+                planner_failures=0,
+                interval_schedule_drifts=1,
                 materialized_schedules=0,
                 dispatched_procedures=0,
-                schedule_failures=1,
+                schedule_failures=0,
                 procedure_failures=0,
                 procedure_conflicts=0,
                 schedule_conflicts=0,
@@ -354,14 +369,14 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
 
     assert failed_outcome.exit_code == 1
     assert "cycle completed with failures" in failed_outcome.output
-    assert "schedule_failures=1" in failed_outcome.output
+    assert "interval_drifts=1" in failed_outcome.output
     assert "error: procedure worker cycle reported 1 failure" in failed_outcome.output
 
     class FailingWorker:
         worker_id = "worker-failing"
 
-        def __init__(self, _operations: object) -> None:
-            pass
+        def __init__(self, _operations: object, *, planner: object) -> None:
+            assert planner == "interval-planner"
 
         def cycle(self) -> object:
             raise ProcedureControlError(

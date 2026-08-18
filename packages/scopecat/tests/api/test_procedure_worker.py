@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict
 
 from scopecat.api._config import LabConfigOperations
 from scopecat.api._runner import _DaemonRunner
+from scopecat.api.procedure_planner import ProcedurePlannerCycleResult
 from scopecat.api.procedure_worker import ProjectProcedureWorkerLoop
 from scopecat.api.procedures import (
     LabProcedureOperations,
@@ -40,6 +41,7 @@ from scopecat.automation import (
     ProcedureScheduleMaterializeCommand,
     ProcedureScheduleMaterializeReceipt,
     ProcedureSchedulePage,
+    ProcedureScheduleRegistry,
     ProcedureScheduleState,
     ProcedureWorkerLease,
     procedure,
@@ -230,6 +232,50 @@ class _ScheduleClient:
     ) -> ProcedureRunnablePage:
         self.runnable_queries.append(query)
         return ProcedureRunnablePage()
+
+
+@dataclass(slots=True)
+class _FakePlanner:
+    calls: list[tuple[object, ...]]
+    result: ProcedurePlannerCycleResult
+
+    def cycle(self, stop: Event | None = None) -> ProcedurePlannerCycleResult:
+        self.calls.append(("plan", stop))
+        return self.result
+
+
+def test_cycle_plans_before_due_work_and_surfaces_planner_drift() -> None:
+    operations = _FakeWorkerOperations(
+        ProcedureScheduleDuePage(),
+        ProcedureRunnablePage(),
+    )
+    planner = _FakePlanner(
+        operations.calls,
+        ProcedurePlannerCycleResult(
+            definitions=2,
+            eligible_occurrences=2,
+            existing_schedules=1,
+            created_schedules=1,
+            reconciled_schedules=0,
+            drifted_schedules=1,
+            failures=2,
+            has_more=False,
+        ),
+    )
+
+    result = ProjectProcedureWorkerLoop(operations, planner=planner).cycle()
+
+    assert result.eligible_interval_occurrences == 2
+    assert result.created_interval_schedules == 1
+    assert result.existing_interval_schedules == 1
+    assert result.reconciled_interval_schedules == 0
+    assert result.interval_schedule_drifts == 1
+    assert result.planner_failures == 2
+    assert operations.calls == [
+        ("plan", None),
+        ("due", 50, None, None),
+        ("runnable", 50),
+    ]
 
 
 def test_cycle_materializes_before_dispatch_and_continues_known_races() -> None:
@@ -566,6 +612,7 @@ def test_lab_procedure_operations_expose_exact_schedule_and_capability_api() -> 
         config=cast("LabConfigOperations", object()),
         session=cast("ProcedureLabSession", object()),
         registry=ProcedureRegistry((SCHEDULED,)),
+        schedule_registry=ProcedureScheduleRegistry(),
         worker_id="worker-test",
     )
     intent = ScheduledIntent(value=7)
@@ -657,6 +704,7 @@ def test_lab_procedure_operations_resume_runnable_snapshot(
         config=cast("LabConfigOperations", object()),
         session=cast("ProcedureLabSession", object()),
         registry=ProcedureRegistry((SCHEDULED,)),
+        schedule_registry=ProcedureScheduleRegistry(),
         worker_id="worker-snapshot",
     )
     run = _run("run-snapshot")

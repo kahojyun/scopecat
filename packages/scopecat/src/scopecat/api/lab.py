@@ -13,13 +13,14 @@ from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.analysis import AnalysisContext, AnalysisStep
 from scopecat.api.instruments import LabInstrumentOperations
+from scopecat.api.procedure_planner import ProcedurePlanningContext
 from scopecat.api.procedures import LabProcedureOperations
 from scopecat.api.project_analysis import RemoteProjectAnalysisOperations
 from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.api.review import ExperimentReviewHandle
 from scopecat.api.run import RunHandle, RunHandlePage, run_handle_id
 from scopecat.authoring.experiments import Experiment, ExperimentInvocation
-from scopecat.automation import ProcedureRegistry
+from scopecat.automation import ProcedureRegistry, ProcedureScheduleRegistry
 from scopecat.config.candidates import CandidateConfig
 from scopecat.control.models import ControlRunState
 from scopecat.daemon.client import DaemonClient
@@ -123,6 +124,9 @@ class LabClient:
         build_experiment_system: ExperimentSystemBuilder | None = None,
         config: ConfigProfileSnapshot | None = None,
         procedures: ProcedureRegistry | None = None,
+        procedure_schedules: (
+            ProcedureScheduleRegistry[ProcedurePlanningContext] | None
+        ) = None,
         operator: str = "operator",
     ) -> None:
         self._owns_client = isinstance(daemon, str)
@@ -147,6 +151,11 @@ class LabClient:
             config=self._config,
             session=self,
             registry=procedures if procedures is not None else ProcedureRegistry(),
+            schedule_registry=(
+                procedure_schedules
+                if procedure_schedules is not None
+                else ProcedureScheduleRegistry()
+            ),
         )
 
     def __enter__(self) -> Self:

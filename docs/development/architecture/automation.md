@@ -140,14 +140,46 @@ lower-sequence schedule that became due after the prior cursor passed it. A
 still-pending materialization conflict therefore cannot pin all later due
 schedules behind the first bounded page.
 
-`--once` performs one bounded cycle for manual operation and testing. The
-resident form polls with interruptible waits and exponential control-plane
-backoff. There is intentionally no interval or cron model yet. A future interval
-trigger should materialize a separately auditable exact one-shot occurrence for
-each selected slot rather than execute a mutable intent directly. Shutdown stops
-new polling on `SIGINT` or `SIGTERM` but currently waits for the active procedure
-to return; there is no step-boundary yield or mid-effect cancellation contract
-yet.
+Before due discovery, the same project worker evaluates an immutable
+`ProcedureScheduleRegistry`. Its first recurring trigger is deliberately narrow:
+an aware UTC anchor plus a fixed positive `timedelta`. Evaluation selects only
+the latest due ordinal in constant time. It neither expands every missed slot
+nor creates a future occurrence before its due time. Cron, civil-time zones,
+DST policy, and catch-up-all remain outside this contract.
+There is no durable series cursor yet: if the project wall clock moves backward,
+the latest-only calculation can select an older ordinal that was never
+materialized. Exact IDs still deduplicate ordinals that do exist, but deployments
+must provide a trustworthy UTC clock until an explicit clock-watermark policy is
+added.
+
+Each selected interval slot becomes an ordinary exact one-shot schedule. Its ID
+depends only on the logical schedule ID, schedule version, and ordinal—not on
+the current procedure fingerprint, active configuration, or generated intent.
+The planner first reopens that ID. Only a definite not-found result may invoke
+the context-aware intent builder, whose context exposes read-only exact
+configuration views. This ordering makes an existing occurrence authoritative
+after restart or rolling code changes and prevents rebuilding the same slot from
+mutable configuration. A concurrent create conflict or lost response is
+reconciled by reopening the same ID. A different due time or exact procedure ref
+under that existing shell is reported as drift and never overwritten.
+
+The only overlap policy is currently `enqueue`: a newly selected slot is admitted
+independently even if the previous occurrence has not closed. The registry
+allows only one active version for a logical schedule ID, so registering v1 and
+v2 together cannot accidentally double a stream. Removing or upgrading a
+definition does not cancel one-shots already committed to the daemon. The
+explicit schedule version is the policy compatibility boundary: changing its
+builder, anchor, interval, target procedure, or overlap policy requires a version
+bump. Reusing a version with a different shell is reported as drift for an
+existing ordinal; future ordinals otherwise have no historical spec to compare.
+
+`--once` performs one bounded plan-materialize-dispatch cycle for manual
+operation and testing. The resident form polls with interruptible waits and
+exponential control-plane backoff. Shutdown stops new work on `SIGINT` or
+`SIGTERM`. An already-started effect completes and checkpoints; at the next
+durable step boundary the worker releases the procedure ready for another exact
+worker. If there is no next step, the procedure closes successfully. There is no
+mid-effect cancellation contract.
 
 ## Capabilities needed at larger chip scale
 
@@ -163,9 +195,9 @@ requires additional control-plane concepts, not a larger procedure function:
   calibrations do not publish whole-device snapshots over one another;
 - explicit quality gates, approval policy, stop conditions, and rollback to an
   exact entry rather than a relative undo;
-- recurring scheduling and worker-fleet discovery, including version
-  availability, worker heartbeats, maintenance windows, and operator attention
-  queues;
+- richer recurring scheduling and worker-fleet discovery, including cron/civil
+  time, version availability, worker heartbeats, maintenance windows, and
+  operator attention queues;
 - bounded procedure, cohort, and lineage queries plus aggregate progress and
   failure summaries for the project console;
 - operation receipts for other mutating non-run effects, including inventory
@@ -183,8 +215,8 @@ The next safe increments are:
 
 1. add immutable cohorts, freshness/dependency evaluation, and bounded fan-out;
 2. add policy gates and hierarchical proposal merge for device-wide campaigns;
-3. add interval materialization only when missed-slot and maintenance-window
-   policy are explicit.
+3. extend fixed-UTC latest-only intervals with explicit maintenance-window and
+   richer missed-slot policies only when operators require them.
 
 A DAG becomes useful only when fan-out and dependency scheduling are real
 requirements. Until then, persisted imperative checkpoints remain the smaller
