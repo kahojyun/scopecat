@@ -9,6 +9,16 @@ from scopecat.automation.definition import (
     RegisteredProcedure,
     procedure,
 )
+from scopecat.automation.intervals import (
+    MAX_PROCEDURE_SCHEDULE_REGISTRY_SIZE,
+    IntervalOccurrence,
+    IntervalTrigger,
+    ProcedureScheduleDefinition,
+    ProcedureScheduleRegistry,
+    RegisteredProcedureSchedule,
+    interval_occurrence_schedule_id,
+    interval_schedule,
+)
 from scopecat.automation.models import (
     AnalysisPublicationOutputRef,
     AnalysisPublicationWait,
@@ -91,10 +101,13 @@ from scopecat.automation.worker import (
 
 __all__ = [
     "MAX_PROCEDURE_REGISTRY_SIZE",
+    "MAX_PROCEDURE_SCHEDULE_REGISTRY_SIZE",
     "AnalysisPublicationOutputRef",
     "AnalysisPublicationWait",
     "ConfigActivationOutputRef",
     "ConfigPublishOutputRef",
+    "IntervalOccurrence",
+    "IntervalTrigger",
     "ProcedureCloseCommand",
     "ProcedureCloseReceipt",
     "ProcedureCloseStatus",
@@ -124,6 +137,7 @@ __all__ = [
     "ProcedureScheduleCancellation",
     "ProcedureScheduleCreateCommand",
     "ProcedureScheduleCreateReceipt",
+    "ProcedureScheduleDefinition",
     "ProcedureScheduleDuePage",
     "ProcedureScheduleDueQuery",
     "ProcedureScheduleListQuery",
@@ -131,6 +145,7 @@ __all__ = [
     "ProcedureScheduleMaterializeCommand",
     "ProcedureScheduleMaterializeReceipt",
     "ProcedureSchedulePage",
+    "ProcedureScheduleRegistry",
     "ProcedureScheduleState",
     "ProcedureStepAttempt",
     "ProcedureStepAttemptListQuery",
@@ -160,8 +175,11 @@ __all__ = [
     "ProcedureWorkerLeaseReleaseCommand",
     "ProcedureWorkerLeaseReleaseReceipt",
     "RegisteredProcedure",
+    "RegisteredProcedureSchedule",
     "RunOutputRef",
     "RunTerminalWait",
+    "interval_occurrence_schedule_id",
+    "interval_schedule",
     "procedure",
     "procedure_intent_hash",
     "procedure_schedule_request_key",
