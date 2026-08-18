@@ -1,0 +1,260 @@
+"""Application service for atomic calibration-cohort admission."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
+from datetime import UTC, datetime
+
+from scopecat.automation.calibration_wire import (
+    CalibrationCohortCreateCommand,
+    CalibrationCohortCreateReceipt,
+    CalibrationCohortGetQuery,
+    CalibrationCohortGetReceipt,
+    CalibrationCohortListQuery,
+    CalibrationCohortMemberListQuery,
+    CalibrationCohortMemberPage,
+    CalibrationCohortPage,
+    CalibrationStatusQuery,
+    CalibrationStatusReceipt,
+)
+from scopecat.automation.calibrations import (
+    CalibrationCohort,
+    CalibrationCohortMember,
+    calibration_cohort_member_request_key,
+)
+
+from scopecat_server.storage.sqlite.automation import (
+    AutomationConflict,
+    AutomationNotFound,
+)
+from scopecat_server.storage.sqlite.calibration_cohorts import (
+    CalibrationCohortConflict,
+    CalibrationCohortNotFound,
+    SQLiteCalibrationCohortStore,
+)
+from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
+
+from ..errors import BackendConflict, BackendNotFound
+from .automation import AutomationService
+
+
+class CalibrationCohortService:
+    """Own consistent status reads and all-or-nothing cohort admission."""
+
+    def __init__(
+        self,
+        store: SQLiteCalibrationCohortStore,
+        automation: AutomationService,
+        config_registry: SQLiteConfigRegistryStore,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._store = store
+        self._automation = automation
+        self._config_registry = config_registry
+        self._clock = clock or _utc_now
+
+    def status(self, query: CalibrationStatusQuery) -> CalibrationStatusReceipt:
+        with (
+            _translate_store_errors(),
+            self._store.read_transaction() as connection,
+        ):
+            snapshot = self._store.status_snapshot_in_transaction(
+                connection,
+                query.calibration_keys,
+                fanout_scope=query.fanout_scope,
+                clock=self._now,
+            )
+        return CalibrationStatusReceipt(snapshot=snapshot)
+
+    def create(
+        self,
+        command: CalibrationCohortCreateCommand,
+    ) -> CalibrationCohortCreateReceipt:
+        with (
+            _translate_store_errors(),
+            self._store.write_transaction() as connection,
+        ):
+            try:
+                existing = self._store.read_in_transaction(
+                    connection,
+                    command.cohort_id,
+                )
+            except CalibrationCohortNotFound:
+                existing = None
+            if existing is not None:
+                if (
+                    existing.spec_hash != command.spec_hash
+                    or existing.spec != command.spec
+                ):
+                    raise CalibrationCohortConflict(
+                        "calibration cohort id already has a different specification"
+                    )
+                return CalibrationCohortCreateReceipt(
+                    cohort=existing,
+                    members=self._store.list_members_in_transaction(
+                        connection,
+                        existing.cohort_id,
+                    ),
+                )
+
+            expected_generation = command.spec.config_source.registry_generation
+            with self._config_registry.borrowed_unit_of_work(connection) as work:
+                activation = work.registry.read_latest_activation()
+                entry = (
+                    None
+                    if activation is None
+                    else work.registry.read_entry(activation.entry_id)
+                )
+            source = command.spec.config_source
+            if (
+                activation is None
+                or entry is None
+                or source.selector != "active"
+                or activation.generation != expected_generation
+                or activation.entry_id != source.entry_id
+                or activation.entry_content_hash != source.content_hash
+                or entry.id != source.entry_id
+                or entry.config_ref != source.config_ref
+                or entry.content_hash != source.content_hash
+            ):
+                raise CalibrationCohortConflict(
+                    "calibration cohort config registry source changed"
+                )
+
+            now = self._now()
+            observed = self._store.status_snapshot_in_transaction(
+                connection,
+                tuple(
+                    observation.calibration_key
+                    for observation in command.spec.observations
+                ),
+                fanout_scope=command.spec.fanout_scope,
+                clock=lambda: now,
+            )
+            if observed.statuses != command.spec.observations:
+                raise CalibrationCohortConflict(
+                    "calibration cohort status observations changed"
+                )
+            observations_by_key = {
+                observation.calibration_key: observation
+                for observation in observed.statuses
+            }
+            if any(
+                (attempt := observations_by_key[member.calibration_key].latest_attempt)
+                is not None
+                and attempt.procedure_state != "closed"
+                for member in command.spec.members
+            ):
+                raise CalibrationCohortConflict(
+                    "calibration cohort member already has an active attempt"
+                )
+            if (
+                observed.fanout_active_count
+                != command.spec.observed_fanout_active_count
+            ):
+                raise CalibrationCohortConflict(
+                    "calibration cohort fanout activity changed"
+                )
+            if (
+                observed.fanout_active_count + len(command.spec.members)
+                > command.spec.max_in_flight
+            ):
+                raise CalibrationCohortConflict(
+                    "calibration cohort exceeds current fanout capacity"
+                )
+
+            cohort = CalibrationCohort(
+                cohort_id=command.cohort_id,
+                spec=command.spec,
+                spec_hash=command.spec_hash,
+                created_at=now,
+            )
+            self._store.insert_cohort_in_transaction(connection, cohort)
+            members: list[CalibrationCohortMember] = []
+            for index, member_spec in enumerate(command.spec.members):
+                request_key = calibration_cohort_member_request_key(
+                    command.cohort_id,
+                    member_spec,
+                )
+                run = self._automation.submit_in_transaction(
+                    connection,
+                    definition=member_spec.procedure,
+                    request_key=request_key,
+                    intent=member_spec.intent,
+                    at=now,
+                    require_new=True,
+                )
+                member = CalibrationCohortMember(
+                    cohort_id=command.cohort_id,
+                    index=index,
+                    spec=member_spec,
+                    procedure_run_id=run.procedure_run_id,
+                    request_key=request_key,
+                    admitted_at=now,
+                )
+                self._store.insert_member_in_transaction(connection, member)
+                members.append(member)
+            return CalibrationCohortCreateReceipt(
+                cohort=cohort,
+                members=tuple(members),
+            )
+
+    def get(self, query: CalibrationCohortGetQuery) -> CalibrationCohortGetReceipt:
+        with _translate_store_errors():
+            cohort = self._store.read(query.cohort_id)
+        return CalibrationCohortGetReceipt(cohort=cohort)
+
+    def list(self, query: CalibrationCohortListQuery) -> CalibrationCohortPage:
+        with _translate_store_errors():
+            page = self._store.list(
+                limit=query.limit,
+                before=query.cursor,
+                fanout_scope=query.fanout_scope,
+            )
+        return CalibrationCohortPage(
+            items=page.items,
+            next_cursor=page.next_cursor,
+        )
+
+    def list_members(
+        self,
+        query: CalibrationCohortMemberListQuery,
+    ) -> CalibrationCohortMemberPage:
+        with _translate_store_errors():
+            page = self._store.list_members(
+                query.cohort_id,
+                limit=query.limit,
+                after=query.cursor,
+            )
+        return CalibrationCohortMemberPage(
+            cohort_id=query.cohort_id,
+            items=page.items,
+            next_cursor=page.next_cursor,
+        )
+
+    def _now(self) -> datetime:
+        value = self._clock()
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError(
+                "calibration cohort clock must return a timezone-aware datetime"
+            )
+        return value.astimezone(UTC)
+
+
+@contextmanager
+def _translate_store_errors() -> Generator[None]:
+    try:
+        yield
+    except (CalibrationCohortNotFound, AutomationNotFound) as error:
+        raise BackendNotFound(str(error)) from error
+    except (CalibrationCohortConflict, AutomationConflict) as error:
+        raise BackendConflict(str(error)) from error
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+__all__ = ["CalibrationCohortService"]

@@ -55,6 +55,17 @@ from scopecat.automation import (
     ProcedureWorkerLeaseReleaseCommand,
     ProcedureWorkerLeaseReleaseReceipt,
 )
+from scopecat.automation.calibration_wire import (
+    CalibrationCohortCreateCommand,
+    CalibrationCohortCreateReceipt,
+    CalibrationCohortGetReceipt,
+    CalibrationCohortListQuery,
+    CalibrationCohortMemberListQuery,
+    CalibrationCohortMemberPage,
+    CalibrationCohortPage,
+    CalibrationStatusQuery,
+    CalibrationStatusReceipt,
+)
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
@@ -344,6 +355,66 @@ class DaemonClient:
             f"{_API_PREFIX}/procedures",
             command,
             ProcedureSubmitReceipt,
+        )
+
+    def query_calibration_status(
+        self,
+        query: CalibrationStatusQuery,
+    ) -> CalibrationStatusReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/calibration-status/query",
+            query,
+            CalibrationStatusReceipt,
+        )
+
+    def create_calibration_cohort(
+        self,
+        command: CalibrationCohortCreateCommand,
+    ) -> CalibrationCohortCreateReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/calibration-cohorts",
+            command,
+            CalibrationCohortCreateReceipt,
+        )
+
+    def get_calibration_cohort(
+        self,
+        cohort_id: str,
+    ) -> CalibrationCohortGetReceipt:
+        return self._get_model(
+            (f"{_API_PREFIX}/calibration-cohorts/by-id/{quote(cohort_id, safe='')}"),
+            CalibrationCohortGetReceipt,
+        )
+
+    def list_calibration_cohorts(
+        self,
+        query: CalibrationCohortListQuery,
+    ) -> CalibrationCohortPage:
+        params: dict[str, str | int] = {"limit": query.limit}
+        if query.cursor is not None:
+            params["cursor"] = query.cursor
+        if query.fanout_scope is not None:
+            params["fanout_scope"] = query.fanout_scope
+        return self._get_model(
+            f"{_API_PREFIX}/calibration-cohorts",
+            CalibrationCohortPage,
+            params=params,
+        )
+
+    def list_calibration_cohort_members(
+        self,
+        query: CalibrationCohortMemberListQuery,
+    ) -> CalibrationCohortMemberPage:
+        params: dict[str, str | int] = {"limit": query.limit}
+        if query.cursor is not None:
+            params["cursor"] = query.cursor
+        return self._get_model(
+            (
+                f"{_API_PREFIX}/calibration-cohort-members/by-cohort/"
+                f"{quote(query.cohort_id, safe='')}"
+            ),
+            CalibrationCohortMemberPage,
+            params=params,
         )
 
     def list_procedures(

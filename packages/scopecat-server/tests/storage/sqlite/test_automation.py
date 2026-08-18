@@ -146,7 +146,7 @@ def test_store_bounds_step_history_and_enforces_one_running_attempt(
     ).items == (succeeded,)
 
 
-def test_v41_round_trips_config_publish_step_attempt(tmp_path: Path) -> None:
+def test_v42_round_trips_config_publish_step_attempt(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run()
     running = _attempt(step_key="accept-candidate").model_copy(

@@ -57,6 +57,18 @@ from scopecat.automation import (
     ProcedureWorkerLeaseReleaseCommand,
     ProcedureWorkerLeaseReleaseReceipt,
 )
+from scopecat.automation.calibration_wire import (
+    CalibrationCohortCreateCommand,
+    CalibrationCohortCreateReceipt,
+    CalibrationCohortGetQuery,
+    CalibrationCohortGetReceipt,
+    CalibrationCohortListQuery,
+    CalibrationCohortMemberListQuery,
+    CalibrationCohortMemberPage,
+    CalibrationCohortPage,
+    CalibrationStatusQuery,
+    CalibrationStatusReceipt,
+)
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
@@ -563,6 +575,52 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         command: ProcedureSubmitCommand,
     ) -> ProcedureSubmitReceipt:
         return application.automation.submit(command)
+
+    @app.post(f"{_API_PREFIX}/calibration-status/query")
+    def query_calibration_status(
+        query: CalibrationStatusQuery,
+    ) -> CalibrationStatusReceipt:
+        return application.calibration_cohorts.status(query)
+
+    @app.post(f"{_API_PREFIX}/calibration-cohorts", status_code=201)
+    def create_calibration_cohort(
+        command: CalibrationCohortCreateCommand,
+    ) -> CalibrationCohortCreateReceipt:
+        return application.calibration_cohorts.create(command)
+
+    @app.get(f"{_API_PREFIX}/calibration-cohorts")
+    def list_calibration_cohorts(
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+        cursor: Annotated[int | None, Query(ge=1)] = None,
+        fanout_scope: Annotated[str | None, Query(min_length=1)] = None,
+    ) -> CalibrationCohortPage:
+        return application.calibration_cohorts.list(
+            CalibrationCohortListQuery(
+                limit=limit,
+                cursor=cursor,
+                fanout_scope=fanout_scope,
+            )
+        )
+
+    @app.get(f"{_API_PREFIX}/calibration-cohort-members/by-cohort/{{cohort_id:path}}")
+    def list_calibration_cohort_members(
+        cohort_id: str,
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+        cursor: Annotated[int | None, Query(ge=0)] = None,
+    ) -> CalibrationCohortMemberPage:
+        return application.calibration_cohorts.list_members(
+            CalibrationCohortMemberListQuery(
+                cohort_id=cohort_id,
+                limit=limit,
+                cursor=cursor,
+            )
+        )
+
+    @app.get(f"{_API_PREFIX}/calibration-cohorts/by-id/{{cohort_id:path}}")
+    def get_calibration_cohort(cohort_id: str) -> CalibrationCohortGetReceipt:
+        return application.calibration_cohorts.get(
+            CalibrationCohortGetQuery(cohort_id=cohort_id)
+        )
 
     @app.post(f"{_API_PREFIX}/procedure-schedules", status_code=201)
     def create_procedure_schedule(

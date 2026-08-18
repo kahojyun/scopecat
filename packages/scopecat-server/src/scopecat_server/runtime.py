@@ -28,6 +28,7 @@ from scopecat_server.services.admission import AdmissionService
 from scopecat_server.services.analyses import AnalysisService
 from scopecat_server.services.application import DaemonApplication
 from scopecat_server.services.automation import AutomationService
+from scopecat_server.services.calibration_cohorts import CalibrationCohortService
 from scopecat_server.services.config import ConfigService
 from scopecat_server.services.executor import ExecutorService
 from scopecat_server.services.leases import OwnershipLeaseSupervisor
@@ -37,6 +38,9 @@ from scopecat_server.services.reviews import ReviewService
 from scopecat_server.services.runs import RunService
 from scopecat_server.storage.sqlite.analysis_repository import SQLiteAnalysisRepository
 from scopecat_server.storage.sqlite.automation import SQLiteAutomationStore
+from scopecat_server.storage.sqlite.calibration_cohorts import (
+    SQLiteCalibrationCohortStore,
+)
 from scopecat_server.storage.sqlite.config_operations import SQLiteConfigOperationStore
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
@@ -116,6 +120,7 @@ class LocalDaemonRuntime:
 
             control = SQLiteControlPlane(sqlite)
             automation_store = SQLiteAutomationStore(sqlite)
+            calibration_cohort_store = SQLiteCalibrationCohortStore(sqlite)
             procedure_schedule_store = SQLiteProcedureScheduleStore(sqlite)
             runs = SQLiteRunRepository(sqlite, objects)
             analyses = SQLiteAnalysisRepository(sqlite, objects)
@@ -133,6 +138,11 @@ class LocalDaemonRuntime:
             active_measurements = ActiveMeasurementStore()
             reviews = ReviewService()
             automation = AutomationService(automation_store)
+            calibration_cohorts = CalibrationCohortService(
+                calibration_cohort_store,
+                automation,
+                config_registry,
+            )
             procedure_schedules = ProcedureScheduleService(
                 procedure_schedule_store,
                 automation,
@@ -204,6 +214,7 @@ class LocalDaemonRuntime:
                 lease_supervisor=lease_supervisor,
                 reviews=reviews,
                 automation=automation,
+                calibration_cohorts=calibration_cohorts,
                 procedure_schedules=procedure_schedules,
                 point_plans=point_plans,
             )

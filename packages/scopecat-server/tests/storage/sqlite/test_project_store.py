@@ -21,7 +21,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
     store.bootstrap()
     store.bootstrap()
 
-    assert store.schema_version() == 41
+    assert store.schema_version() == 42
     with sqlite3.connect(database) as connection:
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
         tables = {
@@ -44,6 +44,28 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         procedure_run_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(procedure_runs)")
         }
+        calibration_cohort_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(calibration_cohorts)")
+        }
+        calibration_member_columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(calibration_cohort_members)"
+            )
+        }
+        calibration_member_indexes = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA index_list(calibration_cohort_members)"
+            )
+        }
+        triggers = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_schema WHERE type = 'trigger'"
+            )
+        }
     assert journal_mode == ("wal",)
     assert {
         "project_schema",
@@ -60,6 +82,8 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         "procedure_step_attempts",
         "procedure_leases",
         "procedure_schedules",
+        "calibration_cohorts",
+        "calibration_cohort_members",
         "config_registry_entries",
         "config_registry_activations",
         "config_operations",
@@ -73,7 +97,22 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         "definition_id",
         "definition_version",
         "definition_fingerprint",
+        "closure_status",
+        "closed_at",
     } <= procedure_run_columns
+    assert {
+        "planner_id",
+        "fanout_scope",
+        "member_count",
+        "config_generation",
+        "cohort_json",
+    } <= calibration_cohort_columns
+    assert {"sequence", "closure_status", "closed_at"} <= calibration_member_columns
+    assert {
+        "calibration_cohort_members_key_sequence",
+        "calibration_cohort_members_success_key_sequence",
+    } <= calibration_member_indexes
+    assert "calibration_cohort_members_sync_terminal_closure" in triggers
 
 
 @pytest.mark.parametrize("version", (0, 99))
@@ -132,6 +171,28 @@ def test_bootstrap_refuses_v40_before_procedure_schedule_boundary(
 
     store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
     with pytest.raises(SchemaVersionError, match="version: 40"):
+        store.bootstrap()
+
+
+def test_bootstrap_refuses_v41_before_calibration_cohort_boundary(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "control.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            CREATE TABLE project_schema (
+                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                version INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO project_schema(singleton, version) VALUES (1, 41)"
+        )
+
+    store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
+    with pytest.raises(SchemaVersionError, match="version: 41"):
         store.bootstrap()
 
 

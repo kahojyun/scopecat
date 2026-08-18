@@ -13,10 +13,27 @@ CREATE TABLE IF NOT EXISTS procedure_runs (
     state TEXT NOT NULL CHECK (
         state IN ('ready', 'leased', 'waiting', 'attention_required', 'closed')
     ),
+    closure_status TEXT CHECK (
+        closure_status IS NULL
+        OR closure_status IN ('succeeded', 'failed', 'cancelled')
+    ),
+    closed_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     run_json TEXT NOT NULL,
-    UNIQUE (definition_id, request_key)
+    UNIQUE (definition_id, request_key),
+    CHECK (
+        (
+            state = 'closed'
+            AND closure_status IS NOT NULL
+            AND closed_at IS NOT NULL
+        )
+        OR (
+            state <> 'closed'
+            AND closure_status IS NULL
+            AND closed_at IS NULL
+        )
+    )
 );
 
 CREATE INDEX IF NOT EXISTS procedure_runs_state_sequence

@@ -241,9 +241,10 @@ class SQLiteAutomationStore:
                 INSERT INTO procedure_runs(
                     procedure_run_id, definition_id, definition_version,
                     definition_fingerprint, request_key, intent_hash, revision,
-                    state, created_at, updated_at, run_json
+                    state, closure_status, closed_at, created_at, updated_at,
+                    run_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.procedure_run_id,
@@ -254,6 +255,12 @@ class SQLiteAutomationStore:
                     run.intent_hash,
                     run.revision,
                     run.state,
+                    None if run.closure is None else run.closure.status,
+                    (
+                        None
+                        if run.closure is None
+                        else _timestamp(run.closure.closed_at)
+                    ),
                     _timestamp(run.created_at),
                     _timestamp(run.updated_at),
                     run.model_dump_json(),
@@ -287,12 +294,15 @@ class SQLiteAutomationStore:
         updated = connection.execute(
             """
             UPDATE procedure_runs SET
-                revision = ?, state = ?, updated_at = ?, run_json = ?
+                revision = ?, state = ?, closure_status = ?, closed_at = ?,
+                updated_at = ?, run_json = ?
             WHERE procedure_run_id = ? AND revision = ?
             """,
             (
                 run.revision,
                 run.state,
+                None if run.closure is None else run.closure.status,
+                (None if run.closure is None else _timestamp(run.closure.closed_at)),
                 _timestamp(run.updated_at),
                 run.model_dump_json(),
                 run.procedure_run_id,
