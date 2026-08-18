@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event
 from typing import cast
 
 import httpx2
@@ -17,6 +18,7 @@ from scopecat.automation import (
     ConfigActivationOutputRef,
     ProcedureCloseCommand,
     ProcedureContext,
+    ProcedureControlError,
     ProcedureDefinitionRef,
     ProcedureRegistry,
     ProcedureRun,
@@ -62,10 +64,24 @@ class _ActivationWorkerIntent(BaseModel):
     expected_generation: int
 
 
+class _TwoStepWorkerIntent(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    first_run_id: str
+    second_run_id: str
+
+
 @dataclass(frozen=True, slots=True)
 class _WorkerContext:
     durable: ProcedureContext
     effect: Callable[[str], RunOutputRef]
+
+
+@dataclass(frozen=True, slots=True)
+class _TwoStepWorkerContext:
+    durable: ProcedureContext
+    first_effect: Callable[[str], RunOutputRef]
+    second_effect: Callable[[str], RunOutputRef]
 
 
 def _run_one_durable_step(context: _WorkerContext, intent: _WorkerIntent) -> None:
@@ -84,6 +100,36 @@ _ONE_STEP_PROCEDURE = procedure(
     version="1",
     intent=_WorkerIntent,
 )(_run_one_durable_step)
+
+
+def _run_two_durable_steps(
+    context: _TwoStepWorkerContext,
+    intent: _TwoStepWorkerIntent,
+) -> None:
+    first = context.durable.step(
+        "first",
+        operation="run",
+        intent_hash=_FIRST_STEP_HASH,
+        effect=context.first_effect,
+    )
+    if first.run_id != intent.first_run_id:
+        raise ValueError("first durable child run does not match procedure intent")
+    second = context.durable.step(
+        "second",
+        operation="run",
+        intent_hash=_SECOND_STEP_HASH,
+        effect=context.second_effect,
+        inputs=(first,),
+    )
+    if second.run_id != intent.second_run_id:
+        raise ValueError("second durable child run does not match procedure intent")
+
+
+_TWO_STEP_PROCEDURE = procedure(
+    id="tests.http-two-step",
+    version="1",
+    intent=_TwoStepWorkerIntent,
+)(_run_two_durable_steps)
 
 
 @procedure(
@@ -479,6 +525,172 @@ def test_daemon_client_drives_core_worker_and_replays_closed_procedure(
         assert operation_ids == [expected_operation_id]
 
 
+def test_core_worker_yields_over_http_and_an_exact_worker_resumes(
+    tmp_path: Path,
+) -> None:
+    stop = Event()
+    effects: list[tuple[str, str]] = []
+    release_commands: list[ProcedureWorkerLeaseReleaseCommand] = []
+    context_factory = _two_step_context_factory(stop=stop, effects=effects)
+
+    with (
+        LocalDaemonRuntime(tmp_path) as runtime,
+        TestClient(runtime.app()) as transport,
+        _daemon_client(
+            transport,
+            release_commands=release_commands,
+        ) as client,
+    ):
+        submitted = client.submit_procedure(
+            ProcedureSubmitCommand(
+                request_key="http-yield",
+                definition=_TWO_STEP_PROCEDURE.ref,
+                intent=_TWO_STEP_PROCEDURE.encode_intent(
+                    {
+                        "first_run_id": "first-child",
+                        "second_run_id": "second-child",
+                    }
+                ),
+            )
+        ).run
+        yielded = ProcedureWorker(
+            client,
+            ProcedureRegistry((_TWO_STEP_PROCEDURE,)),
+            context_factory=context_factory,
+        ).resume_snapshot(
+            submitted,
+            worker_id="http-yield-worker-1",
+            should_yield=stop.is_set,
+        )
+
+        assert yielded.state == "ready"
+        assert yielded.closure is None
+        assert [label for label, _ in effects] == ["first"]
+        [release] = release_commands
+        with pytest.raises(DaemonConflictError, match="leased"):
+            client.heartbeat_procedure_worker_lease(
+                ProcedureWorkerLeaseHeartbeatCommand(
+                    procedure_run_id=release.procedure_run_id,
+                    lease_token=release.lease_token,
+                )
+            )
+
+        stop.clear()
+        completed = ProcedureWorker(
+            client,
+            ProcedureRegistry((_TWO_STEP_PROCEDURE,)),
+            context_factory=context_factory,
+        ).resume_snapshot(
+            yielded,
+            worker_id="http-yield-worker-2",
+        )
+
+        assert completed.state == "closed"
+        assert completed.closure is not None
+        assert completed.closure.status == "succeeded"
+        assert [label for label, _ in effects] == ["first", "second"]
+        attempts = client.list_procedure_step_attempts(
+            completed.procedure_run_id,
+            ProcedureStepAttemptListQuery(),
+        ).items
+        assert tuple(item.step_key for item in attempts) == ("second", "first")
+        assert all(item.state == "succeeded" for item in attempts)
+
+
+def test_core_worker_recovers_after_two_lost_release_responses(
+    tmp_path: Path,
+) -> None:
+    stop = Event()
+    effects: list[tuple[str, str]] = []
+    release_commands: list[ProcedureWorkerLeaseReleaseCommand] = []
+    requests: list[tuple[str, str]] = []
+    context_factory = _two_step_context_factory(stop=stop, effects=effects)
+
+    with (
+        LocalDaemonRuntime(tmp_path) as runtime,
+        TestClient(runtime.app()) as transport,
+        _daemon_client(
+            transport,
+            lose_procedure_release_responses=2,
+            release_commands=release_commands,
+            request_log=requests,
+        ) as client,
+    ):
+        submitted = client.submit_procedure(
+            ProcedureSubmitCommand(
+                request_key="http-yield-response-loss",
+                definition=_TWO_STEP_PROCEDURE.ref,
+                intent=_TWO_STEP_PROCEDURE.encode_intent(
+                    {
+                        "first_run_id": "first-child",
+                        "second_run_id": "second-child",
+                    }
+                ),
+            )
+        ).run
+        worker = ProcedureWorker(
+            client,
+            ProcedureRegistry((_TWO_STEP_PROCEDURE,)),
+            context_factory=context_factory,
+        )
+
+        with pytest.raises(
+            ProcedureControlError,
+            match="release_procedure_worker_lease",
+        ):
+            worker.resume_snapshot(
+                submitted,
+                worker_id="http-yield-lost-worker",
+                should_yield=stop.is_set,
+            )
+
+        durable = client.get_procedure(submitted.procedure_run_id)
+        assert durable.state == "ready"
+        assert durable.closure is None
+        assert [label for label, _ in effects] == ["first"]
+        assert len(release_commands) == 2
+        assert release_commands[0] == release_commands[1]
+        release_path = (
+            f"/api/v1/procedures/{submitted.procedure_run_id}/worker/lease/release"
+        )
+        assert requests.count(("POST", release_path)) == 2
+        with pytest.raises(DaemonConflictError, match="leased"):
+            client.heartbeat_procedure_worker_lease(
+                ProcedureWorkerLeaseHeartbeatCommand(
+                    procedure_run_id=release_commands[0].procedure_run_id,
+                    lease_token=release_commands[0].lease_token,
+                )
+            )
+
+    stop.clear()
+    with (
+        LocalDaemonRuntime(tmp_path) as restarted,
+        TestClient(restarted.app()) as transport,
+        _daemon_client(transport) as client,
+    ):
+        durable = client.get_procedure(submitted.procedure_run_id)
+        completed = ProcedureWorker(
+            client,
+            ProcedureRegistry((_TWO_STEP_PROCEDURE,)),
+            context_factory=context_factory,
+        ).resume_snapshot(
+            durable,
+            worker_id="http-yield-restarted-worker",
+        )
+
+        assert completed.state == "closed"
+        assert completed.closure is not None
+        assert completed.closure.status == "succeeded"
+        assert [label for label, _ in effects] == ["first", "second"]
+        assert len({operation_id for _, operation_id in effects}) == 2
+        attempts = client.list_procedure_step_attempts(
+            completed.procedure_run_id,
+            ProcedureStepAttemptListQuery(),
+        ).items
+        assert tuple(item.step_key for item in attempts) == ("second", "first")
+        assert all(item.state == "succeeded" for item in attempts)
+
+
 def test_procedure_config_activation_recovers_two_lost_http_responses(
     tmp_path: Path,
 ) -> None:
@@ -571,18 +783,53 @@ def test_procedure_config_activation_recovers_two_lost_http_responses(
         assert all(path != "/api/v1/config-registry/undo" for _, path in requests)
 
 
+def _two_step_context_factory(
+    *,
+    stop: Event,
+    effects: list[tuple[str, str]],
+) -> Callable[[ProcedureContext], object]:
+    def first_effect(operation_id: str) -> RunOutputRef:
+        effects.append(("first", operation_id))
+        stop.set()
+        return RunOutputRef(run_id="first-child")
+
+    def second_effect(operation_id: str) -> RunOutputRef:
+        effects.append(("second", operation_id))
+        return RunOutputRef(run_id="second-child")
+
+    def factory(durable: ProcedureContext) -> object:
+        return _TwoStepWorkerContext(
+            durable=durable,
+            first_effect=first_effect,
+            second_effect=second_effect,
+        )
+
+    return factory
+
+
 def _daemon_client(
     transport: TestClient,
     *,
     lose_config_activation_responses: int = 0,
+    lose_procedure_release_responses: int = 0,
+    release_commands: list[ProcedureWorkerLeaseReleaseCommand] | None = None,
     request_log: list[tuple[str, str]] | None = None,
 ) -> DaemonClient:
-    remaining_lost_responses = lose_config_activation_responses
+    remaining_lost_config_responses = lose_config_activation_responses
+    remaining_lost_release_responses = lose_procedure_release_responses
 
     def send(request: httpx2.Request) -> httpx2.Response:
-        nonlocal remaining_lost_responses
+        nonlocal remaining_lost_config_responses
+        nonlocal remaining_lost_release_responses
         if request_log is not None:
             request_log.append((request.method, request.url.path))
+        is_procedure_release = request.method == "POST" and request.url.path.endswith(
+            "/worker/lease/release"
+        )
+        if is_procedure_release and release_commands is not None:
+            release_commands.append(
+                ProcedureWorkerLeaseReleaseCommand.model_validate_json(request.content)
+            )
         response = transport.request(
             request.method,
             request.url.raw_path.decode(),
@@ -592,11 +839,17 @@ def _daemon_client(
         if (
             request.method == "POST"
             and request.url.path == "/api/v1/config-registry/activation-operations"
-            and remaining_lost_responses > 0
+            and remaining_lost_config_responses > 0
         ):
-            remaining_lost_responses -= 1
+            remaining_lost_config_responses -= 1
             raise httpx2.ReadError(
                 "config activation response was lost",
+                request=request,
+            )
+        if is_procedure_release and remaining_lost_release_responses > 0:
+            remaining_lost_release_responses -= 1
+            raise httpx2.ReadError(
+                "procedure lease release response was lost",
                 request=request,
             )
         return httpx2.Response(

@@ -481,7 +481,12 @@ class AutomationService:
         token: str,
         expected_revision: int,
     ) -> ProcedureRun:
-        """Yield a clean procedure checkpoint back to the ready queue."""
+        """Yield replayable procedure state back to the ready queue.
+
+        A crashed worker can leave a running step attempt whose stable operation
+        ID is safe for an exact replacement worker to replay. Releasing the lease
+        therefore does not require the run to be between step attempts.
+        """
 
         now = self._now()
         with (
