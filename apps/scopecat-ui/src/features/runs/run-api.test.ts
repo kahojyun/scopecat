@@ -34,7 +34,7 @@ describe("run daemon reads", () => {
           run_id: "run/1",
           artifact: {
             role: "artifact",
-            id: "analysis-fit-fit-report",
+            id: "analysis-fit-r1-fit-report",
             kind: "analysis_artifact",
             filename: "fit-report.md",
             media_type: "text/markdown",
@@ -46,13 +46,13 @@ describe("run daemon reads", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const download = await getRunArtifactDownload("run/1", "analysis-fit-fit-report");
+    const download = await getRunArtifactDownload("run/1", "analysis-fit-r1-fit-report");
 
     expect(download.filename).toBe("fit-report.md");
     expect(download.blob.type).toBe("text/markdown");
     await expect(download.blob.text()).resolves.toBe("# Fit report\n");
     expect(requestPath(fetchMock.mock.calls[0]![0])).toBe(
-      "/api/v1/runs/run%2F1/artifacts/analysis-fit-fit-report/bytes" +
+      "/api/v1/runs/run%2F1/artifacts/analysis-fit-r1-fit-report/bytes" +
         "?expected_kind=analysis_artifact",
     );
   });
@@ -128,7 +128,7 @@ describe("run daemon reads", () => {
               },
               {
                 role: "record",
-                id: "analysis-fit",
+                id: "analysis-fit-r1",
                 kind: "analysis",
                 content_hash: "sha256:analysis",
               },
@@ -153,7 +153,7 @@ describe("run daemon reads", () => {
         filename: "fit.md",
       },
       {
-        id: "analysis-fit",
+        id: "analysis-fit-r1",
         role: "record",
         kind: "analysis",
         label: "Record 2",
@@ -244,7 +244,7 @@ describe("run daemon reads", () => {
             run_id: "run/1",
             items: [
               {
-                entry: { id: "analysis-fit" },
+                entry: { id: "analysis-fit-r1" },
                 title: "Fit review",
                 key: "fit",
                 revision: 1,
@@ -336,7 +336,7 @@ describe("run daemon reads", () => {
         jsonResponse({
           record: {
             role: "record",
-            id: "analysis-fit",
+            id: "analysis-fit-r1",
             kind: "analysis",
             content_hash: "sha256:analysis",
           },
@@ -350,7 +350,7 @@ describe("run daemon reads", () => {
     const text = await getRunContent("run/1", textArtifact());
     const json = await getRunContent("run/1", jsonArtifact());
     const record = await getRunContent("run/1", {
-      id: "analysis-fit",
+      id: "analysis-fit-r1",
       role: "record",
       kind: "analysis",
       label: "Fit review",
@@ -358,7 +358,7 @@ describe("run daemon reads", () => {
     });
 
     expect(analyses.items[0]).toMatchObject({
-      id: "analysis-fit",
+      id: "analysis-fit-r1",
       title: "Fit review",
       key: "fit",
       inputCount: 1,
@@ -378,7 +378,7 @@ describe("run daemon reads", () => {
       "/api/v1/runs/run%2F1/analyses?limit=100",
       "/api/v1/runs/run%2F1/artifacts/fit-notes/text?expected_kind=attachment",
       "/api/v1/runs/run%2F1/artifacts/fit-result/json?expected_kind=result",
-      "/api/v1/runs/run%2F1/records/analysis-fit/json?expected_kind=analysis",
+      "/api/v1/runs/run%2F1/records/analysis-fit-r1/json?expected_kind=analysis",
     ]);
   });
 

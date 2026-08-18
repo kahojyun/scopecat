@@ -161,7 +161,7 @@ function pendingProposal(overrides: Partial<ParameterProposal> = {}): ParameterP
   return {
     id: "drive-frequency",
     sourceRunId: "run-1",
-    analysisRecordId: "analysis-fit",
+    analysisRecordId: "analysis-fit-r1",
     baseConfigId: "baseline",
     baseContentHash: "sha256:base",
     reason: "Peak moved",

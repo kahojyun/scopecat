@@ -78,7 +78,7 @@ describe("AnalysisOutputView", () => {
       title: "Fit data",
       metadata: {},
       content: {
-        dataset_id: "analysis-fit-fits",
+        dataset_id: "analysis-fit-r1-fits",
         codec: "scopecat.derived-dataset.arrow-ipc.v2",
         content_hash: `sha256:${"a".repeat(64)}`,
       },
@@ -86,7 +86,7 @@ describe("AnalysisOutputView", () => {
 
     render(<AnalysisOutputView output={output} getArtifactDownload={getArtifactDownload} />);
 
-    expect(screen.getByText("analysis-fit-fits")).toBeVisible();
+    expect(screen.getByText("analysis-fit-r1-fits")).toBeVisible();
     expect(screen.getByText("scopecat.derived-dataset.arrow-ipc.v2")).toBeVisible();
   });
 
@@ -110,7 +110,7 @@ describe("AnalysisOutputView", () => {
       title: "Fit report",
       metadata: {},
       content: {
-        artifact_id: "analysis-fit-fit-report",
+        artifact_id: "analysis-fit-r1-fit-report",
         content_hash: `sha256:${"b".repeat(64)}`,
         filename: "fit-report.md",
         media_type: "text/markdown",
@@ -124,7 +124,7 @@ describe("AnalysisOutputView", () => {
     expect(screen.getByText(/"unit": "GHz"/)).toBeVisible();
 
     rerender(<AnalysisOutputView output={artifact} getArtifactDownload={getArtifactDownload} />);
-    expect(screen.getByText("analysis-fit-fit-report")).toBeVisible();
+    expect(screen.getByText("analysis-fit-r1-fit-report")).toBeVisible();
     expect(screen.getByText("fit-report.md")).toBeVisible();
     expect(screen.getByText("text/markdown")).toBeVisible();
     expect(screen.getByRole("button", { name: "Download file" })).toBeVisible();

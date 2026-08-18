@@ -289,7 +289,7 @@ describe("ConfigWorkspace", () => {
         {
           id: "fit-result",
           sourceRunId: "run-calibration",
-          analysisRecordId: "analysis-fit",
+          analysisRecordId: "analysis-fit-r1",
           baseConfigId: "baseline",
           baseContentHash: "sha256:baseline",
           reason: "Peak moved",
@@ -305,7 +305,7 @@ describe("ConfigWorkspace", () => {
         {
           id: "endpoint-only-result",
           sourceRunId: "run-calibration",
-          analysisRecordId: "analysis-endpoint-only",
+          analysisRecordId: "analysis-endpoint-only-r1",
           baseConfigId: "baseline",
           baseContentHash: "sha256:baseline",
           reason: "Not part of this candidate",
@@ -316,11 +316,11 @@ describe("ConfigWorkspace", () => {
       ],
     });
     vi.mocked(getRunAnalysis).mockResolvedValue({
-      id: "analysis-fit",
+      id: "analysis-fit-r1",
       title: "Frequency fit",
       key: "fit",
       revision: 1,
-      publicationHash: "sha256:analysis-fit",
+      publicationHash: "sha256:analysis-fit-r1",
       publishedAt: "2026-08-17T12:00:00Z",
       subject: "run",
       inputs: [],
@@ -345,16 +345,16 @@ describe("ConfigWorkspace", () => {
         name: "Proposal endpoint-only-result",
       }),
     ).not.toBeInTheDocument();
-    expect(await screen.findByText("analysis-fit")).toBeInTheDocument();
+    expect(await screen.findByText("analysis-fit-r1")).toBeInTheDocument();
     expect(screen.getByText("Frequency fit")).toBeInTheDocument();
     expect(screen.getByText("Approved · nightly-calibration")).toBeInTheDocument();
-    expect(screen.getByText("analysis-candidate-verification")).toBeInTheDocument();
+    expect(screen.getByText("analysis-candidate-verification-r1")).toBeInTheDocument();
     expect(screen.getByText("decision")).toBeInTheDocument();
     expect(screen.getByText("High-confidence fit")).toBeInTheDocument();
     expect(document.querySelector('time[datetime="2026-07-24T08:00:00Z"]')).toBeInTheDocument();
     expect(getRunAnalysis).toHaveBeenCalledWith(
       "run-calibration",
-      "analysis-fit",
+      "analysis-fit-r1",
       expect.any(AbortSignal),
     );
 
@@ -462,7 +462,7 @@ function runtimeDerivedEntry(
             acceptance: {
               kind: "cross_run_verification",
               decision: {
-                analysis_record_id: "analysis-candidate-verification",
+                analysis_record_id: "analysis-candidate-verification-r1",
                 output_id: "decision",
                 schema_id: "tests.candidate-decision.v1",
                 schema_hash: `sha256:${"a".repeat(64)}`,

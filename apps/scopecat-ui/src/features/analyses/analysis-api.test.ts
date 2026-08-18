@@ -16,7 +16,7 @@ describe("project analysis API", () => {
     const fetchMock = vi.fn((_input: string | URL | Request) =>
       Promise.resolve(
         jsonResponse({
-          items: [projectAnalysisSummary("analysis-verify", 1)],
+          items: [projectAnalysisSummary("analysis-verify-r1", 1)],
           next_cursor: 17,
         }),
       ),
@@ -29,7 +29,7 @@ describe("project analysis API", () => {
     expect(requestPath(fetchMock.mock.calls[0]![0])).toBe("/api/v1/analyses?limit=100");
     expect(page.nextCursor).toBe(17);
     expect(analysis).toMatchObject({
-      id: "analysis-verify",
+      id: "analysis-verify-r1",
       key: "verify",
       revision: 1,
       publicationHash: "sha256:publication-1",
@@ -43,7 +43,7 @@ describe("project analysis API", () => {
     const fetchMock = vi.fn((_input: string | URL | Request) =>
       Promise.resolve(
         jsonResponse({
-          items: [projectAnalysisSummary("analysis-older", 1)],
+          items: [projectAnalysisSummary("analysis-older-r1", 1)],
           next_cursor: null,
         }),
       ),
@@ -53,19 +53,19 @@ describe("project analysis API", () => {
     const page = await getOlderProjectAnalysisSummaries(17);
 
     expect(requestPath(fetchMock.mock.calls[0]![0])).toBe("/api/v1/analyses?limit=100&before=17");
-    expect(page.items[0]?.id).toBe("analysis-older");
+    expect(page.items[0]?.id).toBe("analysis-older-r1");
     expect(page.nextCursor).toBeUndefined();
   });
 
   it("loads exact inputs and outputs from the selected detail endpoint", async () => {
     const fetchMock = vi.fn((_input: string | URL | Request) =>
-      Promise.resolve(jsonResponse(projectAnalysisView("analysis-verify", 1))),
+      Promise.resolve(jsonResponse(projectAnalysisView("analysis-verify-r1", 1))),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const analysis = await getProjectAnalysis("analysis-verify");
+    const analysis = await getProjectAnalysis("analysis-verify-r1");
 
-    expect(requestPath(fetchMock.mock.calls[0]![0])).toBe("/api/v1/analyses/analysis-verify");
+    expect(requestPath(fetchMock.mock.calls[0]![0])).toBe("/api/v1/analyses/analysis-verify-r1");
     expect(analysis?.inputs[0]).toMatchObject({
       id: "baseline",
       run_id: "run-baseline",
@@ -82,10 +82,10 @@ describe("project analysis API", () => {
     const fetchMock = vi.fn((_input: string | URL | Request) =>
       Promise.resolve(
         jsonResponse({
-          analysis_id: "analysis-verify",
+          analysis_id: "analysis-verify-r1",
           entry: {
             role: "artifact",
-            id: "analysis-verify-report",
+            id: "analysis-verify-r1-report",
             kind: "analysis_artifact",
             filename: "verification.md",
             media_type: "text/markdown",
@@ -98,12 +98,12 @@ describe("project analysis API", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const download = await getProjectAnalysisArtifactDownload(
-      "analysis-verify",
-      "analysis-verify-report",
+      "analysis-verify-r1",
+      "analysis-verify-r1-report",
     );
 
     expect(requestPath(fetchMock.mock.calls[0]![0])).toBe(
-      "/api/v1/analyses/analysis-verify/contents/analysis-verify-report/bytes",
+      "/api/v1/analyses/analysis-verify-r1/contents/analysis-verify-r1-report/bytes",
     );
     expect(download.filename).toBe("verification.md");
     expect(download.blob.type).toBe("text/markdown");

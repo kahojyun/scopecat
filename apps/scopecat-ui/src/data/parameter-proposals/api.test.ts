@@ -17,7 +17,7 @@ describe("parameter proposal reads", () => {
               proposal: {
                 id: "drive-frequency",
                 source_run_id: "run/a",
-                analysis_record_id: "analysis-fit",
+                analysis_record_id: "analysis-fit-r1",
                 base_config_id: "baseline",
                 base_config_content_hash: "sha256:base",
                 reason: "Peak moved",
@@ -58,7 +58,7 @@ describe("parameter proposal reads", () => {
         {
           id: "drive-frequency",
           sourceRunId: "run/a",
-          analysisRecordId: "analysis-fit",
+          analysisRecordId: "analysis-fit-r1",
           baseConfigId: "baseline",
           baseContentHash: "sha256:base",
           reason: "Peak moved",

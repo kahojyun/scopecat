@@ -63,7 +63,7 @@ describe("AnalysesWorkspace", () => {
       nextCursor: 17,
     });
     vi.mocked(getOlderProjectAnalysisSummaries).mockResolvedValue({
-      items: [projectAnalysisSummary("analysis-older", "Older verification", 1)],
+      items: [projectAnalysisSummary("analysis-older-r1", "Older verification", 1)],
     });
 
     renderWorkspace(vi.fn());
