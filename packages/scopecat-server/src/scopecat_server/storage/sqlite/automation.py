@@ -6,11 +6,12 @@ import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import cast
 
 from pydantic import ValidationError
 from scopecat.automation import (
+    ProcedureDefinitionRef,
     ProcedureRun,
     ProcedureRunState,
     ProcedureStepAttempt,
@@ -57,6 +58,14 @@ class ProcedureStepAttemptPage:
 
     items: tuple[ProcedureStepAttempt, ...]
     next_cursor: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RunnableProcedureRunPage:
+    """Oldest-first procedure runs compatible with one worker."""
+
+    items: tuple[ProcedureRun, ...]
+    has_more: bool = False
 
 
 class SQLiteAutomationStore:
@@ -163,6 +172,64 @@ class SQLiteAutomationStore:
         except (sqlite3.Error, ValidationError) as error:
             raise AutomationStoreError("failed to list procedure runs") from error
 
+    def list_runnable(
+        self,
+        definitions: tuple[ProcedureDefinitionRef, ...],
+        *,
+        at: datetime,
+        limit: int = 50,
+    ) -> RunnableProcedureRunPage:
+        """List ready or expired-leased runs for exact worker capabilities."""
+
+        if not 1 <= limit <= 500:
+            raise ValueError("runnable procedure page size must be between 1 and 500")
+        if not definitions:
+            return RunnableProcedureRunPage(items=())
+        values = ", ".join("(?, ?, ?)" for _definition in definitions)
+        parameters: list[str | int] = []
+        for definition in definitions:
+            parameters.extend(
+                (definition.id, definition.version, definition.fingerprint)
+            )
+        parameters.extend((_timestamp(at), limit + 1))
+        try:
+            with self.sqlite.read_connection() as connection:
+                rows = _all(
+                    connection.execute(
+                        f"""
+                        WITH capabilities(
+                            definition_id,
+                            definition_version,
+                            definition_fingerprint
+                        ) AS (VALUES {values})
+                        SELECT runs.run_json
+                        FROM procedure_runs AS runs
+                        JOIN capabilities AS capabilities
+                          ON capabilities.definition_id = runs.definition_id
+                         AND capabilities.definition_version = runs.definition_version
+                         AND capabilities.definition_fingerprint =
+                             runs.definition_fingerprint
+                        LEFT JOIN procedure_leases AS leases
+                          ON leases.procedure_run_id = runs.procedure_run_id
+                        WHERE runs.state = 'ready'
+                           OR (
+                               runs.state = 'leased'
+                               AND leases.expires_at <= ?
+                           )
+                        ORDER BY runs.sequence ASC
+                        LIMIT ?
+                        """,  # noqa: S608 - VALUES placeholders are generated internally
+                        parameters,
+                    )
+                )
+            selected = rows[:limit]
+            return RunnableProcedureRunPage(
+                items=tuple(_run(row) for row in selected),
+                has_more=len(rows) > limit,
+            )
+        except (sqlite3.Error, ValidationError) as error:
+            raise AutomationStoreError("failed to list runnable procedures") from error
+
     def insert_run_in_transaction(
         self,
         connection: sqlite3.Connection,
@@ -172,14 +239,17 @@ class SQLiteAutomationStore:
             connection.execute(
                 """
                 INSERT INTO procedure_runs(
-                    procedure_run_id, definition_id, request_key, intent_hash,
-                    revision, state, created_at, updated_at, run_json
+                    procedure_run_id, definition_id, definition_version,
+                    definition_fingerprint, request_key, intent_hash, revision,
+                    state, created_at, updated_at, run_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.procedure_run_id,
                     run.definition.id,
+                    run.definition.version,
+                    run.definition.fingerprint,
                     run.request_key,
                     run.intent_hash,
                     run.revision,
@@ -505,7 +575,9 @@ def _lease(row: sqlite3.Row) -> ProcedureLeaseRecord:
 
 
 def _timestamp(value: datetime) -> str:
-    return value.isoformat()
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("automation timestamps must be timezone-aware")
+    return value.astimezone(UTC).isoformat()
 
 
 def _one(cursor: sqlite3.Cursor) -> sqlite3.Row | None:
@@ -531,5 +603,6 @@ __all__ = [
     "ProcedureLeaseRecord",
     "ProcedureRunPage",
     "ProcedureStepAttemptPage",
+    "RunnableProcedureRunPage",
     "SQLiteAutomationStore",
 ]

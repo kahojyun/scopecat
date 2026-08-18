@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -146,7 +146,7 @@ def test_store_bounds_step_history_and_enforces_one_running_attempt(
     ).items == (succeeded,)
 
 
-def test_v40_round_trips_config_publish_step_attempt(tmp_path: Path) -> None:
+def test_v41_round_trips_config_publish_step_attempt(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run()
     running = _attempt(step_key="accept-candidate").model_copy(
@@ -221,3 +221,75 @@ def test_store_replaces_worker_lease_for_expired_takeover(tmp_path: Path) -> Non
                 run.procedure_run_id,
                 token=first.token,
             )
+
+
+def test_store_lists_exact_capability_ready_and_expired_runs_oldest_first(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    ready = _run(procedure_run_id="ready")
+    expired = _run(procedure_run_id="expired").model_copy(
+        update={"revision": 2, "state": "leased"}
+    )
+    live = _run(procedure_run_id="live").model_copy(
+        update={"revision": 2, "state": "leased"}
+    )
+    incompatible = _run(procedure_run_id="incompatible").model_copy(
+        update={
+            "definition": ProcedureDefinitionRef(
+                id=ready.definition.id,
+                version=ready.definition.version,
+                fingerprint="sha256:" + "9" * 64,
+            )
+        }
+    )
+    incompatible = incompatible.model_copy(
+        update={
+            "intent_hash": procedure_intent_hash(
+                incompatible.definition,
+                incompatible.intent,
+            )
+        }
+    )
+    with store.write_transaction() as connection:
+        for run in (ready, incompatible, expired, live):
+            store.insert_run_in_transaction(connection, run)
+        store.put_lease_in_transaction(
+            connection,
+            ProcedureLeaseRecord(
+                procedure_run_id=expired.procedure_run_id,
+                worker_id="old-worker",
+                token="expired-token",  # noqa: S106 - fixture fencing token
+                acquired_at=_START,
+                renewed_at=_START,
+                expires_at=_START + timedelta(seconds=10),
+            ),
+        )
+        store.put_lease_in_transaction(
+            connection,
+            ProcedureLeaseRecord(
+                procedure_run_id=live.procedure_run_id,
+                worker_id="live-worker",
+                token="live-token",  # noqa: S106 - fixture fencing token
+                acquired_at=_START,
+                renewed_at=_START,
+                expires_at=_START + timedelta(minutes=2),
+            ),
+        )
+
+    offset_now = (_START + timedelta(seconds=30)).astimezone(
+        timezone(timedelta(hours=8))
+    )
+    first = store.list_runnable((ready.definition,), at=offset_now, limit=1)
+    assert first.items == (ready,)
+    assert first.has_more is True
+    assert store.list_runnable(
+        (ready.definition,),
+        at=offset_now,
+        limit=10,
+    ).items == (ready, expired)
+    assert store.list_runnable(
+        (incompatible.definition,),
+        at=offset_now,
+        limit=10,
+    ).items == (incompatible,)

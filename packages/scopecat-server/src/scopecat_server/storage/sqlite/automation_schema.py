@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS procedure_runs (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     procedure_run_id TEXT NOT NULL UNIQUE,
     definition_id TEXT NOT NULL,
+    definition_version TEXT NOT NULL,
+    definition_fingerprint TEXT NOT NULL,
     request_key TEXT NOT NULL,
     intent_hash TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK (revision >= 1),
@@ -19,6 +21,15 @@ CREATE TABLE IF NOT EXISTS procedure_runs (
 
 CREATE INDEX IF NOT EXISTS procedure_runs_state_sequence
 ON procedure_runs(state, sequence);
+
+CREATE INDEX IF NOT EXISTS procedure_runs_definition_state_sequence
+ON procedure_runs(
+    definition_id,
+    definition_version,
+    definition_fingerprint,
+    state,
+    sequence
+);
 
 CREATE TABLE IF NOT EXISTS procedure_step_attempts (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -23,6 +23,7 @@ from .config import ConfigService
 from .executor import ExecutorService
 from .leases import OwnershipLeaseSupervisor
 from .point_plans import RunPointPlanService
+from .procedure_schedules import ProcedureScheduleService
 from .reviews import ReviewService
 from .runs import RunService
 
@@ -49,6 +50,7 @@ class DaemonApplication:
         lease_supervisor: OwnershipLeaseSupervisor,
         reviews: ReviewService,
         automation: AutomationService,
+        procedure_schedules: ProcedureScheduleService,
         point_plans: RunPointPlanService,
     ) -> None:
         self.project_root = Path(project_root).resolve()
@@ -63,6 +65,7 @@ class DaemonApplication:
         self.payloads = payloads
         self.reviews = reviews
         self.automation = automation
+        self.procedure_schedules = procedure_schedules
         self.point_plans = point_plans
         self._lease_supervisor = lease_supervisor
 

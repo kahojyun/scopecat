@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -9,6 +9,7 @@ from scopecat.automation import (
     ProcedureDefinitionRef,
     ProcedureRunAttentionCommand,
     ProcedureRunListQuery,
+    ProcedureRunnableQuery,
     ProcedureStepAttemptListQuery,
     ProcedureStepAttentionCommand,
     ProcedureStepBeginCommand,
@@ -90,6 +91,39 @@ def test_procedure_submission_is_idempotent_and_bounded(tmp_path: Path) -> None:
     assert service.list(
         ProcedureRunListQuery(limit=1, cursor=page.next_cursor)
     ).items == (first,)
+
+
+def test_runnable_discovery_uses_exact_capabilities_and_server_lease_clock(
+    tmp_path: Path,
+) -> None:
+    service, now = _service(tmp_path)
+    first = _submit(service, key="first")
+    second = _submit(service, key="second")
+    query = ProcedureRunnableQuery(definitions=(_definition(),), limit=10)
+    assert service.runnable(query).items == (first, second)
+    assert (
+        service.runnable(
+            ProcedureRunnableQuery(
+                definitions=(
+                    _definition().model_copy(
+                        update={"fingerprint": "sha256:" + "9" * 64}
+                    ),
+                )
+            )
+        ).items
+        == ()
+    )
+
+    acquired = service.acquire_lease(
+        ProcedureWorkerLeaseAcquireCommand(
+            procedure_run_id=first.procedure_run_id,
+            worker_id="worker-1",
+            expected_run_revision=first.revision,
+        )
+    )
+    assert service.runnable(query).items == (second,)
+    now[0] = acquired.lease.expires_at.astimezone(timezone(timedelta(hours=8)))
+    assert service.runnable(query).items == (acquired.run, second)
 
 
 def test_runtime_reopens_durable_procedure_state(tmp_path: Path) -> None:

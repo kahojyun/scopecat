@@ -32,6 +32,7 @@ from scopecat_server.services.config import ConfigService
 from scopecat_server.services.executor import ExecutorService
 from scopecat_server.services.leases import OwnershipLeaseSupervisor
 from scopecat_server.services.point_plans import RunPointPlanService
+from scopecat_server.services.procedure_schedules import ProcedureScheduleService
 from scopecat_server.services.reviews import ReviewService
 from scopecat_server.services.runs import RunService
 from scopecat_server.storage.sqlite.analysis_repository import SQLiteAnalysisRepository
@@ -40,6 +41,9 @@ from scopecat_server.storage.sqlite.config_operations import SQLiteConfigOperati
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
+from scopecat_server.storage.sqlite.procedure_schedules import (
+    SQLiteProcedureScheduleStore,
+)
 from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
@@ -112,6 +116,7 @@ class LocalDaemonRuntime:
 
             control = SQLiteControlPlane(sqlite)
             automation_store = SQLiteAutomationStore(sqlite)
+            procedure_schedule_store = SQLiteProcedureScheduleStore(sqlite)
             runs = SQLiteRunRepository(sqlite, objects)
             analyses = SQLiteAnalysisRepository(sqlite, objects)
             config_registry = SQLiteConfigRegistryStore(
@@ -128,6 +133,10 @@ class LocalDaemonRuntime:
             active_measurements = ActiveMeasurementStore()
             reviews = ReviewService()
             automation = AutomationService(automation_store)
+            procedure_schedules = ProcedureScheduleService(
+                procedure_schedule_store,
+                automation,
+            )
             instrument_actors = InstrumentActorRegistry()
             analysis_service = AnalysisService(
                 repository=analyses,
@@ -195,6 +204,7 @@ class LocalDaemonRuntime:
                 lease_supervisor=lease_supervisor,
                 reviews=reviews,
                 automation=automation,
+                procedure_schedules=procedure_schedules,
                 point_plans=point_plans,
             )
             try:

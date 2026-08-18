@@ -20,6 +20,8 @@ from scopecat.automation import (
     ProcedureRunAttentionCommand,
     ProcedureRunAttentionReceipt,
     ProcedureRunListQuery,
+    ProcedureRunnablePage,
+    ProcedureRunnableQuery,
     ProcedureRunPage,
     ProcedureRunState,
     ProcedureStepAttempt,
@@ -111,6 +113,15 @@ class AutomationService:
             state=query.state,
         )
         return ProcedureRunPage(items=page.items, next_cursor=page.next_cursor)
+
+    def runnable(self, query: ProcedureRunnableQuery) -> ProcedureRunnablePage:
+        with _translate_store_errors():
+            page = self._store.list_runnable(
+                query.definitions,
+                at=self._now(),
+                limit=query.limit,
+            )
+        return ProcedureRunnablePage(items=page.items, has_more=page.has_more)
 
     def step_attempts(
         self,
@@ -289,37 +300,62 @@ class AutomationService:
 
         if not request_key.strip():
             raise ValueError("procedure request key must be non-empty")
-        selected_intent = dict(intent)
-        intent_hash = procedure_intent_hash(definition, selected_intent)
         with (
             _translate_store_errors(),
             self._store.write_transaction() as connection,
         ):
-            existing = self._store.find_run_by_request_in_transaction(
+            return self.submit_in_transaction(
                 connection,
-                definition.id,
-                request_key,
-            )
-            if existing is not None:
-                if existing.intent_hash != intent_hash:
-                    raise AutomationConflict(
-                        "procedure request key already has different intent"
-                    )
-                return existing
-            now = self._now()
-            run = ProcedureRun(
-                procedure_run_id=f"procedure-{uuid4().hex}",
-                request_key=request_key,
                 definition=definition,
-                intent=selected_intent,
-                intent_hash=intent_hash,
-                revision=1,
-                state="ready",
-                created_at=now,
-                updated_at=now,
+                request_key=request_key,
+                intent=intent,
             )
-            self._store.insert_run_in_transaction(connection, run)
-            return run
+
+    def submit_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        definition: ProcedureDefinitionRef,
+        request_key: str,
+        intent: ProcedureIntent,
+        at: datetime | None = None,
+        require_new: bool = False,
+    ) -> ProcedureRun:
+        """Admit a run while participating in a caller-owned SQLite transaction."""
+
+        if not request_key.strip():
+            raise ValueError("procedure request key must be non-empty")
+        selected_intent = dict(intent)
+        intent_hash = procedure_intent_hash(definition, selected_intent)
+        existing = self._store.find_run_by_request_in_transaction(
+            connection,
+            definition.id,
+            request_key,
+        )
+        if existing is not None:
+            if existing.intent_hash != intent_hash:
+                raise AutomationConflict(
+                    "procedure request key already has different intent"
+                )
+            if require_new:
+                raise AutomationConflict(
+                    "procedure request key already has a durable run"
+                )
+            return existing
+        now = self._now() if at is None else _require_aware_time(at)
+        run = ProcedureRun(
+            procedure_run_id=f"procedure-{uuid4().hex}",
+            request_key=request_key,
+            definition=definition,
+            intent=selected_intent,
+            intent_hash=intent_hash,
+            revision=1,
+            state="ready",
+            created_at=now,
+            updated_at=now,
+        )
+        self._store.insert_run_in_transaction(connection, run)
+        return run
 
     def get(self, procedure_run_id: str) -> ProcedureRun:
         with _translate_store_errors():
@@ -1031,10 +1067,7 @@ class AutomationService:
         )
 
     def _now(self) -> datetime:
-        now = self._clock()
-        if now.tzinfo is None or now.utcoffset() is None:
-            raise ValueError("procedure clock must return a timezone-aware datetime")
-        return now
+        return _require_aware_time(self._clock())
 
 
 def _run_state(
@@ -1094,6 +1127,12 @@ def _translate_store_errors() -> Generator[None]:
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _require_aware_time(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("procedure clock must return a timezone-aware datetime")
+    return value.astimezone(UTC)
 
 
 __all__ = [

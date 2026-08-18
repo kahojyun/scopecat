@@ -20,8 +20,22 @@ from scopecat.automation import (
     ProcedureRunAttentionCommand,
     ProcedureRunAttentionReceipt,
     ProcedureRunListQuery,
+    ProcedureRunnablePage,
+    ProcedureRunnableQuery,
     ProcedureRunPage,
     ProcedureRunState,
+    ProcedureSchedule,
+    ProcedureScheduleCancelCommand,
+    ProcedureScheduleCancelReceipt,
+    ProcedureScheduleCreateCommand,
+    ProcedureScheduleCreateReceipt,
+    ProcedureScheduleDuePage,
+    ProcedureScheduleDueQuery,
+    ProcedureScheduleListQuery,
+    ProcedureScheduleMaterializeCommand,
+    ProcedureScheduleMaterializeReceipt,
+    ProcedureSchedulePage,
+    ProcedureScheduleState,
     ProcedureStepAttemptListQuery,
     ProcedureStepAttemptPage,
     ProcedureStepAttentionCommand,
@@ -550,6 +564,50 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> ProcedureSubmitReceipt:
         return application.automation.submit(command)
 
+    @app.post(f"{_API_PREFIX}/procedure-schedules", status_code=201)
+    def create_procedure_schedule(
+        command: ProcedureScheduleCreateCommand,
+    ) -> ProcedureScheduleCreateReceipt:
+        return application.procedure_schedules.create(command)
+
+    @app.get(f"{_API_PREFIX}/procedure-schedules")
+    def list_procedure_schedules(
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+        cursor: Annotated[int | None, Query(ge=1)] = None,
+        state: ProcedureScheduleState | None = None,
+    ) -> ProcedureSchedulePage:
+        return application.procedure_schedules.list(
+            ProcedureScheduleListQuery(limit=limit, cursor=cursor, state=state)
+        )
+
+    @app.get(f"{_API_PREFIX}/procedure-schedules/due")
+    def list_due_procedure_schedules(
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    ) -> ProcedureScheduleDuePage:
+        return application.procedure_schedules.due(
+            ProcedureScheduleDueQuery(limit=limit)
+        )
+
+    @app.get(f"{_API_PREFIX}/procedure-schedules/by-id/{{schedule_id:path}}")
+    def get_procedure_schedule(schedule_id: str) -> ProcedureSchedule:
+        return application.procedure_schedules.get(schedule_id)
+
+    @app.post(f"{_API_PREFIX}/procedure-schedule-cancellations/{{schedule_id:path}}")
+    def cancel_procedure_schedule(
+        schedule_id: str,
+        command: ProcedureScheduleCancelCommand,
+    ) -> ProcedureScheduleCancelReceipt:
+        _require_procedure_schedule_id(schedule_id, command.schedule_id)
+        return application.procedure_schedules.cancel(command)
+
+    @app.post(f"{_API_PREFIX}/procedure-schedule-materializations/{{schedule_id:path}}")
+    def materialize_procedure_schedule(
+        schedule_id: str,
+        command: ProcedureScheduleMaterializeCommand,
+    ) -> ProcedureScheduleMaterializeReceipt:
+        _require_procedure_schedule_id(schedule_id, command.schedule_id)
+        return application.procedure_schedules.materialize(command)
+
     @app.get(f"{_API_PREFIX}/procedures")
     def list_procedures(
         limit: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -559,6 +617,12 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         return application.automation.list(
             ProcedureRunListQuery(limit=limit, cursor=cursor, state=state)
         )
+
+    @app.post(f"{_API_PREFIX}/procedures/runnable/query")
+    def list_runnable_procedures(
+        query: ProcedureRunnableQuery,
+    ) -> ProcedureRunnablePage:
+        return application.automation.runnable(query)
 
     @app.get(f"{_API_PREFIX}/procedures/{{procedure_run_id}}")
     def get_procedure(procedure_run_id: str) -> ProcedureRun:
@@ -1299,6 +1363,17 @@ def _require_procedure_run_id(
         raise HTTPException(
             status_code=422,
             detail="path procedure_run_id must match request body",
+        )
+
+
+def _require_procedure_schedule_id(
+    path_schedule_id: str,
+    body_schedule_id: str,
+) -> None:
+    if path_schedule_id != body_schedule_id:
+        raise HTTPException(
+            status_code=422,
+            detail="path schedule_id must match request body",
         )
 
 

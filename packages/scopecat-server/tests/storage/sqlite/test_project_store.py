@@ -21,7 +21,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
     store.bootstrap()
     store.bootstrap()
 
-    assert store.schema_version() == 40
+    assert store.schema_version() == 41
     with sqlite3.connect(database) as connection:
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
         tables = {
@@ -41,6 +41,9 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
             row[1]
             for row in connection.execute("PRAGMA table_info(analysis_publications)")
         }
+        procedure_run_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(procedure_runs)")
+        }
     assert journal_mode == ("wal",)
     assert {
         "project_schema",
@@ -56,6 +59,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         "procedure_runs",
         "procedure_step_attempts",
         "procedure_leases",
+        "procedure_schedules",
         "config_registry_entries",
         "config_registry_activations",
         "config_operations",
@@ -65,6 +69,11 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
     assert "record_entry_json" in analysis_publication_columns
     assert "published_at" in analysis_publication_columns
     assert "manifest_json" not in analysis_publication_columns
+    assert {
+        "definition_id",
+        "definition_version",
+        "definition_fingerprint",
+    } <= procedure_run_columns
 
 
 @pytest.mark.parametrize("version", (0, 99))
@@ -101,6 +110,28 @@ def test_bootstrap_refuses_v39_before_config_publish_step_boundary(
 
     store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
     with pytest.raises(SchemaVersionError, match="version: 39"):
+        store.bootstrap()
+
+
+def test_bootstrap_refuses_v40_before_procedure_schedule_boundary(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "control.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            CREATE TABLE project_schema (
+                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                version INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO project_schema(singleton, version) VALUES (1, 40)"
+        )
+
+    store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
+    with pytest.raises(SchemaVersionError, match="version: 40"):
         store.bootstrap()
 
 

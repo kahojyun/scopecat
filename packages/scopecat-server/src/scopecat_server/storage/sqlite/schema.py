@@ -4,9 +4,12 @@ from scopecat_server.storage.sqlite.analysis_schema import ANALYSIS_TABLES_SQL
 from scopecat_server.storage.sqlite.automation_schema import AUTOMATION_TABLES_SQL
 from scopecat_server.storage.sqlite.config_schema import CONFIG_REGISTRY_TABLES_SQL
 from scopecat_server.storage.sqlite.execution_schema import EXECUTION_TABLES_SQL
+from scopecat_server.storage.sqlite.procedure_schedule_schema import (
+    PROCEDURE_SCHEDULE_TABLES_SQL,
+)
 from scopecat_server.storage.sqlite.run_schema import RUN_TABLES_SQL
 
-PROJECT_SCHEMA_VERSION = 40
+PROJECT_SCHEMA_VERSION = 41
 
 _CONTROL_TABLES_SQL = f"""
 CREATE TABLE IF NOT EXISTS project_schema (
@@ -137,6 +140,7 @@ PROJECT_SCHEMA_SQL = "\n".join(
         RUN_TABLES_SQL,
         ANALYSIS_TABLES_SQL,
         AUTOMATION_TABLES_SQL,
+        PROCEDURE_SCHEDULE_TABLES_SQL,
         CONFIG_REGISTRY_TABLES_SQL,
         EXECUTION_TABLES_SQL,
         "COMMIT;",
