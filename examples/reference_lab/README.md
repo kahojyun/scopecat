@@ -69,12 +69,17 @@ The scripts are ordinary Python with `# %%` cells and can be followed in order.
 | `50_ragged_scope_capture.py` | Point-varying oscilloscope record length and ragged waveform slicing |
 
 The application also registers one bounded q0/q1 DRAG calibration definition.
-Its project-side policy evaluates freshness from active configuration contents,
-admits an immutable two-member cohort, and runs independent durable procedures
-through baseline, fit, candidate, and verification. These automated members are
-verify-only: a successful closure is freshness evidence, while candidate
-configuration publication and activation remain an explicit operator-facing
-workflow.
+Its project-side policy evaluates semantic freshness from active configuration
+contents, admits immutable bounded cohorts, and runs independent durable
+procedures through baseline, fit, candidate, and verification. These automated
+members are verify-only: successful closure leaves each result pending explicit
+publication. `prepare_drag_beta_cohort_publication` resolves the exact four-step
+proofs, rejects edits outside each target's owned beta cell, previews the
+common-base cell merge, and requires each verified candidate to retain the same
+semantic inputs in the merged result. `publish_verified_drag_beta_cohort` then
+performs one generation-checked activation and records one published freshness
+anchor per contribution. Its deterministic operation identity makes an exact
+retry return the original receipt rather than publish another generation.
 
 ## Source map
 
