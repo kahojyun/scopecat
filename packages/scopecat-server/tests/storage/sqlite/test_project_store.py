@@ -21,7 +21,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
     store.bootstrap()
     store.bootstrap()
 
-    assert store.schema_version() == 47
+    assert store.schema_version() == 48
     with sqlite3.connect(database) as connection:
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
         tables = {
@@ -84,6 +84,18 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
                 "PRAGMA index_list(calibration_publication_ready_queue)"
             )
         }
+        ready_queue_columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(calibration_publication_ready_queue)"
+            )
+        }
+        finalization_indexes = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA index_list(calibration_cohort_finalizations)"
+            )
+        }
         triggers = {
             row[0]
             for row in connection.execute(
@@ -127,16 +139,23 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         "closure_status",
         "closed_at",
     } <= procedure_run_columns
-    assert {
-        "definition_id",
+    assert calibration_cohort_columns == {
+        "sequence",
+        "cohort_id",
         "fanout_scope",
-        "member_count",
-        "config_generation",
-        "publication_policy_id",
-        "publication_policy_fingerprint",
         "cohort_json",
-    } <= calibration_cohort_columns
-    assert {"sequence", "closure_status", "closed_at"} <= calibration_member_columns
+    }
+    assert calibration_member_columns == {
+        "sequence",
+        "cohort_id",
+        "member_index",
+        "member_id",
+        "calibration_key",
+        "procedure_run_id",
+        "closure_status",
+        "closed_at",
+        "member_json",
+    }
     assert {
         "calibration_cohort_members_key_sequence",
         "calibration_cohort_members_success_key_sequence",
@@ -160,7 +179,11 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         "superseded_by_generation",
         "publication_operation_id",
     } <= finalization_columns
-    assert "calibration_publication_ready_capability_sequence" in ready_queue_indexes
+    assert ready_queue_columns == {"sequence", "cohort_id", "enqueued_at"}
+    assert ready_queue_indexes == {
+        "sqlite_autoindex_calibration_publication_ready_queue_1"
+    }
+    assert "calibration_cohort_finalizations_ready_capability" in finalization_indexes
     assert "calibration_cohort_members_sync_terminal_closure" in triggers
     assert "calibration_publication_sync_terminal_success" in triggers
     assert "calibration_publication_sync_terminal_failure" in triggers
@@ -354,6 +377,28 @@ def test_bootstrap_refuses_v46_with_cohort_planner_shadow_columns(
 
     store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
     with pytest.raises(SchemaVersionError, match="version: 46"):
+        store.bootstrap()
+
+
+def test_bootstrap_refuses_v47_with_duplicate_calibration_query_projections(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "control.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            CREATE TABLE project_schema (
+                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                version INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO project_schema(singleton, version) VALUES (1, 47)"
+        )
+
+    store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
+    with pytest.raises(SchemaVersionError, match="version: 47"):
         store.bootstrap()
 
 

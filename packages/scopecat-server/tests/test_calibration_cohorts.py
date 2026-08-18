@@ -83,6 +83,7 @@ from scopecat_server.storage.sqlite.automation import (
 )
 from scopecat_server.storage.sqlite.calibration_cohorts import (
     CalibrationCohortConflict,
+    CalibrationCohortStoreError,
     SQLiteCalibrationCohortStore,
 )
 from scopecat_server.storage.sqlite.config_operations import SQLiteConfigOperationStore
@@ -456,6 +457,97 @@ def test_automatic_publication_becomes_ready_and_supports_control_transitions(
     assert retried.state == "ready"
     assert retry_page.items[0].sequence > first_occurrence.sequence
     assert retry_page.items[0].enqueued_at == retried.ready_at
+
+
+def test_ready_publication_routes_on_canonical_finalization_columns(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    member = _member("q0", success_policy="published_result")
+    policy = _publication_policy(member.definition)
+    command = _command(
+        "canonical-ready-routing",
+        source=harness.source,
+        snapshot=_status(harness, (member,)),
+        members=(member,),
+        automatic_publication=policy,
+    )
+    created = harness.service.create(command)
+    _close(harness, created.members[0], status="succeeded")
+
+    query, capability_parameters = calibration_storage._ready_publication_rows_query(
+        (policy,)
+    )
+    assert "policy_json" not in query
+    assert "finalizations.available_at <= ?" in query
+    with harness.store.read_transaction() as connection:
+        through_sequence = connection.execute(
+            "SELECT MAX(sequence) FROM calibration_publication_ready_queue"
+        ).fetchone()[0]
+        assert through_sequence is not None
+        plan = tuple(
+            row["detail"]
+            for row in connection.execute(
+                f"EXPLAIN QUERY PLAN {query}",
+                (
+                    harness.now[0].isoformat(),
+                    None,
+                    None,
+                    through_sequence,
+                    *capability_parameters,
+                    51,
+                ),
+            )
+        )
+    assert any(
+        "calibration_cohort_finalizations_ready_capability" in detail for detail in plan
+    )
+
+
+def test_retry_rolls_back_when_ready_occurrence_conflicts(tmp_path: Path) -> None:
+    harness = _harness(tmp_path)
+    member = _member("q0", success_policy="published_result")
+    policy = _publication_policy(member.definition)
+    command = _command(
+        "retry-ready-conflict",
+        source=harness.source,
+        snapshot=_status(harness, (member,)),
+        members=(member,),
+        automatic_publication=policy,
+    )
+    created = harness.service.create(command)
+    _close(harness, created.members[0], status="succeeded")
+    ready = harness.store.read_finalization(command.cohort_id)
+    attention = harness.service.require_publication_attention(
+        CalibrationPublicationAttentionCommand(
+            cohort_id=command.cohort_id,
+            policy=policy,
+            expected_finalization_revision=ready.revision,
+            actor="test-finalizer",
+            reason="prepare conflicting occurrence",
+        )
+    ).finalization
+    with harness.store.write_transaction() as connection:
+        connection.execute(
+            """
+            INSERT INTO calibration_publication_ready_queue(cohort_id, enqueued_at)
+            VALUES (?, ?)
+            """,
+            (command.cohort_id, harness.now[0].isoformat()),
+        )
+
+    with pytest.raises(BackendConflict, match="retry conflicts"):
+        harness.service.retry_publication(
+            CalibrationPublicationRetryCommand(
+                cohort_id=command.cohort_id,
+                policy=policy,
+                expected_finalization_revision=attention.revision,
+                actor="operator",
+                reason="exercise rollback",
+            )
+        )
+
+    assert harness.store.read_finalization(command.cohort_id) == attention
 
 
 def test_publication_completion_store_requires_exact_available_ready_revision(
@@ -1001,6 +1093,51 @@ def test_cohort_rejects_every_nonclosed_latest_attempt(
 
     assert len(harness.service.list(CalibrationCohortListQuery()).items) == 1
     assert len(harness.automation.list(ProcedureRunListQuery()).items) == 1
+
+
+def test_cohort_query_projections_are_exactly_validated(tmp_path: Path) -> None:
+    harness = _harness(tmp_path)
+    member = _member("q0")
+    created = harness.service.create(
+        _command(
+            "projection-validation",
+            source=harness.source,
+            snapshot=_status(harness, (member,)),
+            members=(member,),
+        )
+    )
+    with harness.store.write_transaction() as connection:
+        connection.execute(
+            "UPDATE calibration_cohorts SET fanout_scope = ? WHERE cohort_id = ?",
+            ("drifted-scope", created.cohort.cohort_id),
+        )
+    with pytest.raises(CalibrationCohortStoreError, match="projection drifted"):
+        harness.store.read(created.cohort.cohort_id)
+
+    with harness.store.write_transaction() as connection:
+        connection.execute(
+            "UPDATE calibration_cohorts SET fanout_scope = ? WHERE cohort_id = ?",
+            (created.cohort.spec.fanout_scope, created.cohort.cohort_id),
+        )
+        connection.execute(
+            """
+            UPDATE calibration_cohort_members
+            SET member_id = ?
+            WHERE cohort_id = ? AND member_index = 0
+            """,
+            ("drifted-member", created.cohort.cohort_id),
+        )
+    with (
+        harness.store.read_transaction() as connection,
+        pytest.raises(
+            CalibrationCohortStoreError,
+            match=r"member.*projection drifted",
+        ),
+    ):
+        harness.store.list_members_in_transaction(
+            connection,
+            created.cohort.cohort_id,
+        )
 
 
 def test_cohort_create_rejects_stale_config_status_and_fanout(

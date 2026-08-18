@@ -4,40 +4,8 @@ CALIBRATION_COHORT_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS calibration_cohorts (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     cohort_id TEXT NOT NULL UNIQUE,
-    definition_id TEXT NOT NULL,
-    definition_version TEXT NOT NULL,
-    definition_fingerprint TEXT NOT NULL,
-    spec_hash TEXT NOT NULL,
     fanout_scope TEXT NOT NULL,
-    member_count INTEGER NOT NULL CHECK (member_count BETWEEN 1 AND 200),
-    config_generation INTEGER NOT NULL CHECK (config_generation >= 1),
-    publication_policy_id TEXT,
-    publication_policy_version TEXT,
-    publication_policy_fingerprint TEXT,
-    composition_policy_id TEXT,
-    composition_policy_version TEXT,
-    composition_policy_fingerprint TEXT,
-    evaluated_at TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    cohort_json TEXT NOT NULL,
-    CHECK (
-        (
-            publication_policy_id IS NULL
-            AND publication_policy_version IS NULL
-            AND publication_policy_fingerprint IS NULL
-            AND composition_policy_id IS NULL
-            AND composition_policy_version IS NULL
-            AND composition_policy_fingerprint IS NULL
-        )
-        OR (
-            publication_policy_id IS NOT NULL
-            AND publication_policy_version IS NOT NULL
-            AND publication_policy_fingerprint IS NOT NULL
-            AND composition_policy_id IS NOT NULL
-            AND composition_policy_version IS NOT NULL
-            AND composition_policy_fingerprint IS NOT NULL
-        )
-    )
+    cohort_json TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS calibration_cohorts_scope_sequence
@@ -52,8 +20,6 @@ CREATE TABLE IF NOT EXISTS calibration_cohort_members (
     calibration_key TEXT NOT NULL,
     procedure_run_id TEXT NOT NULL UNIQUE
         REFERENCES procedure_runs(procedure_run_id) ON DELETE RESTRICT,
-    request_key TEXT NOT NULL,
-    admitted_at TEXT NOT NULL,
     closure_status TEXT CHECK (
         closure_status IS NULL
         OR closure_status IN ('succeeded', 'failed', 'cancelled')
@@ -125,6 +91,9 @@ CREATE TABLE IF NOT EXISTS calibration_cohort_finalizations (
     policy_version TEXT NOT NULL,
     policy_fingerprint TEXT NOT NULL,
     policy_json TEXT NOT NULL,
+    calibration_definition_id TEXT NOT NULL,
+    calibration_definition_version TEXT NOT NULL,
+    calibration_definition_fingerprint TEXT NOT NULL,
     composition_policy_id TEXT NOT NULL,
     composition_policy_version TEXT NOT NULL,
     composition_policy_fingerprint TEXT NOT NULL,
@@ -241,19 +210,27 @@ CREATE TABLE IF NOT EXISTS calibration_cohort_finalizations (
 CREATE INDEX IF NOT EXISTS calibration_cohort_finalizations_state
 ON calibration_cohort_finalizations(state, base_generation);
 
+CREATE INDEX IF NOT EXISTS calibration_cohort_finalizations_ready_capability
+ON calibration_cohort_finalizations(
+    policy_id,
+    policy_version,
+    policy_fingerprint,
+    calibration_definition_id,
+    calibration_definition_version,
+    calibration_definition_fingerprint,
+    composition_policy_id,
+    composition_policy_version,
+    composition_policy_fingerprint,
+    available_at,
+    cohort_id
+)
+WHERE state = 'ready';
+
 CREATE TABLE IF NOT EXISTS calibration_publication_ready_queue (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     cohort_id TEXT NOT NULL UNIQUE
         REFERENCES calibration_cohort_finalizations(cohort_id) ON DELETE CASCADE,
-    policy_json TEXT NOT NULL,
-    enqueued_at TEXT NOT NULL,
-    available_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS calibration_publication_ready_capability_sequence
-ON calibration_publication_ready_queue(
-    policy_json,
-    sequence
+    enqueued_at TEXT NOT NULL
 );
 
 CREATE TRIGGER IF NOT EXISTS calibration_publication_sync_terminal_failure
@@ -295,14 +272,10 @@ BEGIN
 
     INSERT INTO calibration_publication_ready_queue(
         cohort_id,
-        policy_json,
-        enqueued_at,
-        available_at
+        enqueued_at
     )
     SELECT cohort_id,
-           policy_json,
-           ready_at,
-           available_at
+           ready_at
     FROM calibration_cohort_finalizations
     WHERE cohort_id = NEW.cohort_id
       AND state = 'ready';

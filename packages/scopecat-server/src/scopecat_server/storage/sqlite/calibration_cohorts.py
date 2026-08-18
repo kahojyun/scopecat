@@ -112,7 +112,9 @@ class SQLiteCalibrationCohortStore:
             row = _one(
                 connection.execute(
                     """
-                    SELECT cohort_json
+                    SELECT cohort_id AS stored_cohort_id,
+                           fanout_scope AS stored_fanout_scope,
+                           cohort_json
                     FROM calibration_cohorts
                     WHERE cohort_id = ?
                     """,
@@ -155,7 +157,10 @@ class SQLiteCalibrationCohortStore:
                 rows = _all(
                     connection.execute(
                         f"""
-                        SELECT sequence, cohort_json
+                        SELECT sequence,
+                               cohort_id AS stored_cohort_id,
+                               fanout_scope AS stored_fanout_scope,
+                               cohort_json
                         FROM calibration_cohorts
                         {where}
                         ORDER BY sequence DESC
@@ -198,11 +203,18 @@ class SQLiteCalibrationCohortStore:
                 rows = _all(
                     connection.execute(
                         """
-                        SELECT member_index, member_json
-                        FROM calibration_cohort_members
-                        WHERE cohort_id = ?
-                          AND (? IS NULL OR member_index > ?)
-                        ORDER BY member_index ASC
+                        SELECT members.member_index,
+                               members.cohort_id AS stored_member_cohort_id,
+                               members.member_index AS stored_member_index,
+                               members.member_id AS stored_member_id,
+                               members.calibration_key AS stored_calibration_key,
+                               members.procedure_run_id
+                                   AS stored_procedure_run_id,
+                               members.member_json
+                        FROM calibration_cohort_members AS members
+                        WHERE members.cohort_id = ?
+                          AND (? IS NULL OR members.member_index > ?)
+                        ORDER BY members.member_index ASC
                         LIMIT ?
                         """,
                         (cohort_id, after, after, limit + 1),
@@ -231,10 +243,15 @@ class SQLiteCalibrationCohortStore:
             rows = _all(
                 connection.execute(
                     """
-                    SELECT member_json
-                    FROM calibration_cohort_members
-                    WHERE cohort_id = ?
-                    ORDER BY member_index ASC
+                    SELECT members.cohort_id AS stored_member_cohort_id,
+                           members.member_index AS stored_member_index,
+                           members.member_id AS stored_member_id,
+                           members.calibration_key AS stored_calibration_key,
+                           members.procedure_run_id AS stored_procedure_run_id,
+                           members.member_json
+                    FROM calibration_cohort_members AS members
+                    WHERE members.cohort_id = ?
+                    ORDER BY members.member_index ASC
                     """,
                     (cohort_id,),
                 )
@@ -258,7 +275,10 @@ class SQLiteCalibrationCohortStore:
             row = _one(
                 connection.execute(
                     """
-                    SELECT finalizations.*, cohorts.cohort_json
+                    SELECT finalizations.*,
+                           cohorts.cohort_id AS stored_cohort_id,
+                           cohorts.fanout_scope AS stored_fanout_scope,
+                           cohorts.cohort_json
                     FROM calibration_cohort_finalizations AS finalizations
                     CROSS JOIN calibration_cohorts AS cohorts
                       ON cohorts.cohort_id = finalizations.cohort_id
@@ -296,12 +316,7 @@ class SQLiteCalibrationCohortStore:
         if not capabilities:
             return StoredCalibrationPublicationReadyPage(items=())
 
-        capability_clause = " OR ".join(
-            "queue.policy_json = ?" for _capability in capabilities
-        )
-        capability_parameters = tuple(
-            capability.model_dump_json() for capability in capabilities
-        )
+        query, capability_parameters = _ready_publication_rows_query(capabilities)
         try:
             with self.sqlite.read_transaction() as connection:
                 traversal_end = through_sequence
@@ -321,22 +336,7 @@ class SQLiteCalibrationCohortStore:
                     return StoredCalibrationPublicationReadyPage(items=())
                 rows = _all(
                     connection.execute(
-                        f"""
-                        SELECT queue.sequence, queue.enqueued_at,
-                               finalizations.*, cohorts.cohort_json
-                        FROM calibration_publication_ready_queue AS queue
-                        CROSS JOIN calibration_cohort_finalizations AS finalizations
-                          ON finalizations.cohort_id = queue.cohort_id
-                        CROSS JOIN calibration_cohorts AS cohorts
-                          ON cohorts.cohort_id = queue.cohort_id
-                        WHERE finalizations.state = 'ready'
-                          AND queue.available_at <= ?
-                          AND (? IS NULL OR queue.sequence > ?)
-                          AND queue.sequence <= ?
-                          AND ({capability_clause})
-                        ORDER BY queue.sequence ASC
-                        LIMIT ?
-                        """,  # noqa: S608 - generated placeholders only
+                        query,
                         (
                             _timestamp(at),
                             after,
@@ -465,13 +465,11 @@ class SQLiteCalibrationCohortStore:
             connection.execute(
                 """
                 INSERT INTO calibration_publication_ready_queue(
-                    cohort_id, policy_json, enqueued_at, available_at
-                ) VALUES (?, ?, ?, ?)
+                    cohort_id, enqueued_at
+                ) VALUES (?, ?)
                 """,
                 (
                     cohort_id,
-                    policy.model_dump_json(),
-                    _timestamp(at),
                     _timestamp(at),
                 ),
             )
@@ -523,18 +521,6 @@ class SQLiteCalibrationCohortStore:
             if updated != 1:
                 raise CalibrationCohortConflict(
                     "calibration publication finalization changed"
-                )
-            queued = connection.execute(
-                """
-                UPDATE calibration_publication_ready_queue
-                SET available_at = ?
-                WHERE cohort_id = ?
-                """,
-                (_timestamp(available_at), cohort_id),
-            ).rowcount
-            if queued != 1:
-                raise CalibrationCohortConflict(
-                    "calibration publication ready occurrence was not found"
                 )
         except sqlite3.IntegrityError as error:
             raise CalibrationCohortConflict(
@@ -763,38 +749,17 @@ class SQLiteCalibrationCohortStore:
     ) -> None:
         generation = cohort.spec.config_source.registry_generation
         policy = cohort.spec.automatic_publication
-        composition = None if policy is None else policy.composition_policy
         try:
             connection.execute(
                 """
                 INSERT INTO calibration_cohorts(
-                    cohort_id, definition_id, definition_version,
-                    definition_fingerprint,
-                    spec_hash, fanout_scope, member_count, config_generation,
-                    publication_policy_id, publication_policy_version,
-                    publication_policy_fingerprint, composition_policy_id,
-                    composition_policy_version, composition_policy_fingerprint,
-                    evaluated_at, created_at, cohort_json
+                    cohort_id, fanout_scope, cohort_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?)
                 """,
                 (
                     cohort.cohort_id,
-                    cohort.spec.definition.id,
-                    cohort.spec.definition.version,
-                    cohort.spec.definition.fingerprint,
-                    cohort.spec_hash,
                     cohort.spec.fanout_scope,
-                    len(cohort.spec.members),
-                    generation,
-                    None if policy is None else policy.id,
-                    None if policy is None else policy.version,
-                    None if policy is None else policy.fingerprint,
-                    None if composition is None else composition.id,
-                    None if composition is None else composition.version,
-                    None if composition is None else composition.fingerprint,
-                    _timestamp(cohort.spec.evaluated_at),
-                    _timestamp(cohort.created_at),
                     cohort.model_dump_json(),
                 ),
             )
@@ -804,12 +769,17 @@ class SQLiteCalibrationCohortStore:
                     """
                     INSERT INTO calibration_cohort_finalizations(
                         cohort_id, spec_hash, policy_id, policy_version,
-                        policy_fingerprint, policy_json, composition_policy_id,
+                        policy_fingerprint, policy_json,
+                        calibration_definition_id,
+                        calibration_definition_version,
+                        calibration_definition_fingerprint,
+                        composition_policy_id,
                         composition_policy_version,
                         composition_policy_fingerprint, base_generation,
                         revision, state, attempt_count, created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'waiting', 0, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1,
+                            'waiting', 0, ?, ?)
                     """,
                     (
                         cohort.cohort_id,
@@ -818,6 +788,9 @@ class SQLiteCalibrationCohortStore:
                         policy.version,
                         policy.fingerprint,
                         policy.model_dump_json(),
+                        policy.calibration.id,
+                        policy.calibration.version,
+                        policy.calibration.fingerprint,
                         selected_composition.id,
                         selected_composition.version,
                         selected_composition.fingerprint,
@@ -845,11 +818,9 @@ class SQLiteCalibrationCohortStore:
                 """
                 INSERT INTO calibration_cohort_members(
                     cohort_id, member_index, member_id, calibration_key,
-                    procedure_run_id, request_key, admitted_at,
-                    closure_status, closed_at, member_json
+                    procedure_run_id, closure_status, closed_at, member_json
                 )
-                SELECT ?, ?, ?, ?, ?, ?, ?,
-                       runs.closure_status, runs.closed_at, ?
+                SELECT ?, ?, ?, ?, ?, runs.closure_status, runs.closed_at, ?
                 FROM procedure_runs AS runs
                 WHERE runs.procedure_run_id = ?
                 """,
@@ -859,8 +830,6 @@ class SQLiteCalibrationCohortStore:
                     member.spec.member_id,
                     member.spec.calibration_key,
                     member.procedure_run_id,
-                    member.request_key,
-                    _timestamp(member.admitted_at),
                     member.model_dump_json(),
                     member.procedure_run_id,
                 ),
@@ -892,8 +861,16 @@ class SQLiteCalibrationCohortStore:
             row = _one(
                 connection.execute(
                     """
-                    SELECT members.member_json, members.closure_status,
-                           members.closed_at, cohorts.cohort_json, runs.run_json
+                    SELECT members.cohort_id AS stored_member_cohort_id,
+                           members.member_index AS stored_member_index,
+                           members.member_id AS stored_member_id,
+                           members.calibration_key AS stored_calibration_key,
+                           members.procedure_run_id AS stored_procedure_run_id,
+                           members.member_json, members.closure_status,
+                           members.closed_at,
+                           cohorts.cohort_id AS stored_cohort_id,
+                           cohorts.fanout_scope AS stored_fanout_scope,
+                           cohorts.cohort_json, runs.run_json
                     FROM calibration_cohort_members AS members
                     CROSS JOIN calibration_cohorts AS cohorts
                       ON cohorts.cohort_id = members.cohort_id
@@ -1008,6 +985,70 @@ class SQLiteCalibrationCohortStore:
             ) from error
 
 
+def _publication_policy_routing_key(
+    policy: CalibrationPublicationPolicyRef,
+) -> tuple[str, ...]:
+    calibration = policy.calibration
+    composition = policy.composition_policy
+    return (
+        policy.id,
+        policy.version,
+        policy.fingerprint,
+        calibration.id,
+        calibration.version,
+        calibration.fingerprint,
+        composition.id,
+        composition.version,
+        composition.fingerprint,
+    )
+
+
+def _ready_publication_rows_query(
+    capabilities: tuple[CalibrationPublicationPolicyRef, ...],
+) -> tuple[str, tuple[str, ...]]:
+    if not capabilities:
+        raise ValueError("ready publication query requires capabilities")
+    capability_clause = " OR ".join(
+        """(
+            finalizations.policy_id = ?
+            AND finalizations.policy_version = ?
+            AND finalizations.policy_fingerprint = ?
+            AND finalizations.calibration_definition_id = ?
+            AND finalizations.calibration_definition_version = ?
+            AND finalizations.calibration_definition_fingerprint = ?
+            AND finalizations.composition_policy_id = ?
+            AND finalizations.composition_policy_version = ?
+            AND finalizations.composition_policy_fingerprint = ?
+        )"""
+        for _capability in capabilities
+    )
+    parameters = tuple(
+        component
+        for capability in capabilities
+        for component in _publication_policy_routing_key(capability)
+    )
+    query = f"""
+    SELECT queue.sequence, queue.enqueued_at,
+           finalizations.*,
+           cohorts.cohort_id AS stored_cohort_id,
+           cohorts.fanout_scope AS stored_fanout_scope,
+           cohorts.cohort_json
+    FROM calibration_cohort_finalizations AS finalizations
+    JOIN calibration_publication_ready_queue AS queue
+      ON queue.cohort_id = finalizations.cohort_id
+    JOIN calibration_cohorts AS cohorts
+      ON cohorts.cohort_id = finalizations.cohort_id
+    WHERE finalizations.state = 'ready'
+      AND finalizations.available_at <= ?
+      AND (? IS NULL OR queue.sequence > ?)
+      AND queue.sequence <= ?
+      AND ({capability_clause})
+    ORDER BY queue.sequence ASC
+    LIMIT ?
+    """  # noqa: S608 - capability clause contains generated placeholders only
+    return query, parameters
+
+
 def _status_rows_query(
     calibration_keys: tuple[str, ...],
 ) -> tuple[str, tuple[str, ...]]:
@@ -1046,7 +1087,16 @@ def _status_rows_query(
         FROM chosen
         WHERE latest_success_sequence IS NOT NULL
     )
-    SELECT members.calibration_key, members.member_json, cohorts.cohort_json,
+    SELECT members.calibration_key,
+           members.cohort_id AS stored_member_cohort_id,
+           members.member_index AS stored_member_index,
+           members.member_id AS stored_member_id,
+           members.calibration_key AS stored_calibration_key,
+           members.procedure_run_id AS stored_procedure_run_id,
+           members.member_json,
+           cohorts.cohort_id AS stored_cohort_id,
+           cohorts.fanout_scope AS stored_fanout_scope,
+           cohorts.cohort_json,
            members.sequence AS member_sequence,
            runs.run_json, members.closure_status, members.closed_at,
            publications.publication_json
@@ -1114,20 +1164,39 @@ def _statuses(
 
 def _cohort(row: sqlite3.Row) -> CalibrationCohort:
     try:
-        return CalibrationCohort.model_validate_json(_text(row, "cohort_json"))
+        cohort = CalibrationCohort.model_validate_json(_text(row, "cohort_json"))
     except ValidationError as error:
         raise CalibrationCohortStoreError(
             "invalid durable calibration cohort"
         ) from error
+    if (
+        _text(row, "stored_cohort_id") != cohort.cohort_id
+        or _text(row, "stored_fanout_scope") != cohort.spec.fanout_scope
+    ):
+        raise CalibrationCohortStoreError(
+            "durable calibration cohort query projection drifted"
+        )
+    return cohort
 
 
 def _member(row: sqlite3.Row) -> CalibrationCohortMember:
     try:
-        return CalibrationCohortMember.model_validate_json(_text(row, "member_json"))
+        member = CalibrationCohortMember.model_validate_json(_text(row, "member_json"))
     except ValidationError as error:
         raise CalibrationCohortStoreError(
             "invalid durable calibration cohort member"
         ) from error
+    if (
+        _text(row, "stored_member_cohort_id") != member.cohort_id
+        or _integer(row, "stored_member_index") != member.index
+        or _text(row, "stored_member_id") != member.spec.member_id
+        or _text(row, "stored_calibration_key") != member.spec.calibration_key
+        or _text(row, "stored_procedure_run_id") != member.procedure_run_id
+    ):
+        raise CalibrationCohortStoreError(
+            "durable calibration cohort member query projection drifted"
+        )
+    return member
 
 
 def _run(row: sqlite3.Row) -> ProcedureRun:
@@ -1165,6 +1234,10 @@ def _finalization(row: sqlite3.Row) -> CalibrationCohortFinalization:
         or _text(row, "policy_version") != policy.version
         or _text(row, "policy_fingerprint") != policy.fingerprint
         or _text(row, "policy_json") != policy.model_dump_json()
+        or _text(row, "calibration_definition_id") != policy.calibration.id
+        or _text(row, "calibration_definition_version") != policy.calibration.version
+        or _text(row, "calibration_definition_fingerprint")
+        != policy.calibration.fingerprint
         or _text(row, "composition_policy_id") != composition.id
         or _text(row, "composition_policy_version") != composition.version
         or _text(row, "composition_policy_fingerprint") != composition.fingerprint
