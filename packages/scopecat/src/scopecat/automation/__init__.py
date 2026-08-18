@@ -57,6 +57,14 @@ from scopecat.automation.wire import (
     ProcedureWorkerLeaseReleaseReceipt,
     procedure_step_operation_id,
 )
+from scopecat.automation.worker import (
+    ProcedureContext,
+    ProcedureControl,
+    ProcedureControlError,
+    ProcedureLeaseLostError,
+    ProcedureNeedsAttention,
+    ProcedureWorker,
+)
 
 __all__ = [
     "AnalysisPublicationOutputRef",
@@ -66,11 +74,16 @@ __all__ = [
     "ProcedureCloseReceipt",
     "ProcedureCloseStatus",
     "ProcedureClosure",
+    "ProcedureContext",
+    "ProcedureControl",
+    "ProcedureControlError",
     "ProcedureDefinition",
     "ProcedureDefinitionKey",
     "ProcedureDefinitionRef",
     "ProcedureFunction",
     "ProcedureIntent",
+    "ProcedureLeaseLostError",
+    "ProcedureNeedsAttention",
     "ProcedureRegistry",
     "ProcedureRun",
     "ProcedureRunAttentionCommand",
@@ -97,6 +110,7 @@ __all__ = [
     "ProcedureWaitCommand",
     "ProcedureWaitCondition",
     "ProcedureWaitReceipt",
+    "ProcedureWorker",
     "ProcedureWorkerLease",
     "ProcedureWorkerLeaseAcquireCommand",
     "ProcedureWorkerLeaseAcquireReceipt",
