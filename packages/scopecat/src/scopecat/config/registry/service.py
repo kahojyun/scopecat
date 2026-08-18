@@ -20,6 +20,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from scopecat.config.candidate_merges import (
+    merge_common_base_parameter_proposals,
+)
 from scopecat.config.candidates import (
     CandidateConfig,
     resolve_candidate_config_from_snapshot,
@@ -33,13 +36,16 @@ from scopecat.config.registry.ports import (
     ConfigRegistryUnitOfWorkFactory,
 )
 from scopecat.config.registry.records import (
+    CalibrationCohortMergeRegistrySource,
     CandidateAcceptance,
     CandidateConfigRegistrySource,
+    ConfigCompositionPolicyRef,
     ConfigRegistryActivationPage,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
     ManualConfigDraftRegistrySource,
+    ResolvedCalibrationCohortMergeContribution,
 )
 from scopecat.kernel.errors import (
     CheckFailed,
@@ -61,7 +67,7 @@ from scopecat.records.config import (
     config_content_equal,
     config_content_hash,
 )
-from scopecat.records.content import ContentEntry
+from scopecat.records.content import ContentEntry, Sha256ContentHash
 from scopecat.records.parameter_change import (
     ParameterChangeProposal,
     ParameterValueDelta,
@@ -106,10 +112,27 @@ class CandidateConfigRevisionSource:
     acceptance: CandidateAcceptance
 
 
+@dataclass(frozen=True, slots=True)
+class CalibrationCohortMergeRevisionSource:
+    """Individually verified contributions selected for one cell merge."""
+
+    cohort_id: str
+    spec_hash: Sha256ContentHash
+    composition_policy_ref: ConfigCompositionPolicyRef
+    merge_policy: Literal["common_base_cells_v1"]
+    base_entry_id: str
+    base_content_hash: ConfigContentHash
+    base_generation: int
+    candidate_id: str
+    contributions: tuple[ResolvedCalibrationCohortMergeContribution, ...]
+    expected_result_content_hash: ConfigContentHash
+
+
 type ConfigRevisionSource = (
     DirectConfigRevisionSource
     | ManualConfigDraftRevisionSource
     | CandidateConfigRevisionSource
+    | CalibrationCohortMergeRevisionSource
 )
 
 
@@ -403,7 +426,7 @@ def _save_config_revision_locked(
             source=source,
         )
         entry_id = _required_revision_entry_id(revision)
-    else:
+    elif isinstance(source, CandidateConfigRevisionSource):
         validated = _validate_candidate_source_records(
             storage=work.runs,
             run_id=source.run_id,
@@ -415,6 +438,12 @@ def _save_config_revision_locked(
         deltas = validated.deltas
         entry_id = revision.entry_id or f"{config.id}-{source.run_id}"
         _validate_entry_id(entry_id)
+    else:
+        config, entry_source, deltas = _prepare_calibration_cohort_merge_locked(
+            work=work,
+            source=source,
+        )
+        entry_id = _required_revision_entry_id(revision)
     entry = ConfigRegistryEntry(
         id=entry_id,
         config_ref=work.registry.config_ref(entry_id),
@@ -444,6 +473,29 @@ def _validate_config_revision(
     if isinstance(revision.source, CandidateConfigRevisionSource):
         _validate_required_text(revision.source.run_id, field="run_id")
         _validate_required_text(revision.source.proposal_id, field="proposal_id")
+    elif isinstance(revision.source, CalibrationCohortMergeRevisionSource):
+        source = revision.source
+        _validate_required_text(source.cohort_id, field="cohort_id")
+        _validate_required_text(source.base_entry_id, field="base_entry_id")
+        _validate_required_text(source.candidate_id, field="candidate_id")
+        if source.base_generation < 1:
+            raise _registry_failure(
+                CheckFailed,
+                code="config_registry.calibration_merge_generation_invalid",
+                message="calibration merge base generation must be positive",
+                location=_registry_model_location("revision", "source"),
+            )
+        if not 2 <= len(source.contributions) <= 200:
+            raise _registry_failure(
+                CheckFailed,
+                code="config_registry.calibration_merge_contributions_invalid",
+                message=("calibration merge requires between 2 and 200 contributions"),
+                location=_registry_model_location(
+                    "revision",
+                    "source",
+                    "contributions",
+                ),
+            )
 
 
 def _required_revision_entry_id(
@@ -514,6 +566,143 @@ def _validate_candidate_source_records(
         source=source,
         deltas=proposal.deltas,
     )
+
+
+def _prepare_calibration_cohort_merge_locked(
+    *,
+    work: ConfigRegistryUnitOfWork,
+    source: CalibrationCohortMergeRevisionSource,
+) -> tuple[
+    ConfigProfileSnapshot,
+    CalibrationCohortMergeRegistrySource,
+    tuple[ParameterValueDelta, ...],
+]:
+    """Resolve exact proposal records and compose their common active base."""
+
+    activation = _load_active_config_registry_activation_locked(work.registry)
+    _require_expected_generation(
+        activation,
+        source.base_generation,
+        active_ref=work.registry.active_ref,
+    )
+    if (
+        activation.entry_id != source.base_entry_id
+        or activation.entry_content_hash != source.base_content_hash
+    ):
+        raise _registry_failure(
+            Conflict,
+            code="config_registry.calibration_merge_base_changed",
+            message="calibration merge base is no longer the active entry",
+            location=_registry_model_location(
+                "revision",
+                "source",
+                "base_entry_id",
+            ),
+            related_locations=(_registry_storage_location(work.registry.active_ref),),
+            details={
+                "expected_entry_id": source.base_entry_id,
+                "actual_entry_id": activation.entry_id,
+                "expected_content_hash": source.base_content_hash,
+                "actual_content_hash": activation.entry_content_hash,
+            },
+        )
+    base = _load_config_registry_entry_locked(
+        entry_id=source.base_entry_id,
+        work=work,
+    )
+    _validate_active_entry_identity(work.registry, activation, base.entry)
+
+    proposals = tuple(
+        _load_calibration_merge_proposal(
+            storage=work.runs,
+            contribution=contribution,
+        )
+        for contribution in source.contributions
+    )
+    result = merge_common_base_parameter_proposals(
+        proposals,
+        base_config=base.config,
+        candidate_id=source.candidate_id,
+    )
+    if result.content_hash != source.expected_result_content_hash:
+        raise _registry_failure(
+            Conflict,
+            code="config_registry.calibration_merge_result_changed",
+            message="calibration merge result changed since it was evaluated",
+            location=_registry_model_location(
+                "revision",
+                "source",
+                "expected_result_content_hash",
+            ),
+            details={
+                "expected_content_hash": source.expected_result_content_hash,
+                "actual_content_hash": result.content_hash,
+            },
+        )
+    return (
+        result.config,
+        CalibrationCohortMergeRegistrySource(
+            cohort_id=source.cohort_id,
+            spec_hash=source.spec_hash,
+            composition_policy_ref=source.composition_policy_ref,
+            merge_policy=source.merge_policy,
+            base_entry_id=base.entry.id,
+            base_config_content_hash=base.entry.content_hash,
+            base_registry_generation=activation.generation,
+            candidate_id=source.candidate_id,
+            contributions=source.contributions,
+        ),
+        result.deltas,
+    )
+
+
+def _load_calibration_merge_proposal(
+    *,
+    storage: RunRepository,
+    contribution: ResolvedCalibrationCohortMergeContribution,
+) -> ParameterChangeProposal:
+    proposal_record = _require_run_record(
+        storage=storage,
+        run_id=contribution.baseline_run_id,
+        record_id=contribution.proposal_id,
+        kind="parameter_change_proposal",
+    )
+    proposal_ref = record_content_ref(
+        record_id=proposal_record.id,
+        kind=proposal_record.kind,
+    )
+    proposal = storage.read_model(
+        contribution.baseline_run_id,
+        proposal_ref,
+        ParameterChangeProposal,
+    )
+    if (
+        proposal.id != contribution.proposal_id
+        or proposal.source_run_id != contribution.baseline_run_id
+        or proposal.analysis_record_id != contribution.fit_analysis_record_id
+    ):
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.calibration_merge_proposal_mismatch",
+            message="calibration contribution does not match its proposal record",
+            location=_registry_storage_location(
+                proposal_ref,
+                run_id=contribution.baseline_run_id,
+            ),
+            related_locations=(
+                _registry_model_location(
+                    "revision",
+                    "source",
+                    "contributions",
+                    contribution.member_id,
+                ),
+            ),
+            details={
+                "member_id": contribution.member_id,
+                "proposal_id": contribution.proposal_id,
+            },
+        )
+    return proposal
 
 
 def list_config_registry_entries(
@@ -1191,7 +1380,11 @@ def _validate_derived_entry_base(
     _validate_active_entry_identity(work.registry, activation, active_entry)
     if isinstance(
         entry.source,
-        (CandidateConfigRegistrySource, ManualConfigDraftRegistrySource),
+        (
+            CalibrationCohortMergeRegistrySource,
+            CandidateConfigRegistrySource,
+            ManualConfigDraftRegistrySource,
+        ),
     ):
         base_content_hash = entry.source.base_config_content_hash
     else:
@@ -1500,6 +1693,7 @@ def _registry_storage_location(
 __all__ = [
     "ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR",
     "ActiveConfigRegistrySnapshot",
+    "CalibrationCohortMergeRevisionSource",
     "CandidateConfigRevisionSource",
     "ConfigRegistryEntrySnapshot",
     "ConfigRegistryMutationResult",

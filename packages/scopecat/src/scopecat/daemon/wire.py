@@ -24,11 +24,14 @@ from scopecat.analysis.dataset_wire import DerivedDatasetPayload
 from scopecat.config.inventory import InstrumentInventoryChange
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry.records import (
+    CalibrationCohortMergeContribution,
     CandidateAcceptance,
     ConfigActivationOperation,
+    ConfigCompositionPolicyRef,
     ConfigPublishOperation,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
+    canonical_calibration_merge_contributions,
     config_activation_intent_hash,
     config_publish_intent_hash,
 )
@@ -112,10 +115,38 @@ class CandidateConfigRevisionSource(_WireModel):
     acceptance: CandidateAcceptance
 
 
+class CalibrationCohortMergeRevisionSource(_WireModel):
+    """Compose individually verified cohort proposals against one exact base."""
+
+    kind: Literal["calibration_cohort_merge"] = "calibration_cohort_merge"
+    cohort_id: NonEmptyText
+    spec_hash: Sha256ContentHash
+    composition_policy_ref: ConfigCompositionPolicyRef
+    merge_policy: Literal["common_base_cells_v1"] = "common_base_cells_v1"
+    base_entry_id: NonEmptyText
+    base_content_hash: ConfigContentHash
+    base_generation: int = Field(ge=1)
+    candidate_id: NonEmptyText
+    contributions: tuple[CalibrationCohortMergeContribution, ...] = Field(
+        min_length=2,
+        max_length=200,
+    )
+    expected_result_content_hash: ConfigContentHash
+
+    @field_validator("contributions")
+    @classmethod
+    def canonicalize_contributions(
+        cls,
+        value: tuple[CalibrationCohortMergeContribution, ...],
+    ) -> tuple[CalibrationCohortMergeContribution, ...]:
+        return canonical_calibration_merge_contributions(value)
+
+
 type ConfigRevisionSource = Annotated[
     DirectConfigRevisionSource
     | ManualConfigDraftRevisionSource
-    | CandidateConfigRevisionSource,
+    | CandidateConfigRevisionSource
+    | CalibrationCohortMergeRevisionSource,
     Field(discriminator="kind"),
 ]
 
@@ -129,6 +160,18 @@ class ConfigPublishCommand(_WireModel):
     expected_generation: int = Field(ge=0)
     entry_id: NonEmptyText
     note: str = ""
+
+    @model_validator(mode="after")
+    def validate_merge_generation(self) -> ConfigPublishCommand:
+        if (
+            isinstance(self.source, CalibrationCohortMergeRevisionSource)
+            and self.expected_generation != self.source.base_generation
+        ):
+            raise ValueError(
+                "calibration cohort merge expected_generation must equal its "
+                "base_generation"
+            )
+        return self
 
     @property
     def source_intent_hash(self) -> Sha256ContentHash:
@@ -890,6 +933,7 @@ __all__ = [
     "AnalysisSaveReceipt",
     "AnalysisTableOutputPayload",
     "AttentionResolutionReceipt",
+    "CalibrationCohortMergeRevisionSource",
     "CandidateConfigRevisionSource",
     "ConfigActivationReceipt",
     "ConfigDraftCommand",

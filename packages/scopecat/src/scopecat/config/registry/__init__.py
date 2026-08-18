@@ -14,9 +14,13 @@ if TYPE_CHECKING:
         ConfigRegistryUnitOfWorkFactory,
     )
     from scopecat.config.registry.records import (
+        CalibrationCohortMergeContribution,
+        CalibrationCohortMergeRegistrySource,
         CandidateAcceptance,
         CandidateConfigRegistrySource,
         ConfigActivationOperation,
+        ConfigCompositionPolicyRef,
+        ConfigCompositionStepRef,
         ConfigPublishOperation,
         ConfigRegistryActivationPage,
         ConfigRegistryActivationRecord,
@@ -27,12 +31,14 @@ if TYPE_CHECKING:
         DirectConfigRegistrySource,
         ManualCandidateAcceptance,
         ManualConfigDraftRegistrySource,
+        ResolvedCalibrationCohortMergeContribution,
         config_activation_intent_hash,
         config_publish_intent_hash,
     )
     from scopecat.config.registry.service import (
         ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR,
         ActiveConfigRegistrySnapshot,
+        CalibrationCohortMergeRevisionSource,
         CandidateConfigRevisionSource,
         ConfigRegistryEntrySnapshot,
         ConfigRegistryMutationResult,
@@ -68,6 +74,8 @@ if TYPE_CHECKING:
 
 
 _RECORD_EXPORTS = (
+    "CalibrationCohortMergeContribution",
+    "CalibrationCohortMergeRegistrySource",
     "CandidateAcceptance",
     "CandidateConfigRegistrySource",
     "ConfigActivationOperation",
@@ -77,10 +85,13 @@ _RECORD_EXPORTS = (
     "ConfigRegistryEntry",
     "ConfigRegistryEntryPage",
     "ConfigRegistryEntrySource",
+    "ConfigCompositionPolicyRef",
+    "ConfigCompositionStepRef",
     "CrossRunCandidateAcceptance",
     "DirectConfigRegistrySource",
     "ManualCandidateAcceptance",
     "ManualConfigDraftRegistrySource",
+    "ResolvedCalibrationCohortMergeContribution",
     "config_activation_intent_hash",
     "config_publish_intent_hash",
 )
@@ -92,6 +103,7 @@ _PORT_EXPORTS = (
 _SERVICE_EXPORTS = (
     "ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR",
     "ActiveConfigRegistrySnapshot",
+    "CalibrationCohortMergeRevisionSource",
     "CandidateConfigRevisionSource",
     "ConfigRevision",
     "ConfigRevisionSource",

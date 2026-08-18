@@ -5,7 +5,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.run_outcome import utc_now
@@ -15,6 +21,9 @@ from scopecat.records.content import Sha256ContentHash
 
 _CONFIG_ACTIVATION_INTENT_CODEC = "scopecat.config-activation-intent.v1"
 _CONFIG_PUBLISH_INTENT_CODEC = "scopecat.config-publish-intent.v1"
+_MAX_CALIBRATION_MERGE_CONTRIBUTIONS = 200
+
+type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
 class _FrozenRegistryModel(BaseModel):
@@ -77,10 +86,222 @@ class CandidateConfigRegistrySource(_FrozenRegistryModel):
         return self
 
 
+class ConfigCompositionPolicyRef(_FrozenRegistryModel):
+    """Exact project-owned policy that selected one config composition."""
+
+    id: _NonEmptyText
+    version: _NonEmptyText
+    fingerprint: Sha256ContentHash
+
+    @field_validator("id", "version")
+    @classmethod
+    def validate_identity(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("config composition policy identity must be non-empty")
+        return value
+
+
+class ConfigCompositionStepRef(_FrozenRegistryModel):
+    """Exact attempt of one stable step in a contribution procedure."""
+
+    step_key: _NonEmptyText
+    attempt: int = Field(ge=1)
+
+    @field_validator("step_key")
+    @classmethod
+    def validate_step_key(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("config composition step key must be non-empty")
+        return value
+
+
+class CalibrationCohortMergeContribution(_FrozenRegistryModel):
+    """Exact proof for one individually verified calibration contribution.
+
+    The four step references bind proposal generation and scientific
+    verification inside one procedure. They do not claim that the merged
+    multi-member configuration was jointly verified.
+    """
+
+    member_id: _NonEmptyText
+    procedure_run_id: _NonEmptyText
+    baseline_step: ConfigCompositionStepRef
+    fit_step: ConfigCompositionStepRef
+    candidate_step: ConfigCompositionStepRef
+    verification_step: ConfigCompositionStepRef
+    proposal_id: _NonEmptyText
+    decision: ProjectAnalysisDecisionReference
+    result_input_fingerprint: Sha256ContentHash
+
+    @field_validator("member_id", "procedure_run_id", "proposal_id")
+    @classmethod
+    def validate_identity(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("calibration merge contribution identity is empty")
+        return value
+
+    @model_validator(mode="after")
+    def validate_step_identities(self) -> CalibrationCohortMergeContribution:
+        steps = (
+            self.baseline_step,
+            self.fit_step,
+            self.candidate_step,
+            self.verification_step,
+        )
+        if len(steps) != len(set(steps)):
+            raise ValueError(
+                "calibration merge contribution step attempts must be distinct"
+            )
+        return self
+
+
+class ResolvedCalibrationCohortMergeContribution(_FrozenRegistryModel):
+    """Server-resolved exact outputs behind one wire contribution."""
+
+    member_id: _NonEmptyText
+    procedure_run_id: _NonEmptyText
+    baseline_step: ConfigCompositionStepRef
+    baseline_run_id: _NonEmptyText
+    fit_step: ConfigCompositionStepRef
+    fit_analysis_record_id: _NonEmptyText
+    candidate_step: ConfigCompositionStepRef
+    candidate_run_id: _NonEmptyText
+    verification_step: ConfigCompositionStepRef
+    proposal_id: _NonEmptyText
+    decision: ProjectAnalysisDecisionReference
+    result_input_fingerprint: Sha256ContentHash
+
+    @field_validator(
+        "member_id",
+        "procedure_run_id",
+        "baseline_run_id",
+        "fit_analysis_record_id",
+        "candidate_run_id",
+        "proposal_id",
+    )
+    @classmethod
+    def validate_identity(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("resolved calibration contribution identity is empty")
+        return value
+
+    @model_validator(mode="after")
+    def validate_step_identities(
+        self,
+    ) -> ResolvedCalibrationCohortMergeContribution:
+        steps = (
+            self.baseline_step,
+            self.fit_step,
+            self.candidate_step,
+            self.verification_step,
+        )
+        if len(steps) != len(set(steps)):
+            raise ValueError(
+                "resolved calibration contribution step attempts must be distinct"
+            )
+        return self
+
+
+def canonical_calibration_merge_contributions(
+    contributions: tuple[CalibrationCohortMergeContribution, ...],
+) -> tuple[CalibrationCohortMergeContribution, ...]:
+    """Validate and sort exact contributions independently of caller order."""
+
+    selected = tuple(
+        sorted(
+            contributions,
+            key=lambda item: (
+                item.member_id,
+                item.procedure_run_id,
+                item.proposal_id,
+            ),
+        )
+    )
+    identities = (
+        ("member", tuple(item.member_id for item in selected)),
+        ("procedure run", tuple(item.procedure_run_id for item in selected)),
+        (
+            "proposal",
+            tuple((item.procedure_run_id, item.proposal_id) for item in selected),
+        ),
+    )
+    for label, values in identities:
+        if len(values) != len(set(values)):
+            raise ValueError(f"calibration merge {label} identities must be unique")
+    return selected
+
+
+def canonical_resolved_calibration_merge_contributions(
+    contributions: tuple[ResolvedCalibrationCohortMergeContribution, ...],
+) -> tuple[ResolvedCalibrationCohortMergeContribution, ...]:
+    """Validate and sort resolved contributions by their member identity."""
+
+    selected = tuple(
+        sorted(
+            contributions,
+            key=lambda item: (
+                item.member_id,
+                item.procedure_run_id,
+                item.proposal_id,
+            ),
+        )
+    )
+    identity_groups: tuple[tuple[str, tuple[object, ...]], ...] = (
+        ("member", tuple(item.member_id for item in selected)),
+        ("procedure run", tuple(item.procedure_run_id for item in selected)),
+        ("baseline run", tuple(item.baseline_run_id for item in selected)),
+        ("candidate run", tuple(item.candidate_run_id for item in selected)),
+        (
+            "proposal",
+            tuple((item.baseline_run_id, item.proposal_id) for item in selected),
+        ),
+    )
+    for label, values in identity_groups:
+        if len(values) != len(set(values)):
+            raise ValueError(
+                f"resolved calibration merge {label} identities must be unique"
+            )
+    return selected
+
+
+class CalibrationCohortMergeRegistrySource(_FrozenRegistryModel):
+    """Durable provenance for an individually verified cohort composition."""
+
+    kind: Literal["calibration_cohort_merge"] = "calibration_cohort_merge"
+    cohort_id: _NonEmptyText
+    spec_hash: Sha256ContentHash
+    composition_policy_ref: ConfigCompositionPolicyRef
+    merge_policy: Literal["common_base_cells_v1"] = "common_base_cells_v1"
+    base_entry_id: _NonEmptyText
+    base_config_content_hash: ConfigContentHash
+    base_registry_generation: int = Field(ge=1)
+    candidate_id: _NonEmptyText
+    contributions: tuple[ResolvedCalibrationCohortMergeContribution, ...] = Field(
+        min_length=2,
+        max_length=_MAX_CALIBRATION_MERGE_CONTRIBUTIONS,
+    )
+
+    @field_validator("cohort_id", "base_entry_id", "candidate_id")
+    @classmethod
+    def validate_identity(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("calibration merge registry identity must be non-empty")
+        return value
+
+    @field_validator("contributions")
+    @classmethod
+    def canonicalize_contributions(
+        cls,
+        value: tuple[ResolvedCalibrationCohortMergeContribution, ...],
+    ) -> tuple[ResolvedCalibrationCohortMergeContribution, ...]:
+        return canonical_resolved_calibration_merge_contributions(value)
+
+
 ConfigRegistryEntrySource = Annotated[
     DirectConfigRegistrySource
     | ManualConfigDraftRegistrySource
-    | CandidateConfigRegistrySource,
+    | CandidateConfigRegistrySource
+    | CalibrationCohortMergeRegistrySource,
     Field(discriminator="kind"),
 ]
 
