@@ -37,10 +37,11 @@ class StoredProcedureSchedulePage:
 
 @dataclass(frozen=True, slots=True)
 class StoredProcedureScheduleDuePage:
-    """Oldest-due bounded page of pending schedules."""
+    """Insertion-oldest keyset page of pending due schedules."""
 
     items: tuple[ProcedureSchedule, ...]
-    has_more: bool = False
+    next_cursor: int | None = None
+    through_sequence: int | None = None
 
 
 class SQLiteProcedureScheduleStore:
@@ -127,28 +128,56 @@ class SQLiteProcedureScheduleStore:
         *,
         at: datetime,
         limit: int = 50,
+        after: int | None = None,
+        through_sequence: int | None = None,
     ) -> StoredProcedureScheduleDuePage:
         if not 1 <= limit <= 500:
             raise ValueError(
                 "due procedure schedule page size must be between 1 and 500"
             )
+        if after is not None and after < 1:
+            raise ValueError("due procedure schedule cursor must be positive")
+        _require_traversal_pair(after, through_sequence)
         try:
-            with self.sqlite.read_connection() as connection:
+            with self.sqlite.read_transaction() as connection:
+                traversal_end = through_sequence
+                if traversal_end is None:
+                    row = _one(
+                        connection.execute(
+                            "SELECT MAX(sequence) AS sequence FROM procedure_schedules"
+                        )
+                    )
+                    traversal_end = (
+                        None if row is None else _optional_integer(row, "sequence")
+                    )
+                if traversal_end is None:
+                    return StoredProcedureScheduleDuePage(items=())
                 rows = _all(
                     connection.execute(
                         """
-                        SELECT schedule_json FROM procedure_schedules
-                        WHERE state = 'pending' AND due_at <= ?
-                        ORDER BY due_at ASC, sequence ASC
+                        SELECT sequence, schedule_json FROM procedure_schedules
+                        WHERE state = 'pending'
+                          AND due_at <= ?
+                          AND (? IS NULL OR sequence > ?)
+                          AND sequence <= ?
+                        ORDER BY sequence ASC
                         LIMIT ?
                         """,
-                        (_timestamp(at), limit + 1),
+                        (
+                            _timestamp(at),
+                            after,
+                            after,
+                            traversal_end,
+                            limit + 1,
+                        ),
                     )
                 )
             selected = rows[:limit]
+            has_next = len(rows) > limit
             return StoredProcedureScheduleDuePage(
                 items=tuple(_schedule(row) for row in selected),
-                has_more=len(rows) > limit,
+                next_cursor=(_integer(selected[-1], "sequence") if has_next else None),
+                through_sequence=traversal_end if has_next else None,
             )
         except (sqlite3.Error, ValidationError) as error:
             raise ProcedureScheduleStoreError(
@@ -269,6 +298,23 @@ def _text(row: sqlite3.Row, key: str) -> str:
 
 def _integer(row: sqlite3.Row, key: str) -> int:
     return cast("int", row[key])
+
+
+def _optional_integer(row: sqlite3.Row, key: str) -> int | None:
+    return cast("int | None", row[key])
+
+
+def _require_traversal_pair(
+    after: int | None,
+    through_sequence: int | None,
+) -> None:
+    if (after is None) != (through_sequence is None):
+        raise ValueError(
+            "due procedure schedule cursor and through_sequence must be "
+            "provided together"
+        )
+    if after is not None and through_sequence is not None and after >= through_sequence:
+        raise ValueError("due procedure schedule cursor must be below through_sequence")
 
 
 __all__ = [

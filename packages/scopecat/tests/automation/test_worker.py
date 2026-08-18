@@ -495,6 +495,45 @@ def test_worker_replays_succeeded_step_without_repeating_effect() -> None:
     assert _OUTPUTS["response-loss"] == RunOutputRef(run_id="child-run-replay")
 
 
+def test_worker_resumes_runnable_snapshot_with_its_exact_revision() -> None:
+    control = MemoryProcedureControl()
+    intent = ONE_STEP.encode_intent({"case": "snapshot"})
+    submitted = control.submit_procedure(
+        ProcedureSubmitCommand(
+            request_key="request-snapshot",
+            definition=ONE_STEP.ref,
+            intent=intent,
+        )
+    ).run
+    _EFFECTS["snapshot"] = lambda _operation_id: RunOutputRef(
+        run_id="child-from-snapshot"
+    )
+    worker = ProcedureWorker(control, ProcedureRegistry((ONE_STEP,)))
+
+    resumed = worker.resume_snapshot(submitted, worker_id="worker-snapshot")
+
+    assert resumed.state == "closed"
+    assert _OUTPUTS["snapshot"] == RunOutputRef(run_id="child-from-snapshot")
+
+
+def test_snapshot_resume_does_not_quarantine_an_unavailable_definition() -> None:
+    control = MemoryProcedureControl()
+    submitted = control.submit_procedure(
+        ProcedureSubmitCommand(
+            request_key="request-unavailable-snapshot",
+            definition=ONE_STEP.ref,
+            intent=ONE_STEP.encode_intent({"case": "unavailable-snapshot"}),
+        )
+    ).run
+    worker = ProcedureWorker(control, ProcedureRegistry())
+
+    with pytest.raises(LookupError, match="no procedure"):
+        worker.resume_snapshot(submitted, worker_id="worker-snapshot")
+
+    assert control.get_procedure(submitted.procedure_run_id).state == "ready"
+    assert control.run_attention_calls == 0
+
+
 def test_worker_reuses_operation_id_when_replaying_a_running_step() -> None:
     control = MemoryProcedureControl()
     operation_ids: list[str] = []

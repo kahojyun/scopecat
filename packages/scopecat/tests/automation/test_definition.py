@@ -6,6 +6,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from scopecat.automation import (
+    MAX_PROCEDURE_REGISTRY_SIZE,
     ProcedureFunction,
     ProcedureRegistry,
     procedure,
@@ -213,3 +214,17 @@ def test_registry_resolves_exact_versions_and_fingerprints() -> None:
 def test_registry_rejects_duplicate_exact_version() -> None:
     with pytest.raises(ValueError, match="registered more than once"):
         ProcedureRegistry((DRAG, DRAG))
+
+
+def test_registry_rejects_more_definitions_than_worker_query_can_advertise() -> None:
+    definitions = tuple(
+        procedure(
+            id=f"tests.registry-limit-{index}",
+            version="1",
+            intent=DragIntent,
+        )(record_drag)
+        for index in range(MAX_PROCEDURE_REGISTRY_SIZE + 1)
+    )
+
+    with pytest.raises(ValueError, match=r"at most 200 exact definitions"):
+        ProcedureRegistry(definitions)

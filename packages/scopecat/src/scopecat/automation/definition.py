@@ -20,6 +20,7 @@ from scopecat.records.content import Sha256ContentHash
 
 _PROCEDURE_DEFINITION_FINGERPRINT_CODEC = "scopecat.procedure-definition.v1"
 _JSON_OBJECT = TypeAdapter(dict[str, JsonValue], config=ConfigDict(strict=True))
+MAX_PROCEDURE_REGISTRY_SIZE = 200
 
 type ProcedureFunction = Callable[..., None]
 type ProcedureDefinitionKey = tuple[str, str]
@@ -168,6 +169,11 @@ class ProcedureRegistry(Mapping[ProcedureDefinitionKey, RegisteredProcedure]):
                     f"procedure {definition.id!r} version "
                     f"{definition.version!r} is registered more than once"
                 )
+            if len(selected) >= MAX_PROCEDURE_REGISTRY_SIZE:
+                raise ValueError(
+                    "procedure registry supports at most "
+                    f"{MAX_PROCEDURE_REGISTRY_SIZE} exact definitions"
+                )
             selected[key] = definition
         ordered = dict(sorted(selected.items()))
         self._definitions = MappingProxyType(ordered)
@@ -302,6 +308,7 @@ def _definition_fingerprint(
 
 
 __all__ = [
+    "MAX_PROCEDURE_REGISTRY_SIZE",
     "ProcedureDefinition",
     "ProcedureDefinitionKey",
     "ProcedureFunction",

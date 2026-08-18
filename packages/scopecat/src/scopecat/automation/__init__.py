@@ -1,6 +1,7 @@
 """Domain-neutral contracts for durable multi-run procedures."""
 
 from scopecat.automation.definition import (
+    MAX_PROCEDURE_REGISTRY_SIZE,
     ProcedureDefinition,
     ProcedureDefinitionKey,
     ProcedureFunction,
@@ -89,6 +90,7 @@ from scopecat.automation.worker import (
 )
 
 __all__ = [
+    "MAX_PROCEDURE_REGISTRY_SIZE",
     "AnalysisPublicationOutputRef",
     "AnalysisPublicationWait",
     "ConfigActivationOutputRef",

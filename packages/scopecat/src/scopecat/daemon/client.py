@@ -406,10 +406,15 @@ class DaemonClient:
         self,
         query: ProcedureScheduleDueQuery,
     ) -> ProcedureScheduleDuePage:
+        params: dict[str, str | int] = {"limit": query.limit}
+        if query.cursor is not None:
+            params["cursor"] = query.cursor
+        if query.through_sequence is not None:
+            params["through_sequence"] = query.through_sequence
         return self._get_model(
             f"{_API_PREFIX}/procedure-schedules/due",
             ProcedureScheduleDuePage,
-            params={"limit": query.limit},
+            params=params,
         )
 
     def get_procedure_schedule(self, schedule_id: str) -> ProcedureSchedule:

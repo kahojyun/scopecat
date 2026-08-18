@@ -7,6 +7,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from scopecat.automation.definition import MAX_PROCEDURE_REGISTRY_SIZE
 from scopecat.automation.models import (
     ProcedureCloseStatus,
     ProcedureDefinitionRef,
@@ -80,7 +81,9 @@ class ProcedureRunPage(_WireModel):
 class ProcedureRunnableQuery(_WireModel):
     """Bound work discovery to exact definitions available in one worker."""
 
-    definitions: tuple[ProcedureDefinitionRef, ...] = Field(max_length=200)
+    definitions: tuple[ProcedureDefinitionRef, ...] = Field(
+        max_length=MAX_PROCEDURE_REGISTRY_SIZE
+    )
     limit: int = Field(default=50, ge=1, le=200)
 
     @field_validator("definitions")

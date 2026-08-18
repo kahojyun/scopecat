@@ -167,6 +167,86 @@ def test_schedule_materialization_is_due_atomic_and_exactly_replayable(
         )
 
 
+def test_due_schedule_high_water_wraps_to_newly_due_lower_sequence(
+    tmp_path: Path,
+) -> None:
+    service, _, _, now = _services(tmp_path)
+    poison = service.create(
+        _command("poison", due_at=_START - timedelta(minutes=1))
+    ).schedule
+    initially_future = service.create(
+        _command("initially-future", due_at=_START + timedelta(hours=1))
+    ).schedule
+    third = service.create(
+        _command("third", due_at=_START - timedelta(minutes=5))
+    ).schedule
+
+    first_page = service.due(ProcedureScheduleDueQuery(limit=1))
+    assert first_page.items == (poison,)
+    assert first_page.next_cursor is not None
+    assert first_page.through_sequence is not None
+    end_of_first_traversal = service.due(
+        ProcedureScheduleDueQuery(
+            cursor=first_page.next_cursor,
+            through_sequence=first_page.through_sequence,
+            limit=1,
+        )
+    )
+    assert end_of_first_traversal.items == (third,)
+    assert end_of_first_traversal.next_cursor is None
+    assert end_of_first_traversal.through_sequence is None
+
+    now[0] = _START + timedelta(hours=2)
+    fourth = service.create(_command("fourth", due_at=_START)).schedule
+    wrapped_first = service.due(ProcedureScheduleDueQuery(limit=1))
+    assert wrapped_first.items == (poison,)
+    assert wrapped_first.next_cursor is not None
+    assert wrapped_first.through_sequence is not None
+
+    fifth = service.create(_command("fifth", due_at=_START)).schedule
+    wrapped_second = service.due(
+        ProcedureScheduleDueQuery(
+            cursor=wrapped_first.next_cursor,
+            through_sequence=wrapped_first.through_sequence,
+            limit=1,
+        )
+    )
+    assert wrapped_second.items == (initially_future,)
+    assert wrapped_second.next_cursor is not None
+    assert wrapped_second.through_sequence == wrapped_first.through_sequence
+
+    sixth = service.create(_command("sixth", due_at=_START)).schedule
+    wrapped_third = service.due(
+        ProcedureScheduleDueQuery(
+            cursor=wrapped_second.next_cursor,
+            through_sequence=wrapped_second.through_sequence,
+            limit=1,
+        )
+    )
+    assert wrapped_third.items == (third,)
+    assert wrapped_third.next_cursor is not None
+    end_of_second_traversal = service.due(
+        ProcedureScheduleDueQuery(
+            cursor=wrapped_third.next_cursor,
+            through_sequence=wrapped_third.through_sequence,
+            limit=1,
+        )
+    )
+    assert end_of_second_traversal.items == (fourth,)
+    assert end_of_second_traversal.next_cursor is None
+    assert end_of_second_traversal.through_sequence is None
+
+    next_traversal = service.due(ProcedureScheduleDueQuery(limit=10))
+    assert next_traversal.items == (
+        poison,
+        initially_future,
+        third,
+        fourth,
+        fifth,
+        sixth,
+    )
+
+
 def test_schedule_materialization_rolls_back_run_when_terminal_write_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

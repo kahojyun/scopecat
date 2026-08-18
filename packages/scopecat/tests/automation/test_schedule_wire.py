@@ -144,27 +144,53 @@ def test_create_command_canonicalizes_time_and_terminal_replay_receipt() -> None
     )
 
 
-def test_schedule_pages_are_bounded_unique_and_oldest_due_first() -> None:
+def test_schedule_pages_are_bounded_unique_and_keyset_paginated() -> None:
     first = _pending(schedule_id="first", due_at=_DUE)
     second = _pending(schedule_id="second", due_at=_DUE + timedelta(minutes=1))
 
     assert ProcedureScheduleListQuery(limit=200, state="pending").state == "pending"
-    assert ProcedureScheduleDueQuery(limit=200).limit == 200
+    assert (
+        ProcedureScheduleDueQuery(
+            cursor=2,
+            through_sequence=4,
+            limit=200,
+        ).cursor
+        == 2
+    )
     assert (
         assert_model_round_trip(
             ProcedureSchedulePage(items=(second, first), next_cursor=3)
         ).next_cursor
         == 3
     )
-    assert ProcedureScheduleDuePage(items=(first, second), has_more=True).has_more
+    assert (
+        ProcedureScheduleDuePage(
+            items=(second, first),
+            next_cursor=3,
+            through_sequence=4,
+        ).next_cursor
+        == 3
+    )
     with pytest.raises(ValidationError):
         ProcedureScheduleListQuery(limit=201)
     with pytest.raises(ValidationError):
         ProcedureScheduleDueQuery(limit=201)
+    with pytest.raises(ValidationError):
+        ProcedureScheduleDueQuery(cursor=0)
+    with pytest.raises(ValidationError, match="provided together"):
+        ProcedureScheduleDueQuery(cursor=2)
+    with pytest.raises(ValidationError, match="below through_sequence"):
+        ProcedureScheduleDueQuery(cursor=2, through_sequence=2)
+    with pytest.raises(ValidationError, match="provided together"):
+        ProcedureScheduleDuePage(items=(first,), next_cursor=2)
+    with pytest.raises(ValidationError, match="below through_sequence"):
+        ProcedureScheduleDuePage(
+            items=(first,),
+            next_cursor=2,
+            through_sequence=2,
+        )
     with pytest.raises(ValidationError, match="ids must be unique"):
         ProcedureSchedulePage(items=(first, first))
-    with pytest.raises(ValidationError, match="oldest-first"):
-        ProcedureScheduleDuePage(items=(second, first))
     with pytest.raises(ValidationError, match="requires pending"):
         ProcedureScheduleDuePage(items=(_materialized(),))
 

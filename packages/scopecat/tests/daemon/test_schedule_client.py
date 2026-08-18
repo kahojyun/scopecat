@@ -180,7 +180,7 @@ def test_schedule_and_runnable_client_methods_use_exact_routes_and_models() -> N
         ProcedureScheduleListQuery(cursor=4, limit=5, state="pending")
     ).items == (_pending(),)
     assert client.list_due_procedure_schedules(
-        ProcedureScheduleDueQuery(limit=6)
+        ProcedureScheduleDueQuery(cursor=5, through_sequence=9, limit=6)
     ).items == (_pending(),)
     assert client.get_procedure_schedule(_SCHEDULE_ID) == _pending()
     assert client.cancel_procedure_schedule(cancel).schedule.state == "cancelled"
@@ -210,7 +210,11 @@ def test_schedule_and_runnable_client_methods_use_exact_routes_and_models() -> N
         "cursor": "4",
         "state": "pending",
     }
-    assert dict(requests[3].url.params) == {"limit": "6"}
+    assert dict(requests[3].url.params) == {
+        "limit": "6",
+        "cursor": "5",
+        "through_sequence": "9",
+    }
     quoted_schedule_id = b"nightly%2Fq0%3Fslot%3D1"
     assert quoted_schedule_id in requests[4].url.raw_path
     assert quoted_schedule_id in requests[5].url.raw_path

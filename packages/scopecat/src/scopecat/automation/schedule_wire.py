@@ -80,16 +80,28 @@ class ProcedureSchedulePage(_ScheduleWireModel):
 
 
 class ProcedureScheduleDueQuery(_ScheduleWireModel):
-    """Bound the server-clock query for pending schedules that are now due."""
+    """Bound one finite server-clock traversal of pending due schedules."""
 
+    cursor: int | None = Field(default=None, ge=1)
+    through_sequence: int | None = Field(default=None, ge=1)
     limit: int = Field(default=50, ge=1, le=200)
+
+    @model_validator(mode="after")
+    def validate_traversal(self) -> ProcedureScheduleDueQuery:
+        _require_traversal_pair(
+            cursor=self.cursor,
+            through_sequence=self.through_sequence,
+            cursor_name="procedure schedule due cursor",
+        )
+        return self
 
 
 class ProcedureScheduleDuePage(_ScheduleWireModel):
-    """Oldest-due pending schedules available for exact materialization."""
+    """One insertion-oldest page within a finite due-schedule traversal."""
 
     items: tuple[ProcedureSchedule, ...] = ()
-    has_more: bool = False
+    next_cursor: int | None = Field(default=None, ge=1)
+    through_sequence: int | None = Field(default=None, ge=1)
 
     @field_validator("items")
     @classmethod
@@ -100,10 +112,16 @@ class ProcedureScheduleDuePage(_ScheduleWireModel):
         _require_unique_schedule_ids(value)
         if any(item.state != "pending" for item in value):
             raise ValueError("due procedure schedule page requires pending schedules")
-        due_times = tuple(item.due_at for item in value)
-        if due_times != tuple(sorted(due_times)):
-            raise ValueError("due procedure schedules must be oldest-first")
         return value
+
+    @model_validator(mode="after")
+    def validate_traversal(self) -> ProcedureScheduleDuePage:
+        _require_traversal_pair(
+            cursor=self.next_cursor,
+            through_sequence=self.through_sequence,
+            cursor_name="next procedure schedule due cursor",
+        )
+        return self
 
 
 class ProcedureScheduleCancelCommand(_ScheduleWireModel):
@@ -167,6 +185,24 @@ def _require_unique_schedule_ids(value: tuple[ProcedureSchedule, ...]) -> None:
     identities = tuple(item.schedule_id for item in value)
     if len(identities) != len(set(identities)):
         raise ValueError("procedure schedule page ids must be unique")
+
+
+def _require_traversal_pair(
+    *,
+    cursor: int | None,
+    through_sequence: int | None,
+    cursor_name: str,
+) -> None:
+    if (cursor is None) != (through_sequence is None):
+        raise ValueError(
+            f"{cursor_name} and through_sequence must be provided together"
+        )
+    if (
+        cursor is not None
+        and through_sequence is not None
+        and cursor >= through_sequence
+    ):
+        raise ValueError(f"{cursor_name} must be below through_sequence")
 
 
 def _canonical_utc(value: datetime, *, field_name: str) -> datetime:

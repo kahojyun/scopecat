@@ -333,6 +333,19 @@ class ProcedureWorker:
             )
         return self._execute_run(run, definition, worker_id=worker_id)
 
+    def resume_snapshot(
+        self,
+        run: ProcedureRun,
+        *,
+        worker_id: str,
+    ) -> ProcedureRun:
+        """Resume a runnable snapshot filtered for this exact local registry."""
+
+        if run.state not in {"ready", "leased"}:
+            return run
+        definition = self._registry.resolve(run.definition)
+        return self._execute_run(run, definition, worker_id=worker_id)
+
     def _execute_run(
         self,
         run: ProcedureRun,

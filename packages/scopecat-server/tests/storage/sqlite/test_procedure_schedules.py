@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
 from scopecat.automation import (
     ProcedureDefinitionRef,
     ProcedureSchedule,
@@ -46,7 +47,7 @@ def _schedule(schedule_id: str, *, due_at: datetime) -> ProcedureSchedule:
     )
 
 
-def test_store_round_trips_pages_and_due_schedules_with_canonical_time(
+def test_store_round_trips_pages_and_due_schedules_by_insertion_keyset(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path)
@@ -66,9 +67,17 @@ def test_store_round_trips_pages_and_due_schedules_with_canonical_time(
         timezone(timedelta(hours=8))
     )
     first_due = store.due(at=offset_now, limit=1)
-    assert first_due.items == (earlier,)
-    assert first_due.has_more is True
-    assert store.due(at=offset_now, limit=10).items == (earlier, later)
+    assert first_due.items == (later,)
+    assert first_due.next_cursor is not None
+    assert store.due(
+        at=offset_now,
+        limit=1,
+        after=first_due.next_cursor,
+        through_sequence=first_due.through_sequence,
+    ).items == (earlier,)
+    assert store.due(at=offset_now, limit=10).items == (later, earlier)
+    with pytest.raises(ValueError, match="cursor must be positive"):
+        store.due(at=offset_now, after=0)
 
     cancelled_at = _START + timedelta(minutes=4)
     cancelled = earlier.model_copy(

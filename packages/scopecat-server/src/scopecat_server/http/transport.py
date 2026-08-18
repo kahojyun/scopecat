@@ -583,9 +583,16 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/procedure-schedules/due")
     def list_due_procedure_schedules(
         limit: Annotated[int, Query(ge=1, le=200)] = 50,
+        cursor: Annotated[int | None, Query(ge=1)] = None,
+        through_sequence: Annotated[int | None, Query(ge=1)] = None,
     ) -> ProcedureScheduleDuePage:
+        _require_due_schedule_traversal(cursor, through_sequence)
         return application.procedure_schedules.due(
-            ProcedureScheduleDueQuery(limit=limit)
+            ProcedureScheduleDueQuery(
+                limit=limit,
+                cursor=cursor,
+                through_sequence=through_sequence,
+            )
         )
 
     @app.get(f"{_API_PREFIX}/procedure-schedules/by-id/{{schedule_id:path}}")
@@ -1374,6 +1381,26 @@ def _require_procedure_schedule_id(
         raise HTTPException(
             status_code=422,
             detail="path schedule_id must match request body",
+        )
+
+
+def _require_due_schedule_traversal(
+    cursor: int | None,
+    through_sequence: int | None,
+) -> None:
+    if (cursor is None) != (through_sequence is None):
+        raise HTTPException(
+            status_code=422,
+            detail="cursor and through_sequence must be provided together",
+        )
+    if (
+        cursor is not None
+        and through_sequence is not None
+        and cursor >= through_sequence
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="cursor must be below through_sequence",
         )
 
 

@@ -110,8 +110,17 @@ class ProcedureScheduleService:
 
     def due(self, query: ProcedureScheduleDueQuery) -> ProcedureScheduleDuePage:
         with _translate_store_errors():
-            page = self._store.due(at=self._now(), limit=query.limit)
-        return ProcedureScheduleDuePage(items=page.items, has_more=page.has_more)
+            page = self._store.due(
+                at=self._now(),
+                limit=query.limit,
+                after=query.cursor,
+                through_sequence=query.through_sequence,
+            )
+        return ProcedureScheduleDuePage(
+            items=page.items,
+            next_cursor=page.next_cursor,
+            through_sequence=page.through_sequence,
+        )
 
     def cancel(
         self,
