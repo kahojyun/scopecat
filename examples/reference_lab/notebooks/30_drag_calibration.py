@@ -4,46 +4,67 @@ from __future__ import annotations
 
 # %%
 import scopecat as sc
+from scopecat.automation import AnalysisPublicationOutputRef, RunOutputRef
 
 from reference_lab.configuration import EXAMPLE_ROOT
 from reference_lab.notebook import show
-from reference_lab.workflows.drag_beta_analysis import drag_beta_analysis
 from reference_lab.workflows.drag_beta_experiment import drag_beta_experiment
+from reference_lab.workflows.drag_beta_procedure import (
+    DragBetaProcedureIntent,
+    drag_beta_calibration_procedure,
+    drag_beta_calibration_request_key,
+)
 from reference_lab.workflows.drag_beta_verification import (
     DRAG_BETA_VERIFICATION_SCHEMA,
-    drag_beta_candidate_verification,
 )
 from reference_lab.workflows.production_drag_gate import production_drag_experiment
 
 # %%
 lab = sc.open_project(EXAMPLE_ROOT).connect()
-prepared = lab.prepare(drag_beta_experiment())
+initial_config, initial_config_source = lab.config.resolve_with_source("active")
+if (
+    initial_config_source is None
+    or initial_config_source.kind != "config_registry"
+    or initial_config_source.registry_generation is None
+):
+    raise RuntimeError("active config has no exact registry generation")
+prepared = lab.prepare(drag_beta_experiment(), config=initial_config)
 preview = prepared.preview()
-baseline_run = prepared.run(
-    name="DRAG beta rough calibration",
-    tags=("calibration", "gate-pulse"),
+procedure = lab.procedures.start(
+    drag_beta_calibration_procedure,
+    DragBetaProcedureIntent(
+        initial_config=initial_config,
+        initial_config_source=initial_config_source,
+    ),
+    request_key=drag_beta_calibration_request_key(initial_config_source),
 )
 
 # %%
-analysis = baseline_run.analyze(drag_beta_analysis())
+baseline_output = procedure.output("baseline")
+fit_output = procedure.output("fit")
+candidate_output = procedure.output("candidate")
+verification_output = procedure.output("verification")
+if not isinstance(baseline_output, RunOutputRef):
+    raise TypeError("DRAG baseline step did not produce a run")
+if not isinstance(fit_output, AnalysisPublicationOutputRef):
+    raise TypeError("DRAG fit step did not produce an analysis publication")
+if not isinstance(candidate_output, RunOutputRef):
+    raise TypeError("DRAG candidate step did not produce a run")
+if not isinstance(verification_output, AnalysisPublicationOutputRef):
+    raise TypeError("DRAG verification step did not produce an analysis publication")
+
+baseline_run = lab.get_run(baseline_output.run_id)
+analysis = baseline_run.published_analysis(fit_output.analysis_record_id)
 candidate = analysis.candidate_config()
 fit_report = baseline_run.published_analysis(analysis.id).artifact("fit-report")
 [proposal] = analysis.parameter_proposals
 
-# A candidate run records its analysis provenance without changing the default.
-candidate_run = lab.run(
-    drag_beta_experiment(),
-    config=candidate,
-    name="DRAG beta candidate check",
-    tags=("calibration", "candidate"),
-)
+# The procedure's candidate run records analysis provenance without changing default.
+candidate_run = lab.get_run(candidate_output.run_id)
 
 # %%
-verification = lab.analyze(
-    drag_beta_candidate_verification(
-        baseline_run=baseline_run,
-        candidate_run=candidate_run,
-    )
+verification = lab.published_analysis(
+    verification_output.analysis_record_id,
 )
 verification_decision = verification.fact_as(
     "decision",
@@ -74,8 +95,18 @@ restored = lab.config.undo(
 )
 candidate_source = candidate_run.snapshot.config_source
 production_source = production_run.snapshot.config_source
+procedure_snapshot = procedure.snapshot
+procedure_steps = procedure.steps(limit=10).items
 
 drag_beta_summary = {
+    "procedure": procedure.id,
+    "procedure_state": procedure_snapshot.state,
+    "procedure_status": (
+        None
+        if procedure_snapshot.closure is None
+        else procedure_snapshot.closure.status
+    ),
+    "procedure_steps": {step.step_key: step.state for step in procedure_steps},
     "status": baseline_run.status,
     "point_count": preview.point_count,
     "analysis": analysis.id,

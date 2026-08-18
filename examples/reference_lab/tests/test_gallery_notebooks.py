@@ -370,6 +370,15 @@ def test_drag_calibration_closes_the_reviewed_config_loop(
     namespace = run_path(str(NOTEBOOKS / "30_drag_calibration.py"))
     summary = cast("dict[str, object]", namespace["drag_beta_summary"])
 
+    assert cast("str", summary["procedure"]).startswith("procedure-")
+    assert summary["procedure_state"] == "closed"
+    assert summary["procedure_status"] == "succeeded"
+    assert summary["procedure_steps"] == {
+        "baseline": "succeeded",
+        "fit": "succeeded",
+        "candidate": "succeeded",
+        "verification": "succeeded",
+    }
     assert summary["status"] == "completed"
     assert summary["point_count"] == 15
     assert summary["output_kinds"] == [

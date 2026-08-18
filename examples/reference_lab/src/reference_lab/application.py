@@ -8,6 +8,9 @@ from scopecat.application import LabApplication
 
 from reference_lab.configuration import bootstrap_config
 from reference_lab.lab import reference_lab_system
+from reference_lab.workflows.drag_beta_procedure import (
+    drag_beta_calibration_procedure,
+)
 
 
 def create_application(project_root: Path) -> LabApplication:
@@ -21,6 +24,7 @@ def create_application(project_root: Path) -> LabApplication:
             config=config,
             instrument_catalog=instrument_catalog,
         ),
+        procedures=(drag_beta_calibration_procedure,),
     )
 
 
