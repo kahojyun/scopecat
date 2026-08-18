@@ -13,6 +13,36 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi import Path as ApiPath
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from scopecat.automation import (
+    ProcedureCloseCommand,
+    ProcedureCloseReceipt,
+    ProcedureRun,
+    ProcedureRunAttentionCommand,
+    ProcedureRunAttentionReceipt,
+    ProcedureRunListQuery,
+    ProcedureRunPage,
+    ProcedureRunState,
+    ProcedureStepAttemptListQuery,
+    ProcedureStepAttemptPage,
+    ProcedureStepAttentionCommand,
+    ProcedureStepAttentionReceipt,
+    ProcedureStepBeginCommand,
+    ProcedureStepBeginReceipt,
+    ProcedureStepCompleteCommand,
+    ProcedureStepCompleteReceipt,
+    ProcedureStepFailCommand,
+    ProcedureStepFailReceipt,
+    ProcedureSubmitCommand,
+    ProcedureSubmitReceipt,
+    ProcedureWaitCommand,
+    ProcedureWaitReceipt,
+    ProcedureWorkerLeaseAcquireCommand,
+    ProcedureWorkerLeaseAcquireReceipt,
+    ProcedureWorkerLeaseHeartbeatCommand,
+    ProcedureWorkerLeaseHeartbeatReceipt,
+    ProcedureWorkerLeaseReleaseCommand,
+    ProcedureWorkerLeaseReleaseReceipt,
+)
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
@@ -500,6 +530,159 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         worker_id: Annotated[str, Query(min_length=1)],
     ) -> ReviewSessionCloseReceipt:
         return application.reviews.close(session_id, worker_id)
+
+    @app.post(f"{_API_PREFIX}/procedures", status_code=201)
+    def submit_procedure(
+        command: ProcedureSubmitCommand,
+    ) -> ProcedureSubmitReceipt:
+        return application.automation.submit(command)
+
+    @app.get(f"{_API_PREFIX}/procedures")
+    def list_procedures(
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+        cursor: Annotated[int | None, Query(ge=1)] = None,
+        state: ProcedureRunState | None = None,
+    ) -> ProcedureRunPage:
+        return application.automation.list(
+            ProcedureRunListQuery(limit=limit, cursor=cursor, state=state)
+        )
+
+    @app.get(f"{_API_PREFIX}/procedures/{{procedure_run_id}}")
+    def get_procedure(procedure_run_id: str) -> ProcedureRun:
+        return application.automation.get(procedure_run_id)
+
+    @app.get(f"{_API_PREFIX}/procedures/{{procedure_run_id}}/steps")
+    def list_procedure_step_attempts(
+        procedure_run_id: str,
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+        cursor: Annotated[int | None, Query(ge=1)] = None,
+    ) -> ProcedureStepAttemptPage:
+        return application.automation.step_attempts(
+            procedure_run_id,
+            ProcedureStepAttemptListQuery(limit=limit, cursor=cursor),
+        )
+
+    @app.post(
+        f"{_API_PREFIX}/procedures/{{procedure_run_id}}/worker/lease/acquire",
+        status_code=201,
+    )
+    def acquire_procedure_worker_lease(
+        procedure_run_id: str,
+        command: ProcedureWorkerLeaseAcquireCommand,
+    ) -> ProcedureWorkerLeaseAcquireReceipt:
+        _require_procedure_run_id(procedure_run_id, command.procedure_run_id)
+        return application.automation.acquire_lease(command)
+
+    @app.post(f"{_API_PREFIX}/procedures/{{procedure_run_id}}/worker/lease/heartbeat")
+    def heartbeat_procedure_worker_lease(
+        procedure_run_id: str,
+        command: ProcedureWorkerLeaseHeartbeatCommand,
+    ) -> ProcedureWorkerLeaseHeartbeatReceipt:
+        _require_procedure_run_id(procedure_run_id, command.procedure_run_id)
+        return application.automation.heartbeat_lease(command)
+
+    @app.post(f"{_API_PREFIX}/procedures/{{procedure_run_id}}/worker/lease/release")
+    def release_procedure_worker_lease(
+        procedure_run_id: str,
+        command: ProcedureWorkerLeaseReleaseCommand,
+    ) -> ProcedureWorkerLeaseReleaseReceipt:
+        _require_procedure_run_id(procedure_run_id, command.procedure_run_id)
+        return application.automation.release_lease(command)
+
+    @app.post(
+        f"{_API_PREFIX}/procedures/{{procedure_run_id}}/steps/begin",
+        status_code=201,
+    )
+    def begin_procedure_step(
+        procedure_run_id: str,
+        command: ProcedureStepBeginCommand,
+    ) -> ProcedureStepBeginReceipt:
+        _require_procedure_run_id(procedure_run_id, command.procedure_run_id)
+        return application.automation.begin_step(command)
+
+    @app.post(
+        f"{_API_PREFIX}/procedures/{{procedure_run_id}}/steps/{{step_key:path}}/"
+        "attempts/{attempt}/complete"
+    )
+    def complete_procedure_step(
+        procedure_run_id: str,
+        step_key: str,
+        attempt: Annotated[int, ApiPath(ge=1)],
+        command: ProcedureStepCompleteCommand,
+    ) -> ProcedureStepCompleteReceipt:
+        _require_procedure_step_identity(
+            procedure_run_id,
+            step_key,
+            attempt,
+            command.procedure_run_id,
+            command.step_key,
+            command.attempt,
+        )
+        return application.automation.complete_step(command)
+
+    @app.post(
+        f"{_API_PREFIX}/procedures/{{procedure_run_id}}/steps/{{step_key:path}}/"
+        "attempts/{attempt}/fail"
+    )
+    def fail_procedure_step(
+        procedure_run_id: str,
+        step_key: str,
+        attempt: Annotated[int, ApiPath(ge=1)],
+        command: ProcedureStepFailCommand,
+    ) -> ProcedureStepFailReceipt:
+        _require_procedure_step_identity(
+            procedure_run_id,
+            step_key,
+            attempt,
+            command.procedure_run_id,
+            command.step_key,
+            command.attempt,
+        )
+        return application.automation.fail_step(command)
+
+    @app.post(
+        f"{_API_PREFIX}/procedures/{{procedure_run_id}}/steps/{{step_key:path}}/"
+        "attempts/{attempt}/attention"
+    )
+    def require_procedure_step_attention(
+        procedure_run_id: str,
+        step_key: str,
+        attempt: Annotated[int, ApiPath(ge=1)],
+        command: ProcedureStepAttentionCommand,
+    ) -> ProcedureStepAttentionReceipt:
+        _require_procedure_step_identity(
+            procedure_run_id,
+            step_key,
+            attempt,
+            command.procedure_run_id,
+            command.step_key,
+            command.attempt,
+        )
+        return application.automation.require_step_attention(command)
+
+    @app.post(f"{_API_PREFIX}/procedures/{{procedure_run_id}}/attention")
+    def require_procedure_run_attention(
+        procedure_run_id: str,
+        command: ProcedureRunAttentionCommand,
+    ) -> ProcedureRunAttentionReceipt:
+        _require_procedure_run_id(procedure_run_id, command.procedure_run_id)
+        return application.automation.require_run_attention(command)
+
+    @app.post(f"{_API_PREFIX}/procedures/{{procedure_run_id}}/wait")
+    def wait_procedure(
+        procedure_run_id: str,
+        command: ProcedureWaitCommand,
+    ) -> ProcedureWaitReceipt:
+        _require_procedure_run_id(procedure_run_id, command.procedure_run_id)
+        return application.automation.wait(command)
+
+    @app.post(f"{_API_PREFIX}/procedures/{{procedure_run_id}}/close")
+    def close_procedure(
+        procedure_run_id: str,
+        command: ProcedureCloseCommand,
+    ) -> ProcedureCloseReceipt:
+        _require_procedure_run_id(procedure_run_id, command.procedure_run_id)
+        return application.automation.close(command)
 
     @app.get(f"{_API_PREFIX}/runs")
     def list_runs(
@@ -1092,6 +1275,33 @@ def _require_run_id(path_run_id: str, body_run_id: str) -> None:
         raise HTTPException(
             status_code=422,
             detail="path run_id must match request body",
+        )
+
+
+def _require_procedure_run_id(
+    path_procedure_run_id: str,
+    body_procedure_run_id: str,
+) -> None:
+    if path_procedure_run_id != body_procedure_run_id:
+        raise HTTPException(
+            status_code=422,
+            detail="path procedure_run_id must match request body",
+        )
+
+
+def _require_procedure_step_identity(
+    path_procedure_run_id: str,
+    path_step_key: str,
+    path_attempt: int,
+    body_procedure_run_id: str,
+    body_step_key: str,
+    body_attempt: int,
+) -> None:
+    _require_procedure_run_id(path_procedure_run_id, body_procedure_run_id)
+    if path_step_key != body_step_key or path_attempt != body_attempt:
+        raise HTTPException(
+            status_code=422,
+            detail="path procedure step identity must match request body",
         )
 
 

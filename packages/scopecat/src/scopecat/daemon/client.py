@@ -13,6 +13,35 @@ import httpx2
 import pyarrow as pa
 from pydantic import BaseModel, ValidationError
 
+from scopecat.automation import (
+    ProcedureCloseCommand,
+    ProcedureCloseReceipt,
+    ProcedureRun,
+    ProcedureRunAttentionCommand,
+    ProcedureRunAttentionReceipt,
+    ProcedureRunListQuery,
+    ProcedureRunPage,
+    ProcedureStepAttemptListQuery,
+    ProcedureStepAttemptPage,
+    ProcedureStepAttentionCommand,
+    ProcedureStepAttentionReceipt,
+    ProcedureStepBeginCommand,
+    ProcedureStepBeginReceipt,
+    ProcedureStepCompleteCommand,
+    ProcedureStepCompleteReceipt,
+    ProcedureStepFailCommand,
+    ProcedureStepFailReceipt,
+    ProcedureSubmitCommand,
+    ProcedureSubmitReceipt,
+    ProcedureWaitCommand,
+    ProcedureWaitReceipt,
+    ProcedureWorkerLeaseAcquireCommand,
+    ProcedureWorkerLeaseAcquireReceipt,
+    ProcedureWorkerLeaseHeartbeatCommand,
+    ProcedureWorkerLeaseHeartbeatReceipt,
+    ProcedureWorkerLeaseReleaseCommand,
+    ProcedureWorkerLeaseReleaseReceipt,
+)
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
@@ -292,6 +321,151 @@ class DaemonClient:
             params={"worker_id": worker_id},
         )
         return ReviewSessionCloseReceipt.model_validate_json(response.content)
+
+    def submit_procedure(
+        self,
+        command: ProcedureSubmitCommand,
+    ) -> ProcedureSubmitReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/procedures",
+            command,
+            ProcedureSubmitReceipt,
+        )
+
+    def list_procedures(
+        self,
+        query: ProcedureRunListQuery,
+    ) -> ProcedureRunPage:
+        params: dict[str, str | int] = {"limit": query.limit}
+        if query.cursor is not None:
+            params["cursor"] = query.cursor
+        if query.state is not None:
+            params["state"] = query.state
+        return self._get_model(
+            f"{_API_PREFIX}/procedures",
+            ProcedureRunPage,
+            params=params,
+        )
+
+    def get_procedure(self, procedure_run_id: str) -> ProcedureRun:
+        return self._get_model(
+            f"{_API_PREFIX}/procedures/{quote(procedure_run_id, safe='')}",
+            ProcedureRun,
+        )
+
+    def list_procedure_step_attempts(
+        self,
+        procedure_run_id: str,
+        query: ProcedureStepAttemptListQuery,
+    ) -> ProcedureStepAttemptPage:
+        params: dict[str, str | int] = {"limit": query.limit}
+        if query.cursor is not None:
+            params["cursor"] = query.cursor
+        return self._get_model(
+            (f"{_API_PREFIX}/procedures/{quote(procedure_run_id, safe='')}/steps"),
+            ProcedureStepAttemptPage,
+            params=params,
+        )
+
+    def acquire_procedure_worker_lease(
+        self,
+        command: ProcedureWorkerLeaseAcquireCommand,
+    ) -> ProcedureWorkerLeaseAcquireReceipt:
+        return self._post_idempotent_model(
+            self._procedure_path(command.procedure_run_id, "worker/lease/acquire"),
+            command,
+            ProcedureWorkerLeaseAcquireReceipt,
+        )
+
+    def heartbeat_procedure_worker_lease(
+        self,
+        command: ProcedureWorkerLeaseHeartbeatCommand,
+    ) -> ProcedureWorkerLeaseHeartbeatReceipt:
+        return self._post_idempotent_model(
+            self._procedure_path(command.procedure_run_id, "worker/lease/heartbeat"),
+            command,
+            ProcedureWorkerLeaseHeartbeatReceipt,
+        )
+
+    def release_procedure_worker_lease(
+        self,
+        command: ProcedureWorkerLeaseReleaseCommand,
+    ) -> ProcedureWorkerLeaseReleaseReceipt:
+        return self._post_idempotent_model(
+            self._procedure_path(command.procedure_run_id, "worker/lease/release"),
+            command,
+            ProcedureWorkerLeaseReleaseReceipt,
+        )
+
+    def begin_procedure_step(
+        self,
+        command: ProcedureStepBeginCommand,
+    ) -> ProcedureStepBeginReceipt:
+        return self._post_idempotent_model(
+            self._procedure_path(command.procedure_run_id, "steps/begin"),
+            command,
+            ProcedureStepBeginReceipt,
+        )
+
+    def complete_procedure_step(
+        self,
+        command: ProcedureStepCompleteCommand,
+    ) -> ProcedureStepCompleteReceipt:
+        return self._post_idempotent_model(
+            self._procedure_step_path(command, "complete"),
+            command,
+            ProcedureStepCompleteReceipt,
+        )
+
+    def fail_procedure_step(
+        self,
+        command: ProcedureStepFailCommand,
+    ) -> ProcedureStepFailReceipt:
+        return self._post_idempotent_model(
+            self._procedure_step_path(command, "fail"),
+            command,
+            ProcedureStepFailReceipt,
+        )
+
+    def require_procedure_step_attention(
+        self,
+        command: ProcedureStepAttentionCommand,
+    ) -> ProcedureStepAttentionReceipt:
+        return self._post_idempotent_model(
+            self._procedure_step_path(command, "attention"),
+            command,
+            ProcedureStepAttentionReceipt,
+        )
+
+    def require_procedure_run_attention(
+        self,
+        command: ProcedureRunAttentionCommand,
+    ) -> ProcedureRunAttentionReceipt:
+        return self._post_idempotent_model(
+            self._procedure_path(command.procedure_run_id, "attention"),
+            command,
+            ProcedureRunAttentionReceipt,
+        )
+
+    def wait_procedure(
+        self,
+        command: ProcedureWaitCommand,
+    ) -> ProcedureWaitReceipt:
+        return self._post_idempotent_model(
+            self._procedure_path(command.procedure_run_id, "wait"),
+            command,
+            ProcedureWaitReceipt,
+        )
+
+    def close_procedure(
+        self,
+        command: ProcedureCloseCommand,
+    ) -> ProcedureCloseReceipt:
+        return self._post_idempotent_model(
+            self._procedure_path(command.procedure_run_id, "close"),
+            command,
+            ProcedureCloseReceipt,
+        )
 
     def config_registry(
         self,
@@ -1324,6 +1498,23 @@ class DaemonClient:
         return (
             f"{_API_PREFIX}/instrument-sessions/{quote(session_id, safe='')}/"
             f"instruments/{quote(instrument_id, safe='')}/{suffix}"
+        )
+
+    @staticmethod
+    def _procedure_path(procedure_run_id: str, suffix: str) -> str:
+        return f"{_API_PREFIX}/procedures/{quote(procedure_run_id, safe='')}/{suffix}"
+
+    @staticmethod
+    def _procedure_step_path(
+        command: ProcedureStepCompleteCommand
+        | ProcedureStepFailCommand
+        | ProcedureStepAttentionCommand,
+        suffix: str,
+    ) -> str:
+        return (
+            f"{_API_PREFIX}/procedures/"
+            f"{quote(command.procedure_run_id, safe='')}/steps/"
+            f"{quote(command.step_key, safe='')}/attempts/{command.attempt}/{suffix}"
         )
 
     def _post_model[ModelT: BaseModel](
