@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import BaseModel, ConfigDict
 from scopecat.automation import (
     ProcedureCloseCommand,
+    ProcedureContext,
     ProcedureDefinitionRef,
+    ProcedureRegistry,
     ProcedureRun,
     ProcedureRunAttentionCommand,
     ProcedureRunListQuery,
@@ -18,11 +23,14 @@ from scopecat.automation import (
     ProcedureStepFailCommand,
     ProcedureSubmitCommand,
     ProcedureWaitCommand,
+    ProcedureWorker,
     ProcedureWorkerLeaseAcquireCommand,
     ProcedureWorkerLeaseHeartbeatCommand,
     ProcedureWorkerLeaseReleaseCommand,
     RunOutputRef,
     RunTerminalWait,
+    procedure,
+    procedure_step_operation_id,
 )
 from scopecat.daemon.client import DaemonClient, DaemonConflictError
 
@@ -31,6 +39,36 @@ from scopecat_server import LocalDaemonRuntime
 _DEFINITION_HASH = "sha256:" + "1" * 64
 _FIRST_STEP_HASH = "sha256:" + "2" * 64
 _SECOND_STEP_HASH = "sha256:" + "3" * 64
+
+
+class _WorkerIntent(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    child_run_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class _WorkerContext:
+    durable: ProcedureContext
+    effect: Callable[[str], RunOutputRef]
+
+
+def _run_one_durable_step(context: _WorkerContext, intent: _WorkerIntent) -> None:
+    output = context.durable.step(
+        "child/run",
+        operation="run",
+        intent_hash=_FIRST_STEP_HASH,
+        effect=context.effect,
+    )
+    if output.run_id != intent.child_run_id:
+        raise ValueError("durable child run does not match procedure intent")
+
+
+_ONE_STEP_PROCEDURE = procedure(
+    id="tests.http-one-step",
+    version="1",
+    intent=_WorkerIntent,
+)(_run_one_durable_step)
 
 
 def _definition() -> ProcedureDefinitionRef:
@@ -339,6 +377,73 @@ def test_procedure_http_exposes_worker_state_transitions(tmp_path: Path) -> None
         )
         assert quarantined.run.state == "attention_required"
         assert quarantined.step.state == "attention_required"
+
+
+def test_daemon_client_drives_core_worker_and_replays_closed_procedure(
+    tmp_path: Path,
+) -> None:
+    operation_ids: list[str] = []
+    output = RunOutputRef(run_id="child-run-durable")
+
+    def effect(operation_id: str) -> RunOutputRef:
+        operation_ids.append(operation_id)
+        return output
+
+    def context_factory(context: ProcedureContext) -> object:
+        return _WorkerContext(durable=context, effect=effect)
+
+    with (
+        LocalDaemonRuntime(tmp_path) as runtime,
+        TestClient(runtime.app()) as transport,
+        _daemon_client(transport) as client,
+    ):
+        worker = ProcedureWorker(
+            client,
+            ProcedureRegistry((_ONE_STEP_PROCEDURE,)),
+            context_factory=context_factory,
+        )
+        completed = worker.execute(
+            _ONE_STEP_PROCEDURE,
+            {"child_run_id": output.run_id},
+            "durable-worker-request",
+            "http-worker-1",
+        )
+
+        assert completed.state == "closed"
+        assert completed.closure is not None
+        assert completed.closure.status == "succeeded"
+
+    with (
+        LocalDaemonRuntime(tmp_path) as restarted,
+        TestClient(restarted.app()) as transport,
+        _daemon_client(transport) as client,
+    ):
+        worker = ProcedureWorker(
+            client,
+            ProcedureRegistry((_ONE_STEP_PROCEDURE,)),
+            context_factory=context_factory,
+        )
+        replayed = worker.execute(
+            _ONE_STEP_PROCEDURE,
+            {"child_run_id": output.run_id},
+            "durable-worker-request",
+            "http-worker-2",
+        )
+        page = client.list_procedure_step_attempts(
+            completed.procedure_run_id,
+            ProcedureStepAttemptListQuery(),
+        )
+
+        assert replayed == completed
+        [step] = page.items
+        assert step.state == "succeeded"
+        assert step.output == output
+        expected_operation_id = procedure_step_operation_id(
+            step.procedure_run_id,
+            step.step_key,
+            step.attempt,
+        )
+        assert operation_ids == [expected_operation_id]
 
 
 def _daemon_client(transport: TestClient) -> DaemonClient:
