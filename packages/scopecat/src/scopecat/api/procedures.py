@@ -648,12 +648,14 @@ class LabProcedureOperations:
         run: ProcedureRun,
         *,
         worker_id: str | None = None,
+        should_yield: Callable[[], bool] | None = None,
     ) -> ProcedureHandle:
         """Resume one runnable snapshot returned for this exact registry."""
 
         resumed = self._worker().resume_snapshot(
             run,
             worker_id=self._worker_id if worker_id is None else worker_id,
+            should_yield=should_yield,
         )
         return ProcedureHandle(self, resumed.procedure_run_id)
 

@@ -57,6 +57,7 @@ class ProcedureWorkerOperations(Protocol):
         run: ProcedureRun,
         *,
         worker_id: str | None = None,
+        should_yield: Callable[[], bool] | None = None,
     ) -> ProcedureHandle: ...
 
 
@@ -242,6 +243,7 @@ class ProjectProcedureWorkerLoop:
                 self._operations.resume_snapshot(
                     run,
                     worker_id=self._worker_id,
+                    should_yield=(None if stop is None else stop.is_set),
                 )
             except ProcedureControlError as error:
                 if error.operation == "acquire_procedure_worker_lease":

@@ -140,18 +140,25 @@ class _ProcedureAttentionRecorded(Exception):
         super().__init__(run.attention_reason)
 
 
+class _ProcedureYieldRequested(BaseException):
+    """Leave execution before starting another durable step."""
+
+
 class ProcedureContext:
     """Lease-fenced primitive used by imperative procedure definitions."""
 
-    __slots__ = ("_authority", "_control")
+    __slots__ = ("_authority", "_control", "_should_yield")
 
     def __init__(
         self,
         control: ProcedureControl,
         authority: _ProcedureLeaseAuthority,
+        *,
+        should_yield: Callable[[], bool] | None = None,
     ) -> None:
         self._control = control
         self._authority = authority
+        self._should_yield = should_yield
 
     @property
     def procedure_run_id(self) -> str:
@@ -169,6 +176,9 @@ class ProcedureContext:
         inputs: tuple[ProcedureStepOutputRef, ...] = (),
     ) -> OutputT:
         """Replay or execute one stable, intent-identified side-effect step."""
+
+        if self._should_yield is not None and self._should_yield():
+            raise _ProcedureYieldRequested
 
         begun = self._authority.fenced_call(
             "begin_step",
@@ -338,13 +348,19 @@ class ProcedureWorker:
         run: ProcedureRun,
         *,
         worker_id: str,
+        should_yield: Callable[[], bool] | None = None,
     ) -> ProcedureRun:
         """Resume a runnable snapshot filtered for this exact local registry."""
 
         if run.state not in {"ready", "leased"}:
             return run
         definition = self._registry.resolve(run.definition)
-        return self._execute_run(run, definition, worker_id=worker_id)
+        return self._execute_run(
+            run,
+            definition,
+            worker_id=worker_id,
+            should_yield=should_yield,
+        )
 
     def _execute_run(
         self,
@@ -352,6 +368,7 @@ class ProcedureWorker:
         definition: RegisteredProcedure,
         *,
         worker_id: str,
+        should_yield: Callable[[], bool] | None = None,
     ) -> ProcedureRun:
         if run.state not in {"ready", "leased"}:
             return run
@@ -366,12 +383,18 @@ class ProcedureWorker:
             ),
         )
         authority = _ProcedureLeaseAuthority(self._control, acquired)
-        context = ProcedureContext(self._control, authority)
+        context = ProcedureContext(
+            self._control,
+            authority,
+            should_yield=should_yield,
+        )
         authority.start()
         try:
             try:
                 selected_context = self._context_factory(context)
                 definition.run(selected_context, acquired.run.intent)
+            except _ProcedureYieldRequested:
+                return self._release(authority)
             except _ProcedureAttentionRecorded as recorded:
                 return recorded.run
             except ProcedureNeedsAttention as error:
@@ -427,6 +450,19 @@ class ProcedureWorker:
                     lease_token=lease.lease_token,
                     expected_run_revision=run.revision,
                     reason=reason,
+                )
+            ),
+        )
+        return receipt.run
+
+    def _release(self, authority: _ProcedureLeaseAuthority) -> ProcedureRun:
+        receipt = authority.fenced_call(
+            "release_procedure_worker_lease",
+            lambda run, lease: self._control.release_procedure_worker_lease(
+                ProcedureWorkerLeaseReleaseCommand(
+                    procedure_run_id=run.procedure_run_id,
+                    lease_token=lease.lease_token,
+                    expected_run_revision=run.revision,
                 )
             ),
         )

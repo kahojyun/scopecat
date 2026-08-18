@@ -78,6 +78,24 @@ def changed_run_one_step(context: ProcedureContext, intent: WorkerIntent) -> Non
     del context, intent
 
 
+def run_two_steps(context: ProcedureContext, intent: WorkerIntent) -> None:
+    first = context.step(
+        "first",
+        operation="run",
+        intent_hash=_STEP_INTENT_HASH,
+        effect=_EFFECTS[f"{intent.case}:first"],
+    )
+    _OUTPUTS[f"{intent.case}:first"] = first
+    second = context.step(
+        "second",
+        operation="run",
+        intent_hash=_STEP_INTENT_HASH,
+        effect=_EFFECTS[f"{intent.case}:second"],
+        inputs=(first,),
+    )
+    _OUTPUTS[f"{intent.case}:second"] = second
+
+
 class WrappedProcedureContext:
     def __init__(self, durable: ProcedureContext) -> None:
         self.durable = durable
@@ -107,6 +125,11 @@ WRAPPED_STEP = procedure(
     version="1",
     intent=WorkerIntent,
 )(run_wrapped_step)
+TWO_STEPS = procedure(
+    id="tests.yielding-worker",
+    version="1",
+    intent=WorkerIntent,
+)(run_two_steps)
 
 
 class MemoryProcedureControl:
@@ -126,6 +149,7 @@ class MemoryProcedureControl:
         self.lose_next_complete_receipt = False
         self.effect_complete_calls = 0
         self.close_calls = 0
+        self.release_calls = 0
         self.run_attention_calls = 0
 
     def submit_procedure(
@@ -215,6 +239,7 @@ class MemoryProcedureControl:
         command: ProcedureWorkerLeaseReleaseCommand,
     ) -> ProcedureWorkerLeaseReleaseReceipt:
         with self._lock:
+            self.release_calls += 1
             run, _ = self._leased(command.procedure_run_id, command.lease_token)
             assert run.revision == command.expected_run_revision
             updated = _run_state(run, state="ready")
@@ -532,6 +557,78 @@ def test_snapshot_resume_does_not_quarantine_an_unavailable_definition() -> None
 
     assert control.get_procedure(submitted.procedure_run_id).state == "ready"
     assert control.run_attention_calls == 0
+
+
+def test_worker_yields_after_checkpoint_and_an_exact_new_worker_resumes() -> None:
+    control = MemoryProcedureControl()
+    stop = Event()
+    effects: list[str] = []
+
+    def first_effect(_operation_id: str) -> RunOutputRef:
+        effects.append("first")
+        stop.set()
+        return RunOutputRef(run_id="first-child")
+
+    def second_effect(_operation_id: str) -> RunOutputRef:
+        effects.append("second")
+        return RunOutputRef(run_id="second-child")
+
+    _EFFECTS["yield:first"] = first_effect
+    _EFFECTS["yield:second"] = second_effect
+    submitted = control.submit_procedure(
+        ProcedureSubmitCommand(
+            request_key="request-yield",
+            definition=TWO_STEPS.ref,
+            intent=TWO_STEPS.encode_intent({"case": "yield"}),
+        )
+    ).run
+
+    yielded = ProcedureWorker(
+        control,
+        ProcedureRegistry((TWO_STEPS,)),
+    ).resume_snapshot(
+        submitted,
+        worker_id="worker-stopping",
+        should_yield=stop.is_set,
+    )
+
+    assert yielded.state == "ready"
+    assert yielded.closure is None
+    assert effects == ["first"]
+    assert control.effect_complete_calls == 1
+    assert control.release_calls == 1
+    assert control.close_calls == 0
+    assert control.step(yielded.procedure_run_id, "first").state == "succeeded"
+    with pytest.raises(KeyError):
+        control.step(yielded.procedure_run_id, "second")
+
+    yielded_again = ProcedureWorker(
+        control,
+        ProcedureRegistry((TWO_STEPS,)),
+    ).resume_snapshot(
+        yielded,
+        worker_id="worker-still-stopping",
+        should_yield=stop.is_set,
+    )
+
+    assert yielded_again.state == "ready"
+    assert yielded_again.revision > yielded.revision
+    assert effects == ["first"]
+    assert control.effect_complete_calls == 1
+    assert control.release_calls == 2
+
+    stop.clear()
+    resumed = ProcedureWorker(
+        control,
+        ProcedureRegistry((TWO_STEPS,)),
+    ).resume_snapshot(yielded_again, worker_id="worker-resuming")
+
+    assert resumed.state == "closed"
+    assert resumed.closure is not None
+    assert resumed.closure.status == "succeeded"
+    assert effects == ["first", "second"]
+    assert control.effect_complete_calls == 2
+    assert control.step(resumed.procedure_run_id, "second").state == "succeeded"
 
 
 def test_worker_reuses_operation_id_when_replaying_a_running_step() -> None:

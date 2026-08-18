@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from threading import Event, Thread
@@ -89,6 +90,10 @@ class _FakeWorkerOperations:
     )
     stop_after_materialize: Event | None = field(default=None, init=False)
     stop_after_resume: Event | None = field(default=None, init=False)
+    yield_callbacks: list[Callable[[], bool] | None] = field(
+        default_factory=list,
+        init=False,
+    )
     due_error: Exception | None = field(default=None, init=False)
     cycle_called: Event = field(default_factory=Event, init=False)
 
@@ -139,7 +144,10 @@ class _FakeWorkerOperations:
         run: ProcedureRun,
         *,
         worker_id: str | None = None,
+        should_yield: Callable[[], bool] | None = None,
     ) -> ProcedureHandle:
+        assert should_yield is None or callable(should_yield)
+        self.yield_callbacks.append(should_yield)
         self.calls.append(("resume_snapshot", run.procedure_run_id, worker_id))
         error = self.resume_errors.get(run.procedure_run_id)
         if error is not None:
@@ -546,6 +554,8 @@ def test_stop_event_yields_after_active_procedure_before_next_dispatch() -> None
         ("runnable", 50),
         ("resume_snapshot", "run-1", "worker-stopping"),
     ]
+    [should_yield] = operations.yield_callbacks
+    assert should_yield is not None and should_yield()
 
 
 def test_lab_procedure_operations_expose_exact_schedule_and_capability_api() -> None:
@@ -629,7 +639,9 @@ def test_lab_procedure_operations_resume_runnable_snapshot(
             run: ProcedureRun,
             *,
             worker_id: str,
+            should_yield: Callable[[], bool] | None = None,
         ) -> ProcedureRun:
+            assert should_yield is None
             calls.append((run, worker_id))
             return run
 
