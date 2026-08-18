@@ -267,12 +267,15 @@ def procedures_work(
             worker = ProjectProcedureWorkerLoop(
                 lab.procedures,
                 planner=lab.procedures.interval_planner(),
+                calibration_evaluator=lab.calibrations.evaluator(),
             )
             if once:
                 result = worker.cycle()
                 failure_count = (
                     result.planner_failures
                     + result.interval_schedule_drifts
+                    + result.calibration_failures
+                    + result.calibration_cohort_drifts
                     + result.schedule_failures
                     + result.procedure_failures
                     + result.procedure_conflicts
@@ -285,10 +288,14 @@ def procedures_work(
                 console.print(
                     f"{outcome} "
                     f"interval_created={result.created_interval_schedules} "
+                    f"calibration_admitted={result.admitted_calibrations} "
+                    f"calibration_blocked={result.blocked_calibrations} "
                     f"materialized={result.materialized_schedules} "
                     f"dispatched={result.dispatched_procedures} "
                     f"planner_failures={result.planner_failures} "
                     f"interval_drifts={result.interval_schedule_drifts} "
+                    f"calibration_failures={result.calibration_failures} "
+                    f"calibration_drifts={result.calibration_cohort_drifts} "
                     f"schedule_failures={result.schedule_failures} "
                     f"procedure_failures={result.procedure_failures} "
                     f"procedure_conflicts={result.procedure_conflicts} "
@@ -320,6 +327,8 @@ def procedures_work(
                 if (
                     result.planner_failures
                     or result.interval_schedule_drifts
+                    or result.calibration_failures
+                    or result.calibration_cohort_drifts
                     or result.schedule_failures
                     or result.procedure_failures
                     or result.procedure_conflicts
@@ -328,6 +337,8 @@ def procedures_work(
                         "[yellow]procedure cycle needs review:[/yellow] "
                         f"planner_failures={result.planner_failures} "
                         f"interval_drifts={result.interval_schedule_drifts} "
+                        f"calibration_failures={result.calibration_failures} "
+                        f"calibration_drifts={result.calibration_cohort_drifts} "
                         f"schedule_failures={result.schedule_failures} "
                         f"procedure_failures={result.procedure_failures} "
                         f"procedure_conflicts={result.procedure_conflicts}",

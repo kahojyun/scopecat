@@ -258,8 +258,16 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
 
     procedure_operations = FakeProcedureOperations()
 
+    class FakeCalibrationOperations:
+        def evaluator(self) -> object:
+            calls.append(("calibration_evaluator",))
+            return "calibration-evaluator"
+
+    calibration_operations = FakeCalibrationOperations()
+
     class FakeLab:
         procedures = procedure_operations
+        calibrations = calibration_operations
 
         def __enter__(self) -> Self:
             calls.append(("enter",))
@@ -271,8 +279,14 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
     class FakeWorker:
         worker_id = "worker-cli"
 
-        def __init__(self, operations: object, *, planner: object) -> None:
-            calls.append(("worker", operations, planner))
+        def __init__(
+            self,
+            operations: object,
+            *,
+            planner: object,
+            calibration_evaluator: object,
+        ) -> None:
+            calls.append(("worker", operations, planner, calibration_evaluator))
 
         def cycle(self) -> object:
             calls.append(("cycle",))
@@ -280,6 +294,10 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
                 created_interval_schedules=1,
                 planner_failures=0,
                 interval_schedule_drifts=0,
+                calibration_failures=0,
+                calibration_cohort_drifts=0,
+                admitted_calibrations=2,
+                blocked_calibrations=1,
                 materialized_schedules=2,
                 dispatched_procedures=1,
                 schedule_failures=0,
@@ -303,6 +321,8 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
                 SimpleNamespace(
                     planner_failures=0,
                     interval_schedule_drifts=0,
+                    calibration_failures=1,
+                    calibration_cohort_drifts=0,
                     schedule_failures=1,
                     procedure_failures=0,
                     procedure_conflicts=1,
@@ -330,6 +350,7 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
 
     assert once.exit_code == 0, once.output
     assert "interval_created=1" in once.output
+    assert "calibration_admitted=2" in once.output
     assert "materialized=2" in once.output
     assert "dispatched=1" in once.output
     assert resident.exit_code == 0, resident.output
@@ -341,14 +362,25 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
     class OutcomeFailureWorker:
         worker_id = "worker-outcome-failure"
 
-        def __init__(self, _operations: object, *, planner: object) -> None:
+        def __init__(
+            self,
+            _operations: object,
+            *,
+            planner: object,
+            calibration_evaluator: object,
+        ) -> None:
             assert planner == "interval-planner"
+            assert calibration_evaluator == "calibration-evaluator"
 
         def cycle(self) -> object:
             return SimpleNamespace(
                 created_interval_schedules=0,
                 planner_failures=0,
                 interval_schedule_drifts=1,
+                calibration_failures=0,
+                calibration_cohort_drifts=0,
+                admitted_calibrations=0,
+                blocked_calibrations=0,
                 materialized_schedules=0,
                 dispatched_procedures=0,
                 schedule_failures=0,
@@ -375,8 +407,15 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
     class FailingWorker:
         worker_id = "worker-failing"
 
-        def __init__(self, _operations: object, *, planner: object) -> None:
+        def __init__(
+            self,
+            _operations: object,
+            *,
+            planner: object,
+            calibration_evaluator: object,
+        ) -> None:
             assert planner == "interval-planner"
+            assert calibration_evaluator == "calibration-evaluator"
 
         def cycle(self) -> object:
             raise ProcedureControlError(

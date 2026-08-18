@@ -109,10 +109,10 @@ the procedure, and final cleanup reactivates the exact starting entry instead of
 calling relative `undo()`. Relative `undo()` is not a replayable compensation
 action.
 
-The initial implementation deliberately has no DAG representation, automatic
-retry policy, fan-out scheduler, cron trigger, or dynamic loop checkpoint. A
-linear Python procedure with durable step checkpoints is easier to inspect and
-already covers the first multi-run calibration loop.
+The procedure replay layer deliberately has no DAG representation, automatic
+retry policy, cron trigger, or dynamic loop checkpoint. A linear Python
+procedure with durable step checkpoints remains the unit of execution; the flat
+bounded cohort admission layer described below does not add another run engine.
 
 ## One-shot schedules and project workers
 
@@ -181,10 +181,76 @@ durable step boundary the worker releases the procedure ready for another exact
 worker. If there is no next step, the procedure closes successfully. There is no
 mid-effect cancellation contract.
 
+## Freshness evaluation and bounded calibration cohorts
+
+The project application may also register a small immutable
+`CalibrationRegistry`. Each `CalibrationDefinition` owns a typed target
+selector, a typed input/dependency observer, and a pure intent builder. One
+cycle resolves the exact active configuration entry and generation once. The
+selector, observer, and builder receive that same frozen planning context. The
+builder additionally receives its stable target, validated freshness-input
+model, and flat exact dependency-success evidence. The context contains the
+captured configuration and exact source value, not a client or read interface,
+so the builder cannot refresh mutable active configuration while admitting work.
+The freshness-input model must include every semantic value whose change should
+rerun the calibration, such as a relevant configuration content hash; invocation
+provenance such as a registry generation can remain only in the context and
+exact procedure intent when it must not make an otherwise identical result
+stale.
+
+The evaluator supports at most 200 selected members and 200 combined member and
+dependency status keys per definition. It first queries all logical calibration
+statuses using the server clock and the definition's fan-out scope. Only after
+that status snapshot may it build intents for the deterministic ready frontier.
+`active` and `attention_required` attempts suppress new work. A failed or
+cancelled attempt suppresses only the same freshness fingerprint: changing the
+explicit calibration definition, exact procedure, observed inputs, or exact
+dependency successes establishes a new need that may be admitted. There is no
+project-side forced flag because a constant force value would create a cohort on
+every poll; an operator-forced retry must be an explicit manually authored
+cohort with a stable external identity.
+
+A prior success is fresh only when its definition, target procedure, input
+fingerprint, dependency-success identities, and optional validity duration all
+still match. Missing dependency success blocks that member. Dependencies can
+reference only successful attempts present in the status snapshot taken before
+cohort creation. A member cannot depend on a success created in its own cohort,
+so the daemon never persists a dynamic closure or performs recursive scheduling.
+Later cycles converge after upstream successes become visible.
+
+Available admission capacity is
+`max_in_flight - observed_fanout_active_count`. The evaluator takes at most that
+many canonically ordered ready members and the daemon atomically checks both the
+status observation and capacity while creating the cohort. A cohort ID is
+derived from the complete immutable cohort-spec hash. Each member uses its
+logical calibration key as `member_id`; its procedure request key covers the
+cohort ID and exact member spec. Concurrent workers can therefore race safely:
+one atomic admission wins, exact replay returns the winner, and a stale
+observation is a benign admission conflict retried by a later cycle.
+
+The calibration-definition fingerprint covers its ID/version, input schema,
+selector, observer, builder, exact procedure reference, fan-out scope, and
+capacity. A transitive imported-code change still requires an explicit version
+bump. The server stores immutable cohorts, member/run associations, flat prior
+success evidence, and ordinary procedure runs. It does not store selectors,
+Python closures, graph edges, or a traversal cursor. The hard 200-member first
+slice makes every evaluation bounded; larger cohorts will require an explicit
+durable traversal policy rather than an in-memory cursor.
+
+The worker cycle is now interval planning, calibration evaluation/admission,
+due-schedule materialization, then runnable procedure dispatch. Stop is checked
+before each project callback and durable call. Retryable transport and 5xx/429
+control failures use the resident worker's interruptible exponential backoff.
+After an unknown cohort-create transport outcome, the evaluator reopens the
+deterministic cohort ID; not-found retries the original transport error, while a
+different deterministic 4xx is fatal because the durable outcome cannot be
+classified safely.
+
 ## Capabilities needed at larger chip scale
 
-Moving from one calibration to hundreds or thousands of related calibrations
-requires additional control-plane concepts, not a larger procedure function:
+Moving beyond the current bounded 200-member flat slice to hundreds or thousands
+of related calibrations requires additional control-plane concepts, not a larger
+procedure function:
 
 - selectors and immutable cohorts for qubits, couplers, channels, and regions;
 - dependency and freshness records that explain why a calibration is due and
@@ -213,7 +279,8 @@ authority inside an automation subsystem.
 
 The next safe increments are:
 
-1. add immutable cohorts, freshness/dependency evaluation, and bounded fan-out;
+1. add durable cohort traversal, priority, and workload budgets beyond the
+   bounded in-memory 200-member selector;
 2. add policy gates and hierarchical proposal merge for device-wide campaigns;
 3. extend fixed-UTC latest-only intervals with explicit maintenance-window and
    richer missed-slot policies only when operators require them.

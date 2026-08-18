@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         AnalysisField,
         analysis_step,
     )
+    from scopecat.api.calibration_planner import CalibrationPlanningContext
     from scopecat.api.instruments import (
         InstrumentClientFactory,
         InstrumentRef,
@@ -115,10 +116,17 @@ if TYPE_CHECKING:
         resource_role,
     )
     from scopecat.automation import (
+        CalibrationDefinition,
+        CalibrationDependencyEvidence,
+        CalibrationDependencyRequirement,
+        CalibrationObservation,
+        CalibrationRegistry,
+        CalibrationTargetRef,
         IntervalOccurrence,
         IntervalTrigger,
         ProcedureScheduleDefinition,
         ProcedureScheduleRegistry,
+        calibration,
         interval_schedule,
         procedure,
     )
@@ -277,6 +285,22 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "InstrumentClientFactory",
     ),
     "InstrumentRef": ("scopecat.api.instruments", "InstrumentRef"),
+    "CalibrationPlanningContext": (
+        "scopecat.api.calibration_planner",
+        "CalibrationPlanningContext",
+    ),
+    "CalibrationDefinition": ("scopecat.automation", "CalibrationDefinition"),
+    "CalibrationDependencyEvidence": (
+        "scopecat.automation",
+        "CalibrationDependencyEvidence",
+    ),
+    "CalibrationDependencyRequirement": (
+        "scopecat.automation",
+        "CalibrationDependencyRequirement",
+    ),
+    "CalibrationObservation": ("scopecat.automation", "CalibrationObservation"),
+    "CalibrationRegistry": ("scopecat.automation", "CalibrationRegistry"),
+    "CalibrationTargetRef": ("scopecat.automation", "CalibrationTargetRef"),
     "IntervalOccurrence": ("scopecat.automation", "IntervalOccurrence"),
     "IntervalTrigger": ("scopecat.automation", "IntervalTrigger"),
     "LabProcedureContext": (
@@ -354,6 +378,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "open_project": ("scopecat.project", "open_project"),
     "analysis_step": ("scopecat.api.analysis", "analysis_step"),
+    "calibration": ("scopecat.automation", "calibration"),
     "instrument": ("scopecat.api.instruments", "instrument"),
     "temporary_instrument": (
         "scopecat.api.instruments",

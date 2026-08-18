@@ -7,10 +7,15 @@ from typing import cast
 import pytest
 from pydantic import BaseModel, ConfigDict
 
+from scopecat.api.calibration_planner import CalibrationPlanningContext
 from scopecat.api.lab import LabClient
 from scopecat.api.procedure_planner import ProcedurePlanningContext
 from scopecat.application.lab import LabApplication
 from scopecat.automation import (
+    CalibrationDependencyEvidence,
+    CalibrationObservation,
+    CalibrationRegistry,
+    CalibrationTargetRef,
     IntervalOccurrence,
     IntervalTrigger,
     ProcedureRegistry,
@@ -18,10 +23,17 @@ from scopecat.automation import (
     ProcedureScheduleRegistry,
     procedure,
 )
+from scopecat.automation.calibration_definition import CalibrationDefinition
 from scopecat.daemon.client import DaemonClient
 
 
 class _ExampleIntent(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    value: int
+
+
+class _CalibrationInputs(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     value: int
@@ -61,6 +73,41 @@ _SCHEDULE = ProcedureScheduleDefinition(
         every=timedelta(days=1),
     ),
     _build_intent=_build_intent,
+)
+
+
+def _select_calibrations(
+    _context: CalibrationPlanningContext,
+) -> tuple[CalibrationTargetRef, ...]:
+    return (CalibrationTargetRef(kind="qubit", id="q0"),)
+
+
+def _observe_calibration(
+    _context: CalibrationPlanningContext,
+    _target: CalibrationTargetRef,
+) -> CalibrationObservation[_CalibrationInputs]:
+    return CalibrationObservation(inputs=_CalibrationInputs(value=1))
+
+
+def _build_calibration_intent(
+    _context: CalibrationPlanningContext,
+    _target: CalibrationTargetRef,
+    inputs: _CalibrationInputs,
+    _dependencies: tuple[CalibrationDependencyEvidence, ...],
+) -> _ExampleIntent:
+    return _ExampleIntent(value=inputs.value)
+
+
+_CALIBRATION = CalibrationDefinition(
+    id="tests.application.calibration",
+    version="1",
+    input_type=_CalibrationInputs,
+    procedure=_example_procedure,
+    fanout_scope="tests.application",
+    max_in_flight=2,
+    _select_targets=_select_calibrations,
+    _observe=_observe_calibration,
+    _build_intent=_build_calibration_intent,
 )
 
 
@@ -106,4 +153,31 @@ def test_direct_lab_client_rejects_schedule_target_missing_from_registry() -> No
             cast("DaemonClient", object()),
             procedures=ProcedureRegistry((_other_procedure,)),
             procedure_schedules=ProcedureScheduleRegistry((_SCHEDULE,)),
+        )
+
+
+def test_application_owns_validated_calibration_registry() -> None:
+    calibrations = CalibrationRegistry((_CALIBRATION,))
+
+    application = LabApplication(
+        procedures=(_example_procedure,),
+        calibrations=calibrations,
+    )
+    replaced = replace(application, bootstrap_config=lambda: {"id": "bootstrap"})
+
+    assert application.calibrations is calibrations
+    assert replaced.calibrations is calibrations
+
+
+def test_application_rejects_calibration_target_missing_from_registry() -> None:
+    with pytest.raises(LookupError, match="no procedure"):
+        LabApplication(procedures=(_other_procedure,), calibrations=(_CALIBRATION,))
+
+
+def test_direct_lab_client_rejects_calibration_target_missing_from_registry() -> None:
+    with pytest.raises(LookupError, match="no procedure"):
+        LabClient(
+            cast("DaemonClient", object()),
+            procedures=ProcedureRegistry((_other_procedure,)),
+            calibrations=CalibrationRegistry((_CALIBRATION,)),
         )

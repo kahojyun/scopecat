@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict
 
 from scopecat.api._config import LabConfigOperations
 from scopecat.api._runner import _DaemonRunner
+from scopecat.api.calibration_planner import CalibrationEvaluatorCycleResult
 from scopecat.api.procedure_planner import ProcedurePlannerCycleResult
 from scopecat.api.procedure_worker import ProjectProcedureWorkerLoop
 from scopecat.api.procedures import (
@@ -244,6 +245,16 @@ class _FakePlanner:
         return self.result
 
 
+@dataclass(slots=True)
+class _FakeCalibrationEvaluator:
+    calls: list[tuple[object, ...]]
+    result: CalibrationEvaluatorCycleResult
+
+    def cycle(self, stop: Event | None = None) -> CalibrationEvaluatorCycleResult:
+        self.calls.append(("calibrate", stop))
+        return self.result
+
+
 def test_cycle_plans_before_due_work_and_surfaces_planner_drift() -> None:
     operations = _FakeWorkerOperations(
         ProcedureScheduleDuePage(),
@@ -273,6 +284,49 @@ def test_cycle_plans_before_due_work_and_surfaces_planner_drift() -> None:
     assert result.planner_failures == 2
     assert operations.calls == [
         ("plan", None),
+        ("due", 50, None, None),
+        ("runnable", 50),
+    ]
+
+
+def test_cycle_admits_calibration_frontier_before_due_work() -> None:
+    operations = _FakeWorkerOperations(
+        ProcedureScheduleDuePage(),
+        ProcedureRunnablePage(),
+    )
+    evaluator = _FakeCalibrationEvaluator(
+        operations.calls,
+        CalibrationEvaluatorCycleResult(
+            definitions=1,
+            selected_targets=3,
+            fresh_members=1,
+            blocked_members=1,
+            suppressed_active_members=0,
+            suppressed_failed_members=0,
+            suppressed_attention_members=0,
+            ready_members=1,
+            admitted_members=1,
+            created_cohorts=1,
+            reconciled_cohorts=0,
+            admission_conflicts=0,
+            cohort_drifts=0,
+            failures=0,
+            has_more=False,
+        ),
+    )
+
+    result = ProjectProcedureWorkerLoop(
+        operations,
+        calibration_evaluator=evaluator,
+    ).cycle()
+
+    assert result.selected_calibration_targets == 3
+    assert result.fresh_calibrations == 1
+    assert result.blocked_calibrations == 1
+    assert result.admitted_calibrations == 1
+    assert result.created_calibration_cohorts == 1
+    assert operations.calls == [
+        ("calibrate", None),
         ("due", 50, None, None),
         ("runnable", 50),
     ]
