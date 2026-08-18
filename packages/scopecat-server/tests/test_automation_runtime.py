@@ -760,7 +760,6 @@ def test_procedure_config_activation_recovers_two_lost_http_responses(
         assert receipt.activation.generation == current.activation.generation + 1
         assert active.activation == receipt.activation
         assert active.entry == target.entry
-        assert all(path != "/api/v1/config-registry/undo" for _, path in requests)
 
 
 def _two_step_context_factory(

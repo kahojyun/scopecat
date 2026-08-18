@@ -1,4 +1,25 @@
-import type { ConfigRegistryEntry } from "../../api-contract";
+import type { ConfigRegistryEntry, ConfigRegistryOverview } from "../../api-contract";
+
+export interface ConfigUndoTarget {
+  entryId: string;
+  expectedGeneration: number;
+}
+
+export function configUndoTarget(overview: ConfigRegistryOverview): ConfigUndoTarget | undefined {
+  const active = overview.activation;
+  if (active == null) return undefined;
+  const previous = overview.activation_history.reduce<
+    ConfigRegistryOverview["activation_history"][number] | undefined
+  >((selected, record) => {
+    if (record.generation >= active.generation || record.entry_id === active.entry_id) {
+      return selected;
+    }
+    return selected === undefined || record.generation > selected.generation ? record : selected;
+  }, undefined);
+  return previous === undefined
+    ? undefined
+    : { entryId: previous.entry_id, expectedGeneration: active.generation };
+}
 
 export function filterConfigEntries(
   entries: ConfigRegistryEntry[],
@@ -55,17 +76,15 @@ function configSourceSearchTerms(
         source.automatic_publication_policy_fingerprint,
         ...source.contributions.flatMap((contribution) => [
           contribution.member_id,
-          contribution.procedure_run_id,
-          contribution.baseline_run_id,
-          contribution.baseline_step.step_key,
-          contribution.candidate_run_id,
-          contribution.candidate_step.step_key,
-          contribution.proposal_id,
-          contribution.fit_analysis_record_id,
-          contribution.fit_step.step_key,
-          contribution.verification_step.step_key,
-          contribution.decision.analysis_record_id,
-          contribution.decision.output_id,
+          contribution.proof.kind,
+          contribution.proof.evidence_step.procedure_run_id,
+          contribution.proof.evidence_step.step_key,
+          contribution.proof.baseline_run_id,
+          contribution.proof.candidate_run_id,
+          contribution.proof.proposal_id,
+          contribution.proof.fit_analysis_record_id,
+          contribution.proof.decision.analysis_record_id,
+          contribution.proof.decision.output_id,
           contribution.result_input_fingerprint,
         ]),
       ];

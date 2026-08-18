@@ -1,8 +1,8 @@
-"""User-owned composition root shared by the daemon and notebook clients."""
+"""User-owned execution composition for notebooks and project workers."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -10,7 +10,6 @@ from scopecat.api.calibration_policy import CalibrationPublicationPolicyRegistry
 from scopecat.automation.calibration_definition import CalibrationRegistry
 from scopecat.automation.definition import ProcedureRegistry
 from scopecat.automation.intervals import ProcedureScheduleRegistry
-from scopecat.records.config import ConfigProfileSnapshot
 
 if TYPE_CHECKING:
     from scopecat.api.calibration_planner import CalibrationPlanningContext
@@ -24,18 +23,14 @@ if TYPE_CHECKING:
     from scopecat.automation.intervals import RegisteredProcedureSchedule
     from scopecat.planning.system import ExperimentSystemBuilder
 
-type BootstrapConfigFactory = Callable[[], ConfigProfileSnapshot]
-
 
 @dataclass(frozen=True, slots=True, init=False)
 class LabApplication:
     """Version-controlled executable composition for one lab project.
 
-    The application owns the initial snapshot because constructing configuration
-    may require Python. Its factory stays lazy so ordinary notebook connections
-    do not read seed inputs. Later accepted entries and activation state belong
-    to the daemon. Instrument backend composition is declared separately in the
-    project manifest and loaded only by the isolated worker.
+    The application owns notebook and worker execution capabilities. Daemon
+    bootstrap configuration and instrument backend composition are declared
+    separately so the server process does not import these execution callbacks.
 
     Calibration publication capabilities may retain historical policy versions
     for already-admitted cohorts. Their registry separately selects the exact
@@ -43,11 +38,6 @@ class LabApplication:
     """
 
     build_experiment_system: ExperimentSystemBuilder | None = field(
-        default=None,
-        repr=False,
-        compare=False,
-    )
-    bootstrap_config: BootstrapConfigFactory | None = field(
         default=None,
         repr=False,
         compare=False,
@@ -72,7 +62,6 @@ class LabApplication:
     def __init__(
         self,
         build_experiment_system: ExperimentSystemBuilder | None = None,
-        bootstrap_config: BootstrapConfigFactory | None = None,
         procedures: Iterable[RegisteredProcedure] | ProcedureRegistry = (),
         procedure_schedules: (
             Iterable[RegisteredProcedureSchedule[ProcedurePlanningContext]]
@@ -92,7 +81,6 @@ class LabApplication:
             "build_experiment_system",
             build_experiment_system,
         )
-        object.__setattr__(self, "bootstrap_config", bootstrap_config)
         procedure_registry = (
             procedures
             if isinstance(procedures, ProcedureRegistry)
@@ -151,6 +139,5 @@ class LabApplication:
 
 
 __all__ = [
-    "BootstrapConfigFactory",
     "LabApplication",
 ]

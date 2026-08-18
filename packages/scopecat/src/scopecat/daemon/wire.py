@@ -343,7 +343,8 @@ class CalibrationPublicationReceipt(ConfigPublishReceipt):
             if (
                 publication is None
                 or success.attempt.cohort_id != source.cohort_id
-                or success.attempt.procedure_run_id != contribution.procedure_run_id
+                or success.attempt.procedure_run_id
+                != contribution.proof.evidence_step.procedure_run_id
                 or success.base_config_source.entry_id != source.base_entry_id
                 or success.base_config_source.content_hash
                 != source.base_config_content_hash
@@ -402,14 +403,6 @@ class ConfigEntryActivationCommand(_WireModel):
         )
 
 
-class ConfigUndoCommand(_WireModel):
-    """Restore the previous distinct entry with generation compare-and-swap."""
-
-    actor: NonEmptyText
-    expected_generation: int = Field(ge=1)
-    note: str = ""
-
-
 class ConfigActivationReceipt(_WireModel):
     operation: ConfigActivationOperation
     activation: ConfigRegistryActivationRecord
@@ -424,10 +417,6 @@ class ConfigActivationReceipt(_WireModel):
                 "config activation receipt operation and activation do not match"
             )
         return self
-
-
-class ConfigUndoReceipt(_WireModel):
-    activation: ConfigRegistryActivationRecord
 
 
 class _AnalysisInputPayload(_WireModel):
@@ -1096,8 +1085,6 @@ __all__ = [
     "ConfigPublishReceipt",
     "ConfigPublishSource",
     "ConfigRevisionSource",
-    "ConfigUndoCommand",
-    "ConfigUndoReceipt",
     "DirectConfigRevisionSource",
     "ExecutorHeartbeat",
     "ExecutorLease",

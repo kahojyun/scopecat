@@ -8,13 +8,12 @@ import {
   createConfigOperationId,
   parseConfigProfileJson,
   publishConfig,
-  undoConfig,
 } from "./config-api";
 import { safeConfigEntryId } from "./config-utils";
 
 export type ConfigMutation =
   | { kind: "activate-entry"; entryId: string }
-  | { kind: "undo" }
+  | { kind: "undo"; entryId: string; expectedGeneration: number }
   | { kind: "import"; draft: ImportDraft };
 
 export interface ImportDraft {
@@ -52,7 +51,12 @@ export function useConfigMutationWorkflow(overview?: ConfigRegistryOverview) {
           });
           return;
         case "undo":
-          await undoConfig(command);
+          await activateConfigEntry({
+            ...command,
+            operation_id: createConfigOperationId("undo"),
+            entry_id: action.entryId,
+            expected_generation: action.expectedGeneration,
+          });
           return;
         case "import":
           await publishConfig({

@@ -10,6 +10,7 @@ import pytest
 from scopecat_testkit.project_loading import isolated_project_imports
 
 from scopecat.api.lab import LabClient
+from scopecat.application.bootstrap import LabBootstrap
 from scopecat.application.lab import LabApplication
 from scopecat.daemon.endpoint import (
     DAEMON_URL_ENV,
@@ -23,6 +24,7 @@ from scopecat.project import (
     ProjectCodeLoadError,
     ProjectManifestError,
     load_application_factory,
+    load_bootstrap_factory,
     load_project,
     open_project,
 )
@@ -39,6 +41,7 @@ def test_project_composition_is_resolved_from_manifest(tmp_path: Path) -> None:
     manifest = tmp_path / "scopecat.toml"
     manifest.write_text(
         "[lab]\n"
+        'bootstrap = "my_lab.application:create_bootstrap"\n'
         'application = "my_lab.application:create"\n'
         'instrument_backend = "my_lab.backend:create"\n',
         encoding="utf-8",
@@ -47,6 +50,7 @@ def test_project_composition_is_resolved_from_manifest(tmp_path: Path) -> None:
     project = load_project(manifest)
 
     assert project.root == tmp_path
+    assert project.bootstrap_spec == "my_lab.application:create_bootstrap"
     assert project.application_spec == "my_lab.application:create"
     assert project.instrument_backend_spec == "my_lab.backend:create"
 
@@ -71,7 +75,9 @@ def test_empty_lab_manifest_can_open_before_code_or_config_exists(
     client = project.connect("http://daemon.local")
 
     assert project.application_spec is None
+    assert project.bootstrap_spec is None
     assert project.instrument_backend_spec is None
+    assert isinstance(project.load_bootstrap(), LabBootstrap)
     assert isinstance(project.load_application(), LabApplication)
     assert isinstance(client, LabClient)
     client.close()
@@ -155,7 +161,7 @@ def test_project_connect_does_not_guess_a_fixed_endpoint(
         open_project(tmp_path).connect()
 
 
-def test_application_is_imported_from_project_src(
+def test_bootstrap_and_application_are_imported_from_project_src(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -164,12 +170,17 @@ def test_application_is_imported_from_project_src(
     (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "application.py").write_text(
         (
-            "from scopecat.application import LabApplication\n\n"
+            "from scopecat.application import LabBootstrap\n\n"
             "def lazy_bootstrap():\n"
             "    from project_application_bootstrap import CONFIG\n"
             "    return CONFIG\n\n"
+            "def create_bootstrap(_project):\n"
+            "    return LabBootstrap(bootstrap_config=lazy_bootstrap)\n\n"
             "def create(_project):\n"
-            "    return LabApplication(bootstrap_config=lazy_bootstrap)\n"
+            "    from scopecat.application import LabApplication\n"
+            "    from project_automation_callbacks import CALLBACK_MARKER\n"
+            "    assert CALLBACK_MARKER == 'loaded'\n"
+            "    return LabApplication()\n"
         ),
         encoding="utf-8",
     )
@@ -177,13 +188,27 @@ def test_application_is_imported_from_project_src(
         "CONFIG = {'id': 'lazy-project-config'}\n",
         encoding="utf-8",
     )
+    (tmp_path / "src" / "project_automation_callbacks.py").write_text(
+        "CALLBACK_MARKER = 'loaded'\n",
+        encoding="utf-8",
+    )
     (tmp_path / "scopecat.toml").write_text(
-        '[lab]\napplication = "project_application_fixture.application:create"\n',
+        "[lab]\n"
+        'bootstrap = "project_application_fixture.application:create_bootstrap"\n'
+        'application = "project_application_fixture.application:create"\n',
         encoding="utf-8",
     )
     monkeypatch.setattr(sys, "path", sys.path.copy())
     original_path = tuple(sys.path)
 
+    bootstrap_factory = load_bootstrap_factory(
+        "project_application_fixture.application:create_bootstrap",
+        tmp_path,
+    )
+    repeated_bootstrap = load_bootstrap_factory(
+        "project_application_fixture.application:create_bootstrap",
+        tmp_path,
+    )
     factory = load_application_factory(
         "project_application_fixture.application:create",
         tmp_path,
@@ -193,10 +218,15 @@ def test_application_is_imported_from_project_src(
         tmp_path,
     )
 
+    bootstrap = bootstrap_factory(tmp_path)
+    assert "project_automation_callbacks" not in sys.modules
     application = factory(tmp_path)
+    assert "project_automation_callbacks" in sys.modules
+    assert isinstance(bootstrap, LabBootstrap)
     assert isinstance(application, LabApplication)
-    assert application.bootstrap_config is not None
-    assert application.bootstrap_config() == {"id": "lazy-project-config"}
+    assert bootstrap.bootstrap_config is not None
+    assert bootstrap.bootstrap_config() == {"id": "lazy-project-config"}
+    assert isinstance(repeated_bootstrap(tmp_path), LabBootstrap)
     assert isinstance(repeated(tmp_path), LabApplication)
     assert str(tmp_path / "src") in sys.path
     assert str(tmp_path) in sys.path
@@ -257,6 +287,7 @@ def test_preloaded_application_module_from_outside_project_is_rejected(
             '[lab]\nbootstrap-config = "config/initial.json"\n',
             r"unknown \[lab\] field",
         ),
+        ("[lab]\nbootstrap = ''\n", "must be a non-empty string"),
         ("[lab]\napplication = ''\n", "must be a non-empty string"),
         ("[lab]\ninstrument_backend = ''\n", "must be a non-empty string"),
     ],
@@ -280,6 +311,15 @@ def test_invalid_application_specs_fail_at_the_boundary(
 ) -> None:
     with pytest.raises(ValueError, match="MODULE:CALLABLE"):
         load_application_factory(spec, tmp_path)
+
+
+@pytest.mark.parametrize("spec", ["factory", ":factory", "module:"])
+def test_invalid_bootstrap_specs_fail_at_the_boundary(
+    tmp_path: Path,
+    spec: str,
+) -> None:
+    with pytest.raises(ValueError, match="MODULE:CALLABLE"):
+        load_bootstrap_factory(spec, tmp_path)
 
 
 def _write_application_module(root: Path, module_name: str, *, marker: str) -> None:

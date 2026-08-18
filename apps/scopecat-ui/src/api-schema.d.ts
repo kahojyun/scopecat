@@ -208,23 +208,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/config-registry/undo": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Undo Config */
-        post: operations["undo_config_api_v1_config_registry_undo_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/events": {
         parameters: {
             query?: never;
@@ -2020,6 +2003,16 @@ export interface components {
             operation: components["schemas"]["ConfigActivationOperation"];
         };
         /**
+         * ConfigCompositionEvidenceStepRef
+         * @description Self-contained exact checkpoint in one contribution procedure.
+         */
+        ConfigCompositionEvidenceStepRef: {
+            /** Attempt */
+            attempt: number;
+            procedure_run_id: components["schemas"]["_NonEmptyText"];
+            step_key: components["schemas"]["_NonEmptyText"];
+        };
+        /**
          * ConfigCompositionPolicyRef
          * @description Exact project-owned policy that selected one config composition.
          */
@@ -2027,15 +2020,6 @@ export interface components {
             fingerprint: components["schemas"]["Sha256ContentHash"];
             id: components["schemas"]["_NonEmptyText"];
             version: components["schemas"]["_NonEmptyText"];
-        };
-        /**
-         * ConfigCompositionStepRef
-         * @description Exact attempt of one stable step in a contribution procedure.
-         */
-        ConfigCompositionStepRef: {
-            /** Attempt */
-            attempt: number;
-            step_key: components["schemas"]["_NonEmptyText"];
         };
         ConfigContentHash: string;
         /**
@@ -2182,7 +2166,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "activation" | "inventory_migration" | "undo";
+            action: "activation" | "inventory_migration";
             /** Actor */
             actor: string;
             entry_content_hash: components["schemas"]["ConfigContentHash"];
@@ -2256,24 +2240,6 @@ export interface components {
             registry_generation?: number | null;
             /** Selector */
             selector: string;
-        };
-        /**
-         * ConfigUndoCommand
-         * @description Restore the previous distinct entry with generation compare-and-swap.
-         */
-        ConfigUndoCommand: {
-            actor: components["schemas"]["NonEmptyText"];
-            /** Expected Generation */
-            expected_generation: number;
-            /**
-             * Note
-             * @default
-             */
-            note: string;
-        };
-        /** ConfigUndoReceipt */
-        ConfigUndoReceipt: {
-            activation: components["schemas"]["ConfigRegistryActivationRecord"];
         };
         /**
          * ContentEntry
@@ -4105,18 +4071,9 @@ export interface components {
          * @description Server-resolved exact outputs behind one wire contribution.
          */
         ResolvedCalibrationCohortMergeContribution: {
-            baseline_run_id: components["schemas"]["_NonEmptyText"];
-            baseline_step: components["schemas"]["ConfigCompositionStepRef"];
-            candidate_run_id: components["schemas"]["_NonEmptyText"];
-            candidate_step: components["schemas"]["ConfigCompositionStepRef"];
-            decision: components["schemas"]["ProjectAnalysisDecisionReference"];
-            fit_analysis_record_id: components["schemas"]["_NonEmptyText"];
-            fit_step: components["schemas"]["ConfigCompositionStepRef"];
             member_id: components["schemas"]["_NonEmptyText"];
-            procedure_run_id: components["schemas"]["_NonEmptyText"];
-            proposal_id: components["schemas"]["_NonEmptyText"];
+            proof: components["schemas"]["ResolvedVerifiedParameterProposalProofV1"];
             result_input_fingerprint: components["schemas"]["Sha256ContentHash"];
-            verification_step: components["schemas"]["ConfigCompositionStepRef"];
         };
         /** ResolvedRunDomainView */
         ResolvedRunDomainView: {
@@ -4137,6 +4094,24 @@ export interface components {
             requested_fragment: components["schemas"]["RunDomainFragmentView-Output"];
             /** Total Point Count */
             total_point_count: number;
+        };
+        /**
+         * ResolvedVerifiedParameterProposalProofV1
+         * @description Server-resolved exact lineage behind one accepted proposal proof.
+         */
+        ResolvedVerifiedParameterProposalProofV1: {
+            baseline_run_id: components["schemas"]["_NonEmptyText"];
+            candidate_run_id: components["schemas"]["_NonEmptyText"];
+            decision: components["schemas"]["ProjectAnalysisDecisionReference"];
+            evidence_step: components["schemas"]["ConfigCompositionEvidenceStepRef"];
+            fit_analysis_record_id: components["schemas"]["_NonEmptyText"];
+            /**
+             * Kind
+             * @default verified_parameter_proposal_v1
+             * @constant
+             */
+            kind: "verified_parameter_proposal_v1";
+            proposal_id: components["schemas"]["_NonEmptyText"];
         };
         /** @constant */
         ResourceKind: "instrument";
@@ -5563,39 +5538,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfigPublishReceipt"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    undo_config_api_v1_config_registry_undo_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ConfigUndoCommand"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConfigUndoReceipt"];
                 };
             };
             /** @description Validation Error */

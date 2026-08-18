@@ -57,8 +57,9 @@ from scopecat.automation.calibrations import (
 from scopecat.automation.models import ProcedureDefinitionRef
 from scopecat.config.registry.records import (
     CalibrationCohortMergeContribution,
+    ConfigCompositionEvidenceStepRef,
     ConfigCompositionPolicyRef,
-    ConfigCompositionStepRef,
+    VerifiedParameterProposalProofV1,
 )
 from scopecat.daemon.client import DaemonConflictError
 from scopecat.daemon.wire import CalibrationPublicationReceipt
@@ -999,20 +1000,18 @@ def _fixture(
     )
     contribution = CalibrationCohortMergeContribution(
         member_id=member_spec.member_id,
-        procedure_run_id=member.procedure_run_id,
-        baseline_step=ConfigCompositionStepRef(step_key="baseline", attempt=1),
-        fit_step=ConfigCompositionStepRef(step_key="fit", attempt=1),
-        candidate_step=ConfigCompositionStepRef(step_key="candidate", attempt=1),
-        verification_step=ConfigCompositionStepRef(
-            step_key="verification",
-            attempt=1,
-        ),
-        proposal_id=f"proposal-{cohort_id}",
-        decision=ProjectAnalysisDecisionReference(
-            analysis_record_id=f"analysis-{cohort_id}",
-            output_id="decision",
-            schema_id="tests.publication-finalizer.acceptance.v1",
-            schema_hash=_HASH_A,
+        proof=VerifiedParameterProposalProofV1(
+            evidence_step=ConfigCompositionEvidenceStepRef(
+                procedure_run_id=member.procedure_run_id,
+                step_key="verification",
+                attempt=1,
+            ),
+            decision=ProjectAnalysisDecisionReference(
+                analysis_record_id=f"analysis-{cohort_id}",
+                output_id="decision",
+                schema_id="tests.publication-finalizer.acceptance.v1",
+                schema_hash=_HASH_A,
+            ),
         ),
         result_input_fingerprint=_HASH_A,
     )

@@ -305,91 +305,87 @@ function EntryProvenance({
             </div>
           </dl>
           <div className="mt-2.5 grid gap-[7px]">
-            {source.contributions.map((contribution) => (
-              <article
-                key={contribution.member_id}
-                className="rounded-[7px] border border-[rgb(182_156_255_/_14%)] bg-[rgb(0_0_0_/_12%)] p-[9px]"
-                aria-label={`Calibration member ${contribution.member_id}`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <strong className="text-[0.64rem]">
-                    Member <code>{contribution.member_id}</code>
-                  </strong>
-                  {onOpenRun && (
-                    <button
-                      className={classes(secondaryButton, "min-h-[27px] flex-none")}
-                      type="button"
-                      onClick={() => onOpenRun(contribution.candidate_run_id)}
-                    >
-                      Open candidate run
-                    </button>
-                  )}
-                </div>
-                <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2 [&>div]:grid [&>div]:min-w-0 [&>div]:gap-0.5 [&_dt]:text-[0.52rem] [&_dt]:font-extrabold [&_dt]:tracking-[0.06em] [&_dt]:text-text-dim [&_dt]:uppercase [&_dd]:m-0 [&_dd]:min-w-0 [&_dd]:text-[0.61rem] [&_dd]:text-text-soft [&_dd_code]:[overflow-wrap:anywhere]">
-                  <div>
-                    <dt>Procedure run</dt>
-                    <dd>
-                      <code>{contribution.procedure_run_id}</code>
-                    </dd>
+            {source.contributions.map((contribution) => {
+              const proof = contribution.proof;
+              return (
+                <article
+                  key={contribution.member_id}
+                  className="rounded-[7px] border border-[rgb(182_156_255_/_14%)] bg-[rgb(0_0_0_/_12%)] p-[9px]"
+                  aria-label={`Calibration member ${contribution.member_id}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <strong className="text-[0.64rem]">
+                      Member <code>{contribution.member_id}</code>
+                    </strong>
+                    {onOpenRun && (
+                      <button
+                        className={classes(secondaryButton, "min-h-[27px] flex-none")}
+                        type="button"
+                        onClick={() => onOpenRun(proof.candidate_run_id)}
+                      >
+                        Open candidate run
+                      </button>
+                    )}
                   </div>
-                  <div>
-                    <dt>Result evidence</dt>
-                    <dd>
-                      <code>{contribution.result_input_fingerprint}</code>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Baseline run</dt>
-                    <dd>
-                      <code>{contribution.baseline_run_id}</code>
-                      {" · "}
-                      <code>
-                        {contribution.baseline_step.step_key}#{contribution.baseline_step.attempt}
-                      </code>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Fit analysis</dt>
-                    <dd>
-                      <code>{contribution.fit_analysis_record_id}</code>
-                      {" · "}
-                      <code>
-                        {contribution.fit_step.step_key}#{contribution.fit_step.attempt}
-                      </code>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Candidate run</dt>
-                    <dd>
-                      <code>{contribution.candidate_run_id}</code>
-                      {" · "}
-                      <code>
-                        {contribution.candidate_step.step_key}#{contribution.candidate_step.attempt}
-                      </code>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Proposal</dt>
-                    <dd>
-                      <code>{contribution.proposal_id}</code>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Verification</dt>
-                    <dd>
-                      <code>{contribution.decision.analysis_record_id}</code>
-                      {" · "}
-                      <code>{contribution.decision.output_id}</code>
-                      {" · "}
-                      <code>
-                        {contribution.verification_step.step_key}#
-                        {contribution.verification_step.attempt}
-                      </code>
-                    </dd>
-                  </div>
-                </dl>
-              </article>
-            ))}
+                  <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2 [&>div]:grid [&>div]:min-w-0 [&>div]:gap-0.5 [&_dt]:text-[0.52rem] [&_dt]:font-extrabold [&_dt]:tracking-[0.06em] [&_dt]:text-text-dim [&_dt]:uppercase [&_dd]:m-0 [&_dd]:min-w-0 [&_dd]:text-[0.61rem] [&_dd]:text-text-soft [&_dd_code]:[overflow-wrap:anywhere]">
+                    <div>
+                      <dt>Proof</dt>
+                      <dd>
+                        <code>{proof.kind}</code>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Evidence step</dt>
+                      <dd>
+                        <code>{proof.evidence_step.procedure_run_id}</code>
+                        {" · "}
+                        <code>
+                          {proof.evidence_step.step_key}#{proof.evidence_step.attempt}
+                        </code>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Result evidence</dt>
+                      <dd>
+                        <code>{contribution.result_input_fingerprint}</code>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Baseline run</dt>
+                      <dd>
+                        <code>{proof.baseline_run_id}</code>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Fit analysis</dt>
+                      <dd>
+                        <code>{proof.fit_analysis_record_id}</code>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Proposal</dt>
+                      <dd>
+                        <code>{proof.proposal_id}</code>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Candidate run</dt>
+                      <dd>
+                        <code>{proof.candidate_run_id}</code>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Verification decision</dt>
+                      <dd>
+                        <code>{proof.decision.analysis_record_id}</code>
+                        {" · "}
+                        <code>{proof.decision.output_id}</code>
+                      </dd>
+                    </div>
+                  </dl>
+                </article>
+              );
+            })}
           </div>
         </div>
       </div>

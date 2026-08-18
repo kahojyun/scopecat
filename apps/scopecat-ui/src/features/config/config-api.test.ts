@@ -14,7 +14,6 @@ import {
   parseConfigProfileJson,
   publishConfig,
   previewConfigDraft,
-  undoConfig,
 } from "./config-api";
 
 const HASH_A = `sha256:${"a".repeat(64)}`;
@@ -118,7 +117,7 @@ describe("config registry reads", () => {
 });
 
 describe("config registry commands", () => {
-  it("sends generated wire commands unchanged", async () => {
+  it("sends an exact activation operation unchanged", async () => {
     const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({})));
     vi.stubGlobal("fetch", fetchMock);
     const activationCommand = {
@@ -128,22 +127,15 @@ describe("config registry commands", () => {
       note: "promote calibrated values",
       expected_generation: 2,
     };
-    const undo = {
-      actor: activationCommand.actor,
-      note: activationCommand.note,
-      expected_generation: activationCommand.expected_generation,
-    };
     await activateConfigEntry(activationCommand);
-    await undoConfig(undo);
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     await expectRequest(
       fetchMock,
       0,
       "/api/v1/config-registry/activation-operations",
       activationCommand,
     );
-    await expectRequest(fetchMock, 1, "/api/v1/config-registry/undo", undo);
   });
 });
 

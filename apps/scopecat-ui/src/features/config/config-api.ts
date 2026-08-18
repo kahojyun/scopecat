@@ -103,12 +103,6 @@ export async function activateConfigEntry(
   );
 }
 
-export async function undoConfig(
-  command: components["schemas"]["ConfigUndoCommand"],
-): Promise<void> {
-  await apiData(apiClient.POST("/api/v1/config-registry/undo", { body: command }));
-}
-
 export async function previewConfigDraft(command: ConfigDraftCommand): Promise<ConfigDraftPreview> {
   const response = await apiData(
     apiClient.POST("/api/v1/config-registry/drafts/preview", {

@@ -50,10 +50,12 @@ from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.registry import (
     CalibrationCohortMergeContribution,
+    CalibrationCohortMergeRegistrySource,
     CandidateConfigRegistrySource,
+    ConfigCompositionEvidenceStepRef,
     ConfigCompositionPolicyRef,
-    ConfigCompositionStepRef,
     CrossRunCandidateAcceptance,
+    VerifiedParameterProposalProofV1,
 )
 from scopecat.control.models import (
     DurableEvent,
@@ -1147,7 +1149,7 @@ def _prepare_calibration_merge(
             )
         )
         procedure_run = acquired.run
-        step_refs: list[ConfigCompositionStepRef] = []
+        evidence_step: ConfigCompositionEvidenceStepRef | None = None
         for step_index, (step_key, output, inputs) in enumerate(outputs):
             begun = automation.begin_step(
                 ProcedureStepBeginCommand(
@@ -1172,12 +1174,12 @@ def _prepare_calibration_merge(
                 )
             )
             procedure_run = completed.run
-            step_refs.append(
-                ConfigCompositionStepRef(
+            if step_key == "verification":
+                evidence_step = ConfigCompositionEvidenceStepRef(
+                    procedure_run_id=member.procedure_run_id,
                     step_key=completed.step.step_key,
                     attempt=completed.step.attempt,
                 )
-            )
         automation.close(
             ProcedureCloseCommand(
                 procedure_run_id=member.procedure_run_id,
@@ -1186,21 +1188,18 @@ def _prepare_calibration_merge(
                 status="succeeded",
             )
         )
-        baseline_step, fit_step, candidate_step, verification_step = step_refs
+        assert evidence_step is not None
         contributions.append(
             CalibrationCohortMergeContribution(
                 member_id=member.spec.member_id,
-                procedure_run_id=member.procedure_run_id,
-                baseline_step=baseline_step,
-                fit_step=fit_step,
-                candidate_step=candidate_step,
-                verification_step=verification_step,
-                proposal_id=proposal.id,
-                decision=ProjectAnalysisDecisionReference(
-                    analysis_record_id=verification.id,
-                    output_id="decision",
-                    schema_id=decision.schema_id,
-                    schema_hash=decision.schema_hash,
+                proof=VerifiedParameterProposalProofV1(
+                    evidence_step=evidence_step,
+                    decision=ProjectAnalysisDecisionReference(
+                        analysis_record_id=verification.id,
+                        output_id="decision",
+                        schema_id=decision.schema_id,
+                        schema_hash=decision.schema_hash,
+                    ),
                 ),
                 result_input_fingerprint=(f"sha256:{index + 10:x}".ljust(71, "0")),
             )
@@ -1335,6 +1334,28 @@ def test_calibration_merge_publishes_one_replayable_atomic_revision(
         assert receipt.operation.activation_generation == 2
         assert receipt.activation.generation == 2
         assert receipt.entry.content_hash == source.expected_result_content_hash
+        assert isinstance(
+            receipt.entry.source,
+            CalibrationCohortMergeRegistrySource,
+        )
+        resolved_proofs = tuple(
+            contribution.proof for contribution in receipt.entry.source.contributions
+        )
+        assert tuple(proof.kind for proof in resolved_proofs) == (
+            "verified_parameter_proposal_v1",
+            "verified_parameter_proposal_v1",
+        )
+        assert (
+            tuple(proof.baseline_run_id for proof in resolved_proofs)
+            == fixture.baseline_run_ids
+        )
+        assert tuple(proof.proposal_id for proof in resolved_proofs) == (
+            "drive-frequency",
+            "drive-frequency",
+        )
+        assert all(
+            proof.evidence_step.step_key == "verification" for proof in resolved_proofs
+        )
         assert len(receipt.calibration_successes) == 2
         assert tuple(
             success.attempt.member_id for success in receipt.calibration_successes
@@ -1689,8 +1710,14 @@ def test_calibration_merge_proof_and_result_failures_have_no_side_effects(
                     "contributions": (
                         first.model_copy(
                             update={
-                                "fit_step": first.fit_step.model_copy(
-                                    update={"attempt": 2}
+                                "proof": first.proof.model_copy(
+                                    update={
+                                        "evidence_step": (
+                                            first.proof.evidence_step.model_copy(
+                                                update={"attempt": 2}
+                                            )
+                                        )
+                                    }
                                 )
                             }
                         ),
@@ -1702,7 +1729,13 @@ def test_calibration_merge_proof_and_result_failures_have_no_side_effects(
             source.model_copy(
                 update={
                     "contributions": (
-                        first.model_copy(update={"decision": second.decision}),
+                        first.model_copy(
+                            update={
+                                "proof": first.proof.model_copy(
+                                    update={"decision": second.proof.decision}
+                                )
+                            }
+                        ),
                         second,
                     )
                 }
@@ -1710,7 +1743,19 @@ def test_calibration_merge_proof_and_result_failures_have_no_side_effects(
             source.model_copy(
                 update={
                     "contributions": (
-                        first.model_copy(update={"proposal_id": "missing-proposal"}),
+                        first.model_copy(
+                            update={
+                                "proof": first.proof.model_copy(
+                                    update={
+                                        "evidence_step": (
+                                            first.proof.evidence_step.model_copy(
+                                                update={"step_key": "baseline"}
+                                            )
+                                        )
+                                    }
+                                )
+                            }
+                        ),
                         second,
                     )
                 }

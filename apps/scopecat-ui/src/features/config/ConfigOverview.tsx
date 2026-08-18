@@ -11,12 +11,14 @@ import { ConfigInlineEmpty } from "./ConfigUi";
 export function ConfigSummary({
   overview,
   activeEntry,
+  undoEntryId,
   undoDisabled,
   undoPending,
   onUndo,
 }: {
   overview: ConfigRegistryOverview;
   activeEntry?: ConfigRegistryEntry;
+  undoEntryId?: string;
   undoDisabled: boolean;
   undoPending: boolean;
   onUndo: () => void;
@@ -71,9 +73,9 @@ export function ConfigSummary({
         <span className={summaryLabel}>Previous</span>
         <strong
           className="overflow-hidden text-[0.66rem] text-ellipsis whitespace-nowrap text-text-soft"
-          title={history[1]?.entry_id}
+          title={undoEntryId}
         >
-          {history[1]?.entry_id ?? "Nothing to undo"}
+          {undoEntryId ?? "Nothing to undo"}
         </strong>
         <button
           className={classes(secondaryButton, "min-h-[31px]")}
@@ -221,7 +223,7 @@ function activationActionLabel(action: ConfigActivationRecord["action"]) {
       return "Activated";
     case "inventory_migration":
       return "Inventory migration";
-    case "undo":
-      return "Undo";
+    default:
+      return action;
   }
 }

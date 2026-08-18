@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 from scopecat.adaptive_domains import DomainProposalAttempt, ResolvedDomainFragment
 from scopecat.analysis.datasets import DerivedDataset
-from scopecat.application import LabApplication
+from scopecat.application import LabBootstrap
 from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.inventory import InstrumentInventoryRekey
@@ -78,8 +78,6 @@ from scopecat.daemon.wire import (
     ConfigEntryActivationCommand,
     ConfigPublishCommand,
     ConfigPublishReceipt,
-    ConfigUndoCommand,
-    ConfigUndoReceipt,
     DirectConfigRevisionSource,
     ExecutorHeartbeat,
     ExecutorLease,
@@ -712,14 +710,14 @@ def test_runtime_exclusively_owns_one_project(
         raise AssertionError("factory must not run before project ownership")
 
     monkeypatch.setattr(
-        "scopecat_server.runtime.load_application_factory",
+        "scopecat_server.runtime.load_bootstrap_factory",
         load_factory,
     )
     with (
         LocalDaemonRuntime(tmp_path),
         pytest.raises(RuntimeError, match="already has a running daemon"),
     ):
-        LocalDaemonRuntime(tmp_path, application_spec="tests.application:create")
+        LocalDaemonRuntime(tmp_path, bootstrap_spec="tests.bootstrap:create")
 
     assert factory_calls == 0
     with LocalDaemonRuntime(tmp_path) as reopened:
@@ -779,30 +777,30 @@ def test_bootstrap_config_does_not_replace_later_activation(
     assert state == activation.activation
 
 
-def test_explicit_runtime_bootstrap_overrides_application_seed(
+def test_explicit_runtime_bootstrap_overrides_project_seed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def unavailable_bootstrap() -> ConfigProfileSnapshot:
         raise AssertionError("explicit test config must take precedence")
 
-    def application_factory(_root: Path) -> LabApplication:
-        return LabApplication(bootstrap_config=unavailable_bootstrap)
+    def bootstrap_factory(_root: Path) -> LabBootstrap:
+        return LabBootstrap(bootstrap_config=unavailable_bootstrap)
 
     def load_factory(
         _spec: str,
         _project_root: Path,
     ) -> object:
-        return application_factory
+        return bootstrap_factory
 
     monkeypatch.setattr(
-        "scopecat_server.runtime.load_application_factory",
+        "scopecat_server.runtime.load_bootstrap_factory",
         load_factory,
     )
     explicit = _config().model_copy(update={"id": "explicit-test-bootstrap"})
     with LocalDaemonRuntime(
         tmp_path,
-        application_spec="tests.application:create",
+        bootstrap_spec="tests.bootstrap:create",
         bootstrap_config=explicit,
     ) as runtime:
         state = runtime.application.config.get_active_config().activation
@@ -886,12 +884,15 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         stale_operation_lookup = client.get(
             "/api/v1/config-registry/activation-operations/activation%3Astale"
         )
-        undo_response = client.post(
-            "/api/v1/config-registry/undo",
-            json=ConfigUndoCommand(
-                actor="operator",
-                expected_generation=3,
-            ).model_dump(mode="json"),
+        restore_updated_command = ConfigEntryActivationCommand(
+            operation_id="activation:restore-updated",
+            entry_id="updated",
+            actor="operator",
+            expected_generation=3,
+        )
+        restore_updated_response = client.post(
+            "/api/v1/config-registry/activation-operations",
+            json=restore_updated_command.model_dump(mode="json"),
         )
         late_replay = client.post(
             "/api/v1/config-registry/activation-operations",
@@ -953,14 +954,16 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
             ConfigActivationReceipt.model_validate(late_replay.json())
             == activation_receipt
         )
-        undo = ConfigUndoReceipt.model_validate(undo_response.json())
-        assert undo.activation.action == "undo"
-        assert undo.activation.generation == 4
-        assert undo.activation.entry_id == "updated"
+        restored_updated = ConfigActivationReceipt.model_validate(
+            restore_updated_response.json()
+        )
+        assert restored_updated.activation.action == "activation"
+        assert restored_updated.activation.generation == 4
+        assert restored_updated.activation.entry_id == "updated"
         assert [entry.id for entry in registry.entries] == ["updated", "baseline"]
         assert registry.activation is not None
         assert [record.action for record in activation_history.items] == [
-            "undo",
+            "activation",
             "activation",
             "activation",
             "activation",
@@ -986,7 +989,7 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
                 None,
             ),
             (
-                "config_undone",
+                "config_activated",
                 {"entry_id": "updated", "generation": 4},
                 None,
             ),
@@ -1002,7 +1005,7 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         assert active.entry.id == "updated"
         assert active.config == updated
         assert operation == activation_receipt
-        assert events[-1].kind == "config_undone"
+        assert events[-1].kind == "config_activated"
 
 
 def test_config_publish_operation_replays_exact_receipt_across_head_changes(
@@ -1140,6 +1143,7 @@ def test_inventory_migration_http_workflow_activates_only_when_drained(
     command = _inventory_migration_command(target)
     with LocalDaemonRuntime(tmp_path, bootstrap_config=baseline) as runtime:
         client = TestClient(runtime.app())
+        initial = runtime.application.config.get_active_config()
 
         response = client.post(
             "/api/v1/config-registry/instrument-inventory-migrations",
@@ -1167,14 +1171,16 @@ def test_inventory_migration_http_workflow_activates_only_when_drained(
             ),
         ]
 
-        undo = client.post(
-            "/api/v1/config-registry/undo",
-            json=ConfigUndoCommand(
+        restore = client.post(
+            "/api/v1/config-registry/activation-operations",
+            json=ConfigEntryActivationCommand(
+                operation_id="restore-before-inventory-migration",
+                entry_id=initial.entry.id,
                 actor="operator",
                 expected_generation=2,
             ).model_dump(mode="json"),
         )
-        assert undo.status_code == 409
+        assert restore.status_code == 409
         assert runtime.application.config.get_active_config().config == target
 
 

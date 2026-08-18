@@ -13,13 +13,11 @@ from scopecat.api.calibration_planner import (
 )
 from scopecat.api.calibration_policy import CalibrationPublicationPolicyRegistry
 from scopecat.api.calibration_publication import (
-    CalibrationCohortMergeSteps,
     CalibrationCohortPublicationPlan,
     CalibrationPublicationReadSession,
     build_calibration_cohort_merge_contribution,
     calibration_cohort_merge_revision_source,
     publish_calibration_cohort,
-    reopen_calibration_cohort_publication,
 )
 from scopecat.api.procedures import LabProcedureOperations, ProcedureHandle
 from scopecat.automation.calibration_definition import CalibrationRegistry
@@ -257,8 +255,7 @@ class LabCalibrationOperations:
         cohort: CalibrationCohort,
         member: CalibrationCohortMember,
         procedure: ProcedureHandle,
-        steps: CalibrationCohortMergeSteps,
-        proposal_id: str,
+        evidence_step_key: str,
         decision_output_id: str,
         result_input_fingerprint: Sha256ContentHash,
     ) -> CalibrationCohortMergeContribution:
@@ -272,8 +269,7 @@ class LabCalibrationOperations:
             cohort=cohort,
             member=member,
             procedure=procedure,
-            steps=steps,
-            proposal_id=proposal_id,
+            evidence_step_key=evidence_step_key,
             decision_output_id=decision_output_id,
             result_input_fingerprint=result_input_fingerprint,
             session=self._publication_session,
@@ -306,27 +302,11 @@ class LabCalibrationOperations:
         *,
         actor: str,
         note: str = "",
+        expected_finalization_revision: int | None = None,
     ) -> CalibrationCohortPublicationPlan:
         """Freeze deterministic config entry and operation identities."""
 
-        expected_finalization_revision: int | None = None
-        if source.automatic_publication is not None:
-            finalization = self.publication_finalization(source.cohort_id)
-            if (
-                finalization.cohort_id != source.cohort_id
-                or finalization.spec_hash != source.spec_hash
-                or finalization.policy != source.automatic_publication
-                or finalization.base_config_source.entry_id != source.base_entry_id
-                or finalization.base_config_source.content_hash
-                != source.base_content_hash
-                or finalization.base_config_source.registry_generation
-                != source.base_generation
-            ):
-                raise ValueError(
-                    "automatic publication finalization does not match merge source"
-                )
-            expected_finalization_revision = finalization.revision
-        return CalibrationCohortPublicationPlan.create(
+        return self.publication_planning_context().publication_plan(
             source,
             actor=actor,
             note=note,
@@ -340,14 +320,6 @@ class LabCalibrationOperations:
         """Publish an exact cohort plan with unknown-outcome reconciliation."""
 
         return publish_calibration_cohort(self._client, plan)
-
-    def reopen_publication(
-        self,
-        plan: CalibrationCohortPublicationPlan,
-    ) -> CalibrationPublicationReceipt:
-        """Reopen a deterministic publication without issuing a mutation."""
-
-        return reopen_calibration_cohort_publication(self._client, plan)
 
 
 __all__ = ["LabCalibrationOperations"]

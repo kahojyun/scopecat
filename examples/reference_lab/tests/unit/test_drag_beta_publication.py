@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+from typing import cast
+
 import pytest
 from scopecat import Quantity
+from scopecat.api.calibration_finalizer import CalibrationPublicationPlanningContext
+from scopecat.api.lab import LabClient
+from scopecat.automation.calibration_wire import CalibrationCohortMemberPage
+from scopecat.automation.calibrations import CalibrationCohort
 from scopecat.config.drafts import ConfigDraft
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
@@ -30,9 +37,11 @@ from reference_lab.workflows.drag_beta_publication import (
     DRAG_BETA_COMPOSITION_POLICY_ID,
     DRAG_BETA_COMPOSITION_POLICY_REF,
     DRAG_BETA_COMPOSITION_POLICY_VERSION,
-    DRAG_BETA_COMPOSITION_STEPS,
+    DRAG_BETA_VERIFICATION_EVIDENCE_STEP,
+    DragBetaCohortPublication,
     drag_beta_composition_policy_ref,
     drag_beta_merged_result_input_fingerprint,
+    prepare_drag_beta_cohort_publication,
     validate_drag_beta_target_owned_proposal,
 )
 
@@ -49,12 +58,8 @@ def test_drag_beta_composition_policy_has_exact_stable_contract(
     )
     assert DRAG_BETA_COMPOSITION_POLICY_FINGERPRINT.startswith("sha256:")
     assert len(DRAG_BETA_COMPOSITION_POLICY_FINGERPRINT) == len("sha256:") + 64
-    assert DRAG_BETA_COMPOSITION_STEPS.model_dump() == {
-        "baseline": "baseline",
-        "fit": "fit",
-        "candidate": "candidate",
-        "verification": "verification",
-    }
+    assert DRAG_BETA_COMPOSITION_POLICY_VERSION == "2"
+    assert DRAG_BETA_VERIFICATION_EVIDENCE_STEP == "verification"
     assert drag_beta_composition_policy_ref() == DRAG_BETA_COMPOSITION_POLICY_REF
 
     monkeypatch.setattr(
@@ -64,6 +69,80 @@ def test_drag_beta_composition_policy_has_exact_stable_contract(
     )
     assert drag_beta_composition_policy_ref().fingerprint != (
         DRAG_BETA_COMPOSITION_POLICY_REF.fingerprint
+    )
+
+
+def test_manual_drag_beta_prepare_uses_shared_planning_core(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cohort = cast(
+        "CalibrationCohort",
+        cast("object", SimpleNamespace(cohort_id="cohort-exact")),
+    )
+    member_page = cast("CalibrationCohortMemberPage", object())
+
+    def read_cohort(cohort_id: str) -> CalibrationCohort:
+        assert cohort_id == "cohort-exact"
+        return cohort
+
+    def read_members(cohort_id: str) -> CalibrationCohortMemberPage:
+        assert cohort_id == "cohort-exact"
+        return member_page
+
+    context = cast(
+        "CalibrationPublicationPlanningContext",
+        cast(
+            "object",
+            SimpleNamespace(
+                cohort=read_cohort,
+                cohort_members=read_members,
+            ),
+        ),
+    )
+    lab = cast(
+        "LabClient",
+        cast(
+            "object",
+            SimpleNamespace(
+                calibrations=SimpleNamespace(
+                    publication_planning_context=lambda: context
+                )
+            ),
+        ),
+    )
+    prepared = cast("DragBetaCohortPublication", object())
+
+    def fake_prepare(
+        actual_context: CalibrationPublicationPlanningContext,
+        *,
+        cohort: CalibrationCohort,
+        member_page: CalibrationCohortMemberPage,
+        actor: str,
+        note: str,
+        expected_finalization_revision: int | None = None,
+    ) -> DragBetaCohortPublication:
+        assert actual_context is context
+        assert cohort is context.cohort("cohort-exact")
+        assert member_page is context.cohort_members("cohort-exact")
+        assert actor == "manual-actor"
+        assert note == "manual-note"
+        assert expected_finalization_revision is None
+        return prepared
+
+    monkeypatch.setattr(
+        drag_beta_publication,
+        "prepare_drag_beta_cohort_publication_from_context",
+        fake_prepare,
+    )
+
+    assert (
+        prepare_drag_beta_cohort_publication(
+            lab,
+            "cohort-exact",
+            actor="manual-actor",
+            note="manual-note",
+        )
+        is prepared
     )
 
 

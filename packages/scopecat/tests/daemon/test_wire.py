@@ -44,8 +44,6 @@ from scopecat.daemon.wire import (
     ConfigEntryActivationCommand,
     ConfigPublishCommand,
     ConfigPublishReceipt,
-    ConfigUndoCommand,
-    ConfigUndoReceipt,
     DirectConfigRevisionSource,
     ExecutorLease,
     InstrumentConfiguredDefaultsApplyCommand,
@@ -130,7 +128,6 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         operation=operation,
         activation=activation,
     )
-    undone = ConfigUndoReceipt(activation=activation)
     publish_command = ConfigPublishCommand(
         operation_id="publish-baseline",
         source=DirectConfigRevisionSource(config=config),
@@ -158,16 +155,11 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         actor="operator",
         expected_generation=0,
     )
-    undo_command = ConfigUndoCommand(
-        actor="operator",
-        expected_generation=1,
-    )
 
     assert (
         ConfigActivationReceipt.model_validate_json(activated.model_dump_json())
         == activated
     )
-    assert ConfigUndoReceipt.model_validate_json(undone.model_dump_json()) == undone
     assert (
         ConfigPublishReceipt.model_validate_json(published.model_dump_json())
         == published
@@ -177,10 +169,6 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
             activation_command.model_dump_json()
         )
         == activation_command
-    )
-    assert (
-        ConfigUndoCommand.model_validate_json(undo_command.model_dump_json())
-        == undo_command
     )
     assert (
         ConfigPublishCommand.model_validate_json(publish_command.model_dump_json())

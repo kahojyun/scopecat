@@ -19,11 +19,12 @@ validates its bootstrap source without starting a daemon or writing project
 state. Configuration reconciliation commands and the complete runnable
 walkthrough live in the [repository README](../../README.md).
 
-Each `scopecat.toml` names the control-plane application and, when devices are
-configured, a separately importable worker backend:
+Each `scopecat.toml` names a lightweight daemon bootstrap, the full project
+worker application, and, when devices are configured, an instrument backend:
 
 ```toml
 [lab]
+bootstrap = "my_lab.application:create_bootstrap"
 application = "my_lab.application:create_application"
 instrument_backend = "my_lab.backend:create_backend"
 ```
@@ -31,16 +32,21 @@ instrument_backend = "my_lab.backend:create_backend"
 ```python
 from pathlib import Path
 
-from scopecat.application import LabApplication
-from my_lab import (
-    build_experiment_system,
-    build_initial_config,
-)
+from scopecat.application import LabBootstrap
+from my_lab import build_initial_config
 
 
-def create_application(project: Path) -> LabApplication:
-    return LabApplication(
+def create_bootstrap(project: Path) -> LabBootstrap:
+    return LabBootstrap(
         bootstrap_config=lambda: build_initial_config(project),
+    )
+
+
+def create_application(project: Path):
+    from scopecat.application import LabApplication
+    from my_lab import build_experiment_system
+
+    return LabApplication(
         build_experiment_system=lambda accepted_config, instrument_catalog: (
             build_experiment_system(
                 accepted_config,
@@ -62,11 +68,12 @@ def create_backend(project: Path) -> InstrumentBackend:
     return InstrumentBackend(provider=LabProvider.from_project(project))
 ```
 
-Both callables accept the resolved project `Path`. The bootstrap factory is a
-lazy seed used only for an empty registry. Notebook planning receives the
-accepted snapshot and the daemon-resolved contract catalog. Backend code,
-transports, codecs, and drivers are imported and constructed only in the
-long-lived instrument worker.
+All factories accept the resolved project `Path`. The bootstrap config is a
+lazy seed used only for an empty registry. Keep procedure, calibration, and
+other execution imports inside `create_application`; the daemon loads only
+`create_bootstrap`. Notebook planning receives the accepted snapshot and the
+daemon-resolved contract catalog. Backend code, transports, codecs, and drivers
+are imported and constructed only in the long-lived instrument worker.
 
 Only one daemon owns a project. It stores SQLite and immutable objects below
 `.scopecat`, records its loopback endpoint in `.scopecat/daemon.json`, and

@@ -18,10 +18,7 @@ from scopecat.records.run import ConfigRegistryRunConfigSource, RunConfigSource
 from reference_lab.application import create_application
 from reference_lab.configuration import EXAMPLE_ROOT, bootstrap_config
 from reference_lab.workflows.drag_beta_experiment import DragBetaQubit
-from reference_lab.workflows.drag_beta_freshness import (
-    DRAG_BETA_CALIBRATION_REGISTRY,
-    drag_beta_freshness_calibration,
-)
+from reference_lab.workflows.drag_beta_freshness import drag_beta_freshness_calibration
 from reference_lab.workflows.drag_beta_procedure import (
     DRAG_BETA_PROCEDURE_ID,
     DRAG_BETA_PROCEDURE_VERSION,
@@ -45,14 +42,15 @@ def test_application_registers_exact_drag_beta_procedure_source() -> None:
         drag_beta_calibration_procedure.ref,
         drag_beta_verification_procedure.ref,
     )
-    assert application.procedures.resolve(drag_beta_calibration_procedure.ref) is (
-        drag_beta_calibration_procedure
+    assert (
+        application.procedures.resolve(drag_beta_calibration_procedure.ref).ref
+        == drag_beta_calibration_procedure.ref
     )
     assert drag_beta_calibration_procedure.id == DRAG_BETA_PROCEDURE_ID
     assert drag_beta_calibration_procedure.version == DRAG_BETA_PROCEDURE_VERSION
-    assert application.calibrations is DRAG_BETA_CALIBRATION_REGISTRY
-    assert application.calibrations.require(drag_beta_freshness_calibration.id) is (
-        drag_beta_freshness_calibration
+    assert (
+        application.calibrations.resolve(drag_beta_freshness_calibration.ref).ref
+        == drag_beta_freshness_calibration.ref
     )
 
 

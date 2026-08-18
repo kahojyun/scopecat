@@ -7,12 +7,12 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from textwrap import dedent
 
-from scopecat.api.calibration_publication import (
-    CalibrationCohortMergeSteps,
-    CalibrationCohortPublicationPlan,
+from scopecat.api.calibration_finalizer import (
+    CalibrationPublicationPlanningContext,
+    CalibrationPublicationProcedureView,
 )
+from scopecat.api.calibration_publication import CalibrationCohortPublicationPlan
 from scopecat.api.lab import LabClient
-from scopecat.api.procedures import ProcedureHandle
 from scopecat.automation.calibration_wire import CalibrationCohortMemberPage
 from scopecat.automation.calibrations import (
     CalibrationCohort,
@@ -34,6 +34,7 @@ from scopecat.daemon.wire import CalibrationPublicationReceipt
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.value_identity import scalar_values_equal
+from scopecat.records.analysis import MeasurementAnalysisRecordInput
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.content import Sha256ContentHash
 from scopecat.records.parameter import (
@@ -41,6 +42,7 @@ from scopecat.records.parameter import (
     TableParameterValue,
 )
 from scopecat.records.parameter_change import ParameterChangeProposal
+from scopecat.records.run import AnalysisCandidateRunConfigSource
 
 from reference_lab.parameters import DRAG_BETA, QUBIT, QUBITS
 from reference_lab.workflows.drag_beta_experiment import DragBetaQubit
@@ -61,13 +63,8 @@ from reference_lab.workflows.drag_beta_verification import (
 )
 
 DRAG_BETA_COMPOSITION_POLICY_ID = "reference-lab.drag-beta-cohort-composition"
-DRAG_BETA_COMPOSITION_POLICY_VERSION = "1"
-DRAG_BETA_COMPOSITION_STEPS = CalibrationCohortMergeSteps(
-    baseline="baseline",
-    fit="fit",
-    candidate="candidate",
-    verification="verification",
-)
+DRAG_BETA_COMPOSITION_POLICY_VERSION = "2"
+DRAG_BETA_VERIFICATION_EVIDENCE_STEP = "verification"
 DRAG_BETA_PUBLICATION_ACTOR = "reference-lab-drag-beta-finalizer"
 DRAG_BETA_PUBLICATION_NOTE = "publish verified q0/q1 DRAG calibration cohort"
 
@@ -85,7 +82,10 @@ def _drag_beta_composition_policy_fingerprint() -> str:
             "calibration_semantic_inputs_version": DRAG_BETA_CALIBRATION_VERSION,
             "procedure": drag_beta_verification_procedure.ref.model_dump(mode="json"),
             "merge_policy": "common_base_cells_v1",
-            "steps": DRAG_BETA_COMPOSITION_STEPS.model_dump(mode="json"),
+            "proof": {
+                "kind": "verified_parameter_proposal_v1",
+                "evidence_step": DRAG_BETA_VERIFICATION_EVIDENCE_STEP,
+            },
             "targets": list(_DRAG_BETA_TARGET_IDS),
             "owned_path": {
                 "parameter_id": QUBITS.id,
@@ -108,6 +108,10 @@ def _drag_beta_composition_policy_fingerprint() -> str:
                 "preview": _policy_function_identity(
                     prepare_drag_beta_cohort_publication,
                     label="DRAG composition preview",
+                ),
+                "prepare_core": _policy_function_identity(
+                    prepare_drag_beta_cohort_publication_from_context,
+                    label="DRAG composition preparation core",
                 ),
                 "proposal_validator": _policy_function_identity(
                     validate_drag_beta_target_owned_proposal,
@@ -164,7 +168,7 @@ class DragBetaCohortPublication:
 @dataclass(frozen=True, slots=True)
 class _DragBetaMemberMaterial:
     member: CalibrationCohortMember
-    procedure: ProcedureHandle
+    procedure: CalibrationPublicationProcedureView
     qubit: DragBetaQubit
     intent: DragBetaVerificationIntent
     proposal: ParameterChangeProposal
@@ -180,17 +184,36 @@ def prepare_drag_beta_cohort_publication(
 ) -> DragBetaCohortPublication:
     """Resolve, validate, and preview one complete verified DRAG cohort.
 
-    This function is read-only. It resolves the exact four durable step outputs
+    This function is read-only. It resolves one exact verification checkpoint
     for every member, checks the project-owned patch boundary, composes their
     common-base proposals, and proves that each member's verified candidate has
     the same semantic freshness inputs as its projection from the merged result.
     """
 
-    cohort = lab.calibrations.get(cohort_id)
-    member_page = lab.calibrations.members(cohort_id, limit=2)
-    base_config = _drag_beta_cohort_base(lab, cohort, member_page)
+    context = lab.calibrations.publication_planning_context()
+    return prepare_drag_beta_cohort_publication_from_context(
+        context,
+        cohort=context.cohort(cohort_id),
+        member_page=context.cohort_members(cohort_id),
+        actor=actor,
+        note=note,
+    )
+
+
+def prepare_drag_beta_cohort_publication_from_context(
+    context: CalibrationPublicationPlanningContext,
+    *,
+    cohort: CalibrationCohort,
+    member_page: CalibrationCohortMemberPage,
+    actor: str,
+    note: str,
+    expected_finalization_revision: int | None = None,
+) -> DragBetaCohortPublication:
+    """Prepare one exact plan from the shared read-only planning surface."""
+
+    base_config = _drag_beta_cohort_base(context, cohort, member_page)
     materials = tuple(
-        _drag_beta_member_material(lab, cohort, member, base_config=base_config)
+        _drag_beta_member_material(context, cohort, member, base_config=base_config)
         for member in member_page.items
     )
     proposals = tuple(material.proposal for material in materials)
@@ -209,19 +232,18 @@ def prepare_drag_beta_cohort_publication(
             minimum_improvement=material.intent.minimum_improvement,
         )
         contributions.append(
-            lab.calibrations.build_merge_contribution(
+            context.build_merge_contribution(
                 cohort=cohort,
                 member=material.member,
                 procedure=material.procedure,
-                steps=DRAG_BETA_COMPOSITION_STEPS,
-                proposal_id=material.proposal.id,
+                evidence_step_key=DRAG_BETA_VERIFICATION_EVIDENCE_STEP,
                 decision_output_id=_DRAG_BETA_DECISION_OUTPUT_ID,
                 result_input_fingerprint=result_input_fingerprint,
             )
         )
 
     frozen_contributions = tuple(contributions)
-    source = lab.calibrations.merge_source(
+    source = context.merge_source(
         cohort=cohort,
         member_page=member_page,
         composition_policy_ref=DRAG_BETA_COMPOSITION_POLICY_REF,
@@ -229,7 +251,12 @@ def prepare_drag_beta_cohort_publication(
         contributions=frozen_contributions,
         expected_result_content_hash=merge.content_hash,
     )
-    plan = lab.calibrations.publication_plan(source, actor=actor, note=note)
+    plan = context.publication_plan(
+        source,
+        actor=actor,
+        note=note,
+        expected_finalization_revision=expected_finalization_revision,
+    )
     return DragBetaCohortPublication(
         cohort=cohort,
         member_page=member_page,
@@ -327,7 +354,7 @@ def drag_beta_merged_result_input_fingerprint(
 
 
 def _drag_beta_cohort_base(
-    lab: LabClient,
+    context: CalibrationPublicationPlanningContext,
     cohort: CalibrationCohort,
     member_page: CalibrationCohortMemberPage,
 ) -> ConfigProfileSnapshot:
@@ -363,7 +390,7 @@ def _drag_beta_cohort_base(
         raise ValueError("DRAG cohort member does not match its composition policy")
 
     base = cohort.spec.config_source
-    base_view = lab.config.entry(base.entry_id)
+    base_view = context.config_entry(base.entry_id)
     if (
         base_view.entry.id != base.entry_id
         or base_view.entry.config_ref != base.config_ref
@@ -375,7 +402,7 @@ def _drag_beta_cohort_base(
 
 
 def _drag_beta_member_material(
-    lab: LabClient,
+    context: CalibrationPublicationPlanningContext,
     cohort: CalibrationCohort,
     member: CalibrationCohortMember,
     *,
@@ -409,7 +436,7 @@ def _drag_beta_member_material(
     ):
         raise ValueError("DRAG member input fingerprint does not match its base")
 
-    procedure = lab.procedures.get(member.procedure_run_id)
+    procedure = context.procedure(member.procedure_run_id)
     snapshot = procedure.snapshot
     if (
         snapshot.state != "closed"
@@ -419,32 +446,62 @@ def _drag_beta_member_material(
         raise ValueError(
             "DRAG publication requires every member procedure to be closed succeeded"
         )
-    baseline = procedure.output(DRAG_BETA_COMPOSITION_STEPS.baseline)
-    fit = procedure.output(DRAG_BETA_COMPOSITION_STEPS.fit)
-    candidate = procedure.output(DRAG_BETA_COMPOSITION_STEPS.candidate)
-    verification = procedure.output(DRAG_BETA_COMPOSITION_STEPS.verification)
+    evidence_attempt = procedure.step(DRAG_BETA_VERIFICATION_EVIDENCE_STEP)
+    evidence = evidence_attempt.output
     if (
-        not isinstance(baseline, RunOutputRef)
-        or not isinstance(fit, AnalysisPublicationOutputRef)
-        or not isinstance(candidate, RunOutputRef)
-        or not isinstance(verification, AnalysisPublicationOutputRef)
+        evidence_attempt.state != "succeeded"
+        or not isinstance(evidence, AnalysisPublicationOutputRef)
+        or len(evidence_attempt.inputs) != 2
+        or not all(isinstance(item, RunOutputRef) for item in evidence_attempt.inputs)
     ):
-        raise TypeError("DRAG member has the wrong four-step output types")
-
-    baseline_run = lab.get_run(baseline.run_id)
-    fit_analysis = baseline_run.published_analysis(fit.analysis_record_id)
-    proposal = fit_analysis.proposal(f"{qubit}-drag-beta")
+        raise TypeError("DRAG member has the wrong verification evidence shape")
+    evidence_run_ids = tuple(
+        item.run_id
+        for item in evidence_attempt.inputs
+        if isinstance(item, RunOutputRef)
+    )
+    run_handles = tuple(context.run(run_id) for run_id in evidence_run_ids)
+    baseline_runs = tuple(
+        run
+        for run in run_handles
+        if run.snapshot.config_source == intent.initial_config_source
+    )
+    candidate_runs = tuple(
+        run
+        for run in run_handles
+        if isinstance(run.snapshot.config_source, AnalysisCandidateRunConfigSource)
+    )
+    if len(baseline_runs) != 1 or len(candidate_runs) != 1:
+        raise ValueError(
+            "DRAG verification evidence does not identify one baseline and candidate"
+        )
+    baseline_run = baseline_runs[0]
+    candidate_run = candidate_runs[0]
+    candidate_source = candidate_run.snapshot.config_source
+    assert isinstance(candidate_source, AnalysisCandidateRunConfigSource)
+    if candidate_source.source_run_id != baseline_run.id:
+        raise ValueError("DRAG candidate does not derive from its evidence baseline")
+    fit_analysis = baseline_run.published_analysis(candidate_source.analysis_record_id)
+    proposal = fit_analysis.proposal(candidate_source.proposal_id)
     validate_drag_beta_target_owned_proposal(proposal, qubit)
 
-    candidate_run = lab.get_run(candidate.run_id)
     candidate_config = candidate_run.config
     if candidate_run.snapshot.config_content_hash != config_content_hash(
         candidate_config
     ):
         raise ValueError("DRAG candidate run config does not match its snapshot")
 
-    verification_analysis = lab.published_analysis(verification.analysis_record_id)
-    decision = verification_analysis.fact_as(
+    evidence_analysis = context.published_analysis(evidence.analysis_record_id)
+    evidence_analysis_run_ids = tuple(
+        input_ref.run_id
+        for input_ref in evidence_analysis.inputs
+        if isinstance(input_ref, MeasurementAnalysisRecordInput)
+    )
+    if len(evidence_analysis.inputs) != 2 or set(evidence_analysis_run_ids) != set(
+        evidence_run_ids
+    ):
+        raise ValueError("DRAG evidence step and project analysis inputs differ")
+    decision = evidence_analysis.fact_as(
         _DRAG_BETA_DECISION_OUTPUT_ID,
         DRAG_BETA_VERIFICATION_SCHEMA,
     )
@@ -519,13 +576,14 @@ __all__ = [
     "DRAG_BETA_COMPOSITION_POLICY_ID",
     "DRAG_BETA_COMPOSITION_POLICY_REF",
     "DRAG_BETA_COMPOSITION_POLICY_VERSION",
-    "DRAG_BETA_COMPOSITION_STEPS",
     "DRAG_BETA_PUBLICATION_ACTOR",
     "DRAG_BETA_PUBLICATION_NOTE",
+    "DRAG_BETA_VERIFICATION_EVIDENCE_STEP",
     "DragBetaCohortPublication",
     "drag_beta_composition_policy_ref",
     "drag_beta_merged_result_input_fingerprint",
     "prepare_drag_beta_cohort_publication",
+    "prepare_drag_beta_cohort_publication_from_context",
     "publish_verified_drag_beta_cohort",
     "validate_drag_beta_target_owned_proposal",
 ]

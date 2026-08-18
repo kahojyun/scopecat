@@ -141,8 +141,6 @@ from scopecat.daemon.wire import (
     ConfigEntryActivationCommand,
     ConfigPublishCommand,
     ConfigPublishReceipt,
-    ConfigUndoCommand,
-    ConfigUndoReceipt,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -816,16 +814,6 @@ class DaemonClient:
             f"{_API_PREFIX}/config-registry/activation-operations/"
             f"{quote(operation_id, safe='')}",
             ConfigActivationReceipt,
-        )
-
-    def undo_config(
-        self,
-        command: ConfigUndoCommand,
-    ) -> ConfigUndoReceipt:
-        return self._post_model(
-            f"{_API_PREFIX}/config-registry/undo",
-            command,
-            ConfigUndoReceipt,
         )
 
     def list_instruments(self) -> InstrumentListView:

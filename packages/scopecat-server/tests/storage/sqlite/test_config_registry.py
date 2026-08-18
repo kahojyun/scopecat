@@ -26,7 +26,6 @@ from scopecat.config.registry.service import (
     load_config_registry_snapshot,
     publish_config_revision,
     resolve_config_registry_config_source,
-    undo_config_registry,
 )
 from scopecat.daemon.wire import (
     ConfigActivationReceipt,
@@ -481,51 +480,6 @@ def test_borrowed_unit_of_work_only_scopes_registry_access(tmp_path: Path) -> No
         _ = work.registry
     connection.rollback()
     connection.close()
-
-
-def test_undo_persists_contiguous_activation_generations(
-    tmp_path: Path,
-) -> None:
-    store = _store(tmp_path)
-    config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
-    first = _publish_direct_revision(
-        config=config,
-        unit_of_work=store.write_unit_of_work,
-        entry_id="first",
-        actor="test",
-        expected_generation=0,
-    )
-    _publish_direct_revision(
-        config=config.model_copy(update={"id": "second-config"}),
-        unit_of_work=store.write_unit_of_work,
-        entry_id="second",
-        actor="test",
-        expected_generation=1,
-    )
-
-    undo = undo_config_registry(
-        unit_of_work=store.write_unit_of_work,
-        actor="test",
-        expected_generation=2,
-    )
-
-    record = undo.activation
-    assert record is not None
-    assert record.generation == 3
-    assert record.entry_id == first.entry.id
-    assert record.action == "undo"
-    with sqlite3.connect(store.database) as connection:
-        generations = [
-            row[0]
-            for row in connection.execute(
-                """
-                SELECT generation
-                FROM config_registry_activations
-                ORDER BY generation
-                """
-            )
-        ]
-    assert generations == [1, 2, 3]
 
 
 def test_generation_cas_is_shared_across_store_instances(tmp_path: Path) -> None:

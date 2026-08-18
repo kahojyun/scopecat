@@ -150,7 +150,7 @@ def serve_project(
     try:
         runtime = LocalDaemonRuntime(
             project.root,
-            application_spec=project.application_spec,
+            bootstrap_spec=project.bootstrap_spec,
             instrument_backend_spec=project.instrument_backend_spec,
             lease_ttl=lease_ttl,
         )

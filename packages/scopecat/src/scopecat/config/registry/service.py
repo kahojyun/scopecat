@@ -2,7 +2,8 @@
 
 The registry stores named configuration snapshots under the project-local
 ``config-registry`` tree. Its append-only activation log projects the active
-entry for later runs and supplies an independent history view for undo.
+entry for later runs and supplies an independent history view for clients that
+want to select an earlier exact entry.
 Revisions can be saved directly from a
 ``ConfigProfileSnapshot`` or from a candidate configuration.
 
@@ -671,10 +672,11 @@ def _load_calibration_merge_proposal(
     storage: RunRepository,
     contribution: ResolvedCalibrationCohortMergeContribution,
 ) -> ParameterChangeProposal:
+    proof = contribution.proof
     proposal_record = _require_run_record(
         storage=storage,
-        run_id=contribution.baseline_run_id,
-        record_id=contribution.proposal_id,
+        run_id=proof.baseline_run_id,
+        record_id=proof.proposal_id,
         kind="parameter_change_proposal",
     )
     proposal_ref = record_content_ref(
@@ -682,14 +684,14 @@ def _load_calibration_merge_proposal(
         kind=proposal_record.kind,
     )
     proposal = storage.read_model(
-        contribution.baseline_run_id,
+        proof.baseline_run_id,
         proposal_ref,
         ParameterChangeProposal,
     )
     if (
-        proposal.id != contribution.proposal_id
-        or proposal.source_run_id != contribution.baseline_run_id
-        or proposal.analysis_record_id != contribution.fit_analysis_record_id
+        proposal.id != proof.proposal_id
+        or proposal.source_run_id != proof.baseline_run_id
+        or proposal.analysis_record_id != proof.fit_analysis_record_id
     ):
         raise _registry_failure(
             DataIntegrityError,
@@ -697,7 +699,7 @@ def _load_calibration_merge_proposal(
             message="calibration contribution does not match its proposal record",
             location=_registry_storage_location(
                 proposal_ref,
-                run_id=contribution.baseline_run_id,
+                run_id=proof.baseline_run_id,
             ),
             related_locations=(
                 _registry_model_location(
@@ -709,7 +711,7 @@ def _load_calibration_merge_proposal(
             ),
             details={
                 "member_id": contribution.member_id,
-                "proposal_id": contribution.proposal_id,
+                "proposal_id": proof.proposal_id,
             },
         )
     return proposal
@@ -992,82 +994,6 @@ def _commit_config_registry_activation_locked(
         activation=record,
         activated=True,
     )
-
-
-def undo_config_registry(
-    *,
-    unit_of_work: ConfigRegistryUnitOfWorkFactory,
-    actor: str,
-    expected_generation: int,
-    note: str = "",
-) -> ConfigRegistryMutationResult:
-    _validate_required_text(actor, field="actor")
-    with unit_of_work() as work:
-        current_activation = _read_latest_activation(work.registry)
-        _require_expected_generation(
-            current_activation,
-            expected_generation,
-            active_ref=work.registry.active_ref,
-        )
-        if current_activation is None:
-            raise _registry_failure(
-                NotFound,
-                code="config_registry.no_active_entry",
-                message="config registry has no active entry",
-                location=_registry_model_location("active"),
-            )
-        current = _load_config_registry_entry_locked(
-            entry_id=current_activation.entry_id,
-            work=work,
-        )
-        _validate_active_entry_identity(
-            work.registry,
-            current_activation,
-            current.entry,
-        )
-        undo_target = _previous_distinct_activation(
-            work.registry,
-            active_entry_id=current_activation.entry_id,
-            active_generation=current_activation.generation,
-        )
-        loaded = _load_config_registry_entry_locked(
-            entry_id=undo_target.entry_id,
-            work=work,
-        )
-        entry = loaded.entry
-        if entry.content_hash != undo_target.entry_content_hash:
-            raise _registry_failure(
-                DataIntegrityError,
-                code="config_registry.undo_content_mismatch",
-                message="undo target no longer matches activation history",
-                location=_registry_storage_location(work.registry.active_ref),
-                related_locations=(_registry_storage_location(entry.config_ref),),
-                details={"entry_id": entry.id},
-            )
-        _require_stable_instrument_exclusivity_keys(
-            current=current.config,
-            candidate=loaded.config,
-        )
-        generation = expected_generation + 1
-        record = ConfigRegistryActivationRecord(
-            generation=generation,
-            action="undo",
-            entry_id=entry.id,
-            entry_content_hash=entry.content_hash,
-            previous_entry_id=current_activation.entry_id,
-            previous_entry_content_hash=current_activation.entry_content_hash,
-            actor=actor,
-            note=note,
-        )
-        work.registry.commit_activation(
-            expected_generation=expected_generation,
-            record=record,
-        )
-        return ConfigRegistryMutationResult(
-            entry=entry,
-            activation=record,
-            activated=True,
-        )
 
 
 def current_config_registry_generation(
@@ -1639,32 +1565,6 @@ def _require_stable_instrument_exclusivity_keys(
         )
 
 
-def _previous_distinct_activation(
-    repository: ConfigRegistryRepository,
-    *,
-    active_entry_id: str,
-    active_generation: int,
-) -> ConfigRegistryActivationRecord:
-    before: int | None = None
-    while True:
-        page = repository.list_activation_page(limit=100, before=before)
-        for record in page.items:
-            if (
-                record.generation < active_generation
-                and record.entry_id != active_entry_id
-            ):
-                return record
-        if page.next_cursor is None:
-            break
-        before = page.next_cursor
-    raise _registry_failure(
-        Conflict,
-        code="config_registry.no_undo_target",
-        message="config registry has no previous active entry",
-        location=_registry_model_location("active"),
-    )
-
-
 def _registry_failure(
     failure_type: type[ProblemFailure],
     *,
@@ -1737,5 +1637,4 @@ __all__ = [
     "publish_config_revision",
     "publish_instrument_inventory_migration_revision",
     "resolve_config_registry_config_source",
-    "undo_config_registry",
 ]

@@ -304,22 +304,34 @@ class AnalysisService:
                 "calibration merge candidate run does not use its exact proposal"
             )
 
-        view = self._validated_decision_view(reference)
-        direct_inputs = view.analysis.inputs
-        if any(
-            not isinstance(input_ref, MeasurementAnalysisRecordInput)
-            for input_ref in direct_inputs
-        ) or tuple(
-            sorted(
-                input_ref.run_id
-                for input_ref in direct_inputs
-                if isinstance(input_ref, MeasurementAnalysisRecordInput)
-            )
-        ) != tuple(sorted((source_run_id, candidate_run_id))):
+        if set(self.calibration_merge_verification_run_ids(reference)) != {
+            source_run_id,
+            candidate_run_id,
+        }:
             raise BackendConflict(
                 "calibration merge verification inputs must be the exact baseline "
                 "and candidate runs"
             )
+
+    def calibration_merge_verification_run_ids(
+        self,
+        reference: ProjectAnalysisDecisionReference,
+    ) -> tuple[str, str]:
+        """Resolve the two direct run inputs of one accepted project decision."""
+
+        view = self._validated_decision_view(reference)
+        direct_inputs = view.analysis.inputs
+        run_ids = tuple(
+            input_ref.run_id
+            for input_ref in direct_inputs
+            if isinstance(input_ref, MeasurementAnalysisRecordInput)
+        )
+        if len(direct_inputs) != 2 or len(run_ids) != 2 or len(set(run_ids)) != 2:
+            raise BackendConflict(
+                "calibration merge verification must have two distinct direct "
+                "run inputs"
+            )
+        return run_ids
 
     def _validated_decision_view(
         self,

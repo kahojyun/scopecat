@@ -22,6 +22,7 @@ import { ActivationHistory, ConfigSummary } from "./ConfigOverview";
 import { ConfigRegistryPanel } from "./ConfigRegistryPanel";
 import { ConfigBoundaryMessage } from "./ConfigUi";
 import { useConfigMutationWorkflow } from "./useConfigMutationWorkflow";
+import { configUndoTarget } from "./config-utils";
 import { useConfigRegistry } from "./useConfigRegistry";
 
 export function ConfigWorkspace({
@@ -35,6 +36,7 @@ export function ConfigWorkspace({
   const [configDraft, setConfigDraft] = useState<ConfigDraftSeed>();
   const registry = useConfigRegistry(daemonUnavailable);
   const workflow = useConfigMutationWorkflow(registry.overview);
+  const undoTarget = registry.overview ? configUndoTarget(registry.overview) : undefined;
 
   const selectEntry = (entryId: string) => {
     registry.selectEntry(entryId);
@@ -186,20 +188,20 @@ export function ConfigWorkspace({
       <ConfigSummary
         overview={overview}
         activeEntry={registry.activeDetailQuery.data?.entry}
-        undoDisabled={
-          commandDisabled ||
-          overview.activation_history.length < 2 ||
-          overview.activation === undefined
-        }
+        undoEntryId={undoTarget?.entryId}
+        undoDisabled={commandDisabled || undoTarget === undefined}
         undoPending={workflow.mutation.isPending && workflow.mutation.variables?.kind === "undo"}
-        onUndo={() =>
+        onUndo={() => {
+          if (undoTarget === undefined) return;
           workflow.runAction(
-            { kind: "undo" },
-            `Restore ${
-              overview.activation_history[1]?.entry_id ?? "the previous version"
-            } as the default configuration?`,
-          )
-        }
+            {
+              kind: "undo",
+              entryId: undoTarget.entryId,
+              expectedGeneration: undoTarget.expectedGeneration,
+            },
+            `Restore ${undoTarget.entryId} as the default configuration?`,
+          );
+        }}
       />
 
       <div className="grid min-h-[630px] grid-cols-[minmax(290px,340px)_minmax(0,1fr)] overflow-hidden rounded-lg border border-line bg-panel max-[1100px]:grid-cols-[minmax(260px,300px)_minmax(0,1fr)] max-[880px]:block max-[880px]:min-h-0 max-[880px]:overflow-visible max-[880px]:border-0 max-[880px]:bg-transparent">

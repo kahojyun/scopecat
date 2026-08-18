@@ -19,7 +19,6 @@ from scopecat.automation.calibrations import (
 from scopecat.automation.models import (
     AnalysisPublicationOutputRef,
     ProcedureStepAttempt,
-    ProcedureStepOutputRef,
     RunOutputRef,
 )
 from scopecat.config.changes import (
@@ -36,11 +35,13 @@ from scopecat.config.registry import service as config_registry_service
 from scopecat.config.registry.records import (
     CalibrationCohortMergeContribution,
     ConfigActivationOperation,
+    ConfigCompositionEvidenceStepRef,
     ConfigPublishOperation,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
     CrossRunCandidateAcceptance,
     ResolvedCalibrationCohortMergeContribution,
+    ResolvedVerifiedParameterProposalProofV1,
 )
 from scopecat.config.registry.service import (
     publish_instrument_inventory_migration_revision,
@@ -67,8 +68,6 @@ from scopecat.daemon.wire import (
     ConfigEntryActivationCommand,
     ConfigPublishCommand,
     ConfigPublishReceipt,
-    ConfigUndoCommand,
-    ConfigUndoReceipt,
     DirectConfigRevisionSource,
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
@@ -81,9 +80,16 @@ from scopecat.kernel.errors import (
     NotFound,
 )
 from scopecat.project_state import ProjectStateServices
-from scopecat.records.analysis import ProjectAnalysisSubject, RunAnalysisSubject
+from scopecat.records.analysis import (
+    ProjectAnalysisDecisionReference,
+    ProjectAnalysisSubject,
+)
 from scopecat.records.config import config_content_hash
-from scopecat.records.run import ConfigRegistryRunConfigSource
+from scopecat.records.run import (
+    AnalysisCandidateRunConfigSource,
+    ConfigRegistryRunConfigSource,
+    RunSnapshot,
+)
 
 from scopecat_server.storage.sqlite.automation import (
     AutomationNotFound,
@@ -501,8 +507,9 @@ class ConfigService:
         resolved: list[ResolvedCalibrationCohortMergeContribution] = []
         for member in members:
             contribution = contributions[member.spec.member_id]
+            evidence_ref = contribution.proof.evidence_step
             if (
-                contribution.procedure_run_id != member.procedure_run_id
+                evidence_ref.procedure_run_id != member.procedure_run_id
                 or member.spec.definition.success_policy != "published_result"
             ):
                 raise BackendConflict(
@@ -513,19 +520,11 @@ class ConfigService:
                     connection,
                     member.procedure_run_id,
                 )
-                attempts = tuple(
-                    self._automation.read_step_attempt_in_transaction(
-                        connection,
-                        member.procedure_run_id,
-                        step.step_key,
-                        step.attempt,
-                    )
-                    for step in (
-                        contribution.baseline_step,
-                        contribution.fit_step,
-                        contribution.candidate_step,
-                        contribution.verification_step,
-                    )
+                evidence_step = self._automation.read_step_attempt_in_transaction(
+                    connection,
+                    evidence_ref.procedure_run_id,
+                    evidence_ref.step_key,
+                    evidence_ref.attempt,
                 )
             except AutomationNotFound as error:
                 raise BackendConflict(
@@ -535,82 +534,88 @@ class ConfigService:
                 parent.state != "closed"
                 or parent.closure is None
                 or parent.closure.status != "succeeded"
+                or parent.request_key != member.request_key
+                or parent.definition != member.spec.procedure
+                or parent.intent != member.spec.intent
             ):
                 raise BackendConflict(
                     "calibration merge member procedure must be closed succeeded"
                 )
-            baseline_step, fit_step, candidate_step, verification_step = attempts
-            baseline_output, fit_output, candidate_output, verification_output = (
-                _validate_calibration_step_graph(
-                    baseline_step,
-                    fit_step,
-                    candidate_step,
-                    verification_step,
-                )
+            _, evidence_step_run_ids = _validate_calibration_evidence_step(
+                evidence_step,
+                evidence_ref,
+                contribution.proof.decision,
             )
-            if (
-                fit_output.subject != RunAnalysisSubject(run_id=baseline_output.run_id)
-                or verification_output.subject != ProjectAnalysisSubject()
-                or verification_output.analysis_record_id
-                != contribution.decision.analysis_record_id
-            ):
+            analysis_run_ids = self._analyses.calibration_merge_verification_run_ids(
+                contribution.proof.decision
+            )
+            if set(analysis_run_ids) != set(evidence_step_run_ids):
                 raise BackendConflict(
-                    "calibration merge analysis outputs do not match their proof"
+                    "calibration merge evidence step and project analysis inputs "
+                    "do not match"
                 )
             try:
-                baseline_run = self._runs.read_snapshot_in_transaction(
-                    connection,
-                    baseline_output.run_id,
+                evidence_runs = (
+                    self._runs.read_snapshot_in_transaction(
+                        connection,
+                        analysis_run_ids[0],
+                    ),
+                    self._runs.read_snapshot_in_transaction(
+                        connection,
+                        analysis_run_ids[1],
+                    ),
                 )
-                candidate_run = self._runs.read_snapshot_in_transaction(
-                    connection,
-                    candidate_output.run_id,
+                baseline_run, candidate_run = _resolve_calibration_evidence_runs(
+                    evidence_runs,
+                    base,
+                )
+                candidate_source = candidate_run.config_source
+                assert isinstance(
+                    candidate_source,
+                    AnalysisCandidateRunConfigSource,
                 )
                 proposal = load_parameter_change_proposal(
-                    run_id=baseline_output.run_id,
-                    selector=contribution.proposal_id,
+                    run_id=baseline_run.run_id,
+                    selector=candidate_source.proposal_id,
                     services=self._services,
                 )
             except NotFound as error:
                 raise BackendConflict(
                     "calibration merge run or proposal proof was not found"
                 ) from error
-            baseline_source = baseline_run.config_source
             if (
                 baseline_run.outcome is None
                 or baseline_run.outcome.result != "succeeded"
                 or candidate_run.outcome is None
                 or candidate_run.outcome.result != "succeeded"
-                or not isinstance(baseline_source, ConfigRegistryRunConfigSource)
-                or not _matches_calibration_base(baseline_source, base)
-                or proposal.id != contribution.proposal_id
+                or candidate_source.source_run_id != baseline_run.run_id
+                or candidate_source.base_config_content_hash != base.content_hash
+                or proposal.id != candidate_source.proposal_id
                 or proposal.source_run_id != baseline_run.run_id
-                or proposal.analysis_record_id != fit_output.analysis_record_id
+                or proposal.analysis_record_id != candidate_source.analysis_record_id
                 or proposal.base_config_content_hash != base.content_hash
             ):
                 raise BackendConflict(
                     "calibration merge proposal does not match its exact baseline"
                 )
             self._analyses.validate_calibration_merge_verification(
-                contribution.decision,
+                contribution.proof.decision,
                 source_run_id=baseline_run.run_id,
-                fit_analysis_record_id=fit_output.analysis_record_id,
+                fit_analysis_record_id=candidate_source.analysis_record_id,
                 proposal_id=proposal.id,
                 candidate_run_id=candidate_run.run_id,
                 base_config_content_hash=base.content_hash,
             )
             resolved_contribution = ResolvedCalibrationCohortMergeContribution(
                 member_id=member.spec.member_id,
-                procedure_run_id=member.procedure_run_id,
-                baseline_step=contribution.baseline_step,
-                baseline_run_id=baseline_run.run_id,
-                fit_step=contribution.fit_step,
-                fit_analysis_record_id=fit_output.analysis_record_id,
-                candidate_step=contribution.candidate_step,
-                candidate_run_id=candidate_run.run_id,
-                verification_step=contribution.verification_step,
-                proposal_id=proposal.id,
-                decision=contribution.decision,
+                proof=ResolvedVerifiedParameterProposalProofV1(
+                    evidence_step=evidence_ref,
+                    baseline_run_id=baseline_run.run_id,
+                    fit_analysis_record_id=candidate_source.analysis_record_id,
+                    proposal_id=proposal.id,
+                    candidate_run_id=candidate_run.run_id,
+                    decision=contribution.proof.decision,
+                ),
                 result_input_fingerprint=contribution.result_input_fingerprint,
             )
             approval = prepare_parameter_change_approval(
@@ -681,10 +686,10 @@ class ConfigService:
             self._control.append_event_in_transaction(
                 connection,
                 DurableEventInput(
-                    run_id=proof.resolved.baseline_run_id,
+                    run_id=proof.resolved.proof.baseline_run_id,
                     kind="parameter_proposal_approved",
                     payload={
-                        "proposal_id": proof.resolved.proposal_id,
+                        "proposal_id": proof.resolved.proof.proposal_id,
                         "actor": actor,
                     },
                     occurred_at=proof.approval.approval.approved_at,
@@ -887,43 +892,6 @@ class ConfigService:
                 )
             return receipt
 
-    def undo_config(
-        self,
-        command: ConfigUndoCommand,
-    ) -> ConfigUndoReceipt:
-        with self._mutation_lock, self._config_errors():
-            with self._config_transaction() as transaction:
-                connection, services = transaction
-                result = config_registry_service.undo_config_registry(
-                    unit_of_work=services.config_registry,
-                    actor=command.actor,
-                    expected_generation=command.expected_generation,
-                    note=command.note,
-                )
-                activation = result.activation
-                assert activation is not None
-                if result.activated:
-                    self._control.append_event_in_transaction(
-                        connection,
-                        DurableEventInput(
-                            kind="config_undone",
-                            payload={
-                                "entry_id": activation.entry_id,
-                                "generation": activation.generation,
-                            },
-                            occurred_at=activation.recorded_at,
-                        ),
-                    )
-                receipt = ConfigUndoReceipt(
-                    activation=activation,
-                )
-                self._calibration_cohorts.supersede_stale_publications_in_transaction(
-                    connection,
-                    active_generation=activation.generation,
-                    at=activation.recorded_at,
-                )
-            return receipt
-
     def _append_inventory_migration_events(
         self,
         connection: sqlite3.Connection,
@@ -1058,54 +1026,62 @@ def _config_revision(
     )
 
 
-def _validate_calibration_step_graph(
-    baseline: ProcedureStepAttempt,
-    fit: ProcedureStepAttempt,
-    candidate: ProcedureStepAttempt,
-    verification: ProcedureStepAttempt,
-) -> tuple[
-    RunOutputRef,
-    AnalysisPublicationOutputRef,
-    RunOutputRef,
-    AnalysisPublicationOutputRef,
-]:
-    if any(
-        attempt.state != "succeeded" or attempt.output is None
-        for attempt in (baseline, fit, candidate, verification)
-    ):
-        raise BackendConflict(
-            "calibration merge contribution requires four successful step attempts"
-        )
-    baseline_output = baseline.output
-    fit_output = fit.output
-    candidate_output = candidate.output
-    verification_output = verification.output
+def _validate_calibration_evidence_step(
+    attempt: ProcedureStepAttempt,
+    reference: ConfigCompositionEvidenceStepRef,
+    decision: ProjectAnalysisDecisionReference,
+) -> tuple[AnalysisPublicationOutputRef, tuple[str, str]]:
+    output = attempt.output
     if (
-        not isinstance(baseline_output, RunOutputRef)
-        or not isinstance(fit_output, AnalysisPublicationOutputRef)
-        or not isinstance(candidate_output, RunOutputRef)
-        or not isinstance(verification_output, AnalysisPublicationOutputRef)
-        or baseline.inputs
-        or not _same_step_inputs(fit.inputs, (baseline_output,))
-        or not _same_step_inputs(candidate.inputs, (fit_output,))
-        or not _same_step_inputs(
-            verification.inputs,
-            (baseline_output, candidate_output),
-        )
+        attempt.procedure_run_id != reference.procedure_run_id
+        or attempt.step_key != reference.step_key
+        or attempt.attempt != reference.attempt
+        or attempt.state != "succeeded"
+        or output is None
     ):
         raise BackendConflict(
-            "calibration merge contribution step input/output graph is inconsistent"
+            "calibration merge contribution requires a successful evidence step"
         )
-    return baseline_output, fit_output, candidate_output, verification_output
+    if (
+        attempt.operation != "analysis"
+        or not isinstance(output, AnalysisPublicationOutputRef)
+        or output.subject != ProjectAnalysisSubject()
+        or output.analysis_record_id != decision.analysis_record_id
+    ):
+        raise BackendConflict(
+            "calibration merge evidence step must publish its exact project decision"
+        )
+    run_ids = tuple(
+        item.run_id for item in attempt.inputs if isinstance(item, RunOutputRef)
+    )
+    if len(attempt.inputs) != 2 or len(run_ids) != 2 or len(set(run_ids)) != 2:
+        raise BackendConflict(
+            "calibration merge evidence step must reference two distinct runs"
+        )
+    return output, run_ids
 
 
-def _same_step_inputs(
-    actual: tuple[ProcedureStepOutputRef, ...],
-    expected: tuple[ProcedureStepOutputRef, ...],
-) -> bool:
-    return len(actual) == len(expected) and {
-        item.model_dump_json() for item in actual
-    } == {item.model_dump_json() for item in expected}
+def _resolve_calibration_evidence_runs(
+    runs: tuple[RunSnapshot, RunSnapshot],
+    base: CalibrationConfigSourceRef,
+) -> tuple[RunSnapshot, RunSnapshot]:
+    baseline_runs = tuple(
+        run
+        for run in runs
+        if isinstance(run.config_source, ConfigRegistryRunConfigSource)
+        and _matches_calibration_base(run.config_source, base)
+    )
+    candidate_runs = tuple(
+        run
+        for run in runs
+        if isinstance(run.config_source, AnalysisCandidateRunConfigSource)
+    )
+    if len(baseline_runs) != 1 or len(candidate_runs) != 1:
+        raise BackendConflict(
+            "calibration merge verification must uniquely identify its exact "
+            "baseline and candidate runs"
+        )
+    return baseline_runs[0], candidate_runs[0]
 
 
 def _matches_calibration_base(

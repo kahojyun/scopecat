@@ -20,7 +20,6 @@ from scopecat.api.calibration_policy import (
     CalibrationPublicationPolicyRegistry,
 )
 from scopecat.api.calibration_publication import (
-    CalibrationCohortMergeSteps,
     CalibrationCohortPublicationPlan,
     CalibrationPublicationDriftError,
     CalibrationPublicationOutcomeUnknown,
@@ -120,8 +119,7 @@ class CalibrationPublicationProcedureView:
         *,
         cohort: CalibrationCohort,
         member: CalibrationCohortMember,
-        steps: CalibrationCohortMergeSteps,
-        proposal_id: str,
+        evidence_step_key: str,
         decision_output_id: str,
         result_input_fingerprint: Sha256ContentHash,
         owner: LabProcedureOperations,
@@ -137,8 +135,7 @@ class CalibrationPublicationProcedureView:
             cohort=cohort,
             member=member,
             procedure=self._handle,
-            steps=steps,
-            proposal_id=proposal_id,
+            evidence_step_key=evidence_step_key,
             decision_output_id=decision_output_id,
             result_input_fingerprint=result_input_fingerprint,
             session=session,
@@ -219,8 +216,7 @@ class CalibrationPublicationPlanningContext:
         cohort: CalibrationCohort,
         member: CalibrationCohortMember,
         procedure: CalibrationPublicationProcedureView,
-        steps: CalibrationCohortMergeSteps,
-        proposal_id: str,
+        evidence_step_key: str,
         decision_output_id: str,
         result_input_fingerprint: Sha256ContentHash,
     ) -> CalibrationCohortMergeContribution:
@@ -229,8 +225,7 @@ class CalibrationPublicationPlanningContext:
         return procedure.derive_merge_contribution(
             cohort=cohort,
             member=member,
-            steps=steps,
-            proposal_id=proposal_id,
+            evidence_step_key=evidence_step_key,
             decision_output_id=decision_output_id,
             result_input_fingerprint=result_input_fingerprint,
             owner=self._procedures,
@@ -264,10 +259,31 @@ class CalibrationPublicationPlanningContext:
         *,
         actor: str,
         note: str = "",
-        expected_finalization_revision: int,
+        expected_finalization_revision: int | None = None,
     ) -> CalibrationCohortPublicationPlan:
         """Freeze deterministic publication identities without mutating config."""
 
+        if (
+            source.automatic_publication is not None
+            and expected_finalization_revision is None
+        ):
+            finalization = self._client.get_calibration_publication(
+                source.cohort_id
+            ).finalization
+            if (
+                finalization.cohort_id != source.cohort_id
+                or finalization.spec_hash != source.spec_hash
+                or finalization.policy != source.automatic_publication
+                or finalization.base_config_source.entry_id != source.base_entry_id
+                or finalization.base_config_source.content_hash
+                != source.base_content_hash
+                or finalization.base_config_source.registry_generation
+                != source.base_generation
+            ):
+                raise ValueError(
+                    "automatic publication finalization does not match merge source"
+                )
+            expected_finalization_revision = finalization.revision
         return CalibrationCohortPublicationPlan.create(
             source,
             actor=actor,
@@ -909,7 +925,8 @@ def _validate_policy_plan(
         or source.base_generation != base.registry_generation
         or contributions.keys() != members.keys()
         or any(
-            contributions[member_id].procedure_run_id != member.procedure_run_id
+            contributions[member_id].proof.evidence_step.procedure_run_id
+            != member.procedure_run_id
             for member_id, member in members.items()
         )
     ):

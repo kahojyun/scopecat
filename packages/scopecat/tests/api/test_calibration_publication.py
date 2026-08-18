@@ -10,7 +10,6 @@ import pytest
 from pydantic import ValidationError
 
 from scopecat.api.calibration_publication import (
-    CalibrationCohortMergeSteps,
     CalibrationCohortPublicationPlan,
     CalibrationPublicationDriftError,
     CalibrationPublicationOutcomeUnknown,
@@ -57,12 +56,14 @@ from scopecat.automation.wire import ProcedureStepAttemptPage
 from scopecat.config.registry.records import (
     CalibrationCohortMergeContribution,
     CalibrationCohortMergeRegistrySource,
+    ConfigCompositionEvidenceStepRef,
     ConfigCompositionPolicyRef,
-    ConfigCompositionStepRef,
     ConfigPublishOperation,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
     ResolvedCalibrationCohortMergeContribution,
+    ResolvedVerifiedParameterProposalProofV1,
+    VerifiedParameterProposalProofV1,
 )
 from scopecat.daemon.client import (
     DaemonClient,
@@ -239,42 +240,35 @@ def test_automatic_plan_revision_fence_does_not_change_identity() -> None:
         )
 
 
-def test_four_step_helper_freezes_exact_structural_evidence() -> None:
+def test_evidence_helper_freezes_one_exact_verification_checkpoint() -> None:
     cohort, page = _cohort_and_members()
     member = page.items[0]
-    procedure, session, proposal = _four_step_fixture(member, cohort)
+    procedure, session, _ = _evidence_fixture(member, cohort)
 
     contribution = build_calibration_cohort_merge_contribution(
         cohort=cohort,
         member=member,
         procedure=procedure,
-        steps=CalibrationCohortMergeSteps(
-            baseline="baseline",
-            fit="fit",
-            candidate="candidate",
-            verification="verification",
-        ),
-        proposal_id=proposal.id,
+        evidence_step_key="verification",
         decision_output_id="decision",
         result_input_fingerprint=_RESULT_HASH,
         session=session,
     )
 
     assert contribution.member_id == member.spec.member_id
-    assert contribution.procedure_run_id == member.procedure_run_id
-    assert contribution.proposal_id == proposal.id
-    assert contribution.baseline_step == ConfigCompositionStepRef(
-        step_key="baseline",
+    assert contribution.proof.evidence_step == ConfigCompositionEvidenceStepRef(
+        procedure_run_id=member.procedure_run_id,
+        step_key="verification",
         attempt=1,
     )
-    assert contribution.decision.analysis_record_id == "verification-analysis-q0"
-    assert contribution.decision.output_id == "decision"
+    assert contribution.proof.decision.analysis_record_id == "verification-analysis-q0"
+    assert contribution.proof.decision.output_id == "decision"
 
 
-def test_four_step_helper_rejects_candidate_lineage_drift() -> None:
+def test_evidence_helper_rejects_candidate_lineage_drift() -> None:
     cohort, page = _cohort_and_members()
     member = page.items[0]
-    procedure, session, proposal = _four_step_fixture(member, cohort)
+    procedure, session, _ = _evidence_fixture(member, cohort)
     candidate = session.runs["candidate-run-q0"]
     snapshot = candidate.snapshot
     assert isinstance(snapshot.config_source, AnalysisCandidateRunConfigSource)
@@ -286,18 +280,12 @@ def test_four_step_helper_rejects_candidate_lineage_drift() -> None:
         }
     )
 
-    with pytest.raises(ValueError, match="exact fit proposal"):
+    with pytest.raises(ValueError, match="does not own proposal"):
         build_calibration_cohort_merge_contribution(
             cohort=cohort,
             member=member,
             procedure=procedure,
-            steps=CalibrationCohortMergeSteps(
-                baseline="baseline",
-                fit="fit",
-                candidate="candidate",
-                verification="verification",
-            ),
-            proposal_id=proposal.id,
+            evidence_step_key="verification",
             decision_output_id="decision",
             result_input_fingerprint=_RESULT_HASH,
             session=session,
@@ -521,20 +509,18 @@ def _contribution(
     target_id = member.spec.target.id
     return CalibrationCohortMergeContribution(
         member_id=member.spec.member_id,
-        procedure_run_id=member.procedure_run_id,
-        baseline_step=ConfigCompositionStepRef(step_key="baseline", attempt=1),
-        fit_step=ConfigCompositionStepRef(step_key="fit", attempt=1),
-        candidate_step=ConfigCompositionStepRef(step_key="candidate", attempt=1),
-        verification_step=ConfigCompositionStepRef(
-            step_key="verification",
-            attempt=1,
-        ),
-        proposal_id=f"proposal-{target_id}",
-        decision=ProjectAnalysisDecisionReference(
-            analysis_record_id=f"verification-analysis-{target_id}",
-            output_id="decision",
-            schema_id="tests.acceptance.v1",
-            schema_hash=_DECISION_HASH,
+        proof=VerifiedParameterProposalProofV1(
+            evidence_step=ConfigCompositionEvidenceStepRef(
+                procedure_run_id=member.procedure_run_id,
+                step_key="verification",
+                attempt=1,
+            ),
+            decision=ProjectAnalysisDecisionReference(
+                analysis_record_id=f"verification-analysis-{target_id}",
+                output_id="decision",
+                schema_id="tests.acceptance.v1",
+                schema_hash=_DECISION_HASH,
+            ),
         ),
         result_input_fingerprint=f"sha256:{(str(int(target_id[-1]) + 5)) * 64}",
     )
@@ -685,16 +671,14 @@ def _resolved_contribution(
     target_id = contribution.member_id.removeprefix("member-")
     return ResolvedCalibrationCohortMergeContribution(
         member_id=contribution.member_id,
-        procedure_run_id=contribution.procedure_run_id,
-        baseline_step=contribution.baseline_step,
-        baseline_run_id=f"baseline-run-{target_id}",
-        fit_step=contribution.fit_step,
-        fit_analysis_record_id=f"fit-analysis-{target_id}",
-        candidate_step=contribution.candidate_step,
-        candidate_run_id=f"candidate-run-{target_id}",
-        verification_step=contribution.verification_step,
-        proposal_id=contribution.proposal_id,
-        decision=contribution.decision,
+        proof=ResolvedVerifiedParameterProposalProofV1(
+            evidence_step=contribution.proof.evidence_step,
+            baseline_run_id=f"baseline-run-{target_id}",
+            fit_analysis_record_id=f"fit-analysis-{target_id}",
+            proposal_id=f"proposal-{target_id}",
+            candidate_run_id=f"candidate-run-{target_id}",
+            decision=contribution.proof.decision,
+        ),
         result_input_fingerprint=contribution.result_input_fingerprint,
     )
 
@@ -766,7 +750,7 @@ class _FakePublicationSession:
         return cast("PublishedAnalysis", cast("object", self.project))
 
 
-def _four_step_fixture(
+def _evidence_fixture(
     member: CalibrationCohortMember,
     cohort: CalibrationCohort,
 ) -> tuple[ProcedureHandle, _FakePublicationSession, ParameterChangeProposal]:

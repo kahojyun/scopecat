@@ -101,105 +101,81 @@ class ConfigCompositionPolicyRef(_FrozenRegistryModel):
         return value
 
 
-class ConfigCompositionStepRef(_FrozenRegistryModel):
-    """Exact attempt of one stable step in a contribution procedure."""
+class ConfigCompositionEvidenceStepRef(_FrozenRegistryModel):
+    """Self-contained exact checkpoint in one contribution procedure."""
 
+    procedure_run_id: _NonEmptyText
     step_key: _NonEmptyText
     attempt: int = Field(ge=1)
 
-    @field_validator("step_key")
+    @field_validator("procedure_run_id", "step_key")
     @classmethod
-    def validate_step_key(cls, value: str) -> str:
+    def validate_identity(cls, value: str) -> str:
         if not value.strip():
-            raise ValueError("config composition step key must be non-empty")
+            raise ValueError("config composition evidence identity must be non-empty")
+        return value
+
+
+class VerifiedParameterProposalProofV1(_FrozenRegistryModel):
+    """One exact project decision accepting a parameter-proposal candidate."""
+
+    kind: Literal["verified_parameter_proposal_v1"] = "verified_parameter_proposal_v1"
+    evidence_step: ConfigCompositionEvidenceStepRef
+    decision: ProjectAnalysisDecisionReference
+
+
+class ResolvedVerifiedParameterProposalProofV1(_FrozenRegistryModel):
+    """Server-resolved exact lineage behind one accepted proposal proof."""
+
+    kind: Literal["verified_parameter_proposal_v1"] = "verified_parameter_proposal_v1"
+    evidence_step: ConfigCompositionEvidenceStepRef
+    baseline_run_id: _NonEmptyText
+    fit_analysis_record_id: _NonEmptyText
+    proposal_id: _NonEmptyText
+    candidate_run_id: _NonEmptyText
+    decision: ProjectAnalysisDecisionReference
+
+    @field_validator(
+        "baseline_run_id",
+        "fit_analysis_record_id",
+        "proposal_id",
+        "candidate_run_id",
+    )
+    @classmethod
+    def validate_identity(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("resolved parameter proposal proof identity is empty")
         return value
 
 
 class CalibrationCohortMergeContribution(_FrozenRegistryModel):
-    """Exact proof for one individually verified calibration contribution.
-
-    The four step references bind proposal generation and scientific
-    verification inside one procedure. They do not claim that the merged
-    multi-member configuration was jointly verified.
-    """
+    """Exact proof for one individually verified calibration contribution."""
 
     member_id: _NonEmptyText
-    procedure_run_id: _NonEmptyText
-    baseline_step: ConfigCompositionStepRef
-    fit_step: ConfigCompositionStepRef
-    candidate_step: ConfigCompositionStepRef
-    verification_step: ConfigCompositionStepRef
-    proposal_id: _NonEmptyText
-    decision: ProjectAnalysisDecisionReference
+    proof: VerifiedParameterProposalProofV1
     result_input_fingerprint: Sha256ContentHash
 
-    @field_validator("member_id", "procedure_run_id", "proposal_id")
+    @field_validator("member_id")
     @classmethod
     def validate_identity(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("calibration merge contribution identity is empty")
         return value
 
-    @model_validator(mode="after")
-    def validate_step_identities(self) -> CalibrationCohortMergeContribution:
-        steps = (
-            self.baseline_step,
-            self.fit_step,
-            self.candidate_step,
-            self.verification_step,
-        )
-        if len(steps) != len(set(steps)):
-            raise ValueError(
-                "calibration merge contribution step attempts must be distinct"
-            )
-        return self
-
 
 class ResolvedCalibrationCohortMergeContribution(_FrozenRegistryModel):
     """Server-resolved exact outputs behind one wire contribution."""
 
     member_id: _NonEmptyText
-    procedure_run_id: _NonEmptyText
-    baseline_step: ConfigCompositionStepRef
-    baseline_run_id: _NonEmptyText
-    fit_step: ConfigCompositionStepRef
-    fit_analysis_record_id: _NonEmptyText
-    candidate_step: ConfigCompositionStepRef
-    candidate_run_id: _NonEmptyText
-    verification_step: ConfigCompositionStepRef
-    proposal_id: _NonEmptyText
-    decision: ProjectAnalysisDecisionReference
+    proof: ResolvedVerifiedParameterProposalProofV1
     result_input_fingerprint: Sha256ContentHash
 
-    @field_validator(
-        "member_id",
-        "procedure_run_id",
-        "baseline_run_id",
-        "fit_analysis_record_id",
-        "candidate_run_id",
-        "proposal_id",
-    )
+    @field_validator("member_id")
     @classmethod
     def validate_identity(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("resolved calibration contribution identity is empty")
         return value
-
-    @model_validator(mode="after")
-    def validate_step_identities(
-        self,
-    ) -> ResolvedCalibrationCohortMergeContribution:
-        steps = (
-            self.baseline_step,
-            self.fit_step,
-            self.candidate_step,
-            self.verification_step,
-        )
-        if len(steps) != len(set(steps)):
-            raise ValueError(
-                "resolved calibration contribution step attempts must be distinct"
-            )
-        return self
 
 
 def canonical_calibration_merge_contributions(
@@ -212,17 +188,20 @@ def canonical_calibration_merge_contributions(
             contributions,
             key=lambda item: (
                 item.member_id,
-                item.procedure_run_id,
-                item.proposal_id,
+                item.proof.evidence_step.procedure_run_id,
+                item.proof.decision.analysis_record_id,
             ),
         )
     )
     identities = (
         ("member", tuple(item.member_id for item in selected)),
-        ("procedure run", tuple(item.procedure_run_id for item in selected)),
         (
-            "proposal",
-            tuple((item.procedure_run_id, item.proposal_id) for item in selected),
+            "procedure run",
+            tuple(item.proof.evidence_step.procedure_run_id for item in selected),
+        ),
+        (
+            "decision",
+            tuple(item.proof.decision.analysis_record_id for item in selected),
         ),
     )
     for label, values in identities:
@@ -241,19 +220,25 @@ def canonical_resolved_calibration_merge_contributions(
             contributions,
             key=lambda item: (
                 item.member_id,
-                item.procedure_run_id,
-                item.proposal_id,
+                item.proof.evidence_step.procedure_run_id,
+                item.proof.proposal_id,
             ),
         )
     )
     identity_groups: tuple[tuple[str, tuple[object, ...]], ...] = (
         ("member", tuple(item.member_id for item in selected)),
-        ("procedure run", tuple(item.procedure_run_id for item in selected)),
-        ("baseline run", tuple(item.baseline_run_id for item in selected)),
-        ("candidate run", tuple(item.candidate_run_id for item in selected)),
+        (
+            "procedure run",
+            tuple(item.proof.evidence_step.procedure_run_id for item in selected),
+        ),
+        ("baseline run", tuple(item.proof.baseline_run_id for item in selected)),
+        ("candidate run", tuple(item.proof.candidate_run_id for item in selected)),
         (
             "proposal",
-            tuple((item.baseline_run_id, item.proposal_id) for item in selected),
+            tuple(
+                (item.proof.baseline_run_id, item.proof.proposal_id)
+                for item in selected
+            ),
         ),
     )
     for label, values in identity_groups:
@@ -343,7 +328,7 @@ class ConfigRegistryEntry(_FrozenRegistryModel):
 
 class ConfigRegistryActivationRecord(_FrozenRegistryModel):
     generation: int = Field(ge=1)
-    action: Literal["activation", "inventory_migration", "undo"]
+    action: Literal["activation", "inventory_migration"]
     entry_id: str
     entry_content_hash: ConfigContentHash
     previous_entry_id: str | None = None

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Self
 
 import pytest
-from scopecat.application import LabApplication
+from scopecat.application import LabBootstrap
 from scopecat.automation import ProcedureControlError
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.daemon.endpoint import DaemonEndpointRecord
@@ -70,11 +70,11 @@ def test_config_check_resolves_lazy_bootstrap_factory(
         bootstrap_calls += 1
         return config
 
-    application = LabApplication(bootstrap_config=bootstrap_config)
+    bootstrap = LabBootstrap(bootstrap_config=bootstrap_config)
     monkeypatch.setattr(
         Project,
-        "load_application",
-        _application_loader(application),
+        "load_bootstrap",
+        _bootstrap_loader(bootstrap),
     )
 
     assert bootstrap_calls == 0
@@ -93,9 +93,7 @@ def test_config_check_rejects_missing_bootstrap_factory(tmp_path: Path) -> None:
     result = CliRunner().invoke(app, ["config", "check", str(tmp_path)])
 
     assert result.exit_code == 1
-    assert (
-        "error: project application does not define bootstrap_config" in result.output
-    )
+    assert "error: project bootstrap does not define bootstrap_config" in result.output
     assert not (tmp_path / ".scopecat").exists()
 
 
@@ -119,11 +117,11 @@ def test_config_check_reports_invalid_snapshot(
             )
         }
     )
-    application = LabApplication(bootstrap_config=lambda: invalid_config)
+    bootstrap = LabBootstrap(bootstrap_config=lambda: invalid_config)
     monkeypatch.setattr(
         Project,
-        "load_application",
-        _application_loader(application),
+        "load_bootstrap",
+        _bootstrap_loader(bootstrap),
     )
 
     result = CliRunner().invoke(app, ["config", "check", str(tmp_path)])
@@ -143,11 +141,11 @@ def test_config_check_reports_bootstrap_source_loader_failure(
     def bootstrap_config() -> ConfigProfileSnapshot:
         return load_config_snapshot_document(tmp_path / "missing-config.json")
 
-    application = LabApplication(bootstrap_config=bootstrap_config)
+    bootstrap = LabBootstrap(bootstrap_config=bootstrap_config)
     monkeypatch.setattr(
         Project,
-        "load_application",
-        _application_loader(application),
+        "load_bootstrap",
+        _bootstrap_loader(bootstrap),
     )
 
     result = CliRunner().invoke(app, ["config", "check", str(tmp_path)])
@@ -158,9 +156,9 @@ def test_config_check_reports_bootstrap_source_loader_failure(
     assert not (tmp_path / ".scopecat").exists()
 
 
-def test_config_check_reports_application_import_error(tmp_path: Path) -> None:
+def test_config_check_reports_bootstrap_import_error(tmp_path: Path) -> None:
     (tmp_path / "scopecat.toml").write_text(
-        '[lab]\napplication = "missing_cli_application:create"\n',
+        '[lab]\nbootstrap = "missing_cli_bootstrap:create"\n',
         encoding="utf-8",
     )
 
@@ -168,7 +166,7 @@ def test_config_check_reports_application_import_error(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "error:" in result.output
-    assert "No module named 'missing_cli_application'" in result.output
+    assert "No module named 'missing_cli_bootstrap'" in result.output
 
 
 def test_hidden_executor_lease_ttl_option_reaches_start_and_serve(
@@ -487,10 +485,10 @@ def _write_manifest(project: Path) -> None:
     (project / "scopecat.toml").write_text("[lab]\n", encoding="utf-8")
 
 
-def _application_loader(
-    application: LabApplication,
-) -> Callable[[Project], LabApplication]:
-    def load_application(_project: Project) -> LabApplication:
-        return application
+def _bootstrap_loader(
+    bootstrap: LabBootstrap,
+) -> Callable[[Project], LabBootstrap]:
+    def load_bootstrap(_project: Project) -> LabBootstrap:
+        return bootstrap
 
-    return load_application
+    return load_bootstrap

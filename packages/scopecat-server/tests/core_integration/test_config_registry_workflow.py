@@ -42,7 +42,6 @@ from scopecat.config.registry import (
     publish_config_revision,
     publish_instrument_inventory_migration_revision,
     resolve_config_registry_config_source,
-    undo_config_registry,
 )
 from scopecat.kernel.errors import (
     CheckFailed,
@@ -586,23 +585,6 @@ def test_activation_generation_is_append_only_and_rejects_stale_writes(
     assert first_source.registry_generation is None
     assert config_content_hash(resolved_first) == first_source.content_hash
 
-    undo = undo_config_registry(
-        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
-        actor="operator",
-        expected_generation=3,
-    )
-    undo_record = undo.activation
-    assert undo_record is not None
-    assert undo_record.generation == 4
-    assert undo_record.entry_id == second.entry.id
-    assert undo_record.action == "undo"
-    assert [
-        record.generation
-        for record in load_config_registry_activation_history(
-            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
-        )
-    ] == [1, 2, 3, 4]
-
 
 def test_publish_runs_full_config_semantic_validation(tmp_path: Path) -> None:
     config = load_config()
@@ -1017,7 +999,7 @@ def test_inventory_migration_rejects_stale_generation_before_saving(
     ] == ["seed"]
 
 
-def test_ordinary_activation_and_undo_cannot_reverse_inventory_migration(
+def test_ordinary_activation_cannot_reverse_inventory_migration(
     tmp_path: Path,
 ) -> None:
     unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
@@ -1049,17 +1031,7 @@ def test_ordinary_activation_and_undo_cannot_reverse_inventory_migration(
             actor="operator",
             expected_generation=migrated.activation.generation,
         )
-    with pytest.raises(Conflict) as undo_error:
-        undo_config_registry(
-            unit_of_work=unit_of_work,
-            actor="operator",
-            expected_generation=migrated.activation.generation,
-        )
-
     assert activate_error.value.problems[0].code == (
-        "config_registry.instrument_exclusivity_key_changed"
-    )
-    assert undo_error.value.problems[0].code == (
         "config_registry.instrument_exclusivity_key_changed"
     )
     assert current_config_registry_generation(unit_of_work=unit_of_work) == 2

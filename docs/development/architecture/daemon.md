@@ -178,17 +178,21 @@ reachability only; it is not an observation stream or source of run state.
 
 ## Configuration and storage ownership
 
-A project `scopecat.toml` points separately to its version-controlled
-control-plane application and worker backend:
+A project `scopecat.toml` points separately to its lightweight daemon
+bootstrap, full project-worker application, and instrument worker backend:
 
 ```toml
 [lab]
+bootstrap = "my_lab.application:create_bootstrap"
 application = "my_lab.application:create_application"
 instrument_backend = "my_lab.backend:create_backend"
 ```
 
-The application may construct an initial `ConfigProfileSnapshot` in Python. The
-daemon invokes that bootstrap factory only when the registry is empty. Once
+The bootstrap may construct an initial `ConfigProfileSnapshot` in Python. The
+daemon loads only that lightweight composition and invokes its config factory
+only when the registry is empty. Procedure, schedule, calibration, publication,
+and notebook system callbacks belong to the full application loaded by the
+project worker or notebook process, not by the daemon. Once
 bootstrapped, immutable registry entries and their explicit activation
 generations are authoritative. Editing Python source does not mutate an active
 entry; publishing a changed snapshot is an explicit CLI or notebook action.

@@ -159,7 +159,7 @@ def test_application_preserves_prebuilt_procedure_registry() -> None:
     registry = ProcedureRegistry((_example_procedure,))
 
     application = LabApplication(procedures=registry)
-    replaced = replace(application, bootstrap_config=lambda: {"id": "bootstrap"})
+    replaced = replace(application)
 
     assert application.procedures is registry
     assert replaced.procedures is registry
@@ -172,7 +172,7 @@ def test_application_owns_validated_interval_schedule_registry() -> None:
         procedures=(_example_procedure,),
         procedure_schedules=schedules,
     )
-    replaced = replace(application, bootstrap_config=lambda: {"id": "bootstrap"})
+    replaced = replace(application)
 
     assert application.procedure_schedules is schedules
     assert replaced.procedure_schedules is schedules
@@ -199,7 +199,7 @@ def test_application_owns_validated_calibration_registry() -> None:
         procedures=(_example_procedure,),
         calibrations=calibrations,
     )
-    replaced = replace(application, bootstrap_config=lambda: {"id": "bootstrap"})
+    replaced = replace(application)
 
     assert application.calibrations is calibrations
     assert replaced.calibrations is calibrations
@@ -229,7 +229,7 @@ def test_application_owns_historical_calibration_publication_registry() -> None:
         calibrations=(_PUBLISHED_CALIBRATION,),
         calibration_publications=publications,
     )
-    replaced = replace(application, bootstrap_config=lambda: {"id": "bootstrap"})
+    replaced = replace(application)
 
     assert application.calibration_publications is publications
     assert replaced.calibration_publications is publications

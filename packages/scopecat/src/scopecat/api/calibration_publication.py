@@ -21,6 +21,7 @@ from scopecat.automation.calibration_wire import CalibrationCohortMemberPage
 from scopecat.automation.calibrations import (
     CalibrationCohort,
     CalibrationCohortMember,
+    CalibrationConfigSourceRef,
 )
 from scopecat.automation.models import (
     AnalysisPublicationOutputRef,
@@ -31,9 +32,10 @@ from scopecat.automation.models import (
 from scopecat.config.registry.records import (
     CalibrationCohortMergeContribution,
     CalibrationCohortMergeRegistrySource,
+    ConfigCompositionEvidenceStepRef,
     ConfigCompositionPolicyRef,
-    ConfigCompositionStepRef,
     ResolvedCalibrationCohortMergeContribution,
+    VerifiedParameterProposalProofV1,
 )
 from scopecat.daemon.client import (
     DaemonNotFoundError,
@@ -69,29 +71,6 @@ _OPERATION_ID_PROBE = "calibration-cohort-publish:identity-probe"
 
 class _PublicationModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
-
-
-class CalibrationCohortMergeSteps(_PublicationModel):
-    """Stable step keys that expose one generic four-step calibration proof."""
-
-    baseline: _NonEmptyText
-    fit: _NonEmptyText
-    candidate: _NonEmptyText
-    verification: _NonEmptyText
-
-    @field_validator("baseline", "fit", "candidate", "verification")
-    @classmethod
-    def validate_step_key(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("calibration merge step key must be non-empty")
-        return value
-
-    @model_validator(mode="after")
-    def validate_unique_steps(self) -> CalibrationCohortMergeSteps:
-        selected = (self.baseline, self.fit, self.candidate, self.verification)
-        if len(selected) != len(set(selected)):
-            raise ValueError("calibration merge step keys must be unique")
-        return self
 
 
 class CalibrationCohortPublicationPlan(_PublicationModel):
@@ -226,7 +205,7 @@ class _CalibrationPublicationOperations(Protocol):
 
 
 class CalibrationPublicationReadSession(Protocol):
-    """Narrow exact-read surface needed to resolve four-step evidence."""
+    """Narrow exact-read surface needed to resolve verification evidence."""
 
     def get_run(self, run: str) -> RunHandle: ...
 
@@ -300,7 +279,10 @@ def calibration_cohort_merge_revision_source(
             raise ValueError(
                 "calibration merge members must require a published result"
             )
-        if contributions_by_id[member_id].procedure_run_id != member.procedure_run_id:
+        if (
+            contributions_by_id[member_id].proof.evidence_step.procedure_run_id
+            != member.procedure_run_id
+        ):
             raise ValueError(
                 "calibration merge contribution must match its exact member run"
             )
@@ -325,106 +307,96 @@ def build_calibration_cohort_merge_contribution(
     cohort: CalibrationCohort,
     member: CalibrationCohortMember,
     procedure: ProcedureHandle,
-    steps: CalibrationCohortMergeSteps,
-    proposal_id: str,
+    evidence_step_key: str,
     decision_output_id: str,
     result_input_fingerprint: Sha256ContentHash,
     session: CalibrationPublicationReadSession,
 ) -> CalibrationCohortMergeContribution:
-    """Freeze one successful four-step procedure into structural merge evidence."""
+    """Freeze one exact candidate-verification checkpoint into merge evidence."""
 
     _validate_member_procedure(cohort, member, procedure)
-    attempts = tuple(
-        _successful_step(procedure, step_key)
-        for step_key in (
-            steps.baseline,
-            steps.fit,
-            steps.candidate,
-            steps.verification,
+    evidence_attempt = _successful_step(procedure, evidence_step_key)
+    evidence = _require_output(
+        evidence_attempt,
+        AnalysisPublicationOutputRef,
+        operation="analysis",
+    )
+    if not isinstance(evidence.subject, ProjectAnalysisSubject):
+        raise ValueError("calibration evidence must be a project analysis")
+    if len(evidence_attempt.inputs) != 2 or not all(
+        isinstance(item, RunOutputRef) for item in evidence_attempt.inputs
+    ):
+        raise ValueError("calibration evidence must reference exactly two runs")
+    evidence_run_ids = tuple(
+        item.run_id
+        for item in evidence_attempt.inputs
+        if isinstance(item, RunOutputRef)
+    )
+
+    evidence_analysis = session.published_analysis(evidence.analysis_record_id)
+    _require_exact_analysis(evidence_analysis, evidence)
+    analysis_run_ids = tuple(
+        item.run_id
+        for item in evidence_analysis.inputs
+        if isinstance(item, MeasurementAnalysisRecordInput)
+    )
+    if (
+        len(evidence_analysis.inputs) != 2
+        or len(analysis_run_ids) != 2
+        or set(analysis_run_ids) != set(evidence_run_ids)
+    ):
+        raise ValueError(
+            "calibration evidence analysis must consume its exact two step inputs"
         )
-    )
-    baseline_attempt, fit_attempt, candidate_attempt, verification_attempt = attempts
-    baseline = _require_output(baseline_attempt, RunOutputRef, operation="run")
-    fit = _require_output(
-        fit_attempt,
-        AnalysisPublicationOutputRef,
-        operation="analysis",
-    )
-    candidate = _require_output(candidate_attempt, RunOutputRef, operation="run")
-    verification = _require_output(
-        verification_attempt,
-        AnalysisPublicationOutputRef,
-        operation="analysis",
-    )
-    if baseline_attempt.inputs:
-        raise ValueError("calibration baseline step must not have durable inputs")
-    _require_exact_inputs(fit_attempt, (baseline,))
-    _require_exact_inputs(candidate_attempt, (fit,))
-    _require_exact_inputs(verification_attempt, (baseline, candidate))
 
-    if fit.subject != RunAnalysisSubject(run_id=baseline.run_id):
-        raise ValueError("calibration fit must be owned by its exact baseline run")
-    if not isinstance(verification.subject, ProjectAnalysisSubject):
-        raise ValueError("calibration verification must be a project analysis")
-
-    baseline_handle = session.get_run(baseline.run_id)
+    run_handles = tuple(session.get_run(run_id) for run_id in evidence_run_ids)
+    cohort_base = cohort.spec.config_source
+    baseline_handles = tuple(
+        handle for handle in run_handles if _matches_cohort_base(handle, cohort_base)
+    )
+    candidate_handles = tuple(
+        handle
+        for handle in run_handles
+        if isinstance(handle.snapshot.config_source, AnalysisCandidateRunConfigSource)
+    )
+    if len(baseline_handles) != 1 or len(candidate_handles) != 1:
+        raise ValueError(
+            "calibration evidence must uniquely identify one baseline and candidate"
+        )
+    baseline_handle = baseline_handles[0]
+    candidate_handle = candidate_handles[0]
     baseline_snapshot = baseline_handle.snapshot
+    candidate_snapshot = candidate_handle.snapshot
+    candidate_source = candidate_snapshot.config_source
+    assert isinstance(candidate_source, AnalysisCandidateRunConfigSource)
+
     if (
         baseline_snapshot.outcome is None
         or baseline_snapshot.outcome.result != "succeeded"
-    ):
-        raise ValueError("calibration baseline run must have succeeded")
-    base_source = baseline_snapshot.config_source
-    cohort_base = cohort.spec.config_source
-    if (
-        not isinstance(base_source, ConfigRegistryRunConfigSource)
-        or base_source.selector != cohort_base.selector
-        or base_source.entry_id != cohort_base.entry_id
-        or base_source.config_ref != cohort_base.config_ref
-        or base_source.content_hash != cohort_base.content_hash
-        or base_source.registry_generation != cohort_base.registry_generation
-    ):
-        raise ValueError("calibration baseline run must use the exact cohort base")
-
-    fit_analysis = baseline_handle.published_analysis(fit.analysis_record_id)
-    _require_exact_analysis(fit_analysis, fit)
-    proposal = _parameter_proposal(fit_analysis, proposal_id)
-    if (
-        proposal.source_run_id != baseline.run_id
-        or proposal.analysis_record_id != fit.analysis_record_id
-        or proposal.base_config_content_hash != cohort_base.content_hash
-    ):
-        raise ValueError("calibration proposal does not match its exact fit and base")
-
-    candidate_snapshot = session.get_run(candidate.run_id).snapshot
-    candidate_source = candidate_snapshot.config_source
-    if (
-        candidate_snapshot.outcome is None
+        or candidate_snapshot.outcome is None
         or candidate_snapshot.outcome.result != "succeeded"
-        or not isinstance(candidate_source, AnalysisCandidateRunConfigSource)
-        or candidate_source.source_run_id != baseline.run_id
-        or candidate_source.analysis_record_id != fit.analysis_record_id
-        or candidate_source.proposal_id != proposal.id
+        or candidate_source.source_run_id != baseline_snapshot.run_id
         or candidate_source.base_config_content_hash != cohort_base.content_hash
+    ):
+        raise ValueError("calibration evidence run lineage does not match its base")
+
+    fit_analysis = baseline_handle.published_analysis(
+        candidate_source.analysis_record_id
+    )
+    if fit_analysis.view.analysis.subject != RunAnalysisSubject(
+        run_id=baseline_snapshot.run_id
+    ):
+        raise ValueError("calibration fit must be owned by its exact baseline run")
+    proposal = _parameter_proposal(fit_analysis, candidate_source.proposal_id)
+    if (
+        proposal.source_run_id != baseline_snapshot.run_id
+        or proposal.analysis_record_id != candidate_source.analysis_record_id
+        or proposal.base_config_content_hash != cohort_base.content_hash
+        or candidate_source.proposal_id != proposal.id
     ):
         raise ValueError("calibration candidate run must use its exact fit proposal")
 
-    verification_analysis = session.published_analysis(verification.analysis_record_id)
-    _require_exact_analysis(verification_analysis, verification)
-    verification_run_ids = tuple(
-        sorted(
-            item.run_id
-            for item in verification_analysis.inputs
-            if isinstance(item, MeasurementAnalysisRecordInput)
-        )
-    )
-    if len(verification_analysis.inputs) != 2 or verification_run_ids != tuple(
-        sorted((baseline.run_id, candidate.run_id))
-    ):
-        raise ValueError(
-            "calibration verification must consume the exact baseline and candidate"
-        )
-    decision = verification_analysis.fact(decision_output_id)
+    decision = evidence_analysis.fact(decision_output_id)
     if (
         not isinstance(decision.value, dict)
         or decision.value.get("accepted") is not True
@@ -433,17 +405,18 @@ def build_calibration_cohort_merge_contribution(
 
     return CalibrationCohortMergeContribution(
         member_id=member.spec.member_id,
-        procedure_run_id=member.procedure_run_id,
-        baseline_step=_step_ref(baseline_attempt),
-        fit_step=_step_ref(fit_attempt),
-        candidate_step=_step_ref(candidate_attempt),
-        verification_step=_step_ref(verification_attempt),
-        proposal_id=proposal.id,
-        decision=ProjectAnalysisDecisionReference(
-            analysis_record_id=verification.analysis_record_id,
-            output_id=decision_output_id,
-            schema_id=decision.schema_id,
-            schema_hash=decision.schema_hash,
+        proof=VerifiedParameterProposalProofV1(
+            evidence_step=ConfigCompositionEvidenceStepRef(
+                procedure_run_id=member.procedure_run_id,
+                step_key=evidence_attempt.step_key,
+                attempt=evidence_attempt.attempt,
+            ),
+            decision=ProjectAnalysisDecisionReference(
+                analysis_record_id=evidence.analysis_record_id,
+                output_id=decision_output_id,
+                schema_id=decision.schema_id,
+                schema_hash=decision.schema_hash,
+            ),
         ),
         result_input_fingerprint=result_input_fingerprint,
     )
@@ -571,18 +544,6 @@ def _require_output[OutputT: ProcedureStepOutputRef](
     return output
 
 
-def _require_exact_inputs(
-    attempt: ProcedureStepAttempt,
-    expected: tuple[ProcedureStepOutputRef, ...],
-) -> None:
-    actual_identities = {item.model_dump_json() for item in attempt.inputs}
-    expected_identities = {item.model_dump_json() for item in expected}
-    if actual_identities != expected_identities or len(attempt.inputs) != len(expected):
-        raise ValueError(
-            f"calibration step {attempt.step_key!r} has the wrong durable inputs"
-        )
-
-
 def _require_exact_analysis(
     published: PublishedAnalysis,
     ref: AnalysisPublicationOutputRef,
@@ -610,10 +571,19 @@ def _parameter_proposal(
         ) from None
 
 
-def _step_ref(attempt: ProcedureStepAttempt) -> ConfigCompositionStepRef:
-    return ConfigCompositionStepRef(
-        step_key=attempt.step_key,
-        attempt=attempt.attempt,
+def _matches_cohort_base(
+    run: RunHandle,
+    base: CalibrationConfigSourceRef,
+) -> bool:
+    snapshot = run.snapshot
+    source = snapshot.config_source
+    return (
+        isinstance(source, ConfigRegistryRunConfigSource)
+        and source.selector == base.selector
+        and source.entry_id == base.entry_id
+        and source.config_ref == base.config_ref
+        and source.content_hash == base.content_hash
+        and source.registry_generation == base.registry_generation
     )
 
 
@@ -693,7 +663,8 @@ def _validate_publication_receipt(
         )
         if (
             success.attempt.cohort_id != source.cohort_id
-            or success.attempt.procedure_run_id != contribution.procedure_run_id
+            or success.attempt.procedure_run_id
+            != contribution.proof.evidence_step.procedure_run_id
             or success.base_config_source.entry_id != source.base_entry_id
             or success.base_config_source.content_hash != source.base_content_hash
             or success.base_config_source.registry_generation != source.base_generation
@@ -758,19 +729,15 @@ def _project_resolved_contribution(
 ) -> CalibrationCohortMergeContribution:
     return CalibrationCohortMergeContribution(
         member_id=contribution.member_id,
-        procedure_run_id=contribution.procedure_run_id,
-        baseline_step=contribution.baseline_step,
-        fit_step=contribution.fit_step,
-        candidate_step=contribution.candidate_step,
-        verification_step=contribution.verification_step,
-        proposal_id=contribution.proposal_id,
-        decision=contribution.decision,
+        proof=VerifiedParameterProposalProofV1(
+            evidence_step=contribution.proof.evidence_step,
+            decision=contribution.proof.decision,
+        ),
         result_input_fingerprint=contribution.result_input_fingerprint,
     )
 
 
 __all__ = [
-    "CalibrationCohortMergeSteps",
     "CalibrationCohortPublicationPlan",
     "CalibrationPublicationDriftError",
     "CalibrationPublicationOutcomeUnknown",

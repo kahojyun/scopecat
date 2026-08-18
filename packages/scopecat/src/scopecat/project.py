@@ -13,14 +13,16 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from scopecat.api.lab import LabClient
+    from scopecat.application.bootstrap import LabBootstrap
     from scopecat.application.lab import LabApplication
     from scopecat.planning.system import ExperimentSystemBuilder
     from scopecat.sdk.instruments import InstrumentBackend
 
+type LabBootstrapFactory = Callable[[Path], LabBootstrap]
 type LabApplicationFactory = Callable[[Path], LabApplication]
 
 _MANIFEST_NAME = "scopecat.toml"
-_LAB_KEYS = frozenset({"application", "instrument_backend"})
+_LAB_KEYS = frozenset({"bootstrap", "application", "instrument_backend"})
 
 
 class ProjectManifestError(ValueError):
@@ -41,8 +43,18 @@ class Project:
 
     root: Path
     manifest: Path
+    bootstrap_spec: str | None
     application_spec: str | None
     instrument_backend_spec: str | None
+
+    def load_bootstrap(self) -> LabBootstrap:
+        """Load the lightweight composition used by the daemon and config CLI."""
+
+        if self.bootstrap_spec is None:
+            from scopecat.application.bootstrap import LabBootstrap
+
+            return LabBootstrap()
+        return load_bootstrap_factory(self.bootstrap_spec, self.root)(self.root)
 
     def load_application(self) -> LabApplication:
         """Load the version-controlled composition declared by this project."""
@@ -115,13 +127,31 @@ def load_project(manifest: str | Path) -> Project:
         fields = ", ".join(sorted(unknown))
         raise ProjectManifestError(f"unknown [lab] field(s): {fields}")
 
+    bootstrap = _optional_text(lab, "bootstrap")
     application = _optional_text(lab, "application")
     instrument_backend = _optional_text(lab, "instrument_backend")
     return Project(
         root=selected.parent,
         manifest=selected,
+        bootstrap_spec=bootstrap,
         application_spec=application,
         instrument_backend_spec=instrument_backend,
+    )
+
+
+def load_bootstrap_factory(
+    spec: str,
+    project_root: str | Path,
+) -> LabBootstrapFactory:
+    """Load the project factory for daemon and config bootstrap inputs."""
+
+    return cast(
+        "LabBootstrapFactory",
+        _load_project_factory(
+            spec,
+            project_root,
+            subject="lab bootstrap",
+        ),
     )
 
 
@@ -295,10 +325,12 @@ def _optional_text(table: dict[str, object], field: str) -> str | None:
 
 __all__ = [
     "LabApplicationFactory",
+    "LabBootstrapFactory",
     "Project",
     "ProjectCodeLoadError",
     "ProjectManifestError",
     "load_application_factory",
+    "load_bootstrap_factory",
     "load_instrument_backend_factory",
     "load_project",
     "open_project",

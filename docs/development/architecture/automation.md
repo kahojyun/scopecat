@@ -109,8 +109,9 @@ configuration entry with generation compare-and-swap and an exact operation
 receipt. Policy remains explicit in the procedure: only the project verification
 fact authorizes DRAG candidate acceptance. The production run remains outside
 the procedure, and final cleanup reactivates the exact starting entry instead of
-calling relative `undo()`. Relative `undo()` is not a replayable compensation
-action.
+calling the interactive `undo()` helper. That helper first resolves history to
+an exact entry and then uses the ordinary idempotent activation operation; the
+relative history lookup itself is not a replayable procedure compensation.
 
 The bounded calibration path uses a second, verify-only DRAG procedure. Each
 cohort member performs the first four steps and closes successfully without
@@ -292,19 +293,22 @@ safely.
 Publication is a project-side operation, not another procedure step or an
 implicit daemon reaction to procedure closure. The explicit caller or registered
 resident policy reopens one exact cohort and its complete member page, then
-supplies one contribution for every member. A contribution names the member and
-procedure run, the exact successful baseline, fit, candidate, and verification
-step attempts, the proposal and accepted project decision, and the semantic
-result-input fingerprint. Only `published_result` members whose parent
+supplies one contribution for every member. A contribution carries a versioned
+`verified_parameter_proposal_v1` proof: one self-contained exact procedure
+checkpoint whose project-analysis output owns the accepted decision. The
+semantic result-input fingerprint remains composition evidence rather than part
+of that scientific proof. Only `published_result` members whose exact parent
 procedures closed successfully are eligible.
 
 The server resolves all evidence before publishing logical state. It checks the
-cohort spec and base source, complete member coverage, the four-step input/output
-reference sets, successful baseline and candidate runs, the fit analysis and its
-proposal record, the candidate run's exact proposal source, and an accepted
-project analysis whose direct inputs are exactly that baseline and candidate.
-The durable registry source records the resolved run and analysis identities, so
-later readers do not have to trust the caller's abbreviated contribution.
+cohort spec and base source, complete member coverage, and that the exact
+evidence step published the referenced project decision. The project analysis
+must have exactly two direct run inputs. From those durable inputs the server
+uniquely identifies the cohort-base baseline and analysis-candidate run, then
+derives the fit analysis and proposal from the candidate source and revalidates
+the complete lineage. The durable registry source records the proof dialect,
+checkpoint, and resolved run, analysis, proposal, and decision identities, so
+later readers do not have to trust caller-supplied derived fields.
 
 All proposals must branch from the cohort's one exact base. The generic
 `common_base_cells_v1` merge combines non-conflicting whole scalar values and

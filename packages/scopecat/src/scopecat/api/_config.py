@@ -18,6 +18,7 @@ from scopecat.config.drafts import ConfigDraft
 from scopecat.config.inventory import InstrumentInventoryChange
 from scopecat.config.registry.records import (
     CandidateAcceptance,
+    ConfigRegistryActivationRecord,
     CrossRunCandidateAcceptance,
     ManualCandidateAcceptance,
 )
@@ -38,8 +39,6 @@ from scopecat.daemon.wire import (
     ConfigEntryActivationCommand,
     ConfigPublishCommand,
     ConfigPublishReceipt,
-    ConfigUndoCommand,
-    ConfigUndoReceipt,
     DirectConfigRevisionSource,
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
@@ -386,15 +385,23 @@ class LabConfigOperations:
     def undo(
         self,
         *,
+        operation_id: str | None = None,
         actor: str | None = None,
         note: str = "",
-    ) -> ConfigUndoReceipt:
-        return self.client.undo_config(
-            ConfigUndoCommand(
-                actor=actor or self.operator,
-                expected_generation=self._generation(),
-                note=note,
-            )
+    ) -> ConfigActivationReceipt:
+        """Reactivate the exact previous distinct entry through the operation ledger.
+
+        Supply ``operation_id`` to reopen an ambiguous result later with
+        :meth:`activation_operation`.
+        """
+
+        active = self.active().activation
+        return self.activate_entry(
+            _previous_distinct_entry_id(self.client, active),
+            operation_id=operation_id or _interactive_activation_operation_id(),
+            expected_generation=active.generation,
+            actor=actor,
+            note=note,
         )
 
     def _generation(self) -> int:
@@ -429,6 +436,28 @@ def _reviewed_draft_command(
 
 def _interactive_publish_operation_id() -> str:
     return f"config-publish:{uuid4().hex}"
+
+
+def _interactive_activation_operation_id() -> str:
+    return f"config-activation:{uuid4().hex}"
+
+
+def _previous_distinct_entry_id(
+    client: DaemonClient,
+    active: ConfigRegistryActivationRecord,
+) -> str:
+    before: int | None = None
+    while True:
+        page = client.config_activation_history(limit=100, before=before)
+        for record in page.items:
+            if (
+                record.generation < active.generation
+                and record.entry_id != active.entry_id
+            ):
+                return record.entry_id
+        if page.next_cursor is None:
+            raise ValueError("config registry has no previous active entry")
+        before = page.next_cursor
 
 
 __all__ = ["LabConfigOperations"]

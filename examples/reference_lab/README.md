@@ -78,10 +78,10 @@ work. The application selects an active binding from the exact DRAG v2
 definition to a fingerprinted automatic-publication policy while retaining it
 as a historical drain capability. The resident worker resolves that same policy
 after restart and calls `prepare_drag_beta_cohort_publication` through a narrow
-read-only facade. The preparation resolves the exact four-step proofs, rejects
-edits outside each target's owned beta cell, previews the common-base cell
-merge, and requires each verified candidate to retain the same semantic inputs
-in the merged result. The generic finalizer then performs one
+read-only facade. The preparation resolves each exact versioned verification
+checkpoint, rejects edits outside each target's owned beta cell, previews the
+common-base cell merge, and requires each verified candidate to retain the same
+semantic inputs in the merged result. The generic finalizer then performs one
 generation-checked activation and records one published freshness anchor per
 contribution before freshness is evaluated in the same worker cycle.
 `publish_verified_drag_beta_cohort` remains the explicit operator/debug path;

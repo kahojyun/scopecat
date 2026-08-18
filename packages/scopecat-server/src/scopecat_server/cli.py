@@ -99,7 +99,7 @@ def config_check(
         typer.Argument(help="Project directory or scopecat.toml."),
     ] = _CURRENT_DIRECTORY,
 ) -> None:
-    """Validate the application's lazy bootstrap configuration source."""
+    """Validate the project's lazy bootstrap configuration source."""
 
     from scopecat.config.resolution import validate_config_profile
     from scopecat.project import open_project
@@ -107,9 +107,9 @@ def config_check(
 
     try:
         selected = open_project(project)
-        bootstrap_config = selected.load_application().bootstrap_config
+        bootstrap_config = selected.load_bootstrap().bootstrap_config
         if bootstrap_config is None:
-            raise ValueError("project application does not define bootstrap_config")
+            raise ValueError("project bootstrap does not define bootstrap_config")
         config = validate_config_profile(bootstrap_config())
     except _project_config_errors() as error:
         _fail(error)

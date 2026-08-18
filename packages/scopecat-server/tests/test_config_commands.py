@@ -10,7 +10,7 @@ from typing import Self, cast
 
 import pytest
 from scopecat.api.lab import LabClient
-from scopecat.application import LabApplication
+from scopecat.application import LabBootstrap
 from scopecat.config.documents import (
     CONFIG_SNAPSHOT_FORMAT_VERSION,
     load_config_snapshot_document,
@@ -54,8 +54,8 @@ def test_source_config_is_freshly_built_and_validated(
 
     monkeypatch.setattr(
         Project,
-        "load_application",
-        _application_loader(LabApplication(bootstrap_config=bootstrap_config)),
+        "load_bootstrap",
+        _bootstrap_loader(LabBootstrap(bootstrap_config=bootstrap_config)),
     )
 
     first = load_source_config(project)
@@ -73,13 +73,13 @@ def test_source_config_rejects_missing_or_invalid_bootstrap(
     project = _project(tmp_path)
     monkeypatch.setattr(
         Project,
-        "load_application",
-        _application_loader(LabApplication()),
+        "load_bootstrap",
+        _bootstrap_loader(LabBootstrap()),
     )
 
     with pytest.raises(
         ValueError,
-        match="project application does not define bootstrap_config",
+        match="project bootstrap does not define bootstrap_config",
     ):
         load_source_config(project)
 
@@ -100,8 +100,8 @@ def test_source_config_rejects_missing_or_invalid_bootstrap(
     )
     monkeypatch.setattr(
         Project,
-        "load_application",
-        _application_loader(LabApplication(bootstrap_config=lambda: invalid)),
+        "load_bootstrap",
+        _bootstrap_loader(LabBootstrap(bootstrap_config=lambda: invalid)),
     )
 
     with pytest.raises(CheckFailed):
@@ -159,8 +159,8 @@ def test_diff_uses_selected_project_record_instead_of_environment_override(
     monkeypatch.setenv(DAEMON_URL_ENV, "http://different-project.local")
     monkeypatch.setattr(
         Project,
-        "load_application",
-        _application_loader(LabApplication(bootstrap_config=lambda: config)),
+        "load_bootstrap",
+        _bootstrap_loader(LabBootstrap(bootstrap_config=lambda: config)),
     )
     observed_urls: list[str | None] = []
 
@@ -335,6 +335,7 @@ def _project(root: Path) -> Project:
     return Project(
         root=root,
         manifest=manifest,
+        bootstrap_spec=None,
         application_spec=None,
         instrument_backend_spec=None,
     )
@@ -348,8 +349,8 @@ def _patch_project(
 ) -> None:
     monkeypatch.setattr(
         Project,
-        "load_application",
-        _application_loader(LabApplication(bootstrap_config=lambda: source)),
+        "load_bootstrap",
+        _bootstrap_loader(LabBootstrap(bootstrap_config=lambda: source)),
     )
 
     def recorded_url(_project: Project) -> str:
@@ -367,10 +368,10 @@ def _patch_project(
     monkeypatch.setattr(Project, "connect", connect)
 
 
-def _application_loader(
-    application: LabApplication,
-) -> Callable[[Project], LabApplication]:
-    def load_application(_project: Project) -> LabApplication:
-        return application
+def _bootstrap_loader(
+    bootstrap: LabBootstrap,
+) -> Callable[[Project], LabBootstrap]:
+    def load_bootstrap(_project: Project) -> LabBootstrap:
+        return bootstrap
 
-    return load_application
+    return load_bootstrap

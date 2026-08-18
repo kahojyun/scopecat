@@ -55,6 +55,7 @@ from scopecat.daemon.execution import ExecutorLeaseLostError
 from scopecat.daemon.points import RunPointPlanView
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigActivationPage,
     ConfigDraftPreview,
     ConfigRegistryPage,
     RunAdmissionView,
@@ -71,8 +72,6 @@ from scopecat.daemon.wire import (
     ConfigEntryActivationCommand,
     ConfigPublishCommand,
     ConfigPublishReceipt,
-    ConfigUndoCommand,
-    ConfigUndoReceipt,
     DirectConfigRevisionSource,
     ExecutorLease,
     InstrumentContractCatalogRequest,
@@ -809,26 +808,62 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
 def test_lab_config_intents_hide_registry_coordination() -> None:
     config = load_config()
     entry, activation = _config_registry_records(config)
-    seen: list[ConfigPublishCommand | ConfigUndoCommand] = []
+    seen: list[ConfigPublishCommand | ConfigEntryActivationCommand] = []
+    published: ConfigPublishReceipt | None = None
 
     def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal published
         path = request.url.path
         if path == "/api/v1/config-registry":
             return _model(ConfigRegistryPage(entries=(entry,), activation=activation))
         if path == "/api/v1/config-registry/active" and request.method == "GET":
+            if published is not None:
+                return _model(
+                    ActiveConfigView(
+                        entry=published.entry,
+                        activation=published.activation,
+                        config=config,
+                    )
+                )
             return _model(
                 ActiveConfigView(entry=entry, activation=activation, config=config)
             )
         if path == "/api/v1/config-registry/publish-operations":
             command = ConfigPublishCommand.model_validate_json(request.content)
             seen.append(command)
-            return _model(_direct_config_publish_receipt(command, activation))
-        if path == "/api/v1/config-registry/undo":
-            command = ConfigUndoCommand.model_validate_json(request.content)
-            seen.append(command)
+            published = _direct_config_publish_receipt(command, activation)
+            return _model(published)
+        if path == "/api/v1/config-registry/activations":
+            assert published is not None
             return _model(
-                ConfigUndoReceipt(
-                    activation=activation,
+                ConfigActivationPage(items=(published.activation, activation))
+            )
+        if path == "/api/v1/config-registry/activation-operations":
+            assert published is not None
+            command = ConfigEntryActivationCommand.model_validate_json(request.content)
+            seen.append(command)
+            restored = ConfigRegistryActivationRecord(
+                generation=published.activation.generation + 1,
+                action="activation",
+                entry_id=entry.id,
+                entry_content_hash=entry.content_hash,
+                previous_entry_id=published.entry.id,
+                previous_entry_content_hash=published.entry.content_hash,
+                actor=command.actor,
+                note=command.note,
+            )
+            return _model(
+                ConfigActivationReceipt(
+                    operation=ConfigActivationOperation(
+                        operation_id=command.operation_id,
+                        intent_hash=command.intent_hash,
+                        entry_id=command.entry_id,
+                        expected_generation=command.expected_generation,
+                        actor=command.actor,
+                        note=command.note,
+                        activation_generation=restored.generation,
+                    ),
+                    activation=restored,
                 )
             )
         raise AssertionError(f"unexpected request: {request.method} {path}")
@@ -839,7 +874,8 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
     undo_receipt = lab.config.undo(note="restore prior values")
 
     assert set_receipt.entry.id == config_revision_entry_id(config)
-    assert undo_receipt.activation == activation
+    assert undo_receipt.activation.entry_id == entry.id
+    assert undo_receipt.activation.generation == activation.generation + 2
     assert seen == [
         ConfigPublishCommand(
             operation_id=cast("ConfigPublishCommand", seen[0]).operation_id,
@@ -849,15 +885,131 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
             expected_generation=activation.generation,
             note="use tuned values",
         ),
-        ConfigUndoCommand(
+        ConfigEntryActivationCommand(
+            operation_id=cast("ConfigEntryActivationCommand", seen[1]).operation_id,
+            entry_id=entry.id,
             actor="notebook-operator",
-            expected_generation=activation.generation,
+            expected_generation=activation.generation + 1,
             note="restore prior values",
         ),
     ]
     operation_id = cast("ConfigPublishCommand", seen[0]).operation_id
     assert operation_id.startswith("config-publish:")
     assert len(operation_id.removeprefix("config-publish:")) == 32
+    activation_operation_id = cast("ConfigEntryActivationCommand", seen[1]).operation_id
+    assert activation_operation_id.startswith("config-activation:")
+    assert len(activation_operation_id.removeprefix("config-activation:")) == 32
+
+
+def test_lab_config_undo_pages_to_the_previous_distinct_exact_entry() -> None:
+    config = load_config()
+    baseline_entry, baseline_activation = _config_registry_records(config)
+    current_entry = baseline_entry.model_copy(
+        update={
+            "id": "current",
+            "config_ref": "config-registry/entries/current/config.json",
+        }
+    )
+    current_activation = ConfigRegistryActivationRecord(
+        generation=102,
+        action="activation",
+        entry_id=current_entry.id,
+        entry_content_hash=current_entry.content_hash,
+        previous_entry_id=current_entry.id,
+        previous_entry_content_hash=current_entry.content_hash,
+        actor="operator",
+    )
+    older_current_activation = current_activation.model_copy(update={"generation": 3})
+    baseline_activation = baseline_activation.model_copy(update={"generation": 2})
+    seen: list[ConfigEntryActivationCommand] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        path = request.url.path
+        if path == "/api/v1/config-registry/active":
+            return _model(
+                ActiveConfigView(
+                    entry=current_entry,
+                    activation=current_activation,
+                    config=config,
+                )
+            )
+        if path == "/api/v1/config-registry/activations":
+            before = request.url.params.get("before")
+            if before is None:
+                return _model(
+                    ConfigActivationPage(
+                        items=(current_activation, older_current_activation),
+                        next_cursor=3,
+                    )
+                )
+            assert before == "3"
+            return _model(ConfigActivationPage(items=(baseline_activation,)))
+        if path == "/api/v1/config-registry/activation-operations":
+            command = ConfigEntryActivationCommand.model_validate_json(request.content)
+            seen.append(command)
+            restored = ConfigRegistryActivationRecord(
+                generation=103,
+                action="activation",
+                entry_id=baseline_entry.id,
+                entry_content_hash=baseline_entry.content_hash,
+                previous_entry_id=current_entry.id,
+                previous_entry_content_hash=current_entry.content_hash,
+                actor=command.actor,
+                note=command.note,
+            )
+            return _model(
+                ConfigActivationReceipt(
+                    operation=ConfigActivationOperation(
+                        operation_id=command.operation_id,
+                        intent_hash=command.intent_hash,
+                        entry_id=command.entry_id,
+                        expected_generation=command.expected_generation,
+                        actor=command.actor,
+                        note=command.note,
+                        activation_generation=restored.generation,
+                    ),
+                    activation=restored,
+                )
+            )
+        raise AssertionError(f"unexpected request: {request.method} {path}")
+
+    lab = LabClient(_client(handler), operator="notebook-operator")
+    receipt = lab.config.undo(operation_id="restore-older-baseline")
+
+    assert receipt.activation.entry_id == baseline_entry.id
+    assert seen == [
+        ConfigEntryActivationCommand(
+            operation_id="restore-older-baseline",
+            entry_id=baseline_entry.id,
+            actor="notebook-operator",
+            expected_generation=current_activation.generation,
+        )
+    ]
+
+
+def test_lab_config_undo_requires_a_previous_distinct_entry() -> None:
+    config = load_config()
+    entry, activation = _config_registry_records(config)
+    requests: list[tuple[str, str]] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append((request.method, request.url.path))
+        if request.url.path == "/api/v1/config-registry/active":
+            return _model(
+                ActiveConfigView(entry=entry, activation=activation, config=config)
+            )
+        if request.url.path == "/api/v1/config-registry/activations":
+            return _model(ConfigActivationPage(items=(activation,)))
+        raise AssertionError(f"unexpected request: {request.method} {request.url.path}")
+
+    lab = LabClient(_client(handler), operator="notebook-operator")
+
+    with pytest.raises(ValueError, match="no previous active entry"):
+        lab.config.undo()
+    assert requests == [
+        ("GET", "/api/v1/config-registry/active"),
+        ("GET", "/api/v1/config-registry/activations"),
+    ]
 
 
 def test_lab_config_activation_uses_explicit_operation_and_exact_lookup() -> None:

@@ -12,13 +12,13 @@ from typing import Self
 
 from fastapi import FastAPI
 from filelock import FileLock, Timeout
-from scopecat.application.lab import BootstrapConfigFactory
+from scopecat.application.bootstrap import BootstrapConfigFactory
 from scopecat.config.resolution import validate_config_profile
 from scopecat.daemon.wire import (
     ConfigPublishCommand,
     DirectConfigRevisionSource,
 )
-from scopecat.project import load_application_factory
+from scopecat.project import load_bootstrap_factory
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 
@@ -69,7 +69,7 @@ class LocalDaemonRuntime:
         project_root: str | Path,
         *,
         bootstrap_config: ConfigProfileSnapshot | BootstrapConfigFactory | None = None,
-        application_spec: str | None = None,
+        bootstrap_spec: str | None = None,
         instrument_backend_spec: str | None = None,
         instrument_endpoint: InstrumentBackendEndpoint | None = None,
         instrument_shutdown_grace: timedelta = _DEFAULT_INSTRUMENT_SHUTDOWN_GRACE,
@@ -99,15 +99,15 @@ class LocalDaemonRuntime:
             ) from error
         database = self.state_dir / "control.sqlite3"
         objects = self.state_dir / "objects"
-        application_bootstrap: BootstrapConfigFactory | None = None
+        project_bootstrap: BootstrapConfigFactory | None = None
 
         try:
-            if application_spec is not None:
-                lab_application = load_application_factory(
-                    application_spec,
+            if bootstrap_spec is not None:
+                bootstrap = load_bootstrap_factory(
+                    bootstrap_spec,
                     self.project_root,
                 )(self.project_root)
-                application_bootstrap = lab_application.bootstrap_config
+                project_bootstrap = bootstrap.bootstrap_config
             if instrument_backend_spec is not None:
                 instrument_endpoint = SubprocessInstrumentBackendEndpoint(
                     self.project_root,
@@ -224,7 +224,7 @@ class LocalDaemonRuntime:
                 bootstrap_source = (
                     bootstrap_config
                     if bootstrap_config is not None
-                    else application_bootstrap
+                    else project_bootstrap
                 )
                 if bootstrap_source is not None:
                     _bootstrap_config_registry(

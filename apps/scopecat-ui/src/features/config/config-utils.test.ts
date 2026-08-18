@@ -29,20 +29,23 @@ describe("calibration cohort registry presentation", () => {
       contributions: [
         {
           member_id: "q0",
-          procedure_run_id: "procedure-q0",
-          baseline_step: { step_key: "baseline", attempt: 1 },
-          baseline_run_id: "baseline-run-q0",
-          fit_step: { step_key: "fit", attempt: 1 },
-          fit_analysis_record_id: "fit-analysis-q0",
-          candidate_step: { step_key: "candidate", attempt: 1 },
-          candidate_run_id: "candidate-run-q0",
-          proposal_id: "proposal-q0",
-          verification_step: { step_key: "verification", attempt: 1 },
-          decision: {
-            analysis_record_id: "verification-analysis-q0",
-            output_id: "decision",
-            schema_id: "reference_lab.drag-decision.v1",
-            schema_hash: HASH,
+          proof: {
+            kind: "verified_parameter_proposal_v1",
+            evidence_step: {
+              procedure_run_id: "procedure-q0",
+              step_key: "verification",
+              attempt: 1,
+            },
+            baseline_run_id: "baseline-run-q0",
+            fit_analysis_record_id: "fit-analysis-q0",
+            proposal_id: "proposal-q0",
+            candidate_run_id: "candidate-run-q0",
+            decision: {
+              analysis_record_id: "verification-analysis-q0",
+              output_id: "decision",
+              schema_id: "reference_lab.drag-decision.v1",
+              schema_hash: HASH,
+            },
           },
           result_input_fingerprint: HASH,
         },
@@ -59,8 +62,10 @@ describe("calibration cohort registry presentation", () => {
     "reference_lab.drag-composition",
     "q0",
     "procedure-q0",
+    "verification",
     "proposal-q0",
     "fit-analysis-q0",
+    "verified_parameter_proposal_v1",
   ])("is searchable by exact provenance term %s", (term) => {
     expect(filterConfigEntries([entry], term)).toEqual([entry]);
   });

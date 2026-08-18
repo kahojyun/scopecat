@@ -362,7 +362,7 @@ test("starter project closes the notebook, run, and config loop", async ({ daemo
   const undoResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
-      response.url().endsWith("/api/v1/config-registry/undo"),
+      response.url().endsWith("/api/v1/config-registry/activation-operations"),
   );
   await page.getByRole("button", { name: "Undo" }).click();
   await page
@@ -430,7 +430,7 @@ test("accepts a notebook candidate in the GUI and preserves its provenance", asy
   const undoResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
-      response.url().endsWith("/api/v1/config-registry/undo"),
+      response.url().endsWith("/api/v1/config-registry/activation-operations"),
   );
   await page.getByRole("button", { name: "Undo" }).click();
   await page

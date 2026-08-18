@@ -19,8 +19,8 @@ if TYPE_CHECKING:
         CandidateAcceptance,
         CandidateConfigRegistrySource,
         ConfigActivationOperation,
+        ConfigCompositionEvidenceStepRef,
         ConfigCompositionPolicyRef,
-        ConfigCompositionStepRef,
         ConfigPublishOperation,
         ConfigRegistryActivationPage,
         ConfigRegistryActivationRecord,
@@ -32,6 +32,8 @@ if TYPE_CHECKING:
         ManualCandidateAcceptance,
         ManualConfigDraftRegistrySource,
         ResolvedCalibrationCohortMergeContribution,
+        ResolvedVerifiedParameterProposalProofV1,
+        VerifiedParameterProposalProofV1,
         config_activation_intent_hash,
         config_publish_intent_hash,
     )
@@ -69,7 +71,6 @@ if TYPE_CHECKING:
         publish_config_revision,
         publish_instrument_inventory_migration_revision,
         resolve_config_registry_config_source,
-        undo_config_registry,
     )
 
 
@@ -86,12 +87,14 @@ _RECORD_EXPORTS = (
     "ConfigRegistryEntryPage",
     "ConfigRegistryEntrySource",
     "ConfigCompositionPolicyRef",
-    "ConfigCompositionStepRef",
+    "ConfigCompositionEvidenceStepRef",
     "CrossRunCandidateAcceptance",
     "DirectConfigRegistrySource",
     "ManualCandidateAcceptance",
     "ManualConfigDraftRegistrySource",
     "ResolvedCalibrationCohortMergeContribution",
+    "ResolvedVerifiedParameterProposalProofV1",
+    "VerifiedParameterProposalProofV1",
     "config_activation_intent_hash",
     "config_publish_intent_hash",
 )
@@ -134,7 +137,6 @@ _SERVICE_EXPORTS = (
     "publish_config_revision",
     "publish_instrument_inventory_migration_revision",
     "resolve_config_registry_config_source",
-    "undo_config_registry",
 )
 _EXPORTS = {
     **{name: ("scopecat.config.registry.records", name) for name in _RECORD_EXPORTS},
