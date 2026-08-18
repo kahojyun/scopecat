@@ -7,6 +7,7 @@ from typing import cast
 
 import httpx2
 import pytest
+from pydantic import ValidationError
 
 from scopecat.api.calibration_publication import (
     CalibrationCohortMergeSteps,
@@ -32,6 +33,7 @@ from scopecat.automation.calibrations import (
     CalibrationConfigSourceRef,
     CalibrationDefinitionRef,
     CalibrationMissingSuccessDueReason,
+    CalibrationPublicationPolicyRef,
     CalibrationStatus,
     CalibrationSuccessPublication,
     CalibrationSuccessRef,
@@ -118,6 +120,13 @@ _POLICY = ConfigCompositionPolicyRef(
     version="1",
     fingerprint=_POLICY_HASH,
 )
+_AUTOMATIC_PUBLICATION_POLICY = CalibrationPublicationPolicyRef(
+    id="tests.calibration.automatic-publication",
+    version="1",
+    fingerprint=f"sha256:{'3' * 64}",
+    calibration=_DEFINITION,
+    composition_policy=_POLICY,
+)
 
 
 def test_publication_plan_and_source_are_deterministic_and_cover_whole_cohort() -> None:
@@ -177,6 +186,53 @@ def test_publication_plan_and_source_are_deterministic_and_cover_whole_cohort() 
             candidate_id="merged-candidate",
             contributions=(q0, q1),
             expected_result_content_hash=_RESULT_HASH,
+        )
+
+
+def test_automatic_plan_revision_fence_does_not_change_identity() -> None:
+    cohort, page = _cohort_and_members()
+    source = calibration_cohort_merge_revision_source(
+        cohort=cohort,
+        member_page=page,
+        composition_policy_ref=_POLICY,
+        candidate_id="merged-candidate",
+        contributions=tuple(_contribution(member) for member in page.items),
+        expected_result_content_hash=_RESULT_HASH,
+    )
+    automatic_source = type(source).model_validate(
+        {
+            **source.model_dump(mode="python"),
+            "automatic_publication": _AUTOMATIC_PUBLICATION_POLICY,
+        }
+    )
+
+    first = CalibrationCohortPublicationPlan.create(
+        automatic_source,
+        actor="calibration-finalizer",
+        expected_calibration_finalization_revision=2,
+    )
+    rebased = CalibrationCohortPublicationPlan.create(
+        automatic_source,
+        actor=first.actor,
+        expected_calibration_finalization_revision=3,
+    )
+
+    assert first.expected_calibration_finalization_revision == 2
+    assert rebased.expected_calibration_finalization_revision == 3
+    assert first.entry_id == rebased.entry_id
+    assert first.operation_id == rebased.operation_id
+    assert first.command.intent_hash == rebased.command.intent_hash
+
+    invalid = first.model_dump(mode="python")
+    invalid["expected_calibration_finalization_revision"] = None
+    with pytest.raises(ValidationError, match="plan requires an expected"):
+        CalibrationCohortPublicationPlan.model_validate(invalid)
+
+    with pytest.raises(ValidationError, match="only valid for automatic"):
+        CalibrationCohortPublicationPlan.create(
+            source,
+            actor="calibration-finalizer",
+            expected_calibration_finalization_revision=2,
         )
 
 

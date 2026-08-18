@@ -178,11 +178,15 @@ class ConfigPublishCommand(_WireModel):
     source: ConfigRevisionSource
     actor: NonEmptyText
     expected_generation: int = Field(ge=0)
+    expected_calibration_finalization_revision: int | None = Field(
+        default=None,
+        ge=1,
+    )
     entry_id: NonEmptyText
     note: str = ""
 
     @model_validator(mode="after")
-    def validate_merge_generation(self) -> ConfigPublishCommand:
+    def validate_merge_contract(self) -> ConfigPublishCommand:
         if (
             isinstance(self.source, CalibrationCohortMergeRevisionSource)
             and self.expected_generation != self.source.base_generation
@@ -190,6 +194,23 @@ class ConfigPublishCommand(_WireModel):
             raise ValueError(
                 "calibration cohort merge expected_generation must equal its "
                 "base_generation"
+            )
+        automatic_merge = (
+            isinstance(self.source, CalibrationCohortMergeRevisionSource)
+            and self.source.automatic_publication is not None
+        )
+        if automatic_merge and self.expected_calibration_finalization_revision is None:
+            raise ValueError(
+                "automatic calibration cohort merge requires an expected "
+                "finalization revision"
+            )
+        if (
+            not automatic_merge
+            and self.expected_calibration_finalization_revision is not None
+        ):
+            raise ValueError(
+                "expected calibration finalization revision is only valid for "
+                "automatic calibration cohort merges"
             )
         return self
 
@@ -203,6 +224,9 @@ class ConfigPublishCommand(_WireModel):
 
     @property
     def intent_hash(self) -> Sha256ContentHash:
+        # The finalization revision is an execution fence, not publication
+        # meaning. A retry prepared from a newer ready occurrence therefore
+        # retains the same logical operation identity.
         return config_publish_intent_hash(
             source_intent_hash=self.source_intent_hash,
             entry_id=self.entry_id,

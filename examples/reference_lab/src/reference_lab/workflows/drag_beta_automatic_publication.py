@@ -9,6 +9,8 @@ from scopecat.api.calibration_finalizer import (
     CalibrationPublicationCandidate,
     CalibrationPublicationPlanningContext,
     CalibrationPublicationPolicyRegistry,
+    CalibrationPublicationProcedureView,
+    CalibrationPublicationRunView,
     calibration_publication_policy,
 )
 from scopecat.api.calibration_publication import (
@@ -41,9 +43,7 @@ from reference_lab.workflows.drag_beta_publication import (
 
 if TYPE_CHECKING:
     from scopecat.api.lab import LabClient
-    from scopecat.api.procedures import ProcedureHandle
     from scopecat.api.published_analysis import PublishedAnalysis
-    from scopecat.api.run import RunHandle
 
 DRAG_BETA_PUBLICATION_POLICY_ID = "reference-lab.drag-beta-automatic-publication"
 DRAG_BETA_PUBLICATION_POLICY_VERSION = "1"
@@ -81,7 +81,7 @@ class _CandidateCalibrationOperations:
         *,
         cohort: CalibrationCohort,
         member: CalibrationCohortMember,
-        procedure: ProcedureHandle,
+        procedure: CalibrationPublicationProcedureView,
         steps: CalibrationCohortMergeSteps,
         proposal_id: str,
         decision_output_id: str,
@@ -123,7 +123,14 @@ class _CandidateCalibrationOperations:
         actor: str,
         note: str = "",
     ) -> CalibrationCohortPublicationPlan:
-        return self.context.publication_plan(source, actor=actor, note=note)
+        return self.context.publication_plan(
+            source,
+            actor=actor,
+            note=note,
+            expected_calibration_finalization_revision=(
+                self.candidate.finalization.revision
+            ),
+        )
 
     def _require_cohort(self, cohort_id: str) -> None:
         if cohort_id != self.candidate.cohort.cohort_id:
@@ -142,7 +149,7 @@ class _PlanningConfigOperations:
 class _PlanningProcedureOperations:
     context: CalibrationPublicationPlanningContext
 
-    def get(self, procedure_run_id: str) -> ProcedureHandle:
+    def get(self, procedure_run_id: str) -> CalibrationPublicationProcedureView:
         return self.context.procedure(procedure_run_id)
 
 
@@ -165,7 +172,7 @@ class _DragBetaPlanningLab:
     def procedures(self) -> _PlanningProcedureOperations:
         return _PlanningProcedureOperations(self.context)
 
-    def get_run(self, run_id: str) -> RunHandle:
+    def get_run(self, run_id: str) -> CalibrationPublicationRunView:
         return self.context.run(run_id)
 
     def published_analysis(self, selector: str) -> PublishedAnalysis:

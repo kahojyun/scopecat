@@ -5,13 +5,13 @@ from __future__ import annotations
 from scopecat.api._config import LabConfigOperations
 from scopecat.api.calibration_finalizer import (
     CalibrationPublicationPlanningContext,
-    CalibrationPublicationPolicyRegistry,
     ProjectCalibrationPublicationFinalizer,
 )
 from scopecat.api.calibration_planner import (
     CalibrationPlanningContext,
     ProjectCalibrationEvaluator,
 )
+from scopecat.api.calibration_policy import CalibrationPublicationPolicyRegistry
 from scopecat.api.calibration_publication import (
     CalibrationCohortMergeSteps,
     CalibrationCohortPublicationPlan,
@@ -307,10 +307,28 @@ class LabCalibrationOperations:
     ) -> CalibrationCohortPublicationPlan:
         """Freeze deterministic config entry and operation identities."""
 
+        expected_finalization_revision: int | None = None
+        if source.automatic_publication is not None:
+            finalization = self.publication_finalization(source.cohort_id)
+            if (
+                finalization.cohort_id != source.cohort_id
+                or finalization.spec_hash != source.spec_hash
+                or finalization.policy != source.automatic_publication
+                or finalization.base_config_source.entry_id != source.base_entry_id
+                or finalization.base_config_source.content_hash
+                != source.base_content_hash
+                or finalization.base_config_source.registry_generation
+                != source.base_generation
+            ):
+                raise ValueError(
+                    "automatic publication finalization does not match merge source"
+                )
+            expected_finalization_revision = finalization.revision
         return CalibrationCohortPublicationPlan.create(
             source,
             actor=actor,
             note=note,
+            expected_calibration_finalization_revision=(expected_finalization_revision),
         )
 
     def publish(

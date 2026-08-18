@@ -100,6 +100,10 @@ class CalibrationCohortPublicationPlan(_PublicationModel):
     source: CalibrationCohortMergeRevisionSource
     actor: _NonEmptyText
     note: str = ""
+    expected_calibration_finalization_revision: int | None = Field(
+        default=None,
+        ge=1,
+    )
     entry_id: _NonEmptyText
     operation_id: _NonEmptyText
 
@@ -117,6 +121,7 @@ class CalibrationCohortPublicationPlan(_PublicationModel):
         *,
         actor: str,
         note: str = "",
+        expected_calibration_finalization_revision: int | None = None,
     ) -> Self:
         entry_id = calibration_cohort_publication_entry_id(
             source,
@@ -128,17 +133,37 @@ class CalibrationCohortPublicationPlan(_PublicationModel):
             actor=actor,
             note=note,
             entry_id=entry_id,
+            expected_calibration_finalization_revision=(
+                expected_calibration_finalization_revision
+            ),
         )
         return cls(
             source=source,
             actor=actor,
             note=note,
+            expected_calibration_finalization_revision=(
+                expected_calibration_finalization_revision
+            ),
             entry_id=entry_id,
             operation_id=operation_id,
         )
 
     @model_validator(mode="after")
     def validate_derived_identity(self) -> CalibrationCohortPublicationPlan:
+        automatic_merge = self.source.automatic_publication is not None
+        if automatic_merge and self.expected_calibration_finalization_revision is None:
+            raise ValueError(
+                "automatic calibration publication plan requires an expected "
+                "finalization revision"
+            )
+        if (
+            not automatic_merge
+            and self.expected_calibration_finalization_revision is not None
+        ):
+            raise ValueError(
+                "expected calibration finalization revision is only valid for "
+                "automatic calibration publication plans"
+            )
         expected_entry_id = calibration_cohort_publication_entry_id(
             self.source,
             actor=self.actor,
@@ -153,6 +178,9 @@ class CalibrationCohortPublicationPlan(_PublicationModel):
             actor=self.actor,
             note=self.note,
             entry_id=self.entry_id,
+            expected_calibration_finalization_revision=(
+                self.expected_calibration_finalization_revision
+            ),
         )
         if self.operation_id != expected_operation_id:
             raise ValueError(
@@ -167,6 +195,9 @@ class CalibrationCohortPublicationPlan(_PublicationModel):
             source=self.source,
             actor=self.actor,
             expected_generation=self.source.base_generation,
+            expected_calibration_finalization_revision=(
+                self.expected_calibration_finalization_revision
+            ),
             entry_id=self.entry_id,
             note=self.note,
         )
@@ -232,6 +263,7 @@ def calibration_cohort_publication_operation_id(
     actor: str,
     entry_id: str,
     note: str = "",
+    expected_calibration_finalization_revision: int | None = None,
 ) -> str:
     """Derive the replay key from the final config-publish intent hash."""
 
@@ -240,6 +272,9 @@ def calibration_cohort_publication_operation_id(
         source=source,
         actor=actor,
         expected_generation=source.base_generation,
+        expected_calibration_finalization_revision=(
+            expected_calibration_finalization_revision
+        ),
         entry_id=entry_id,
         note=note,
     )

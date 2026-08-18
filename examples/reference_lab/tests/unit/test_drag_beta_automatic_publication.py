@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 from typing import cast
 
@@ -13,6 +13,7 @@ from scopecat.api.calibration_publication import CalibrationCohortPublicationPla
 from scopecat.api.lab import LabClient
 from scopecat.automation.calibration_wire import CalibrationCohortMemberPage
 from scopecat.automation.calibrations import CalibrationCohort
+from scopecat.daemon.wire import CalibrationCohortMergeRevisionSource
 
 from reference_lab.application import create_application
 from reference_lab.configuration import EXAMPLE_ROOT
@@ -98,11 +99,20 @@ def test_drag_beta_automatic_adapter_reuses_phase7_plan_without_publish(
         "CalibrationPublicationCandidate",
         cast(
             "object",
-            SimpleNamespace(cohort=cohort, member_page=member_page),
+            SimpleNamespace(
+                cohort=cohort,
+                member_page=member_page,
+                finalization=SimpleNamespace(revision=7),
+            ),
         ),
     )
-    context = cast("CalibrationPublicationPlanningContext", object())
     plan = cast("CalibrationCohortPublicationPlan", object())
+    planning = _PlanningContext(plan)
+    context = cast(
+        "CalibrationPublicationPlanningContext",
+        cast("object", planning),
+    )
+    source = cast("CalibrationCohortMergeRevisionSource", object())
 
     def fake_prepare(
         lab: LabClient,
@@ -116,6 +126,7 @@ def test_drag_beta_automatic_adapter_reuses_phase7_plan_without_publish(
         assert note == DRAG_BETA_PUBLICATION_NOTE
         assert lab.calibrations.get(cohort_id) is cohort
         assert lab.calibrations.members(cohort_id, limit=2) is member_page
+        assert lab.calibrations.publication_plan(source, actor=actor, note=note) is plan
         assert not hasattr(lab.calibrations, "publish")
         assert not hasattr(lab.config, "publish")
         return cast(
@@ -132,6 +143,7 @@ def test_drag_beta_automatic_adapter_reuses_phase7_plan_without_publish(
     assert (
         prepare_drag_beta_automatic_publication.__wrapped__(context, candidate) is plan
     )
+    assert planning.finalization_revisions == [7]
 
 
 def test_reference_application_registers_drag_beta_automatic_publication() -> None:
@@ -153,3 +165,22 @@ def _changed_prepare(
     candidate: CalibrationPublicationCandidate,
 ) -> CalibrationCohortPublicationPlan:
     return prepare_drag_beta_automatic_publication.__wrapped__(context, candidate)
+
+
+@dataclass(slots=True)
+class _PlanningContext:
+    plan: CalibrationCohortPublicationPlan
+    finalization_revisions: list[int] = field(default_factory=list)
+
+    def publication_plan(
+        self,
+        _source: CalibrationCohortMergeRevisionSource,
+        *,
+        actor: str,
+        note: str = "",
+        expected_calibration_finalization_revision: int,
+    ) -> CalibrationCohortPublicationPlan:
+        assert actor == DRAG_BETA_PUBLICATION_ACTOR
+        assert note == DRAG_BETA_PUBLICATION_NOTE
+        self.finalization_revisions.append(expected_calibration_finalization_revision)
+        return self.plan

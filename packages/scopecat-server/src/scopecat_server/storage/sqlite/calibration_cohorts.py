@@ -552,24 +552,20 @@ class SQLiteCalibrationCohortStore:
         *,
         cohort_id: str,
         policy: CalibrationPublicationPolicyRef,
+        expected_revision: int,
         operation_id: str,
         at: datetime,
     ) -> CalibrationCohortFinalization:
         current = self.read_finalization_in_transaction(connection, cohort_id)
         if current.policy != policy:
             raise CalibrationCohortConflict("calibration publication policy changed")
-        if current.state == "published":
-            if (
-                current.publication is not None
-                and current.publication.operation_id == operation_id
-            ):
-                return current
-            raise CalibrationCohortConflict(
-                "calibration publication already completed differently"
-            )
-        if current.state not in {"ready", "attention_required"}:
+        if current.revision != expected_revision or current.state != "ready":
             raise CalibrationCohortConflict(
                 "calibration publication is not eligible for completion"
+            )
+        if current.available_at is None or current.available_at > at:
+            raise CalibrationCohortConflict(
+                "calibration publication is not yet available for completion"
             )
         try:
             updated = connection.execute(
@@ -584,15 +580,16 @@ class SQLiteCalibrationCohortStore:
                     attention_required_at = NULL,
                     publication_operation_id = ?,
                     published_at = ?
-                WHERE cohort_id = ? AND revision = ?
-                  AND state IN ('ready', 'attention_required')
+                WHERE cohort_id = ? AND revision = ? AND state = 'ready'
+                  AND available_at <= ?
                 """,
                 (
                     _timestamp(at),
                     operation_id,
                     _timestamp(at),
                     cohort_id,
-                    current.revision,
+                    expected_revision,
+                    _timestamp(at),
                 ),
             ).rowcount
             if updated != 1:

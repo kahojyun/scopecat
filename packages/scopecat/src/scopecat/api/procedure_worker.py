@@ -11,7 +11,11 @@ from uuid import uuid4
 
 import httpx2
 
+from scopecat.api.calibration_finalizer import (
+    CalibrationPublicationFinalizerCycleResult,
+)
 from scopecat.api.calibration_planner import CalibrationEvaluatorCycleResult
+from scopecat.api.calibration_publication import CalibrationPublicationOutcomeUnknown
 from scopecat.api.procedure_planner import ProcedurePlannerCycleResult
 from scopecat.api.procedures import ProcedureHandle
 from scopecat.automation import (
@@ -75,10 +79,29 @@ class CalibrationEvaluator(Protocol):
     def cycle(self, stop: Event | None = None) -> CalibrationEvaluatorCycleResult: ...
 
 
+class CalibrationPublicationFinalizer(Protocol):
+    """Project-side automatic finalizer invoked before config-sensitive planning."""
+
+    def cycle(
+        self,
+        stop: Event | None = None,
+    ) -> CalibrationPublicationFinalizerCycleResult: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ProcedureWorkerCycleResult:
     """Bounded work and benign races observed during one worker cycle."""
 
+    ready_calibration_publications: int
+    prepared_calibration_publications: int
+    published_calibration_publications: int
+    deferred_calibration_publications: int
+    attention_calibration_publications: int
+    reconciled_calibration_publications: int
+    superseded_calibration_publications: int
+    calibration_publication_races: int
+    calibration_publication_failures: int
+    calibration_publication_barrier: bool
     eligible_interval_occurrences: int
     created_interval_schedules: int
     existing_interval_schedules: int
@@ -140,6 +163,7 @@ class ProjectProcedureWorkerLoop:
         "_backoff_initial_seconds",
         "_backoff_max_seconds",
         "_calibration_evaluator",
+        "_calibration_finalizer",
         "_due_traversal",
         "_operations",
         "_planner",
@@ -154,6 +178,7 @@ class ProjectProcedureWorkerLoop:
         *,
         planner: ProcedureIntervalPlanner | None = None,
         calibration_evaluator: CalibrationEvaluator | None = None,
+        calibration_finalizer: CalibrationPublicationFinalizer | None = None,
         worker_id: str | None = None,
         schedule_limit: int = _DEFAULT_BATCH_LIMIT,
         runnable_limit: int = _DEFAULT_BATCH_LIMIT,
@@ -177,6 +202,7 @@ class ProjectProcedureWorkerLoop:
         self._operations = operations
         self._planner = planner
         self._calibration_evaluator = calibration_evaluator
+        self._calibration_finalizer = calibration_finalizer
         self._worker_id = selected_worker_id
         self._schedule_limit = schedule_limit
         self._runnable_limit = runnable_limit
@@ -189,15 +215,29 @@ class ProjectProcedureWorkerLoop:
         return self._worker_id
 
     def cycle(self, stop: Event | None = None) -> ProcedureWorkerCycleResult:
-        """Run one bounded plan-materialize-dispatch cycle."""
+        """Run one bounded config-ordered project work cycle."""
 
+        publications = (
+            _empty_publication_cycle()
+            if self._calibration_finalizer is None
+            else self._calibration_finalizer.cycle(stop)
+        )
+        if stop is not None and stop.is_set():
+            return _worker_cycle_result(
+                publications,
+                _empty_planner_cycle(),
+                _empty_calibration_cycle(),
+                _ScheduleCycleResult(0, 0, 0, 0, False),
+                _ProcedureCycleResult(0, 0, 0, 0, 0, False),
+            )
         planning = (
             _empty_planner_cycle()
-            if self._planner is None
+            if publications.has_more or self._planner is None
             else self._planner.cycle(stop)
         )
         if stop is not None and stop.is_set():
             return _worker_cycle_result(
+                publications,
                 planning,
                 _empty_calibration_cycle(),
                 _ScheduleCycleResult(0, 0, 0, 0, False),
@@ -205,11 +245,12 @@ class ProjectProcedureWorkerLoop:
             )
         calibrations = (
             _empty_calibration_cycle()
-            if self._calibration_evaluator is None
+            if publications.has_more or self._calibration_evaluator is None
             else self._calibration_evaluator.cycle(stop)
         )
         if stop is not None and stop.is_set():
             return _worker_cycle_result(
+                publications,
                 planning,
                 calibrations,
                 _ScheduleCycleResult(0, 0, 0, 0, False),
@@ -218,6 +259,7 @@ class ProjectProcedureWorkerLoop:
         schedules = self._materialize_due(stop)
         if stop is not None and stop.is_set():
             return _worker_cycle_result(
+                publications,
                 planning,
                 calibrations,
                 schedules,
@@ -225,7 +267,13 @@ class ProjectProcedureWorkerLoop:
             )
 
         procedures = self._dispatch_runnable(stop)
-        return _worker_cycle_result(planning, calibrations, schedules, procedures)
+        return _worker_cycle_result(
+            publications,
+            planning,
+            calibrations,
+            schedules,
+            procedures,
+        )
 
     def _materialize_due(self, stop: Event | None) -> _ScheduleCycleResult:
         cursor, through_sequence = self._due_traversal or (None, None)
@@ -386,6 +434,21 @@ def _empty_planner_cycle() -> ProcedurePlannerCycleResult:
     )
 
 
+def _empty_publication_cycle() -> CalibrationPublicationFinalizerCycleResult:
+    return CalibrationPublicationFinalizerCycleResult(
+        ready_items=0,
+        prepared_items=0,
+        published_items=0,
+        deferred_items=0,
+        attention_items=0,
+        reconciled_items=0,
+        superseded_items=0,
+        benign_races=0,
+        failures=0,
+        has_more=False,
+    )
+
+
 def _empty_calibration_cycle() -> CalibrationEvaluatorCycleResult:
     return CalibrationEvaluatorCycleResult(
         definitions=0,
@@ -408,12 +471,23 @@ def _empty_calibration_cycle() -> CalibrationEvaluatorCycleResult:
 
 
 def _worker_cycle_result(
+    publications: CalibrationPublicationFinalizerCycleResult,
     planning: ProcedurePlannerCycleResult,
     calibrations: CalibrationEvaluatorCycleResult,
     schedules: _ScheduleCycleResult,
     procedures: _ProcedureCycleResult,
 ) -> ProcedureWorkerCycleResult:
     return ProcedureWorkerCycleResult(
+        ready_calibration_publications=publications.ready_items,
+        prepared_calibration_publications=publications.prepared_items,
+        published_calibration_publications=publications.published_items,
+        deferred_calibration_publications=publications.deferred_items,
+        attention_calibration_publications=publications.attention_items,
+        reconciled_calibration_publications=publications.reconciled_items,
+        superseded_calibration_publications=publications.superseded_items,
+        calibration_publication_races=publications.benign_races,
+        calibration_publication_failures=publications.failures,
+        calibration_publication_barrier=publications.has_more,
         eligible_interval_occurrences=planning.eligible_occurrences,
         created_interval_schedules=planning.created_schedules,
         existing_interval_schedules=planning.existing_schedules,
@@ -444,7 +518,8 @@ def _worker_cycle_result(
         procedure_conflicts=procedures.conflicts,
         lease_conflicts=procedures.lease_conflicts,
         has_more=(
-            planning.has_more
+            publications.has_more
+            or planning.has_more
             or calibrations.has_more
             or schedules.has_more
             or procedures.has_more
@@ -453,6 +528,8 @@ def _worker_cycle_result(
 
 
 def _is_retryable_control_error(error: Exception) -> bool:
+    if isinstance(error, CalibrationPublicationOutcomeUnknown):
+        return True
     cause = _control_cause(error)
     if isinstance(cause, httpx2.TransportError):
         return True
@@ -464,9 +541,19 @@ def _is_retryable_control_error(error: Exception) -> bool:
 
 def _control_cause(error: Exception) -> Exception:
     selected = error
-    while isinstance(selected, (ProcedureControlError, ProcedureLeaseLostError)):
-        selected = selected.cause
-    return selected
+    while True:
+        cause: BaseException | None = None
+        if isinstance(
+            selected,
+            (
+                ProcedureControlError,
+                ProcedureLeaseLostError,
+            ),
+        ):
+            cause = selected.cause
+        if not isinstance(cause, Exception):
+            return selected
+        selected = cause
 
 
 def _error_status(error: Exception) -> int | None:
@@ -480,6 +567,7 @@ def _worker_control_errors() -> tuple[type[Exception], ...]:
     return (
         ProcedureControlError,
         ProcedureLeaseLostError,
+        CalibrationPublicationOutcomeUnknown,
         DaemonClientError,
         httpx2.HTTPError,
     )
@@ -487,6 +575,7 @@ def _worker_control_errors() -> tuple[type[Exception], ...]:
 
 __all__ = [
     "CalibrationEvaluator",
+    "CalibrationPublicationFinalizer",
     "ProcedureIntervalPlanner",
     "ProcedureWorkerCycleResult",
     "ProcedureWorkerOperations",

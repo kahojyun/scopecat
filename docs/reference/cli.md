@@ -35,12 +35,17 @@ an existing destination unless `--force` is supplied.
 
 | Command | Purpose |
 | --- | --- |
-| `scopecat procedures work [PROJECT]` | Run the project-owned resident procedure planner and worker. |
-| `scopecat procedures work [PROJECT] --once` | Plan, materialize, and dispatch one bounded cycle, then exit. |
+| `scopecat procedures work [PROJECT]` | Run the project-owned resident calibration finalizer, planners, and procedure worker. |
+| `scopecat procedures work [PROJECT] --once` | Finalize, plan, evaluate, materialize, and dispatch one bounded cycle, then exit. |
 
-The resident worker loads the project's exact procedure registry in its own
-process and turns latest-only fixed UTC interval occurrences into ordinary exact
-one-shot schedules; the daemon never executes user-authored procedure closures.
+The resident worker loads the project's exact publication, calibration,
+schedule, and procedure registries in its own process. It finalizes ready
+calibration cohorts before config-sensitive planning, turns latest-only fixed UTC
+interval occurrences into ordinary exact one-shot schedules, and executes
+compatible procedures; the daemon never executes user-authored closures. A
+remaining publication page temporarily blocks interval and calibration planning
+but not already-frozen due or runnable work. `--once` prints publication and
+procedure counters and exits nonzero for recorded deterministic failures.
 `--poll-seconds` controls the idle polling interval.
 
 Use `scopecat COMMAND --help` as the authority for all current options. See the

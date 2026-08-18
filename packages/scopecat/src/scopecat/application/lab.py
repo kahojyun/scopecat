@@ -6,17 +6,17 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from scopecat.api.calibration_finalizer import CalibrationPublicationPolicyRegistry
+from scopecat.api.calibration_policy import CalibrationPublicationPolicyRegistry
 from scopecat.automation.calibration_definition import CalibrationRegistry
 from scopecat.automation.definition import ProcedureRegistry
 from scopecat.automation.intervals import ProcedureScheduleRegistry
 from scopecat.records.config import ConfigProfileSnapshot
 
 if TYPE_CHECKING:
-    from scopecat.api.calibration_finalizer import (
-        RegisteredCalibrationPublicationPolicy,
-    )
     from scopecat.api.calibration_planner import CalibrationPlanningContext
+    from scopecat.api.calibration_policy import (
+        CalibrationPublicationPolicyRegistration,
+    )
     from scopecat.api.lab import LabClient
     from scopecat.api.procedure_planner import ProcedurePlanningContext
     from scopecat.automation.calibration_definition import RegisteredCalibration
@@ -79,7 +79,7 @@ class LabApplication:
             | CalibrationRegistry[CalibrationPlanningContext]
         ) = (),
         calibration_publications: (
-            Iterable[RegisteredCalibrationPublicationPolicy]
+            Iterable[CalibrationPublicationPolicyRegistration]
             | CalibrationPublicationPolicyRegistry
         ) = (),
     ) -> None:

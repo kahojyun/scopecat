@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from threading import Event, Thread
+from types import SimpleNamespace
 from typing import cast
 
 import httpx2
@@ -12,7 +13,15 @@ from pydantic import BaseModel, ConfigDict
 
 from scopecat.api._config import LabConfigOperations
 from scopecat.api._runner import _DaemonRunner
+from scopecat.api.calibration_finalizer import (
+    CalibrationPublicationFinalizerCycleResult,
+)
 from scopecat.api.calibration_planner import CalibrationEvaluatorCycleResult
+from scopecat.api.calibration_publication import (
+    CalibrationCohortPublicationPlan,
+    CalibrationPublicationDriftError,
+    CalibrationPublicationOutcomeUnknown,
+)
 from scopecat.api.procedure_planner import ProcedurePlannerCycleResult
 from scopecat.api.procedure_worker import ProjectProcedureWorkerLoop
 from scopecat.api.procedures import (
@@ -253,6 +262,191 @@ class _FakeCalibrationEvaluator:
     def cycle(self, stop: Event | None = None) -> CalibrationEvaluatorCycleResult:
         self.calls.append(("calibrate", stop))
         return self.result
+
+
+@dataclass(slots=True)
+class _FakeCalibrationFinalizer:
+    calls: list[tuple[object, ...]]
+    result: CalibrationPublicationFinalizerCycleResult
+    error: Exception | None = None
+    stop_after_cycle: Event | None = None
+
+    def cycle(
+        self,
+        stop: Event | None = None,
+    ) -> CalibrationPublicationFinalizerCycleResult:
+        self.calls.append(("finalize", stop))
+        if self.error is not None:
+            raise self.error
+        if self.stop_after_cycle is not None:
+            self.stop_after_cycle.set()
+            self.stop_after_cycle = None
+        return self.result
+
+
+def _publication_result() -> CalibrationPublicationFinalizerCycleResult:
+    return CalibrationPublicationFinalizerCycleResult(
+        ready_items=0,
+        prepared_items=0,
+        published_items=0,
+        deferred_items=0,
+        attention_items=0,
+        reconciled_items=0,
+        superseded_items=0,
+        benign_races=0,
+        failures=0,
+        has_more=False,
+    )
+
+
+def _planner_result() -> ProcedurePlannerCycleResult:
+    return ProcedurePlannerCycleResult(
+        definitions=0,
+        eligible_occurrences=0,
+        existing_schedules=0,
+        created_schedules=0,
+        reconciled_schedules=0,
+        drifted_schedules=0,
+        failures=0,
+        has_more=False,
+    )
+
+
+def _calibration_result() -> CalibrationEvaluatorCycleResult:
+    return CalibrationEvaluatorCycleResult(
+        definitions=0,
+        selected_targets=0,
+        fresh_members=0,
+        pending_publication_members=0,
+        blocked_members=0,
+        suppressed_active_members=0,
+        suppressed_failed_members=0,
+        suppressed_attention_members=0,
+        ready_members=0,
+        admitted_members=0,
+        created_cohorts=0,
+        reconciled_cohorts=0,
+        admission_conflicts=0,
+        cohort_drifts=0,
+        failures=0,
+        has_more=False,
+    )
+
+
+def test_cycle_finalizes_before_config_sensitive_planning() -> None:
+    operations = _FakeWorkerOperations(
+        ProcedureScheduleDuePage(),
+        ProcedureRunnablePage(),
+    )
+    finalizer = _FakeCalibrationFinalizer(
+        operations.calls,
+        replace(
+            _publication_result(),
+            ready_items=1,
+            prepared_items=1,
+            published_items=1,
+        ),
+    )
+    planner = _FakePlanner(operations.calls, _planner_result())
+    evaluator = _FakeCalibrationEvaluator(
+        operations.calls,
+        _calibration_result(),
+    )
+
+    result = ProjectProcedureWorkerLoop(
+        operations,
+        calibration_finalizer=finalizer,
+        planner=planner,
+        calibration_evaluator=evaluator,
+    ).cycle()
+
+    assert result.ready_calibration_publications == 1
+    assert result.prepared_calibration_publications == 1
+    assert result.published_calibration_publications == 1
+    assert result.calibration_publication_barrier is False
+    assert operations.calls == [
+        ("finalize", None),
+        ("plan", None),
+        ("calibrate", None),
+        ("due", 50, None, None),
+        ("runnable", 50),
+    ]
+
+
+def test_publication_backlog_blocks_new_planning_but_drains_frozen_work() -> None:
+    operations = _FakeWorkerOperations(
+        ProcedureScheduleDuePage(items=(_schedule("already-due"),)),
+        ProcedureRunnablePage(items=(_run("already-runnable"),)),
+    )
+    finalizer = _FakeCalibrationFinalizer(
+        operations.calls,
+        replace(
+            _publication_result(),
+            ready_items=1,
+            deferred_items=1,
+            benign_races=1,
+            has_more=True,
+        ),
+    )
+    planner = _FakePlanner(operations.calls, _planner_result())
+    evaluator = _FakeCalibrationEvaluator(
+        operations.calls,
+        _calibration_result(),
+    )
+
+    result = ProjectProcedureWorkerLoop(
+        operations,
+        calibration_finalizer=finalizer,
+        planner=planner,
+        calibration_evaluator=evaluator,
+        worker_id="worker-publication-barrier",
+    ).cycle()
+
+    assert result.calibration_publication_barrier is True
+    assert result.deferred_calibration_publications == 1
+    assert result.calibration_publication_races == 1
+    assert result.eligible_interval_occurrences == 0
+    assert result.selected_calibration_targets == 0
+    assert result.materialized_schedules == 1
+    assert result.dispatched_procedures == 1
+    assert result.has_more is True
+    assert operations.calls == [
+        ("finalize", None),
+        ("due", 50, None, None),
+        ("materialize", "already-due", 1),
+        ("runnable", 50),
+        (
+            "resume_snapshot",
+            "already-runnable",
+            "worker-publication-barrier",
+        ),
+    ]
+
+
+def test_stop_after_finalizer_prevents_every_later_worker_phase() -> None:
+    stop = Event()
+    operations = _FakeWorkerOperations(
+        ProcedureScheduleDuePage(),
+        ProcedureRunnablePage(),
+    )
+    finalizer = _FakeCalibrationFinalizer(
+        operations.calls,
+        _publication_result(),
+        stop_after_cycle=stop,
+    )
+
+    result = ProjectProcedureWorkerLoop(
+        operations,
+        calibration_finalizer=finalizer,
+        planner=_FakePlanner(operations.calls, _planner_result()),
+        calibration_evaluator=_FakeCalibrationEvaluator(
+            operations.calls,
+            _calibration_result(),
+        ),
+    ).cycle(stop)
+
+    assert result.has_more is False
+    assert operations.calls == [("finalize", stop)]
 
 
 def test_cycle_plans_before_due_work_and_surfaces_planner_drift() -> None:
@@ -567,6 +761,49 @@ def test_control_failures_back_off_exponentially() -> None:
     loop.run_forever(stop, poll_seconds=60, on_retry=observe_retry)
 
     assert delays == [0.001, 0.002, 0.004, 0.004]
+
+
+@pytest.mark.parametrize(
+    "cause",
+    [
+        httpx2.ReadError("publication lookup unavailable"),
+        CalibrationPublicationDriftError("publication receipt drifted"),
+    ],
+)
+def test_unknown_calibration_publication_outcome_uses_resident_backoff(
+    cause: Exception,
+) -> None:
+    operations = _FakeWorkerOperations(
+        ProcedureScheduleDuePage(),
+        ProcedureRunnablePage(),
+    )
+    unknown = CalibrationPublicationOutcomeUnknown(
+        cast(
+            "CalibrationCohortPublicationPlan",
+            cast("object", SimpleNamespace(operation_id="publication-unknown")),
+        ),
+        cause=cause,
+    )
+    finalizer = _FakeCalibrationFinalizer(
+        operations.calls,
+        _publication_result(),
+        error=unknown,
+    )
+    loop = ProjectProcedureWorkerLoop(
+        operations,
+        calibration_finalizer=finalizer,
+        backoff_initial_seconds=0.001,
+    )
+    stop = Event()
+    retries: list[tuple[Exception, float]] = []
+
+    def observe_retry(error: Exception, delay: float) -> None:
+        retries.append((error, delay))
+        stop.set()
+
+    loop.run_forever(stop, poll_seconds=60, on_retry=observe_retry)
+
+    assert retries == [(unknown, 0.001)]
 
 
 @pytest.mark.parametrize(

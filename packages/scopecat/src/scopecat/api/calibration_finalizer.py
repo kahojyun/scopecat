@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import timedelta
 from textwrap import dedent
 from threading import Event
-from types import MappingProxyType
-from typing import Literal, Protocol, cast, get_type_hints, override
+from typing import Literal, Protocol, cast, get_type_hints
 
 import httpx2
 from pydantic import ValidationError
 
 from scopecat.api._config import LabConfigOperations
+from scopecat.api.calibration_policy import (
+    MAX_CALIBRATION_PUBLICATION_POLICY_REGISTRY_SIZE,
+    CalibrationPublicationPolicyKey,
+    CalibrationPublicationPolicyRegistration,
+    CalibrationPublicationPolicyRegistry,
+)
 from scopecat.api.calibration_publication import (
     CalibrationCohortMergeSteps,
     CalibrationCohortPublicationPlan,
@@ -26,6 +32,12 @@ from scopecat.api.calibration_publication import (
 from scopecat.api.procedures import LabProcedureOperations, ProcedureHandle
 from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.api.run import RunHandle
+from scopecat.automation import (
+    ProcedureRun,
+    ProcedureStepAttempt,
+    ProcedureStepAttemptPage,
+    ProcedureStepOutputRef,
+)
 from scopecat.automation.calibration_wire import (
     MAX_CALIBRATION_PUBLICATION_RETRY_AFTER_SECONDS,
     CalibrationCohortMemberListQuery,
@@ -60,21 +72,100 @@ from scopecat.daemon.wire import (
     ConfigPublishReceipt,
 )
 from scopecat.kernel.content_identity import stable_content_hash
-from scopecat.records.config import ConfigContentHash
+from scopecat.records.config import ConfigContentHash, ConfigProfileSnapshot
 from scopecat.records.content import Sha256ContentHash
+from scopecat.records.run import RunSnapshot
 
 _CALIBRATION_PUBLICATION_POLICY_FINGERPRINT_CODEC = (
     "scopecat.calibration-publication-policy.v1"
 )
 _TRANSIENT_CLIENT_STATUSES = frozenset({408, 425, 429})
-MAX_CALIBRATION_PUBLICATION_POLICY_REGISTRY_SIZE = 200
 
-type CalibrationPublicationPolicyKey = tuple[str, str]
 type CalibrationPublicationPrepare = Callable[
     [CalibrationPublicationPlanningContext, CalibrationPublicationCandidate],
     CalibrationCohortPublicationPlan,
 ]
 type _DispositionOutcome = Literal["applied", "reconciled", "race"]
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationPublicationProcedureView:
+    """Read-only projection of one procedure used to prove publication."""
+
+    _handle: ProcedureHandle = field(repr=False)
+
+    @property
+    def id(self) -> str:
+        return self._handle.id
+
+    @property
+    def snapshot(self) -> ProcedureRun:
+        return self._handle.snapshot
+
+    def steps(
+        self,
+        *,
+        limit: int = 50,
+        before: int | None = None,
+    ) -> ProcedureStepAttemptPage:
+        return self._handle.steps(limit=limit, before=before)
+
+    def step(self, step_key: str) -> ProcedureStepAttempt:
+        return self._handle.step(step_key)
+
+    def output(self, step_key: str) -> ProcedureStepOutputRef:
+        return self._handle.output(step_key)
+
+    def derive_merge_contribution(
+        self,
+        *,
+        cohort: CalibrationCohort,
+        member: CalibrationCohortMember,
+        steps: CalibrationCohortMergeSteps,
+        proposal_id: str,
+        decision_output_id: str,
+        result_input_fingerprint: Sha256ContentHash,
+        owner: LabProcedureOperations,
+        session: CalibrationPublicationReadSession,
+    ) -> CalibrationCohortMergeContribution:
+        """Freeze structural proof without exposing the writable handle."""
+
+        if self._handle.operations is not owner:
+            raise ValueError(
+                "calibration contribution procedure belongs to another lab client"
+            )
+        return build_calibration_cohort_merge_contribution(
+            cohort=cohort,
+            member=member,
+            procedure=self._handle,
+            steps=steps,
+            proposal_id=proposal_id,
+            decision_output_id=decision_output_id,
+            result_input_fingerprint=result_input_fingerprint,
+            session=session,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationPublicationRunView:
+    """Read-only projection of one run used to prove publication."""
+
+    _handle: RunHandle = field(repr=False)
+
+    @property
+    def id(self) -> str:
+        return self._handle.id
+
+    @property
+    def snapshot(self) -> RunSnapshot:
+        return self._handle.snapshot
+
+    @property
+    def config(self) -> ConfigProfileSnapshot:
+        return self._handle.config
+
+    def published_analysis(self, selector: str) -> PublishedAnalysis:
+        return self._handle.published_analysis(selector)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -106,15 +197,17 @@ class CalibrationPublicationPlanningContext:
 
         return self._config.entry(entry_id)
 
-    def procedure(self, procedure_run_id: str) -> ProcedureHandle:
-        """Read one exact project procedure handle."""
+    def procedure(self, procedure_run_id: str) -> CalibrationPublicationProcedureView:
+        """Read one exact procedure through a mutation-free projection."""
 
-        return self._procedures.get(procedure_run_id)
+        return CalibrationPublicationProcedureView(
+            self._procedures.get(procedure_run_id)
+        )
 
-    def run(self, run_id: str) -> RunHandle:
-        """Read one exact run handle."""
+    def run(self, run_id: str) -> CalibrationPublicationRunView:
+        """Read one exact run through a mutation-free projection."""
 
-        return self._session.get_run(run_id)
+        return CalibrationPublicationRunView(self._session.get_run(run_id))
 
     def published_analysis(self, selector: str) -> PublishedAnalysis:
         """Read one exact project analysis publication."""
@@ -126,7 +219,7 @@ class CalibrationPublicationPlanningContext:
         *,
         cohort: CalibrationCohort,
         member: CalibrationCohortMember,
-        procedure: ProcedureHandle,
+        procedure: CalibrationPublicationProcedureView,
         steps: CalibrationCohortMergeSteps,
         proposal_id: str,
         decision_output_id: str,
@@ -134,18 +227,14 @@ class CalibrationPublicationPlanningContext:
     ) -> CalibrationCohortMergeContribution:
         """Freeze one member's exact successful proof without publishing."""
 
-        if procedure.operations is not self._procedures:
-            raise ValueError(
-                "calibration contribution procedure belongs to another lab client"
-            )
-        return build_calibration_cohort_merge_contribution(
+        return procedure.derive_merge_contribution(
             cohort=cohort,
             member=member,
-            procedure=procedure,
             steps=steps,
             proposal_id=proposal_id,
             decision_output_id=decision_output_id,
             result_input_fingerprint=result_input_fingerprint,
+            owner=self._procedures,
             session=self._session,
         )
 
@@ -176,6 +265,7 @@ class CalibrationPublicationPlanningContext:
         *,
         actor: str,
         note: str = "",
+        expected_calibration_finalization_revision: int,
     ) -> CalibrationCohortPublicationPlan:
         """Freeze deterministic publication identities without mutating config."""
 
@@ -183,6 +273,9 @@ class CalibrationPublicationPlanningContext:
             source,
             actor=actor,
             note=note,
+            expected_calibration_finalization_revision=(
+                expected_calibration_finalization_revision
+            ),
         )
 
 
@@ -223,32 +316,11 @@ class CalibrationPublicationCandidate:
         return self.member_page.items
 
 
-class RegisteredCalibrationPublicationPolicy(Protocol):
-    """Type-erased exact publication policy retained by a project registry."""
-
-    @property
-    def id(self) -> str: ...
-
-    @property
-    def version(self) -> str: ...
-
-    @property
-    def fingerprint(self) -> Sha256ContentHash: ...
-
-    @property
-    def calibration(self) -> CalibrationDefinitionRef: ...
-
-    @property
-    def composition_policy(self) -> ConfigCompositionPolicyRef: ...
-
-    @property
-    def actor(self) -> str: ...
-
-    @property
-    def note(self) -> str: ...
-
-    @property
-    def ref(self) -> CalibrationPublicationPolicyRef: ...
+class RegisteredCalibrationPublicationPolicy(
+    CalibrationPublicationPolicyRegistration,
+    Protocol,
+):
+    """Exact registered identity plus its read-only deterministic planner."""
 
     def prepare(
         self,
@@ -357,130 +429,6 @@ def calibration_publication_policy(
         )
 
     return decorate
-
-
-class CalibrationPublicationPolicyRegistry(
-    Mapping[CalibrationPublicationPolicyKey, RegisteredCalibrationPublicationPolicy]
-):
-    """Immutable exact-version registry that retains historical policies."""
-
-    __slots__ = ("_by_calibration", "_policies", "_refs")
-
-    _policies: Mapping[
-        CalibrationPublicationPolicyKey,
-        RegisteredCalibrationPublicationPolicy,
-    ]
-    _by_calibration: Mapping[str, RegisteredCalibrationPublicationPolicy]
-    _refs: tuple[CalibrationPublicationPolicyRef, ...]
-
-    def __init__(
-        self,
-        policies: Iterable[RegisteredCalibrationPublicationPolicy] = (),
-    ) -> None:
-        selected: dict[
-            CalibrationPublicationPolicyKey,
-            RegisteredCalibrationPublicationPolicy,
-        ] = {}
-        by_calibration: dict[str, RegisteredCalibrationPublicationPolicy] = {}
-        history_by_id: dict[str, tuple[str, set[str]]] = {}
-        for policy in policies:
-            key = (policy.id, policy.version)
-            if key in selected:
-                raise ValueError(
-                    f"calibration publication policy {policy.id!r} version "
-                    f"{policy.version!r} is registered more than once"
-                )
-            if len(selected) >= MAX_CALIBRATION_PUBLICATION_POLICY_REGISTRY_SIZE:
-                raise ValueError(
-                    "calibration publication policy registry supports at most "
-                    f"{MAX_CALIBRATION_PUBLICATION_POLICY_REGISTRY_SIZE} policies"
-                )
-            calibration_key = policy.calibration.model_dump_json()
-            if calibration_key in by_calibration:
-                existing = by_calibration[calibration_key]
-                raise ValueError(
-                    "exact calibration definition is bound to more than one "
-                    "publication policy "
-                    f"({existing.id!r} {existing.version!r} and "
-                    f"{policy.id!r} {policy.version!r})"
-                )
-            historical = history_by_id.get(policy.id)
-            if historical is not None and (
-                policy.calibration.id != historical[0]
-                or policy.calibration.version in historical[1]
-            ):
-                raise ValueError(
-                    "historical versions of one calibration publication policy "
-                    "must bind distinct versions of the same calibration definition"
-                )
-            selected[key] = policy
-            by_calibration[calibration_key] = policy
-            if historical is None:
-                history_by_id[policy.id] = (
-                    policy.calibration.id,
-                    {policy.calibration.version},
-                )
-            else:
-                historical[1].add(policy.calibration.version)
-
-        ordered = dict(sorted(selected.items()))
-        self._policies = MappingProxyType(ordered)
-        self._by_calibration = MappingProxyType(by_calibration)
-        self._refs = tuple(policy.ref for policy in ordered.values())
-
-    @property
-    def refs(self) -> tuple[CalibrationPublicationPolicyRef, ...]:
-        """Return the deterministic exact capabilities exposed to discovery."""
-
-        return self._refs
-
-    @override
-    def __getitem__(
-        self,
-        key: CalibrationPublicationPolicyKey,
-    ) -> RegisteredCalibrationPublicationPolicy:
-        return self._policies[key]
-
-    @override
-    def __iter__(self) -> Iterator[CalibrationPublicationPolicyKey]:
-        return iter(self._policies)
-
-    @override
-    def __len__(self) -> int:
-        return len(self._policies)
-
-    def require(
-        self,
-        id: str,
-        version: str,
-    ) -> RegisteredCalibrationPublicationPolicy:
-        try:
-            return self._policies[(id, version)]
-        except KeyError as error:
-            raise LookupError(
-                f"no calibration publication policy {id!r} version "
-                f"{version!r} is registered"
-            ) from error
-
-    def resolve(
-        self,
-        ref: CalibrationPublicationPolicyRef,
-    ) -> RegisteredCalibrationPublicationPolicy:
-        policy = self.require(ref.id, ref.version)
-        if policy.ref != ref:
-            raise ValueError(
-                f"calibration publication policy {ref.id!r} version "
-                f"{ref.version!r} does not match its exact fingerprint/bindings"
-            )
-        return policy
-
-    def for_calibration(
-        self,
-        ref: CalibrationDefinitionRef,
-    ) -> RegisteredCalibrationPublicationPolicy | None:
-        """Select the unique policy bound to one exact calibration definition."""
-
-        return self._by_calibration.get(ref.model_dump_json())
 
 
 class CalibrationPublicationDeferred(RuntimeError):
@@ -622,7 +570,7 @@ class ProjectCalibrationPublicationFinalizer:
             totals.has_more = page.next_cursor is not None
         return totals.freeze()
 
-    def _process_item(
+    def _process_item(  # noqa: C901 - explicit prepare/publish error boundaries
         self,
         context: CalibrationPublicationPlanningContext,
         item: CalibrationPublicationReadyItem,
@@ -630,7 +578,10 @@ class ProjectCalibrationPublicationFinalizer:
         stop: Event | None,
     ) -> bool:
         try:
-            policy = self._policies.resolve(item.finalization.policy)
+            policy = cast(
+                "RegisteredCalibrationPublicationPolicy",
+                self._policies.resolve(item.finalization.policy),
+            )
             cohort = context.cohort(item.cohort.cohort_id)
             member_page = context.cohort_members(item.cohort.cohort_id)
             candidate = CalibrationPublicationCandidate(
@@ -639,6 +590,8 @@ class ProjectCalibrationPublicationFinalizer:
                 member_page=member_page,
             )
         except Exception as error:
+            if _stopped(stop):
+                return False
             if _is_transient_control_error(error):
                 raise
             totals.failures += 1
@@ -649,7 +602,10 @@ class ProjectCalibrationPublicationFinalizer:
             return False
         try:
             plan = policy.prepare(context, candidate)
+            _validate_policy_plan(policy, candidate, plan)
         except CalibrationPublicationDeferred as deferred:
+            if _stopped(stop):
+                return False
             outcome = self._record_defer(candidate.finalization, deferred)
             if outcome == "applied":
                 totals.deferred_items += 1
@@ -660,6 +616,8 @@ class ProjectCalibrationPublicationFinalizer:
                 totals.benign_races += 1
             return True
         except Exception as error:
+            if _stopped(stop):
+                return False
             if _is_transient_control_error(error):
                 raise
             totals.failures += 1
@@ -716,7 +674,12 @@ class ProjectCalibrationPublicationFinalizer:
         conflict: BaseException | None = None,
         unknown: CalibrationPublicationOutcomeUnknown | None = None,
     ) -> None:
-        current = self._operations.publication_finalization(expected.cohort_id)
+        try:
+            current = self._operations.publication_finalization(expected.cohort_id)
+        except Exception as lookup_error:
+            if unknown is not None:
+                raise unknown from lookup_error
+            raise
         _validate_finalization_identity(current, expected)
         if current.state == "published":
             publication = current.publication
@@ -737,6 +700,9 @@ class ProjectCalibrationPublicationFinalizer:
             totals.benign_races += 1
             return
         if current.state == "ready":
+            if current.revision != expected.revision:
+                totals.benign_races += 1
+                return
             totals.failures += 1
             self._record_attention(
                 current,
@@ -839,9 +805,9 @@ class ProjectCalibrationPublicationFinalizer:
                 raise
             return self._reconcile_defer(command, expected, cause=error)
         _validate_finalization_identity(current, expected)
-        if current.state != "ready" or current.revision != expected.revision + 1:
+        if not _matches_defer(current, expected, command):
             raise CalibrationPublicationDriftError(
-                "publication defer receipt did not advance exact ready state"
+                "publication defer receipt did not match its exact command"
             )
         return "applied"
 
@@ -855,7 +821,7 @@ class ProjectCalibrationPublicationFinalizer:
         current = self._operations.publication_finalization(expected.cohort_id)
         _validate_finalization_identity(current, expected)
         if current.state == "ready":
-            if current.revision == command.expected_finalization_revision + 1:
+            if _matches_defer(current, expected, command):
                 return "reconciled"
             if current.revision != expected.revision:
                 return "race"
@@ -922,7 +888,7 @@ class _MutableCycle:
 
 
 def _validate_policy_plan(
-    policy: CalibrationPublicationPolicy,
+    policy: RegisteredCalibrationPublicationPolicy,
     candidate: CalibrationPublicationCandidate,
     plan: CalibrationCohortPublicationPlan,
 ) -> None:
@@ -936,6 +902,8 @@ def _validate_policy_plan(
     if (
         plan.actor != policy.actor
         or plan.note != policy.note
+        or plan.expected_calibration_finalization_revision
+        != candidate.finalization.revision
         or source.cohort_id != cohort.cohort_id
         or source.spec_hash != cohort.spec_hash
         or source.automatic_publication != policy.ref
@@ -952,6 +920,23 @@ def _validate_policy_plan(
         raise ValueError(
             "calibration publication plan does not match its exact policy/candidate"
         )
+
+
+def _matches_defer(
+    current: CalibrationCohortFinalization,
+    expected: CalibrationCohortFinalization,
+    command: CalibrationPublicationDeferCommand,
+) -> bool:
+    return (
+        current.state == "ready"
+        and current.revision == command.expected_finalization_revision + 1
+        and current.attempt_count == expected.attempt_count + 1
+        and current.created_at == expected.created_at
+        and current.ready_at == expected.ready_at
+        and current.available_at is not None
+        and current.available_at
+        == current.updated_at + timedelta(seconds=command.retry_after_seconds)
+    )
 
 
 def _validate_prepare(prepare: Callable[..., object]) -> None:
@@ -1135,6 +1120,8 @@ __all__ = [
     "CalibrationPublicationPolicyKey",
     "CalibrationPublicationPolicyRegistry",
     "CalibrationPublicationPrepare",
+    "CalibrationPublicationProcedureView",
+    "CalibrationPublicationRunView",
     "ProjectCalibrationPublicationFinalizer",
     "RegisteredCalibrationPublicationPolicy",
     "calibration_publication_policy",

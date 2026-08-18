@@ -112,10 +112,12 @@ action.
 
 The bounded calibration path uses a second, verify-only DRAG procedure. Each
 cohort member performs the first four steps and closes successfully without
-publishing configuration. An explicit cohort finalizer then composes the exact
-verified member proposals and publishes one revision for the whole cohort. This
-keeps per-target scientific work restartable without letting independently
-finishing members overwrite the shared active configuration.
+publishing configuration. A cohort finalizer then composes the exact verified
+member proposals and publishes one revision for the whole cohort. The explicit
+API remains available for operator workflows; a cohort pinned to an exact
+automatic-publication policy is instead discovered by the resident project
+worker. This keeps per-target scientific work restartable without letting
+independently finishing members overwrite the shared active configuration.
 
 The procedure replay layer deliberately has no DAG representation, automatic
 retry policy, cron trigger, or dynamic loop checkpoint. A linear Python
@@ -132,12 +134,14 @@ a conflict. Due-time processing never rebuilds intent from the active
 configuration or the worker's current Python environment.
 
 `scopecat procedures work PROJECT` runs the project-owned Python worker as a
-process separate from the daemon. Each bounded cycle first materializes due
-schedules, then asks the daemon for oldest-first runnable procedures matching
-the worker registry's exact definition references. A live lease or acquisition
-race does not stop later work. A definition unavailable in this worker is not
-returned by capability-filtered discovery and is not changed to operator
-attention; another exact-version worker can claim it later.
+process separate from the daemon. Each bounded cycle first finalizes supported
+ready calibration publications, then performs config-sensitive interval planning
+and calibration evaluation, materializes already-frozen due schedules, and asks
+the daemon for oldest-first runnable procedures matching the worker registry's
+exact definition references. A live lease or acquisition race does not stop
+later work. A definition unavailable in this worker is not returned by
+capability-filtered discovery and is not changed to operator attention; another
+exact-version worker can claim it later.
 
 Due discovery is keyset-paged in durable insertion order, oldest insertion
 first; `due_at` remains a server-clock eligibility filter rather than the sort
@@ -181,13 +185,16 @@ builder, anchor, interval, target procedure, or overlap policy requires a versio
 bump. Reusing a version with a different shell is reported as drift for an
 existing ordinal; future ordinals otherwise have no historical spec to compare.
 
-`--once` performs one bounded plan-materialize-dispatch cycle for manual
-operation and testing. The resident form polls with interruptible waits and
-exponential control-plane backoff. Shutdown stops new work on `SIGINT` or
-`SIGTERM`. An already-started effect completes and checkpoints; at the next
-durable step boundary the worker releases the procedure ready for another exact
-worker. If there is no next step, the procedure closes successfully. There is no
-mid-effect cancellation contract.
+`--once` performs one bounded
+finalize-plan-evaluate-materialize-dispatch cycle for manual operation and
+testing, prints publication and procedure counters, and exits nonzero when the
+cycle records a deterministic failure. The resident form polls with
+interruptible waits and exponential control-plane backoff. Shutdown stops new
+discovery, callbacks, mutations, or dispatch on `SIGINT` or `SIGTERM`. An
+already-started publication reconciliation or procedure effect completes; at the
+next durable step boundary the procedure worker releases the procedure ready for
+another exact worker. If there is no next step, the procedure closes
+successfully. There is no mid-effect cancellation contract.
 
 ## Freshness evaluation and bounded calibration cohorts
 
@@ -264,25 +271,30 @@ traversal cursor. The hard 200-member first slice makes every evaluation bounded
 larger cohorts will require an explicit durable traversal policy rather than an
 in-memory cursor.
 
-The worker cycle is now interval planning, calibration evaluation/admission,
-due-schedule materialization, then runnable procedure dispatch. Stop is checked
-before each project callback and durable call. Retryable transport and 5xx/429
-control failures use the resident worker's interruptible exponential backoff.
-After an unknown cohort-create transport outcome, the evaluator reopens the
-deterministic cohort ID; not-found retries the original transport error, while a
-different deterministic 4xx is fatal because the durable outcome cannot be
-classified safely.
+The config-sensitive prefix of a worker cycle is automatic publication, interval
+planning, then calibration evaluation/admission. A completed publication is
+therefore visible to freshness evaluation in the same cycle. If the bounded
+publication page reports more work, the cycle raises a local planning barrier:
+it skips both interval planning and calibration admission against the soon-to-be
+obsolete active head, while still materializing frozen due schedules and
+dispatching already-runnable procedures. Stop is checked before each project
+callback and durable call. Retryable transport and 5xx/429 control failures use
+the resident worker's interruptible exponential backoff. After an unknown
+cohort-create transport outcome, the evaluator reopens the deterministic cohort
+ID; not-found retries the original transport error, while a different
+deterministic 4xx is fatal because the durable outcome cannot be classified
+safely.
 
 ## Exact cohort finalization and published freshness
 
-Publication is an explicit project-side operation, not another procedure step or
-an implicit daemon reaction to procedure closure. The caller reopens one exact
-cohort and its complete member page, then supplies one contribution for every
-member. A contribution names the member and procedure run, the exact successful
-baseline, fit, candidate, and verification step attempts, the proposal and
-accepted project decision, and the semantic result-input fingerprint. Only
-`published_result` members whose parent procedures closed successfully are
-eligible.
+Publication is a project-side operation, not another procedure step or an
+implicit daemon reaction to procedure closure. The explicit caller or registered
+resident policy reopens one exact cohort and its complete member page, then
+supplies one contribution for every member. A contribution names the member and
+procedure run, the exact successful baseline, fit, candidate, and verification
+step attempts, the proposal and accepted project decision, and the semantic
+result-input fingerprint. Only `published_result` members whose parent
+procedures closed successfully are eligible.
 
 The server resolves all evidence before publishing logical state. It checks the
 cohort spec and base source, complete member coverage, the four-step input/output
@@ -308,14 +320,17 @@ must publish that additional evidence explicitly rather than infer it from the
 cell merge.
 
 One config-publish command is the transaction boundary. After resolving an exact
-operation replay, the server prepares every proposal approval, executes one
-registry save-and-activate CAS against the cohort base generation, emits config
-events, commits one receipt containing the complete typed member-success tuple,
-records the operation ledger, and inserts one publication anchor per member.
-Any proof, merge, result-hash, generation, receipt, or anchor failure rolls the
-logical transaction back. A successful two-member finalization therefore creates
-two anchors but only one entry and one new registry generation; when both
-proposals were previously unapproved, it also creates their two approvals.
+operation replay, automatic publication also fences the exact still-ready
+finalization revision and its server-clock availability. The server then prepares
+every proposal approval, executes one registry save-and-activate CAS against the
+cohort base generation, emits config events, commits one receipt containing the
+complete typed member-success tuple, records the operation ledger, marks the
+finalization published, and inserts one publication anchor per member in the same
+transaction. Any proof, state fence, merge, result-hash, generation, receipt, or
+anchor failure rolls the logical transaction back. A successful two-member
+finalization therefore creates two anchors but only one entry and one new
+registry generation; when both proposals were previously unapproved, it also
+creates their two approvals.
 
 Each anchor binds the exact member success and closure time to the cohort base,
 publish operation and source-intent hash, semantic result-input fingerprint,
@@ -327,20 +342,35 @@ be substituted from another operation or member. Once anchored, the result is
 an effective success and may supply flat dependency evidence.
 
 The project finalizer derives deterministic entry and operation IDs from the
-complete merge source, actor, and note. A successful response is validated
-against that frozen plan. If transport loss, a server failure, or an invalid
-response leaves the outcome uncertain, reconciliation only reopens the exact
-operation and validates its durable receipt; it does not refresh the active head,
-rebuild contributions, or issue a new intent. If the exact result cannot be
-classified, the caller receives an unknown-outcome error carrying the original
-plan and can reopen it later.
+complete merge source, actor, and note. An automatic plan additionally carries
+the ready finalization revision without changing those replay identities. A
+successful response is validated against that frozen plan. If transport loss, a
+server failure, or an invalid response leaves the outcome uncertain,
+reconciliation only reopens the exact operation and finalization; it does not
+refresh the active head, rebuild contributions, or issue a new intent. An
+unclassified outcome retains the original plan and is always retryable by the
+resident backoff loop, even when the immediate cause was response validation or
+receipt drift.
 
-The resident project worker does not yet discover and finalize pending cohorts.
-Evaluation counts an exact pending publication to suppress duplicate work, while
-an operator or project workflow invokes the finalizer with the known cohort and
-complete member evidence. A bounded durable pending-publication scan, ownership
-policy, and retry queue are deliberately deferred until autonomous resident
-finalization is required.
+Automatic publication policies are immutable, fingerprinted, and pinned into
+the cohort spec. The application registry retains historical versions and binds
+at most one policy to each exact calibration-definition reference. The planning
+callback sees only read-only procedure/run projections and plan builders; the
+resident engine alone owns publish, defer, and attention mutations. Ready work is
+durable and capability-filtered by exact policy reference. Discovery uses a
+finite insertion-sequence high-water, wrapping only after the terminal page, so
+late readiness cannot be lost and continuous arrivals cannot make a cycle
+unbounded.
+
+Workers do not persist a second claim or lease. They prepare deterministically
+and race through the finalization revision plus base-generation fences. A lost
+publish response is reconciled by exact operation and cohort finalization;
+published and superseded states are benign completion, while an unresolved
+outcome retains the same plan for retry. Deterministic proof errors move the
+exact ready revision to operator attention. A typed temporary block defers that
+same ready occurrence using server-clock availability. Disposition responses
+are never blindly replayed: response loss is reconciled by exact finalization,
+and a different worker's revision is counted as a benign race.
 
 ## Capabilities needed at larger chip scale
 
@@ -358,8 +388,8 @@ procedure function:
   conflict summaries and any required joint-verification evidence;
 - explicit quality gates, approval policy, stop conditions, and rollback to an
   exact entry rather than a relative undo;
-- bounded pending-publication discovery, finalizer ownership, retry policy, and
-  operator reconciliation before resident workers publish completed campaigns;
+- fleet-level publication priorities, maintenance windows, and operator tooling
+  beyond the current bounded exact-capability queue;
 - richer recurring scheduling and worker-fleet discovery, including cron/civil
   time, version availability, worker heartbeats, maintenance windows, and
   operator attention queues;

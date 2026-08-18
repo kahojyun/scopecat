@@ -12,7 +12,7 @@ from typing import Literal, Protocol
 import httpx2
 from pydantic import BaseModel
 
-from scopecat.api.calibration_finalizer import CalibrationPublicationPolicyRegistry
+from scopecat.api.calibration_policy import CalibrationPublicationPolicyRegistry
 from scopecat.automation.calibration_definition import (
     CalibrationObservation,
     CalibrationRegistry,

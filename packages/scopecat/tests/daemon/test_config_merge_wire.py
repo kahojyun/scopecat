@@ -3,6 +3,10 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from scopecat.automation.calibrations import (
+    CalibrationDefinitionRef,
+    CalibrationPublicationPolicyRef,
+)
 from scopecat.config.registry.records import (
     CalibrationCohortMergeContribution,
     CalibrationCohortMergeRegistrySource,
@@ -21,6 +25,7 @@ _RESULT_HASH = f"sha256:{'b' * 64}"
 _SPEC_HASH = f"sha256:{'c' * 64}"
 _POLICY_HASH = f"sha256:{'d' * 64}"
 _DECISION_HASH = f"sha256:{'e' * 64}"
+_PUBLICATION_POLICY_HASH = f"sha256:{'f' * 64}"
 
 
 def test_calibration_merge_source_is_canonical_and_hashes_exact_proof() -> None:
@@ -80,6 +85,41 @@ def test_calibration_merge_command_requires_base_generation_cas() -> None:
             actor="automation",
             expected_generation=6,
             entry_id="merged-entry",
+        )
+
+
+def test_automatic_merge_requires_revision_fence_outside_publish_intent() -> None:
+    source = _automatic_source((_contribution("q0"), _contribution("q1")))
+
+    with pytest.raises(ValidationError, match="requires an expected finalization"):
+        ConfigPublishCommand(
+            operation_id="merge-op",
+            source=source,
+            actor="automation",
+            expected_generation=7,
+            entry_id="merged-entry",
+        )
+
+    first = ConfigPublishCommand(
+        operation_id="merge-op",
+        source=source,
+        actor="automation",
+        expected_generation=7,
+        expected_calibration_finalization_revision=2,
+        entry_id="merged-entry",
+    )
+    rebased = first.model_copy(update={"expected_calibration_finalization_revision": 3})
+    assert first.source_intent_hash == rebased.source_intent_hash
+    assert first.intent_hash == rebased.intent_hash
+
+    with pytest.raises(ValidationError, match="only valid for automatic"):
+        ConfigPublishCommand(
+            operation_id="manual-merge-op",
+            source=_source((_contribution("q0"),)),
+            actor="automation",
+            expected_generation=7,
+            expected_calibration_finalization_revision=2,
+            entry_id="manual-merged-entry",
         )
 
 
@@ -162,6 +202,25 @@ def _source(
         contributions=contributions,
         expected_result_content_hash=_RESULT_HASH,
     )
+
+
+def _automatic_source(
+    contributions: tuple[CalibrationCohortMergeContribution, ...],
+) -> CalibrationCohortMergeRevisionSource:
+    payload = _source(contributions).model_dump(mode="python")
+    payload["automatic_publication"] = CalibrationPublicationPolicyRef(
+        id="reference-lab.drag-automatic-publication",
+        version="1",
+        fingerprint=_PUBLICATION_POLICY_HASH,
+        calibration=CalibrationDefinitionRef(
+            id="reference-lab.drag-calibration",
+            version="1",
+            fingerprint=_PUBLICATION_POLICY_HASH,
+            success_policy="published_result",
+        ),
+        composition_policy=_policy(),
+    )
+    return CalibrationCohortMergeRevisionSource.model_validate(payload)
 
 
 def _policy() -> ConfigCompositionPolicyRef:

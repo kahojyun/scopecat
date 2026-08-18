@@ -259,6 +259,10 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
     procedure_operations = FakeProcedureOperations()
 
     class FakeCalibrationOperations:
+        def publication_finalizer(self) -> object:
+            calls.append(("calibration_finalizer",))
+            return "calibration-finalizer"
+
         def evaluator(self) -> object:
             calls.append(("calibration_evaluator",))
             return "calibration-evaluator"
@@ -285,12 +289,31 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
             *,
             planner: object,
             calibration_evaluator: object,
+            calibration_finalizer: object,
         ) -> None:
-            calls.append(("worker", operations, planner, calibration_evaluator))
+            calls.append(
+                (
+                    "worker",
+                    operations,
+                    planner,
+                    calibration_evaluator,
+                    calibration_finalizer,
+                )
+            )
 
         def cycle(self) -> object:
             calls.append(("cycle",))
             return SimpleNamespace(
+                ready_calibration_publications=3,
+                prepared_calibration_publications=2,
+                published_calibration_publications=1,
+                deferred_calibration_publications=1,
+                attention_calibration_publications=0,
+                reconciled_calibration_publications=1,
+                superseded_calibration_publications=1,
+                calibration_publication_races=1,
+                calibration_publication_failures=0,
+                calibration_publication_barrier=True,
                 created_interval_schedules=1,
                 planner_failures=0,
                 interval_schedule_drifts=0,
@@ -319,6 +342,8 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
             calls.append(("run_forever", poll_seconds))
             on_cycle(
                 SimpleNamespace(
+                    calibration_publication_failures=1,
+                    attention_calibration_publications=1,
                     planner_failures=0,
                     interval_schedule_drifts=0,
                     calibration_failures=1,
@@ -349,6 +374,11 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
     )
 
     assert once.exit_code == 0, once.output
+    assert "publication_ready=3" in once.output
+    assert "publication_published=1" in once.output
+    assert "publication_reconciled=1" in once.output
+    assert "publication_superseded=1" in once.output
+    assert "publication_barrier=true" in once.output
     assert "interval_created=1" in once.output
     assert "calibration_admitted=2" in once.output
     assert "materialized=2" in once.output
@@ -356,6 +386,7 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
     assert resident.exit_code == 0, resident.output
     assert "worker worker-cli" in resident.output
     assert "procedure cycle needs review" in resident.output
+    assert "publication_failures=1" in resident.output
     assert "procedure_conflicts=1" in resident.output
     assert ("run_forever", 2.5) in calls
 
@@ -368,12 +399,24 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
             *,
             planner: object,
             calibration_evaluator: object,
+            calibration_finalizer: object,
         ) -> None:
             assert planner == "interval-planner"
             assert calibration_evaluator == "calibration-evaluator"
+            assert calibration_finalizer == "calibration-finalizer"
 
         def cycle(self) -> object:
             return SimpleNamespace(
+                ready_calibration_publications=1,
+                prepared_calibration_publications=0,
+                published_calibration_publications=0,
+                deferred_calibration_publications=0,
+                attention_calibration_publications=1,
+                reconciled_calibration_publications=0,
+                superseded_calibration_publications=0,
+                calibration_publication_races=0,
+                calibration_publication_failures=1,
+                calibration_publication_barrier=False,
                 created_interval_schedules=0,
                 planner_failures=0,
                 interval_schedule_drifts=1,
@@ -401,8 +444,9 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
 
     assert failed_outcome.exit_code == 1
     assert "cycle completed with failures" in failed_outcome.output
+    assert "publication_failures=1" in failed_outcome.output
     assert "interval_drifts=1" in failed_outcome.output
-    assert "error: procedure worker cycle reported 1 failure" in failed_outcome.output
+    assert "error: procedure worker cycle reported 2 failure" in failed_outcome.output
 
     class FailingWorker:
         worker_id = "worker-failing"
@@ -413,9 +457,11 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
             *,
             planner: object,
             calibration_evaluator: object,
+            calibration_finalizer: object,
         ) -> None:
             assert planner == "interval-planner"
             assert calibration_evaluator == "calibration-evaluator"
+            assert calibration_finalizer == "calibration-finalizer"
 
         def cycle(self) -> object:
             raise ProcedureControlError(

@@ -27,6 +27,8 @@ from scopecat.automation import (
     CalibrationConfigSourceRef,
     CalibrationDefinitionRef,
     CalibrationForcedDueReason,
+    CalibrationPublicationAttentionCommand,
+    CalibrationPublicationDeferCommand,
     CalibrationPublicationGetQuery,
     CalibrationPublicationPolicyRef,
     CalibrationPublicationReadyQuery,
@@ -1222,12 +1224,20 @@ def _prepare_calibration_merge(
         contributions=tuple(contributions),
         expected_result_content_hash=merged.content_hash,
     )
+    expected_finalization_revision = None
+    if publication_policy is not None:
+        finalization = runtime.application.calibration_cohorts.get_publication(
+            CalibrationPublicationGetQuery(cohort_id=created.cohort.cohort_id)
+        ).finalization
+        assert finalization.state == "ready"
+        expected_finalization_revision = finalization.revision
     return _CalibrationMergeFixture(
         command=ConfigPublishCommand(
             operation_id=f"publish:calibration-merge:{suffix}",
             source=source,
             actor="calibration-finalizer",
             expected_generation=base.registry_generation,
+            expected_calibration_finalization_revision=(expected_finalization_revision),
             entry_id=f"calibration-merge-{suffix}",
         ),
         members=created.members,
@@ -1496,6 +1506,10 @@ def test_automatic_calibration_merge_completes_ready_work_atomically(
 
         before = client.get_calibration_publication(source.cohort_id).finalization
         assert before.state == "ready"
+        assert (
+            fixture.command.expected_calibration_finalization_revision
+            == before.revision
+        )
         page = client.list_ready_calibration_publications(
             CalibrationPublicationReadyQuery(capabilities=(policy,))
         )
@@ -1527,6 +1541,8 @@ def test_automatic_calibration_merge_completes_ready_work_atomically(
         )
 
         after = _publication_side_effects(runtime, fixture)
+        # Model a committed response that the worker did not observe. Operation
+        # replay must win before the now-stale finalization fence is inspected.
         assert client.publish_config(fixture.command) == receipt
         assert _publication_side_effects(runtime, fixture) == after
         assert (
@@ -1544,6 +1560,80 @@ def test_automatic_calibration_merge_completes_ready_work_atomically(
             client.get_calibration_publication(source.cohort_id).finalization
             == completed
         )
+
+
+@pytest.mark.parametrize("transition", ["attention", "defer"])
+def test_automatic_calibration_merge_fences_stale_ready_occurrences(
+    tmp_path: Path,
+    transition: str,
+) -> None:
+    with (
+        LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime,
+        TestClient(runtime.app()) as transport,
+    ):
+        client = _daemon_client(transport)
+        fixture = _prepare_calibration_merge(
+            runtime,
+            LabClient(client),
+            suffix=transition,
+            automatic_publication=True,
+        )
+        source = fixture.command.source
+        assert isinstance(source, CalibrationCohortMergeRevisionSource)
+        policy = source.automatic_publication
+        expected_revision = fixture.command.expected_calibration_finalization_revision
+        assert policy is not None
+        assert expected_revision is not None
+        before_effects = _publication_side_effects(runtime, fixture)
+
+        if transition == "attention":
+            changed = client.require_calibration_publication_attention(
+                CalibrationPublicationAttentionCommand(
+                    cohort_id=source.cohort_id,
+                    policy=policy,
+                    expected_finalization_revision=expected_revision,
+                    actor="calibration-finalizer",
+                    reason="deterministic proof drift",
+                )
+            ).finalization
+            assert changed.state == "attention_required"
+        else:
+            changed = client.defer_calibration_publication(
+                CalibrationPublicationDeferCommand(
+                    cohort_id=source.cohort_id,
+                    policy=policy,
+                    expected_finalization_revision=expected_revision,
+                    retry_after_seconds=600,
+                    reason="transient dependency outage",
+                )
+            ).finalization
+            assert changed.state == "ready"
+            assert changed.available_at is not None
+            assert changed.available_at > changed.updated_at
+        assert changed.revision == expected_revision + 1
+
+        with pytest.raises(BackendConflict, match="not eligible"):
+            runtime.application.config.publish_config(fixture.command)
+
+        rebased_payload = fixture.command.model_dump(mode="python")
+        rebased_payload["expected_calibration_finalization_revision"] = changed.revision
+        rebased = ConfigPublishCommand.model_validate(rebased_payload)
+        assert rebased.operation_id == fixture.command.operation_id
+        assert rebased.intent_hash == fixture.command.intent_hash
+        with pytest.raises(BackendConflict, match="not eligible"):
+            runtime.application.config.publish_config(rebased)
+
+        assert _publication_side_effects(runtime, fixture) == before_effects
+        assert (
+            runtime.application.calibration_cohorts.get_publication(
+                CalibrationPublicationGetQuery(cohort_id=source.cohort_id)
+            ).finalization
+            == changed
+        )
+        with pytest.raises(BackendNotFound):
+            runtime.application.config.get_config_publish_operation(
+                fixture.command.operation_id
+            )
 
 
 def test_calibration_merge_proof_and_result_failures_have_no_side_effects(
@@ -1754,10 +1844,11 @@ def test_calibration_merge_cas_and_final_anchor_failures_roll_back(
             *,
             cohort_id: str,
             policy: CalibrationPublicationPolicyRef,
+            expected_revision: int,
             operation_id: str,
             at: object,
         ) -> object:
-            del cohort_id, policy, operation_id, at
+            del cohort_id, policy, expected_revision, operation_id, at
             raise CalibrationCohortConflict("injected finalization failure")
 
         with monkeypatch.context() as patch:

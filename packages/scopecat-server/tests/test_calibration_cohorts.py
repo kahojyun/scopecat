@@ -460,6 +460,84 @@ def test_automatic_publication_becomes_ready_and_supports_control_transitions(
     assert retry_page.items[0].enqueued_at == retried.ready_at
 
 
+def test_publication_completion_store_requires_exact_available_ready_revision(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    members = (_member("q0", success_policy="published_result"),)
+    policy = _publication_policy(members[0].definition)
+    command = _command(
+        "completion-fence-cohort",
+        source=harness.source,
+        snapshot=_status(harness, members),
+        members=members,
+        automatic_publication=policy,
+    )
+    receipt = harness.service.create(command)
+    _close(harness, receipt.members[0], status="succeeded")
+    ready = harness.store.read_finalization(command.cohort_id)
+    assert ready.state == "ready"
+
+    with (
+        harness.store.write_transaction() as connection,
+        pytest.raises(CalibrationCohortConflict, match="not eligible"),
+    ):
+        harness.store.complete_publication_in_transaction(
+            connection,
+            cohort_id=command.cohort_id,
+            policy=policy,
+            expected_revision=ready.revision - 1,
+            operation_id="uncommitted-publication",
+            at=harness.now[0],
+        )
+
+    deferred = harness.service.defer_publication(
+        CalibrationPublicationDeferCommand(
+            cohort_id=command.cohort_id,
+            policy=policy,
+            expected_finalization_revision=ready.revision,
+            retry_after_seconds=30,
+            reason="transient dependency outage",
+        )
+    ).finalization
+    with (
+        harness.store.write_transaction() as connection,
+        pytest.raises(CalibrationCohortConflict, match="not yet available"),
+    ):
+        harness.store.complete_publication_in_transaction(
+            connection,
+            cohort_id=command.cohort_id,
+            policy=policy,
+            expected_revision=deferred.revision,
+            operation_id="uncommitted-publication",
+            at=harness.now[0],
+        )
+
+    harness.now[0] += timedelta(seconds=30)
+    attention = harness.service.require_publication_attention(
+        CalibrationPublicationAttentionCommand(
+            cohort_id=command.cohort_id,
+            policy=policy,
+            expected_finalization_revision=deferred.revision,
+            actor="automatic-finalizer",
+            reason="deterministic proof drift",
+        )
+    ).finalization
+    with (
+        harness.store.write_transaction() as connection,
+        pytest.raises(CalibrationCohortConflict, match="not eligible"),
+    ):
+        harness.store.complete_publication_in_transaction(
+            connection,
+            cohort_id=command.cohort_id,
+            policy=policy,
+            expected_revision=attention.revision,
+            operation_id="uncommitted-publication",
+            at=harness.now[0],
+        )
+    assert harness.store.read_finalization(command.cohort_id) == attention
+
+
 def test_automatic_publication_fails_terminally_with_any_failed_member(
     tmp_path: Path,
 ) -> None:

@@ -249,7 +249,7 @@ def procedures_work(
         ),
     ] = 1.0,
 ) -> None:
-    """Materialize due schedules and execute exact registered procedures."""
+    """Finalize calibrations, plan work, and execute exact procedures."""
 
     import signal
     from threading import Event
@@ -268,12 +268,14 @@ def procedures_work(
                 lab.procedures,
                 planner=lab.procedures.interval_planner(),
                 calibration_evaluator=lab.calibrations.evaluator(),
+                calibration_finalizer=lab.calibrations.publication_finalizer(),
             )
             if once:
                 result = worker.cycle()
                 failure_count = (
                     result.planner_failures
                     + result.interval_schedule_drifts
+                    + result.calibration_publication_failures
                     + result.calibration_failures
                     + result.calibration_cohort_drifts
                     + result.schedule_failures
@@ -287,6 +289,24 @@ def procedures_work(
                 )
                 console.print(
                     f"{outcome} "
+                    f"publication_ready="
+                    f"{result.ready_calibration_publications} "
+                    f"publication_prepared="
+                    f"{result.prepared_calibration_publications} "
+                    f"publication_published="
+                    f"{result.published_calibration_publications} "
+                    f"publication_deferred="
+                    f"{result.deferred_calibration_publications} "
+                    f"publication_attention="
+                    f"{result.attention_calibration_publications} "
+                    f"publication_reconciled="
+                    f"{result.reconciled_calibration_publications} "
+                    f"publication_superseded="
+                    f"{result.superseded_calibration_publications} "
+                    f"publication_races="
+                    f"{result.calibration_publication_races} "
+                    f"publication_barrier="
+                    f"{str(result.calibration_publication_barrier).lower()} "
                     f"interval_created={result.created_interval_schedules} "
                     f"calibration_admitted={result.admitted_calibrations} "
                     f"calibration_blocked={result.blocked_calibrations} "
@@ -294,6 +314,8 @@ def procedures_work(
                     f"dispatched={result.dispatched_procedures} "
                     f"planner_failures={result.planner_failures} "
                     f"interval_drifts={result.interval_schedule_drifts} "
+                    f"publication_failures="
+                    f"{result.calibration_publication_failures} "
                     f"calibration_failures={result.calibration_failures} "
                     f"calibration_drifts={result.calibration_cohort_drifts} "
                     f"schedule_failures={result.schedule_failures} "
@@ -318,7 +340,7 @@ def procedures_work(
 
             def report_retry(error: Exception, delay: float) -> None:
                 error_console.print(
-                    f"[yellow]procedure control unavailable:[/yellow] {error}; "
+                    f"[yellow]project worker control unavailable:[/yellow] {error}; "
                     f"retrying in {delay:g}s",
                     soft_wrap=True,
                 )
@@ -327,6 +349,7 @@ def procedures_work(
                 if (
                     result.planner_failures
                     or result.interval_schedule_drifts
+                    or result.calibration_publication_failures
                     or result.calibration_failures
                     or result.calibration_cohort_drifts
                     or result.schedule_failures
@@ -337,6 +360,10 @@ def procedures_work(
                         "[yellow]procedure cycle needs review:[/yellow] "
                         f"planner_failures={result.planner_failures} "
                         f"interval_drifts={result.interval_schedule_drifts} "
+                        f"publication_failures="
+                        f"{result.calibration_publication_failures} "
+                        f"publication_attention="
+                        f"{result.attention_calibration_publications} "
                         f"calibration_failures={result.calibration_failures} "
                         f"calibration_drifts={result.calibration_cohort_drifts} "
                         f"schedule_failures={result.schedule_failures} "

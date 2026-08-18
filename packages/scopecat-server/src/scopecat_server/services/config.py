@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import UTC, datetime
 from threading import Lock
 
 from scopecat.automation.calibrations import (
@@ -353,10 +353,15 @@ class ConfigService:
                     isinstance(source, CalibrationCohortMergeRevisionSource)
                     and source.automatic_publication is not None
                 ):
+                    expected_revision = (
+                        command.expected_calibration_finalization_revision
+                    )
+                    assert expected_revision is not None
                     self._calibration_cohorts.complete_publication_in_transaction(
                         connection,
                         cohort_id=source.cohort_id,
                         policy=source.automatic_publication,
+                        expected_revision=expected_revision,
                         operation_id=operation.operation_id,
                         at=activation.recorded_at,
                     )
@@ -406,6 +411,8 @@ class ConfigService:
                 "calibration merge cohort or base config does not match its source"
             )
         if source.automatic_publication is not None:
+            expected_revision = command.expected_calibration_finalization_revision
+            assert expected_revision is not None
             try:
                 finalization = (
                     self._calibration_cohorts.read_finalization_in_transaction(
@@ -420,7 +427,10 @@ class ConfigService:
             if (
                 finalization.policy != source.automatic_publication
                 or finalization.base_config_source != base
-                or finalization.state not in {"ready", "attention_required"}
+                or finalization.state != "ready"
+                or finalization.revision != expected_revision
+                or finalization.available_at is None
+                or finalization.available_at > datetime.now(UTC)
             ):
                 raise BackendConflict(
                     "automatic calibration publication is not eligible"

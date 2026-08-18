@@ -12,8 +12,8 @@ from scopecat.api._control import LabControlOperations
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.analysis import AnalysisContext, AnalysisStep
-from scopecat.api.calibration_finalizer import CalibrationPublicationPolicyRegistry
 from scopecat.api.calibration_planner import CalibrationPlanningContext
+from scopecat.api.calibration_policy import CalibrationPublicationPolicyRegistry
 from scopecat.api.calibrations import LabCalibrationOperations
 from scopecat.api.instruments import LabInstrumentOperations
 from scopecat.api.procedure_planner import ProcedurePlanningContext

@@ -15,6 +15,8 @@ from scopecat.api.calibration_finalizer import (
     CalibrationPublicationPolicy,
     CalibrationPublicationPolicyRegistry,
     CalibrationPublicationPrepare,
+    CalibrationPublicationProcedureView,
+    CalibrationPublicationRunView,
     ProjectCalibrationPublicationFinalizer,
 )
 from scopecat.api.calibration_publication import (
@@ -43,6 +45,7 @@ from scopecat.automation.calibrations import (
     CalibrationMissingSuccessDueReason,
     CalibrationPublicationAttention,
     CalibrationPublicationCompletion,
+    CalibrationPublicationPolicyRef,
     CalibrationPublicationSupersession,
     CalibrationStatus,
     CalibrationTargetRef,
@@ -136,6 +139,70 @@ def _prepare_and_stop(
     return _PLANS[candidate.cohort.cohort_id]
 
 
+def _prepare_failure_and_stop(
+    _context: CalibrationPublicationPlanningContext,
+    _candidate: CalibrationPublicationCandidate,
+) -> CalibrationCohortPublicationPlan:
+    assert _prepare_stop_event is not None
+    _prepare_stop_event.set()
+    raise ValueError("stopped deterministic proof")
+
+
+def _prepare_deferred_and_stop(
+    _context: CalibrationPublicationPlanningContext,
+    _candidate: CalibrationPublicationCandidate,
+) -> CalibrationCohortPublicationPlan:
+    assert _prepare_stop_event is not None
+    _prepare_stop_event.set()
+    raise CalibrationPublicationDeferred("stopped defer", retry_after_seconds=30)
+
+
+@dataclass(frozen=True, slots=True)
+class _RegisteredPolicy:
+    policy: CalibrationPublicationPolicy
+    prepared_plan: CalibrationCohortPublicationPlan
+    exact_ref: CalibrationPublicationPolicyRef | None = None
+
+    @property
+    def id(self) -> str:
+        return self.policy.id
+
+    @property
+    def version(self) -> str:
+        return self.policy.version
+
+    @property
+    def fingerprint(self) -> str:
+        return self.policy.fingerprint
+
+    @property
+    def calibration(self) -> CalibrationDefinitionRef:
+        return self.policy.calibration
+
+    @property
+    def composition_policy(self) -> ConfigCompositionPolicyRef:
+        return self.policy.composition_policy
+
+    @property
+    def actor(self) -> str:
+        return self.policy.actor
+
+    @property
+    def note(self) -> str:
+        return self.policy.note
+
+    @property
+    def ref(self) -> CalibrationPublicationPolicyRef:
+        return self.policy.ref if self.exact_ref is None else self.exact_ref
+
+    def prepare(
+        self,
+        _context: CalibrationPublicationPlanningContext,
+        _candidate: CalibrationPublicationCandidate,
+    ) -> CalibrationCohortPublicationPlan:
+        return self.prepared_plan
+
+
 def test_policy_fingerprint_covers_exact_contract_and_registry_history() -> None:
     first = _policy(_prepare_success)
     actor_changed = _policy(_prepare_success, actor="another-actor")
@@ -186,6 +253,14 @@ def test_policy_fingerprint_covers_exact_contract_and_registry_history() -> None
         CalibrationPublicationPolicyRegistry((first, separately_named))
     with pytest.raises(ValueError, match="exact fingerprint"):
         registry.resolve(first.ref.model_copy(update={"fingerprint": _HASH_E}))
+    fixture = _fixture(first, cohort_id="cohort-malformed-policy-ref")
+    malformed = _RegisteredPolicy(
+        first,
+        fixture.plan,
+        exact_ref=first.ref.model_copy(update={"fingerprint": _HASH_E}),
+    )
+    with pytest.raises(ValueError, match="declared exact identity"):
+        CalibrationPublicationPolicyRegistry((malformed,))
 
 
 def test_policy_requires_exact_callback_signature() -> None:
@@ -203,6 +278,15 @@ def test_policy_requires_exact_callback_signature() -> None:
 
     with pytest.raises(TypeError, match="must be synchronous"):
         _policy(cast("CalibrationPublicationPrepare", asynchronous))
+
+
+def test_publication_planning_views_do_not_expose_mutation_methods() -> None:
+    assert not hasattr(CalibrationPublicationPlanningContext, "publish")
+    assert not hasattr(CalibrationPublicationPlanningContext, "defer_publication")
+    assert not hasattr(CalibrationPublicationProcedureView, "resume")
+    assert not hasattr(CalibrationPublicationRunView, "save_analysis")
+    assert not hasattr(CalibrationPublicationRunView, "analyze")
+    assert not hasattr(CalibrationPublicationRunView, "attach")
 
 
 def test_candidate_and_policy_reject_cross_response_or_plan_drift() -> None:
@@ -233,12 +317,37 @@ def test_candidate_and_policy_reject_cross_response_or_plan_drift() -> None:
         fixture.plan.source,
         actor="wrong-actor",
         note=policy.note,
+        expected_calibration_finalization_revision=fixture.finalization.revision,
     )
     try:
         with pytest.raises(ValueError, match="exact policy/candidate"):
             policy.prepare(context, fixture.candidate)
     finally:
         _PLANS[fixture.cohort.cohort_id] = fixture.plan
+
+
+def test_finalizer_validates_plan_from_any_registered_policy_protocol() -> None:
+    policy = _policy(_prepare_success)
+    fixture = _fixture(policy)
+    unsafe = _RegisteredPolicy(
+        policy,
+        CalibrationCohortPublicationPlan.create(
+            fixture.plan.source,
+            actor="wrong-actor",
+            note=policy.note,
+            expected_calibration_finalization_revision=fixture.finalization.revision,
+        ),
+    )
+    operations = _operations_for(fixture)
+
+    result = ProjectCalibrationPublicationFinalizer(
+        operations,
+        CalibrationPublicationPolicyRegistry((unsafe,)),
+    ).cycle()
+
+    assert result.failures == 1
+    assert result.attention_items == 1
+    assert operations.plans == []
 
 
 def test_finalizer_preserves_finite_traversal_and_publishes_exact_plans() -> None:
@@ -376,6 +485,54 @@ def test_finalizer_stop_after_prepare_never_publishes_or_advances() -> None:
 
 
 @pytest.mark.parametrize(
+    "prepare",
+    [_prepare_failure_and_stop, _prepare_deferred_and_stop],
+)
+def test_stop_during_prepare_never_records_a_disposition(
+    prepare: CalibrationPublicationPrepare,
+) -> None:
+    global _prepare_stop_event
+    stop = Event()
+    _prepare_stop_event = stop
+    policy = _policy(prepare)
+    fixture = _fixture(policy)
+    operations = _operations_for(fixture)
+
+    try:
+        result = ProjectCalibrationPublicationFinalizer(
+            operations,
+            CalibrationPublicationPolicyRegistry((policy,)),
+        ).cycle(stop)
+    finally:
+        _prepare_stop_event = None
+
+    assert result.has_more is True
+    assert result.failures == 0
+    assert operations.attention_commands == []
+    assert operations.defer_commands == []
+
+
+def test_stop_during_candidate_read_never_records_attention() -> None:
+    stop = Event()
+    policy = _policy(_prepare_success)
+    fixture = _fixture(policy)
+    fixture.context.stop_after_members = stop
+    fixture.context.member_pages[fixture.cohort.cohort_id] = (
+        fixture.member_page.model_copy(update={"cohort_id": "drifted-cohort"})
+    )
+    operations = _operations_for(fixture)
+
+    result = ProjectCalibrationPublicationFinalizer(
+        operations,
+        CalibrationPublicationPolicyRegistry((policy,)),
+    ).cycle(stop)
+
+    assert result.has_more is True
+    assert result.failures == 0
+    assert operations.attention_commands == []
+
+
+@pytest.mark.parametrize(
     ("prepare", "expected_attention", "expected_deferred"),
     [
         (_prepare_failure, 1, 0),
@@ -449,6 +606,30 @@ def test_disposition_response_loss_reconciles_exact_committed_state(
         assert result.deferred_items == 1
 
 
+def test_defer_response_loss_does_not_claim_another_workers_delay() -> None:
+    policy = _policy(_prepare_deferred)
+    fixture = _fixture(policy)
+    operations = _operations_for(fixture)
+    operations.defer_error = httpx2.ConnectError(
+        "defer response lost",
+        request=httpx2.Request(
+            "POST",
+            "http://daemon.test/calibration-publications/defer",
+        ),
+    )
+    operations.defer_commits_before_error = True
+    operations.defer_commit_retry_after_seconds = 60
+
+    result = ProjectCalibrationPublicationFinalizer(
+        operations,
+        CalibrationPublicationPolicyRegistry((policy,)),
+    ).cycle()
+
+    assert result.deferred_items == 0
+    assert result.reconciled_items == 0
+    assert result.benign_races == 1
+
+
 def test_publish_conflict_reconciles_exact_completion_or_supersession() -> None:
     policy = _policy(_prepare_success)
     fixture = _fixture(policy)
@@ -484,6 +665,26 @@ def test_publish_conflict_reconciles_exact_completion_or_supersession() -> None:
     assert superseded_result.benign_races == 1
 
 
+def test_publish_conflict_with_new_ready_revision_is_a_benign_race() -> None:
+    policy = _policy(_prepare_success)
+    fixture = _fixture(policy)
+    operations = _operations_for(fixture)
+    operations.publish_results.append(_conflict())
+    operations.finalizations[fixture.cohort.cohort_id] = _deferred(
+        fixture.finalization,
+        30,
+    )
+
+    result = ProjectCalibrationPublicationFinalizer(
+        operations,
+        CalibrationPublicationPolicyRegistry((policy,)),
+    ).cycle()
+
+    assert result.benign_races == 1
+    assert result.failures == 0
+    assert operations.attention_commands == []
+
+
 def test_unknown_publish_outcome_only_accepts_exact_durable_completion() -> None:
     policy = _policy(_prepare_success)
     fixture = _fixture(policy)
@@ -509,6 +710,28 @@ def test_unknown_publish_outcome_only_accepts_exact_durable_completion() -> None
     )
     with pytest.raises(CalibrationPublicationDriftError, match="deterministic plan"):
         finalizer.cycle()
+
+
+def test_unknown_publish_outcome_survives_failed_reconciliation_lookup() -> None:
+    policy = _policy(_prepare_success)
+    fixture = _fixture(policy)
+    operations = _operations_for(fixture)
+    unknown = CalibrationPublicationOutcomeUnknown(
+        fixture.plan,
+        cause=RuntimeError("publish response lost"),
+    )
+    lookup_error = httpx2.ReadError("finalization lookup unavailable")
+    operations.publish_results.append(unknown)
+    operations.finalization_error = lookup_error
+
+    with pytest.raises(CalibrationPublicationOutcomeUnknown) as raised:
+        ProjectCalibrationPublicationFinalizer(
+            operations,
+            CalibrationPublicationPolicyRegistry((policy,)),
+        ).cycle()
+
+    assert raised.value is unknown
+    assert raised.value.__cause__ is lookup_error
 
 
 def test_empty_and_pre_stopped_finalizers_do_not_discover_work() -> None:
@@ -546,11 +769,14 @@ class _Fixture:
 class _Context:
     cohorts: dict[str, CalibrationCohort] = field(default_factory=dict)
     member_pages: dict[str, CalibrationCohortMemberPage] = field(default_factory=dict)
+    stop_after_members: Event | None = None
 
     def cohort(self, cohort_id: str) -> CalibrationCohort:
         return self.cohorts[cohort_id]
 
     def cohort_members(self, cohort_id: str) -> CalibrationCohortMemberPage:
+        if self.stop_after_members is not None:
+            self.stop_after_members.set()
         return self.member_pages[cohort_id]
 
 
@@ -564,6 +790,8 @@ class _Operations:
     attention_commits_before_error: bool = False
     defer_error: BaseException | None = None
     defer_commits_before_error: bool = False
+    defer_commit_retry_after_seconds: int | None = None
+    finalization_error: BaseException | None = None
     queries: list[CalibrationPublicationReadyQuery] = field(default_factory=list)
     plans: list[CalibrationCohortPublicationPlan] = field(default_factory=list)
     attention_commands: list[CalibrationPublicationAttentionCommand] = field(
@@ -590,6 +818,8 @@ class _Operations:
         self,
         cohort_id: str,
     ) -> CalibrationCohortFinalization:
+        if self.finalization_error is not None:
+            raise self.finalization_error
         return self.finalizations[cohort_id]
 
     def publish(self, plan: CalibrationCohortPublicationPlan) -> ConfigPublishReceipt:
@@ -619,7 +849,10 @@ class _Operations:
     ) -> CalibrationCohortFinalization:
         self.defer_commands.append(command)
         current = self.finalizations[command.cohort_id]
-        changed = _deferred(current, command.retry_after_seconds)
+        changed = _deferred(
+            current,
+            self.defer_commit_retry_after_seconds or command.retry_after_seconds,
+        )
         if self.defer_error is not None:
             if self.defer_commits_before_error:
                 self.finalizations[command.cohort_id] = changed
@@ -755,6 +988,7 @@ def _fixture(
         source,
         actor=policy.actor,
         note=policy.note,
+        expected_calibration_finalization_revision=finalization.revision,
     )
     _PLANS[cohort_id] = plan
     context = _Context(
