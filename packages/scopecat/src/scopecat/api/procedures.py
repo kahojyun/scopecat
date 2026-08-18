@@ -10,6 +10,7 @@ from typing import Protocol
 from uuid import uuid4
 
 import httpx2
+from pydantic import ValidationError
 
 from scopecat.api._config import LabConfigOperations
 from scopecat.api._runner import _DaemonRunner, _prepare_run_submission
@@ -19,6 +20,7 @@ from scopecat.api.run import RunHandle
 from scopecat.authoring.experiments import Experiment, ExperimentInvocation
 from scopecat.automation import (
     AnalysisPublicationOutputRef,
+    ConfigActivationOutputRef,
     ProcedureContext,
     ProcedureRegistry,
     ProcedureRun,
@@ -36,7 +38,16 @@ from scopecat.automation import (
 )
 from scopecat.automation.worker import ProcedureNeedsAttention
 from scopecat.config.candidates import CandidateConfig
-from scopecat.daemon.client import DaemonClient, DaemonNotFoundError
+from scopecat.daemon.client import (
+    DaemonClient,
+    DaemonClientError,
+    DaemonNotFoundError,
+    DaemonUnavailableError,
+)
+from scopecat.daemon.wire import (
+    ConfigActivationReceipt,
+    ConfigEntryActivationCommand,
+)
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import RunIndeterminate
 from scopecat.kernel.ids import artifact_slug
@@ -356,6 +367,86 @@ class LabProcedureContext:
             )
         return self._session.published_analysis(ref.analysis_record_id)
 
+    def activate_config_entry(
+        self,
+        step_key: str,
+        entry_id: str,
+        *,
+        expected_generation: int,
+        actor: str,
+        note: str = "",
+        inputs: tuple[ProcedureStepOutputRef, ...] = (),
+    ) -> ConfigActivationOutputRef:
+        """Activate one saved entry through an exact replayable command."""
+
+        intent = ConfigEntryActivationCommand(
+            operation_id="procedure-step:validation",
+            entry_id=entry_id,
+            expected_generation=expected_generation,
+            actor=actor,
+            note=note,
+        )
+        intent_hash = intent.intent_hash
+
+        def activate(operation_id: str) -> ConfigActivationOutputRef:
+            try:
+                receipt = self._config.activate_entry(
+                    intent.entry_id,
+                    operation_id=operation_id,
+                    expected_generation=intent.expected_generation,
+                    actor=intent.actor,
+                    note=intent.note,
+                )
+                _validate_config_activation_receipt(
+                    receipt,
+                    operation_id=operation_id,
+                    intent_hash=intent_hash,
+                    entry_id=intent.entry_id,
+                    expected_generation=intent.expected_generation,
+                    actor=intent.actor,
+                    note=intent.note,
+                )
+            except (
+                httpx2.HTTPError,
+                DaemonUnavailableError,
+                ProcedureNeedsAttention,
+                ValidationError,
+            ):
+                try:
+                    receipt = self._config.activation_operation(operation_id)
+                    _validate_config_activation_receipt(
+                        receipt,
+                        operation_id=operation_id,
+                        intent_hash=intent_hash,
+                        entry_id=intent.entry_id,
+                        expected_generation=intent.expected_generation,
+                        actor=intent.actor,
+                        note=intent.note,
+                    )
+                except (
+                    DaemonClientError,
+                    httpx2.HTTPError,
+                    ProcedureNeedsAttention,
+                    ValidationError,
+                ) as lookup_error:
+                    raise ProcedureNeedsAttention(
+                        "config activation outcome for operation "
+                        f"{operation_id!r} is unknown"
+                    ) from lookup_error
+            return ConfigActivationOutputRef(
+                generation=receipt.activation.generation,
+                entry_id=receipt.activation.entry_id,
+                entry_content_hash=receipt.activation.entry_content_hash,
+            )
+
+        return self.step(
+            step_key,
+            operation="config_activation",
+            intent_hash=intent_hash,
+            effect=activate,
+            inputs=inputs,
+        )
+
 
 class LabProcedureOperations:
     """Submit, execute, inspect, and resume registered lab procedures."""
@@ -664,6 +755,39 @@ def _validate_analysis_upstreams(
     if actual_inputs != declared_inputs:
         raise ValueError(
             "procedure analysis upstreams do not match declared durable inputs"
+        )
+
+
+def _validate_config_activation_receipt(
+    receipt: ConfigActivationReceipt,
+    *,
+    operation_id: str,
+    intent_hash: Sha256ContentHash,
+    entry_id: str,
+    expected_generation: int,
+    actor: str,
+    note: str,
+) -> None:
+    operation = receipt.operation
+    expected_identity = (
+        operation_id,
+        intent_hash,
+        entry_id,
+        expected_generation,
+        actor,
+        note,
+    )
+    actual_identity = (
+        operation.operation_id,
+        operation.intent_hash,
+        operation.entry_id,
+        operation.expected_generation,
+        operation.actor,
+        operation.note,
+    )
+    if actual_identity != expected_identity:
+        raise ProcedureNeedsAttention(
+            "config activation receipt does not match its exact procedure command"
         )
 
 

@@ -1,4 +1,4 @@
-"""Run the supported DRAG-beta calibration from measurement to undo."""
+"""Run the supported DRAG-beta calibration through an exact config restore."""
 
 from __future__ import annotations
 
@@ -89,9 +89,13 @@ production_run = lab.run(
 )
 
 # %%
-# Undo restores the previous default while retaining the durable audit trail.
-restored = lab.config.undo(
-    note="restore the previous default after the calibration example",
+# Restore the exact starting entry; relative undo is not safe to replay.
+restored = lab.config.activate_entry(
+    initial_config_source.entry_id,
+    operation_id=f"reference-lab.drag-beta.restore:{procedure.id}",
+    expected_generation=accepted.activation.generation,
+    actor="nightly-calibration",
+    note="restore the exact starting config after the calibration example",
 )
 candidate_source = candidate_run.snapshot.config_source
 production_source = production_run.snapshot.config_source
@@ -145,9 +149,10 @@ drag_beta_summary = {
         production_source is not None
         and production_source.content_hash == accepted.entry.content_hash
     ),
+    "restore_operation": restored.operation.operation_id,
     "default_restored": (
-        restored.activation.entry_content_hash
-        == accepted.activation.previous_entry_content_hash
+        restored.activation.entry_id == initial_config_source.entry_id
+        and restored.activation.entry_content_hash == initial_config_source.content_hash
     ),
 }
 show(drag_beta_summary)

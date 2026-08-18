@@ -405,7 +405,16 @@ def test_drag_calibration_closes_the_reviewed_config_loop(
     assert summary["accepted_verification"] == summary["verification"]
     assert summary["candidate_run_uses_analysis"]
     assert summary["accepted_as_default"]
+    assert cast("str", summary["restore_operation"]).startswith(
+        "reference-lab.drag-beta.restore:procedure-"
+    )
     assert summary["default_restored"]
+
+    repeated_namespace = run_path(str(NOTEBOOKS / "30_drag_calibration.py"))
+    repeated = cast("dict[str, object]", repeated_namespace["drag_beta_summary"])
+    assert repeated["procedure"] != summary["procedure"]
+    assert repeated["procedure_status"] == "succeeded"
+    assert repeated["default_restored"]
 
 
 def test_measurement_workbench_uses_real_durable_data(

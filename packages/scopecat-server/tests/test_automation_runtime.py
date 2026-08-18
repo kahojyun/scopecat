@@ -3,12 +3,18 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ConfigDict
+from scopecat.api._config import LabConfigOperations
+from scopecat.api._remote import RemoteRunOperations
+from scopecat.api._runner import _DaemonRunner
+from scopecat.api.procedures import LabProcedureContext, ProcedureLabSession
 from scopecat.automation import (
+    ConfigActivationOutputRef,
     ProcedureCloseCommand,
     ProcedureContext,
     ProcedureDefinitionRef,
@@ -33,6 +39,8 @@ from scopecat.automation import (
     procedure_step_operation_id,
 )
 from scopecat.daemon.client import DaemonClient, DaemonConflictError
+from scopecat.daemon.wire import ConfigPublishCommand, DirectConfigRevisionSource
+from scopecat_testkit.workflow_fixtures import load_config
 
 from scopecat_server import LocalDaemonRuntime
 
@@ -45,6 +53,13 @@ class _WorkerIntent(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     child_run_id: str
+
+
+class _ActivationWorkerIntent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    entry_id: str
+    expected_generation: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +84,24 @@ _ONE_STEP_PROCEDURE = procedure(
     version="1",
     intent=_WorkerIntent,
 )(_run_one_durable_step)
+
+
+@procedure(
+    id="tests.http-config-activation",
+    version="1",
+    intent=_ActivationWorkerIntent,
+)
+def _activate_saved_config(
+    context: LabProcedureContext,
+    intent: _ActivationWorkerIntent,
+) -> None:
+    context.activate_config_entry(
+        "activate",
+        intent.entry_id,
+        expected_generation=intent.expected_generation,
+        actor="procedure-worker",
+        note="activate through a durable procedure",
+    )
 
 
 def _definition() -> ProcedureDefinitionRef:
@@ -446,14 +479,124 @@ def test_daemon_client_drives_core_worker_and_replays_closed_procedure(
         assert operation_ids == [expected_operation_id]
 
 
-def _daemon_client(transport: TestClient) -> DaemonClient:
+def test_procedure_config_activation_recovers_two_lost_http_responses(
+    tmp_path: Path,
+) -> None:
+    config = load_config()
+    requests: list[tuple[str, str]] = []
+    with (
+        LocalDaemonRuntime(tmp_path, bootstrap_config=config) as runtime,
+        TestClient(runtime.app()) as transport,
+        _daemon_client(
+            transport,
+            lose_config_activation_responses=2,
+            request_log=requests,
+        ) as client,
+    ):
+        initial = client.active_config()
+        target_config = config.model_copy(update={"id": "procedure-target-config"})
+        target = client.publish_config(
+            ConfigPublishCommand(
+                source=DirectConfigRevisionSource(config=target_config),
+                entry_id="procedure-target-entry",
+                actor="test-setup",
+                expected_generation=initial.activation.generation,
+            )
+        )
+        current_config = config.model_copy(update={"id": "procedure-current-config"})
+        current = client.publish_config(
+            ConfigPublishCommand(
+                source=DirectConfigRevisionSource(config=current_config),
+                entry_id="procedure-current-entry",
+                actor="test-setup",
+                expected_generation=target.activation.generation,
+            )
+        )
+        lab_config = LabConfigOperations(
+            client=client,
+            runs=cast("RemoteRunOperations", object()),
+            default_config=None,
+            operator="procedure-worker",
+        )
+        worker = ProcedureWorker(
+            client,
+            ProcedureRegistry((_activate_saved_config,)),
+            context_factory=lambda durable: LabProcedureContext(
+                durable,
+                runner=cast("_DaemonRunner", object()),
+                config=lab_config,
+                session=cast("ProcedureLabSession", object()),
+            ),
+        )
+
+        completed = worker.execute(
+            _activate_saved_config,
+            _ActivationWorkerIntent(
+                entry_id=target.entry.id,
+                expected_generation=current.activation.generation,
+            ),
+            "config-activation-response-loss",
+            "http-worker-config-activation",
+        )
+        [step] = client.list_procedure_step_attempts(
+            completed.procedure_run_id,
+            ProcedureStepAttemptListQuery(),
+        ).items
+        operation_id = procedure_step_operation_id(
+            step.procedure_run_id,
+            step.step_key,
+            step.attempt,
+        )
+        activation_path = "/api/v1/config-registry/activation-operations"
+        assert requests.count(("POST", activation_path)) == 2
+        assert requests.count(("GET", f"{activation_path}/{operation_id}")) == 1
+        receipt = client.config_activation_operation(operation_id)
+        active = client.active_config()
+
+        assert completed.state == "closed"
+        assert completed.closure is not None
+        assert completed.closure.status == "succeeded"
+        assert step.state == "succeeded"
+        assert step.output == ConfigActivationOutputRef(
+            generation=current.activation.generation + 1,
+            entry_id=target.entry.id,
+            entry_content_hash=target.entry.content_hash,
+        )
+        assert receipt.operation.operation_id == operation_id
+        assert receipt.activation.generation == current.activation.generation + 1
+        assert active.activation == receipt.activation
+        assert active.entry == target.entry
+        assert all(path != "/api/v1/config-registry/undo" for _, path in requests)
+
+
+def _daemon_client(
+    transport: TestClient,
+    *,
+    lose_config_activation_responses: int = 0,
+    request_log: list[tuple[str, str]] | None = None,
+) -> DaemonClient:
+    remaining_lost_responses = lose_config_activation_responses
+
     def send(request: httpx2.Request) -> httpx2.Response:
+        nonlocal remaining_lost_responses
+        if request_log is not None:
+            request_log.append((request.method, request.url.path))
         response = transport.request(
             request.method,
             request.url.raw_path.decode(),
             content=request.content,
             headers=dict(request.headers),
         )
+        if (
+            request.method == "POST"
+            and request.url.path == "/api/v1/config-registry/activation-operations"
+            and remaining_lost_responses > 0
+        ):
+            remaining_lost_responses -= 1
+            raise httpx2.ReadError(
+                "config activation response was lost",
+                request=request,
+            )
         return httpx2.Response(
             response.status_code,
             content=response.content,
