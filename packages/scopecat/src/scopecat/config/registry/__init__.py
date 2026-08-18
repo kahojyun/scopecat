@@ -17,6 +17,7 @@ if TYPE_CHECKING:
         CandidateAcceptance,
         CandidateConfigRegistrySource,
         ConfigActivationOperation,
+        ConfigPublishOperation,
         ConfigRegistryActivationPage,
         ConfigRegistryActivationRecord,
         ConfigRegistryEntry,
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
         ManualCandidateAcceptance,
         ManualConfigDraftRegistrySource,
         config_activation_intent_hash,
+        config_publish_intent_hash,
     )
     from scopecat.config.registry.service import (
         ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR,
@@ -69,6 +71,7 @@ _RECORD_EXPORTS = (
     "CandidateAcceptance",
     "CandidateConfigRegistrySource",
     "ConfigActivationOperation",
+    "ConfigPublishOperation",
     "ConfigRegistryActivationPage",
     "ConfigRegistryActivationRecord",
     "ConfigRegistryEntry",
@@ -79,6 +82,7 @@ _RECORD_EXPORTS = (
     "ManualCandidateAcceptance",
     "ManualConfigDraftRegistrySource",
     "config_activation_intent_hash",
+    "config_publish_intent_hash",
 )
 _PORT_EXPORTS = (
     "ConfigRegistryRepository",

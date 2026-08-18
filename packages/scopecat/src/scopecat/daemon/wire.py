@@ -26,9 +26,11 @@ from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry.records import (
     CandidateAcceptance,
     ConfigActivationOperation,
+    ConfigPublishOperation,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
     config_activation_intent_hash,
+    config_publish_intent_hash,
 )
 from scopecat.control.models import RunPlanSummary
 from scopecat.kernel.content_identity import stable_content_hash
@@ -70,6 +72,8 @@ from scopecat.sdk.instruments.contracts import InstrumentDescription
 from scopecat.sdk.instruments.execution import RunHardwareBatch
 
 type NonEmptyText = Annotated[str, Field(min_length=1)]
+
+_CONFIG_PUBLISH_SOURCE_INTENT_CODEC = "scopecat.config-publish-source-intent.v1"
 
 
 class _WireModel(BaseModel):
@@ -119,25 +123,52 @@ type ConfigRevisionSource = Annotated[
 class ConfigPublishCommand(_WireModel):
     """Validate, save, and select one revision in a single transaction."""
 
+    operation_id: NonEmptyText
     source: ConfigRevisionSource
     actor: NonEmptyText
     expected_generation: int = Field(ge=0)
-    entry_id: NonEmptyText | None = None
+    entry_id: NonEmptyText
     note: str = ""
 
-    @model_validator(mode="after")
-    def validate_entry_id(self) -> ConfigPublishCommand:
-        if self.entry_id is None and not isinstance(
-            self.source, CandidateConfigRevisionSource
-        ):
-            raise ValueError("direct and draft revisions require an entry id")
-        return self
+    @property
+    def source_intent_hash(self) -> Sha256ContentHash:
+        identity = {
+            "codec": _CONFIG_PUBLISH_SOURCE_INTENT_CODEC,
+            "source": self.source.model_dump(mode="json"),
+        }
+        return f"sha256:{stable_content_hash(identity)}"
+
+    @property
+    def intent_hash(self) -> Sha256ContentHash:
+        return config_publish_intent_hash(
+            source_intent_hash=self.source_intent_hash,
+            entry_id=self.entry_id,
+            expected_generation=self.expected_generation,
+            actor=self.actor,
+            note=self.note,
+        )
 
 
 class ConfigPublishReceipt(_WireModel):
+    operation: ConfigPublishOperation
     entry: ConfigRegistryEntry
     deltas: tuple[ParameterValueDelta, ...] = ()
     activation: ConfigRegistryActivationRecord
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> ConfigPublishReceipt:
+        if (
+            self.operation.entry_id != self.entry.id
+            or self.operation.activation_generation != self.activation.generation
+            or self.entry.id != self.activation.entry_id
+            or self.entry.content_hash != self.activation.entry_content_hash
+            or self.operation.actor != self.entry.actor
+            or self.operation.note != self.entry.note
+        ):
+            raise ValueError(
+                "config publish receipt operation, entry, and activation do not match"
+            )
+        return self
 
 
 class InstrumentInventoryMigrationCommand(_WireModel):

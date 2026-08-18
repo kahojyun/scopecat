@@ -514,9 +514,19 @@ class DaemonClient:
         self,
         command: ConfigPublishCommand,
     ) -> ConfigPublishReceipt:
-        return self._post_model(
-            f"{_API_PREFIX}/config-registry/default",
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/config-registry/publish-operations",
             command,
+            ConfigPublishReceipt,
+        )
+
+    def config_publish_operation(
+        self,
+        operation_id: str,
+    ) -> ConfigPublishReceipt:
+        return self._get_model(
+            f"{_API_PREFIX}/config-registry/publish-operations/"
+            f"{quote(operation_id, safe='')}",
             ConfigPublishReceipt,
         )
 

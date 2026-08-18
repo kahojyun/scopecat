@@ -20,6 +20,7 @@ from scopecat.config.inventory import (
 from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.registry.records import (
     ConfigActivationOperation,
+    ConfigPublishOperation,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
     CrossRunCandidateAcceptance,
@@ -130,15 +131,26 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         activation=activation,
     )
     undone = ConfigUndoReceipt(activation=activation)
-    published = ConfigPublishReceipt(
-        entry=entry,
-        activation=activation,
-    )
     publish_command = ConfigPublishCommand(
+        operation_id="publish-baseline",
         source=DirectConfigRevisionSource(config=config),
         entry_id=entry.id,
         actor="notebook",
         expected_generation=0,
+    )
+    published = ConfigPublishReceipt(
+        operation=ConfigPublishOperation(
+            operation_id=publish_command.operation_id,
+            intent_hash=publish_command.intent_hash,
+            source_intent_hash=publish_command.source_intent_hash,
+            entry_id=publish_command.entry_id,
+            expected_generation=publish_command.expected_generation,
+            actor=publish_command.actor,
+            note=publish_command.note,
+            activation_generation=activation.generation,
+        ),
+        entry=entry,
+        activation=activation,
     )
     activation_command = ConfigEntryActivationCommand(
         operation_id="activate-baseline",
@@ -206,6 +218,86 @@ def test_config_activation_operation_binds_intent_and_result_generation() -> Non
             actor=first.actor,
             note=first.note,
             activation_generation=5,
+        )
+
+
+def test_config_publish_operation_binds_canonical_intent_and_result() -> None:
+    config = load_config()
+    first = ConfigPublishCommand(
+        operation_id="publish-1",
+        source=DirectConfigRevisionSource(config=config),
+        entry_id="baseline",
+        actor="operator",
+        expected_generation=3,
+        note="publish baseline",
+    )
+    replay_key = first.model_copy(update={"operation_id": "publish-2"})
+
+    assert first.intent_hash == replay_key.intent_hash
+    assert first.source_intent_hash == replay_key.source_intent_hash
+    assert first.intent_hash != first.model_copy(update={"note": "changed"}).intent_hash
+    with pytest.raises(ValidationError, match="intent hash is inconsistent"):
+        ConfigPublishOperation(
+            operation_id=first.operation_id,
+            intent_hash=f"sha256:{'0' * 64}",
+            source_intent_hash=first.source_intent_hash,
+            entry_id=first.entry_id,
+            expected_generation=first.expected_generation,
+            actor=first.actor,
+            note=first.note,
+            activation_generation=4,
+        )
+    with pytest.raises(ValidationError, match="observed or next generation"):
+        ConfigPublishOperation(
+            operation_id=first.operation_id,
+            intent_hash=first.intent_hash,
+            source_intent_hash=first.source_intent_hash,
+            entry_id=first.entry_id,
+            expected_generation=first.expected_generation,
+            actor=first.actor,
+            note=first.note,
+            activation_generation=5,
+        )
+
+
+def test_config_publish_receipt_binds_operation_entry_and_activation() -> None:
+    config = load_config()
+    command = ConfigPublishCommand(
+        operation_id="publish-baseline",
+        source=DirectConfigRevisionSource(config=config),
+        entry_id="baseline",
+        actor="operator",
+        expected_generation=0,
+    )
+    entry = ConfigRegistryEntry(
+        id=command.entry_id,
+        config_ref="config-registry/entries/baseline/config.json",
+        content_hash=config_content_hash(config),
+        source=DirectConfigRegistrySource(),
+        actor=command.actor,
+    )
+    activation = ConfigRegistryActivationRecord(
+        generation=1,
+        action="activation",
+        entry_id=entry.id,
+        entry_content_hash=entry.content_hash,
+        actor=command.actor,
+    )
+    operation = ConfigPublishOperation(
+        operation_id=command.operation_id,
+        intent_hash=command.intent_hash,
+        source_intent_hash=command.source_intent_hash,
+        entry_id=command.entry_id,
+        expected_generation=command.expected_generation,
+        actor=command.actor,
+        activation_generation=activation.generation,
+    )
+
+    with pytest.raises(ValidationError, match="do not match"):
+        ConfigPublishReceipt(
+            operation=operation,
+            entry=entry,
+            activation=activation.model_copy(update={"entry_id": "other"}),
         )
 
 
@@ -360,6 +452,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         ),
     )
     publish = ConfigPublishCommand(
+        operation_id="publish-candidate-fit",
         source=CandidateConfigRevisionSource(
             run_id="run-1",
             proposal_id=proposal.id,

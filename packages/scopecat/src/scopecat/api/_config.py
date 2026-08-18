@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import cast
+from uuid import uuid4
 
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api.published_analysis import PublishedAnalysis
@@ -198,8 +199,9 @@ class LabConfigOperations:
                 or preview.result_content_hash is None
             ):
                 raise ValueError("only a valid config draft can become the default")
-            return self.client.publish_config(
+            return self.publish_config(
                 ConfigPublishCommand(
+                    operation_id=_interactive_publish_operation_id(),
                     source=ManualConfigDraftRevisionSource(
                         draft=_reviewed_draft_command(config, preview),
                         expected_result_content_hash=preview.result_content_hash,
@@ -210,8 +212,9 @@ class LabConfigOperations:
                     note=note,
                 )
             )
-        return self.client.publish_config(
+        return self.publish_config(
             ConfigPublishCommand(
+                operation_id=_interactive_publish_operation_id(),
                 source=DirectConfigRevisionSource(config=config),
                 entry_id=entry_id or config_revision_entry_id(config),
                 actor=selected_actor,
@@ -219,6 +222,16 @@ class LabConfigOperations:
                 note=note,
             )
         )
+
+    def publish_config(self, command: ConfigPublishCommand) -> ConfigPublishReceipt:
+        """Publish one exact caller-owned idempotent config command."""
+
+        return self.client.publish_config(command)
+
+    def publish_operation(self, operation_id: str) -> ConfigPublishReceipt:
+        """Reopen the exact durable result of a config publication."""
+
+        return self.client.config_publish_operation(operation_id)
 
     def activate_entry(
         self,
@@ -347,8 +360,17 @@ class LabConfigOperations:
         actor: str | None,
         note: str,
     ) -> ConfigPublishReceipt:
-        return self.client.publish_config(
+        selected_entry_id = entry_id
+        if selected_entry_id is None:
+            source_config = self.runs.load_config(candidate.source_run_id)
+            resolved = resolve_candidate_config_from_snapshot(
+                candidate,
+                source_config=source_config,
+            )
+            selected_entry_id = f"{resolved.id}-{candidate.source_run_id}"
+        return self.publish_config(
             ConfigPublishCommand(
+                operation_id=_interactive_publish_operation_id(),
                 source=CandidateConfigRevisionSource(
                     run_id=candidate.source_run_id,
                     proposal_id=candidate.proposal_id,
@@ -356,7 +378,7 @@ class LabConfigOperations:
                 ),
                 actor=actor or self.operator,
                 expected_generation=self._generation(),
-                entry_id=entry_id,
+                entry_id=selected_entry_id,
                 note=note,
             )
         )
@@ -403,6 +425,10 @@ def _reviewed_draft_command(
         candidate_id=config.id,
         updates=draft.updates,
     )
+
+
+def _interactive_publish_operation_id() -> str:
+    return f"config-publish:{uuid4().hex}"
 
 
 __all__ = ["LabConfigOperations"]

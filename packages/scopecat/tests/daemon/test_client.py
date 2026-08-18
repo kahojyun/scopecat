@@ -10,6 +10,7 @@ from scopecat_testkit.workflow_fixtures import load_config
 from scopecat.config.inventory import InstrumentInventoryRekey
 from scopecat.config.registry.records import (
     ConfigActivationOperation,
+    ConfigPublishOperation,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
@@ -36,6 +37,9 @@ from scopecat.daemon.wire import (
     AnalysisSaveReceipt,
     ConfigActivationReceipt,
     ConfigEntryActivationCommand,
+    ConfigPublishCommand,
+    ConfigPublishReceipt,
+    DirectConfigRevisionSource,
     ExecutorLease,
     ExecutorStartRequest,
     InstrumentConfiguredDefaultsApplyCommand,
@@ -506,6 +510,65 @@ def test_config_activation_retries_exact_command_and_supports_lookup() -> None:
     assert requests[0].url.path == ("/api/v1/config-registry/activation-operations")
     assert requests[2].url.path == (
         "/api/v1/config-registry/activation-operations/activate-baseline"
+    )
+
+
+def test_config_publish_retries_exact_command_and_supports_lookup() -> None:
+    config = load_config()
+    command = ConfigPublishCommand(
+        operation_id="publish-baseline",
+        source=DirectConfigRevisionSource(config=config),
+        entry_id="baseline",
+        actor="operator",
+        expected_generation=0,
+    )
+    entry = ConfigRegistryEntry(
+        id=command.entry_id,
+        config_ref="config-registry/entries/baseline/config.json",
+        content_hash=config_content_hash(config),
+        source=DirectConfigRegistrySource(),
+        actor=command.actor,
+    )
+    activation = ConfigRegistryActivationRecord(
+        generation=1,
+        action="activation",
+        entry_id=entry.id,
+        entry_content_hash=entry.content_hash,
+        actor=command.actor,
+    )
+    receipt = ConfigPublishReceipt(
+        operation=ConfigPublishOperation(
+            operation_id=command.operation_id,
+            intent_hash=command.intent_hash,
+            source_intent_hash=command.source_intent_hash,
+            entry_id=command.entry_id,
+            expected_generation=command.expected_generation,
+            actor=command.actor,
+            activation_generation=activation.generation,
+        ),
+        entry=entry,
+        activation=activation,
+    )
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if request.method == "POST" and len(requests) == 1:
+            raise httpx2.ReadError("publish response was lost", request=request)
+        return _model(receipt)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.publish_config(command) == receipt
+    assert client.config_publish_operation(command.operation_id) == receipt
+    assert [request.method for request in requests] == ["POST", "POST", "GET"]
+    assert requests[0].content == requests[1].content
+    assert requests[0].url.path == "/api/v1/config-registry/publish-operations"
+    assert requests[2].url.path == (
+        "/api/v1/config-registry/publish-operations/publish-baseline"
     )
 
 

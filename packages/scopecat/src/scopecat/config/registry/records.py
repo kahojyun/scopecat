@@ -14,6 +14,7 @@ from scopecat.records.config import ConfigContentHash
 from scopecat.records.content import Sha256ContentHash
 
 _CONFIG_ACTIVATION_INTENT_CODEC = "scopecat.config-activation-intent.v1"
+_CONFIG_PUBLISH_INTENT_CODEC = "scopecat.config-publish-intent.v1"
 
 
 class _FrozenRegistryModel(BaseModel):
@@ -142,6 +143,64 @@ def config_activation_intent_hash(
         "note": note,
     }
     return f"sha256:{stable_content_hash(identity)}"
+
+
+def config_publish_intent_hash(
+    *,
+    source_intent_hash: Sha256ContentHash,
+    entry_id: str,
+    expected_generation: int,
+    actor: str,
+    note: str = "",
+) -> Sha256ContentHash:
+    """Identify one exact publish intent independently of its retry key."""
+
+    identity = {
+        "codec": _CONFIG_PUBLISH_INTENT_CODEC,
+        "source_intent_hash": source_intent_hash,
+        "entry_id": entry_id,
+        "expected_generation": expected_generation,
+        "actor": actor,
+        "note": note,
+    }
+    return f"sha256:{stable_content_hash(identity)}"
+
+
+class ConfigPublishOperation(_FrozenRegistryModel):
+    """Durable result identity for one idempotent config publication."""
+
+    operation_id: str
+    intent_hash: Sha256ContentHash
+    source_intent_hash: Sha256ContentHash
+    entry_id: str
+    expected_generation: int = Field(ge=0)
+    actor: str
+    note: str = ""
+    activation_generation: int = Field(ge=1)
+    recorded_at: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> ConfigPublishOperation:
+        if not self.operation_id or not self.entry_id or not self.actor.strip():
+            raise ValueError("config publish operation identity must be non-empty")
+        expected_hash = config_publish_intent_hash(
+            source_intent_hash=self.source_intent_hash,
+            entry_id=self.entry_id,
+            expected_generation=self.expected_generation,
+            actor=self.actor,
+            note=self.note,
+        )
+        if self.intent_hash != expected_hash:
+            raise ValueError("config publish operation intent hash is inconsistent")
+        if self.activation_generation not in {
+            self.expected_generation,
+            self.expected_generation + 1,
+        }:
+            raise ValueError(
+                "config publish operation generation must be the observed or next "
+                "generation"
+            )
+        return self
 
 
 class ConfigActivationOperation(_FrozenRegistryModel):
