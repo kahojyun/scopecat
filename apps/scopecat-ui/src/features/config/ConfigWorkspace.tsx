@@ -185,6 +185,7 @@ export function ConfigWorkspace({
 
       <ConfigSummary
         overview={overview}
+        activeEntry={registry.activeDetailQuery.data?.entry}
         undoDisabled={
           commandDisabled ||
           overview.activation_history.length < 2 ||
@@ -208,8 +209,12 @@ export function ConfigWorkspace({
           selectedId={registry.selectedId}
           search={registry.registrySearch}
           refreshing={registry.registryQuery.isFetching}
+          hasOlder={overview.entries_next_cursor !== undefined}
+          loadingOlder={registry.olderEntriesMutation.isPending}
+          olderError={registry.olderEntriesMutation.error}
           onSearchChange={registry.setRegistrySearch}
           onSelectEntry={selectEntry}
+          onLoadOlder={registry.loadOlderEntries}
         />
 
         <section
@@ -270,7 +275,13 @@ export function ConfigWorkspace({
         />
       )}
 
-      <ActivationHistory history={overview.activation_history} />
+      <ActivationHistory
+        history={overview.activation_history}
+        hasOlder={overview.activation_history_next_cursor !== undefined}
+        loadingOlder={registry.olderActivationsMutation.isPending}
+        olderError={registry.olderActivationsMutation.error}
+        onLoadOlder={registry.loadOlderActivations}
+      />
 
       {workflow.importDraft && (
         <ConfigImportDialog

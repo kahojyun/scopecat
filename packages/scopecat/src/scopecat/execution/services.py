@@ -10,7 +10,7 @@ from scopecat.adaptive_domains import DomainProposalAttempt, OperatorDomainReque
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.optimization import DomainProposalDecision
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments.execution import RunInstrumentHost
 
@@ -57,9 +57,9 @@ class RunDomainProposalWriter(Protocol):
 class ExecutionSession:
     """Bind one run's effect ports so execution cannot mix storage scopes."""
 
-    accepted: RunManifest
+    accepted: RunSnapshot
     begin: Callable[[], None]
-    commit_terminal: Callable[[TerminalRunCommit], RunManifest]
+    commit_terminal: Callable[[TerminalRunCommit], RunSnapshot]
     measurements: MeasurementDatasetWriter
     instruments: RunInstrumentHost
     coverage: RunCoverageWriter | None = None

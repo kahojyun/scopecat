@@ -8,6 +8,7 @@ from base64 import b64encode
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
 import pyarrow as pa
 from pydantic import JsonValue
@@ -21,13 +22,15 @@ from scopecat.analysis.service import (
     AnalysisOutput,
     AnalysisParameterProposalOutput,
     AnalysisTableOutput,
+    MeasurementAnalysisInput,
     SavedAnalysis,
 )
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
     MeasurementArrowQuery,
-    RunAnalysisListView,
+    RunAnalysisPage,
     RunAnalysisView,
+    RunContentPage,
 )
 from scopecat.daemon.wire import (
     AnalysisArtifactOutputPayload,
@@ -39,14 +42,16 @@ from scopecat.daemon.wire import (
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisTableOutputPayload,
+    MeasurementAnalysisInputPayload,
+    PublishedAnalysisInputPayload,
     RunAttachmentCommand,
 )
 from scopecat.records.analysis import AnalysisExecution
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.content import ContentEntry
 from scopecat.records.metadata import validate_json_metadata
 from scopecat.records.parameter_change import ParameterChangeProposal
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.data import (
     RunArtifactBytesResult,
@@ -64,14 +69,44 @@ class RemoteRunOperations:
 
     client: DaemonClient
 
-    def load_manifest(self, run_id: str) -> RunManifest:
-        return self.client.get_run(run_id).manifest
+    def load_snapshot(self, run_id: str) -> RunSnapshot:
+        return self.client.get_run(run_id).snapshot
 
     def load_config(self, run_id: str) -> ConfigProfileSnapshot:
         return self.client.run_config(run_id).config
 
     def load_request(self, run_id: str) -> RunRequest:
         return self.client.run_request(run_id).request
+
+    def contents(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+        role: Literal["artifact", "dataset", "record"] | None,
+        kind: str | None,
+    ) -> RunContentPage:
+        return self.client.run_contents(
+            run_id,
+            limit=limit,
+            before=before,
+            role=role,
+            kind=kind,
+        )
+
+    def content_entry(
+        self,
+        run_id: str,
+        *,
+        role: Literal["artifact", "dataset", "record"],
+        content_id: str,
+    ) -> ContentEntry:
+        return self.client.run_content(
+            run_id,
+            role=role,
+            content_id=content_id,
+        )
 
     def load_measurement_dataset(
         self,
@@ -118,7 +153,7 @@ class RemoteRunOperations:
         outputs: Sequence[AnalysisOutput],
         parameter_proposals: Sequence[ParameterChangeProposal],
     ) -> SavedAnalysis:
-        payloads = tuple(_analysis_output_payload(output) for output in outputs)
+        payloads = tuple(analysis_output_payload(output) for output in outputs)
         output_proposals = tuple(
             payload.content
             for payload in payloads
@@ -132,7 +167,7 @@ class RemoteRunOperations:
                 title=title,
                 analysis_key=analysis_key,
                 step_id=step_id,
-                inputs=tuple(_analysis_input_payload(item) for item in inputs),
+                inputs=tuple(analysis_input_payload(item) for item in inputs),
                 executions=tuple(executions),
                 outputs=payloads,
             ),
@@ -153,8 +188,14 @@ class RemoteRunOperations:
             parameter_proposals=receipt.parameter_proposals,
         )
 
-    def analyses(self, run_id: str) -> RunAnalysisListView:
-        return self.client.analyses(run_id)
+    def analyses(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> RunAnalysisPage:
+        return self.client.analyses(run_id, limit=limit, before=before)
 
     def analysis(self, run_id: str, selector: str) -> RunAnalysisView:
         return self.client.analysis(run_id, selector)
@@ -171,7 +212,7 @@ class RemoteRunOperations:
         filename: str | None,
         media_type: str | None,
         metadata: Mapping[str, JsonValue] | None,
-    ) -> RunContentEntry:
+    ) -> ContentEntry:
         source_path = None if path is None else Path(path)
         if source_path is not None:
             if text is not None or content is not None:
@@ -249,22 +290,35 @@ class RemoteRunOperations:
         )
 
 
-def _analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
-    return AnalysisInputPayload(
+def analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
+    metadata = (
+        None if value.metadata is None else validate_json_metadata(value.metadata)
+    )
+    if isinstance(value, MeasurementAnalysisInput):
+        return MeasurementAnalysisInputPayload(
+            id=value.id,
+            run_id=value.run_id,
+            target=value.target,
+            content_hash=value.content_hash,
+            codec=value.codec,
+            role=value.role,
+            title=value.title,
+            metadata=metadata,
+        )
+    return PublishedAnalysisInputPayload(
+        id=value.id,
         target=value.target,
         kind=value.kind,
         content_hash=value.content_hash,
         codec=value.codec,
         role=value.role,
         title=value.title,
-        metadata=(
-            None if value.metadata is None else validate_json_metadata(value.metadata)
-        ),
+        metadata=metadata,
         source=value.source,
     )
 
 
-def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
+def analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
     metadata = validate_json_metadata(value.metadata)
     if isinstance(value, AnalysisFactOutput):
         return AnalysisFactOutputPayload(

@@ -1,7 +1,7 @@
-import { LoaderCircle, Search } from "lucide-react";
+import { ChevronDown, LoaderCircle, Search } from "lucide-react";
 import type { ConfigRegistryEntry, ConfigRegistryOverview } from "../../api-contract";
-import { formatRelative, shorten } from "../../lib/presentation";
-import { classes } from "../../ui/styles";
+import { errorMessage, formatRelative, shorten } from "../../lib/presentation";
+import { classes, secondaryButton } from "../../ui/styles";
 import { ConfigInlineEmpty } from "./ConfigUi";
 import { configSourceLabel } from "./config-utils";
 
@@ -11,16 +11,24 @@ export function ConfigRegistryPanel({
   selectedId,
   search,
   refreshing,
+  hasOlder,
+  loadingOlder,
+  olderError,
   onSearchChange,
   onSelectEntry,
+  onLoadOlder,
 }: {
   overview: ConfigRegistryOverview;
   entries: ConfigRegistryEntry[];
   selectedId?: string;
   search: string;
   refreshing: boolean;
+  hasOlder: boolean;
+  loadingOlder: boolean;
+  olderError: Error | null;
   onSearchChange: (search: string) => void;
   onSelectEntry: (entryId: string) => void;
+  onLoadOlder: () => void;
 }) {
   return (
     <aside
@@ -32,7 +40,10 @@ export function ConfigRegistryPanel({
           <span className="text-[0.57rem] font-extrabold tracking-[0.09em] text-text-dim uppercase">
             Saved versions
           </span>
-          <strong className="text-[0.77rem]">{overview.entries.length} versions</strong>
+          <strong className="text-[0.77rem]">
+            {overview.entries.length}
+            {hasOlder ? "+" : ""} versions
+          </strong>
         </div>
         {refreshing && (
           <LoaderCircle
@@ -74,6 +85,26 @@ export function ConfigRegistryPanel({
               onSelect={() => onSelectEntry(entry.id)}
             />
           ))
+        )}
+        {olderError && (
+          <p className="mx-2 my-1 text-[0.61rem] leading-[1.4] text-red" role="status">
+            {errorMessage(olderError)}
+          </p>
+        )}
+        {hasOlder && (
+          <button
+            className={classes(secondaryButton, "w-full")}
+            disabled={loadingOlder}
+            onClick={onLoadOlder}
+            type="button"
+          >
+            {loadingOlder ? (
+              <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />
+            ) : (
+              <ChevronDown size={14} aria-hidden="true" />
+            )}
+            {loadingOlder ? "Loading older versions…" : "Load older versions"}
+          </button>
         )}
       </div>
     </aside>

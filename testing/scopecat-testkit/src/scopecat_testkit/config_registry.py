@@ -3,7 +3,10 @@ from __future__ import annotations
 from scopecat.config.candidates import CandidateConfig
 from scopecat.config.changes import prepare_parameter_change_approval
 from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
-from scopecat.config.registry.records import ConfigRegistryEntry
+from scopecat.config.registry.records import (
+    ConfigRegistryEntry,
+    ManualCandidateAcceptance,
+)
 from scopecat.config.registry.service import (
     CandidateConfigRevisionSource,
     ConfigRegistryMutationResult,
@@ -64,6 +67,7 @@ def activate_candidate_config(
             source=CandidateConfigRevisionSource(
                 run_id=candidate.source_run_id,
                 proposal_id=candidate.proposal_id,
+                acceptance=ManualCandidateAcceptance(),
             ),
             entry_id=entry_id,
             actor=actor,

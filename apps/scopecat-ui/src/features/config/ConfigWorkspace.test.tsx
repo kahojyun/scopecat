@@ -4,11 +4,13 @@ import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getRunAnalyses } from "../runs/run-api";
+import { getRunAnalysis } from "../runs/run-api";
 import {
   activateConfigEntry,
   getConfigRegistry,
   getConfigRegistryEntry,
+  getOlderConfigActivationHistory,
+  getOlderConfigRegistryEntries,
   undoConfig,
 } from "./config-api";
 import { ConfigWorkspace } from "./ConfigWorkspace";
@@ -17,7 +19,7 @@ import { getRunParameterProposals } from "../../data/parameter-proposals/api";
 
 vi.mock("../runs/run-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../runs/run-api")>()),
-  getRunAnalyses: vi.fn(),
+  getRunAnalysis: vi.fn(),
 }));
 
 vi.mock("./config-api", async (importOriginal) => ({
@@ -25,6 +27,8 @@ vi.mock("./config-api", async (importOriginal) => ({
   activateConfigEntry: vi.fn(),
   getConfigRegistry: vi.fn(),
   getConfigRegistryEntry: vi.fn(),
+  getOlderConfigActivationHistory: vi.fn(),
+  getOlderConfigRegistryEntries: vi.fn(),
   undoConfig: vi.fn(),
 }));
 
@@ -38,7 +42,9 @@ beforeEach(() => {
     runId: "run-calibration",
     items: [],
   });
-  vi.mocked(getRunAnalyses).mockResolvedValue([]);
+  vi.mocked(getRunAnalysis).mockRejectedValue(new Error("analysis unavailable"));
+  vi.mocked(getOlderConfigRegistryEntries).mockResolvedValue({ entries: [] });
+  vi.mocked(getOlderConfigActivationHistory).mockResolvedValue({ items: [] });
 });
 
 afterEach(() => {
@@ -48,6 +54,58 @@ afterEach(() => {
 });
 
 describe("ConfigWorkspace", () => {
+  it("pins an old active entry even when it is outside the registry head page", async () => {
+    const current = configEntry("old-active", "sha256:old-active");
+    const recent = configEntry("recent", "sha256:recent");
+    vi.mocked(getConfigRegistry).mockResolvedValue({
+      activation: activation(120, current.id, current.content_hash),
+      activation_history: [activation(120, current.id, current.content_hash)],
+      entries: [recent],
+      entries_next_cursor: 119,
+    });
+    vi.mocked(getConfigRegistryEntry).mockImplementation(async (entryId) =>
+      entryDetail(entryId === current.id ? current : recent),
+    );
+
+    renderWorkspace();
+
+    expect(await screen.findByRole("button", { name: /old-active/i })).toBeInTheDocument();
+    expect(screen.getAllByText("Default").length).toBeGreaterThan(0);
+    expect(getConfigRegistryEntry).toHaveBeenCalledWith("old-active", expect.any(AbortSignal));
+  });
+
+  it("loads older saved versions and activation history independently", async () => {
+    const current = configEntry("current", "sha256:current");
+    const older = configEntry("older", "sha256:older");
+    vi.mocked(getConfigRegistry).mockResolvedValue({
+      activation: activation(3, current.id, current.content_hash),
+      activation_history: [activation(3, current.id, current.content_hash)],
+      entries: [current],
+      entries_next_cursor: 2,
+      activation_history_next_cursor: 3,
+    });
+    vi.mocked(getOlderConfigRegistryEntries).mockResolvedValue({
+      entries: [older],
+      activation: activation(3, current.id, current.content_hash),
+    });
+    vi.mocked(getOlderConfigActivationHistory).mockResolvedValue({
+      items: [activation(2, older.id, older.content_hash)],
+    });
+    vi.mocked(getConfigRegistryEntry).mockImplementation(async (entryId) =>
+      entryDetail(entryId === older.id ? older : current),
+    );
+
+    renderWorkspace();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Load older versions" }));
+    expect(await screen.findByText("older")).toBeInTheDocument();
+    expect(getOlderConfigRegistryEntries).toHaveBeenCalledWith(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Load older changes" }));
+    expect(await screen.findByText("G2")).toBeInTheDocument();
+    expect(getOlderConfigActivationHistory).toHaveBeenCalledWith(3);
+  });
+
   it("presents saved versions as defaults and undo without generation ceremony", async () => {
     vi.mocked(getConfigRegistry).mockResolvedValue({
       activation: activation(2, "baseline", "sha256:baseline"),
@@ -231,7 +289,7 @@ describe("ConfigWorkspace", () => {
         {
           id: "fit-result",
           sourceRunId: "run-calibration",
-          analysisRecordId: "analysis-fit",
+          analysisRecordId: "analysis-fit-r1",
           baseConfigId: "baseline",
           baseContentHash: "sha256:baseline",
           reason: "Peak moved",
@@ -247,7 +305,7 @@ describe("ConfigWorkspace", () => {
         {
           id: "endpoint-only-result",
           sourceRunId: "run-calibration",
-          analysisRecordId: "analysis-endpoint-only",
+          analysisRecordId: "analysis-endpoint-only-r1",
           baseConfigId: "baseline",
           baseContentHash: "sha256:baseline",
           reason: "Not part of this candidate",
@@ -257,16 +315,18 @@ describe("ConfigWorkspace", () => {
         },
       ],
     });
-    vi.mocked(getRunAnalyses).mockResolvedValue([
-      {
-        id: "analysis-fit",
-        title: "Frequency fit",
-        key: "fit",
-        inputs: [],
-        executions: [],
-        outputs: [],
-      },
-    ]);
+    vi.mocked(getRunAnalysis).mockResolvedValue({
+      id: "analysis-fit-r1",
+      title: "Frequency fit",
+      key: "fit",
+      revision: 1,
+      publicationHash: "sha256:analysis-fit-r1",
+      publishedAt: "2026-08-17T12:00:00Z",
+      subject: "run",
+      inputs: [],
+      executions: [],
+      outputs: [],
+    });
     const openRun = vi.fn();
 
     renderWorkspace(openRun);
@@ -285,11 +345,18 @@ describe("ConfigWorkspace", () => {
         name: "Proposal endpoint-only-result",
       }),
     ).not.toBeInTheDocument();
-    expect(await screen.findByText("analysis-fit")).toBeInTheDocument();
+    expect(await screen.findByText("analysis-fit-r1")).toBeInTheDocument();
     expect(screen.getByText("Frequency fit")).toBeInTheDocument();
     expect(screen.getByText("Approved · nightly-calibration")).toBeInTheDocument();
+    expect(screen.getByText("analysis-candidate-verification-r1")).toBeInTheDocument();
+    expect(screen.getByText("decision")).toBeInTheDocument();
     expect(screen.getByText("High-confidence fit")).toBeInTheDocument();
     expect(document.querySelector('time[datetime="2026-07-24T08:00:00Z"]')).toBeInTheDocument();
+    expect(getRunAnalysis).toHaveBeenCalledWith(
+      "run-calibration",
+      "analysis-fit-r1",
+      expect.any(AbortSignal),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Open producing run" }));
     expect(openRun).toHaveBeenCalledWith("run-calibration");
@@ -392,6 +459,15 @@ function runtimeDerivedEntry(
             proposal_id: proposalId,
             run_id: "run-calibration",
             base_config_content_hash: "sha256:baseline",
+            acceptance: {
+              kind: "cross_run_verification",
+              decision: {
+                analysis_record_id: "analysis-candidate-verification-r1",
+                output_id: "decision",
+                schema_id: "tests.candidate-decision.v1",
+                schema_hash: `sha256:${"a".repeat(64)}`,
+              },
+            },
           },
   };
 }

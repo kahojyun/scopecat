@@ -6,8 +6,8 @@ entry for later runs and supplies an independent history view for undo.
 Revisions can be saved directly from a
 ``ConfigProfileSnapshot`` or from a candidate configuration.
 
-Runs started from a registry entry carry source coordinates on the run
-manifest. Reporting code can then show which registry selector and entry were
+Runs started from a registry entry carry source coordinates on the durable run
+snapshot. Reporting code can then show which registry selector and entry were
 used without mixing run lifecycle data into the config snapshot. Candidate
 evidence is verified and frozen when the revision is saved; later events do not
 retroactively revoke committed entries.
@@ -33,7 +33,9 @@ from scopecat.config.registry.ports import (
     ConfigRegistryUnitOfWorkFactory,
 )
 from scopecat.config.registry.records import (
+    CandidateAcceptance,
     CandidateConfigRegistrySource,
+    ConfigRegistryActivationPage,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
@@ -53,13 +55,13 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     StorageLocation,
 )
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
     ConfigContentHash,
     ConfigProfileSnapshot,
     config_content_equal,
     config_content_hash,
 )
+from scopecat.records.content import ContentEntry
 from scopecat.records.parameter_change import (
     ParameterChangeProposal,
     ParameterValueDelta,
@@ -67,7 +69,6 @@ from scopecat.records.parameter_change import (
 from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
     RunConfigSource,
-    RunManifest,
 )
 from scopecat.runs.refs import record_content_ref
 from scopecat.runs.repository import RunRepository
@@ -102,6 +103,7 @@ class ManualConfigDraftRevisionSource:
 class CandidateConfigRevisionSource:
     run_id: str
     proposal_id: str
+    acceptance: CandidateAcceptance
 
 
 type ConfigRevisionSource = (
@@ -144,6 +146,13 @@ class ConfigRegistryEntrySnapshot:
 class ConfigRegistrySnapshot:
     entries: tuple[ConfigRegistryEntry, ...]
     activation: ConfigRegistryActivationRecord | None
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigRegistryPageSnapshot:
+    entries: tuple[ConfigRegistryEntry, ...]
+    activation: ConfigRegistryActivationRecord | None
+    next_cursor: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -399,6 +408,7 @@ def _save_config_revision_locked(
             storage=work.runs,
             run_id=source.run_id,
             proposal_id=source.proposal_id,
+            acceptance=source.acceptance,
         )
         config = validated.config
         entry_source = validated.source
@@ -454,14 +464,15 @@ def _validate_candidate_source_records(
     storage: RunRepository,
     run_id: str,
     proposal_id: str,
+    acceptance: CandidateAcceptance,
 ) -> _ValidatedCandidateSource:
     """Validate a candidate and capture its revision provenance."""
 
-    source_manifest = storage.read_manifest(run_id)
     source_config = storage.read_config_profile_snapshot(run_id)
     source_config_hash = config_content_hash(source_config)
     proposal_record = _require_run_record(
-        source_manifest=source_manifest,
+        storage=storage,
+        run_id=run_id,
         record_id=proposal_id,
         kind="parameter_change_proposal",
     )
@@ -496,6 +507,7 @@ def _validate_candidate_source_records(
         run_id=run_id,
         proposal_id=proposal_id,
         base_config_content_hash=source_config_hash,
+        acceptance=acceptance,
     )
     return _ValidatedCandidateSource(
         config=durable_config,
@@ -533,6 +545,34 @@ def load_config_registry_snapshot(
         return ConfigRegistrySnapshot(
             entries=entries,
             activation=activation,
+        )
+
+
+def load_config_registry_page(
+    *,
+    limit: int,
+    before: int | None,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
+) -> ConfigRegistryPageSnapshot:
+    """Read one newest-first registry page and the active projection."""
+
+    with unit_of_work() as work:
+        page = work.registry.list_entry_page(limit=limit, before=before)
+        activation = _read_latest_activation(work.registry)
+        if activation is not None:
+            loaded = _load_config_registry_entry_locked(
+                entry_id=activation.entry_id,
+                work=work,
+            )
+            _validate_active_entry_identity(
+                work.registry,
+                activation,
+                loaded.entry,
+            )
+        return ConfigRegistryPageSnapshot(
+            entries=page.items,
+            activation=activation,
+            next_cursor=page.next_cursor,
         )
 
 
@@ -786,10 +826,10 @@ def undo_config_registry(
             current_activation,
             current.entry,
         )
-        history = work.registry.list_activation_history()
         undo_target = _previous_distinct_activation(
-            history,
+            work.registry,
             active_entry_id=current_activation.entry_id,
+            active_generation=current_activation.generation,
         )
         loaded = _load_config_registry_entry_locked(
             entry_id=undo_target.entry_id,
@@ -843,6 +883,25 @@ def load_config_registry_activation_history(
 ) -> tuple[ConfigRegistryActivationRecord, ...]:
     with unit_of_work() as work:
         return work.registry.list_activation_history()
+
+
+def load_config_registry_activation(
+    *,
+    generation: int,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
+) -> ConfigRegistryActivationRecord:
+    with unit_of_work() as work:
+        return work.registry.read_activation(generation)
+
+
+def load_config_registry_activation_page(
+    *,
+    limit: int,
+    before: int | None,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
+) -> ConfigRegistryActivationPage:
+    with unit_of_work() as work:
+        return work.registry.list_activation_page(limit=limit, before=before)
 
 
 def load_active_config_registry_activation(
@@ -939,31 +998,37 @@ def _validate_required_text(value: str, *, field: str) -> None:
 
 
 def _require_run_record(
-    *, source_manifest: RunManifest, record_id: str, kind: str
-) -> RunContentEntry:
-    record = next(
-        (entry for entry in source_manifest.records if entry.id == record_id),
-        None,
-    )
-    if record is None:
+    *,
+    storage: RunRepository,
+    run_id: str,
+    record_id: str,
+    kind: str,
+) -> ContentEntry:
+    try:
+        record = storage.read_content(
+            run_id,
+            role="record",
+            content_id=record_id,
+        )
+    except NotFound:
         raise _registry_failure(
             NotFound,
             code="config_registry.source_record_not_found",
             message="config registry source record was not found",
             location=StorageLocation(
-                run_id=source_manifest.run_id,
+                run_id=run_id,
                 path=("records", record_id),
             ),
             related_locations=(_registry_model_location("record_id"),),
             details={"record_id": record_id},
-        )
+        ) from None
     if record.kind != kind:
         raise _registry_failure(
             CheckFailed,
             code="config_registry.source_record_kind_mismatch",
             message="config registry source record has the wrong kind",
             location=StorageLocation(
-                run_id=source_manifest.run_id,
+                run_id=run_id,
                 path=("records", record_id, "kind"),
             ),
             related_locations=(_registry_model_location("record_id"),),
@@ -1372,13 +1437,23 @@ def _require_stable_instrument_exclusivity_keys(
 
 
 def _previous_distinct_activation(
-    history: Sequence[ConfigRegistryActivationRecord],
+    repository: ConfigRegistryRepository,
     *,
     active_entry_id: str,
+    active_generation: int,
 ) -> ConfigRegistryActivationRecord:
-    for record in reversed(history[:-1]):
-        if record.entry_id != active_entry_id:
-            return record
+    before: int | None = None
+    while True:
+        page = repository.list_activation_page(limit=100, before=before)
+        for record in page.items:
+            if (
+                record.generation < active_generation
+                and record.entry_id != active_entry_id
+            ):
+                return record
+        if page.next_cursor is None:
+            break
+        before = page.next_cursor
     raise _registry_failure(
         Conflict,
         code="config_registry.no_undo_target",
@@ -1428,6 +1503,7 @@ __all__ = [
     "CandidateConfigRevisionSource",
     "ConfigRegistryEntrySnapshot",
     "ConfigRegistryMutationResult",
+    "ConfigRegistryPageSnapshot",
     "ConfigRegistryRepository",
     "ConfigRegistrySnapshot",
     "ConfigRegistryUnitOfWork",
@@ -1446,8 +1522,11 @@ __all__ = [
     "load_active_config_registry_config",
     "load_active_config_registry_entry",
     "load_active_config_registry_snapshot",
+    "load_config_registry_activation",
     "load_config_registry_activation_history",
+    "load_config_registry_activation_page",
     "load_config_registry_entry_snapshot",
+    "load_config_registry_page",
     "load_config_registry_snapshot",
     "plan_instrument_inventory_migration",
     "preview_manual_config_draft",

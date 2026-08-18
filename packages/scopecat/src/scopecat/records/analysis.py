@@ -27,7 +27,7 @@ from pydantic import (
 
 from scopecat.kernel.content_identity import canonical_json, stable_content_hash
 from scopecat.kernel.quantity import Quantity
-from scopecat.records.artifact import Sha256ContentHash
+from scopecat.records.content import Sha256ContentHash
 from scopecat.records.metadata import JsonMetadata
 
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
@@ -42,6 +42,12 @@ MAX_ANALYSIS_DATA_BYTES = 1_000_000
 MAX_ANALYSIS_TOTAL_TABLE_CELLS = 64_000
 MAX_ANALYSIS_TOTAL_FIGURE_POINTS = 16_384
 ANALYSIS_ARTIFACT_CODEC = "scopecat.artifact-bytes.v1"
+
+
+def analysis_record_id(analysis_key: str, revision: int) -> str:
+    """Return the unambiguous persisted record identity for one revision."""
+
+    return f"analysis-{analysis_key}-r{revision}"
 
 
 def _reject_unsafe_table_integer(value: object) -> object:
@@ -664,32 +670,77 @@ class AnalysisArtifactReference(_AnalysisContentModel):
     filename: _NonEmptyText
 
 
-class AnalysisPublishedOutputReference(_AnalysisContentModel):
-    """Exact output revision consumed from an earlier analysis on this run."""
+class RunAnalysisSubject(_AnalysisContentModel):
+    """A publication whose scientific subject is one run."""
 
+    kind: Literal["run"] = "run"
+    run_id: _NonEmptyText
+
+
+class ProjectAnalysisSubject(_AnalysisContentModel):
+    """A publication over explicit immutable inputs owned by a project."""
+
+    kind: Literal["project"] = "project"
+
+
+type AnalysisSubject = Annotated[
+    RunAnalysisSubject | ProjectAnalysisSubject,
+    Field(discriminator="kind"),
+]
+
+
+class AnalysisPublishedOutputReference(_AnalysisContentModel):
+    """Exact output revision consumed from a run or project analysis."""
+
+    subject: AnalysisSubject
     analysis_record_id: _NonEmptyText
     output_id: _NonEmptyText
 
 
-class AnalysisRecordInput(BaseModel):
+class _AnalysisRecordInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    id: _NonEmptyText
     target: _NonEmptyText
-    kind: Literal["measurement_dataset", "analysis_dataset"]
     content_hash: _NonEmptyText
     codec: _NonEmptyText
     role: _NonEmptyText
     title: str | None = None
     metadata: JsonMetadata | None = None
-    source: AnalysisPublishedOutputReference | None = None
 
-    @model_validator(mode="after")
-    def validate_source(self) -> AnalysisRecordInput:
-        if (self.kind == "analysis_dataset") != (self.source is not None):
-            raise ValueError(
-                "analysis dataset inputs require one published analysis output source"
-            )
-        return self
+
+class MeasurementAnalysisRecordInput(_AnalysisRecordInput):
+    """One exact measurement dataset owned by a run."""
+
+    kind: Literal["measurement_dataset"] = "measurement_dataset"
+    run_id: _NonEmptyText
+
+
+class PublishedAnalysisRecordInput(_AnalysisRecordInput):
+    """One exact dataset, fact, or artifact output from an analysis revision."""
+
+    kind: Literal["analysis_dataset", "analysis_fact", "analysis_artifact"]
+    source: AnalysisPublishedOutputReference
+
+
+type AnalysisRecordInput = Annotated[
+    MeasurementAnalysisRecordInput | PublishedAnalysisRecordInput,
+    Field(discriminator="kind"),
+]
+
+
+class ProjectAnalysisOutputReference(_AnalysisContentModel):
+    """One exact project-analysis output used as decision evidence."""
+
+    analysis_record_id: _NonEmptyText
+    output_id: _NonEmptyText
+
+
+class ProjectAnalysisDecisionReference(ProjectAnalysisOutputReference):
+    """One exact typed fact interpreted as a project-level decision."""
+
+    schema_id: _NonEmptyText
+    schema_hash: Sha256ContentHash
 
 
 class _AnalysisRecordOutput(BaseModel):
@@ -772,7 +823,7 @@ def validate_analysis_output_content_budget(
 class AnalysisRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    run_id: _NonEmptyText
+    subject: AnalysisSubject
     title: _NonEmptyText
     key: _NonEmptyText | None = None
     revision: int = Field(ge=1)

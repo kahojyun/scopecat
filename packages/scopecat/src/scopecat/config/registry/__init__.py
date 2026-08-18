@@ -14,11 +14,16 @@ if TYPE_CHECKING:
         ConfigRegistryUnitOfWorkFactory,
     )
     from scopecat.config.registry.records import (
+        CandidateAcceptance,
         CandidateConfigRegistrySource,
+        ConfigRegistryActivationPage,
         ConfigRegistryActivationRecord,
         ConfigRegistryEntry,
+        ConfigRegistryEntryPage,
         ConfigRegistryEntrySource,
+        CrossRunCandidateAcceptance,
         DirectConfigRegistrySource,
+        ManualCandidateAcceptance,
         ManualConfigDraftRegistrySource,
     )
     from scopecat.config.registry.service import (
@@ -27,6 +32,7 @@ if TYPE_CHECKING:
         CandidateConfigRevisionSource,
         ConfigRegistryEntrySnapshot,
         ConfigRegistryMutationResult,
+        ConfigRegistryPageSnapshot,
         ConfigRegistrySnapshot,
         ConfigRevision,
         ConfigRevisionSource,
@@ -42,8 +48,11 @@ if TYPE_CHECKING:
         load_active_config_registry_config,
         load_active_config_registry_entry,
         load_active_config_registry_snapshot,
+        load_config_registry_activation,
         load_config_registry_activation_history,
+        load_config_registry_activation_page,
         load_config_registry_entry_snapshot,
+        load_config_registry_page,
         load_config_registry_snapshot,
         plan_instrument_inventory_migration,
         preview_manual_config_draft,
@@ -55,11 +64,16 @@ if TYPE_CHECKING:
 
 
 _RECORD_EXPORTS = (
+    "CandidateAcceptance",
     "CandidateConfigRegistrySource",
+    "ConfigRegistryActivationPage",
     "ConfigRegistryActivationRecord",
     "ConfigRegistryEntry",
+    "ConfigRegistryEntryPage",
     "ConfigRegistryEntrySource",
+    "CrossRunCandidateAcceptance",
     "DirectConfigRegistrySource",
+    "ManualCandidateAcceptance",
     "ManualConfigDraftRegistrySource",
 )
 _PORT_EXPORTS = (
@@ -75,6 +89,7 @@ _SERVICE_EXPORTS = (
     "ConfigRevisionSource",
     "ConfigRegistryEntrySnapshot",
     "ConfigRegistryMutationResult",
+    "ConfigRegistryPageSnapshot",
     "ConfigRegistrySnapshot",
     "DirectConfigRevisionSource",
     "InstrumentInventoryMigrationDelta",
@@ -89,8 +104,11 @@ _SERVICE_EXPORTS = (
     "load_active_config_registry_snapshot",
     "load_active_config_registry_activation",
     "load_config_registry_activation_history",
+    "load_config_registry_activation",
+    "load_config_registry_activation_page",
     "load_config_registry_entry_snapshot",
     "load_config_registry_snapshot",
+    "load_config_registry_page",
     "plan_instrument_inventory_migration",
     "preview_manual_config_draft",
     "publish_config_revision",

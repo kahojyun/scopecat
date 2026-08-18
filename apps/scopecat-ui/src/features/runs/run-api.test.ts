@@ -7,9 +7,10 @@ import {
   getMeasurementTracePreview,
   getOlderRuns,
   getRun,
-  getRunAnalyses,
+  getRunAnalysisSummaries,
   getRunArtifactDownload,
   getRunContent,
+  getRunContents,
   getRunEvents,
   getRuns,
 } from "./run-api";
@@ -33,7 +34,7 @@ describe("run daemon reads", () => {
           run_id: "run/1",
           artifact: {
             role: "artifact",
-            id: "analysis-fit-fit-report",
+            id: "analysis-fit-r1-fit-report",
             kind: "analysis_artifact",
             filename: "fit-report.md",
             media_type: "text/markdown",
@@ -45,18 +46,18 @@ describe("run daemon reads", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const download = await getRunArtifactDownload("run/1", "analysis-fit-fit-report");
+    const download = await getRunArtifactDownload("run/1", "analysis-fit-r1-fit-report");
 
     expect(download.filename).toBe("fit-report.md");
     expect(download.blob.type).toBe("text/markdown");
     await expect(download.blob.text()).resolves.toBe("# Fit report\n");
     expect(requestPath(fetchMock.mock.calls[0]![0])).toBe(
-      "/api/v1/runs/run%2F1/artifacts/analysis-fit-fit-report/bytes" +
+      "/api/v1/runs/run%2F1/artifacts/analysis-fit-r1-fit-report/bytes" +
         "?expected_kind=analysis_artifact",
     );
   });
 
-  it("normalizes current manifest contents for the run browser", async () => {
+  it("loads run detail without eagerly reading its content catalog", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
@@ -83,27 +84,10 @@ describe("run daemon reads", () => {
                 },
               },
             },
-            manifest: {
+            snapshot: {
               run_id: "run/1",
               config_content_hash: "sha256:config",
               outcome: { result: "succeeded", certainty: "known" },
-              contents: [
-                {
-                  role: "artifact",
-                  id: "fit-notes",
-                  kind: "attachment",
-                  title: "Fit notes",
-                  media_type: "text/markdown",
-                  filename: "fit.md",
-                  content_hash: "sha256:notes",
-                },
-                {
-                  role: "record",
-                  id: "analysis-fit",
-                  kind: "analysis",
-                  content_hash: "sha256:analysis",
-                },
-              ],
             },
             resources: [],
           }),
@@ -122,7 +106,43 @@ describe("run daemon reads", () => {
       result: "succeeded",
       certainty: "known",
     });
-    expect(run.contents).toEqual([
+    expect(run.contents).toEqual([]);
+  });
+
+  it("loads one bounded page of run contents", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          jsonResponse({
+            run_id: "run/1",
+            items: [
+              {
+                role: "artifact",
+                id: "fit-notes",
+                kind: "attachment",
+                title: "Fit notes",
+                media_type: "text/markdown",
+                filename: "fit.md",
+                content_hash: "sha256:notes",
+              },
+              {
+                role: "record",
+                id: "analysis-fit-r1",
+                kind: "analysis",
+                content_hash: "sha256:analysis",
+              },
+            ],
+            next_cursor: 17,
+          }),
+        ),
+      ),
+    );
+
+    const page = await getRunContents("run/1");
+
+    expect(page.nextCursor).toBe(17);
+    expect(page.items).toEqual([
       {
         id: "fit-notes",
         role: "artifact",
@@ -133,7 +153,7 @@ describe("run daemon reads", () => {
         filename: "fit.md",
       },
       {
-        id: "analysis-fit",
+        id: "analysis-fit-r1",
         role: "record",
         kind: "analysis",
         label: "Record 2",
@@ -147,36 +167,43 @@ describe("run daemon reads", () => {
   it("prioritizes scheduler attention over a terminal outcome", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() =>
+      vi.fn((input: string | URL | Request) =>
         Promise.resolve(
-          jsonResponse({
-            control: {
-              state: "attention_required",
-              completed_point_count: 0,
-              point_plan: staticPointPlan("run/attention"),
-              attention_reason: "executor_lease_expired",
-              admission: {
-                run_id: "run/attention",
-                plan: {
-                  experiment_id: "ramsey",
-                  experiment_kind: "scratch",
-                  point_count: 1,
-                  initial_point_count: 1,
-                  point_limit: 1,
-                  coordinates: [],
-                  sampled_points: [],
-                  sampled_points_truncated: false,
+          jsonResponse(
+            requestPath(input).includes("/contents?")
+              ? {
+                  run_id: "run/attention",
+                  items: [],
+                  next_cursor: null,
+                }
+              : {
+                  control: {
+                    state: "attention_required",
+                    completed_point_count: 0,
+                    point_plan: staticPointPlan("run/attention"),
+                    attention_reason: "executor_lease_expired",
+                    admission: {
+                      run_id: "run/attention",
+                      plan: {
+                        experiment_id: "ramsey",
+                        experiment_kind: "scratch",
+                        point_count: 1,
+                        initial_point_count: 1,
+                        point_limit: 1,
+                        coordinates: [],
+                        sampled_points: [],
+                        sampled_points_truncated: false,
+                      },
+                    },
+                  },
+                  snapshot: {
+                    run_id: "run/attention",
+                    config_content_hash: "sha256:config",
+                    outcome: { result: "failed", certainty: "indeterminate" },
+                  },
+                  resources: [],
                 },
-              },
-            },
-            manifest: {
-              run_id: "run/attention",
-              config_content_hash: "sha256:config",
-              outcome: { result: "failed", certainty: "indeterminate" },
-              contents: [],
-            },
-            resources: [],
-          }),
+          ),
         ),
       ),
     );
@@ -211,13 +238,20 @@ describe("run daemon reads", () => {
   it("reads persisted analyses and typed run content", async () => {
     const fetchMock = vi.fn((input: string | URL | Request) => {
       const path = requestPath(input);
-      if (path.endsWith("/analyses")) {
+      if (path.includes("/analyses?")) {
         return Promise.resolve(
           jsonResponse({
             run_id: "run/1",
             items: [
               {
-                entry: { id: "analysis-fit" },
+                entry: { id: "analysis-fit-r1" },
+                title: "Fit review",
+                key: "fit",
+                revision: 1,
+                publication_hash: "sha256:analysis",
+                published_at: "2026-08-17T12:00:00Z",
+                input_count: 1,
+                output_count: 1,
                 analysis: {
                   title: "Fit review",
                   key: "fit",
@@ -302,7 +336,7 @@ describe("run daemon reads", () => {
         jsonResponse({
           record: {
             role: "record",
-            id: "analysis-fit",
+            id: "analysis-fit-r1",
             kind: "analysis",
             content_hash: "sha256:analysis",
           },
@@ -312,61 +346,24 @@ describe("run daemon reads", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const analyses = await getRunAnalyses("run/1");
+    const analyses = await getRunAnalysisSummaries("run/1");
     const text = await getRunContent("run/1", textArtifact());
     const json = await getRunContent("run/1", jsonArtifact());
     const record = await getRunContent("run/1", {
-      id: "analysis-fit",
+      id: "analysis-fit-r1",
       role: "record",
       kind: "analysis",
       label: "Fit review",
       detail: "analysis",
     });
 
-    expect(analyses[0]).toMatchObject({
-      id: "analysis-fit",
+    expect(analyses.items[0]).toMatchObject({
+      id: "analysis-fit-r1",
       title: "Fit review",
       key: "fit",
-      inputs: [
-        {
-          target: "measurement-dataset",
-          kind: "measurement_dataset",
-          role: "fit-input",
-          title: "Sweep data",
-          metadata: { selector: "raw-measurements" },
-        },
-      ],
-      executions: [
-        {
-          id: "fit",
-          implementation: "python:fit",
-          outputs: [
-            {
-              name: "fit",
-              kind: "value",
-              content_hash: "sha256:fitted-frequency",
-            },
-          ],
-        },
-      ],
-      outputs: [
-        {
-          kind: "fact",
-          title: "Fitted frequency",
-          content: {
-            schema_id: "scopecat.scalar.v1",
-            schema_codec: "scopecat.analysis-fact-schema.v1",
-            schema_hash: `sha256:${"c".repeat(64)}`,
-            codec: "scopecat.python-json.v1",
-            value: 5.1,
-          },
-          producedBy: {
-            execution_id: "fit",
-            output_name: "fit",
-          },
-          metadata: {},
-        },
-      ],
+      inputCount: 1,
+      outputCount: 1,
+      publishedAt: "2026-08-17T12:00:00Z",
     });
     expect(text).toMatchObject({ format: "text", content: "Converged\n" });
     expect(json).toMatchObject({
@@ -378,10 +375,10 @@ describe("run daemon reads", () => {
       content: { title: "Fit review" },
     });
     expect(fetchMock.mock.calls.map(([path]) => requestPath(path))).toEqual([
-      "/api/v1/runs/run%2F1/analyses",
+      "/api/v1/runs/run%2F1/analyses?limit=100",
       "/api/v1/runs/run%2F1/artifacts/fit-notes/text?expected_kind=attachment",
       "/api/v1/runs/run%2F1/artifacts/fit-result/json?expected_kind=result",
-      "/api/v1/runs/run%2F1/records/analysis-fit/json?expected_kind=analysis",
+      "/api/v1/runs/run%2F1/records/analysis-fit-r1/json?expected_kind=analysis",
     ]);
   });
 
@@ -425,9 +422,9 @@ describe("run daemon reads", () => {
                   },
                 },
               },
-              manifest: {
+              snapshot: {
                 run_id: path.includes("before=") ? "run-old" : "run-new",
-                contents: [],
+                config_content_hash: "sha256:config",
               },
             },
           ],
@@ -639,9 +636,9 @@ function runSummary(runId: string, state: "queued" | "leased") {
         },
       },
     },
-    manifest: {
+    snapshot: {
       run_id: runId,
-      contents: [],
+      config_content_hash: "sha256:config",
     },
   };
 }

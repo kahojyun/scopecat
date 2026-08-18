@@ -13,7 +13,7 @@ import {
   getMeasurementTracePreview,
   getOlderRuns,
   getRun,
-  getRunAnalyses,
+  getRunAnalysisSummaries,
   getRunEvents,
   getRuns,
 } from "./features/runs/run-api";
@@ -34,7 +34,7 @@ vi.mock("./features/runs/run-api", async (importOriginal) => ({
   getMeasurementTracePreview: vi.fn(),
   getOlderRuns: vi.fn(),
   getRun: vi.fn(),
-  getRunAnalyses: vi.fn(),
+  getRunAnalysisSummaries: vi.fn(),
   getRunEvents: vi.fn(),
   getRuns: vi.fn(),
 }));
@@ -49,6 +49,29 @@ vi.mock("./features/config/ConfigWorkspace", () => ({
         Open unlisted producing run
       </button>
     </>
+  ),
+}));
+
+vi.mock("./features/analyses/AnalysesWorkspace", () => ({
+  AnalysesWorkspace: ({
+    onOpenRun,
+    onSelectAnalysis,
+    selectedAnalysisId,
+  }: {
+    onOpenRun: (runId: string) => void;
+    onSelectAnalysis: (analysisId: string) => void;
+    selectedAnalysisId?: string;
+  }) => (
+    <div>
+      Project analysis workspace
+      <span>Selected analysis {selectedAnalysisId ?? "none"}</span>
+      <button type="button" onClick={() => onOpenRun("run-2")}>
+        Open analysis input run
+      </button>
+      <button type="button" onClick={() => onSelectAnalysis("analysis-next")}>
+        Select next analysis
+      </button>
+    </div>
   ),
 }));
 
@@ -116,7 +139,7 @@ beforeEach(() => {
     truncated: false,
   });
   vi.mocked(getMeasurementTracePreview).mockResolvedValue(tracePreview("magnitude"));
-  vi.mocked(getRunAnalyses).mockResolvedValue([]);
+  vi.mocked(getRunAnalysisSummaries).mockResolvedValue({ items: [] });
 });
 
 afterEach(() => {
@@ -127,6 +150,36 @@ afterEach(() => {
 });
 
 describe("config provenance navigation", () => {
+  it("restores the analyses route and opens an input in the Runs view", async () => {
+    window.history.replaceState(null, "", "/#analyses");
+    renderApp();
+
+    expect(await screen.findByText("Project analysis workspace")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Analyses" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(getRuns).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open analysis input run" }));
+
+    expect(screen.getByRole("button", { name: "Runs" })).toHaveAttribute("aria-current", "page");
+    expect(window.location.search).toBe("?run=run-2");
+    expect(window.location.hash).toBe("");
+  });
+
+  it("restores and updates an exact analysis deep link", async () => {
+    window.history.replaceState(null, "", "/?analysis=analysis-review-r2#analyses");
+    renderApp();
+
+    expect(await screen.findByText("Selected analysis analysis-review-r2")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select next analysis" }));
+
+    expect(window.location.search).toBe("?analysis=analysis-next");
+    expect(window.location.hash).toBe("#analyses");
+  });
+
   it("restores and updates the Instruments hash route", async () => {
     window.history.replaceState(null, "", "/#instruments");
     renderApp();
@@ -144,7 +197,7 @@ describe("config provenance navigation", () => {
     expect(window.location.hash).toBe("#instruments");
   });
 
-  it("invalidates instrument queries after project events", async () => {
+  it("invalidates canonical queries after project events", async () => {
     window.history.replaceState(null, "", "/#instruments");
     const queryClient = createQueryClient();
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
@@ -154,7 +207,11 @@ describe("config provenance navigation", () => {
 
     act(() => emitProjectEvent("run-1", "instrument_session_opened"));
 
-    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["instruments"] }));
+    await waitFor(() => {
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["instruments"] });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["run-contents"] });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["run-content"] });
+    });
   });
 
   it("does not mount the run browser while configuration is active", async () => {
@@ -893,6 +950,6 @@ function canonicalQueryCallCounts(): number[] {
     vi.mocked(getRun).mock.calls.length,
     vi.mocked(getRunEvents).mock.calls.length,
     vi.mocked(getMeasurementPreview).mock.calls.length,
-    vi.mocked(getRunAnalyses).mock.calls.length,
+    vi.mocked(getRunAnalysisSummaries).mock.calls.length,
   ];
 }

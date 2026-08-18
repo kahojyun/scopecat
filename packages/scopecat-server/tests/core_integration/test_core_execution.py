@@ -61,7 +61,7 @@ from scopecat.records.instrument import (
     InstrumentStateSnapshot,
 )
 from scopecat.records.measurement import MeasurementScalar
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments import DriverPayload, InterfaceRef
@@ -229,7 +229,7 @@ def test_run_persists_measurements_and_run_files(
     tmp_path: Path,
 ) -> None:
     config = load_config()
-    manifest = execute_bound_run(
+    snapshot = execute_bound_run(
         config=config,
         experiment=load_experiment(),
         instruments=[TestSignalInstrument()],
@@ -237,19 +237,29 @@ def test_run_persists_measurements_and_run_files(
     )
 
     repository = sqlite_run_repository(tmp_path)
-    assert manifest.status == "completed"
-    assert {record.id for record in manifest.records} == {"instrument-state-evidence"}
-    assert {dataset.id for dataset in manifest.datasets} == {"raw-measurements"}
-    raw_dataset = manifest.datasets[0]
+    assert snapshot.status == "completed"
+    records = repository.list_contents(
+        snapshot.run_id,
+        limit=100,
+        role="record",
+    ).items
+    datasets = repository.list_contents(
+        snapshot.run_id,
+        limit=100,
+        role="dataset",
+    ).items
+    assert {record.id for record in records} == {"instrument-state-evidence"}
+    assert {dataset.id for dataset in datasets} == {"raw-measurements"}
+    raw_dataset = datasets[0]
     assert raw_dataset.kind == "measurement_dataset"
-    persisted_manifest = repository.read_manifest(manifest.run_id)
-    persisted_config = repository.read_config_profile_snapshot(manifest.run_id)
+    persisted_snapshot = repository.read_snapshot(snapshot.run_id)
+    persisted_config = repository.read_config_profile_snapshot(snapshot.run_id)
     state_evidence = repository.read_model(
-        manifest.run_id,
+        snapshot.run_id,
         instrument_state_evidence_ref(),
         InstrumentStateEvidence,
     )
-    assert persisted_manifest == manifest
+    assert persisted_snapshot == snapshot
     assert persisted_config == config
     assert {
         snapshot.instrument_id
@@ -267,14 +277,14 @@ def test_run_persists_measurements_and_run_files(
         "value": 5.1,
         "unit": "GHz",
     }
-    assert not repository.exists(manifest.run_id, "experiment-plan.json")
+    assert not repository.exists(snapshot.run_id, "experiment-plan.json")
     assert not repository.exists(
-        manifest.run_id,
+        snapshot.run_id,
         "records/device_program/device-program.json",
     )
 
     measurements = sqlite_run_repository(tmp_path).read_measurement_records(
-        manifest.run_id,
+        snapshot.run_id,
         dataset_storage_ref(raw_dataset),
     )
     assert [item.point_index for item in measurements] == [0, 1, 2]
@@ -304,7 +314,7 @@ def test_run_persists_measurements_and_run_files(
     ]
 
 
-def test_terminal_commit_does_not_publish_manifest_after_content_write_failure(
+def test_terminal_commit_does_not_publish_snapshot_after_content_write_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -313,7 +323,7 @@ def test_terminal_commit_does_not_publish_manifest_after_content_write_failure(
     def fail_terminal_commit(
         _storage: SQLiteRunRepository,
         _commit: TerminalRunCommit,
-    ) -> RunManifest:
+    ) -> RunSnapshot:
         raise OSError("injected terminal persistence failure")
 
     monkeypatch.setattr(

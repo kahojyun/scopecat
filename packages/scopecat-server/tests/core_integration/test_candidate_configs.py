@@ -93,11 +93,11 @@ def test_candidate_checks_and_run_leave_source_run_unchanged(
     candidate = outcome.candidate_config()
     prepared = lab.prepare(load_invocation(), config=candidate)
     storage = sqlite_run_repository(tmp_path)
-    manifest_before = storage.read_manifest(source_run.id)
+    snapshot_before = storage.read_snapshot(source_run.id)
     refs_before = _run_ref_contents(tmp_path, source_run.id)
 
     def assert_source_run_unchanged() -> None:
-        assert storage.read_manifest(source_run.id) == manifest_before
+        assert storage.read_snapshot(source_run.id) == snapshot_before
         assert _run_ref_contents(tmp_path, source_run.id) == refs_before
 
     assert lab.resolve_config(config=candidate).id == "candidate-drive-frequency"
@@ -398,14 +398,19 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
         selector="drive-frequency",
         services=sqlite_project_services(tmp_path),
     )
-    manifest = sqlite_run_repository(tmp_path).read_manifest(run.id)
+    records = (
+        sqlite_run_repository(tmp_path)
+        .list_contents(
+            run.id,
+            limit=100,
+            role="record",
+            kind="parameter_change_proposal",
+        )
+        .items
+    )
     assert persisted == first_proposal
     assert persisted.proposed_at == first_proposal.proposed_at
-    assert [
-        record.id
-        for record in manifest.records
-        if record.kind == "parameter_change_proposal"
-    ] == [first_proposal.id]
+    assert [record.id for record in records] == [first_proposal.id]
     persisted_approval = load_parameter_change_approval(
         run_id=run.id,
         selector=first_proposal.id,

@@ -9,7 +9,7 @@ from typing import Protocol, override
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scopecat.records.artifact import CommandPayload
+from scopecat.records.content import CommandPayload
 
 type PayloadEncoder = Callable[[object], bytes]
 type PayloadDecoder = Callable[[bytes], object]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from base64 import b64decode, b64encode
 from binascii import Error as BinasciiError
+from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Annotated, Literal, cast
 
@@ -26,8 +27,8 @@ type Sha256ContentHash = Annotated[
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
-class RunContentEntry(BaseModel):
-    """One content-addressable run-local manifest entry."""
+class ContentEntry(BaseModel):
+    """One content-addressable catalog entry."""
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -45,7 +46,7 @@ class RunContentEntry(BaseModel):
     @field_validator("id", "kind")
     @classmethod
     def validate_storage_segment(cls, value: str) -> str:
-        return _validate_run_segment(value)
+        return _validate_content_segment(value)
 
     @field_validator("filename")
     @classmethod
@@ -53,11 +54,29 @@ class RunContentEntry(BaseModel):
         if value is None:
             return None
         if not value or "\\" in value:
-            raise ValueError("run content filename must be a basename")
+            raise ValueError("content filename must be a basename")
         path = PurePosixPath(value)
         if path.name != value or path.is_absolute() or ".." in path.parts:
-            raise ValueError("run content filename must be a basename")
+            raise ValueError("content filename must be a basename")
         return value
+
+
+@dataclass(frozen=True, slots=True)
+class ModelWrite:
+    """One typed model write prepared for an atomic publication."""
+
+    ref: str
+    value: BaseModel
+    replace: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class BytesWrite:
+    """One byte payload write prepared for an atomic publication."""
+
+    ref: str
+    content: bytes
+    replace: bool = True
 
 
 class InlinePayloadBody(BaseModel):
@@ -231,12 +250,12 @@ def command_payload_from_bytes(
     )
 
 
-def _validate_run_segment(value: str) -> str:
+def _validate_content_segment(value: str) -> str:
     if not value or "\\" in value:
-        msg = "run-local ref field must be a single path segment"
+        msg = "content ref field must be a single path segment"
         raise ValueError(msg)
     path = PurePosixPath(value)
     if path.name != value or path.is_absolute() or ".." in path.parts:
-        msg = "run-local ref field must be a single path segment"
+        msg = "content ref field must be a single path segment"
         raise ValueError(msg)
     return value

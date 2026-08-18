@@ -44,7 +44,7 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
         "shape": list(iq_shots.shape),
         "entities": [entity.id for entity in entities],
         "tree_has_parallel_each": "parallel_each $targets" in program_tree,
-        "status": run.manifest.status,
+        "status": run.status,
     }
 show(program_tree)
 show(topology_scaled_summary)

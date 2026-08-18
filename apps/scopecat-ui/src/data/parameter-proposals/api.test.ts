@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { requestHeaders, requestJson, requestMethod, requestPath } from "../../test/http";
-import { acceptProposal, getRunParameterProposals } from "./api";
+import { acceptProposal, getOlderRunParameterProposals, getRunParameterProposals } from "./api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -17,7 +17,7 @@ describe("parameter proposal reads", () => {
               proposal: {
                 id: "drive-frequency",
                 source_run_id: "run/a",
-                analysis_record_id: "analysis-fit",
+                analysis_record_id: "analysis-fit-r1",
                 base_config_id: "baseline",
                 base_config_content_hash: "sha256:base",
                 reason: "Peak moved",
@@ -41,6 +41,7 @@ describe("parameter proposal reads", () => {
               },
             },
           ],
+          next_cursor: 17,
         }),
       ),
     );
@@ -49,7 +50,7 @@ describe("parameter proposal reads", () => {
     const result = await getRunParameterProposals("run/a");
 
     expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
-      "/api/v1/runs/run%2Fa/parameter-proposals",
+      "/api/v1/runs/run%2Fa/parameter-proposals?limit=100",
     );
     expect(result).toEqual({
       runId: "run/a",
@@ -57,7 +58,7 @@ describe("parameter proposal reads", () => {
         {
           id: "drive-frequency",
           sourceRunId: "run/a",
-          analysisRecordId: "analysis-fit",
+          analysisRecordId: "analysis-fit-r1",
           baseConfigId: "baseline",
           baseContentHash: "sha256:base",
           reason: "Peak moved",
@@ -78,7 +79,21 @@ describe("parameter proposal reads", () => {
           },
         },
       ],
+      nextCursor: 17,
     });
+  });
+
+  it("requests an older proposal page by cursor", async () => {
+    const fetchMock = vi.fn((_input: string | URL | Request) =>
+      Promise.resolve(jsonResponse({ run_id: "run-a", items: [], next_cursor: null })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getOlderRunParameterProposals("run-a", 17);
+
+    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
+      "/api/v1/runs/run-a/parameter-proposals?limit=100&before=17",
+    );
   });
 });
 
@@ -101,6 +116,7 @@ describe("parameter proposal commands", () => {
         kind: "candidate_config",
         run_id: "run-a",
         proposal_id: "drive-frequency",
+        acceptance: { kind: "manual_review" },
       },
       actor: "Ada",
       expected_generation: 4,

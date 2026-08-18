@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path, PurePosixPath
-from typing import Annotated, cast, override
+from typing import Annotated, Literal, cast, override
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi import Path as ApiPath
@@ -51,10 +51,11 @@ from scopecat.daemon.reviews import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
-    ConfigActivationHistoryView,
+    AnalysisContentBytesView,
+    ConfigActivationPage,
     ConfigDraftPreview,
     ConfigEntryView,
-    ConfigRegistryView,
+    ConfigRegistryPage,
     DaemonHealth,
     InstrumentListView,
     InstrumentView,
@@ -64,11 +65,16 @@ from scopecat.daemon.views import (
     MeasurementSliceQuery,
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
-    ParameterProposalListView,
-    RunAnalysisListView,
+    ParameterProposalPage,
+    ParameterProposalView,
+    ProjectAnalysisContentPage,
+    ProjectAnalysisPage,
+    ProjectAnalysisView,
+    RunAnalysisPage,
     RunAnalysisView,
     RunArtifactBytesView,
     RunConfigView,
+    RunContentPage,
     RunDatasetBytesView,
     RunDetail,
     RunRequestView,
@@ -116,10 +122,10 @@ from scopecat.daemon.wire import (
     TerminalRunCommitCommand,
 )
 from scopecat.planning.catalog import InstrumentContractCatalog
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.runs.data import (
     RunArtifactJsonResult,
     RunArtifactTextResult,
@@ -253,12 +259,21 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         )
 
     @app.get(f"{_API_PREFIX}/config-registry")
-    def get_config_registry() -> ConfigRegistryView:
-        return application.config.get_config_registry()
+    def get_config_registry(
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> ConfigRegistryPage:
+        return application.config.get_config_registry(limit=limit, before=before)
 
     @app.get(f"{_API_PREFIX}/config-registry/activations")
-    def get_config_activation_history() -> ConfigActivationHistoryView:
-        return application.config.get_config_activation_history()
+    def get_config_activation_history(
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> ConfigActivationPage:
+        return application.config.get_config_activation_history(
+            limit=limit,
+            before=before,
+        )
 
     @app.get(f"{_API_PREFIX}/config-registry/active")
     def get_active_config() -> ActiveConfigView:
@@ -518,9 +533,45 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     def get_run_request(run_id: str) -> RunRequestView:
         return application.runs.get_run_request(run_id)
 
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/contents")
+    def list_run_contents(
+        run_id: str,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+        role: Literal["artifact", "dataset", "record"] | None = None,
+        kind: str | None = None,
+    ) -> RunContentPage:
+        return application.runs.list_run_contents(
+            run_id,
+            limit=limit,
+            before=before,
+            role=role,
+            kind=kind,
+        )
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/contents/{{role}}/{{content_id}}")
+    def get_run_content(
+        run_id: str,
+        role: Literal["artifact", "dataset", "record"],
+        content_id: str,
+    ) -> ContentEntry:
+        return application.runs.get_run_content(
+            run_id,
+            role=role,
+            content_id=content_id,
+        )
+
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/analyses")
-    def list_run_analyses(run_id: str) -> RunAnalysisListView:
-        return application.runs.list_run_analyses(run_id)
+    def list_run_analyses(
+        run_id: str,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> RunAnalysisPage:
+        return application.runs.list_run_analyses(
+            run_id,
+            limit=limit,
+            before=before,
+        )
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/analyses", status_code=201)
     def save_run_analysis(
@@ -532,6 +583,47 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/analyses/{{selector}}")
     def get_run_analysis(run_id: str, selector: str) -> RunAnalysisView:
         return application.runs.get_run_analysis(run_id, selector)
+
+    @app.get(f"{_API_PREFIX}/analyses")
+    def list_project_analyses(
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> ProjectAnalysisPage:
+        return application.analyses.list(limit=limit, before=before)
+
+    @app.post(f"{_API_PREFIX}/analyses", status_code=201)
+    def save_project_analysis(command: AnalysisSaveCommand) -> AnalysisSaveReceipt:
+        return application.analyses.save(command)
+
+    @app.get(f"{_API_PREFIX}/analyses/{{selector}}")
+    def get_project_analysis(selector: str) -> ProjectAnalysisView:
+        return application.analyses.get(selector)
+
+    @app.get(f"{_API_PREFIX}/analyses/{{analysis_id}}/contents")
+    def list_project_analysis_contents(
+        analysis_id: str,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> ProjectAnalysisContentPage:
+        return application.analyses.list_contents(
+            analysis_id,
+            limit=limit,
+            before=before,
+        )
+
+    @app.get(f"{_API_PREFIX}/analyses/{{analysis_id}}/contents/{{selector}}")
+    def get_project_analysis_content(
+        analysis_id: str,
+        selector: str,
+    ) -> ContentEntry:
+        return application.analyses.content(analysis_id, selector)
+
+    @app.get(f"{_API_PREFIX}/analyses/{{analysis_id}}/contents/{{selector}}/bytes")
+    def get_project_analysis_content_bytes(
+        analysis_id: str,
+        selector: str,
+    ) -> AnalysisContentBytesView:
+        return application.analyses.content_bytes(analysis_id, selector)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/artifacts/{{selector}}/bytes")
     def get_run_artifact_bytes(
@@ -604,12 +696,27 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     def attach_run_content(
         run_id: str,
         command: RunAttachmentCommand,
-    ) -> RunContentEntry:
+    ) -> ContentEntry:
         return application.runs.attach_run_content(run_id, command)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/parameter-proposals")
-    def list_parameter_proposals(run_id: str) -> ParameterProposalListView:
-        return application.runs.list_parameter_proposals(run_id)
+    def list_parameter_proposals(
+        run_id: str,
+        limit: Annotated[int, Query(ge=1, le=200)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> ParameterProposalPage:
+        return application.runs.list_parameter_proposals(
+            run_id,
+            limit=limit,
+            before=before,
+        )
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/parameter-proposals/{{proposal_id}}")
+    def get_parameter_proposal(
+        run_id: str,
+        proposal_id: str,
+    ) -> ParameterProposalView:
+        return application.runs.get_parameter_proposal(run_id, proposal_id)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/attention")
     def resolve_attention(
@@ -891,7 +998,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     def commit_terminal(
         run_id: str,
         command: TerminalRunCommitCommand,
-    ) -> RunManifest:
+    ) -> RunSnapshot:
         _require_run_id(run_id, command.outcome.run_id)
         return application.executor.commit_terminal(run_id, command)
 

@@ -9,6 +9,7 @@ from typing import Literal
 
 from scopecat.api.run import (
     RunHandle,
+    RunHandlePage,
     RunOperations,
     run_handle_id,
 )
@@ -191,10 +192,12 @@ class InProcessLab:
     def get_run(self, run: RunSelector | RunHandle) -> RunHandle:
         return RunHandle(session=self, id=run_handle_id(run))
 
-    def runs(self) -> tuple[RunHandle, ...]:
-        return tuple(
-            RunHandle(session=self, id=manifest.run_id)
-            for manifest in list_test_runs(self.services.runs)
+    def runs(self) -> RunHandlePage:
+        return RunHandlePage(
+            items=tuple(
+                RunHandle(session=self, id=manifest.run_id)
+                for manifest in list_test_runs(self.services.runs)
+            )
         )
 
     def review_parameter_proposal(

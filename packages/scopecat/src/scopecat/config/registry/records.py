@@ -8,6 +8,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.kernel.run_outcome import utc_now
+from scopecat.records.analysis import ProjectAnalysisDecisionReference
 from scopecat.records.config import ConfigContentHash
 
 
@@ -37,11 +38,31 @@ class ManualConfigDraftRegistrySource(_FrozenRegistryModel):
         return self
 
 
+class ManualCandidateAcceptance(_FrozenRegistryModel):
+    """Operator-reviewed acceptance without an automated verification run."""
+
+    kind: Literal["manual_review"] = "manual_review"
+
+
+class CrossRunCandidateAcceptance(_FrozenRegistryModel):
+    """Automated acceptance backed by one positive cross-run decision fact."""
+
+    kind: Literal["cross_run_verification"] = "cross_run_verification"
+    decision: ProjectAnalysisDecisionReference
+
+
+CandidateAcceptance = Annotated[
+    ManualCandidateAcceptance | CrossRunCandidateAcceptance,
+    Field(discriminator="kind"),
+]
+
+
 class CandidateConfigRegistrySource(_FrozenRegistryModel):
     kind: Literal["candidate_config"] = "candidate_config"
     run_id: str
     proposal_id: str
     base_config_content_hash: ConfigContentHash
+    acceptance: CandidateAcceptance
 
     @model_validator(mode="after")
     def validate_evidence(self) -> CandidateConfigRegistrySource:
@@ -98,3 +119,17 @@ class ConfigRegistryActivationRecord(_FrozenRegistryModel):
             msg = "previous registry entry id and content hash must be paired"
             raise ValueError(msg)
         return self
+
+
+class ConfigRegistryEntryPage(_FrozenRegistryModel):
+    """Newest-first keyset page of saved configuration revisions."""
+
+    items: tuple[ConfigRegistryEntry, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+
+class ConfigRegistryActivationPage(_FrozenRegistryModel):
+    """Newest-first keyset page of default configuration changes."""
+
+    items: tuple[ConfigRegistryActivationRecord, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)

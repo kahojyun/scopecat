@@ -37,7 +37,7 @@ from scopecat.program.value_refs import ValueRef
 from scopecat.program.value_types import Quantity as QuantityType
 from scopecat.program.value_types import Scalar
 from scopecat.program.values import CoordinateRef, compute, coordinate
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import (
     EntityAcquisitionEvidence,
     InstrumentAcquisitionEvidence,
@@ -644,7 +644,7 @@ def test_entity_dimensions_support_labeled_selection_and_partial_availability() 
     )
     dataset = Dataset(
         raw,
-        RunContentEntry(
+        ContentEntry(
             role="dataset",
             id="entity-readout",
             kind="measurement_dataset",
@@ -772,7 +772,7 @@ def test_mixed_entity_kinds_use_collision_free_coordinate_identities() -> None:
     )
     dataset = Dataset(
         raw,
-        RunContentEntry(
+        ContentEntry(
             role="dataset",
             id="mixed-entities",
             kind="measurement_dataset",
@@ -974,7 +974,7 @@ def _entity_source_dataset(
     )
     return Dataset(
         raw,
-        RunContentEntry(
+        ContentEntry(
             role="dataset",
             id=dataset_id,
             kind="measurement_dataset",
@@ -1974,7 +1974,7 @@ def _product_grid_dataset() -> Dataset:
         dataset_schema=schema,
         records=[records[index] for index in (5, 0, 3, 1, 4, 2)],
     )
-    entry = RunContentEntry(
+    entry = ContentEntry(
         role="dataset",
         id="product-grid",
         kind="measurement_dataset",
@@ -2101,7 +2101,7 @@ def _dataset() -> Dataset:
             },
         },
     )
-    entry = RunContentEntry(
+    entry = ContentEntry(
         role="dataset",
         id="raw-measurements",
         kind="measurement_dataset",

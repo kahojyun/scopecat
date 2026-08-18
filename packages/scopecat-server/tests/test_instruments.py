@@ -32,7 +32,6 @@ from scopecat.daemon.wire import (
 from scopecat.kernel.problems import ProblemPhase, model_location, problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
-from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentBindingSpec,
@@ -42,6 +41,7 @@ from scopecat.records.config import (
     config_content_hash,
     instrument_bindings,
 )
+from scopecat.records.content import command_payload_from_bytes
 from scopecat.records.measurement import (
     MeasurementAcquisitionValue,
     MeasurementScalar,

@@ -16,11 +16,11 @@ from scopecat.analysis.datasets import DERIVED_DATASET_CODEC, DerivedDataset
 from scopecat.analysis.service import (
     AnalysisDatasetOutput,
     AnalysisFigureOutput,
-    AnalysisInput,
     AnalysisTableOutput,
+    PublishedAnalysisOutputInput,
 )
 from scopecat.config.registry import service as config_registry_service
-from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.errors import CheckFailed, NotFound
 from scopecat.measurements.results import Dataset
 from scopecat.records.analysis import (
     ANALYSIS_ARTIFACT_CODEC,
@@ -38,8 +38,9 @@ from scopecat.records.analysis import (
     AnalysisPublishedOutputReference,
     AnalysisTableRecordOutput,
     AnalysisTableViewSpec,
+    PublishedAnalysisRecordInput,
+    RunAnalysisSubject,
 )
-from scopecat.records.run import RunManifest
 from scopecat.runs.refs import record_content_ref
 from scopecat_testkit.config_registry import activate_candidate_config
 from scopecat_testkit.server.in_process_lab import in_process_lab
@@ -249,7 +250,7 @@ def test_analysis_trace_records_its_analysis_dependency(tmp_path: Path) -> None:
     [fact_output] = analysis.outputs
     assert fact_output.kind == "fact"
     stored = handle.record_json(
-        "analysis-dataset-trace",
+        "analysis-dataset-trace-r1",
         expected_kind="analysis",
     )
     stored_executions = stored.content["executions"]
@@ -331,7 +332,7 @@ def test_native_dataframe_trace_returns_one_reusable_derived_dataset(
         execution_id="_derived_signal_frame",
         output_name="_derived_signal_frame",
     )
-    dataset_id = "analysis-native-derived-data-derived-signal"
+    dataset_id = "analysis-native-derived-data-r1-derived-signal"
     assert isinstance(maximum_output, AnalysisFactRecordOutput)
     assert maximum_output.content.value == 2.0
     assert maximum_output.produced_by == AnalysisExecutionOutputReference(
@@ -359,7 +360,7 @@ def test_native_dataframe_trace_returns_one_reusable_derived_dataset(
     assert figure_output.content.projection.y == "score"
 
     stored = handle.record_json(
-        "analysis-native-derived-data",
+        "analysis-native-derived-data-r1",
         expected_kind="analysis",
     )
     outputs = stored.content["outputs"]
@@ -387,7 +388,7 @@ def test_native_dataframe_trace_returns_one_reusable_derived_dataset(
     assert "preview" in table_view
     published = handle.published_analysis("native-derived-data")
     assert outcome.id == published.id
-    assert published.id == "analysis-native-derived-data"
+    assert published.id == "analysis-native-derived-data-r1"
     assert published.dataset("derived-signal").table.equals(
         derived.table,
         check_metadata=True,
@@ -399,11 +400,9 @@ def test_native_dataframe_trace_returns_one_reusable_derived_dataset(
     ]
     assert published.table("table").source is not None
     assert published.figure("figure").projection is not None
-    manifest_entry = next(
-        entry for entry in handle.manifest.datasets if entry.id == dataset_id
-    )
-    assert manifest_entry.kind == "analysis_dataset"
-    assert manifest_entry.content_hash == content["content_hash"]
+    catalog_entry = handle.content("dataset", dataset_id)
+    assert catalog_entry.kind == "analysis_dataset"
+    assert catalog_entry.content_hash == content["content_hash"]
 
 
 def test_analysis_trace_retains_native_dataframe_identity_until_publication(
@@ -667,27 +666,27 @@ def test_analysis_publishes_typed_facts_and_owned_artifacts(tmp_path: Path) -> N
     assert fact.content.schema_id == "scopecat.quantity.v1"
     assert fact.content.value == {"value": 5.1, "unit": "GHz"}
     assert artifact.id == "fit-report"
-    stored = handle.record_json("analysis-publication", expected_kind="analysis")
+    stored = handle.record_json("analysis-publication-r1", expected_kind="analysis")
     stored_outputs = cast("list[object]", stored.content["outputs"])
     artifact_output = cast("dict[str, object]", stored_outputs[1])
     assert artifact_output["id"] == "fit-report"
     assert artifact_output["kind"] == "artifact"
     artifact_ref = cast("dict[str, object]", artifact_output["content"])
-    artifact_id = "analysis-publication-fit-report"
+    artifact_id = "analysis-publication-r1-fit-report"
     assert artifact_ref["artifact_id"] == artifact_id
     restored = handle.artifact_text(
         artifact_id,
         expected_kind="analysis_artifact",
     )
     assert restored.content == "# Fit report\n\nConverged.\n"
-    entry = next(item for item in handle.manifest.artifacts if item.id == artifact_id)
+    entry = handle.content("artifact", artifact_id)
     assert entry.filename == "fit-report.md"
-    assert entry.produced_by == "analysis-publication"
+    assert entry.produced_by == "analysis-publication-r1"
     published = handle.published_analysis("publication")
     assert published.fact("resonance").value == {"value": 5.1, "unit": "GHz"}
     assert published.artifact("fit-report").text() == ("# Fit report\n\nConverged.\n")
     assert published.artifact("fit-report").entry == entry
-    assert handle.published_analyses()[-1].id == "analysis-publication"
+    assert handle.analysis_summaries().items[0].entry.id == "analysis-publication-r1"
     with pytest.raises(TypeError, match="is fact"):
         published.dataset("resonance")
 
@@ -764,21 +763,51 @@ def test_analysis_key_appends_only_changed_publication_revisions(
         .save()
     )
 
-    assert first.id == retried.id == "analysis-fit-result"
+    assert first.id == retried.id == "analysis-fit-result-r1"
     assert second.id == "analysis-fit-result-r2"
-    first_publication = handle.published_analysis("analysis-fit-result")
+    assert retried.published_at == first.published_at
+    assert second.published_at >= first.published_at
+    first_publication = handle.published_analysis("analysis-fit-result-r1")
     latest = handle.published_analysis("fit-result")
     assert first_publication.revision == 1
     assert latest.revision == 2
+    assert first_publication.published_at == first.published_at
     assert first_publication.publication_hash != latest.publication_hash
     assert first_publication.fact("score").value == 0.5
     assert latest.fact("score").value == 0.75
     assert first_publication.artifact("report").text() == "first"
     assert latest.artifact("report").text() == "second"
-    assert [item.id for item in handle.manifest.records if item.kind == "analysis"] == [
-        "analysis-fit-result",
-        "analysis-fit-result-r2",
-    ]
+    assert [
+        item.id for item in handle.contents(role="record", kind="analysis").items
+    ] == ["analysis-fit-result-r2", "analysis-fit-result-r1"]
+
+
+def test_analysis_revision_ids_do_not_collide_with_revision_shaped_keys(
+    tmp_path: Path,
+) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+
+    first = handle.analysis("History", key="history").result().fact("score", 0.5).save()
+    second = (
+        handle.analysis("History", key="history").result().fact("score", 0.75).save()
+    )
+    shaped_key = (
+        handle.analysis("Separate history", key="history-r2")
+        .result()
+        .fact("score", 1.0)
+        .save()
+    )
+
+    assert first.id == "analysis-history-r1"
+    assert second.id == "analysis-history-r2"
+    assert shaped_key.id == "analysis-history-r2-r1"
+    assert handle.published_analysis("history").id == second.id
+    assert handle.published_analysis("history-r2").id == shaped_key.id
 
 
 def test_analysis_dataset_input_freezes_the_exact_same_run_output_revision(
@@ -816,6 +845,7 @@ def test_analysis_dataset_input_freezes_the_exact_same_run_output_revision(
     )
 
     [first_input] = review_v1.inputs
+    assert isinstance(first_input, PublishedAnalysisRecordInput)
     source_v1_output = source_v1.output("fits")
     assert isinstance(source_v1_output, AnalysisDatasetRecordOutput)
     assert first_input.kind == "analysis_dataset"
@@ -823,6 +853,7 @@ def test_analysis_dataset_input_freezes_the_exact_same_run_output_revision(
     assert first_input.content_hash == source_v1_output.content.content_hash
     assert first_input.codec == DERIVED_DATASET_CODEC
     assert first_input.source == AnalysisPublishedOutputReference(
+        subject=RunAnalysisSubject(run_id=handle.id),
         analysis_record_id=source_v1.id,
         output_id="fits",
     )
@@ -860,7 +891,9 @@ def test_analysis_dataset_input_freezes_the_exact_same_run_output_revision(
     assert review_v2.id == "analysis-fit-quality-review-r2"
     assert review_v2.fact("maximum-score").value == first_score
     [second_input] = review_v2.inputs
+    assert isinstance(second_input, PublishedAnalysisRecordInput)
     assert second_input.source == AnalysisPublishedOutputReference(
+        subject=RunAnalysisSubject(run_id=handle.id),
         analysis_record_id=source_v2.id,
         output_id="fits",
     )
@@ -895,13 +928,15 @@ def test_analysis_dataset_input_rejects_a_source_from_another_run(
     invalid = replace(
         second_handle.analysis("Invalid consumer", key="invalid-consumer").result(),
         inputs=(
-            AnalysisInput(
+            PublishedAnalysisOutputInput(
+                id=source_output.content.dataset_id,
                 target=source_output.content.dataset_id,
                 kind="analysis_dataset",
                 content_hash=source_output.content.content_hash,
                 codec=source_output.content.codec,
                 role="data",
                 source=AnalysisPublishedOutputReference(
+                    subject=RunAnalysisSubject(run_id=first_handle.id),
                     analysis_record_id=source.id,
                     output_id="fits",
                 ),
@@ -968,7 +1003,7 @@ def test_analysis_revision_owns_its_parameter_proposal_identity(tmp_path: Path) 
     [second_proposal] = second.parameter_proposals
     [retried_proposal] = retried.parameter_proposals
     assert first_proposal.id == "drive-frequency"
-    assert first_proposal.analysis_record_id == "analysis-fit"
+    assert first_proposal.analysis_record_id == "analysis-fit-r1"
     assert first_proposal.evidence_output_ids == ("fit-quality",)
     assert second_proposal.id == "drive-frequency-r2"
     assert second_proposal.analysis_record_id == "analysis-fit-r2"
@@ -976,9 +1011,11 @@ def test_analysis_revision_owns_its_parameter_proposal_identity(tmp_path: Path) 
     assert retried.id == second.id
     assert [
         item.id
-        for item in handle.manifest.records
-        if item.kind == "parameter_change_proposal"
-    ] == ["drive-frequency", "drive-frequency-r2"]
+        for item in handle.contents(
+            role="record",
+            kind="parameter_change_proposal",
+        ).items
+    ] == ["drive-frequency-r2", "drive-frequency"]
 
 
 def test_analysis_proposal_rejects_unknown_or_view_evidence(tmp_path: Path) -> None:
@@ -1099,7 +1136,7 @@ def test_analysis_trace_records_named_inline_inputs(tmp_path: Path) -> None:
     assert scale_input.value == 2
 
 
-def test_analysis_save_rolls_back_refs_after_manifest_failure(
+def test_analysis_save_rolls_back_refs_after_publication_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1113,7 +1150,7 @@ def test_analysis_save_rolls_back_refs_after_manifest_failure(
     analysis = SummaryStatsAnalysisStep().run(
         sc.AnalysisContext(run=handle),
     )
-    analysis_record_id = "analysis-summary-stats"
+    analysis_record_id = "analysis-summary-stats-r1"
     original_publish = SQLiteRunRepository.publish_prepared_content_in_transaction
     failed = False
 
@@ -1121,15 +1158,14 @@ def test_analysis_save_rolls_back_refs_after_manifest_failure(
         storage: SQLiteRunRepository,
         connection: sqlite3.Connection,
         prepared: PreparedContentPublication,
-    ) -> RunManifest:
+    ) -> None:
         nonlocal failed
-        manifest = original_publish(storage, connection, prepared)
+        original_publish(storage, connection, prepared)
         if not failed and any(
-            record.id == analysis_record_id for record in manifest.records
+            record.id == analysis_record_id for record in prepared.publication.entries
         ):
             failed = True
-            raise OSError("injected analysis manifest failure")
-        return manifest
+            raise OSError("injected analysis publication failure")
 
     monkeypatch.setattr(
         SQLiteRunRepository,
@@ -1137,7 +1173,7 @@ def test_analysis_save_rolls_back_refs_after_manifest_failure(
         fail_first_analysis_publication,
     )
 
-    with pytest.raises(OSError, match="injected analysis manifest failure"):
+    with pytest.raises(OSError, match="injected analysis publication failure"):
         analysis.save()
 
     storage = services.runs
@@ -1146,13 +1182,23 @@ def test_analysis_save_rolls_back_refs_after_manifest_failure(
         kind="analysis",
     )
     assert not storage.exists(run.run_id, analysis_ref)
-    failed_manifest = storage.read_manifest(run.run_id)
-    assert all(record.id != analysis_record_id for record in failed_manifest.records)
+    with pytest.raises(NotFound):
+        storage.read_content(
+            run.run_id,
+            role="record",
+            content_id=analysis_record_id,
+        )
 
     saved = analysis.save()
 
-    recovered_manifest = storage.read_manifest(run.run_id)
-    assert any(record.id == analysis_record_id for record in recovered_manifest.records)
+    assert (
+        storage.read_content(
+            run.run_id,
+            role="record",
+            content_id=analysis_record_id,
+        ).id
+        == analysis_record_id
+    )
     assert saved.id == analysis_record_id
 
 

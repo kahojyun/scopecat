@@ -21,7 +21,7 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
     data = run.measurements()
     qubit_id = data[invocation.output.qubit].id
     groups = data.groupby(qubit_id)
-    status = run.manifest.status
+    status = run.status
 
 entity_ramsey_summary = {
     "points": preview.point_count,

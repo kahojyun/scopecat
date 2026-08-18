@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 import pyarrow as pa
 from pydantic import JsonValue
@@ -19,21 +19,24 @@ from scopecat.analysis.service import (
 )
 from scopecat.daemon.views import (
     MeasurementArrowQuery,
-    RunAnalysisListView,
+    RunAnalysisPage,
+    RunAnalysisSummary,
     RunAnalysisView,
+    RunContentPage,
 )
+from scopecat.kernel.errors import NotFound
+from scopecat.kernel.ids import artifact_slug
 from scopecat.measurements.datasets import (
     RAW_MEASUREMENTS_DATASET_ID,
 )
 from scopecat.measurements.paging import project_measurement_page
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisExecution, AnalysisRecord
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.content import ContentEntry
 from scopecat.records.parameter_change import ParameterChangeProposal
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
-from scopecat.runs.access import list_records, require_dataset
 from scopecat.runs.attachments import attach_run_artifact
 from scopecat.runs.data import (
     RunArtifactBytesResult,
@@ -62,14 +65,49 @@ from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 class ServiceRunOperations:
     services: ProjectStateServices
 
-    def load_manifest(self, run_id: str) -> RunManifest:
-        return self.services.runs.read_manifest(run_id)
+    def load_snapshot(self, run_id: str) -> RunSnapshot:
+        return self.services.runs.read_snapshot(run_id)
 
     def load_config(self, run_id: str) -> ConfigProfileSnapshot:
         return self.services.runs.read_config_profile_snapshot(run_id)
 
     def load_request(self, run_id: str) -> RunRequest:
         return load_run_request(run_id=run_id, services=self.services)
+
+    def contents(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+        role: Literal["artifact", "dataset", "record"] | None,
+        kind: str | None,
+    ) -> RunContentPage:
+        page = self.services.runs.list_contents(
+            run_id,
+            limit=limit,
+            before=before,
+            role=role,
+            kind=kind,
+        )
+        return RunContentPage(
+            run_id=run_id,
+            items=page.items,
+            next_cursor=page.next_cursor,
+        )
+
+    def content_entry(
+        self,
+        run_id: str,
+        *,
+        role: Literal["artifact", "dataset", "record"],
+        content_id: str,
+    ) -> ContentEntry:
+        return self.services.runs.read_content(
+            run_id,
+            role=role,
+            content_id=content_id,
+        )
 
     def load_measurement_dataset(
         self,
@@ -103,10 +141,10 @@ class ServiceRunOperations:
         *,
         query: MeasurementArrowQuery,
     ) -> tuple[pa.Table, int | None, int]:
-        manifest = self.services.runs.read_manifest(run_id)
-        entry = require_dataset(
-            manifest=manifest,
-            selector=RAW_MEASUREMENTS_DATASET_ID,
+        entry = self.services.runs.read_content(
+            run_id,
+            role="dataset",
+            content_id=RAW_MEASUREMENTS_DATASET_ID,
         )
         variable_ids = tuple(column.variable_id for column in query.columns)
         items, next_offset, schema, snapshot_size = SQLiteMeasurementDatasetRepository(
@@ -156,20 +194,55 @@ class ServiceRunOperations:
             parameter_proposals=parameter_proposals,
         )
 
-    def analyses(self, run_id: str) -> RunAnalysisListView:
-        manifest = self.services.runs.read_manifest(run_id)
-        return RunAnalysisListView(
+    def analyses(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> RunAnalysisPage:
+        page = self.services.runs.list_analysis_publications(
+            run_id,
+            limit=limit,
+            before=before,
+        )
+        return RunAnalysisPage(
             run_id=run_id,
             items=tuple(
-                self.analysis(run_id, record.id)
-                for record in list_records(manifest, kind="analysis")
+                RunAnalysisSummary(
+                    run_id=run_id,
+                    entry=publication.record,
+                    title=publication.title,
+                    key=publication.analysis_key,
+                    revision=publication.revision,
+                    publication_hash=publication.publication_hash,
+                    published_at=publication.published_at,
+                    step_id=publication.step_id,
+                    input_count=publication.input_count,
+                    output_count=publication.output_count,
+                )
+                for publication in page.items
             ),
+            next_cursor=page.next_cursor,
         )
 
     def analysis(self, run_id: str, selector: str) -> RunAnalysisView:
+        try:
+            return self._analysis(run_id, selector)
+        except NotFound as exact_error:
+            publication = self.services.runs.latest_analysis_publication(
+                run_id,
+                artifact_slug(selector, fallback="analysis"),
+            )
+            if publication is None:
+                raise exact_error
+            return self._analysis(run_id, publication.record.id)
+
+    def _analysis(self, run_id: str, selector: str) -> RunAnalysisView:
+        publication = self.services.runs.read_analysis_publication(run_id, selector)
         result = read_run_record_json(
             run_id=run_id,
-            selector=selector,
+            selector=publication.record.id,
             expected_kind="analysis",
             services=self.services,
         )
@@ -177,6 +250,7 @@ class ServiceRunOperations:
             run_id=run_id,
             entry=result.record,
             analysis=AnalysisRecord.model_validate(result.content),
+            published_at=publication.published_at,
         )
 
     def attach(
@@ -191,7 +265,7 @@ class ServiceRunOperations:
         filename: str | None,
         media_type: str | None,
         metadata: Mapping[str, JsonValue] | None,
-    ) -> RunContentEntry:
+    ) -> ContentEntry:
         return attach_run_artifact(
             services=self.services,
             run_id=run_id,

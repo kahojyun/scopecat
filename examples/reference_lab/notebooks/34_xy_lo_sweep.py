@@ -18,7 +18,7 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
         ]
         for entity, record in XY_LO_SWEEP.output.requested_carrier_frequency.items()
     }
-    status = run.manifest.status
+    status = run.status
 
 xy_lo_sweep_summary = {
     "requested_lo_ghz": [4.90, 4.91, 4.92],

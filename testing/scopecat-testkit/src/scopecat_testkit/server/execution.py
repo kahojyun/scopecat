@@ -13,7 +13,7 @@ from scopecat.execution.services import RunDomainProposalWriter
 from scopecat.planning.service import plan_experiment_invocation
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot, instrument_bindings
-from scopecat.records.run import RunConfigSource, RunManifest
+from scopecat.records.run import RunConfigSource, RunSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.backend import InstrumentBackend
 from scopecat.sdk.instruments.provider import (
@@ -73,7 +73,7 @@ def execute_bound_run(
     instruments: Sequence[InstrumentDriver],
     project_root: str | Path,
     payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
-) -> RunManifest:
+) -> RunSnapshot:
     """Bind a typed test program, then exercise the production executor boundary."""
 
     provider = _ExplicitDriverProvider(tuple(instruments))
@@ -97,7 +97,7 @@ def execute_invocation_run(
     metadata: Mapping[str, object] | None = None,
     operator: str | None = None,
     domain_proposals: RunDomainProposalWriter | None = None,
-) -> RunManifest:
+) -> RunSnapshot:
     """Execute an authored invocation through test-local SQLite ports."""
 
     planned = plan_experiment_invocation(
@@ -142,7 +142,7 @@ def execute_program_run(
     request: RunRequest | None = None,
     config_source: RunConfigSource | None = None,
     payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
-) -> RunManifest:
+) -> RunSnapshot:
     """Execute a typed test program through the unified production boundary."""
 
     environment = build_config_environment(config)
@@ -160,7 +160,7 @@ def execute_program_run(
         repository=repository,
         config_source=config_source,
     )
-    manifest = execute_admitted_run(
+    snapshot = execute_admitted_run(
         program=program,
         session=sqlite_execution_session(
             project_root,
@@ -173,7 +173,7 @@ def execute_program_run(
             ),
         ),
     )
-    return manifest
+    return snapshot
 
 
 __all__ = ["execute_bound_run", "execute_invocation_run", "execute_program_run"]

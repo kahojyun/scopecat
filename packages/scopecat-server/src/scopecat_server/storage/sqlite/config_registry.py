@@ -10,8 +10,10 @@ from typing import Self, cast
 from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticSerializationError
 from scopecat.config.registry.records import (
+    ConfigRegistryActivationPage,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
+    ConfigRegistryEntryPage,
 )
 from scopecat.kernel.errors import (
     Conflict,
@@ -86,6 +88,56 @@ class SQLiteConfigRegistryRepository:
                 code="config_registry.record_invalid",
             )
             for row in rows
+        )
+
+    def list_entry_page(
+        self,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> ConfigRegistryEntryPage:
+        try:
+            if before is None:
+                rows = _all(
+                    self._connection.execute(
+                        """
+                        SELECT rowid AS sequence, entry_id, entry_json
+                        FROM config_registry_entries
+                        ORDER BY rowid DESC
+                        LIMIT ?
+                        """,
+                        (limit + 1,),
+                    )
+                )
+            else:
+                rows = _all(
+                    self._connection.execute(
+                        """
+                        SELECT rowid AS sequence, entry_id, entry_json
+                        FROM config_registry_entries
+                        WHERE rowid < ?
+                        ORDER BY rowid DESC
+                        LIMIT ?
+                        """,
+                        (before, limit + 1),
+                    )
+                )
+        except sqlite3.Error as error:
+            raise _storage_failure(CONFIG_REGISTRY_ROOT) from error
+        selected = rows[:limit]
+        return ConfigRegistryEntryPage(
+            items=tuple(
+                _parse_model(
+                    _text(row, "entry_json"),
+                    ConfigRegistryEntry,
+                    ref=self.entry_ref(_text(row, "entry_id")),
+                    code="config_registry.record_invalid",
+                )
+                for row in selected
+            ),
+            next_cursor=(
+                _integer(selected[-1], "sequence") if len(rows) > limit else None
+            ),
         )
 
     def read_entry(self, entry_id: str) -> ConfigRegistryEntry:
@@ -164,6 +216,30 @@ class SQLiteConfigRegistryRepository:
             code="config_registry.activation_record_invalid",
         )
 
+    def read_activation(self, generation: int) -> ConfigRegistryActivationRecord:
+        ref = f"{self.active_ref}#generation-{generation}"
+        try:
+            row = _one(
+                self._connection.execute(
+                    """
+                    SELECT generation, record_json
+                    FROM config_registry_activations
+                    WHERE generation = ?
+                    """,
+                    (generation,),
+                )
+            )
+        except sqlite3.Error as error:
+            raise _storage_failure(ref) from error
+        if row is None:
+            raise _missing_record(ref)
+        return _parse_model(
+            _text(row, "record_json"),
+            ConfigRegistryActivationRecord,
+            ref=ref,
+            code="config_registry.activation_record_invalid",
+        )
+
     def list_activation_history(self) -> tuple[ConfigRegistryActivationRecord, ...]:
         try:
             rows = _all(
@@ -185,6 +261,56 @@ class SQLiteConfigRegistryRepository:
                 code="config_registry.activation_record_invalid",
             )
             for row in rows
+        )
+
+    def list_activation_page(
+        self,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> ConfigRegistryActivationPage:
+        try:
+            if before is None:
+                rows = _all(
+                    self._connection.execute(
+                        """
+                        SELECT generation, record_json
+                        FROM config_registry_activations
+                        ORDER BY generation DESC
+                        LIMIT ?
+                        """,
+                        (limit + 1,),
+                    )
+                )
+            else:
+                rows = _all(
+                    self._connection.execute(
+                        """
+                        SELECT generation, record_json
+                        FROM config_registry_activations
+                        WHERE generation < ?
+                        ORDER BY generation DESC
+                        LIMIT ?
+                        """,
+                        (before, limit + 1),
+                    )
+                )
+        except sqlite3.Error as error:
+            raise _storage_failure(self.active_ref) from error
+        selected = rows[:limit]
+        return ConfigRegistryActivationPage(
+            items=tuple(
+                _parse_model(
+                    _text(row, "record_json"),
+                    ConfigRegistryActivationRecord,
+                    ref=(f"{self.active_ref}#generation-{_integer(row, 'generation')}"),
+                    code="config_registry.activation_record_invalid",
+                )
+                for row in selected
+            ),
+            next_cursor=(
+                _integer(selected[-1], "generation") if len(rows) > limit else None
+            ),
         )
 
     def commit_revision(

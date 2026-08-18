@@ -1,12 +1,15 @@
 import type {
-  AnalysisRecordOutput,
   DurableEvent,
   EventPage,
   MeasurementTracePreview,
   MeasurementTracePreviewQuery,
-  RunContentEntry,
+  RunAnalysisPage,
+  RunAnalysisSummary as RunAnalysisSummaryView,
+  RunAnalysisView,
+  ContentEntryView,
+  RunContentPage as RunContentPageView,
   RunControlView,
-  RunManifest,
+  RunSnapshot,
   RunResourceView,
   RunSummaryPage,
   RunDomainDecisionPage,
@@ -24,13 +27,16 @@ import type {
   MeasurementSlicePreview,
   ProjectEvent,
   ProjectRun,
+  ProjectRunContentPage,
   ProjectRunPage,
   PresentationRunStatus,
   RunAnalysis,
-  RunAnalysisOutput,
+  RunAnalysisSummary,
+  RunAnalysisSummaryPage,
   RunContentPreview,
   RunResource,
 } from "../../types";
+import { analysisOutput } from "../analyses/analysis-model";
 
 type RunResourceRequirement =
   RunControlView["admission"]["plan"]["run_resource_requirements"][number];
@@ -66,7 +72,7 @@ export async function getOlderRuns(before: number, signal?: AbortSignal): Promis
 
 function normalizeRunPage(response: RunSummaryPage): ProjectRunPage {
   return {
-    items: response.items.map((run) => normalizeRun(run.control, run.manifest)).sort(compareRuns),
+    items: response.items.map((run) => normalizeRun(run.control, run.snapshot)).sort(compareRuns),
     nextCursor: response.next_cursor ?? undefined,
   };
 }
@@ -78,7 +84,39 @@ export async function getRun(runId: string, signal?: AbortSignal): Promise<Proje
       signal,
     }),
   );
-  return normalizeRun(response.control, response.manifest, response.resources ?? []);
+  return normalizeRun(response.control, response.snapshot, response.resources ?? []);
+}
+
+export async function getRunContents(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<ProjectRunContentPage> {
+  return getRunContentPage(runId, undefined, signal);
+}
+
+export async function getOlderRunContents(
+  runId: string,
+  before: number,
+  signal?: AbortSignal,
+): Promise<ProjectRunContentPage> {
+  return getRunContentPage(runId, before, signal);
+}
+
+async function getRunContentPage(
+  runId: string,
+  before: number | undefined,
+  signal?: AbortSignal,
+): Promise<ProjectRunContentPage> {
+  const response = await apiData(
+    apiClient.GET("/api/v1/runs/{run_id}/contents", {
+      params: {
+        path: { run_id: runId },
+        query: { limit: 100, before },
+      },
+      signal,
+    }),
+  );
+  return normalizeRunContentPage(response);
 }
 
 export async function getRunDomainDecisions(
@@ -261,22 +299,89 @@ export async function getMeasurementTracePreview(
   );
 }
 
-export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promise<RunAnalysis[]> {
-  const response = await apiData(
-    apiClient.GET("/api/v1/runs/{run_id}/analyses", {
-      params: { path: { run_id: runId } },
-      signal,
-    }),
+export async function getRunAnalysisSummaries(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<RunAnalysisSummaryPage> {
+  return getRunAnalysisSummaryPage(runId, undefined, signal);
+}
+
+export async function getOlderRunAnalysisSummaries(
+  runId: string,
+  before: number,
+  signal?: AbortSignal,
+): Promise<RunAnalysisSummaryPage> {
+  return getRunAnalysisSummaryPage(runId, before, signal);
+}
+
+async function getRunAnalysisSummaryPage(
+  runId: string,
+  before: number | undefined,
+  signal: AbortSignal | undefined,
+): Promise<RunAnalysisSummaryPage> {
+  return normalizeRunAnalysisPage(
+    await apiData(
+      apiClient.GET("/api/v1/runs/{run_id}/analyses", {
+        params: {
+          path: { run_id: runId },
+          query: { limit: 100, before },
+        },
+        signal,
+      }),
+    ),
   );
-  return (response.items ?? []).map(({ entry, analysis }) => ({
+}
+
+export async function getRunAnalysis(
+  runId: string,
+  selector: string,
+  signal?: AbortSignal,
+): Promise<RunAnalysis> {
+  return normalizeRunAnalysis(
+    await apiData(
+      apiClient.GET("/api/v1/runs/{run_id}/analyses/{selector}", {
+        params: { path: { run_id: runId, selector } },
+        signal,
+      }),
+    ),
+  );
+}
+
+function normalizeRunAnalysis({ entry, analysis, published_at }: RunAnalysisView): RunAnalysis {
+  return {
     id: entry.id,
     title: analysis.title,
     key: analysis.key ?? undefined,
     stepId: analysis.step_id ?? undefined,
+    revision: analysis.revision,
+    publicationHash: analysis.publication_hash,
+    publishedAt: published_at,
+    subject: "run" as const,
     inputs: analysis.inputs ?? [],
     executions: analysis.executions ?? [],
-    outputs: analysis.outputs.map(runAnalysisOutput),
-  }));
+    outputs: analysis.outputs.map(analysisOutput),
+  };
+}
+
+function normalizeRunAnalysisPage(response: RunAnalysisPage): RunAnalysisSummaryPage {
+  return {
+    items: response.items.map(normalizeRunAnalysisSummary),
+    nextCursor: response.next_cursor ?? undefined,
+  };
+}
+
+function normalizeRunAnalysisSummary(summary: RunAnalysisSummaryView): RunAnalysisSummary {
+  return {
+    id: summary.entry.id,
+    title: summary.title,
+    key: summary.key ?? undefined,
+    stepId: summary.step_id ?? undefined,
+    revision: summary.revision,
+    publicationHash: summary.publication_hash,
+    publishedAt: summary.published_at,
+    inputCount: summary.input_count,
+    outputCount: summary.output_count,
+  };
 }
 
 export async function getRunArtifactDownload(
@@ -304,41 +409,6 @@ export async function getRunArtifactDownload(
       type: response.artifact.media_type ?? "application/octet-stream",
     }),
     filename: response.artifact.filename ?? selector,
-  };
-}
-
-function runAnalysisOutput(output: AnalysisRecordOutput): RunAnalysisOutput {
-  const producedBy =
-    output.kind === "fact" || output.kind === "dataset" || output.kind === "artifact"
-      ? (output.produced_by ?? undefined)
-      : undefined;
-  const derivedFrom = output.kind === "dataset" ? (output.derived_from ?? undefined) : undefined;
-  const shared = {
-    id: output.id,
-    title: output.title,
-    producedBy,
-    derivedFrom,
-    metadata: output.metadata ?? {},
-  };
-  if (output.kind === "table") {
-    return { ...shared, kind: "table", content: output.content };
-  }
-  if (output.kind === "figure") {
-    return { ...shared, kind: "figure", content: output.content };
-  }
-  if (output.kind === "fact") {
-    return { ...shared, kind: "fact", content: output.content };
-  }
-  if (output.kind === "dataset") {
-    return { ...shared, kind: "dataset", content: output.content };
-  }
-  if (output.kind === "artifact") {
-    return { ...shared, kind: "artifact", content: output.content };
-  }
-  return {
-    ...shared,
-    kind: "parameter_change_proposal",
-    content: output.content,
   };
 }
 
@@ -436,13 +506,13 @@ function normalizeEvents(response: EventPage): ProjectEvent[] {
 
 function normalizeRun(
   control: RunControlView,
-  manifest: RunManifest,
+  snapshot: RunSnapshot,
   detailResources?: RunResourceView[],
 ): ProjectRun {
   const admission = control.admission;
-  const outcome = manifest.outcome ?? undefined;
+  const outcome = snapshot.outcome ?? undefined;
   const plan = admission.plan;
-  const status = normalizeStatus(control, manifest);
+  const status = normalizeStatus(control, snapshot);
   return {
     sequence: control.sequence,
     runId: admission.run_id,
@@ -454,7 +524,7 @@ function normalizeRun(
     stateLabel: statusLabel(status),
     createdAt: admission.admitted_at,
     updatedAt: control.updated_at,
-    configHash: manifest.config_content_hash,
+    configHash: snapshot.config_content_hash,
     attentionReason: control.attention_reason ?? undefined,
     result: outcome?.result,
     certainty: outcome?.certainty,
@@ -489,7 +559,14 @@ function normalizeRun(
       detailResources !== undefined
         ? detailResources.map(normalizeRunResource)
         : (plan.run_resource_requirements ?? []).map(normalizeResourceRequirement),
-    contents: manifest.contents.map(normalizeContentEntry),
+    contents: [],
+  };
+}
+
+function normalizeRunContentPage(response: RunContentPageView): ProjectRunContentPage {
+  return {
+    items: response.items.map(normalizeContentEntry),
+    nextCursor: response.next_cursor ?? undefined,
   };
 }
 
@@ -518,7 +595,7 @@ function normalizeRunResource(resource: RunResourceView): RunResource {
   };
 }
 
-function normalizeContentEntry(entry: RunContentEntry, index: number): ContentEntry {
+function normalizeContentEntry(entry: ContentEntryView, index: number): ContentEntry {
   const mediaType = entry.media_type ?? undefined;
   const filename = entry.filename ?? undefined;
   return {
@@ -553,11 +630,11 @@ function artifactFormat(entry: ContentEntry): RunContentPreview["format"] | unde
   return undefined;
 }
 
-function normalizeStatus(control: RunControlView, manifest: RunManifest): PresentationRunStatus {
+function normalizeStatus(control: RunControlView, snapshot: RunSnapshot): PresentationRunStatus {
   if (control.state === "attention_required") {
     return "attention_required";
   }
-  switch (manifest.outcome?.result) {
+  switch (snapshot.outcome?.result) {
     case "succeeded":
       return "succeeded";
     case "failed":

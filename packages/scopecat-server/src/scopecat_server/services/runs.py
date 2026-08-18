@@ -7,11 +7,14 @@ from __future__ import annotations
 from base64 import b64decode, b64encode
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from threading import Lock
+from typing import TYPE_CHECKING, Literal
 
+from scopecat.analysis.repository import AnalysisPublicationSummary
 from scopecat.config.changes import (
     list_parameter_change_proposals,
-    load_parameter_change_approval,
+    load_parameter_change_approval_for_proposal,
+    load_parameter_change_proposal,
 )
 from scopecat.control.models import (
     ControlRun,
@@ -31,13 +34,15 @@ from scopecat.daemon.views import (
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
     MeasurementTraceSeries,
-    ParameterProposalListView,
+    ParameterProposalPage,
     ParameterProposalView,
     RunAdmissionView,
-    RunAnalysisListView,
+    RunAnalysisPage,
+    RunAnalysisSummary,
     RunAnalysisView,
     RunArtifactBytesView,
     RunConfigView,
+    RunContentPage,
     RunControlView,
     RunDatasetBytesView,
     RunDetail,
@@ -52,11 +57,14 @@ from scopecat.daemon.wire import (
     AnalysisDatasetOutputPayload,
     AnalysisFactOutputPayload,
     AnalysisFigureOutputPayload,
+    AnalysisInputPayload,
     AnalysisOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
     AnalysisTableOutputPayload,
+    MeasurementAnalysisInputPayload,
+    PublishedAnalysisInputPayload,
     RunAttachmentCommand,
 )
 from scopecat.kernel.errors import (
@@ -65,6 +73,7 @@ from scopecat.kernel.errors import (
     DataIntegrityError,
     NotFound,
 )
+from scopecat.kernel.ids import artifact_slug
 from scopecat.measurements.datasets import (
     RAW_MEASUREMENTS_DATASET_ID,
     product_grid_slice_indices,
@@ -72,7 +81,7 @@ from scopecat.measurements.datasets import (
 )
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisRecord
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import (
     MeasurementDataset,
     MeasurementDatasetSchema,
@@ -80,7 +89,6 @@ from scopecat.records.measurement import (
     MeasurementRecord,
 )
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
-from scopecat.runs.access import list_records
 from scopecat.runs.attachments import attach_run_artifact
 from scopecat.runs.data import (
     RunArtifactJsonResult,
@@ -114,11 +122,43 @@ from .point_plans import RunPointPlanService
 
 if TYPE_CHECKING:
     import pyarrow as pa
-    from scopecat.analysis.service import AnalysisOutput
+    from scopecat.analysis.service import AnalysisInput, AnalysisOutput
     from scopecat.measurements.traces import MeasurementTraceProjection
 
 
-def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
+def analysis_input_from_payload(item: AnalysisInputPayload) -> AnalysisInput:
+    from scopecat.analysis.service import (
+        MeasurementAnalysisInput,
+        PublishedAnalysisOutputInput,
+    )
+
+    if isinstance(item, MeasurementAnalysisInputPayload):
+        return MeasurementAnalysisInput(
+            id=item.id,
+            run_id=item.run_id,
+            target=item.target,
+            kind=item.kind,
+            content_hash=item.content_hash,
+            codec=item.codec,
+            role=item.role,
+            title=item.title,
+            metadata=item.metadata,
+        )
+    assert isinstance(item, PublishedAnalysisInputPayload)
+    return PublishedAnalysisOutputInput(
+        id=item.id,
+        target=item.target,
+        kind=item.kind,
+        content_hash=item.content_hash,
+        codec=item.codec,
+        role=item.role,
+        title=item.title,
+        metadata=item.metadata,
+        source=item.source,
+    )
+
+
+def analysis_output_from_payload(item: AnalysisOutputPayload) -> AnalysisOutput:
     from scopecat.analysis.datasets import DerivedDataset
     from scopecat.analysis.service import (
         AnalysisArtifactOutput,
@@ -247,6 +287,7 @@ class RunService:
         self._services = services
         self._active_measurements = active_measurements
         self._point_plans = point_plans
+        self._analysis_publication_lock = Lock()
 
     def list_runs(
         self,
@@ -276,7 +317,7 @@ class RunService:
                                 control.run_id,
                             ),
                         ),
-                        manifest=self._runs.read_manifest_in_transaction(
+                        snapshot=self._runs.read_snapshot_in_transaction(
                             connection,
                             control.run_id,
                         ),
@@ -290,7 +331,7 @@ class RunService:
         try:
             with self._control.read_transaction() as connection:
                 control = self._control.get_run_in_transaction(connection, run_id)
-                manifest = self._runs.read_manifest_in_transaction(connection, run_id)
+                snapshot = self._runs.read_snapshot_in_transaction(connection, run_id)
                 claims = {
                     (claim.resource.kind, claim.resource.id): claim
                     for claim in self._control.list_resource_claims_in_transaction(
@@ -348,16 +389,16 @@ class RunService:
                 completed_point_count=completed_point_count,
                 point_plan=point_plan,
             ),
-            manifest=manifest,
+            snapshot=snapshot,
             resources=resources,
         )
 
     def get_run_config(self, run_id: str) -> RunConfigView:
         with self._config_errors():
-            manifest = self._runs.read_manifest(run_id)
+            snapshot = self._runs.read_snapshot(run_id)
             return RunConfigView(
                 run_id=run_id,
-                config_content_hash=manifest.config_content_hash,
+                config_content_hash=snapshot.config_content_hash,
                 config=self._runs.read_config_profile_snapshot(run_id),
             )
 
@@ -368,25 +409,84 @@ class RunService:
                 request=load_run_request(run_id=run_id, services=self._services),
             )
 
-    def list_run_analyses(self, run_id: str) -> RunAnalysisListView:
+    def list_run_contents(
+        self,
+        run_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+        role: Literal["artifact", "dataset", "record"] | None = None,
+        kind: str | None = None,
+    ) -> RunContentPage:
         with self._config_errors():
-            manifest = self._runs.read_manifest(run_id)
-            return RunAnalysisListView(
+            page = self._runs.list_contents(
+                run_id,
+                limit=limit,
+                before=before,
+                role=role,
+                kind=kind,
+            )
+            return RunContentPage(
+                run_id=run_id,
+                items=page.items,
+                next_cursor=page.next_cursor,
+            )
+
+    def get_run_content(
+        self,
+        run_id: str,
+        *,
+        role: Literal["artifact", "dataset", "record"],
+        content_id: str,
+    ) -> ContentEntry:
+        with self._config_errors():
+            return self._runs.read_content(
+                run_id,
+                role=role,
+                content_id=content_id,
+            )
+
+    def list_run_analyses(
+        self,
+        run_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> RunAnalysisPage:
+        with self._config_errors():
+            page = self._runs.list_analysis_publications(
+                run_id,
+                limit=limit,
+                before=before,
+            )
+            return RunAnalysisPage(
                 run_id=run_id,
                 items=tuple(
-                    self._run_analysis_view(run_id, record.id)
-                    for record in list_records(manifest, kind="analysis")
+                    self._run_analysis_summary(publication)
+                    for publication in page.items
                 ),
+                next_cursor=page.next_cursor,
             )
 
     def get_run_analysis(self, run_id: str, selector: str) -> RunAnalysisView:
         with self._config_errors():
-            return self._run_analysis_view(run_id, selector)
+            try:
+                return self._run_analysis_view(run_id, selector)
+            except NotFound as exact_error:
+                analysis_key = artifact_slug(selector, fallback="analysis")
+                publication = self._runs.latest_analysis_publication(
+                    run_id,
+                    analysis_key,
+                )
+                if publication is None:
+                    raise exact_error
+                return self._run_analysis_view(run_id, publication.record.id)
 
     def _run_analysis_view(self, run_id: str, selector: str) -> RunAnalysisView:
+        publication = self._runs.read_analysis_publication(run_id, selector)
         result = read_run_record_json(
             run_id=run_id,
-            selector=selector,
+            selector=publication.record.id,
             expected_kind="analysis",
             services=self._services,
         )
@@ -394,6 +494,26 @@ class RunService:
             run_id=run_id,
             entry=result.record,
             analysis=AnalysisRecord.model_validate(result.content),
+            published_at=publication.published_at,
+        )
+
+    @staticmethod
+    def _run_analysis_summary(
+        publication: AnalysisPublicationSummary,
+    ) -> RunAnalysisSummary:
+        subject = publication.subject
+        assert subject.kind == "run"
+        return RunAnalysisSummary(
+            run_id=subject.run_id,
+            entry=publication.record,
+            title=publication.title,
+            key=publication.analysis_key,
+            revision=publication.revision,
+            publication_hash=publication.publication_hash,
+            published_at=publication.published_at,
+            step_id=publication.step_id,
+            input_count=publication.input_count,
+            output_count=publication.output_count,
         )
 
     def save_run_analysis(
@@ -401,28 +521,16 @@ class RunService:
         run_id: str,
         command: AnalysisSaveCommand,
     ) -> AnalysisSaveReceipt:
-        from scopecat.analysis.service import AnalysisInput, prepare_analysis
+        from scopecat.analysis.service import prepare_analysis
 
-        inputs = tuple(
-            AnalysisInput(
-                target=item.target,
-                kind=item.kind,
-                content_hash=item.content_hash,
-                codec=item.codec,
-                role=item.role,
-                title=item.title,
-                metadata=item.metadata,
-                source=item.source,
-            )
-            for item in command.inputs
-        )
-        outputs = tuple(_analysis_output(item) for item in command.outputs)
+        inputs = tuple(analysis_input_from_payload(item) for item in command.inputs)
+        outputs = tuple(analysis_output_from_payload(item) for item in command.outputs)
         proposals = tuple(
             item.content
             for item in command.outputs
             if isinstance(item, AnalysisParameterProposalOutputPayload)
         )
-        with self._config_errors():
+        with self._analysis_publication_lock, self._config_errors():
             prepared = prepare_analysis(
                 services=self._services,
                 run_id=run_id,
@@ -434,23 +542,20 @@ class RunService:
                 outputs=outputs,
                 parameter_proposals=proposals,
             )
-            publication = self._runs.prepare_content_publication(prepared.publication)
+            if prepared.publication is None:
+                return AnalysisSaveReceipt(
+                    record=prepared.saved.record,
+                    analysis_key=prepared.saved.analysis_key,
+                    inputs=command.inputs,
+                    parameter_proposals=prepared.saved.parameter_proposals,
+                )
+            publication = self._runs.prepare_analysis_publication(prepared.publication)
             with self._control.write_transaction() as connection:
-                existing = {
-                    entry.id: entry.content_hash
-                    for entry in self._runs.read_manifest_in_transaction(
-                        connection,
-                        run_id,
-                    ).records
-                }
-                self._runs.publish_prepared_content_in_transaction(
+                created = self._runs.publish_prepared_analysis_in_transaction(
                     connection,
                     publication,
                 )
-                if (
-                    existing.get(prepared.saved.record.id)
-                    != prepared.saved.record.content_hash
-                ):
+                if created:
                     self._control.append_event_in_transaction(
                         connection,
                         DurableEventInput(
@@ -570,7 +675,7 @@ class RunService:
         self,
         run_id: str,
         command: RunAttachmentCommand,
-    ) -> RunContentEntry:
+    ) -> ContentEntry:
         content = (
             None
             if command.content_base64 is None
@@ -590,24 +695,53 @@ class RunService:
             )
         return artifact
 
-    def list_parameter_proposals(self, run_id: str) -> ParameterProposalListView:
+    def list_parameter_proposals(
+        self,
+        run_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ParameterProposalPage:
         with self._config_errors():
-            proposals = list_parameter_change_proposals(
+            page = list_parameter_change_proposals(
                 run_id=run_id,
                 services=self._services,
+                limit=limit,
+                before=before,
             )
-            return ParameterProposalListView(
+            return ParameterProposalPage(
                 run_id=run_id,
                 items=tuple(
                     ParameterProposalView(
                         proposal=proposal,
-                        approval=load_parameter_change_approval(
+                        approval=load_parameter_change_approval_for_proposal(
                             run_id=run_id,
-                            selector=proposal.id,
+                            proposal=proposal,
                             storage=self._runs,
                         ),
                     )
-                    for proposal in proposals
+                    for proposal in page.items
+                ),
+                next_cursor=page.next_cursor,
+            )
+
+    def get_parameter_proposal(
+        self,
+        run_id: str,
+        proposal_id: str,
+    ) -> ParameterProposalView:
+        with self._config_errors():
+            proposal = load_parameter_change_proposal(
+                run_id=run_id,
+                selector=proposal_id,
+                services=self._services,
+            )
+            return ParameterProposalView(
+                proposal=proposal,
+                approval=load_parameter_change_approval_for_proposal(
+                    run_id=run_id,
+                    proposal=proposal,
+                    storage=self._runs,
                 ),
             )
 
@@ -622,7 +756,7 @@ class RunService:
 
         variable_ids = tuple(column.variable_id for column in query.columns)
         with self._config_errors():
-            manifest = self._runs.read_manifest(run_id)
+            self._runs.read_snapshot(run_id)
             items, next_offset, schema, snapshot_size = (
                 SQLiteMeasurementDatasetRepository(
                     self._runs,
@@ -636,20 +770,20 @@ class RunService:
             )
         if schema is None:
             raise BackendConflict("measurement dataset has no registered schema")
-        entry = next(
-            (
-                candidate
-                for candidate in manifest.datasets
-                if candidate.id == RAW_MEASUREMENTS_DATASET_ID
-            ),
-            RunContentEntry(
+        try:
+            entry = self._runs.read_content(
+                run_id,
+                role="dataset",
+                content_id=RAW_MEASUREMENTS_DATASET_ID,
+            )
+        except NotFound:
+            entry = ContentEntry(
                 role="dataset",
                 id=RAW_MEASUREMENTS_DATASET_ID,
                 kind="measurement_dataset",
                 schema=schema.model_dump(mode="json"),
                 content_hash="live-measurement-dataset",
-            ),
-        )
+            )
         try:
             table = project_measurement_page(
                 items,
@@ -674,7 +808,7 @@ class RunService:
         """Return one bounded record preview for presentation in the operator UI."""
 
         with self._config_errors():
-            manifest = self._runs.read_manifest(run_id)
+            self._runs.read_snapshot(run_id)
             items, next_offset, live_schema, _ = SQLiteMeasurementDatasetRepository(
                 self._runs,
                 run_id=run_id,
@@ -683,14 +817,14 @@ class RunService:
                 offset=0,
                 include_schema=True,
             )
-        dataset = next(
-            (
-                entry
-                for entry in manifest.datasets
-                if entry.id == RAW_MEASUREMENTS_DATASET_ID
-            ),
-            None,
-        )
+        try:
+            dataset = self._runs.read_content(
+                run_id,
+                role="dataset",
+                content_id=RAW_MEASUREMENTS_DATASET_ID,
+            )
+        except NotFound:
+            dataset = None
         terminal_schema = (
             None
             if dataset is None or dataset.data_schema is None
@@ -711,7 +845,7 @@ class RunService:
         """Return daemon-received measurement state without forcing persistence."""
 
         with self._config_errors():
-            self._runs.read_manifest(run_id)
+            self._runs.read_snapshot(run_id)
         return self._active_measurements.preview(
             run_id,
             after_record_count=after_record_count,
@@ -728,7 +862,7 @@ class RunService:
         from scopecat.measurements.recording_arrow import encode_measurement_append
 
         with self._config_errors():
-            self._runs.read_manifest(run_id)
+            self._runs.read_snapshot(run_id)
         preview, header = self._active_measurements.snapshot(
             run_id,
             after_record_count=after_record_count,
@@ -755,7 +889,7 @@ class RunService:
         """Read one bounded product-grid slice by authored axis indices."""
 
         with self._config_errors():
-            self._runs.read_manifest(run_id)
+            self._runs.read_snapshot(run_id)
             repository = SQLiteMeasurementDatasetRepository(self._runs, run_id=run_id)
             schema = repository.measurement_schema()
         if schema is None:
@@ -811,7 +945,7 @@ class RunService:
         """Return bounded numeric trace series for direct plotting."""
 
         with self._config_errors():
-            self._runs.read_manifest(run_id)
+            self._runs.read_snapshot(run_id)
             repository = SQLiteMeasurementDatasetRepository(self._runs, run_id=run_id)
             schema = repository.measurement_schema()
         if schema is None:

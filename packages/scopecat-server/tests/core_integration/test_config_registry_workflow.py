@@ -26,6 +26,7 @@ from scopecat.config.registry import (
     DirectConfigRevisionSource,
     InstrumentInventoryMigrationDelta,
     InstrumentInventoryMigrationPlan,
+    ManualCandidateAcceptance,
     ManualConfigDraftRegistrySource,
     ManualConfigDraftResult,
     ManualConfigDraftRevisionSource,
@@ -1316,6 +1317,7 @@ def _publish_candidate_revision(
             source=CandidateConfigRevisionSource(
                 run_id=run_id,
                 proposal_id=proposal_id,
+                acceptance=ManualCandidateAcceptance(),
             ),
             entry_id=entry_id,
             actor=actor,

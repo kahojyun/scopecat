@@ -17,6 +17,7 @@ from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
 
 from ..command_payloads import CommandPayloadService
 from .admission import AdmissionService
+from .analyses import AnalysisService
 from .config import ConfigService
 from .executor import ExecutorService
 from .leases import OwnershipLeaseSupervisor
@@ -38,6 +39,7 @@ class DaemonApplication:
         project_id: str,
         project_store: SQLiteProjectStore,
         config: ConfigService,
+        analyses: AnalysisService,
         runs: RunService,
         admission: AdmissionService,
         executor: ExecutorService,
@@ -51,6 +53,7 @@ class DaemonApplication:
         self.project_id = project_id
         self._project_store = project_store
         self.config = config
+        self.analyses = analyses
         self.runs = runs
         self._admission = admission
         self.executor = executor

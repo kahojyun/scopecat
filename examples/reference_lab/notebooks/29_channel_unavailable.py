@@ -38,8 +38,8 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
     }
     source = iq_shots.definition.source_entity_products
     acquisition = iq_shots.definition.entity_acquisition
-    run_id = run.manifest.run_id
-    status = run.manifest.status
+    run_id = run.id
+    status = run.status
 
 channel_unavailable_summary = {
     "run_id": run_id,

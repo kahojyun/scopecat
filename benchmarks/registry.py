@@ -24,6 +24,12 @@ BENCHMARK_CASES = (
         summary="Cold/warm target compilation and retained cache budgets",
     ),
     BenchmarkCase(
+        id="historical-project",
+        kind="component",
+        module="benchmarks.component.historical_project",
+        summary="Paged daemon reads from 10k-run long-lived projects",
+    ),
+    BenchmarkCase(
         id="quantum-program",
         kind="component",
         module="benchmarks.component.quantum_program",

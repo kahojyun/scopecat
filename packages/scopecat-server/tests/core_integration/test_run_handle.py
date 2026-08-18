@@ -230,7 +230,7 @@ def test_in_process_lab_records_compute_value_without_instruments(
     stored_result = run.result()
     typed_result = run.result(compute_only().output)
 
-    assert run.manifest.status == "completed"
+    assert run.status == "completed"
     assert isinstance(dataset, Dataset)
     assert dataset.entry.id == "raw-measurements"
     [record] = dataset.records
@@ -244,8 +244,10 @@ def test_in_process_lab_records_compute_value_without_instruments(
     assert stored_result.paths == (("score",),)
     assert stored_result[0].value("score") == 2.5
     assert typed_result[0].value(typed_result.output.score) == 2.5
-    assert run.datasets == ("raw-measurements",)
-    assert run.manifest.datasets == (dataset.entry,)
+    datasets = run.contents(role="dataset")
+    assert tuple(entry.id for entry in datasets.items) == ("raw-measurements",)
+    assert tuple(entry.id for entry in datasets.items) == (dataset.entry.id,)
+    assert run.content("dataset", dataset.entry.id) == dataset.entry
 
 
 def test_in_process_lab_records_returned_scan_without_instruments(
@@ -274,7 +276,7 @@ def test_in_process_lab_records_returned_scan_without_instruments(
     stored_result = run.result()
     typed_result = run.result(coordinate_only().output)
 
-    assert run.manifest.status == "completed"
+    assert run.status == "completed"
     assert dataset.schema.primary_coordinates == ("value",)
     assert dataset.schema.primary_observables == ()
     assert tuple(record.coordinates["value"] for record in records) == (
@@ -499,10 +501,11 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
     assert dataset.entry.id == "raw-measurements"
     assert [input_ref.target for input_ref in outcome.inputs] == ["raw-measurements"]
     assert not any(
-        record.kind == "candidate_config" for record in baseline.manifest.records
+        record.kind == "candidate_config"
+        for record in baseline.contents(role="record").items
     )
-    assert candidate.manifest.status == "completed"
-    source = candidate.manifest.config_source
+    assert candidate.status == "completed"
+    source = candidate.snapshot.config_source
     assert isinstance(source, AnalysisCandidateRunConfigSource)
     assert source.source_run_id == baseline.id
     assert source.analysis_record_id == outcome.id
@@ -543,13 +546,13 @@ def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
     candidate_config = outcome.candidate_config()
     candidate = lab.prepare(experiment, config=candidate_config).run()
 
-    assert baseline.manifest.status == "completed"
+    assert baseline.status == "completed"
     assert len(dataset.records) == 3
     assert dataset.entry.id == "raw-measurements"
     assert (
         candidate_config.parameter_proposal.deltas[0].parameter_id == "drive_frequency"
     )
-    assert candidate.manifest.status == "completed"
-    source = candidate.manifest.config_source
+    assert candidate.status == "completed"
+    source = candidate.snapshot.config_source
     assert isinstance(source, AnalysisCandidateRunConfigSource)
     assert source.analysis_record_id == outcome.id

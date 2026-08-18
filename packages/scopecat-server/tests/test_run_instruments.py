@@ -36,13 +36,13 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
-from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentRunStartPolicy,
     InstrumentSuccessAction,
     config_content_hash,
 )
+from scopecat.records.content import CommandPayload, command_payload_from_bytes
 from scopecat.records.measurement import (
     MeasurementAcquisitionValue,
     MeasurementArray,
@@ -1892,7 +1892,7 @@ def test_analysis_candidate_run_keeps_connection_until_shutdown(
             source_run_id=source_admission.run_id,
             source_config=config,
             analysis_title="candidate",
-            analysis_record_id="analysis-candidate",
+            analysis_record_id="analysis-candidate-r1",
             proposal_id="proposal-candidate",
             updates=(
                 replace_scalar_parameter(

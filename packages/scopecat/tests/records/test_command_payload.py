@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from scopecat.kernel.content_identity import sha256_content_hash
-from scopecat.records.artifact import (
+from scopecat.records.content import (
     BlobPayloadBody,
     CommandPayload,
     InlinePayloadBody,

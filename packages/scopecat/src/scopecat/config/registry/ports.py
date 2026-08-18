@@ -7,8 +7,10 @@ from types import TracebackType
 from typing import Protocol, Self
 
 from scopecat.config.registry.records import (
+    ConfigRegistryActivationPage,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
+    ConfigRegistryEntryPage,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.runs.repository import RunRepository
@@ -28,6 +30,13 @@ class ConfigRegistryRepository(Protocol):
 
     def list_entries(self) -> tuple[ConfigRegistryEntry, ...]: ...
 
+    def list_entry_page(
+        self,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> ConfigRegistryEntryPage: ...
+
     def read_entry(self, entry_id: str) -> ConfigRegistryEntry: ...
 
     def read_config(self, ref: str) -> ConfigProfileSnapshot: ...
@@ -36,7 +45,16 @@ class ConfigRegistryRepository(Protocol):
 
     def read_latest_activation(self) -> ConfigRegistryActivationRecord | None: ...
 
+    def read_activation(self, generation: int) -> ConfigRegistryActivationRecord: ...
+
     def list_activation_history(self) -> tuple[ConfigRegistryActivationRecord, ...]: ...
+
+    def list_activation_page(
+        self,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> ConfigRegistryActivationPage: ...
 
     def commit_revision(
         self,

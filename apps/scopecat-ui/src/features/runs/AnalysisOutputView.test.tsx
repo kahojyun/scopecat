@@ -3,13 +3,15 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { RunAnalysisOutput } from "../../types";
+import type { AnalysisOutput } from "../../types";
 import { AnalysisOutputView } from "./AnalysisOutputView";
 import { analysisFigureOption } from "./chart-options";
 
 vi.mock("../../ui/EChartRuntime", () => ({ EChartRuntime: () => null }));
 
 afterEach(cleanup);
+
+const getArtifactDownload = vi.fn();
 
 describe("AnalysisOutputView", () => {
   it("renders a typed table with authored labels, units, and scalar cells", () => {
@@ -31,9 +33,9 @@ describe("AnalysisOutputView", () => {
           rows: [{ cells: [5.1, true] }, { cells: [null, false] }],
         },
       },
-    } satisfies Extract<RunAnalysisOutput, { kind: "table" }>;
+    } satisfies Extract<AnalysisOutput, { kind: "table" }>;
 
-    render(<AnalysisOutputView output={output} runId="run-1" />);
+    render(<AnalysisOutputView output={output} getArtifactDownload={getArtifactDownload} />);
 
     const table = screen.getByRole("table", { name: "Fit parameters" });
     expect(within(table).getByRole("columnheader", { name: "Frequency (GHz)" })).toBeVisible();
@@ -60,9 +62,9 @@ describe("AnalysisOutputView", () => {
           rows: [{ cells: [5_000_000_001] }, { cells: [5_000_000_002] }],
         },
       },
-    } satisfies Extract<RunAnalysisOutput, { kind: "table" }>;
+    } satisfies Extract<AnalysisOutput, { kind: "table" }>;
 
-    render(<AnalysisOutputView output={output} runId="run-1" />);
+    render(<AnalysisOutputView output={output} getArtifactDownload={getArtifactDownload} />);
 
     expect(screen.getByText("5000000001")).toHaveAttribute("title", "5000000001");
     expect(screen.getByText("5000000002")).toHaveAttribute("title", "5000000002");
@@ -76,20 +78,20 @@ describe("AnalysisOutputView", () => {
       title: "Fit data",
       metadata: {},
       content: {
-        dataset_id: "analysis-fit-fits",
+        dataset_id: "analysis-fit-r1-fits",
         codec: "scopecat.derived-dataset.arrow-ipc.v2",
         content_hash: `sha256:${"a".repeat(64)}`,
       },
-    } satisfies Extract<RunAnalysisOutput, { kind: "dataset" }>;
+    } satisfies Extract<AnalysisOutput, { kind: "dataset" }>;
 
-    render(<AnalysisOutputView output={output} runId="run-1" />);
+    render(<AnalysisOutputView output={output} getArtifactDownload={getArtifactDownload} />);
 
-    expect(screen.getByText("analysis-fit-fits")).toBeVisible();
+    expect(screen.getByText("analysis-fit-r1-fits")).toBeVisible();
     expect(screen.getByText("scopecat.derived-dataset.arrow-ipc.v2")).toBeVisible();
   });
 
   it("renders typed facts and analysis-owned artifact references", () => {
-    const fact: RunAnalysisOutput = {
+    const fact: AnalysisOutput = {
       kind: "fact",
       id: "resonance",
       title: "Fitted resonance",
@@ -102,25 +104,27 @@ describe("AnalysisOutputView", () => {
         value: { value: 5.1, unit: "GHz" },
       },
     };
-    const artifact: RunAnalysisOutput = {
+    const artifact: AnalysisOutput = {
       kind: "artifact",
       id: "fit-report",
       title: "Fit report",
       metadata: {},
       content: {
-        artifact_id: "analysis-fit-fit-report",
+        artifact_id: "analysis-fit-r1-fit-report",
         content_hash: `sha256:${"b".repeat(64)}`,
         filename: "fit-report.md",
         media_type: "text/markdown",
       },
     };
 
-    const { rerender } = render(<AnalysisOutputView output={fact} runId="run-1" />);
+    const { rerender } = render(
+      <AnalysisOutputView output={fact} getArtifactDownload={getArtifactDownload} />,
+    );
     expect(screen.getByText("scopecat.quantity.v1")).toBeVisible();
     expect(screen.getByText(/"unit": "GHz"/)).toBeVisible();
 
-    rerender(<AnalysisOutputView output={artifact} runId="run-1" />);
-    expect(screen.getByText("analysis-fit-fit-report")).toBeVisible();
+    rerender(<AnalysisOutputView output={artifact} getArtifactDownload={getArtifactDownload} />);
+    expect(screen.getByText("analysis-fit-r1-fit-report")).toBeVisible();
     expect(screen.getByText("fit-report.md")).toBeVisible();
     expect(screen.getByText("text/markdown")).toBeVisible();
     expect(screen.getByRole("button", { name: "Download file" })).toBeVisible();
@@ -147,9 +151,9 @@ describe("AnalysisOutputView", () => {
           ],
         },
       },
-    } satisfies Extract<RunAnalysisOutput, { kind: "figure" }>;
+    } satisfies Extract<AnalysisOutput, { kind: "figure" }>;
 
-    render(<AnalysisOutputView output={output} runId="run-1" />);
+    render(<AnalysisOutputView output={output} getArtifactDownload={getArtifactDownload} />);
 
     expect(
       screen.getByRole("img", {
@@ -178,7 +182,7 @@ describe("AnalysisOutputView", () => {
           series: [{ id: "extreme", x: [-1e308, 1e308], y: [1e308, -1e308] }],
         },
       },
-    } satisfies Extract<RunAnalysisOutput, { kind: "figure" }>;
+    } satisfies Extract<AnalysisOutput, { kind: "figure" }>;
 
     const option = analysisFigureOption(output.content.preview);
     const [series] = option.series as Array<{ data: number[][]; type: string }>;

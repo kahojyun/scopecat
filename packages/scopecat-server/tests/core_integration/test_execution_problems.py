@@ -281,9 +281,14 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
             project_root=tmp_path,
         )
 
-    manifest = sqlite_run_repository(tmp_path).list_runs()[0]
-    assert manifest.status == "interrupted"
-    [dataset] = manifest.datasets
+    repository = sqlite_run_repository(tmp_path)
+    snapshot = repository.list_runs()[0]
+    assert snapshot.status == "interrupted"
+    [dataset] = repository.list_contents(
+        snapshot.run_id,
+        limit=100,
+        role="dataset",
+    ).items
     assert dataset.id == "raw-measurements"
     assert dataset.metadata == {
         "partial": True,
@@ -294,10 +299,10 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
     assert instrument.aborted
     [point_state] = instrument.applied_requests
     assert success_frequency not in point_state.values.values()
-    assert manifest.outcome is not None
-    assert manifest.outcome.result == "cancelled"
+    assert snapshot.outcome is not None
+    assert snapshot.outcome.result == "cancelled"
     assert "execution_interrupted" in {
-        problem.code for problem in manifest.outcome.problems
+        problem.code for problem in snapshot.outcome.problems
     }
 
 
@@ -314,8 +319,13 @@ def test_failed_run_publishes_committed_prefix_as_incomplete_dataset(
             project_root=tmp_path,
         )
 
-    manifest = sqlite_run_repository(tmp_path).list_runs()[0]
-    assert manifest.status == "unknown"
-    [dataset] = manifest.datasets
+    repository = sqlite_run_repository(tmp_path)
+    snapshot = repository.list_runs()[0]
+    assert snapshot.status == "unknown"
+    [dataset] = repository.list_contents(
+        snapshot.run_id,
+        limit=100,
+        role="dataset",
+    ).items
     assert dataset.metadata["partial"] is True
     assert dataset.metadata["expected_record_count"] == 3

@@ -14,7 +14,7 @@ from scopecat.kernel.problems import (
 from scopecat.measurements.contracts import (
     validate_measurement_records_against_schema,
 )
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import (
     MeasurementDataset,
     MeasurementDatasetSchema,
@@ -48,7 +48,7 @@ def read_measurement_dataset(
     *,
     storage: RunRepository,
     run_id: str,
-    dataset: RunContentEntry,
+    dataset: ContentEntry,
 ) -> MeasurementDataset:
     ref = dataset_storage_ref(dataset)
     records = _read_measurement_records(storage=storage, run_id=run_id, ref=ref)

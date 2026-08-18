@@ -24,6 +24,7 @@ from scopecat.analysis.dataset_wire import DerivedDatasetPayload
 from scopecat.config.inventory import InstrumentInventoryChange
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry.records import (
+    CandidateAcceptance,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
 )
@@ -40,13 +41,14 @@ from scopecat.records.analysis import (
     AnalysisFigureViewSpec,
     AnalysisPublishedOutputReference,
     AnalysisTableViewSpec,
+    analysis_record_id,
 )
-from scopecat.records.artifact import RunContentEntry, Sha256ContentHash
 from scopecat.records.config import (
     ConfigContentHash,
     ConfigProfileSnapshot,
     InstrumentBindingSpec,
 )
+from scopecat.records.content import ContentEntry, Sha256ContentHash
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
@@ -59,7 +61,7 @@ from scopecat.records.parameter_change import (
 )
 from scopecat.records.run import (
     RunConfigSource,
-    RunManifest,
+    RunSnapshot,
 )
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.contracts import InstrumentDescription
@@ -101,6 +103,7 @@ class CandidateConfigRevisionSource(_WireModel):
     kind: Literal["candidate_config"] = "candidate_config"
     run_id: NonEmptyText
     proposal_id: NonEmptyText
+    acceptance: CandidateAcceptance
 
 
 type ConfigRevisionSource = Annotated[
@@ -173,25 +176,32 @@ class ConfigActivationReceipt(_WireModel):
     activation: ConfigRegistryActivationRecord
 
 
-class AnalysisInputPayload(_WireModel):
-    """JSON-safe reference consumed by a durable analysis record."""
+class _AnalysisInputPayload(_WireModel):
+    """Shared JSON-safe identity consumed by a durable analysis record."""
 
+    id: NonEmptyText
     target: NonEmptyText
-    kind: Literal["measurement_dataset", "analysis_dataset"]
     content_hash: NonEmptyText
     codec: NonEmptyText
     role: NonEmptyText
     title: str | None = None
     metadata: dict[str, JsonValue] | None = None
-    source: AnalysisPublishedOutputReference | None = None
 
-    @model_validator(mode="after")
-    def validate_source(self) -> AnalysisInputPayload:
-        if (self.kind == "analysis_dataset") != (self.source is not None):
-            raise ValueError(
-                "analysis dataset inputs require one published analysis output source"
-            )
-        return self
+
+class MeasurementAnalysisInputPayload(_AnalysisInputPayload):
+    kind: Literal["measurement_dataset"] = "measurement_dataset"
+    run_id: NonEmptyText
+
+
+class PublishedAnalysisInputPayload(_AnalysisInputPayload):
+    kind: Literal["analysis_dataset", "analysis_fact", "analysis_artifact"]
+    source: AnalysisPublishedOutputReference
+
+
+type AnalysisInputPayload = Annotated[
+    MeasurementAnalysisInputPayload | PublishedAnalysisInputPayload,
+    Field(discriminator="kind"),
+]
 
 
 class AnalysisTableOutputPayload(_WireModel):
@@ -295,7 +305,7 @@ class AnalysisSaveCommand(_WireModel):
             for output in self.outputs
             if isinstance(output, AnalysisParameterProposalOutputPayload)
         )
-        expected_analysis_record_id = f"analysis-{self.analysis_key}"
+        expected_analysis_record_id = analysis_record_id(self.analysis_key, 1)
         if any(
             proposal.analysis_record_id != expected_analysis_record_id
             for proposal in proposals
@@ -378,7 +388,7 @@ class AnalysisSaveCommand(_WireModel):
 
 
 class AnalysisSaveReceipt(_WireModel):
-    record: RunContentEntry
+    record: ContentEntry
     analysis_key: NonEmptyText
     inputs: tuple[AnalysisInputPayload, ...] = ()
     parameter_proposals: tuple[ParameterChangeProposal, ...] = ()
@@ -446,14 +456,14 @@ class RunSubmission(_WireModel):
 
 
 class RunAdmission(_WireModel):
-    """Canonical run manifest returned for an idempotent submission."""
+    """Canonical run snapshot returned for an idempotent submission."""
 
     submission_id: NonEmptyText
-    manifest: RunManifest
+    snapshot: RunSnapshot
 
     @property
     def run_id(self) -> str:
-        return self.manifest.run_id
+        return self.snapshot.run_id
 
 
 class ExecutorStartRequest(_WireModel):
@@ -613,7 +623,7 @@ class TerminalRunCommitCommand(_FencedCommand):
     """Lossless JSON projection of one interpreter terminal delta."""
 
     outcome: RunOutcome
-    contents: tuple[RunContentEntry, ...] = ()
+    contents: tuple[ContentEntry, ...] = ()
     models: tuple[TerminalModelWrite, ...] = ()
 
 
@@ -844,12 +854,14 @@ __all__ = [
     "InstrumentSessionOpenCommand",
     "InstrumentSessionOpenReceipt",
     "ManualConfigDraftRevisionSource",
+    "MeasurementAnalysisInputPayload",
     "MeasurementFlushCommand",
     "MeasurementFlushReceipt",
     "MeasurementHeaderCommand",
     "MeasurementIngestReceipt",
     "MeasurementSealCommand",
     "PayloadObjectReceipt",
+    "PublishedAnalysisInputPayload",
     "RunAdmission",
     "RunAttachmentCommand",
     "RunCancellationReceipt",

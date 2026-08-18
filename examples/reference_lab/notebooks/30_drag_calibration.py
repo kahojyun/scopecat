@@ -9,6 +9,10 @@ from reference_lab.configuration import EXAMPLE_ROOT
 from reference_lab.notebook import show
 from reference_lab.workflows.drag_beta_analysis import drag_beta_analysis
 from reference_lab.workflows.drag_beta_experiment import drag_beta_experiment
+from reference_lab.workflows.drag_beta_verification import (
+    DRAG_BETA_VERIFICATION_SCHEMA,
+    drag_beta_candidate_verification,
+)
 from reference_lab.workflows.production_drag_gate import production_drag_experiment
 
 # %%
@@ -35,10 +39,26 @@ candidate_run = lab.run(
 )
 
 # %%
-accepted = lab.config.accept(
+verification = lab.analyze(
+    drag_beta_candidate_verification(
+        baseline_run=baseline_run,
+        candidate_run=candidate_run,
+    )
+)
+verification_decision = verification.fact_as(
+    "decision",
+    DRAG_BETA_VERIFICATION_SCHEMA,
+)
+verification_report = verification.artifact("verification-report")
+if not verification_decision.accepted:
+    raise RuntimeError("DRAG beta candidate did not improve the verification scan")
+
+# Only the cross-run verification decision authorizes changing the default.
+accepted = lab.config.accept_verified(
     analysis,
+    verified_by=(verification, "decision"),
     actor="nightly-calibration",
-    note="accept the reviewed DRAG fit",
+    note="accept the project-verified DRAG candidate",
 )
 
 production_run = lab.run(
@@ -52,11 +72,11 @@ production_run = lab.run(
 restored = lab.config.undo(
     note="restore the previous default after the calibration example",
 )
-candidate_source = candidate_run.manifest.config_source
-production_source = production_run.manifest.config_source
+candidate_source = candidate_run.snapshot.config_source
+production_source = production_run.snapshot.config_source
 
 drag_beta_summary = {
-    "status": baseline_run.manifest.status,
+    "status": baseline_run.status,
     "point_count": preview.point_count,
     "analysis": analysis.id,
     "proposal_id": proposal.id,
@@ -64,6 +84,27 @@ drag_beta_summary = {
     "execution_evidence": len(analysis.executions),
     "fit_report": fit_report.entry.filename,
     "proposal_evidence": proposal.evidence_output_ids,
+    "verification": verification.id,
+    "verification_subject": verification.view.analysis.subject.kind,
+    "verification_inputs": [
+        (item.id, item.target, item.role) for item in verification.inputs
+    ],
+    "verification_improvement": verification_decision.improvement,
+    "verification_accepted": verification_decision.accepted,
+    "verification_report": verification_report.entry.filename,
+    "verification_is_project_owned": all(
+        entry.id != verification.id
+        for entry in (
+            *baseline_run.contents(role="record").items,
+            *candidate_run.contents(role="record").items,
+        )
+    ),
+    "accepted_verification": (
+        accepted.entry.source.acceptance.decision.analysis_record_id
+        if accepted.entry.source.kind == "candidate_config"
+        and accepted.entry.source.acceptance.kind == "cross_run_verification"
+        else None
+    ),
     "candidate_run_uses_analysis": (
         candidate_source is not None
         and candidate_source.kind == "analysis_candidate"

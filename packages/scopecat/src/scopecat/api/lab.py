@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import TracebackType
 from typing import Literal, Self
 
@@ -11,13 +11,17 @@ from scopecat.api._config import LabConfigOperations
 from scopecat.api._control import LabControlOperations
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
+from scopecat.api.analysis import AnalysisContext, AnalysisStep
 from scopecat.api.instruments import LabInstrumentOperations
+from scopecat.api.project_analysis import RemoteProjectAnalysisOperations
+from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.api.review import ExperimentReviewHandle
-from scopecat.api.run import RunHandle, run_handle_id
+from scopecat.api.run import RunHandle, RunHandlePage, run_handle_id
 from scopecat.authoring.experiments import Experiment, ExperimentInvocation
 from scopecat.config.candidates import CandidateConfig
+from scopecat.control.models import ControlRunState
 from scopecat.daemon.client import DaemonClient
-from scopecat.daemon.views import DaemonHealth
+from scopecat.daemon.views import DaemonHealth, ProjectAnalysisPage
 from scopecat.inspection import CompiledProgramInspectionQuery
 from scopecat.planning.preview import PreviewCoordinateMode
 from scopecat.planning.preview_models import ExperimentPreview
@@ -121,6 +125,7 @@ class LabClient:
         self._owns_client = isinstance(daemon, str)
         self._client = DaemonClient(daemon) if isinstance(daemon, str) else daemon
         self._runs = RemoteRunOperations(self._client)
+        self._analyses = RemoteProjectAnalysisOperations(self._client)
         self._config = LabConfigOperations(
             client=self._client,
             runs=self._runs,
@@ -169,11 +174,71 @@ class LabClient:
     def health(self) -> DaemonHealth:
         return self._control.health()
 
-    def runs(self) -> tuple[RunHandle, ...]:
-        return tuple(
-            RunHandle(session=self, id=item.run_id)
-            for item in self._control.runs().items
+    def runs(
+        self,
+        *,
+        limit: int = 50,
+        before: int | None = None,
+        state: ControlRunState | None = None,
+    ) -> RunHandlePage:
+        """Load one bounded newest-first page of run handles."""
+
+        page = self._control.runs(limit=limit, before=before, state=state)
+        return RunHandlePage(
+            items=tuple(RunHandle(session=self, id=item.run_id) for item in page.items),
+            next_cursor=page.next_cursor,
         )
+
+    def analysis(
+        self,
+        title: str,
+        *,
+        key: str | None = None,
+    ) -> AnalysisContext:
+        """Start a project publication over explicit completed-run inputs."""
+
+        return AnalysisContext(
+            owner=self._analyses,
+            default_title=title,
+            default_key=key,
+        )
+
+    def analyze(
+        self,
+        step: AnalysisStep,
+        *,
+        key: str | None = None,
+    ) -> PublishedAnalysis:
+        """Run and durably publish one project-level analysis step."""
+
+        analysis = step.run(
+            AnalysisContext(
+                owner=self._analyses,
+                default_title=step.id,
+                default_key=key or step.id,
+                step_id=step.id,
+            )
+        )
+        if analysis.key is None or analysis.step_id is None:
+            analysis = replace(
+                analysis,
+                key=analysis.key or key or step.id,
+                step_id=analysis.step_id or step.id,
+            )
+        return analysis.save()
+
+    def analysis_summaries(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ProjectAnalysisPage:
+        """Load a bounded history page without fetching publication bodies."""
+
+        return self._analyses.summaries(limit=limit, before=before)
+
+    def published_analysis(self, selector: str) -> PublishedAnalysis:
+        return self._analyses.published_analysis(selector)
 
     def get_run(self, run: RunSelector | RunHandle) -> RunHandle:
         run_id = run_handle_id(run)

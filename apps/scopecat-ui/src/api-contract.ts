@@ -32,8 +32,12 @@ export type ConfigDraftPreview = Omit<
 };
 export type ConfigProfileSnapshot = components["schemas"]["ConfigProfileSnapshot-Input"];
 export type ConfigRegistryEntry = components["schemas"]["ConfigRegistryEntry"];
-export type ConfigRegistryOverview = GetResponse<"/api/v1/config-registry"> & {
+export type ConfigRegistryPage = GetResponse<"/api/v1/config-registry">;
+export type ConfigActivationPage = GetResponse<"/api/v1/config-registry/activations">;
+export type ConfigRegistryOverview = Omit<ConfigRegistryPage, "next_cursor"> & {
   activation_history: ConfigActivationRecord[];
+  entries_next_cursor?: number;
+  activation_history_next_cursor?: number;
 };
 export type DriverCatalog = GetResponse<"/api/v1/instrument-drivers">;
 export type DriverConnectionSpec = components["schemas"]["DriverConnectionSpec"];
@@ -80,6 +84,11 @@ export type AnalysisRecordOutput = components["schemas"]["AnalysisRecordOutput"]
 export type AnalysisParameterProposalReference =
   components["schemas"]["AnalysisParameterProposalReference"];
 export type AnalysisTableView = components["schemas"]["AnalysisTableView"];
+export type AnalysisContentBytes =
+  GetResponse<"/api/v1/analyses/{analysis_id}/contents/{selector}/bytes">;
+export type ProjectAnalysisPage = GetResponse<"/api/v1/analyses">;
+export type ProjectAnalysisSummary = components["schemas"]["ProjectAnalysisSummary"];
+export type ProjectAnalysisView = GetResponse<"/api/v1/analyses/{selector}">;
 export type MeasurementDatasetSchema = components["schemas"]["MeasurementDatasetSchema-Output"];
 export type MeasurementAcquisitionValue = components["schemas"]["MeasurementAcquisitionValue"];
 export type MeasurementRecord = components["schemas"]["MeasurementRecord"];
@@ -94,7 +103,7 @@ export type ComplexComponents = Extract<
 >;
 export type ActiveConfig = GetResponse<"/api/v1/config-registry/active">;
 export type InstrumentList = GetResponse<"/api/v1/instruments">;
-export type ParameterProposalList = GetResponse<"/api/v1/runs/{run_id}/parameter-proposals">;
+export type ParameterProposalPage = GetResponse<"/api/v1/runs/{run_id}/parameter-proposals">;
 export type RunSummaryPage = GetResponse<"/api/v1/runs">;
 export type EventPage = GetResponse<"/api/v1/events">;
 export type ParameterAtom = components["schemas"]["ParameterAtomValue-Input"];
@@ -128,8 +137,12 @@ export type RunDomainQueue = GetResponse<"/api/v1/runs/{run_id}/point-plan/queue
 export type CompiledArtifactInspection = components["schemas"]["CompiledArtifactInspection-Output"];
 export type CompiledPointInspection = components["schemas"]["CompiledPointInspection-Output"];
 export type CompiledWaveformInspection = components["schemas"]["CompiledWaveformInspection"];
-export type RunContentEntry = components["schemas"]["RunContentEntry"];
-export type RunManifest = components["schemas"]["RunManifest"];
+export type ContentEntryView = components["schemas"]["ContentEntry"];
+export type RunAnalysisPage = components["schemas"]["RunAnalysisPage"];
+export type RunAnalysisSummary = components["schemas"]["RunAnalysisSummary"];
+export type RunAnalysisView = components["schemas"]["RunAnalysisView"];
+export type RunContentPage = GetResponse<"/api/v1/runs/{run_id}/contents">;
+export type RunSnapshot = components["schemas"]["RunSnapshot"];
 export type RunResourceView = components["schemas"]["RunResourceView"];
 export type StoredParameterValue = components["schemas"]["StoredParameterValue-Input"];
 export type TableParameterType = Extract<ParameterValueType, { shape: "table" }>;

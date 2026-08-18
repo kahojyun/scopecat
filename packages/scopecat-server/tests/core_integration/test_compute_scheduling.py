@@ -121,7 +121,7 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
 
     run = lab.prepare(experiment).run()
 
-    assert run.manifest.status == "completed"
+    assert run.status == "completed"
     assert calls == ["produce", "consume"]
     assert len(driver.invoked) == 1
     invoked = driver.invoked[0]

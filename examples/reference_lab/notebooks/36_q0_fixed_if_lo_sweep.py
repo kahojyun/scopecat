@@ -23,7 +23,7 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
     data = run.measurements()
     signed_ifs = data[invocation.output.signed_if_frequency].require_quantities("MHz")
     carriers = data[invocation.output.carrier_frequency].require_quantities("GHz")
-    status = run.manifest.status
+    status = run.status
 
 q0_fixed_if_lo_sweep_summary = {
     "points": preview.point_count,

@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Protocol, overload
+from typing import Literal, Protocol, overload
 
 import pyarrow as pa
 from pydantic import JsonValue
@@ -26,10 +26,10 @@ from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.daemon.views import (
     MeasurementArrowColumn,
     MeasurementArrowQuery,
-    RunAnalysisListView,
+    RunAnalysisPage,
     RunAnalysisView,
+    RunContentPage,
 )
-from scopecat.kernel.ids import artifact_slug
 from scopecat.measurements.dataset import (
     Dataset,
     ExperimentResultView,
@@ -42,13 +42,12 @@ from scopecat.measurements.datasets import (
 )
 from scopecat.measurements.interop import ProjectionSchema
 from scopecat.records.analysis import AnalysisExecution
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.records.parameter_change import ParameterChangeProposal
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
-from scopecat.runs.access import require_dataset
 from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
@@ -63,11 +62,29 @@ from scopecat.runs.selectors import RunSelector, selected_run_id
 class RunOperations(Protocol):
     """Storage-neutral operations used by run and data handles."""
 
-    def load_manifest(self, run_id: str) -> RunManifest: ...
+    def load_snapshot(self, run_id: str) -> RunSnapshot: ...
 
     def load_config(self, run_id: str) -> ConfigProfileSnapshot: ...
 
     def load_request(self, run_id: str) -> RunRequest: ...
+
+    def contents(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+        role: Literal["artifact", "dataset", "record"] | None,
+        kind: str | None,
+    ) -> RunContentPage: ...
+
+    def content_entry(
+        self,
+        run_id: str,
+        *,
+        role: Literal["artifact", "dataset", "record"],
+        content_id: str,
+    ) -> ContentEntry: ...
 
     def load_measurement_dataset(
         self,
@@ -104,7 +121,13 @@ class RunOperations(Protocol):
         parameter_proposals: Sequence[ParameterChangeProposal],
     ) -> SavedAnalysis: ...
 
-    def analyses(self, run_id: str) -> RunAnalysisListView: ...
+    def analyses(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> RunAnalysisPage: ...
 
     def analysis(self, run_id: str, selector: str) -> RunAnalysisView: ...
 
@@ -120,7 +143,7 @@ class RunOperations(Protocol):
         filename: str | None,
         media_type: str | None,
         metadata: Mapping[str, JsonValue] | None,
-    ) -> RunContentEntry: ...
+    ) -> ContentEntry: ...
 
     def artifact_text(
         self,
@@ -168,10 +191,14 @@ class RunHandle:
     id: str
 
     @property
-    def manifest(self) -> RunManifest:
-        """Load the current durable manifest for this run."""
+    def snapshot(self) -> RunSnapshot:
+        """Load this run's current identity and terminal state."""
 
-        return self.session.run_operations.load_manifest(self.id)
+        return self.session.run_operations.load_snapshot(self.id)
+
+    @property
+    def status(self) -> str:
+        return self.snapshot.status
 
     @property
     def config(self) -> ConfigProfileSnapshot:
@@ -183,22 +210,43 @@ class RunHandle:
 
         return self.session.run_operations.load_request(self.id)
 
-    @property
-    def artifacts(self) -> tuple[str, ...]:
-        return tuple(artifact.id for artifact in self.manifest.artifacts)
+    def contents(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+        role: Literal["artifact", "dataset", "record"] | None = None,
+        kind: str | None = None,
+    ) -> RunContentPage:
+        """List a bounded newest-first page of this run's published content."""
 
-    @property
-    def datasets(self) -> tuple[str, ...]:
-        return tuple(dataset.id for dataset in self.manifest.datasets)
+        return self.session.run_operations.contents(
+            self.id,
+            limit=limit,
+            before=before,
+            role=role,
+            kind=kind,
+        )
+
+    def content(
+        self,
+        role: Literal["artifact", "dataset", "record"],
+        content_id: str,
+    ) -> ContentEntry:
+        """Load one exact entry from this run's content catalog."""
+
+        return self.session.run_operations.content_entry(
+            self.id,
+            role=role,
+            content_id=content_id,
+        )
 
     def measurements(self) -> Dataset:
         """Open this run's measurement dataset for notebook analysis."""
 
-        entry = require_dataset(
-            manifest=self.manifest,
-            selector=RAW_MEASUREMENTS_DATASET_ID,
-            expected_kind=MEASUREMENT_DATASET_KIND,
-        )
+        entry = self.content("dataset", RAW_MEASUREMENTS_DATASET_ID)
+        if entry.kind != MEASUREMENT_DATASET_KIND:
+            raise ValueError("measurement dataset content has the wrong kind")
         if entry.data_schema is None:
             raise ValueError("measurement dataset is missing its semantic schema")
         schema = MeasurementDatasetSchema.model_validate(entry.data_schema)
@@ -219,9 +267,14 @@ class RunHandle:
 
         return self.measurements()
 
-    def _load_analysis_dataset(self, selector: str) -> DerivedDataset:
+    def _load_analysis_dataset(
+        self,
+        analysis_id: str,
+        selector: str,
+    ) -> DerivedDataset:
         """Load one published analysis dataset for the typed read facade."""
 
+        del analysis_id
         loaded = self.session.run_operations.load_dataset_bytes(
             self.id,
             selector,
@@ -334,31 +387,27 @@ class RunHandle:
 
         return AnalysisContext(run=self, default_title=title, default_key=key)
 
-    def published_analyses(self) -> tuple[PublishedAnalysis, ...]:
-        """Load every durable analysis publication in manifest order."""
+    def analysis_summaries(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> RunAnalysisPage:
+        """Load one bounded history page without fetching publication bodies."""
 
-        return tuple(
-            PublishedAnalysis(run=self, view=view)
-            for view in self.session.run_operations.analyses(self.id).items
+        return self.session.run_operations.analyses(
+            self.id,
+            limit=limit,
+            before=before,
         )
 
     def published_analysis(self, selector: str) -> PublishedAnalysis:
         """Load an exact analysis record ID or the latest matching logical key."""
 
-        analyses = self.published_analyses()
-        exact = next(
-            (analysis for analysis in analyses if analysis.id == selector),
-            None,
+        return PublishedAnalysis(
+            source=self,
+            view=self.session.run_operations.analysis(self.id, selector),
         )
-        if exact is not None:
-            return exact
-        selected_key = artifact_slug(selector, fallback="analysis")
-        matches = tuple(
-            analysis for analysis in analyses if analysis.key == selected_key
-        )
-        if not matches:
-            raise KeyError(f"run has no published analysis: {selector}")
-        return matches[-1]
 
     def save_analysis(
         self,
@@ -418,7 +467,7 @@ class RunHandle:
         filename: str | None = None,
         media_type: str | None = None,
         metadata: Mapping[str, JsonValue] | None = None,
-    ) -> RunContentEntry:
+    ) -> ContentEntry:
         return self.session.run_operations.attach(
             run_id=self.id,
             path=path,
@@ -478,6 +527,65 @@ class RunHandle:
             selector=selector,
             expected_kind=expected_kind,
         )
+
+    def _analysis_artifact_text(
+        self,
+        analysis_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunArtifactTextResult:
+        del analysis_id
+        return self.artifact_text(selector, expected_kind=expected_kind)
+
+    def _analysis_artifact_entry(
+        self,
+        analysis_id: str,
+        selector: str,
+    ) -> ContentEntry:
+        del analysis_id
+        entry = self.content("artifact", selector)
+        if entry.kind != "analysis_artifact":
+            raise ValueError("analysis artifact content has the wrong kind")
+        return entry
+
+    def _analysis_artifact_json(
+        self,
+        analysis_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunArtifactJsonResult:
+        del analysis_id
+        return self.artifact_json(selector, expected_kind=expected_kind)
+
+    def _analysis_artifact_bytes(
+        self,
+        analysis_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunArtifactBytesResult:
+        del analysis_id
+        return self.artifact_bytes(selector, expected_kind=expected_kind)
+
+    def _analysis_record_json(
+        self,
+        analysis_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunRecordJsonResult:
+        del analysis_id
+        return self.record_json(selector, expected_kind=expected_kind)
+
+
+@dataclass(frozen=True, slots=True)
+class RunHandlePage:
+    """Bounded page of notebook run handles."""
+
+    items: tuple[RunHandle, ...] = ()
+    next_cursor: int | None = None
 
 
 def run_handle_id(run: RunHandle | RunSelector) -> str:

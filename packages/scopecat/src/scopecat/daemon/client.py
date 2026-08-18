@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from types import TracebackType
-from typing import Self
+from typing import Literal, Self
 from urllib.parse import quote
 
 import httpx2
@@ -44,21 +44,27 @@ from scopecat.daemon.reviews import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
-    ConfigActivationHistoryView,
+    AnalysisContentBytesView,
+    ConfigActivationPage,
     ConfigDraftPreview,
     ConfigEntryView,
-    ConfigRegistryView,
+    ConfigRegistryPage,
     DaemonHealth,
     InstrumentListView,
     InstrumentView,
     MeasurementArrowQuery,
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
-    ParameterProposalListView,
-    RunAnalysisListView,
+    ParameterProposalPage,
+    ParameterProposalView,
+    ProjectAnalysisContentPage,
+    ProjectAnalysisPage,
+    ProjectAnalysisView,
+    RunAnalysisPage,
     RunAnalysisView,
     RunArtifactBytesView,
     RunConfigView,
+    RunContentPage,
     RunDatasetBytesView,
     RunDetail,
     RunRequestView,
@@ -108,13 +114,13 @@ from scopecat.daemon.wire import (
 from scopecat.kernel.content_identity import sha256_content_hash
 from scopecat.measurements.recording_arrow import encode_measurement_append
 from scopecat.planning.catalog import InstrumentContractCatalog
-from scopecat.records.artifact import (
+from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.content import (
     BlobPayloadBody,
     CommandPayload,
+    ContentEntry,
     InlinePayloadBody,
-    RunContentEntry,
 )
-from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.records.measurement_recording import (
@@ -122,7 +128,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetBatch,
     MeasurementDatasetReceipt,
 )
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.runs.data import (
     RunArtifactJsonResult,
     RunArtifactTextResult,
@@ -287,16 +293,34 @@ class DaemonClient:
         )
         return ReviewSessionCloseReceipt.model_validate_json(response.content)
 
-    def config_registry(self) -> ConfigRegistryView:
+    def config_registry(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ConfigRegistryPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
         return self._get_model(
             f"{_API_PREFIX}/config-registry",
-            ConfigRegistryView,
+            ConfigRegistryPage,
+            params=params,
         )
 
-    def config_activation_history(self) -> ConfigActivationHistoryView:
+    def config_activation_history(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ConfigActivationPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
         return self._get_model(
             f"{_API_PREFIX}/config-registry/activations",
-            ConfigActivationHistoryView,
+            ConfigActivationPage,
+            params=params,
         )
 
     def active_config(self) -> ActiveConfigView:
@@ -566,10 +590,55 @@ class DaemonClient:
             RunRequestView,
         )
 
-    def analyses(self, run_id: str) -> RunAnalysisListView:
+    def run_contents(
+        self,
+        run_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+        role: Literal["artifact", "dataset", "record"] | None = None,
+        kind: str | None = None,
+    ) -> RunContentPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        if role is not None:
+            params["role"] = role
+        if kind is not None:
+            params["kind"] = kind
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/contents",
+            RunContentPage,
+            params=params,
+        )
+
+    def run_content(
+        self,
+        run_id: str,
+        *,
+        role: Literal["artifact", "dataset", "record"],
+        content_id: str,
+    ) -> ContentEntry:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/contents/"
+            f"{role}/{quote(content_id, safe='')}",
+            ContentEntry,
+        )
+
+    def analyses(
+        self,
+        run_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> RunAnalysisPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
         return self._get_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/analyses",
-            RunAnalysisListView,
+            RunAnalysisPage,
+            params=params,
         )
 
     def analysis(self, run_id: str, selector: str) -> RunAnalysisView:
@@ -589,6 +658,78 @@ class DaemonClient:
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/analyses",
             command,
             AnalysisSaveReceipt,
+        )
+
+    def project_analyses(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ProjectAnalysisPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/analyses",
+            ProjectAnalysisPage,
+            params=params,
+        )
+
+    def project_analysis(self, selector: str) -> ProjectAnalysisView:
+        return self._get_model(
+            f"{_API_PREFIX}/analyses/{quote(selector, safe='')}",
+            ProjectAnalysisView,
+        )
+
+    def project_analysis_contents(
+        self,
+        analysis_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ProjectAnalysisContentPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/analyses/{quote(analysis_id, safe='')}/contents",
+            ProjectAnalysisContentPage,
+            params=params,
+        )
+
+    def project_analysis_content(
+        self,
+        analysis_id: str,
+        selector: str,
+    ) -> ContentEntry:
+        selected_analysis = quote(analysis_id, safe="")
+        selected_content = quote(selector, safe="")
+        return self._get_model(
+            f"{_API_PREFIX}/analyses/{selected_analysis}/contents/{selected_content}",
+            ContentEntry,
+        )
+
+    def save_project_analysis(
+        self,
+        command: AnalysisSaveCommand,
+    ) -> AnalysisSaveReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/analyses",
+            command,
+            AnalysisSaveReceipt,
+        )
+
+    def project_analysis_content_bytes(
+        self,
+        analysis_id: str,
+        selector: str,
+    ) -> AnalysisContentBytesView:
+        selected_analysis = quote(analysis_id, safe="")
+        selected_content = quote(selector, safe="")
+        return self._get_model(
+            f"{_API_PREFIX}/analyses/{selected_analysis}/contents/"
+            f"{selected_content}/bytes",
+            AnalysisContentBytesView,
         )
 
     def artifact_bytes(
@@ -711,17 +852,38 @@ class DaemonClient:
         self,
         run_id: str,
         command: RunAttachmentCommand,
-    ) -> RunContentEntry:
+    ) -> ContentEntry:
         return self._post_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/attachments",
             command,
-            RunContentEntry,
+            ContentEntry,
         )
 
-    def parameter_proposals(self, run_id: str) -> ParameterProposalListView:
+    def parameter_proposals(
+        self,
+        run_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ParameterProposalPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
         return self._get_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/parameter-proposals",
-            ParameterProposalListView,
+            ParameterProposalPage,
+            params=params,
+        )
+
+    def parameter_proposal(
+        self,
+        run_id: str,
+        proposal_id: str,
+    ) -> ParameterProposalView:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/parameter-proposals/"
+            f"{quote(proposal_id, safe='')}",
+            ParameterProposalView,
         )
 
     def resolve_attention(
@@ -1002,11 +1164,11 @@ class DaemonClient:
         self,
         run_id: str,
         command: TerminalRunCommitCommand,
-    ) -> RunManifest:
+    ) -> RunSnapshot:
         return self._post_model(
             f"{_API_PREFIX}/runs/{run_id}/terminal",
             command,
-            RunManifest,
+            RunSnapshot,
         )
 
     def _get_model[ModelT: BaseModel](

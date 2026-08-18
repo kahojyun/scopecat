@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
-import { getRunArtifactDownload } from "./run-api";
-import type { RunAnalysisOutput } from "../../types";
+import type { AnalysisOutput } from "../../types";
 import { EChart } from "../../ui/EChart";
 import {
   analysisAxisLabel,
@@ -10,10 +9,10 @@ import {
 
 export function AnalysisOutputView({
   output,
-  runId,
+  getArtifactDownload,
 }: {
-  output: RunAnalysisOutput;
-  runId: string;
+  output: AnalysisOutput;
+  getArtifactDownload: AnalysisArtifactDownloader;
 }) {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string>();
@@ -23,7 +22,7 @@ export function AnalysisOutputView({
     setDownloading(true);
     setDownloadError(undefined);
     try {
-      const download = await getRunArtifactDownload(runId, output.content.artifact_id);
+      const download = await getArtifactDownload(output.content.artifact_id);
       const url = URL.createObjectURL(download.blob);
       const link = document.createElement("a");
       link.href = url;
@@ -134,7 +133,11 @@ export function AnalysisOutputView({
   );
 }
 
-type TableContent = Extract<RunAnalysisOutput, { kind: "table" }>["content"];
+export type AnalysisArtifactDownloader = (
+  selector: string,
+) => Promise<{ blob: Blob; filename: string }>;
+
+type TableContent = Extract<AnalysisOutput, { kind: "table" }>["content"];
 
 function AnalysisTableView({ content, title }: { content: TableContent; title: string }) {
   const preview = content.preview;
@@ -187,7 +190,7 @@ function AnalysisTableView({ content, title }: { content: TableContent; title: s
   );
 }
 
-type FigureContent = Extract<RunAnalysisOutput, { kind: "figure" }>["content"];
+type FigureContent = Extract<AnalysisOutput, { kind: "figure" }>["content"];
 
 function AnalysisFigureView({ content, title }: { content: FigureContent; title: string }) {
   const preview: AnalysisFigureContent = content.preview;

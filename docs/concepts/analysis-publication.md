@@ -7,8 +7,9 @@ managing storage identities or revision mechanics directly.
 
 Analysis replaces the run-adjacent scripts and personal file layouts that turn
 measurements into fitted values, reusable datasets, plots, reports, and proposed
-parameter changes. It is an atomic publication attached to one source run. It is
-not a dataframe API, a compute runtime, or a multi-run workflow engine.
+parameter changes. It is an atomic publication owned either by one source run
+or by the project when its inputs span runs. It is not a dataframe API, a
+compute runtime, or a workflow scheduler.
 
 Users should keep doing numerical work with NumPy, pandas, Polars, Xarray,
 PyArrow, SciPy, and domain libraries. Scopecat owns the durable boundary after
@@ -41,10 +42,11 @@ kinds of output:
   its validation and acceptance lineage. It may cite authoritative fact,
   dataset, or artifact outputs from the same analysis as structured evidence.
 
-The analysis record is the manifest for this publication. Large datasets and
-artifacts live as separate run content entries; the record stores typed
-references. This keeps one atomic publication without embedding every payload
-in one JSON record.
+The analysis record is the root provenance record for this publication. Large
+datasets and artifacts live as separate content entries under the same run or
+project owner; the record stores typed references. This keeps one atomic
+publication without embedding every payload or content index in one JSON
+record.
 
 ## Publish ordinary Python results
 
@@ -107,14 +109,75 @@ published = run.analyze(resonator_fit())
 Both paths return `PublishedAnalysis`; there is no separate immediate outcome
 model.
 
+## Compare completed runs
+
+A comparison, candidate verification, drift estimate, or cohort summary does
+not belong to an arbitrary member run. Start it from the project and bind each
+completed-run input with a local role:
+
+```python
+context = lab.analysis(
+    "Candidate verification",
+    key="candidate-verification",
+)
+baseline = context.measurements(
+    baseline_run,
+    id="baseline",
+    role="baseline",
+)
+candidate = context.measurements(
+    candidate_run,
+    id="candidate",
+    role="candidate",
+)
+
+decision = compare_candidate(baseline, candidate)
+published = (
+    context.result()
+    .dataset("comparison", decision.rows)
+    .fact("accepted", decision.accepted)
+    .artifact("report", text=decision.report, filename="verification.md")
+    .save()
+)
+
+reopened = lab.published_analysis("candidate-verification")
+```
+
+The durable subject is `project`, while every input freezes its binding ID,
+source run ID, content target, hash, codec, role, and optional source-analysis
+revision. Project analysis has its own immutable revision stream and content
+namespace. Its outputs therefore do not appear in any input run content catalog, and
+deleting the notion of a “primary run” does not lose provenance.
+
+Only completed runs are valid inputs. A project analysis may also consume a
+dataset published by a run analysis:
+
+```python
+fits = context.analysis_dataset(
+    "resonator-fit",
+    "fit-by-bias",
+    run=baseline_run,
+    id="baseline-fits",
+    role="baseline",
+)
+```
+
+The explicit binding ID prevents collisions when several runs expose the same
+dataset ID. Project analysis does not currently publish parameter proposals:
+changing configuration still requires one run-scoped analysis with one
+unambiguous base configuration. A project verification may gate whether that
+existing proposal is accepted.
+
 ## Logical keys and immutable revisions
 
-The author supplies one logical analysis `key`, not a version number. The first
-publication uses `analysis-<key>`. Repeating the same logical content is an
-idempotent notebook or step retry and returns that existing publication. If any
-input snapshot, output content, title, metadata, or other durable meaning
-changes, Scopecat appends `analysis-<key>-r2`, then `-r3`, without replacing the
-earlier record.
+The author supplies one logical analysis `key`, not a version number. Durable
+record IDs always make the revision explicit: the first publication uses
+`analysis-<key>-r1`, followed by `-r2`, then `-r3`. This keeps record identity
+unambiguous even when a logical key itself ends in revision-shaped text.
+Repeating the same logical content is an idempotent notebook or step retry and
+returns the existing publication; changing an input snapshot, output content,
+title, metadata, or other durable meaning appends a new record without replacing
+an earlier one.
 
 Datasets, artifacts, and parameter proposals use the allocated analysis record
 ID as part of their durable identity, so a revision never leaves a supposedly
@@ -125,9 +188,15 @@ timestamp.
 
 Reading by logical key returns the latest revision. Reading by an exact analysis
 record ID returns that historical revision. `PublishedAnalysis.revision` and
-`publication_hash` expose the allocated revision and the content identity when
-code needs to report or compare them; ordinary authoring code does not manage
-either value.
+`publication_hash` expose the allocated revision and the content identity, while
+`published_at` reports the stable server-assigned time of the first successful
+publication. Ordinary authoring code does not manage these values.
+
+History reads return bounded summaries instead of fetching every publication
+body. Use `run.analysis_summaries(...)` for one run or
+`lab.analysis_summaries(...)` for project-level multi-run publications, then
+open a selected item through `published_analysis(...)` when its outputs are
+needed.
 
 `Analysis.save()` and `run.analyze(...)` return that same `PublishedAnalysis`
 handle after persistence. There is no separate immediate outcome model: code run
@@ -230,8 +299,9 @@ The logical analysis key is resolved while authoring. The saved input freezes
 the exact analysis record revision, output ID, dataset content entry, hash, and
 codec. Consequently, publishing a new source revision is a provenance change
 for the consumer even when its Arrow bytes happen to be identical. The source
-must already exist on this run; this API does not schedule steps, read across
-runs, or create workflow-owned state.
+must already exist. A run context restricts sources to that run; a project
+context requires the source run explicitly. Neither form schedules steps or
+creates hidden workflow state.
 
 ### Optional execution evidence
 
@@ -294,10 +364,10 @@ Python type registry or import application types while reopening a run; code
 that only needs generic inspection can continue to use `fact(...)` and read its
 JSON value directly.
 
-Analysis currently belongs to one completed run. Live checkpoints, retries,
-cross-run state, schedules, and recurring calibration belong to a future
-workflow model. They should not be encoded as hidden state in an analysis or as
-special run behavior before that workflow owner exists. Future streaming
-analysis may reuse the same execution and publication primitives, but
-its cursors, windows, checkpoint state, and finalization policy belong to that
-workflow rather than to the analysis record.
+Analysis currently belongs to one completed run or to a project publication
+over explicit completed-run snapshots. Live checkpoints, orchestration retries,
+schedules, recurring calibration state, and continuously changing cohorts
+belong to a future workflow model. They should not be encoded as hidden state in
+an analysis. Future streaming analysis may reuse the same execution and
+publication primitives, but its cursors, windows, checkpoint state, and
+finalization policy belong to that workflow rather than to the analysis record.

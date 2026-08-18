@@ -11,7 +11,7 @@ from scopecat.daemon.wire import (
     RunHardwareBatchCommand,
 )
 from scopecat.kernel.content_identity import sha256_content_hash
-from scopecat.records.artifact import (
+from scopecat.records.content import (
     BlobPayloadBody,
     CommandPayload,
     InlinePayloadBody,

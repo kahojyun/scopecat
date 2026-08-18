@@ -25,6 +25,7 @@ from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat_server.command_payloads import CommandPayloadService
 from scopecat_server.services.active_measurements import ActiveMeasurementStore
 from scopecat_server.services.admission import AdmissionService
+from scopecat_server.services.analyses import AnalysisService
 from scopecat_server.services.application import DaemonApplication
 from scopecat_server.services.config import ConfigService
 from scopecat_server.services.executor import ExecutorService
@@ -32,6 +33,7 @@ from scopecat_server.services.leases import OwnershipLeaseSupervisor
 from scopecat_server.services.point_plans import RunPointPlanService
 from scopecat_server.services.reviews import ReviewService
 from scopecat_server.services.runs import RunService
+from scopecat_server.storage.sqlite.analysis_repository import SQLiteAnalysisRepository
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
@@ -107,6 +109,7 @@ class LocalDaemonRuntime:
 
             control = SQLiteControlPlane(sqlite)
             runs = SQLiteRunRepository(sqlite, objects)
+            analyses = SQLiteAnalysisRepository(sqlite, objects)
             config_registry = SQLiteConfigRegistryStore(
                 sqlite,
                 runs=runs,
@@ -120,12 +123,18 @@ class LocalDaemonRuntime:
             active_measurements = ActiveMeasurementStore()
             reviews = ReviewService()
             instrument_actors = InstrumentActorRegistry()
+            analysis_service = AnalysisService(
+                repository=analyses,
+                services=services,
+                control=control,
+            )
             config_service = ConfigService(
                 control=control,
                 config_registry=config_registry,
                 runs=runs,
                 services=services,
                 actors=instrument_actors,
+                analyses=analysis_service,
             )
             point_plans = RunPointPlanService(control=control, runs=runs)
             run_service = RunService(
@@ -170,6 +179,7 @@ class LocalDaemonRuntime:
                 project_id=project_id,
                 project_store=project_store,
                 config=config_service,
+                analyses=analysis_service,
                 runs=run_service,
                 admission=admission,
                 executor=executor,

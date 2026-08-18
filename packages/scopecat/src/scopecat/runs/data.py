@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel, ConfigDict
 
 from scopecat.kernel.json_types import JsonValue
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import MeasurementDataset
 
 
@@ -19,34 +19,34 @@ class _RunDataResult(BaseModel):
 
 
 class RunArtifactTextResult(_RunDataResult):
-    artifact: RunContentEntry
+    artifact: ContentEntry
     content: str
 
 
 class RunArtifactJsonResult(_RunDataResult):
-    artifact: RunContentEntry
+    artifact: ContentEntry
     content: dict[str, JsonValue]
 
 
 class RunRecordJsonResult(_RunDataResult):
-    record: RunContentEntry
+    record: ContentEntry
     content: dict[str, JsonValue]
 
 
 @dataclass(frozen=True)
 class RunArtifactBytesResult:
-    artifact: RunContentEntry
+    artifact: ContentEntry
     content: bytes
 
 
 @dataclass(frozen=True)
 class RunDatasetBytesResult:
-    dataset: RunContentEntry
+    dataset: ContentEntry
     content: bytes
 
 
 class RunMeasurementDatasetResult(_RunDataResult):
     """Internal dataset-loading payload wrapped by the public run facade."""
 
-    dataset_entry: RunContentEntry
+    dataset_entry: ContentEntry
     dataset: MeasurementDataset

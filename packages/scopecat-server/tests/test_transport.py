@@ -38,7 +38,7 @@ from scopecat.records.config import (
     VirtualInstrumentConnection,
     config_content_hash,
 )
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.contracts import InstrumentDescription
@@ -288,7 +288,7 @@ def test_run_submission_and_backend_error_mapping() -> None:
     )
 
     assert response.status_code == 201
-    assert response.json()["manifest"]["run_id"] == "run-1"
+    assert response.json()["snapshot"]["run_id"] == "run-1"
     assert isinstance(backend.last_submission, RunSubmission)
     assert conflict.status_code == 409
     assert conflict.json() == {"detail": "submission already exists"}
@@ -494,7 +494,7 @@ def _config() -> ConfigProfileSnapshot:
 def _wire_admission(submission_id: str) -> RunAdmission:
     return RunAdmission(
         submission_id=submission_id,
-        manifest=_accepted_manifest(),
+        snapshot=_accepted_manifest(),
     )
 
 
@@ -524,8 +524,8 @@ def _executor_lease() -> ExecutorLease:
     )
 
 
-def _accepted_manifest() -> RunManifest:
-    return RunManifest(
+def _accepted_manifest() -> RunSnapshot:
+    return RunSnapshot(
         run_id="run-1",
         created_at=_NOW,
         config_content_hash=_HASH,

@@ -4,6 +4,57 @@
  */
 
 export interface paths {
+    "/api/v1/analyses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Project Analyses */
+        get: operations["list_project_analyses_api_v1_analyses_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analyses/{analysis_id}/contents/{selector}/bytes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Analysis Content Bytes */
+        get: operations["get_project_analysis_content_bytes_api_v1_analyses__analysis_id__contents__selector__bytes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analyses/{selector}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Analysis */
+        get: operations["get_project_analysis_api_v1_analyses__selector__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config-registry": {
         parameters: {
             query?: never;
@@ -498,6 +549,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/analyses/{selector}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run Analysis */
+        get: operations["get_run_analysis_api_v1_runs__run_id__analyses__selector__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/artifacts/{selector}/bytes": {
         parameters: {
             query?: never;
@@ -560,6 +628,40 @@ export interface paths {
         put?: never;
         /** Resolve Attention */
         post: operations["resolve_attention_api_v1_runs__run_id__attention_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/contents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Run Contents */
+        get: operations["list_run_contents_api_v1_runs__run_id__contents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/contents/{role}/{content_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run Content */
+        get: operations["get_run_content_api_v1_runs__run_id__contents__role___content_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -982,6 +1084,17 @@ export interface components {
             source_run_id: string;
         };
         /**
+         * AnalysisContentBytesView
+         * @description Exact bytes for one project analysis-owned content entry.
+         */
+        AnalysisContentBytesView: {
+            /** Analysis Id */
+            analysis_id: string;
+            /** Content Base64 */
+            content_base64: string;
+            entry: components["schemas"]["ContentEntry"];
+        };
+        /**
          * AnalysisDatasetDerivation
          * @description First-party normalization from one traced native dataset result.
          */
@@ -1247,11 +1360,12 @@ export interface components {
         };
         /**
          * AnalysisPublishedOutputReference
-         * @description Exact output revision consumed from an earlier analysis on this run.
+         * @description Exact output revision consumed from a run or project analysis.
          */
         AnalysisPublishedOutputReference: {
             analysis_record_id: components["schemas"]["_NonEmptyText"];
             output_id: components["schemas"]["_NonEmptyText"];
+            subject: components["schemas"]["AnalysisSubject"];
         };
         /** AnalysisRecord */
         AnalysisRecord: {
@@ -1265,27 +1379,13 @@ export interface components {
             publication_hash: components["schemas"]["_NonEmptyText"];
             /** Revision */
             revision: number;
-            run_id: components["schemas"]["_NonEmptyText"];
             step_id?: components["schemas"]["_NonEmptyText"] | null;
+            subject: components["schemas"]["AnalysisSubject"];
             title: components["schemas"]["_NonEmptyText"];
         };
-        /** AnalysisRecordInput */
-        AnalysisRecordInput: {
-            codec: components["schemas"]["_NonEmptyText"];
-            content_hash: components["schemas"]["_NonEmptyText"];
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "measurement_dataset" | "analysis_dataset";
-            metadata?: components["schemas"]["JsonMetadata"] | null;
-            role: components["schemas"]["_NonEmptyText"];
-            source?: components["schemas"]["AnalysisPublishedOutputReference"] | null;
-            target: components["schemas"]["_NonEmptyText"];
-            /** Title */
-            title?: string | null;
-        };
+        AnalysisRecordInput: components["schemas"]["MeasurementAnalysisRecordInput"] | components["schemas"]["PublishedAnalysisRecordInput"];
         AnalysisRecordOutput: components["schemas"]["AnalysisFactRecordOutput"] | components["schemas"]["AnalysisDatasetRecordOutput"] | components["schemas"]["AnalysisArtifactRecordOutput"] | components["schemas"]["AnalysisTableRecordOutput"] | components["schemas"]["AnalysisFigureRecordOutput"] | components["schemas"]["AnalysisParameterProposalRecordOutput"];
+        AnalysisSubject: components["schemas"]["RunAnalysisSubject"] | components["schemas"]["ProjectAnalysisSubject"];
         /**
          * AnalysisTable
          * @description A bounded, display-ready scalar table with an explicit column schema.
@@ -1388,6 +1488,8 @@ export interface components {
         };
         /** CandidateConfigRegistrySource */
         CandidateConfigRegistrySource: {
+            /** Acceptance */
+            acceptance: components["schemas"]["ManualCandidateAcceptance"] | components["schemas"]["CrossRunCandidateAcceptance"];
             base_config_content_hash: components["schemas"]["ConfigContentHash"];
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -1401,6 +1503,8 @@ export interface components {
         };
         /** CandidateConfigRevisionSource */
         CandidateConfigRevisionSource: {
+            /** Acceptance */
+            acceptance: components["schemas"]["ManualCandidateAcceptance"] | components["schemas"]["CrossRunCandidateAcceptance"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -1790,13 +1894,18 @@ export interface components {
             /** Properties */
             properties?: components["schemas"]["PropertySpec"][];
         };
-        /** ConfigActivationHistoryView */
-        ConfigActivationHistoryView: {
+        /**
+         * ConfigActivationPage
+         * @description Newest-first page of default configuration changes.
+         */
+        ConfigActivationPage: {
             /**
              * Items
              * @default []
              */
             items: components["schemas"]["ConfigRegistryActivationRecord"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
         };
         /** ConfigActivationReceipt */
         ConfigActivationReceipt: {
@@ -1959,6 +2068,20 @@ export interface components {
             /** Source */
             source: components["schemas"]["DirectConfigRegistrySource"] | components["schemas"]["ManualConfigDraftRegistrySource"] | components["schemas"]["CandidateConfigRegistrySource"];
         };
+        /**
+         * ConfigRegistryPage
+         * @description Newest-first page of saved revisions and the current activation head.
+         */
+        ConfigRegistryPage: {
+            activation?: components["schemas"]["ConfigRegistryActivationRecord"] | null;
+            /**
+             * Entries
+             * @default []
+             */
+            entries: components["schemas"]["ConfigRegistryEntry"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
+        };
         /** ConfigRegistryRunConfigSource */
         ConfigRegistryRunConfigSource: {
             /** Config Ref */
@@ -1976,18 +2099,6 @@ export interface components {
             /** Selector */
             selector: string;
         };
-        /**
-         * ConfigRegistryView
-         * @description Saved revisions and the current activation head.
-         */
-        ConfigRegistryView: {
-            activation?: components["schemas"]["ConfigRegistryActivationRecord"] | null;
-            /**
-             * Entries
-             * @default []
-             */
-            entries: components["schemas"]["ConfigRegistryEntry"][];
-        };
         ConfigRevisionSource: components["schemas"]["DirectConfigRevisionSource"] | components["schemas"]["ManualConfigDraftRevisionSource"] | components["schemas"]["CandidateConfigRevisionSource"];
         /**
          * ConfigUndoCommand
@@ -2003,8 +2114,50 @@ export interface components {
              */
             note: string;
         };
+        /**
+         * ContentEntry
+         * @description One content-addressable catalog entry.
+         */
+        ContentEntry: {
+            /** Content Hash */
+            content_hash: string;
+            /** Filename */
+            filename?: string | null;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Media Type */
+            media_type?: string | null;
+            metadata?: components["schemas"]["JsonMetadata"];
+            /** Produced By */
+            produced_by?: string | null;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "artifact" | "dataset" | "record";
+            /** Schema */
+            schema?: {
+                [key: string]: unknown;
+            } | null;
+            /** Title */
+            title?: string | null;
+        };
         /** @enum {string} */
         ControlRunState: "queued" | "leased" | "attention_required" | "closed";
+        /**
+         * CrossRunCandidateAcceptance
+         * @description Automated acceptance backed by one positive cross-run decision fact.
+         */
+        CrossRunCandidateAcceptance: {
+            decision: components["schemas"]["ProjectAnalysisDecisionReference"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "cross_run_verification";
+        };
         /**
          * DaemonHealth
          * @description Daemon readiness and the one project owned by this process.
@@ -2688,6 +2841,17 @@ export interface components {
         };
         LocationPathItem: string | number;
         /**
+         * ManualCandidateAcceptance
+         * @description Operator-reviewed acceptance without an automated verification run.
+         */
+        ManualCandidateAcceptance: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "manual_review";
+        };
+        /**
          * ManualConfigDraftRegistrySource
          * @description Provenance for typed parameter edits derived from an active entry.
          */
@@ -2729,6 +2893,26 @@ export interface components {
             [key: string]: number;
         };
         MeasurementAcquisitionValue: components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray"] | components["schemas"]["MeasurementPartitionedArray"] | components["schemas"]["MeasurementUnavailable"];
+        /**
+         * MeasurementAnalysisRecordInput
+         * @description One exact measurement dataset owned by a run.
+         */
+        MeasurementAnalysisRecordInput: {
+            codec: components["schemas"]["_NonEmptyText"];
+            content_hash: components["schemas"]["_NonEmptyText"];
+            id: components["schemas"]["_NonEmptyText"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "measurement_dataset";
+            metadata?: components["schemas"]["JsonMetadata"] | null;
+            role: components["schemas"]["_NonEmptyText"];
+            run_id: components["schemas"]["_NonEmptyText"];
+            target: components["schemas"]["_NonEmptyText"];
+            /** Title */
+            title?: string | null;
+        };
         /**
          * MeasurementArray
          * @description One rectangular typed array backed by an immutable NumPy buffer.
@@ -3501,13 +3685,15 @@ export interface components {
             id: string;
             value_type: components["schemas"]["PersistableValueType"];
         };
-        /** ParameterProposalListView */
-        ParameterProposalListView: {
+        /** ParameterProposalPage */
+        ParameterProposalPage: {
             /**
              * Items
              * @default []
              */
             items: components["schemas"]["ParameterProposalView"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
             /** Run Id */
             run_id: string;
         };
@@ -3632,6 +3818,79 @@ export interface components {
          * @enum {string}
          */
         ProblemPhase: "definition" | "authoring" | "configuration" | "planning" | "provider_preflight" | "execution" | "persistence" | "analysis";
+        /**
+         * ProjectAnalysisDecisionReference
+         * @description One exact typed fact interpreted as a project-level decision.
+         */
+        ProjectAnalysisDecisionReference: {
+            analysis_record_id: components["schemas"]["_NonEmptyText"];
+            output_id: components["schemas"]["_NonEmptyText"];
+            schema_hash: components["schemas"]["Sha256ContentHash"];
+            schema_id: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * ProjectAnalysisPage
+         * @description Newest-first keyset page of project analysis summaries.
+         */
+        ProjectAnalysisPage: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["ProjectAnalysisSummary"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
+        };
+        /**
+         * ProjectAnalysisSubject
+         * @description A publication over explicit immutable inputs owned by a project.
+         */
+        ProjectAnalysisSubject: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "project";
+        };
+        /**
+         * ProjectAnalysisSummary
+         * @description Bounded list projection for one project-level analysis publication.
+         */
+        ProjectAnalysisSummary: {
+            entry: components["schemas"]["ContentEntry"];
+            /** Input Count */
+            input_count: number;
+            /** Key */
+            key: string;
+            /** Output Count */
+            output_count: number;
+            /** Publication Hash */
+            publication_hash: string;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /** Revision */
+            revision: number;
+            /** Step Id */
+            step_id?: string | null;
+            /** Title */
+            title: string;
+        };
+        /**
+         * ProjectAnalysisView
+         * @description One project-level analysis record.
+         */
+        ProjectAnalysisView: {
+            analysis: components["schemas"]["AnalysisRecord"];
+            entry: components["schemas"]["ContentEntry"];
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+        };
         /** PropertySpec */
         PropertySpec: {
             /**
@@ -3646,6 +3905,26 @@ export interface components {
             /** Label */
             label?: string | null;
             value_type: components["schemas"]["InstrumentPropertyScalarWire"];
+        };
+        /**
+         * PublishedAnalysisRecordInput
+         * @description One exact dataset, fact, or artifact output from an analysis revision.
+         */
+        PublishedAnalysisRecordInput: {
+            codec: components["schemas"]["_NonEmptyText"];
+            content_hash: components["schemas"]["_NonEmptyText"];
+            id: components["schemas"]["_NonEmptyText"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "analysis_artifact" | "analysis_dataset" | "analysis_fact";
+            metadata?: components["schemas"]["JsonMetadata"] | null;
+            role: components["schemas"]["_NonEmptyText"];
+            source: components["schemas"]["AnalysisPublishedOutputReference"];
+            target: components["schemas"]["_NonEmptyText"];
+            /** Title */
+            title?: string | null;
         };
         pydantic__types__JsonValue: unknown;
         /**
@@ -3900,29 +4179,79 @@ export interface components {
              */
             tags: string[];
         };
-        /** RunAnalysisListView */
-        RunAnalysisListView: {
+        /**
+         * RunAnalysisPage
+         * @description Newest-first keyset page of run analysis summaries.
+         */
+        RunAnalysisPage: {
             /**
              * Items
              * @default []
              */
-            items: components["schemas"]["RunAnalysisView"][];
+            items: components["schemas"]["RunAnalysisSummary"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
             /** Run Id */
             run_id: string;
         };
         /**
+         * RunAnalysisSubject
+         * @description A publication whose scientific subject is one run.
+         */
+        RunAnalysisSubject: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "run";
+            run_id: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * RunAnalysisSummary
+         * @description Bounded list projection for one run-owned analysis publication.
+         */
+        RunAnalysisSummary: {
+            entry: components["schemas"]["ContentEntry"];
+            /** Input Count */
+            input_count: number;
+            /** Key */
+            key?: string | null;
+            /** Output Count */
+            output_count: number;
+            /** Publication Hash */
+            publication_hash: string;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /** Revision */
+            revision: number;
+            /** Run Id */
+            run_id: string;
+            /** Step Id */
+            step_id?: string | null;
+            /** Title */
+            title: string;
+        };
+        /**
          * RunAnalysisView
-         * @description One persisted analysis record and its manifest identity.
+         * @description One persisted run analysis and its catalog identity.
          */
         RunAnalysisView: {
             analysis: components["schemas"]["AnalysisRecord"];
-            entry: components["schemas"]["RunContentEntry"];
+            entry: components["schemas"]["ContentEntry"];
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
             /** Run Id */
             run_id: string;
         };
         /** RunArtifactBytesView */
         RunArtifactBytesView: {
-            artifact: components["schemas"]["RunContentEntry"];
+            artifact: components["schemas"]["ContentEntry"];
             /** Content Base64 */
             content_base64: string;
             /** Run Id */
@@ -3930,7 +4259,7 @@ export interface components {
         };
         /** RunArtifactJsonResult */
         RunArtifactJsonResult: {
-            artifact: components["schemas"]["RunContentEntry"];
+            artifact: components["schemas"]["ContentEntry"];
             /** Content */
             content: {
                 [key: string]: components["schemas"]["scopecat__kernel__json_types__JsonValue-Output"];
@@ -3938,40 +4267,25 @@ export interface components {
         };
         /** RunArtifactTextResult */
         RunArtifactTextResult: {
-            artifact: components["schemas"]["RunContentEntry"];
+            artifact: components["schemas"]["ContentEntry"];
             /** Content */
             content: string;
         };
         RunConfigSource: components["schemas"]["ConfigRegistryRunConfigSource"] | components["schemas"]["AnalysisCandidateRunConfigSource"];
         /**
-         * RunContentEntry
-         * @description One content-addressable run-local manifest entry.
+         * RunContentPage
+         * @description Newest-first keyset page from one run's content catalog.
          */
-        RunContentEntry: {
-            /** Content Hash */
-            content_hash: string;
-            /** Filename */
-            filename?: string | null;
-            /** Id */
-            id: string;
-            /** Kind */
-            kind: string;
-            /** Media Type */
-            media_type?: string | null;
-            metadata?: components["schemas"]["JsonMetadata"];
-            /** Produced By */
-            produced_by?: string | null;
+        RunContentPage: {
             /**
-             * Role
-             * @enum {string}
+             * Items
+             * @default []
              */
-            role: "artifact" | "dataset" | "record";
-            /** Schema */
-            schema?: {
-                [key: string]: unknown;
-            } | null;
-            /** Title */
-            title?: string | null;
+            items: components["schemas"]["ContentEntry"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
+            /** Run Id */
+            run_id: string;
         };
         /**
          * RunControlView
@@ -4001,12 +4315,12 @@ export interface components {
          */
         RunDetail: {
             control: components["schemas"]["RunControlView"];
-            manifest: components["schemas"]["RunManifest"];
             /**
              * Resources
              * @default []
              */
             resources: components["schemas"]["RunResourceView"][];
+            snapshot: components["schemas"]["RunSnapshot"];
         };
         /** RunDomainAroundSourceView */
         RunDomainAroundSourceView: {
@@ -4224,33 +4538,12 @@ export interface components {
             values: components["schemas"]["RunPointCoordinateValue-Output"][];
         };
         /**
-         * RunManifest
-         * @description Accepted snapshot plus content and an optional terminal outcome.
-         */
-        RunManifest: {
-            config_content_hash: components["schemas"]["ConfigContentHash"];
-            config_source?: components["schemas"]["RunConfigSource"] | null;
-            /**
-             * Contents
-             * @default []
-             */
-            contents: components["schemas"]["RunContentEntry"][];
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at?: string;
-            outcome?: components["schemas"]["RunOutcome-Output"] | null;
-            /** Run Id */
-            run_id: string;
-        };
-        /**
          * RunMeasurementDatasetResult
          * @description Internal dataset-loading payload wrapped by the public run facade.
          */
         RunMeasurementDatasetResult: {
             dataset: components["schemas"]["MeasurementDataset"];
-            dataset_entry: components["schemas"]["RunContentEntry"];
+            dataset_entry: components["schemas"]["ContentEntry"];
         };
         /**
          * RunOutcome
@@ -4379,7 +4672,7 @@ export interface components {
             content: {
                 [key: string]: components["schemas"]["scopecat__kernel__json_types__JsonValue-Output"];
             };
-            record: components["schemas"]["RunContentEntry"];
+            record: components["schemas"]["ContentEntry"];
         };
         /**
          * RunResourceRequirement
@@ -4406,12 +4699,28 @@ export interface components {
             status: "required" | "active" | "quarantined" | "released";
         };
         /**
+         * RunSnapshot
+         * @description Accepted run identity, configuration binding, and terminal outcome.
+         */
+        RunSnapshot: {
+            config_content_hash: components["schemas"]["ConfigContentHash"];
+            config_source?: components["schemas"]["RunConfigSource"] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            outcome?: components["schemas"]["RunOutcome-Output"] | null;
+            /** Run Id */
+            run_id: string;
+        };
+        /**
          * RunSummary
-         * @description Scheduler projection paired with the accepted run snapshot.
+         * @description Scheduler state paired with the durable run snapshot.
          */
         RunSummary: {
             control: components["schemas"]["RunControlView"];
-            manifest: components["schemas"]["RunManifest"];
+            snapshot: components["schemas"]["RunSnapshot"];
         };
         /**
          * RunSummaryPage
@@ -4717,9 +5026,12 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    get_config_registry_api_v1_config_registry_get: {
+    list_project_analyses_api_v1_analyses_get: {
         parameters: {
-            query?: never;
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4732,14 +5044,121 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ConfigRegistryView"];
+                    "application/json": components["schemas"]["ProjectAnalysisPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_analysis_content_bytes_api_v1_analyses__analysis_id__contents__selector__bytes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                analysis_id: string;
+                selector: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisContentBytesView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_analysis_api_v1_analyses__selector__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                selector: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectAnalysisView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_config_registry_api_v1_config_registry_get: {
+        parameters: {
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigRegistryPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
     };
     get_config_activation_history_api_v1_config_registry_activations_get: {
         parameters: {
-            query?: never;
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4752,7 +5171,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ConfigActivationHistoryView"];
+                    "application/json": components["schemas"]["ConfigActivationPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -5583,7 +6011,10 @@ export interface operations {
     };
     list_run_analyses_api_v1_runs__run_id__analyses_get: {
         parameters: {
-            query?: never;
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
             header?: never;
             path: {
                 run_id: string;
@@ -5598,7 +6029,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunAnalysisListView"];
+                    "application/json": components["schemas"]["RunAnalysisPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_analysis_api_v1_runs__run_id__analyses__selector__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                selector: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunAnalysisView"];
                 };
             };
             /** @description Validation Error */
@@ -5732,6 +6195,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AttentionResolutionReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_run_contents_api_v1_runs__run_id__contents_get: {
+        parameters: {
+            query?: {
+                before?: number | null;
+                kind?: string | null;
+                limit?: number;
+                role?: ("artifact" | "dataset" | "record") | null;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunContentPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_content_api_v1_runs__run_id__contents__role___content_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                content_id: string;
+                role: "artifact" | "dataset" | "record";
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentEntry"];
                 };
             };
             /** @description Validation Error */
@@ -5915,7 +6447,10 @@ export interface operations {
     };
     list_parameter_proposals_api_v1_runs__run_id__parameter_proposals_get: {
         parameters: {
-            query?: never;
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
             header?: never;
             path: {
                 run_id: string;
@@ -5930,7 +6465,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ParameterProposalListView"];
+                    "application/json": components["schemas"]["ParameterProposalPage"];
                 };
             };
             /** @description Validation Error */

@@ -14,14 +14,14 @@ interface ProjectDaemon {
   projectRoot: string;
 }
 
-interface ConfigRegistryView {
+interface ConfigRegistryPage {
   activation: {
     entry_id: string;
     generation: number;
   };
 }
 
-interface ConfigActivationHistoryView {
+interface ConfigActivationPage {
   items: unknown[];
 }
 
@@ -144,7 +144,7 @@ with project.connect() as lab:
         client.submit_run = original_submit
         client.start_executor = original_start
         client.ingest_measurements = original_ingest
-    summary = {"run_id": run.id, "status": run.manifest.status}
+    summary = {"run_id": run.id, "status": run.status}
 
 print(summary)
 `;
@@ -214,7 +214,7 @@ with project.connect() as lab:
     try:
         prepared = lab.prepare(adaptive_scan().adaptive(GatedOptimizer(), max_points=5))
         run = prepared.run(name="Adaptive operator queue E2E")
-        summary = {"run_id": run.id, "status": run.manifest.status}
+        summary = {"run_id": run.id, "status": run.status}
     finally:
         client.start_executor = original_start
 
@@ -235,7 +235,7 @@ import scopecat as sc
 
 project_root = Path(sys.argv[1])
 with sc.open_project(project_root).connect() as lab:
-    baseline = lab.runs()[0]
+    baseline = lab.runs().items[0]
     analysis = (
         baseline.analysis("notebook repetition fit").result()
         .dataset(
@@ -556,19 +556,18 @@ test("queues a free off-grid scan domain into a running adaptive compiler", asyn
   }
 });
 
-async function readRegistry(page: Page, baseUrl: string): Promise<ConfigRegistryView> {
-  const response = await page.request.get(`${baseUrl}/api/v1/config-registry`);
+async function readRegistry(page: Page, baseUrl: string): Promise<ConfigRegistryPage> {
+  const response = await page.request.get(`${baseUrl}/api/v1/config-registry?limit=100`);
   await expectResponseOk(response, "GET");
-  return (await response.json()) as ConfigRegistryView;
+  return (await response.json()) as ConfigRegistryPage;
 }
 
-async function readActivationHistory(
-  page: Page,
-  baseUrl: string,
-): Promise<ConfigActivationHistoryView> {
-  const response = await page.request.get(`${baseUrl}/api/v1/config-registry/activations`);
+async function readActivationHistory(page: Page, baseUrl: string): Promise<ConfigActivationPage> {
+  const response = await page.request.get(
+    `${baseUrl}/api/v1/config-registry/activations?limit=100`,
+  );
   await expectResponseOk(response, "GET");
-  return (await response.json()) as ConfigActivationHistoryView;
+  return (await response.json()) as ConfigActivationPage;
 }
 
 async function createCandidateAnalysis(projectRoot: string): Promise<CandidateAnalysis> {

@@ -280,7 +280,7 @@ def test_ragged_point_cloud_run_survives_daemon_and_worker_boundaries(
         assert preview.point_count == 3
         assert preview.schema is not None
         assert preview.schema.dimensions[1].size is None
-        assert run.manifest.status == "completed"
+        assert run.status == "completed"
         run_id = run.id
         worker_pid = int((project / "worker.pid").read_text(encoding="utf-8"))
         assert worker_pid != os.getpid()
@@ -296,7 +296,7 @@ def test_ragged_point_cloud_run_survives_daemon_and_worker_boundaries(
         LabClient(daemon) as lab,
     ):
         persisted = lab.get_run(run_id)
-        persisted_status = persisted.manifest.status
+        persisted_status = persisted.status
         dataset = persisted.measurements()
         assert len(dataset) == 3
         batches = list(

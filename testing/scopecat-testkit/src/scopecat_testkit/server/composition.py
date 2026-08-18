@@ -19,10 +19,9 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
 )
-from scopecat.records.run import RunConfigSource, RunManifest
+from scopecat.records.run import RunConfigSource, RunSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.admission import RunSkeleton, build_run_admission
-from scopecat.runs.refs import MANIFEST_REF
 from scopecat.runs.repository import RunRepository
 from scopecat.sdk.instruments.execution import RunInstrumentHost
 from scopecat_server.services.active_measurements import ActiveMeasurementStore
@@ -42,23 +41,14 @@ from scopecat_testkit.instrument_host import TestRunInstrumentHost
 class SQLiteTestRunRepository(SQLiteRunRepository):
     """Fixture-only low-level writes excluded from the production port."""
 
-    def write_manifest(self, manifest: RunManifest) -> None:
-        prepared = self._prepare_model(
-            manifest.run_id,
-            MANIFEST_REF,
-            manifest,
-        )
+    def write_snapshot(self, snapshot: RunSnapshot) -> None:
         with self._transaction() as connection:
-            self._publish_refs(
-                connection,
-                manifest.run_id,
-                (prepared,),
-            )
+            self._replace_run_snapshot(connection, snapshot)
 
     def write_run_skeleton(self, skeleton: RunSkeleton) -> None:
         _persist_run_skeleton(self, skeleton)
 
-    def list_runs(self) -> list[RunManifest]:
+    def list_runs(self) -> list[RunSnapshot]:
         return list_test_runs(self)
 
     def write_model(self, run_id: str, ref: str, model: BaseModel) -> None:
@@ -162,7 +152,7 @@ def admit_test_run(
     request: RunRequest,
     repository: RunRepository,
     config_source: RunConfigSource | None = None,
-) -> RunManifest:
+) -> RunSnapshot:
     """Persist one accepted run for an in-process test."""
 
     skeleton = build_run_admission(
@@ -171,7 +161,7 @@ def admit_test_run(
         config_source=config_source,
     )
     _persist_run_skeleton(repository, skeleton)
-    return skeleton.manifest
+    return skeleton.snapshot
 
 
 def _persist_run_skeleton(
@@ -186,8 +176,8 @@ def _persist_run_skeleton(
         runs.commit_run_skeleton_in_transaction(connection, prepared)
 
 
-def list_test_runs(repository: RunRepository) -> list[RunManifest]:
-    """Inspect SQLite manifests for tests that do not own scheduler state."""
+def list_test_runs(repository: RunRepository) -> list[RunSnapshot]:
+    """Inspect SQLite run snapshots for tests that do not own scheduler state."""
 
     runs = cast("SQLiteRunRepository", repository)
     with sqlite3.connect(runs.database) as connection:
@@ -195,15 +185,13 @@ def list_test_runs(repository: RunRepository) -> list[RunManifest]:
             "list[tuple[str]]",
             connection.execute(
                 """
-                SELECT run_id FROM run_repository_refs
-                WHERE ref = ?
+                SELECT run_id FROM runs
                 """,
-                (MANIFEST_REF,),
             ).fetchall(),
         )
-    manifests = [runs.read_manifest(row[0]) for row in rows]
+    snapshots = [runs.read_snapshot(row[0]) for row in rows]
     return sorted(
-        manifests, key=lambda manifest: (manifest.created_at, manifest.run_id)
+        snapshots, key=lambda snapshot: (snapshot.created_at, snapshot.run_id)
     )
 
 
@@ -238,7 +226,7 @@ def sqlite_execution_session(
 
     selected_runs = sqlite_run_repository(project) if runs is None else runs
     return SQLiteExecutionSession(
-        accepted=selected_runs.read_manifest(run_id),
+        accepted=selected_runs.read_snapshot(run_id),
         begin=lambda: None,
         commit_terminal=selected_runs.commit_terminal,
         measurements=SQLiteTestMeasurementDatasetRepository(

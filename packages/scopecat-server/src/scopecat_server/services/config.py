@@ -15,6 +15,7 @@ from scopecat.config.inventory import (
     InstrumentInventoryRenameRekey,
 )
 from scopecat.config.registry import service as config_registry_service
+from scopecat.config.registry.records import CrossRunCandidateAcceptance
 from scopecat.config.registry.service import (
     publish_instrument_inventory_migration_revision,
 )
@@ -25,10 +26,10 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
-    ConfigActivationHistoryView,
+    ConfigActivationPage,
     ConfigDraftPreview,
     ConfigEntryView,
-    ConfigRegistryView,
+    ConfigRegistryPage,
 )
 from scopecat.daemon.wire import (
     CandidateConfigRevisionSource,
@@ -62,6 +63,7 @@ from ..instruments.actors import (
     InstrumentActorRegistry,
     InstrumentActorShutdown,
 )
+from .analyses import AnalysisService
 
 
 class ConfigService:
@@ -75,30 +77,49 @@ class ConfigService:
         runs: SQLiteRunRepository,
         services: ProjectStateServices,
         actors: InstrumentActorRegistry,
+        analyses: AnalysisService,
     ) -> None:
         self._control = control
         self._config_registry = config_registry
         self._runs = runs
         self._services = services
         self._actors = actors
+        self._analyses = analyses
         self._mutation_lock = Lock()
 
-    def get_config_registry(self) -> ConfigRegistryView:
+    def get_config_registry(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ConfigRegistryPage:
         with self._config_errors():
-            snapshot = config_registry_service.load_config_registry_snapshot(
-                unit_of_work=self._config_registry.read_unit_of_work
+            snapshot = config_registry_service.load_config_registry_page(
+                limit=limit,
+                before=before,
+                unit_of_work=self._config_registry.read_unit_of_work,
             )
-            return ConfigRegistryView(
+            return ConfigRegistryPage(
                 entries=snapshot.entries,
                 activation=snapshot.activation,
+                next_cursor=snapshot.next_cursor,
             )
 
-    def get_config_activation_history(self) -> ConfigActivationHistoryView:
+    def get_config_activation_history(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ConfigActivationPage:
         with self._config_errors():
-            return ConfigActivationHistoryView(
-                items=config_registry_service.load_config_registry_activation_history(
-                    unit_of_work=self._config_registry.read_unit_of_work
-                )
+            page = config_registry_service.load_config_registry_activation_page(
+                limit=limit,
+                before=before,
+                unit_of_work=self._config_registry.read_unit_of_work,
+            )
+            return ConfigActivationPage(
+                items=page.items,
+                next_cursor=page.next_cursor,
             )
 
     def get_active_config(self) -> ActiveConfigView:
@@ -131,6 +152,12 @@ class ConfigService:
                 connection, services = transaction
                 source = command.source
                 if isinstance(source, CandidateConfigRevisionSource):
+                    if isinstance(source.acceptance, CrossRunCandidateAcceptance):
+                        self._analyses.validate_candidate_verification(
+                            source.acceptance.decision,
+                            source_run_id=source.run_id,
+                            proposal_id=source.proposal_id,
+                        )
                     prepared = prepare_parameter_change_approval(
                         run_id=source.run_id,
                         selector=source.proposal_id,
@@ -476,6 +503,7 @@ def _config_revision(
         revision_source = config_registry_service.CandidateConfigRevisionSource(
             run_id=source.run_id,
             proposal_id=source.proposal_id,
+            acceptance=source.acceptance,
         )
     return config_registry_service.ConfigRevision(
         source=revision_source,

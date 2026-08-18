@@ -24,7 +24,7 @@ from scopecat.daemon.wire import (
     RunAdmission,
     RunSubmission,
 )
-from scopecat.kernel.errors import ProblemFailure
+from scopecat.kernel.errors import NotFound, ProblemFailure
 from scopecat.kernel.problems import (
     ProblemPhase,
     problem,
@@ -113,7 +113,7 @@ class AdmissionService:
             admission = RunAdmissionRecord(
                 submission_id=submission.submission_id,
                 submission_content_hash=submission.intent_content_hash,
-                run_id=skeleton.manifest.run_id,
+                run_id=skeleton.snapshot.run_id,
                 plan=submission.plan,
                 display_name=submission.request.display_name,
                 tags=submission.request.tags,
@@ -126,7 +126,7 @@ class AdmissionService:
                     },
                     domain_target=active_config.domain_target,
                 ),
-                admitted_at=skeleton.manifest.created_at,
+                admitted_at=skeleton.snapshot.created_at,
             )
         except BackendConflict:
             retry = self._replay_admission(submission)
@@ -209,15 +209,17 @@ class AdmissionService:
                 == config_registry_service.ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR
             ):
                 generation = source.registry_generation
-                activations = (
-                    config_registry_service.load_config_registry_activation_history(
-                        unit_of_work=self._services.config_registry
+                try:
+                    activation = (
+                        None
+                        if generation is None
+                        else config_registry_service.load_config_registry_activation(
+                            generation=generation,
+                            unit_of_work=self._services.config_registry,
+                        )
                     )
-                )
-                activation = next(
-                    (item for item in activations if item.generation == generation),
-                    None,
-                )
+                except NotFound:
+                    activation = None
                 if (
                     generation is None
                     or activation is None
@@ -264,7 +266,8 @@ class AdmissionService:
                 AnalysisRecord,
             )
             if (
-                analysis.run_id != source.source_run_id
+                analysis.subject.kind != "run"
+                or analysis.subject.run_id != source.source_run_id
                 or not _analysis_references_proposal(
                     analysis,
                     proposal_id=proposal.id,
@@ -349,7 +352,7 @@ class AdmissionService:
     def _wire_admission(self, run: ControlRun) -> RunAdmission:
         return RunAdmission(
             submission_id=run.admission.submission_id,
-            manifest=self._runs.read_manifest(run.run_id),
+            snapshot=self._runs.read_snapshot(run.run_id),
         )
 
 

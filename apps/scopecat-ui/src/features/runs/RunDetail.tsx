@@ -7,7 +7,7 @@ import type {
   MeasurementSlicePreview,
   ProjectEvent,
   ProjectRun,
-  RunAnalysis,
+  RunAnalysisSummary,
 } from "../../types";
 import { RunProposals } from "../proposals/RunProposals";
 import { RunDomainDecisionCard } from "./RunDomainDecisionCard";
@@ -50,6 +50,14 @@ export function RunDetail({
   analyses,
   analysesError,
   analysesPending,
+  analysesHasNextPage,
+  analysesLoadingNextPage,
+  onLoadOlderAnalyses,
+  contentsError,
+  contentsPending,
+  contentsHasNextPage,
+  contentsLoadingNextPage,
+  onLoadOlderContents,
   attentionError,
   attentionPending,
   onResolveAttention,
@@ -77,9 +85,17 @@ export function RunDetail({
   measurementFixedAxisIndices: Record<string, number>;
   onMeasurementSliceOffsetChange: (offset: number) => void;
   onMeasurementFixedAxisIndexChange: (axisId: string, index: number) => void;
-  analyses?: RunAnalysis[];
+  analyses?: RunAnalysisSummary[];
   analysesError: Error | null;
   analysesPending: boolean;
+  analysesHasNextPage: boolean;
+  analysesLoadingNextPage: boolean;
+  onLoadOlderAnalyses: () => void;
+  contentsError: Error | null;
+  contentsPending: boolean;
+  contentsHasNextPage: boolean;
+  contentsLoadingNextPage: boolean;
+  onLoadOlderContents: () => void;
   attentionError: Error | null;
   attentionPending: boolean;
   onResolveAttention: () => void;
@@ -197,6 +213,9 @@ export function RunDetail({
           error={analysesError}
           pending={analysesPending}
           runId={run.runId}
+          hasNextPage={analysesHasNextPage}
+          loadingNextPage={analysesLoadingNextPage}
+          onLoadOlder={onLoadOlderAnalyses}
         />
         <ResourceCard run={run} />
         <TimelineCard events={events} error={eventsError} pending={eventsPending} />
@@ -205,6 +224,11 @@ export function RunDetail({
           measurements={measurements}
           error={measurementsError}
           pending={measurementsPending}
+          contentsError={contentsError}
+          contentsPending={contentsPending}
+          contentsHasNextPage={contentsHasNextPage}
+          contentsLoadingNextPage={contentsLoadingNextPage}
+          onLoadOlderContents={onLoadOlderContents}
           measurementSlice={measurementSlice}
           measurementSliceError={measurementSliceError}
           measurementSlicePending={measurementSlicePending}

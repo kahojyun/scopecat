@@ -8,7 +8,6 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.kernel.run_outcome import RunOutcome, RunStatus, utc_now
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigContentHash
 
 
@@ -52,8 +51,8 @@ type RunConfigSource = Annotated[
 ]
 
 
-class RunManifest(BaseModel):
-    """Accepted snapshot plus content and an optional terminal outcome."""
+class RunSnapshot(BaseModel):
+    """Accepted run identity, configuration binding, and terminal outcome."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -65,22 +64,9 @@ class RunManifest(BaseModel):
     outcome: RunOutcome | None = None
     config_content_hash: ConfigContentHash
     config_source: RunConfigSource | None = None
-    contents: tuple[RunContentEntry, ...] = ()
-
-    @property
-    def records(self) -> tuple[RunContentEntry, ...]:
-        return tuple(entry for entry in self.contents if entry.role == "record")
-
-    @property
-    def datasets(self) -> tuple[RunContentEntry, ...]:
-        return tuple(entry for entry in self.contents if entry.role == "dataset")
-
-    @property
-    def artifacts(self) -> tuple[RunContentEntry, ...]:
-        return tuple(entry for entry in self.contents if entry.role == "artifact")
 
     @model_validator(mode="after")
-    def validate_identity(self) -> RunManifest:
+    def validate_identity(self) -> RunSnapshot:
         if (
             self.config_source is not None
             and self.config_source.content_hash != self.config_content_hash
@@ -88,7 +74,7 @@ class RunManifest(BaseModel):
             msg = "run config source hash does not match its accepted snapshot hash"
             raise ValueError(msg)
         if self.outcome is not None and self.outcome.run_id != self.run_id:
-            msg = "run outcome run_id does not match its manifest"
+            msg = "run outcome run_id does not match its snapshot"
             raise ValueError(msg)
         return self
 

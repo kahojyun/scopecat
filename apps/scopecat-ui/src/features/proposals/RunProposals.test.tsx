@@ -5,10 +5,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getConfigRegistry } from "../config/config-api";
-import { acceptProposal, getRunParameterProposals } from "../../data/parameter-proposals/api";
+import {
+  acceptProposal,
+  getOlderRunParameterProposals,
+  getRunParameterProposals,
+} from "../../data/parameter-proposals/api";
 import type {
   ParameterProposal,
-  RunParameterProposals,
+  RunParameterProposalPage,
 } from "../../data/parameter-proposals/types";
 import { RunProposals } from "./RunProposals";
 
@@ -21,6 +25,7 @@ vi.mock("../../data/parameter-proposals/api", async (importOriginal) => {
   return {
     ...original,
     acceptProposal: vi.fn(),
+    getOlderRunParameterProposals: vi.fn(),
     getRunParameterProposals: vi.fn(),
   };
 });
@@ -95,6 +100,31 @@ describe("RunProposals", () => {
 
     expect(await screen.findByText("generation conflict")).toBeInTheDocument();
   });
+
+  it("loads older proposal pages explicitly", async () => {
+    vi.mocked(getRunParameterProposals).mockResolvedValue({
+      ...proposalList(pendingProposal({ id: "latest-proposal" })),
+      nextCursor: 17,
+    });
+    vi.mocked(getOlderRunParameterProposals).mockResolvedValue(
+      proposalList(pendingProposal({ id: "older-proposal" })),
+    );
+    vi.mocked(getConfigRegistry).mockResolvedValue({
+      activation: configActivation(),
+      activation_history: [],
+      entries: [],
+    });
+    renderProposals();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Load older proposals" }));
+
+    expect(await screen.findByText("older-proposal")).toBeVisible();
+    expect(getOlderRunParameterProposals).toHaveBeenCalledWith(
+      "run-1",
+      17,
+      expect.any(AbortSignal),
+    );
+  });
 });
 
 function configActivation() {
@@ -123,7 +153,7 @@ function renderProposals() {
   );
 }
 
-function proposalList(...items: ParameterProposal[]): RunParameterProposals {
+function proposalList(...items: ParameterProposal[]): RunParameterProposalPage {
   return { runId: "run-1", items };
 }
 
@@ -131,7 +161,7 @@ function pendingProposal(overrides: Partial<ParameterProposal> = {}): ParameterP
   return {
     id: "drive-frequency",
     sourceRunId: "run-1",
-    analysisRecordId: "analysis-fit",
+    analysisRecordId: "analysis-fit-r1",
     baseConfigId: "baseline",
     baseContentHash: "sha256:base",
     reason: "Peak moved",

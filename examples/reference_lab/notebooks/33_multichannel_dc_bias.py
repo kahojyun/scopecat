@@ -47,7 +47,7 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
         entity.id: value for entity, value in zip(entities, settled_values, strict=True)
     }
     record_count = len(data)
-    status = run.manifest.status
+    status = run.status
 
 multichannel_dc_bias_summary = {
     "devices": sorted({instrument_id for instrument_id, _endpoint in flux_routes}),

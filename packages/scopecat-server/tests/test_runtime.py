@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -20,7 +21,10 @@ from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.inventory import InstrumentInventoryRekey
 from scopecat.config.parameters import ReplaceParameter, replace_scalar_parameter
-from scopecat.config.registry import ActiveConfigRegistrySnapshot
+from scopecat.config.registry import (
+    ActiveConfigRegistrySnapshot,
+    ManualCandidateAcceptance,
+)
 from scopecat.control.models import (
     AdaptiveRegionSpec,
     DurableEvent,
@@ -45,12 +49,15 @@ from scopecat.daemon.points import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
-    ConfigActivationHistoryView,
+    ConfigActivationPage,
     ConfigDraftPreview,
-    ConfigRegistryView,
+    ConfigRegistryPage,
     MeasurementArrowColumn,
     MeasurementArrowQuery,
-    ParameterProposalListView,
+    ParameterProposalPage,
+    ParameterProposalView,
+    RunAnalysisPage,
+    RunAnalysisView,
     RunConfigView,
     RunControlView,
     RunDatasetBytesView,
@@ -78,6 +85,7 @@ from scopecat.daemon.wire import (
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
     ManualConfigDraftRevisionSource,
+    MeasurementAnalysisInputPayload,
     MeasurementFlushCommand,
     MeasurementHeaderCommand,
     RunAdmission,
@@ -108,6 +116,7 @@ from scopecat.records.config import (
     TcpipSocketInstrumentConnection,
     config_content_hash,
 )
+from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDatasetSchema,
@@ -130,7 +139,7 @@ from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import (
     ParameterChangeProposal,
 )
-from scopecat.records.run import ConfigRegistryRunConfigSource, RunManifest
+from scopecat.records.run import ConfigRegistryRunConfigSource, RunSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.refs import dataset_content_ref, record_content_ref
 from scopecat_testkit.server.runtime import list_test_runs
@@ -187,8 +196,19 @@ def _control_run(runtime: LocalDaemonRuntime, run_id: str) -> RunControlView:
     return _run_detail(runtime, run_id).control
 
 
-def _manifest(runtime: LocalDaemonRuntime, run_id: str) -> RunManifest:
-    return _run_detail(runtime, run_id).manifest
+def _snapshot(runtime: LocalDaemonRuntime, run_id: str) -> RunSnapshot:
+    return _run_repository(runtime.project_root).read_snapshot(run_id)
+
+
+def _run_state(
+    runtime: LocalDaemonRuntime,
+    run_id: str,
+) -> tuple[RunSnapshot, tuple[ContentEntry, ...]]:
+    repository = _run_repository(runtime.project_root)
+    return (
+        repository.read_snapshot(run_id),
+        repository.list_contents(run_id, limit=100).items,
+    )
 
 
 def _events(
@@ -341,7 +361,7 @@ def _analysis_proposal(run_id: str) -> ParameterChangeProposal:
         source_run_id=run_id,
         source_config=_config(),
         analysis_title="fit",
-        analysis_record_id="analysis-fit",
+        analysis_record_id="analysis-fit-r1",
         proposal_id="drive-frequency",
         updates=(
             replace_scalar_parameter(
@@ -793,7 +813,7 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
     with LocalDaemonRuntime(tmp_path) as runtime:
         client = TestClient(runtime.app())
 
-        empty = ConfigRegistryView.model_validate(
+        empty = ConfigRegistryPage.model_validate(
             client.get("/api/v1/config-registry").json()
         )
         missing = client.get("/api/v1/config-registry/active")
@@ -838,10 +858,10 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
             ).model_dump(mode="json"),
         )
 
-        registry = ConfigRegistryView.model_validate(
+        registry = ConfigRegistryPage.model_validate(
             client.get("/api/v1/config-registry").json()
         )
-        activation_history = ConfigActivationHistoryView.model_validate(
+        activation_history = ConfigActivationPage.model_validate(
             client.get("/api/v1/config-registry/activations").json()
         )
         active = ActiveConfigView.model_validate(
@@ -849,7 +869,7 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         )
         events = _events(runtime).items
 
-        assert empty == ConfigRegistryView()
+        assert empty == ConfigRegistryPage()
         assert missing.status_code == 404
         assert baseline_publish.status_code == 200
         assert updated_publish.status_code == 200
@@ -867,12 +887,12 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         assert undo.activation.action == "undo"
         assert undo.activation.generation == 3
         assert undo.activation.entry_id == "baseline"
-        assert [entry.id for entry in registry.entries] == ["baseline", "updated"]
+        assert [entry.id for entry in registry.entries] == ["updated", "baseline"]
         assert registry.activation is not None
         assert [record.action for record in activation_history.items] == [
-            "activation",
-            "activation",
             "undo",
+            "activation",
+            "activation",
         ]
         assert active.entry.id == "baseline"
         assert active.config == baseline
@@ -1256,7 +1276,7 @@ def test_config_publish_rolls_back_registry_and_event_when_event_fails(
             with pytest.raises(RuntimeError, match="event publication failed"):
                 runtime.application.config.publish_config(command)
 
-        assert runtime.application.config.get_config_registry() == ConfigRegistryView()
+        assert runtime.application.config.get_config_registry() == ConfigRegistryPage()
         assert _events(runtime).items == ()
 
         receipt = runtime.application.config.publish_config(command)
@@ -1384,10 +1404,24 @@ def test_admission_is_durably_idempotent(tmp_path: Path) -> None:
             manifest.run_id for manifest in list_test_runs(_run_repository(tmp_path))
         ]
         assert published_run_ids == [run_id]
-        assert _manifest(runtime, run_id).outcome is None
+        assert _snapshot(runtime, run_id).outcome is None
         listed = client.get("/api/v1/runs").json()
         assert len(listed["items"]) == 1
         assert listed["items"][0]["control"]["state"] == "queued"
+        assert listed["items"][0]["snapshot"]["run_id"] == run_id
+        assert "manifest" not in listed["items"][0]
+        detail = client.get(f"/api/v1/runs/{run_id}").json()
+        assert detail["snapshot"]["run_id"] == run_id
+        assert "contents" not in detail["snapshot"]
+        contents = client.get(f"/api/v1/runs/{run_id}/contents")
+        missing_content = client.get(f"/api/v1/runs/{run_id}/contents/artifact/missing")
+        assert contents.status_code == 200
+        assert contents.json() == {
+            "run_id": run_id,
+            "items": [],
+            "next_cursor": None,
+        }
+        assert missing_content.status_code == 404
         assert [
             event.kind
             for event in _events(runtime, run_id=run_id).items
@@ -1822,22 +1856,21 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             json=analysis_command.model_dump(mode="json"),
         )
         analyses = client.get(analysis_url)
-        analysis_detail = client.get(
-            f"{analysis_url}/analysis-{analysis_command.analysis_key}"
-        )
+        analysis_detail = client.get(f"{analysis_url}/{analysis_command.analysis_key}")
         analysis_record = client.get(
             f"/api/v1/runs/{admission.run_id}/records/"
-            f"analysis-{analysis_command.analysis_key}/json",
+            f"analysis-{analysis_command.analysis_key}-r1/json",
             params={"expected_kind": "analysis"},
         )
         dataset_bytes = RunDatasetBytesView.model_validate(
             client.get(
-                f"/api/v1/runs/{admission.run_id}/datasets/analysis-fit-fits/bytes",
+                f"/api/v1/runs/{admission.run_id}/datasets/analysis-fit-r1-fits/bytes",
                 params={"expected_kind": "analysis_dataset"},
             ).json()
         )
         analysis_artifact = client.get(
-            f"/api/v1/runs/{admission.run_id}/artifacts/analysis-fit-fit-report/text",
+            f"/api/v1/runs/{admission.run_id}/artifacts/"
+            "analysis-fit-r1-fit-report/text",
             params={"expected_kind": "analysis_artifact"},
         )
         attachment_command = RunAttachmentCommand(
@@ -1857,8 +1890,13 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         config = RunConfigView.model_validate(
             client.get(f"/api/v1/runs/{admission.run_id}/config").json()
         )
-        proposals = ParameterProposalListView.model_validate(
+        proposals = ParameterProposalPage.model_validate(
             client.get(f"/api/v1/runs/{admission.run_id}/parameter-proposals").json()
+        )
+        exact_proposal = ParameterProposalView.model_validate(
+            client.get(
+                f"/api/v1/runs/{admission.run_id}/parameter-proposals/{proposal.id}"
+            ).json()
         )
         activated = client.post(
             "/api/v1/config-registry/default",
@@ -1866,6 +1904,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
                 source=CandidateConfigRevisionSource(
                     run_id=admission.run_id,
                     proposal_id=proposal.id,
+                    acceptance=ManualCandidateAcceptance(),
                 ),
                 entry_id="candidate-fit",
                 actor="nightly-calibration",
@@ -1873,7 +1912,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
                 note="fit evidence reviewed",
             ).model_dump(mode="json"),
         )
-        approved_proposals = ParameterProposalListView.model_validate(
+        approved_proposals = ParameterProposalPage.model_validate(
             client.get(f"/api/v1/runs/{admission.run_id}/parameter-proposals").json()
         )
 
@@ -1886,8 +1925,9 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
 
         assert first_save.status_code == 201
         assert retry == saved
-        assert analyses.json()["items"][0]["analysis"]["key"] == "fit"
-        assert analysis_detail.json()["entry"]["id"] == "analysis-fit"
+        assert exact_proposal.proposal == proposal
+        assert analyses.json()["items"][0]["key"] == "fit"
+        assert analysis_detail.json()["entry"]["id"] == "analysis-fit-r1"
         assert analysis_record.json()["content"]["title"] == "fit"
         persisted_outputs = analysis_record.json()["content"]["outputs"]
         assert persisted_outputs[0]["content"]["preview"] == {
@@ -1896,7 +1936,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         }
         assert persisted_outputs[0]["content"]["total_rows"] == 2
         assert not persisted_outputs[0]["content"]["truncated"]
-        assert persisted_outputs[1]["content"]["dataset_id"] == "analysis-fit-fits"
+        assert persisted_outputs[1]["content"]["dataset_id"] == "analysis-fit-r1-fits"
         restored_dataset = DerivedDataset.from_arrow_ipc(
             dataset_bytes.content_bytes(),
             schema=DerivedDataset.from_payload(
@@ -1919,7 +1959,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         assert not persisted_outputs[2]["content"]["truncated"]
         assert persisted_outputs[3]["content"]["proposal_id"] == proposal.id
         assert persisted_outputs[4]["content"]["artifact_id"] == (
-            "analysis-fit-fit-report"
+            "analysis-fit-r1-fit-report"
         )
         assert analysis_artifact.json()["content"] == "# Fit report\n"
         assert attachment.json()["filename"] == "notes.md"
@@ -1947,7 +1987,134 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         ]
 
 
-def test_analysis_publication_rolls_back_refs_manifest_and_event_together(
+def test_run_analysis_history_is_paged_and_logical_keys_resolve_latest(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        client = TestClient(runtime.app())
+        admission = runtime.application.submit_run(_submission("analysis-history"))
+        analysis_url = f"/api/v1/runs/{admission.run_id}/analyses"
+        for revision in range(1, 4):
+            command = AnalysisSaveCommand(
+                title=f"History revision {revision}",
+                analysis_key="history",
+                outputs=(
+                    AnalysisArtifactOutputPayload(
+                        kind="artifact",
+                        id="note",
+                        title="Revision note",
+                        content_base64=b64encode(
+                            f"revision {revision}".encode()
+                        ).decode(),
+                        filename="note.txt",
+                        media_type="text/plain",
+                    ),
+                ),
+            )
+            response = client.post(
+                analysis_url,
+                json=command.model_dump(mode="json"),
+            )
+            assert response.status_code == 201
+
+        head = RunAnalysisPage.model_validate(
+            client.get(analysis_url, params={"limit": 2}).json()
+        )
+        tail = RunAnalysisPage.model_validate(
+            client.get(
+                analysis_url,
+                params={"limit": 2, "before": head.next_cursor},
+            ).json()
+        )
+        latest = RunAnalysisView.model_validate(
+            client.get(f"{analysis_url}/history").json()
+        )
+        exact = RunAnalysisView.model_validate(
+            client.get(f"{analysis_url}/analysis-history-r1").json()
+        )
+
+        assert [item.entry.id for item in head.items] == [
+            "analysis-history-r3",
+            "analysis-history-r2",
+        ]
+        assert head.next_cursor is not None
+        assert [item.entry.id for item in tail.items] == ["analysis-history-r1"]
+        assert tail.next_cursor is None
+        assert latest.entry.id == "analysis-history-r3"
+        assert latest.analysis.revision == 3
+        assert exact.analysis.revision == 1
+
+
+def test_run_analysis_rejects_missing_measurement_input_content(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        client = TestClient(runtime.app())
+        admission = runtime.application.submit_run(
+            _submission("analysis-missing-measurement-input")
+        )
+        command = AnalysisSaveCommand(
+            title="Forged input",
+            analysis_key="forged-input",
+            inputs=(
+                MeasurementAnalysisInputPayload(
+                    id="measurement",
+                    run_id=admission.run_id,
+                    target="missing-measurements",
+                    content_hash="sha256:missing",
+                    codec="scopecat.measurement-dataset.v12",
+                    role="data",
+                ),
+            ),
+        )
+
+        response = client.post(
+            f"/api/v1/runs/{admission.run_id}/analyses",
+            json=command.model_dump(mode="json"),
+        )
+
+        assert response.status_code == 409
+        assert "analysis_input_content_mismatch" in response.json()["detail"]
+
+
+def test_run_analysis_allocates_distinct_revisions_for_concurrent_saves(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        client = TestClient(runtime.app())
+        admission = runtime.application.submit_run(
+            _submission("concurrent-run-analysis")
+        )
+        commands = tuple(
+            AnalysisSaveCommand(
+                title=f"Concurrent analysis {ordinal}",
+                analysis_key="concurrent-analysis",
+            )
+            for ordinal in range(2)
+        )
+        ready = Barrier(len(commands))
+
+        def save(command: AnalysisSaveCommand) -> AnalysisSaveReceipt:
+            ready.wait()
+            response = client.post(
+                f"/api/v1/runs/{admission.run_id}/analyses",
+                json=command.model_dump(mode="json"),
+            )
+            assert response.status_code == 201
+            return AnalysisSaveReceipt.model_validate(response.json())
+
+        with ThreadPoolExecutor(max_workers=len(commands)) as executor:
+            saved = tuple(executor.map(save, commands))
+
+        assert {item.record.id for item in saved} == {
+            "analysis-concurrent-analysis-r1",
+            "analysis-concurrent-analysis-r2",
+        }
+        page = runtime.application.runs.list_run_analyses(admission.run_id)
+        assert len(page.items) == 2
+
+
+def test_analysis_publication_rolls_back_refs_index_and_event_together(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1955,7 +2122,7 @@ def test_analysis_publication_rolls_back_refs_manifest_and_event_together(
         admission = runtime.application.submit_run(_submission("analysis-atomic"))
         proposal = _analysis_proposal(admission.run_id)
         command = _analysis_command(proposal)
-        before = _manifest(runtime, admission.run_id)
+        before = _run_state(runtime, admission.run_id)
         append_event = SQLiteControlPlane.append_event_in_transaction
 
         def fail_analysis_event(
@@ -1983,7 +2150,7 @@ def test_analysis_publication_rolls_back_refs_manifest_and_event_together(
                 )
 
         repository = _run_repository(tmp_path)
-        assert _manifest(runtime, admission.run_id) == before
+        assert _run_state(runtime, admission.run_id) == before
         assert runtime.application.runs.list_run_analyses(admission.run_id).items == ()
         assert (
             runtime.application.runs.list_parameter_proposals(admission.run_id).items
@@ -1991,12 +2158,12 @@ def test_analysis_publication_rolls_back_refs_manifest_and_event_together(
         )
         assert not repository.exists(
             admission.run_id,
-            record_content_ref(record_id="analysis-fit", kind="analysis"),
+            record_content_ref(record_id="analysis-fit-r1", kind="analysis"),
         )
         assert not repository.exists(
             admission.run_id,
             dataset_content_ref(
-                dataset_id="analysis-fit-fits",
+                dataset_id="analysis-fit-r1-fits",
                 kind="analysis_dataset",
             ),
         )
@@ -2011,7 +2178,7 @@ def test_analysis_publication_rolls_back_refs_manifest_and_event_together(
             command,
         )
 
-        assert saved.record.id == "analysis-fit"
+        assert saved.record.id == "analysis-fit-r1"
         assert (
             len(runtime.application.runs.list_run_analyses(admission.run_id).items) == 1
         )
@@ -2037,12 +2204,13 @@ def test_candidate_publish_rolls_back_approval_with_event(
             source=CandidateConfigRevisionSource(
                 run_id=admission.run_id,
                 proposal_id=proposal.id,
+                acceptance=ManualCandidateAcceptance(),
             ),
             entry_id="candidate-atomic",
             actor="nightly-calibration",
             expected_generation=1,
         )
-        before = _manifest(runtime, admission.run_id)
+        before = _run_state(runtime, admission.run_id)
         append_event = SQLiteControlPlane.append_event_in_transaction
 
         def fail_decision_event(
@@ -2067,7 +2235,7 @@ def test_candidate_publish_rolls_back_approval_with_event(
                 runtime.application.config.publish_config(command)
 
         proposals = runtime.application.runs.list_parameter_proposals(admission.run_id)
-        assert _manifest(runtime, admission.run_id) == before
+        assert _run_state(runtime, admission.run_id) == before
         assert proposals.items[0].approval is None
         assert [
             entry.id
@@ -2135,7 +2303,7 @@ def test_executor_start_is_atomic_idempotent_and_quiet_when_resources_busy(
             )
 
         assert _control_run(runtime, waiting.run_id).state == "queued"
-        assert _manifest(runtime, waiting.run_id).outcome is None
+        assert _snapshot(runtime, waiting.run_id).outcome is None
         assert [
             event.kind for event in _events(runtime, run_id=waiting.run_id).items
         ] == ["run_admitted"]
@@ -2744,7 +2912,7 @@ def test_queued_run_cancellation_is_immediate_durable_and_idempotent(
         control = _control_run(runtime, admission.run_id)
         assert control.state == "closed"
         assert control.cancellation_requested_at == receipt.cancellation_requested_at
-        assert _manifest(runtime, admission.run_id).outcome == receipt.outcome
+        assert _snapshot(runtime, admission.run_id).outcome == receipt.outcome
         assert _resource_claims(tmp_path) == ()
         assert [
             event.kind
@@ -2784,7 +2952,7 @@ def test_leased_run_cancellation_reaches_heartbeat_and_preserves_terminal_histor
             _control_run(runtime, admission.run_id).cancellation_requested_at
             == requested.cancellation_requested_at
         )
-        assert _manifest(runtime, admission.run_id).outcome is None
+        assert _snapshot(runtime, admission.run_id).outcome is None
 
         outcome = RunOutcome(
             run_id=admission.run_id,
@@ -2919,7 +3087,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
             json=_submission(point_count=4).model_dump(mode="json"),
         )
         run_id = RunAdmission.model_validate(admission_response.json()).run_id
-        accepted = _manifest(runtime, run_id)
+        accepted = _snapshot(runtime, run_id)
         lease_response = client.post(
             f"/api/v1/runs/{run_id}/executor/start",
             json=ExecutorStartRequest(
@@ -3164,7 +3332,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert flush_response.json()["durable_record_count"] == 4
         assert durable_coverage.json()["completed_point_count"] == 4
         assert detail.json()["control"]["state"] == "leased"
-        assert detail.json()["manifest"]["outcome"] is None
+        assert detail.json()["snapshot"]["outcome"] is None
         assert detail.json()["resources"][0]["status"] == "active"
         assert measurement_preview.json()["items"][0]["point_index"] == 0
         assert (
@@ -3298,7 +3466,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert terminal_conflict.status_code == 409
         control_run = _control_run(runtime, run_id)
         assert control_run.state == "closed"
-        assert _manifest(runtime, run_id) == terminal
+        assert _snapshot(runtime, run_id) == terminal
         assert _resource_claims(tmp_path) == ()
         terminal_detail = client.get(f"/api/v1/runs/{run_id}").json()
         assert terminal_detail["resources"][0]["status"] == "released"
@@ -3431,7 +3599,7 @@ def test_effect_and_terminal_publication_roll_back_with_control(
                     ),
                 )
 
-        assert _manifest(runtime, admission.run_id).outcome is None
+        assert _snapshot(runtime, admission.run_id).outcome is None
         assert _control_run(runtime, admission.run_id).state == "leased"
 
 
@@ -3522,10 +3690,10 @@ def test_restart_quarantines_executor_until_operator_reconciles(
         assert resolved.released_resource_count == 1
         control = _control_run(reopened, run_id)
         assert control.state == "closed"
-        manifest = _manifest(reopened, run_id)
-        assert manifest.outcome is not None
-        assert manifest.outcome.certainty == "indeterminate"
-        assert manifest.outcome.problems[0].code == "daemon.executor_loss_reconciled"
+        snapshot = _snapshot(reopened, run_id)
+        assert snapshot.outcome is not None
+        assert snapshot.outcome.certainty == "indeterminate"
+        assert snapshot.outcome.problems[0].code == "daemon.executor_loss_reconciled"
         abandoned_plan = reopened.application.point_plans.read(run_id)
         abandoned_queue = reopened.application.point_plans.queue(run_id)
         assert abandoned_plan.plan_closed

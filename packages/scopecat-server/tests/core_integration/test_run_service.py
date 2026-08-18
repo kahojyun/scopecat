@@ -21,7 +21,7 @@ from scopecat.records.config import (
     config_content_hash,
     instrument_bindings,
 )
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.runs.service import load_run_request
 from scopecat.sdk.instruments.execution import RunHardwareFinalizationReceipt
@@ -87,7 +87,7 @@ def test_plan_admit_and_execute_are_separate_run_phases(tmp_path: Path) -> None:
     )
 
     assert accepted.outcome is None
-    assert services.runs.read_manifest(accepted.run_id) == accepted
+    assert services.runs.read_snapshot(accepted.run_id) == accepted
     assert services.runs.read_config_profile_snapshot(accepted.run_id) == planned.config
     assert (
         load_run_request(run_id=accepted.run_id, services=services) == planned.request
@@ -155,7 +155,7 @@ def test_cancel_request_commits_a_known_cancelled_terminal_outcome(
     assert outcome.result == "cancelled"
     assert outcome.certainty == "known"
     assert {item.code for item in outcome.problems} == {"run_cancellation_requested"}
-    assert services.runs.read_manifest(accepted.run_id).outcome == outcome
+    assert services.runs.read_snapshot(accepted.run_id).outcome == outcome
 
 
 def test_cancelled_run_with_unknown_hardware_finalization_is_indeterminate(
@@ -194,7 +194,7 @@ def test_cancelled_run_with_unknown_hardware_finalization_is_indeterminate(
     assert outcome.result == "cancelled"
     assert outcome.certainty == "indeterminate"
     assert {item.code for item in outcome.problems} == {"run_cancellation_requested"}
-    assert services.runs.read_manifest(accepted.run_id).outcome == outcome
+    assert services.runs.read_snapshot(accepted.run_id).outcome == outcome
 
 
 def test_terminal_cancellation_arbitration_is_reflected_to_the_caller(
@@ -230,7 +230,7 @@ def test_terminal_cancellation_arbitration_is_reflected_to_the_caller(
     )
     commit_terminal = session.commit_terminal
 
-    def cancel_at_terminal(commit: TerminalRunCommit) -> RunManifest:
+    def cancel_at_terminal(commit: TerminalRunCommit) -> RunSnapshot:
         assert commit.outcome.result == "succeeded"
         return commit_terminal(
             replace(
@@ -257,7 +257,7 @@ def test_terminal_cancellation_arbitration_is_reflected_to_the_caller(
         )
 
     assert error.value.outcome.result == "cancelled"
-    assert services.runs.read_manifest(accepted.run_id).outcome == (error.value.outcome)
+    assert services.runs.read_snapshot(accepted.run_id).outcome == (error.value.outcome)
 
 
 def test_admitted_execution_rejects_a_program_for_another_config(
@@ -290,7 +290,7 @@ def test_admitted_execution_rejects_a_program_for_another_config(
             session=sqlite_execution_session(tmp_path, accepted.run_id),
         )
 
-    assert services.runs.read_manifest(accepted.run_id).outcome is None
+    assert services.runs.read_snapshot(accepted.run_id).outcome is None
 
 
 def test_check_and_test_execution_use_separate_paths(
@@ -322,7 +322,16 @@ def test_check_and_test_execution_use_separate_paths(
     assert result.preview.point_count == 3
     assert result.preview.experiment_id == "test.workflow_scan"
     assert provider_run.status == "completed"
-    assert {dataset.id for dataset in provider_run.datasets} == {"raw-measurements"}
+    assert {
+        dataset.id
+        for dataset in sqlite_project_services(tmp_path / "provider")
+        .runs.list_contents(
+            provider_run.run_id,
+            limit=100,
+            role="dataset",
+        )
+        .items
+    } == {"raw-measurements"}
 
 
 def test_check_compiles_authoring_before_config_source_io(

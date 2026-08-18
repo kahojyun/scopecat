@@ -37,12 +37,12 @@ from scopecat.measurements.traces import (
     TraceValueMode,
 )
 from scopecat.records.analysis import AnalysisRecord
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
     ConfigContentHash,
     ConfigProfileSnapshot,
     config_content_hash,
 )
+from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementDatasetSchema,
@@ -55,7 +55,7 @@ from scopecat.records.parameter_change import (
     ParameterChangeProposal,
     ParameterValueDelta,
 )
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.contracts import InstrumentDescription
 
@@ -67,15 +67,19 @@ class _ViewModel(BaseModel):
     )
 
 
-class ConfigRegistryView(_ViewModel):
-    """Saved revisions and the current activation head."""
+class ConfigRegistryPage(_ViewModel):
+    """Newest-first page of saved revisions and the current activation head."""
 
     entries: tuple[ConfigRegistryEntry, ...] = ()
     activation: ConfigRegistryActivationRecord | None = None
+    next_cursor: int | None = Field(default=None, ge=1)
 
 
-class ConfigActivationHistoryView(_ViewModel):
+class ConfigActivationPage(_ViewModel):
+    """Newest-first page of default configuration changes."""
+
     items: tuple[ConfigRegistryActivationRecord, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
 
 
 class ActiveConfigView(_ViewModel):
@@ -220,10 +224,10 @@ class RunResourceView(_ViewModel):
 
 
 class RunSummary(_ViewModel):
-    """Scheduler projection paired with the accepted run snapshot."""
+    """Scheduler state paired with the durable run snapshot."""
 
     control: RunControlView
-    manifest: RunManifest
+    snapshot: RunSnapshot
 
     @property
     def run_id(self) -> str:
@@ -265,37 +269,147 @@ class RunRequestView(_ViewModel):
 
 
 class RunAnalysisView(_ViewModel):
-    """One persisted analysis record and its manifest identity."""
+    """One persisted run analysis and its catalog identity."""
 
     run_id: str
-    entry: RunContentEntry
+    entry: ContentEntry
     analysis: AnalysisRecord
+    published_at: datetime
 
     @model_validator(mode="after")
     def validate_identity(self) -> RunAnalysisView:
         if (
             self.entry.role != "record"
             or self.entry.kind != "analysis"
-            or self.analysis.run_id != self.run_id
+            or self.analysis.subject.kind != "run"
+            or self.analysis.subject.run_id != self.run_id
         ):
             raise ValueError("run analysis view identity is inconsistent")
         return self
 
 
-class RunAnalysisListView(_ViewModel):
+class RunAnalysisSummary(_ViewModel):
+    """Bounded list projection for one run-owned analysis publication."""
+
     run_id: str
-    items: tuple[RunAnalysisView, ...] = ()
+    entry: ContentEntry
+    title: str
+    key: str | None = None
+    revision: int = Field(ge=1)
+    publication_hash: str
+    published_at: datetime
+    step_id: str | None = None
+    input_count: int = Field(ge=0)
+    output_count: int = Field(ge=0)
 
     @model_validator(mode="after")
-    def validate_identity(self) -> RunAnalysisListView:
-        if any(item.run_id != self.run_id for item in self.items):
-            raise ValueError("run analysis list contains a different run")
+    def validate_identity(self) -> RunAnalysisSummary:
+        if self.entry.role != "record" or self.entry.kind != "analysis":
+            raise ValueError("run analysis summary identity is inconsistent")
         return self
+
+
+class RunAnalysisPage(_ViewModel):
+    """Newest-first keyset page of run analysis summaries."""
+
+    run_id: str
+    items: tuple[RunAnalysisSummary, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> RunAnalysisPage:
+        if any(item.run_id != self.run_id for item in self.items):
+            raise ValueError("run analysis page contains a different run")
+        return self
+
+
+class RunContentPage(_ViewModel):
+    """Newest-first keyset page from one run's content catalog."""
+
+    run_id: str
+    items: tuple[ContentEntry, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+
+class ProjectAnalysisView(_ViewModel):
+    """One project-level analysis record."""
+
+    entry: ContentEntry
+    analysis: AnalysisRecord
+    published_at: datetime
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> ProjectAnalysisView:
+        if (
+            self.entry.role != "record"
+            or self.entry.kind != "analysis"
+            or self.analysis.subject.kind != "project"
+        ):
+            raise ValueError("project analysis view identity is inconsistent")
+        return self
+
+
+class ProjectAnalysisSummary(_ViewModel):
+    """Bounded list projection for one project-level analysis publication."""
+
+    entry: ContentEntry
+    title: str
+    key: str
+    revision: int = Field(ge=1)
+    publication_hash: str
+    published_at: datetime
+    step_id: str | None = None
+    input_count: int = Field(ge=0)
+    output_count: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> ProjectAnalysisSummary:
+        if self.entry.role != "record" or self.entry.kind != "analysis":
+            raise ValueError("project analysis summary identity is inconsistent")
+        return self
+
+
+class ProjectAnalysisPage(_ViewModel):
+    """Newest-first keyset page of project analysis summaries."""
+
+    items: tuple[ProjectAnalysisSummary, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+
+class ProjectAnalysisContentPage(_ViewModel):
+    """Newest-first keyset page of project-analysis-owned content."""
+
+    analysis_id: str
+    items: tuple[ContentEntry, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+
+class AnalysisContentBytesView(_ViewModel):
+    """Exact bytes for one project analysis-owned content entry."""
+
+    analysis_id: str
+    entry: ContentEntry
+    content_base64: str
+
+    @model_validator(mode="after")
+    def validate_content(self) -> AnalysisContentBytesView:
+        owns_record = (
+            self.entry.role == "record"
+            and self.entry.kind == "analysis"
+            and self.entry.id == self.analysis_id
+        )
+        if not owns_record and self.entry.produced_by != self.analysis_id:
+            raise ValueError("analysis content producer is inconsistent")
+        _validate_base64(self.content_base64)
+        return self
+
+    def content_bytes(self) -> bytes:
+        return b64decode(self.content_base64, validate=True)
 
 
 class RunArtifactBytesView(_ViewModel):
     run_id: str
-    artifact: RunContentEntry
+    artifact: ContentEntry
     content_base64: str
 
     @model_validator(mode="after")
@@ -310,7 +424,7 @@ class RunArtifactBytesView(_ViewModel):
 
 class RunDatasetBytesView(_ViewModel):
     run_id: str
-    dataset: RunContentEntry
+    dataset: ContentEntry
     content_base64: str
 
     @model_validator(mode="after")
@@ -339,14 +453,15 @@ class ParameterProposalView(_ViewModel):
         return self
 
 
-class ParameterProposalListView(_ViewModel):
+class ParameterProposalPage(_ViewModel):
     run_id: str
     items: tuple[ParameterProposalView, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
-    def validate_identity(self) -> ParameterProposalListView:
+    def validate_identity(self) -> ParameterProposalPage:
         if any(item.proposal.source_run_id != self.run_id for item in self.items):
-            raise ValueError("parameter proposal list contains a different run")
+            raise ValueError("parameter proposal page contains a different run")
         return self
 
 
@@ -577,7 +692,7 @@ class MeasurementTracePreview(_ViewModel):
 
 
 def _require_entry_role(
-    entry: RunContentEntry,
+    entry: ContentEntry,
     role: Literal["artifact", "dataset", "record"],
 ) -> None:
     if entry.role != role:
@@ -593,10 +708,11 @@ def _validate_base64(value: str) -> None:
 
 __all__ = [
     "ActiveConfigView",
-    "ConfigActivationHistoryView",
+    "AnalysisContentBytesView",
+    "ConfigActivationPage",
     "ConfigDraftPreview",
     "ConfigEntryView",
-    "ConfigRegistryView",
+    "ConfigRegistryPage",
     "DaemonHealth",
     "InstrumentConnectionSummary",
     "InstrumentListView",
@@ -610,10 +726,15 @@ __all__ = [
     "MeasurementTracePreview",
     "MeasurementTracePreviewQuery",
     "MeasurementTraceSeries",
-    "ParameterProposalListView",
+    "ParameterProposalPage",
     "ParameterProposalView",
+    "ProjectAnalysisContentPage",
+    "ProjectAnalysisPage",
+    "ProjectAnalysisSummary",
+    "ProjectAnalysisView",
     "RunAdmissionView",
-    "RunAnalysisListView",
+    "RunAnalysisPage",
+    "RunAnalysisSummary",
     "RunAnalysisView",
     "RunArtifactBytesView",
     "RunConfigView",

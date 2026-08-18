@@ -9,6 +9,8 @@ import {
   activateConfigEntry,
   getConfigRegistry,
   getConfigRegistryEntry,
+  getOlderConfigActivationHistory,
+  getOlderConfigRegistryEntries,
   parseConfigProfileJson,
   previewConfigDraft,
   undoConfig,
@@ -23,15 +25,15 @@ afterEach(() => {
 });
 
 describe("config registry reads", () => {
-  it("keeps the generated wire model and only sorts registry projections", async () => {
+  it("keeps the daemon's newest-first paged registry projections", async () => {
     const fetchMock = vi.fn((input: string | URL | Request) =>
       Promise.resolve(
-        requestPath(input).endsWith("/activations")
+        requestPath(input).includes("/activations?")
           ? jsonResponse({
-              items: [activation(1, "config-a", HASH_A), activation(2, "config-b", HASH_B)],
+              items: [activation(2, "config-b", HASH_B), activation(1, "config-a", HASH_A)],
             })
           : jsonResponse({
-              entries: [registryEntry("config-a", HASH_A), registryEntry("config-b", HASH_B)],
+              entries: [registryEntry("config-b", HASH_B), registryEntry("config-a", HASH_A)],
               activation: activation(2, "config-b", HASH_B),
             }),
       ),
@@ -40,8 +42,10 @@ describe("config registry reads", () => {
 
     const overview = await getConfigRegistry();
 
-    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe("/api/v1/config-registry");
-    expect(requestPath(fetchMock.mock.calls[1]?.[0])).toBe("/api/v1/config-registry/activations");
+    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe("/api/v1/config-registry?limit=100");
+    expect(requestPath(fetchMock.mock.calls[1]?.[0])).toBe(
+      "/api/v1/config-registry/activations?limit=100",
+    );
     expect(overview.entries.map((entry) => entry.id)).toEqual(["config-b", "config-a"]);
     expect(overview.activation).toMatchObject({
       entry_id: "config-b",
@@ -56,7 +60,7 @@ describe("config registry reads", () => {
       "fetch",
       vi.fn((input: string | URL | Request) =>
         Promise.resolve(
-          requestPath(input).endsWith("/activations")
+          requestPath(input).includes("/activations?")
             ? jsonResponse({ items: [] })
             : jsonResponse({ entries: [], activation: null }),
         ),
@@ -68,6 +72,21 @@ describe("config registry reads", () => {
       activation: null,
       activation_history: [],
     });
+  });
+
+  it("requests older registry and activation pages by cursor", async () => {
+    const fetchMock = vi.fn((_input: string | URL | Request) =>
+      Promise.resolve(jsonResponse({ entries: [], items: [], next_cursor: null })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getOlderConfigRegistryEntries(41);
+    await getOlderConfigActivationHistory(19);
+
+    expect(fetchMock.mock.calls.map(([input]) => requestPath(input))).toEqual([
+      "/api/v1/config-registry?limit=100&before=41",
+      "/api/v1/config-registry/activations?limit=100&before=19",
+    ]);
   });
 
   it("uses the entry snapshot itself for summary and raw display", async () => {

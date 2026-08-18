@@ -1,6 +1,6 @@
 # Development Context
 
-This project is currently developed by a single person in a purely local workflow. There are no external consumers or historical compatibility contracts that need to be preserved.
+This project is currently developed by one person in a self-review-only workflow, so large changes and breaking changes are acceptable; this describes the development process, not expected deployment scale or data volume.
 
 Until the core workflows are demonstrably easier than ad hoc scripts and small internal scan frameworks, prioritize first-use usability and end-to-end product value over architectural completeness, generalized safety or recovery mechanisms, and additional edge-case coverage.
 

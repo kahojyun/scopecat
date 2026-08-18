@@ -20,7 +20,7 @@ excluded from ordinary workflows.
 | Point | One logical coordinate row in a run's authored point domain. | Selecting, grouping, or interpreting measurements. |
 | Measurement | Immutable recorded data produced by a run, with declared identity, type, unit, shape, and availability. | Inspecting or analyzing acquired results. |
 | Result | The authored return structure that determines the ordinary durable output of an experiment. | Defining what downstream users should receive from a run. |
-| Analysis | One immutable publication of derived facts, datasets, artifacts, views, and proposals attached to a source run. | Preserving conclusions from ordinary numerical Python. |
+| Analysis | One immutable publication of derived facts, datasets, artifacts, views, and proposals owned by a source run or by the project for cross-run conclusions. | Preserving conclusions from ordinary numerical Python. |
 | Proposal | An analysis output that describes a reviewable parameter change and its evidence. | Evaluating a candidate configuration. |
 
 ## Vocabulary design checks

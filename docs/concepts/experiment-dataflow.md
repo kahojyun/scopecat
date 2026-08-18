@@ -591,8 +591,9 @@ changes:
   and reads and plots it without restating a measurement schema;
 - DRAG calibration turns per-shot arrays into durable probabilities, binds the
   returned result for a dataset fit, and publishes one analysis outcome;
-- candidate verification obtains a configuration from that saved analysis and
-  runs an independent experiment without changing the accepted default.
+- candidate verification obtains a configuration from that saved analysis,
+  runs an independent experiment without changing the accepted default, and
+  publishes a project analysis over the exact baseline and candidate datasets.
 
 A convenience is valuable when it removes a declaration or concept from one of
 these paths while preserving typed shape, availability, result identity, and

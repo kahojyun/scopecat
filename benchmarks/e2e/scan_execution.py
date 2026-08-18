@@ -655,8 +655,8 @@ def run_scopecat_core(
         run = lab.prepare(invocation).run()
         timeline.finish()
         memory.observe()
-    if run.manifest.status != "completed":
-        raise RuntimeError(f"Scopecat run ended as {run.manifest.status}")
+    if run.status != "completed":
+        raise RuntimeError(f"Scopecat run ended as {run.status}")
     points_completed = _completed_point_count(run, scenario)
     durable_bytes, durable_files = _tree_size(root)
     object_store_bytes, object_store_files = _tree_size(
@@ -753,8 +753,8 @@ def run_scopecat(
             run = lab.prepare(invocation, config=config).run()
             timeline.finish()
             memory.observe()
-        if run.manifest.status != "completed":
-            raise RuntimeError(f"Scopecat run ended as {run.manifest.status}")
+        if run.status != "completed":
+            raise RuntimeError(f"Scopecat run ended as {run.status}")
         points_completed = _completed_point_count(run, scenario)
         payload_spool_bytes = runtime.application.payloads.spooled_size_bytes()
         peak_payload_spool_bytes = (
@@ -1579,7 +1579,7 @@ def _validate_runner_compatibility(
 
 def _completed_point_count(run: RunHandle, scenario: ScanScenario) -> int:
     if scenario.retention == "discard":
-        if run.datasets:
+        if run.contents(limit=1, role="dataset").items:
             raise RuntimeError("discard benchmark unexpectedly retained a dataset")
         return scenario.point_count
     return len(run.measurements().records)

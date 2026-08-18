@@ -20,7 +20,7 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
     )
     data = run.measurements()
     grid = data.to_xarray(layout="grid")
-    status = run.manifest.status
+    status = run.status
 
 flux_ramsey_summary = {
     "points": preview.point_count,

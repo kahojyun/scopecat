@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 
-RunSelector = str | RunManifest
+RunSelector = str | RunSnapshot
 
 
 def selected_run_id(run: RunSelector) -> str:

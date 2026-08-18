@@ -2,9 +2,11 @@ import { apiClient, apiData } from "../../api-client";
 import type {
   ConfigDraftCommand,
   ConfigDraftPreview,
+  ConfigActivationPage,
   ConfigProfileSnapshot,
   ConfigRegistryEntry,
   ConfigRegistryOverview,
+  ConfigRegistryPage,
   ConfigPublishCommand,
   ConfigPublishReceipt,
 } from "../../api-contract";
@@ -25,18 +27,54 @@ export interface ConfigRegistryEntryDetail {
 
 export async function getConfigRegistry(signal?: AbortSignal): Promise<ConfigRegistryOverview> {
   const [registry, activations] = await Promise.all([
-    apiData(apiClient.GET("/api/v1/config-registry", { signal })),
-    apiData(apiClient.GET("/api/v1/config-registry/activations", { signal })),
+    apiData(
+      apiClient.GET("/api/v1/config-registry", {
+        params: { query: { limit: 100 } },
+        signal,
+      }),
+    ),
+    apiData(
+      apiClient.GET("/api/v1/config-registry/activations", {
+        params: { query: { limit: 100 } },
+        signal,
+      }),
+    ),
   ]);
   return {
-    ...registry,
-    entries: [...registry.entries].sort((left, right) =>
-      (right.recorded_at ?? "").localeCompare(left.recorded_at ?? ""),
-    ),
-    activation_history: [...(activations.items ?? [])].sort(
-      (left, right) => right.generation - left.generation,
-    ),
+    entries: registry.entries,
+    activation: registry.activation,
+    activation_history: activations.items,
+    ...(registry.next_cursor === undefined || registry.next_cursor === null
+      ? {}
+      : { entries_next_cursor: registry.next_cursor }),
+    ...(activations.next_cursor === undefined || activations.next_cursor === null
+      ? {}
+      : { activation_history_next_cursor: activations.next_cursor }),
   };
+}
+
+export async function getOlderConfigRegistryEntries(
+  before: number,
+  signal?: AbortSignal,
+): Promise<ConfigRegistryPage> {
+  return apiData(
+    apiClient.GET("/api/v1/config-registry", {
+      params: { query: { limit: 100, before } },
+      signal,
+    }),
+  );
+}
+
+export async function getOlderConfigActivationHistory(
+  before: number,
+  signal?: AbortSignal,
+): Promise<ConfigActivationPage> {
+  return apiData(
+    apiClient.GET("/api/v1/config-registry/activations", {
+      params: { query: { limit: 100, before } },
+      signal,
+    }),
+  );
 }
 
 export async function getConfigRegistryEntry(

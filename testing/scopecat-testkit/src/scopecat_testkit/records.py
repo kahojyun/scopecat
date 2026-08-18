@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from pydantic import BaseModel
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 
 
 def read_model[ModelT: BaseModel](path: Path, model: type[ModelT]) -> ModelT:
@@ -22,12 +22,10 @@ def assert_model_round_trip[ModelT: BaseModel](
     return restored
 
 
-def artifacts_by_id(artifacts: list[RunContentEntry]) -> dict[str, RunContentEntry]:
+def artifacts_by_id(artifacts: list[ContentEntry]) -> dict[str, ContentEntry]:
     return {artifact.id: artifact for artifact in artifacts}
 
 
-def require_artifact(
-    artifacts: list[RunContentEntry], artifact_id: str
-) -> RunContentEntry:
+def require_artifact(artifacts: list[ContentEntry], artifact_id: str) -> ContentEntry:
     artifacts_by_key = artifacts_by_id(artifacts)
     return artifacts_by_key[artifact_id]

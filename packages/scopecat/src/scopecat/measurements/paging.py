@@ -14,7 +14,7 @@ from scopecat.measurements.interop import (
     ProjectionDiagnostics,
     ProjectionLayout,
 )
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import (
     MeasurementDataset,
     MeasurementDatasetSchema,
@@ -26,7 +26,7 @@ def project_measurement_page(
     records: Sequence[MeasurementRecord],
     *,
     schema: MeasurementDatasetSchema,
-    entry: RunContentEntry,
+    entry: ContentEntry,
     columns: Mapping[str, str],
     units: Mapping[str, str],
     diagnostics: ProjectionDiagnostics,

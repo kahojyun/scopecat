@@ -9,24 +9,24 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.runs.refs import CONFIG_PROFILE_SNAPSHOT_REF
 
 
 def validate_run_config_provenance(
     *,
-    manifest: RunManifest,
+    snapshot: RunSnapshot,
     config: ConfigProfileSnapshot,
 ) -> None:
-    """Require the manifest and persisted accepted snapshot hashes to agree."""
+    """Require persisted configuration evidence hashes to agree."""
 
     actual_hash = config_content_hash(config)
     hashes = {
         "config_snapshot": actual_hash,
-        "manifest": manifest.config_content_hash,
+        "run_snapshot": snapshot.config_content_hash,
     }
-    if manifest.config_source is not None:
-        hashes["manifest_config_source"] = manifest.config_source.content_hash
+    if snapshot.config_source is not None:
+        hashes["snapshot_config_source"] = snapshot.config_source.content_hash
     if len(set(hashes.values())) == 1:
         return
     raise DataIntegrityError(
@@ -36,7 +36,7 @@ def validate_run_config_provenance(
                 "run configuration hash evidence does not match the accepted snapshot",
                 phase=ProblemPhase.PERSISTENCE,
                 location=StorageLocation(
-                    run_id=manifest.run_id,
+                    run_id=snapshot.run_id,
                     ref=CONFIG_PROFILE_SNAPSHOT_REF,
                 ),
                 details=hashes,

@@ -5,28 +5,35 @@ import {
   Atom,
   Box,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   CircleDot,
   Cpu,
   Database,
   Gauge,
+  LoaderCircle,
   SquareStack,
   XCircle,
 } from "lucide-react";
 import type { MeasurementTracePreview } from "../../api-contract";
 import { errorMessage, formatRelative, titleCase } from "../../lib/presentation";
-import { classes, countBadge, detailCard } from "../../ui/styles";
+import { classes, countBadge, detailCard, secondaryButton } from "../../ui/styles";
 import type {
   ContentEntry,
   MeasurementPreview,
   MeasurementSlicePreview,
   ProjectEvent,
   ProjectRun,
-  RunAnalysis,
+  RunAnalysisSummary,
 } from "../../types";
-import { AnalysisMetadataView, AnalysisOutputView } from "./AnalysisOutputView";
+import { AnalysisPublicationView } from "../analyses/AnalysisPublicationView";
 import { MeasurementDataPreview } from "./MeasurementDataPreview";
-import { canPreviewRunContent, getRunContent } from "./run-api";
+import {
+  canPreviewRunContent,
+  getRunAnalysis,
+  getRunArtifactDownload,
+  getRunContent,
+} from "./run-api";
 import type {
   MeasurementEntitySelection,
   MeasurementTraceQueryPlan,
@@ -123,18 +130,29 @@ export function AnalysisCard({
   error,
   pending,
   runId,
+  hasNextPage,
+  loadingNextPage,
+  onLoadOlder,
 }: {
-  analyses?: RunAnalysis[];
+  analyses?: RunAnalysisSummary[];
   error: Error | null;
   pending: boolean;
   runId: string;
+  hasNextPage: boolean;
+  loadingNextPage: boolean;
+  onLoadOlder: () => void;
 }) {
   return (
     <article className={detailCard} data-testid="resource-card">
       <CardHeading
         icon={<Atom size={17} />}
         title="Analyses"
-        accessory={<span className={countBadge}>{analyses?.length ?? 0}</span>}
+        accessory={
+          <span className={countBadge}>
+            {analyses?.length ?? 0}
+            {hasNextPage ? "+" : ""}
+          </span>
+        }
       />
       {error ? (
         <InlineEmpty title="Analyses unavailable" detail={errorMessage(error)} warning />
@@ -151,121 +169,71 @@ export function AnalysisCard({
       ) : (
         <div className="grid gap-2">
           {analyses.map((analysis) => (
-            <details
-              className="overflow-hidden rounded-[8px] border border-line bg-[rgb(255_255_255_/_1.2%)]"
-              key={analysis.id}
-            >
-              <summary className="flex cursor-pointer items-center justify-between gap-2.5 p-2.5">
-                <span className="grid min-w-0 gap-[3px]">
-                  <strong className="overflow-hidden text-[0.7rem] text-ellipsis whitespace-nowrap">
-                    {analysis.title}
-                  </strong>
-                  <small className="text-[0.6rem] text-text-dim">
-                    {analysis.key ?? analysis.id}
-                    {analysis.stepId ? ` · ${analysis.stepId}` : ""}
-                    {analysis.executions.length > 0
-                      ? ` · ${analysis.executions.length} traced`
-                      : ""}
-                  </small>
-                </span>
-                <span className={countBadge}>{analysis.outputs.length}</span>
-              </summary>
-              <div className="grid gap-2 px-2.5 pb-2.5">
-                {analysis.inputs.length > 0 ? (
-                  <section className="rounded-[7px] border border-line bg-panel p-[9px]">
-                    <h4 className="mt-0 mb-2 text-[0.58rem] font-extrabold tracking-[0.06em] text-text-dim uppercase">
-                      Inputs
-                    </h4>
-                    <ul className="m-0 grid list-none gap-2 p-0">
-                      {analysis.inputs.map((input, index) => (
-                        <li
-                          className="min-w-0 text-[0.61rem] text-text-soft"
-                          key={`${input.role}:${input.target}:${index}`}
-                        >
-                          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                            <strong>{input.title ?? input.target}</strong>
-                            <span className="text-text-dim">
-                              {input.role} · {titleCase(input.kind)}
-                            </span>
-                          </div>
-                          {input.source ? (
-                            <code
-                              className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
-                              title={`${input.source.analysis_record_id}:${input.source.output_id}`}
-                            >
-                              {input.source.analysis_record_id}:{input.source.output_id}
-                            </code>
-                          ) : null}
-                          <code
-                            className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
-                            title={input.target}
-                          >
-                            {input.target}
-                          </code>
-                          <AnalysisMetadataView metadata={input.metadata ?? {}} />
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                ) : null}
-                {analysis.executions.length > 0 ? (
-                  <section className="rounded-[7px] border border-line bg-panel p-[9px]">
-                    <h4 className="mt-0 mb-2 text-[0.58rem] font-extrabold tracking-[0.06em] text-text-dim uppercase">
-                      Execution evidence
-                    </h4>
-                    <ul className="m-0 grid list-none gap-2 p-0">
-                      {analysis.executions.map((execution) => (
-                        <li className="min-w-0 text-[0.61rem] text-text-soft" key={execution.id}>
-                          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                            <strong>{execution.id}</strong>
-                            <span className="text-text-dim">
-                              {titleCase(execution.access)} · {execution.outputs.length} result
-                              {execution.outputs.length === 1 ? "" : "s"}
-                            </span>
-                          </div>
-                          <code
-                            className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
-                            title={execution.implementation}
-                          >
-                            {execution.implementation}
-                          </code>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                ) : null}
-                {analysis.outputs.map((output, index) => (
-                  <section
-                    className="overflow-hidden rounded-[7px] border border-line bg-panel"
-                    key={`${output.kind}:${output.title}:${index}`}
-                  >
-                    <header className="flex items-center justify-between gap-2.5 border-b border-line px-[9px] py-[7px]">
-                      <span className="grid min-w-0 gap-0.5">
-                        <strong className="text-[0.65rem]">{output.title}</strong>
-                        {output.producedBy ? (
-                          <small className="text-[0.55rem] text-text-dim">
-                            Produced by {formatExecutionOutput(output.producedBy)}
-                          </small>
-                        ) : output.derivedFrom ? (
-                          <small className="text-[0.55rem] text-text-dim">
-                            Derived from {formatExecutionOutput(output.derivedFrom.source)} via{" "}
-                            {output.derivedFrom.adapter}
-                          </small>
-                        ) : null}
-                      </span>
-                      <span className="text-[0.56rem] font-[750] text-text-dim uppercase">
-                        {titleCase(output.kind)}
-                      </span>
-                    </header>
-                    <AnalysisOutputView output={output} runId={runId} />
-                  </section>
-                ))}
-              </div>
-            </details>
+            <RunAnalysisItem analysis={analysis} key={analysis.id} runId={runId} />
           ))}
+          {hasNextPage && (
+            <button
+              className={classes(secondaryButton, "w-full")}
+              disabled={loadingNextPage}
+              onClick={onLoadOlder}
+              type="button"
+            >
+              {loadingNextPage ? (
+                <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />
+              ) : (
+                <ChevronDown size={14} aria-hidden="true" />
+              )}
+              {loadingNextPage ? "Loading older analyses…" : "Load older analyses"}
+            </button>
+          )}
         </div>
       )}
     </article>
+  );
+}
+
+function RunAnalysisItem({ analysis, runId }: { analysis: RunAnalysisSummary; runId: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const detail = useQuery({
+    queryKey: ["analysis", runId, analysis.id],
+    queryFn: ({ signal }) => getRunAnalysis(runId, analysis.id, signal),
+    enabled: expanded,
+  });
+  return (
+    <details
+      className="overflow-hidden rounded-[8px] border border-line bg-[rgb(255_255_255_/_1.2%)]"
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
+    >
+      <summary className="flex cursor-pointer items-center justify-between gap-2.5 p-2.5">
+        <span className="grid min-w-0 gap-[3px]">
+          <strong className="overflow-hidden text-[0.7rem] text-ellipsis whitespace-nowrap">
+            {analysis.title}
+          </strong>
+          <small className="text-[0.6rem] text-text-dim">
+            {analysis.key ?? analysis.id}
+            {analysis.stepId ? ` · ${analysis.stepId}` : ""}
+            {analysis.inputCount > 0 ? ` · ${analysis.inputCount} inputs` : ""}
+            {" · "}
+            <time dateTime={analysis.publishedAt} title={formatDateTime(analysis.publishedAt)}>
+              {formatRelative(analysis.publishedAt)}
+            </time>
+          </small>
+        </span>
+        <span className={countBadge}>{analysis.outputCount}</span>
+      </summary>
+      <div className="px-2.5 pb-2.5">
+        {detail.isPending ? (
+          <InlineEmpty title="Reading analysis" detail="Loading exact publication details." />
+        ) : detail.isError ? (
+          <InlineEmpty title="Analysis unavailable" detail={errorMessage(detail.error)} warning />
+        ) : (
+          <AnalysisPublicationView
+            analysis={detail.data}
+            getArtifactDownload={(selector) => getRunArtifactDownload(runId, selector)}
+          />
+        )}
+      </div>
+    </details>
   );
 }
 
@@ -398,6 +366,11 @@ export function DataCard({
   measurements,
   error,
   pending,
+  contentsError,
+  contentsPending,
+  contentsHasNextPage,
+  contentsLoadingNextPage,
+  onLoadOlderContents,
   measurementSlice,
   measurementSliceError,
   measurementSlicePending,
@@ -416,6 +389,11 @@ export function DataCard({
   measurements?: MeasurementPreview;
   error: Error | null;
   pending: boolean;
+  contentsError: Error | null;
+  contentsPending: boolean;
+  contentsHasNextPage: boolean;
+  contentsLoadingNextPage: boolean;
+  onLoadOlderContents: () => void;
   measurementSlice?: MeasurementSlicePreview;
   measurementSliceError: Error | null;
   measurementSlicePending: boolean;
@@ -464,7 +442,12 @@ export function DataCard({
       <CardHeading
         icon={<Database size={17} />}
         title="Data contents"
-        accessory={<span className={countBadge}>{run.contents.length}</span>}
+        accessory={
+          <span className={countBadge}>
+            {run.contents.length}
+            {contentsHasNextPage ? "+" : ""}
+          </span>
+        }
       />
       {hasPlanMetadata && (
         <div className="mb-[13px] grid grid-cols-3 gap-2 rounded-[8px] border border-line bg-[rgb(255_255_255_/_1%)] p-2.5 max-[460px]:grid-cols-1">
@@ -490,43 +473,80 @@ export function DataCard({
       {run.plan.recordIds.length > 0 && (
         <TagGroup label="Record types" values={run.plan.recordIds} />
       )}
-      {run.contents.length > 0 ? (
-        <ul className="mt-2.5 grid list-none gap-[7px] p-0">
-          {run.contents.map((content) => (
-            <li
-              key={contentKey(content)}
-              className={classes(
-                "flex min-w-0 items-center gap-[9px] rounded-[8px] border border-line bg-[rgb(255_255_255_/_1.2%)]",
-                contentKey(content) === selectedContentKey &&
-                  "border-[rgb(128_163_207_/_25%)] bg-accent-soft",
-              )}
-            >
-              <button
-                className="flex w-full cursor-pointer items-center gap-[9px] border-0 bg-transparent p-[9px] text-left text-inherit [&>svg]:flex-none [&>svg]:text-text-dim"
-                type="button"
-                onClick={() => setSelectedContentKey(contentKey(content))}
-                aria-current={contentKey(content) === selectedContentKey ? "true" : undefined}
+      {contentsError && run.contents.length === 0 ? (
+        <InlineEmpty
+          title="Data contents unavailable"
+          detail={errorMessage(contentsError)}
+          warning
+        />
+      ) : contentsPending ? (
+        <InlineEmpty
+          title="Reading data contents"
+          detail="Waiting for the daemon's relational content catalog."
+        />
+      ) : run.contents.length > 0 ? (
+        <div className="grid gap-[7px]">
+          <ul className="mt-2.5 grid list-none gap-[7px] p-0">
+            {run.contents.map((content) => (
+              <li
+                key={contentKey(content)}
+                className={classes(
+                  "flex min-w-0 items-center gap-[9px] rounded-[8px] border border-line bg-[rgb(255_255_255_/_1.2%)]",
+                  contentKey(content) === selectedContentKey &&
+                    "border-[rgb(128_163_207_/_25%)] bg-accent-soft",
+                )}
               >
-                <span
-                  className="grid size-7 flex-none place-items-center rounded-[7px] bg-blue-soft text-blue"
-                  aria-hidden="true"
+                <button
+                  className="flex w-full cursor-pointer items-center gap-[9px] border-0 bg-transparent p-[9px] text-left text-inherit [&>svg]:flex-none [&>svg]:text-text-dim"
+                  type="button"
+                  onClick={() => setSelectedContentKey(contentKey(content))}
+                  aria-current={contentKey(content) === selectedContentKey ? "true" : undefined}
                 >
-                  {content.role === "dataset" ? <Database size={15} /> : <SquareStack size={15} />}
-                </span>
-                <span className="grid min-w-0 flex-1 gap-0.5">
-                  <strong className="overflow-hidden text-[0.7rem] font-[650] text-ellipsis whitespace-nowrap">
-                    {content.label}
-                  </strong>
-                  <small className="overflow-hidden text-[0.6rem] text-ellipsis whitespace-nowrap text-text-dim">
-                    {titleCase(content.role)}
-                    {content.detail ? ` · ${content.detail}` : ""}
-                  </small>
-                </span>
-                {canPreviewRunContent(content) && <ChevronRight size={15} aria-hidden="true" />}
-              </button>
-            </li>
-          ))}
-        </ul>
+                  <span
+                    className="grid size-7 flex-none place-items-center rounded-[7px] bg-blue-soft text-blue"
+                    aria-hidden="true"
+                  >
+                    {content.role === "dataset" ? (
+                      <Database size={15} />
+                    ) : (
+                      <SquareStack size={15} />
+                    )}
+                  </span>
+                  <span className="grid min-w-0 flex-1 gap-0.5">
+                    <strong className="overflow-hidden text-[0.7rem] font-[650] text-ellipsis whitespace-nowrap">
+                      {content.label}
+                    </strong>
+                    <small className="overflow-hidden text-[0.6rem] text-ellipsis whitespace-nowrap text-text-dim">
+                      {titleCase(content.role)}
+                      {content.detail ? ` · ${content.detail}` : ""}
+                    </small>
+                  </span>
+                  {canPreviewRunContent(content) && <ChevronRight size={15} aria-hidden="true" />}
+                </button>
+              </li>
+            ))}
+          </ul>
+          {contentsError ? (
+            <p className="m-0 text-[0.61rem] text-red" role="status">
+              {errorMessage(contentsError)}
+            </p>
+          ) : null}
+          {contentsHasNextPage ? (
+            <button
+              className={classes(secondaryButton, "w-full")}
+              disabled={contentsLoadingNextPage}
+              onClick={onLoadOlderContents}
+              type="button"
+            >
+              {contentsLoadingNextPage ? (
+                <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />
+              ) : (
+                <ChevronDown size={14} aria-hidden="true" />
+              )}
+              {contentsLoadingNextPage ? "Loading older contents…" : "Load older contents"}
+            </button>
+          ) : null}
+        </div>
       ) : (
         <InlineEmpty
           title="No materialized contents"
@@ -878,10 +898,6 @@ function humanizeEvent(kind: string): string {
 
 function contentKey(entry: ContentEntry): string {
   return `${entry.role}:${entry.id}`;
-}
-
-function formatExecutionOutput(source: { execution_id: string; output_name: string }): string {
-  return `${source.execution_id}:${source.output_name}`;
 }
 
 function formatPreviewContent(value: unknown): string {

@@ -44,8 +44,8 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
     [proposal] = analysis.parameter_proposals
 
     summary = {
-        "run_id": run.manifest.run_id,
-        "status": run.manifest.status,
+        "run_id": run.id,
+        "status": run.status,
         "point_count": preview.point_count,
         "measurement_records": len(run.measurements().records),
         "analysis_id": analysis.id,

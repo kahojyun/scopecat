@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from pathlib import PurePosixPath
 
 from scopecat.config.parameter_resolution import validate_parameter_snapshot
 from scopecat.config.parameter_updates import (
@@ -24,18 +23,15 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.project_state import ProjectStateServices
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.content import ContentEntry, ModelWrite
 from scopecat.records.parameter_change import (
     ParameterChangeApprovalRecord,
     ParameterChangeProposal,
 )
-from scopecat.records.run import RunManifest
-from scopecat.runs.access import list_records
 from scopecat.runs.refs import record_content_ref
 from scopecat.runs.repository import (
     RunContentPublication,
-    RunModelWrite,
     RunRepository,
 )
 
@@ -44,14 +40,22 @@ SAFE_PARAMETER_CHANGE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 @dataclass(frozen=True, slots=True)
 class PreparedParameterChangeProposals:
-    entries: tuple[RunContentEntry, ...]
-    writes: tuple[RunModelWrite, ...]
+    entries: tuple[ContentEntry, ...]
+    writes: tuple[ModelWrite, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class PreparedParameterChangeApproval:
     approval: ParameterChangeApprovalRecord
     publication: RunContentPublication | None
+
+
+@dataclass(frozen=True, slots=True)
+class ParameterChangeProposalPage:
+    """Newest-first bounded page of one run's parameter proposals."""
+
+    items: tuple[ParameterChangeProposal, ...] = ()
+    next_cursor: int | None = None
 
 
 def is_safe_parameter_change_id(value: str) -> bool:
@@ -127,17 +131,29 @@ def list_parameter_change_proposals(
     *,
     run_id: str,
     services: ProjectStateServices,
-) -> tuple[ParameterChangeProposal, ...]:
-    """Load every durable parameter proposal published by one run."""
+    limit: int = 100,
+    before: int | None = None,
+) -> ParameterChangeProposalPage:
+    """Load one bounded newest-first proposal page without repeated scans."""
 
-    manifest = services.runs.read_manifest(run_id)
-    return tuple(
-        load_parameter_change_proposal(
-            run_id=run_id,
-            selector=entry.id,
-            services=services,
-        )
-        for entry in _proposal_records(manifest)
+    storage = services.runs
+    page = storage.list_contents(
+        run_id,
+        limit=limit,
+        before=before,
+        role="record",
+        kind="parameter_change_proposal",
+    )
+    return ParameterChangeProposalPage(
+        items=tuple(
+            _load_proposal_record(
+                storage=storage,
+                run_id=run_id,
+                proposal_record=entry,
+            )
+            for entry in page.items
+        ),
+        next_cursor=page.next_cursor,
     )
 
 
@@ -202,7 +218,7 @@ def prepare_parameter_change_approval(
             run_id=run_id,
             entries=(approval_entry,),
             models=(
-                RunModelWrite(
+                ModelWrite(
                     ref=approval_ref,
                     value=approval,
                     replace=False,
@@ -223,74 +239,82 @@ def load_parameter_change_approval(
         run_id=run_id,
         selector=selector,
     )
-    selected: list[ParameterChangeApprovalRecord] = []
-    for entry in list_records(
-        storage.read_manifest(run_id),
-        kind="parameter_change_approval_record",
-    ):
-        try:
-            approval = storage.read_model(
-                run_id,
-                record_content_ref(record_id=entry.id, kind=entry.kind),
-                ParameterChangeApprovalRecord,
-            )
-        except DataIntegrityError as error:
-            raise DataIntegrityError(
-                [
-                    _parameter_problem(
-                        "invalid_parameter_change_approval",
-                        "parameter change approval record is invalid",
-                        phase=ProblemPhase.PERSISTENCE,
-                        location=StorageLocation(
-                            run_id=run_id,
-                            ref=record_content_ref(
-                                record_id=entry.id,
-                                kind=entry.kind,
-                            ),
-                        ),
-                        details={"record_id": entry.id},
-                    )
-                ]
-            ) from error
-        expected_entry_id = f"{approval.proposal_id}-approval"
-        if approval.run_id != run_id or entry.id != expected_entry_id:
-            raise DataIntegrityError(
-                [
-                    _parameter_problem(
-                        "invalid_parameter_change_approval_identity",
-                        "parameter change approval identity does not match its "
-                        "run record",
-                        phase=ProblemPhase.PERSISTENCE,
-                        location=StorageLocation(
-                            run_id=run_id,
-                            ref=record_content_ref(
-                                record_id=entry.id,
-                                kind=entry.kind,
-                            ),
-                        ),
-                        details={
-                            "record_id": entry.id,
-                            "approval_run_id": approval.run_id,
-                            "expected_record_id": expected_entry_id,
-                        },
-                    )
-                ]
-            )
-        if approval.proposal_id == proposal.id:
-            selected.append(approval)
-    if len(selected) > 1:
+    return load_parameter_change_approval_for_proposal(
+        run_id=run_id,
+        proposal=proposal,
+        storage=storage,
+    )
+
+
+def load_parameter_change_approval_for_proposal(
+    *,
+    run_id: str,
+    proposal: ParameterChangeProposal,
+    storage: RunRepository,
+) -> ParameterChangeApprovalRecord | None:
+    """Load the deterministic approval record for an already loaded proposal."""
+
+    approval_id = f"{proposal.id}-approval"
+    try:
+        entry = storage.read_content(
+            run_id,
+            role="record",
+            content_id=approval_id,
+        )
+    except NotFound:
+        return None
+    if entry.kind != "parameter_change_approval_record":
         raise DataIntegrityError(
             [
                 _parameter_problem(
-                    "multiple_parameter_change_approvals",
-                    "parameter change proposal has multiple approvals",
+                    "invalid_parameter_change_approval_kind",
+                    "parameter change approval identity names a different record kind",
                     phase=ProblemPhase.PERSISTENCE,
                     location=StorageLocation(run_id=run_id),
-                    details={"proposal_id": proposal.id},
+                    details={"record_id": entry.id, "kind": entry.kind},
                 )
             ]
         )
-    return selected[0] if selected else None
+    approval_ref = record_content_ref(record_id=entry.id, kind=entry.kind)
+    try:
+        approval = storage.read_model(
+            run_id,
+            approval_ref,
+            ParameterChangeApprovalRecord,
+        )
+    except DataIntegrityError as error:
+        raise DataIntegrityError(
+            [
+                _parameter_problem(
+                    "invalid_parameter_change_approval",
+                    "parameter change approval record is invalid",
+                    phase=ProblemPhase.PERSISTENCE,
+                    location=StorageLocation(run_id=run_id, ref=approval_ref),
+                    details={"record_id": entry.id},
+                )
+            ]
+        ) from error
+    if (
+        approval.run_id != run_id
+        or approval.proposal_id != proposal.id
+        or entry.id != approval_id
+    ):
+        raise DataIntegrityError(
+            [
+                _parameter_problem(
+                    "invalid_parameter_change_approval_identity",
+                    "parameter change approval identity does not match its run record",
+                    phase=ProblemPhase.PERSISTENCE,
+                    location=StorageLocation(run_id=run_id, ref=approval_ref),
+                    details={
+                        "record_id": entry.id,
+                        "approval_run_id": approval.run_id,
+                        "expected_record_id": approval_id,
+                    },
+                )
+            ]
+        )
+    return approval
 
 
 def parameter_change_proposal_record_ref(proposal_id: str) -> str:
@@ -302,8 +326,8 @@ def parameter_change_proposal_record_ref(proposal_id: str) -> str:
 
 def _parameter_change_proposal_record(
     *, proposal: ParameterChangeProposal
-) -> RunContentEntry:
-    return RunContentEntry(
+) -> ContentEntry:
+    return ContentEntry(
         role="record",
         id=proposal.id,
         kind="parameter_change_proposal",
@@ -314,8 +338,8 @@ def _parameter_change_proposal_record(
 
 def _parameter_change_approval_record_entry(
     record: ParameterChangeApprovalRecord,
-) -> RunContentEntry:
-    return RunContentEntry(
+) -> ContentEntry:
+    return ContentEntry(
         role="record",
         id=f"{record.proposal_id}-approval",
         kind="parameter_change_approval_record",
@@ -332,8 +356,8 @@ def prepare_parameter_change_proposal_contents(
 ) -> PreparedParameterChangeProposals:
     """Prepare immutable proposals, reusing durable entries on retries."""
 
-    entries: list[RunContentEntry] = []
-    writes: list[RunModelWrite] = []
+    entries: list[ContentEntry] = []
+    writes: list[ModelWrite] = []
     for proposal in proposals:
         candidate_entry = _parameter_change_proposal_record(proposal=proposal)
         if proposal.source_run_id != run_id:
@@ -381,7 +405,7 @@ def prepare_parameter_change_proposal_contents(
             continue
         entries.append(candidate_entry)
         writes.append(
-            RunModelWrite(
+            ModelWrite(
                 ref=proposal_ref,
                 value=proposal,
                 replace=False,
@@ -416,40 +440,29 @@ def _same_parameter_change_proposal(
 
 def _resolve_proposal_ref(
     *, storage: RunRepository, run_id: str, selector: str
-) -> tuple[ParameterChangeProposal, RunContentEntry]:
-    manifest = storage.read_manifest(run_id)
-    _validate_selector_path(selector)
-    for proposal_record in _proposal_records(manifest):
-        proposal = _load_proposal_record(
+) -> tuple[ParameterChangeProposal, ContentEntry]:
+    try:
+        proposal_record = storage.read_content(
+            run_id,
+            role="record",
+            content_id=selector,
+        )
+    except NotFound:
+        raise _proposal_not_found(run_id=run_id, selector=selector) from None
+    if proposal_record.kind != "parameter_change_proposal":
+        raise _proposal_not_found(run_id=run_id, selector=selector)
+    return (
+        _load_proposal_record(
             storage=storage,
             run_id=run_id,
             proposal_record=proposal_record,
-        )
-        record_ref = record_content_ref(
-            record_id=proposal_record.id,
-            kind=proposal_record.kind,
-        )
-        if (
-            proposal.id == selector
-            or proposal_record.id == selector
-            or record_ref == selector
-        ):
-            return proposal, proposal_record
-    raise NotFound(
-        [
-            _parameter_problem(
-                "parameter_change_proposal_not_found",
-                "parameter change proposal was not found",
-                phase=ProblemPhase.ANALYSIS,
-                location=model_location("parameter_change_selector"),
-                details={"selector": selector, "run_id": run_id},
-            )
-        ]
+        ),
+        proposal_record,
     )
 
 
 def _load_proposal_record(
-    *, storage: RunRepository, run_id: str, proposal_record: RunContentEntry
+    *, storage: RunRepository, run_id: str, proposal_record: ContentEntry
 ) -> ParameterChangeProposal:
     proposal_ref = record_content_ref(
         record_id=proposal_record.id,
@@ -460,7 +473,10 @@ def _load_proposal_record(
             [
                 _parameter_problem(
                     "parameter_change_proposal_record_missing",
-                    "run manifest references a missing parameter change proposal",
+                    (
+                        "run content catalog references a missing parameter "
+                        "change proposal"
+                    ),
                     phase=ProblemPhase.PERSISTENCE,
                     location=StorageLocation(run_id=run_id, ref=proposal_ref),
                     details={"record_id": proposal_record.id},
@@ -504,24 +520,18 @@ def _load_proposal_record(
     return proposal
 
 
-def _proposal_records(manifest: RunManifest) -> tuple[RunContentEntry, ...]:
-    return list_records(manifest, kind="parameter_change_proposal")
-
-
-def _validate_selector_path(value: str) -> None:
-    path = PurePosixPath(value)
-    if path.is_absolute() or ".." in path.parts:
-        raise CheckFailed(
-            [
-                _parameter_problem(
-                    "parameter_change_path_escape",
-                    "parameter change selector escapes the run directory",
-                    phase=ProblemPhase.ANALYSIS,
-                    location=model_location("parameter_change_selector"),
-                    details={"selector": value},
-                )
-            ]
-        )
+def _proposal_not_found(*, run_id: str, selector: str) -> NotFound:
+    return NotFound(
+        [
+            _parameter_problem(
+                "parameter_change_proposal_not_found",
+                "parameter change proposal was not found",
+                phase=ProblemPhase.ANALYSIS,
+                location=model_location("parameter_change_selector"),
+                details={"selector": selector, "run_id": run_id},
+            )
+        ]
+    )
 
 
 def _parameter_problem(

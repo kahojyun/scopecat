@@ -20,7 +20,7 @@ Routine analysis and configuration changes use typed intent APIs:
 
 ```python
 with project.connect() as lab:
-    run = lab.runs()[0]
+    run = lab.runs().items[0]
     context = run.analysis("fit")
     score = fit_score(context.measurements())
     analysis = (

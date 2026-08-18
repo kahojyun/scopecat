@@ -49,18 +49,18 @@ from scopecat.daemon.wire import (
 )
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.planning.catalog import InstrumentContractCatalog
-from scopecat.records.artifact import (
-    BlobPayloadBody,
-    InlinePayloadBody,
-    command_payload_from_bytes,
-)
 from scopecat.records.config import (
     InstrumentBindingSpec,
     VirtualInstrumentConnection,
     config_content_hash,
 )
+from scopecat.records.content import (
+    BlobPayloadBody,
+    InlinePayloadBody,
+    command_payload_from_bytes,
+)
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.commands import (
@@ -84,7 +84,7 @@ def test_get_query_and_post_body_use_typed_wire_models() -> None:
     admission = client.submit_run(_submission())
 
     assert isinstance(runs, RunSummaryPage)
-    assert runs.items[0].manifest.run_id == admission.run_id
+    assert runs.items[0].snapshot.run_id == admission.run_id
     assert admission.submission_id == "submission-1"
 
     list_request = requests[0]
@@ -548,7 +548,7 @@ def _client_response(request: httpx2.Request) -> httpx2.Response:
                 items=(
                     RunSummary(
                         control=_control_run(),
-                        manifest=_accepted_manifest(),
+                        snapshot=_accepted_manifest(),
                     ),
                 )
             )
@@ -612,7 +612,7 @@ def _control_run() -> RunControlView:
 def _admission(submission_id: str) -> RunAdmission:
     return RunAdmission(
         submission_id=submission_id,
-        manifest=_accepted_manifest(),
+        snapshot=_accepted_manifest(),
     )
 
 
@@ -642,8 +642,8 @@ def _lease() -> ExecutorLease:
     )
 
 
-def _accepted_manifest() -> RunManifest:
-    return RunManifest(
+def _accepted_manifest() -> RunSnapshot:
+    return RunSnapshot(
         run_id="run-1",
         created_at=_NOW,
         config_content_hash=_HASH,

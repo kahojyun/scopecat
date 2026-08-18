@@ -1,9 +1,9 @@
 import type { CustomSeriesRenderItem, EChartsCoreOption } from "echarts";
-import type { RunAnalysisOutput } from "../../types";
+import type { AnalysisOutput } from "../../types";
 import type { MeasurementChartPlan } from "./measurement-visualization";
 
 export type AnalysisFigureContent = Extract<
-  RunAnalysisOutput,
+  AnalysisOutput,
   { kind: "figure" }
 >["content"]["preview"];
 

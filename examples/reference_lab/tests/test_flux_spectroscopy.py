@@ -14,6 +14,8 @@ from scopecat.records.analysis import (
     AnalysisDatasetRecordOutput,
     AnalysisFactRecordOutput,
     AnalysisPublishedOutputReference,
+    PublishedAnalysisRecordInput,
+    RunAnalysisSubject,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.measurement import (
@@ -201,7 +203,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     )
     assert preview_records[temperature_record_id].role == "observable"
     assert preview_records[temperature_record_id].dims == ("point",)
-    assert run.manifest.status == "completed"
+    assert run.status == "completed"
     records = run.measurements().records
     assert len(records) == BIAS_POINTS
     assert all(
@@ -275,7 +277,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
 
     analysis = run.analyze(flux_spectroscopy_analysis())
     candidate = lab.resolve_config(config=analysis.candidate_config())
-    assert analysis.id == "analysis-reference_lab-flux_spectroscopy-analysis"
+    assert analysis.id == "analysis-reference_lab-flux_spectroscopy-analysis-r1"
     assert [output.kind for output in analysis.outputs] == [
         "dataset",
         "fact",
@@ -324,7 +326,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert float(active_frequency.to("GHz").value) == pytest.approx(5.0)
 
     review = run.analyze(flux_spectroscopy_fit_review())
-    assert review.id == "analysis-reference_lab-flux_spectroscopy-fit-review"
+    assert review.id == "analysis-reference_lab-flux_spectroscopy-fit-review-r1"
     quality = review.fact_as(
         "quality-review",
         FLUX_SPECTROSCOPY_FIT_REVIEW_SCHEMA,
@@ -332,7 +334,9 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert quality.accepted
     assert quality.worst_complex_rmse < 0.02
     [review_input] = review.inputs
+    assert isinstance(review_input, PublishedAnalysisRecordInput)
     assert review_input.source == AnalysisPublishedOutputReference(
+        subject=RunAnalysisSubject(run_id=run.id),
         analysis_record_id=analysis.id,
         output_id="fit-by-bias",
     )
@@ -372,11 +376,11 @@ def test_flux_spectroscopy_notebook_completes_through_the_project_daemon(
     assert summary["point_count"] == BIAS_POINTS
     assert summary["measurement_records"] == BIAS_POINTS
     assert summary["analysis_id"] == (
-        "analysis-reference_lab-flux_spectroscopy-analysis"
+        "analysis-reference_lab-flux_spectroscopy-analysis-r1"
     )
     assert summary["analysis_revision"] == 1
     assert summary["fit_review_id"] == (
-        "analysis-reference_lab-flux_spectroscopy-fit-review"
+        "analysis-reference_lab-flux_spectroscopy-fit-review-r1"
     )
     assert summary["fit_review_accepted"]
     assert summary["fit_report"] == "flux-spectroscopy-fit.md"
@@ -407,8 +411,8 @@ def test_flux_spectroscopy_failure_aborts_with_bias_disabled(
     with pytest.raises(RunIndeterminate):
         lab.prepare(flux_spectroscopy()).run()
 
-    [run] = lab.runs()
-    assert run.manifest.status == "unknown"
+    [run] = lab.runs().items
+    assert run.status == "unknown"
     assert not provider.world.dc_source(
         f"{FLUX_SOURCE_ID}:flux.dac_a.ch1"
     ).output_enabled
