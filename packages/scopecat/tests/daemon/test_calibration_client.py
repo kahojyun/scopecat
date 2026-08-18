@@ -9,6 +9,7 @@ from scopecat.automation import (
     CalibrationCohort,
     CalibrationCohortCreateCommand,
     CalibrationCohortCreateReceipt,
+    CalibrationCohortFinalization,
     CalibrationCohortGetReceipt,
     CalibrationCohortListQuery,
     CalibrationCohortMember,
@@ -21,6 +22,18 @@ from scopecat.automation import (
     CalibrationConfigSourceRef,
     CalibrationDefinitionRef,
     CalibrationMissingSuccessDueReason,
+    CalibrationPublicationAttention,
+    CalibrationPublicationAttentionCommand,
+    CalibrationPublicationAttentionReceipt,
+    CalibrationPublicationDeferCommand,
+    CalibrationPublicationDeferReceipt,
+    CalibrationPublicationGetReceipt,
+    CalibrationPublicationPolicyRef,
+    CalibrationPublicationReadyItem,
+    CalibrationPublicationReadyPage,
+    CalibrationPublicationReadyQuery,
+    CalibrationPublicationRetryCommand,
+    CalibrationPublicationRetryReceipt,
     CalibrationStatus,
     CalibrationStatusQuery,
     CalibrationStatusReceipt,
@@ -32,6 +45,7 @@ from scopecat.automation import (
     calibration_freshness_fingerprint,
     calibration_key,
 )
+from scopecat.config.registry import ConfigCompositionPolicyRef
 from scopecat.daemon.client import DaemonClient
 
 _HASH_1 = "sha256:" + "1" * 64
@@ -135,7 +149,163 @@ def test_calibration_client_uses_typed_exact_routes_and_retries_create() -> None
     assert dict(requests[5].url.params) == {"limit": "6", "cursor": "0"}
 
 
-def _fixture() -> tuple[
+def test_calibration_publication_client_uses_typed_exact_routes() -> None:
+    cohort, _member_record, _snapshot = _fixture(automatic_publication=True)
+    policy = cohort.spec.automatic_publication
+    assert policy is not None
+    ready_at = _CREATED + timedelta(seconds=1)
+    ready = CalibrationCohortFinalization(
+        cohort_id=cohort.cohort_id,
+        spec_hash=cohort.spec_hash,
+        policy=policy,
+        base_config_source=cohort.spec.config_source,
+        revision=2,
+        state="ready",
+        attempt_count=0,
+        created_at=cohort.created_at,
+        updated_at=ready_at,
+        ready_at=ready_at,
+        available_at=ready_at,
+    )
+    attention_command = CalibrationPublicationAttentionCommand(
+        cohort_id=cohort.cohort_id,
+        policy=policy,
+        expected_finalization_revision=ready.revision,
+        actor="automatic-finalizer",
+        reason="proof drift",
+    )
+    attention_at = ready_at + timedelta(seconds=1)
+    attention = ready.model_copy(
+        update={
+            "revision": 3,
+            "state": "attention_required",
+            "updated_at": attention_at,
+            "available_at": None,
+            "attention": CalibrationPublicationAttention(
+                actor=attention_command.actor,
+                reason=attention_command.reason,
+                required_at=attention_at,
+            ),
+        }
+    )
+    retry_command = CalibrationPublicationRetryCommand(
+        cohort_id=cohort.cohort_id,
+        policy=policy,
+        expected_finalization_revision=attention.revision,
+        actor="operator",
+        reason="policy restored",
+    )
+    retried_at = attention_at + timedelta(seconds=1)
+    retried = attention.model_copy(
+        update={
+            "revision": 4,
+            "state": "ready",
+            "updated_at": retried_at,
+            "ready_at": retried_at,
+            "available_at": retried_at,
+            "attention": None,
+        }
+    )
+    defer_command = CalibrationPublicationDeferCommand(
+        cohort_id=cohort.cohort_id,
+        policy=policy,
+        expected_finalization_revision=retried.revision,
+        retry_after_seconds=30,
+        reason="daemon temporarily unavailable",
+    )
+    deferred = retried.model_copy(
+        update={
+            "revision": 5,
+            "attempt_count": 1,
+            "updated_at": retried_at + timedelta(seconds=1),
+            "available_at": retried_at + timedelta(seconds=31),
+        }
+    )
+    ready_query = CalibrationPublicationReadyQuery(
+        capabilities=(policy,),
+        cursor=7,
+        through_sequence=11,
+        limit=3,
+    )
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        path = request.url.path
+        if path == "/api/v1/calibration-publications/ready/query":
+            assert (
+                CalibrationPublicationReadyQuery.model_validate_json(request.content)
+                == ready_query
+            )
+            return _response(
+                CalibrationPublicationReadyPage(
+                    items=(
+                        CalibrationPublicationReadyItem(
+                            sequence=8,
+                            cohort=CalibrationCohortSummary.from_cohort(cohort),
+                            finalization=ready,
+                            enqueued_at=ready_at,
+                        ),
+                    )
+                )
+            )
+        if path == f"/api/v1/calibration-publications/by-cohort/{_COHORT_ID}":
+            return _response(CalibrationPublicationGetReceipt(finalization=ready))
+        if path == f"/api/v1/calibration-publication-attentions/{_COHORT_ID}":
+            assert (
+                CalibrationPublicationAttentionCommand.model_validate_json(
+                    request.content
+                )
+                == attention_command
+            )
+            return _response(
+                CalibrationPublicationAttentionReceipt(finalization=attention)
+            )
+        if path == f"/api/v1/calibration-publication-retries/{_COHORT_ID}":
+            assert (
+                CalibrationPublicationRetryCommand.model_validate_json(request.content)
+                == retry_command
+            )
+            return _response(CalibrationPublicationRetryReceipt(finalization=retried))
+        if path == f"/api/v1/calibration-publication-deferrals/{_COHORT_ID}":
+            assert (
+                CalibrationPublicationDeferCommand.model_validate_json(request.content)
+                == defer_command
+            )
+            return _response(CalibrationPublicationDeferReceipt(finalization=deferred))
+        raise AssertionError(f"unexpected request: {request.method} {path}")
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert (
+        client.list_ready_calibration_publications(ready_query).items[0].sequence == 8
+    )
+    assert client.get_calibration_publication(_COHORT_ID).finalization == ready
+    assert (
+        client.require_calibration_publication_attention(attention_command).finalization
+        == attention
+    )
+    assert client.retry_calibration_publication(retry_command).finalization == retried
+    assert client.defer_calibration_publication(defer_command).finalization == deferred
+
+    assert [request.method for request in requests] == [
+        "POST",
+        "GET",
+        "POST",
+        "POST",
+        "POST",
+    ]
+    quoted_id = b"cohort%2Fq0%3Fq%3D1"
+    assert all(quoted_id in request.url.raw_path for request in requests[1:])
+
+
+def _fixture(
+    *,
+    automatic_publication: bool = False,
+) -> tuple[
     CalibrationCohort,
     CalibrationCohortMember,
     CalibrationStatusSnapshot,
@@ -144,6 +314,9 @@ def _fixture() -> tuple[
         id="drag",
         version="1",
         fingerprint=_HASH_1,
+        success_policy=(
+            "published_result" if automatic_publication else "procedure_success"
+        ),
     )
     target = CalibrationTargetRef(kind="qubit", id="q0")
     procedure = ProcedureDefinitionRef(
@@ -170,8 +343,24 @@ def _fixture() -> tuple[
         ),
         due_reasons=(CalibrationMissingSuccessDueReason(),),
     )
+    publication_policy = (
+        CalibrationPublicationPolicyRef(
+            id="drag-publication",
+            version="1",
+            fingerprint="sha256:" + "4" * 64,
+            calibration=definition,
+            composition_policy=ConfigCompositionPolicyRef(
+                id="drag-composition",
+                version="1",
+                fingerprint="sha256:" + "5" * 64,
+            ),
+        )
+        if automatic_publication
+        else None
+    )
     spec = CalibrationCohortSpec(
         planner=definition,
+        automatic_publication=publication_policy,
         config_source=CalibrationConfigSourceRef(
             selector="active",
             entry_id="config-1",

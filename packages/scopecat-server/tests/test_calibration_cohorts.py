@@ -22,6 +22,17 @@ from scopecat.automation import (
     CalibrationConfigSourceRef,
     CalibrationDefinitionRef,
     CalibrationForcedDueReason,
+    CalibrationPublicationAttentionCommand,
+    CalibrationPublicationAttentionReceipt,
+    CalibrationPublicationDeferCommand,
+    CalibrationPublicationDeferReceipt,
+    CalibrationPublicationGetQuery,
+    CalibrationPublicationGetReceipt,
+    CalibrationPublicationPolicyRef,
+    CalibrationPublicationReadyPage,
+    CalibrationPublicationReadyQuery,
+    CalibrationPublicationRetryCommand,
+    CalibrationPublicationRetryReceipt,
     CalibrationStatusQuery,
     CalibrationStatusReceipt,
     CalibrationSuccessPolicy,
@@ -44,7 +55,10 @@ from scopecat.automation import (
     calibration_freshness_fingerprint,
     calibration_key,
 )
-from scopecat.config.registry.records import ConfigPublishOperation
+from scopecat.config.registry.records import (
+    ConfigCompositionPolicyRef,
+    ConfigPublishOperation,
+)
 from scopecat.config.registry.service import (
     ConfigRevision,
     DirectConfigRevisionSource,
@@ -84,6 +98,8 @@ _DEFINITION_HASH = "sha256:" + "1" * 64
 _PROCEDURE_HASH = "sha256:" + "2" * 64
 _INPUT_HASH = "sha256:" + "3" * 64
 _RESULT_INPUT_HASH = "sha256:" + "4" * 64
+_PUBLICATION_POLICY_HASH = "sha256:" + "5" * 64
+_COMPOSITION_POLICY_HASH = "sha256:" + "6" * 64
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,12 +199,14 @@ def _command(
     source: CalibrationConfigSourceRef,
     snapshot: CalibrationStatusReceipt,
     members: tuple[CalibrationCohortMemberSpec, ...],
+    automatic_publication: CalibrationPublicationPolicyRef | None = None,
 ) -> CalibrationCohortCreateCommand:
     status = snapshot.snapshot
     return CalibrationCohortCreateCommand(
         cohort_id=cohort_id,
         spec=CalibrationCohortSpec(
             planner=members[0].definition,
+            automatic_publication=automatic_publication,
             config_source=source,
             fanout_scope=status.fanout_scope,
             max_in_flight=4,
@@ -196,6 +214,22 @@ def _command(
             evaluated_at=status.observed_at,
             observations=status.statuses,
             members=members,
+        ),
+    )
+
+
+def _publication_policy(
+    definition: CalibrationDefinitionRef,
+) -> CalibrationPublicationPolicyRef:
+    return CalibrationPublicationPolicyRef(
+        id="test.calibration-publication",
+        version="1",
+        fingerprint=_PUBLICATION_POLICY_HASH,
+        calibration=definition,
+        composition_policy=ConfigCompositionPolicyRef(
+            id="test.config-composition",
+            version="1",
+            fingerprint=_COMPOSITION_POLICY_HASH,
         ),
     )
 
@@ -316,6 +350,212 @@ def _attach_success_publication(
         )
     harness.now[0] = max(harness.now[0], activation.recorded_at)
     return anchored
+
+
+def test_automatic_publication_becomes_ready_and_supports_control_transitions(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    members = (
+        _member("q0", success_policy="published_result"),
+        _member("q1", success_policy="published_result"),
+    )
+    policy = _publication_policy(members[0].definition)
+    command = _command(
+        "automatic-cohort",
+        source=harness.source,
+        snapshot=_status(harness, members),
+        members=members,
+        automatic_publication=policy,
+    )
+    receipt = harness.service.create(command)
+
+    initial = harness.service.get_publication(
+        CalibrationPublicationGetQuery(cohort_id=command.cohort_id)
+    ).finalization
+    assert initial.state == "waiting"
+    assert initial.revision == 1
+
+    _close(harness, receipt.members[0], status="succeeded")
+    assert harness.store.read_finalization(command.cohort_id).state == "waiting"
+    _close(harness, receipt.members[1], status="succeeded")
+
+    ready = harness.store.read_finalization(command.cohort_id)
+    assert ready.state == "ready"
+    assert ready.revision == 2
+    assert ready.ready_at == harness.now[0]
+    page = harness.service.ready_publications(
+        CalibrationPublicationReadyQuery(capabilities=(policy,), limit=1)
+    )
+    assert len(page.items) == 1
+    first_occurrence = page.items[0]
+    assert first_occurrence.finalization == ready
+
+    changed_policy = policy.model_copy(update={"fingerprint": "sha256:" + "9" * 64})
+    assert not harness.service.ready_publications(
+        CalibrationPublicationReadyQuery(capabilities=(changed_policy,))
+    ).items
+    changed_binding = policy.model_copy(
+        update={
+            "calibration": policy.calibration.model_copy(
+                update={"fingerprint": "sha256:" + "8" * 64}
+            )
+        }
+    )
+    assert not harness.service.ready_publications(
+        CalibrationPublicationReadyQuery(capabilities=(changed_binding,))
+    ).items
+
+    deferred = harness.service.defer_publication(
+        CalibrationPublicationDeferCommand(
+            cohort_id=command.cohort_id,
+            policy=policy,
+            expected_finalization_revision=ready.revision,
+            retry_after_seconds=30,
+            reason="temporary control-plane outage",
+        )
+    ).finalization
+    assert deferred.state == "ready"
+    assert deferred.attempt_count == 1
+    assert not harness.service.ready_publications(
+        CalibrationPublicationReadyQuery(capabilities=(policy,))
+    ).items
+
+    harness.now[0] += timedelta(seconds=30)
+    resumed_page = harness.service.ready_publications(
+        CalibrationPublicationReadyQuery(capabilities=(policy,))
+    )
+    assert resumed_page.items[0].sequence == first_occurrence.sequence
+    assert resumed_page.items[0].enqueued_at == first_occurrence.enqueued_at
+
+    attention = harness.service.require_publication_attention(
+        CalibrationPublicationAttentionCommand(
+            cohort_id=command.cohort_id,
+            policy=policy,
+            expected_finalization_revision=deferred.revision,
+            actor="automatic-finalizer",
+            reason="deterministic proof drift",
+        )
+    ).finalization
+    assert attention.state == "attention_required"
+    assert not harness.service.ready_publications(
+        CalibrationPublicationReadyQuery(capabilities=(policy,))
+    ).items
+
+    harness.now[0] += timedelta(seconds=1)
+    retried = harness.service.retry_publication(
+        CalibrationPublicationRetryCommand(
+            cohort_id=command.cohort_id,
+            policy=policy,
+            expected_finalization_revision=attention.revision,
+            actor="operator",
+            reason="policy restored",
+        )
+    ).finalization
+    retry_page = harness.service.ready_publications(
+        CalibrationPublicationReadyQuery(capabilities=(policy,))
+    )
+    assert retried.state == "ready"
+    assert retry_page.items[0].sequence > first_occurrence.sequence
+    assert retry_page.items[0].enqueued_at == retried.ready_at
+
+
+def test_automatic_publication_fails_terminally_with_any_failed_member(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    members = (
+        _member("q0", success_policy="published_result"),
+        _member("q1", success_policy="published_result"),
+    )
+    policy = _publication_policy(members[0].definition)
+    receipt = harness.service.create(
+        _command(
+            "failed-automatic-cohort",
+            source=harness.source,
+            snapshot=_status(harness, members),
+            members=members,
+            automatic_publication=policy,
+        )
+    )
+
+    _close(harness, receipt.members[0], status="failed")
+
+    finalization = harness.store.read_finalization(receipt.cohort.cohort_id)
+    assert finalization.state == "failed"
+    assert finalization.failure is not None
+    assert not harness.service.ready_publications(
+        CalibrationPublicationReadyQuery(capabilities=(policy,))
+    ).items
+
+
+def test_automatic_publication_ready_traversal_uses_a_finite_high_water(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    policy = _publication_policy(
+        _member("q0", success_policy="published_result").definition
+    )
+
+    def create_ready(cohort_id: str, target_id: str) -> None:
+        members = (_member(target_id, success_policy="published_result"),)
+        receipt = harness.service.create(
+            _command(
+                cohort_id,
+                source=harness.source,
+                snapshot=_status(harness, members),
+                members=members,
+                automatic_publication=policy,
+            )
+        )
+        _close(harness, receipt.members[0], status="succeeded")
+
+    create_ready("ready-a", "q0")
+    create_ready("ready-b", "q1")
+    first = harness.service.ready_publications(
+        CalibrationPublicationReadyQuery(capabilities=(policy,), limit=1)
+    )
+    assert tuple(item.cohort.cohort_id for item in first.items) == ("ready-a",)
+    assert first.next_cursor is not None
+    assert first.through_sequence is not None
+    first_item = first.items[0]
+    harness.service.require_publication_attention(
+        CalibrationPublicationAttentionCommand(
+            cohort_id=first_item.cohort.cohort_id,
+            policy=policy,
+            expected_finalization_revision=first_item.finalization.revision,
+            actor="test-finalizer",
+            reason="finish first occurrence",
+        )
+    )
+
+    create_ready("ready-c", "q2")
+    second = harness.service.ready_publications(
+        CalibrationPublicationReadyQuery(
+            capabilities=(policy,),
+            cursor=first.next_cursor,
+            through_sequence=first.through_sequence,
+            limit=1,
+        )
+    )
+    assert tuple(item.cohort.cohort_id for item in second.items) == ("ready-b",)
+    assert second.next_cursor is None
+    assert second.through_sequence is None
+    second_item = second.items[0]
+    harness.service.require_publication_attention(
+        CalibrationPublicationAttentionCommand(
+            cohort_id=second_item.cohort.cohort_id,
+            policy=policy,
+            expected_finalization_revision=second_item.finalization.revision,
+            actor="test-finalizer",
+            reason="finish frozen traversal",
+        )
+    )
+
+    wrapped = harness.service.ready_publications(
+        CalibrationPublicationReadyQuery(capabilities=(policy,), limit=1)
+    )
+    assert tuple(item.cohort.cohort_id for item in wrapped.items) == ("ready-c",)
 
 
 def _move_to_active_state(
@@ -858,7 +1098,8 @@ def test_cohort_rolls_back_after_the_last_procedure_run_insert_fails(
 def test_calibration_cohort_http_sqlite_vertical_replays_after_restart(
     tmp_path: Path,
 ) -> None:
-    member = _member("q0")
+    member = _member("q0", success_policy="published_result")
+    policy = _publication_policy(member.definition)
     cohort_id = "foo/members"
     encoded_id = quote(cohort_id, safe="")
     with (
@@ -887,6 +1128,7 @@ def test_calibration_cohort_http_sqlite_vertical_replays_after_restart(
             source=source,
             snapshot=status,
             members=(member,),
+            automatic_publication=policy,
         )
         response = client.post(
             "/api/v1/calibration-cohorts",
@@ -908,6 +1150,80 @@ def test_calibration_cohort_http_sqlite_vertical_replays_after_restart(
         assert member_response.json()["items"][0]["procedure_run_id"] == (
             created.members[0].procedure_run_id
         )
+        acquired = runtime.application.automation.acquire_lease(
+            ProcedureWorkerLeaseAcquireCommand(
+                procedure_run_id=created.members[0].procedure_run_id,
+                worker_id="http-publication-worker",
+                expected_run_revision=1,
+            )
+        )
+        runtime.application.automation.close(
+            ProcedureCloseCommand(
+                procedure_run_id=created.members[0].procedure_run_id,
+                lease_token=acquired.lease.lease_token,
+                expected_run_revision=acquired.run.revision,
+                status="succeeded",
+            )
+        )
+        ready_response = client.post(
+            "/api/v1/calibration-publications/ready/query",
+            json=CalibrationPublicationReadyQuery(
+                capabilities=(policy,),
+            ).model_dump(mode="json"),
+        )
+        assert ready_response.status_code == 200
+        ready = CalibrationPublicationReadyPage.model_validate(ready_response.json())
+        assert ready.items[0].cohort.cohort_id == cohort_id
+        publication_response = client.get(
+            f"/api/v1/calibration-publications/by-cohort/{encoded_id}"
+        )
+        assert publication_response.status_code == 200
+        finalization = CalibrationPublicationGetReceipt.model_validate(
+            publication_response.json()
+        ).finalization
+        assert finalization.state == "ready"
+        attention_command = CalibrationPublicationAttentionCommand(
+            cohort_id=cohort_id,
+            policy=policy,
+            expected_finalization_revision=finalization.revision,
+            actor="http-finalizer",
+            reason="test deterministic failure",
+        )
+        attention_response = client.post(
+            f"/api/v1/calibration-publication-attentions/{encoded_id}",
+            json=attention_command.model_dump(mode="json"),
+        )
+        attention = CalibrationPublicationAttentionReceipt.model_validate(
+            attention_response.json()
+        ).finalization
+        retry_response = client.post(
+            f"/api/v1/calibration-publication-retries/{encoded_id}",
+            json=CalibrationPublicationRetryCommand(
+                cohort_id=cohort_id,
+                policy=policy,
+                expected_finalization_revision=attention.revision,
+                actor="operator",
+                reason="test retry",
+            ).model_dump(mode="json"),
+        )
+        retried = CalibrationPublicationRetryReceipt.model_validate(
+            retry_response.json()
+        ).finalization
+        defer_response = client.post(
+            f"/api/v1/calibration-publication-deferrals/{encoded_id}",
+            json=CalibrationPublicationDeferCommand(
+                cohort_id=cohort_id,
+                policy=policy,
+                expected_finalization_revision=retried.revision,
+                retry_after_seconds=30,
+                reason="test outage",
+            ).model_dump(mode="json"),
+        )
+        deferred = CalibrationPublicationDeferReceipt.model_validate(
+            defer_response.json()
+        ).finalization
+        assert deferred.state == "ready"
+        assert deferred.attempt_count == 1
 
     with (
         LocalDaemonRuntime(tmp_path, bootstrap_config=load_config()) as restarted,
@@ -926,3 +1242,9 @@ def test_calibration_cohort_http_sqlite_vertical_replays_after_restart(
         assert procedures.items[0].procedure_run_id == (
             created.members[0].procedure_run_id
         )
+        publication = CalibrationPublicationGetReceipt.model_validate(
+            client.get(
+                f"/api/v1/calibration-publications/by-cohort/{encoded_id}"
+            ).json()
+        ).finalization
+        assert publication == deferred

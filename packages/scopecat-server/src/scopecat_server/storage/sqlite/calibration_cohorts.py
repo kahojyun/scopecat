@@ -6,15 +6,23 @@ import sqlite3
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 from pydantic import ValidationError
+from scopecat.automation.calibration_wire import CalibrationPublicationReadyItem
 from scopecat.automation.calibrations import (
     CalibrationAttemptStatus,
     CalibrationCohort,
+    CalibrationCohortFinalization,
+    CalibrationCohortFinalizationState,
     CalibrationCohortMember,
     CalibrationCohortSummary,
+    CalibrationPublicationAttention,
+    CalibrationPublicationCompletion,
+    CalibrationPublicationFailure,
+    CalibrationPublicationPolicyRef,
+    CalibrationPublicationSupersession,
     CalibrationStatus,
     CalibrationStatusSnapshot,
     CalibrationSuccessPublication,
@@ -63,6 +71,15 @@ class StoredCalibrationCohortMemberPage:
 
     items: tuple[CalibrationCohortMember, ...]
     next_cursor: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class StoredCalibrationPublicationReadyPage:
+    """Insertion-oldest page within one finite ready-work traversal."""
+
+    items: tuple[CalibrationPublicationReadyItem, ...]
+    next_cursor: int | None = None
+    through_sequence: int | None = None
 
 
 class SQLiteCalibrationCohortStore:
@@ -228,6 +245,457 @@ class SQLiteCalibrationCohortStore:
                 f"failed to read calibration cohort members: {cohort_id}"
             ) from error
 
+    def read_finalization(self, cohort_id: str) -> CalibrationCohortFinalization:
+        with self.sqlite.read_connection() as connection:
+            return self.read_finalization_in_transaction(connection, cohort_id)
+
+    def read_finalization_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        cohort_id: str,
+    ) -> CalibrationCohortFinalization:
+        try:
+            row = _one(
+                connection.execute(
+                    """
+                    SELECT finalizations.*, cohorts.cohort_json
+                    FROM calibration_cohort_finalizations AS finalizations
+                    CROSS JOIN calibration_cohorts AS cohorts
+                      ON cohorts.cohort_id = finalizations.cohort_id
+                    WHERE finalizations.cohort_id = ?
+                    """,
+                    (cohort_id,),
+                )
+            )
+        except sqlite3.Error as error:
+            raise CalibrationCohortStoreError(
+                f"failed to read calibration publication: {cohort_id}"
+            ) from error
+        if row is None:
+            raise CalibrationCohortNotFound(
+                f"calibration publication was not found: {cohort_id}"
+            )
+        return _finalization(row)
+
+    def list_ready_publications(
+        self,
+        capabilities: tuple[CalibrationPublicationPolicyRef, ...],
+        *,
+        at: datetime,
+        limit: int = 50,
+        after: int | None = None,
+        through_sequence: int | None = None,
+    ) -> StoredCalibrationPublicationReadyPage:
+        if not 1 <= limit <= 200:
+            raise ValueError(
+                "calibration publication page size must be between 1 and 200"
+            )
+        if after is not None and after < 1:
+            raise ValueError("calibration publication cursor must be positive")
+        _require_traversal_pair(after, through_sequence)
+        if not capabilities:
+            return StoredCalibrationPublicationReadyPage(items=())
+
+        capability_clause = " OR ".join(
+            "queue.policy_json = ?" for _capability in capabilities
+        )
+        capability_parameters = tuple(
+            capability.model_dump_json() for capability in capabilities
+        )
+        try:
+            with self.sqlite.read_transaction() as connection:
+                traversal_end = through_sequence
+                if traversal_end is None:
+                    row = _one(
+                        connection.execute(
+                            """
+                            SELECT MAX(sequence) AS sequence
+                            FROM calibration_publication_ready_queue
+                            """
+                        )
+                    )
+                    traversal_end = (
+                        None if row is None else _optional_integer(row, "sequence")
+                    )
+                if traversal_end is None:
+                    return StoredCalibrationPublicationReadyPage(items=())
+                rows = _all(
+                    connection.execute(
+                        f"""
+                        SELECT queue.sequence, queue.enqueued_at,
+                               finalizations.*, cohorts.cohort_json
+                        FROM calibration_publication_ready_queue AS queue
+                        CROSS JOIN calibration_cohort_finalizations AS finalizations
+                          ON finalizations.cohort_id = queue.cohort_id
+                        CROSS JOIN calibration_cohorts AS cohorts
+                          ON cohorts.cohort_id = queue.cohort_id
+                        WHERE finalizations.state = 'ready'
+                          AND queue.available_at <= ?
+                          AND (? IS NULL OR queue.sequence > ?)
+                          AND queue.sequence <= ?
+                          AND ({capability_clause})
+                        ORDER BY queue.sequence ASC
+                        LIMIT ?
+                        """,  # noqa: S608 - generated placeholders only
+                        (
+                            _timestamp(at),
+                            after,
+                            after,
+                            traversal_end,
+                            *capability_parameters,
+                            limit + 1,
+                        ),
+                    )
+                )
+            selected = rows[:limit]
+            has_next = len(rows) > limit
+            return StoredCalibrationPublicationReadyPage(
+                items=tuple(_ready_item(row) for row in selected),
+                next_cursor=(_integer(selected[-1], "sequence") if has_next else None),
+                through_sequence=traversal_end if has_next else None,
+            )
+        except (sqlite3.Error, ValidationError) as error:
+            raise CalibrationCohortStoreError(
+                "failed to list ready calibration publications"
+            ) from error
+
+    def require_publication_attention_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        cohort_id: str,
+        policy: CalibrationPublicationPolicyRef,
+        expected_revision: int,
+        actor: str,
+        reason: str,
+        at: datetime,
+    ) -> CalibrationCohortFinalization:
+        current = self._require_publication_transition(
+            connection,
+            cohort_id=cohort_id,
+            policy=policy,
+            expected_revision=expected_revision,
+            expected_state="ready",
+        )
+        try:
+            updated = connection.execute(
+                """
+                UPDATE calibration_cohort_finalizations
+                SET revision = revision + 1,
+                    state = 'attention_required',
+                    updated_at = ?,
+                    available_at = NULL,
+                    attention_actor = ?,
+                    attention_reason = ?,
+                    attention_required_at = ?
+                WHERE cohort_id = ? AND revision = ? AND state = 'ready'
+                """,
+                (
+                    _timestamp(at),
+                    actor,
+                    reason,
+                    _timestamp(at),
+                    cohort_id,
+                    expected_revision,
+                ),
+            ).rowcount
+            if updated != 1:
+                raise CalibrationCohortConflict(
+                    "calibration publication finalization changed"
+                )
+            connection.execute(
+                "DELETE FROM calibration_publication_ready_queue WHERE cohort_id = ?",
+                (cohort_id,),
+            )
+        except sqlite3.IntegrityError as error:
+            raise CalibrationCohortConflict(
+                "calibration publication attention conflicts with durable state"
+            ) from error
+        except sqlite3.Error as error:
+            raise CalibrationCohortStoreError(
+                "failed to require calibration publication attention"
+            ) from error
+        del current
+        return self.read_finalization_in_transaction(connection, cohort_id)
+
+    def retry_publication_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        cohort_id: str,
+        policy: CalibrationPublicationPolicyRef,
+        expected_revision: int,
+        at: datetime,
+    ) -> CalibrationCohortFinalization:
+        self._require_publication_transition(
+            connection,
+            cohort_id=cohort_id,
+            policy=policy,
+            expected_revision=expected_revision,
+            expected_state="attention_required",
+        )
+        try:
+            updated = connection.execute(
+                """
+                UPDATE calibration_cohort_finalizations
+                SET revision = revision + 1,
+                    state = 'ready',
+                    updated_at = ?,
+                    ready_at = ?,
+                    available_at = ?,
+                    attention_actor = NULL,
+                    attention_reason = NULL,
+                    attention_required_at = NULL
+                WHERE cohort_id = ?
+                  AND revision = ?
+                  AND state = 'attention_required'
+                """,
+                (
+                    _timestamp(at),
+                    _timestamp(at),
+                    _timestamp(at),
+                    cohort_id,
+                    expected_revision,
+                ),
+            ).rowcount
+            if updated != 1:
+                raise CalibrationCohortConflict(
+                    "calibration publication finalization changed"
+                )
+            connection.execute(
+                """
+                INSERT INTO calibration_publication_ready_queue(
+                    cohort_id, policy_json, enqueued_at, available_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    cohort_id,
+                    policy.model_dump_json(),
+                    _timestamp(at),
+                    _timestamp(at),
+                ),
+            )
+        except sqlite3.IntegrityError as error:
+            raise CalibrationCohortConflict(
+                "calibration publication retry conflicts with durable state"
+            ) from error
+        except sqlite3.Error as error:
+            raise CalibrationCohortStoreError(
+                "failed to retry calibration publication"
+            ) from error
+        return self.read_finalization_in_transaction(connection, cohort_id)
+
+    def defer_publication_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        cohort_id: str,
+        policy: CalibrationPublicationPolicyRef,
+        expected_revision: int,
+        retry_after_seconds: int,
+        at: datetime,
+    ) -> CalibrationCohortFinalization:
+        self._require_publication_transition(
+            connection,
+            cohort_id=cohort_id,
+            policy=policy,
+            expected_revision=expected_revision,
+            expected_state="ready",
+        )
+        available_at = at + timedelta(seconds=retry_after_seconds)
+        try:
+            updated = connection.execute(
+                """
+                UPDATE calibration_cohort_finalizations
+                SET revision = revision + 1,
+                    attempt_count = attempt_count + 1,
+                    updated_at = ?,
+                    available_at = ?
+                WHERE cohort_id = ? AND revision = ? AND state = 'ready'
+                """,
+                (
+                    _timestamp(at),
+                    _timestamp(available_at),
+                    cohort_id,
+                    expected_revision,
+                ),
+            ).rowcount
+            if updated != 1:
+                raise CalibrationCohortConflict(
+                    "calibration publication finalization changed"
+                )
+            queued = connection.execute(
+                """
+                UPDATE calibration_publication_ready_queue
+                SET available_at = ?
+                WHERE cohort_id = ?
+                """,
+                (_timestamp(available_at), cohort_id),
+            ).rowcount
+            if queued != 1:
+                raise CalibrationCohortConflict(
+                    "calibration publication ready occurrence was not found"
+                )
+        except sqlite3.IntegrityError as error:
+            raise CalibrationCohortConflict(
+                "calibration publication defer conflicts with durable state"
+            ) from error
+        except sqlite3.Error as error:
+            raise CalibrationCohortStoreError(
+                "failed to defer calibration publication"
+            ) from error
+        return self.read_finalization_in_transaction(connection, cohort_id)
+
+    def complete_publication_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        cohort_id: str,
+        policy: CalibrationPublicationPolicyRef,
+        operation_id: str,
+        at: datetime,
+    ) -> CalibrationCohortFinalization:
+        current = self.read_finalization_in_transaction(connection, cohort_id)
+        if current.policy != policy:
+            raise CalibrationCohortConflict("calibration publication policy changed")
+        if current.state == "published":
+            if (
+                current.publication is not None
+                and current.publication.operation_id == operation_id
+            ):
+                return current
+            raise CalibrationCohortConflict(
+                "calibration publication already completed differently"
+            )
+        if current.state not in {"ready", "attention_required"}:
+            raise CalibrationCohortConflict(
+                "calibration publication is not eligible for completion"
+            )
+        try:
+            updated = connection.execute(
+                """
+                UPDATE calibration_cohort_finalizations
+                SET revision = revision + 1,
+                    state = 'published',
+                    updated_at = ?,
+                    available_at = NULL,
+                    attention_actor = NULL,
+                    attention_reason = NULL,
+                    attention_required_at = NULL,
+                    publication_operation_id = ?,
+                    published_at = ?
+                WHERE cohort_id = ? AND revision = ?
+                  AND state IN ('ready', 'attention_required')
+                """,
+                (
+                    _timestamp(at),
+                    operation_id,
+                    _timestamp(at),
+                    cohort_id,
+                    current.revision,
+                ),
+            ).rowcount
+            if updated != 1:
+                raise CalibrationCohortConflict(
+                    "calibration publication finalization changed"
+                )
+            connection.execute(
+                "DELETE FROM calibration_publication_ready_queue WHERE cohort_id = ?",
+                (cohort_id,),
+            )
+        except sqlite3.IntegrityError as error:
+            raise CalibrationCohortConflict(
+                "calibration publication completion conflicts with durable state"
+            ) from error
+        except sqlite3.Error as error:
+            raise CalibrationCohortStoreError(
+                "failed to complete calibration publication"
+            ) from error
+        return self.read_finalization_in_transaction(connection, cohort_id)
+
+    def supersede_stale_publications_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        active_generation: int,
+        at: datetime,
+    ) -> int:
+        try:
+            rows = _all(
+                connection.execute(
+                    """
+                    SELECT cohort_id
+                    FROM calibration_cohort_finalizations
+                    WHERE base_generation < ?
+                      AND state IN ('waiting', 'ready', 'attention_required')
+                    """,
+                    (active_generation,),
+                )
+            )
+            cohort_ids = tuple(_text(row, "cohort_id") for row in rows)
+            if not cohort_ids:
+                return 0
+            placeholders = ", ".join("?" for _cohort_id in cohort_ids)
+            connection.execute(
+                f"""
+                UPDATE calibration_cohort_finalizations
+                SET revision = revision + 1,
+                    state = 'superseded',
+                    updated_at = ?,
+                    available_at = NULL,
+                    attention_actor = NULL,
+                    attention_reason = NULL,
+                    attention_required_at = NULL,
+                    superseded_by_generation = ?,
+                    superseded_at = ?
+                WHERE cohort_id IN ({placeholders})
+                """,  # noqa: S608 - generated placeholders only
+                (
+                    _timestamp(at),
+                    active_generation,
+                    _timestamp(at),
+                    *cohort_ids,
+                ),
+            )
+            connection.execute(
+                f"""
+                DELETE FROM calibration_publication_ready_queue
+                WHERE cohort_id IN ({placeholders})
+                """,  # noqa: S608 - generated placeholders only
+                cohort_ids,
+            )
+            return len(cohort_ids)
+        except sqlite3.IntegrityError as error:
+            raise CalibrationCohortConflict(
+                "calibration publication supersession conflicts with durable state"
+            ) from error
+        except sqlite3.Error as error:
+            raise CalibrationCohortStoreError(
+                "failed to supersede stale calibration publications"
+            ) from error
+
+    def _require_publication_transition(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        cohort_id: str,
+        policy: CalibrationPublicationPolicyRef,
+        expected_revision: int,
+        expected_state: str,
+    ) -> CalibrationCohortFinalization:
+        current = self.read_finalization_in_transaction(connection, cohort_id)
+        if current.policy != policy:
+            raise CalibrationCohortConflict("calibration publication policy changed")
+        if current.revision != expected_revision:
+            raise CalibrationCohortConflict(
+                "calibration publication finalization revision changed"
+            )
+        if current.state != expected_state:
+            raise CalibrationCohortConflict(
+                f"calibration publication requires {expected_state} state"
+            )
+        return current
+
     def status_snapshot(
         self,
         calibration_keys: tuple[str, ...],
@@ -297,15 +765,20 @@ class SQLiteCalibrationCohortStore:
         cohort: CalibrationCohort,
     ) -> None:
         generation = cohort.spec.config_source.registry_generation
+        policy = cohort.spec.automatic_publication
+        composition = None if policy is None else policy.composition_policy
         try:
             connection.execute(
                 """
                 INSERT INTO calibration_cohorts(
                     cohort_id, planner_id, planner_version, planner_fingerprint,
                     spec_hash, fanout_scope, member_count, config_generation,
+                    publication_policy_id, publication_policy_version,
+                    publication_policy_fingerprint, composition_policy_id,
+                    composition_policy_version, composition_policy_fingerprint,
                     evaluated_at, created_at, cohort_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     cohort.cohort_id,
@@ -316,11 +789,45 @@ class SQLiteCalibrationCohortStore:
                     cohort.spec.fanout_scope,
                     len(cohort.spec.members),
                     generation,
+                    None if policy is None else policy.id,
+                    None if policy is None else policy.version,
+                    None if policy is None else policy.fingerprint,
+                    None if composition is None else composition.id,
+                    None if composition is None else composition.version,
+                    None if composition is None else composition.fingerprint,
                     _timestamp(cohort.spec.evaluated_at),
                     _timestamp(cohort.created_at),
                     cohort.model_dump_json(),
                 ),
             )
+            if policy is not None:
+                selected_composition = policy.composition_policy
+                connection.execute(
+                    """
+                    INSERT INTO calibration_cohort_finalizations(
+                        cohort_id, spec_hash, policy_id, policy_version,
+                        policy_fingerprint, policy_json, composition_policy_id,
+                        composition_policy_version,
+                        composition_policy_fingerprint, base_generation,
+                        revision, state, attempt_count, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'waiting', 0, ?, ?)
+                    """,
+                    (
+                        cohort.cohort_id,
+                        cohort.spec_hash,
+                        policy.id,
+                        policy.version,
+                        policy.fingerprint,
+                        policy.model_dump_json(),
+                        selected_composition.id,
+                        selected_composition.version,
+                        selected_composition.fingerprint,
+                        generation,
+                        _timestamp(cohort.created_at),
+                        _timestamp(cohort.created_at),
+                    ),
+                )
         except sqlite3.IntegrityError as error:
             raise CalibrationCohortConflict(
                 "calibration cohort id already has durable state"
@@ -646,10 +1153,120 @@ def _publication(row: sqlite3.Row) -> CalibrationSuccessPublication | None:
         ) from error
 
 
+def _finalization(row: sqlite3.Row) -> CalibrationCohortFinalization:
+    cohort = _cohort(row)
+    policy = cohort.spec.automatic_publication
+    if policy is None:
+        raise CalibrationCohortStoreError(
+            "durable calibration finalization has no pinned publication policy"
+        )
+    composition = policy.composition_policy
+    if (
+        _text(row, "spec_hash") != cohort.spec_hash
+        or _text(row, "policy_id") != policy.id
+        or _text(row, "policy_version") != policy.version
+        or _text(row, "policy_fingerprint") != policy.fingerprint
+        or _text(row, "policy_json") != policy.model_dump_json()
+        or _text(row, "composition_policy_id") != composition.id
+        or _text(row, "composition_policy_version") != composition.version
+        or _text(row, "composition_policy_fingerprint") != composition.fingerprint
+        or _integer(row, "base_generation")
+        != cohort.spec.config_source.registry_generation
+    ):
+        raise CalibrationCohortStoreError(
+            "durable calibration finalization identity drifted"
+        )
+    try:
+        attention_at = _optional_datetime(row, "attention_required_at")
+        attention_actor = _optional_text(row, "attention_actor")
+        attention_reason = _optional_text(row, "attention_reason")
+        failed_at = _optional_datetime(row, "failed_at")
+        superseded_at = _optional_datetime(row, "superseded_at")
+        superseded_by_generation = _optional_integer(
+            row,
+            "superseded_by_generation",
+        )
+        published_at = _optional_datetime(row, "published_at")
+        operation_id = _optional_text(row, "publication_operation_id")
+        return CalibrationCohortFinalization(
+            cohort_id=cohort.cohort_id,
+            spec_hash=cohort.spec_hash,
+            policy=policy,
+            base_config_source=cohort.spec.config_source,
+            revision=_integer(row, "revision"),
+            state=cast("CalibrationCohortFinalizationState", _text(row, "state")),
+            attempt_count=_integer(row, "attempt_count"),
+            created_at=_datetime(row, "created_at"),
+            updated_at=_datetime(row, "updated_at"),
+            ready_at=_optional_datetime(row, "ready_at"),
+            available_at=_optional_datetime(row, "available_at"),
+            attention=(
+                None
+                if attention_at is None
+                or attention_actor is None
+                or attention_reason is None
+                else CalibrationPublicationAttention(
+                    actor=attention_actor,
+                    reason=attention_reason,
+                    required_at=attention_at,
+                )
+            ),
+            failure=(
+                None
+                if failed_at is None
+                else CalibrationPublicationFailure(failed_at=failed_at)
+            ),
+            supersession=(
+                None
+                if superseded_at is None or superseded_by_generation is None
+                else CalibrationPublicationSupersession(
+                    superseded_by_generation=superseded_by_generation,
+                    superseded_at=superseded_at,
+                )
+            ),
+            publication=(
+                None
+                if published_at is None or operation_id is None
+                else CalibrationPublicationCompletion(
+                    operation_id=operation_id,
+                    published_at=published_at,
+                )
+            ),
+        )
+    except ValidationError as error:
+        raise CalibrationCohortStoreError(
+            "invalid durable calibration publication finalization"
+        ) from error
+
+
+def _ready_item(row: sqlite3.Row) -> CalibrationPublicationReadyItem:
+    cohort = _cohort(row)
+    try:
+        return CalibrationPublicationReadyItem(
+            sequence=_integer(row, "sequence"),
+            cohort=CalibrationCohortSummary.from_cohort(cohort),
+            finalization=_finalization(row),
+            enqueued_at=_datetime(row, "enqueued_at"),
+        )
+    except ValidationError as error:
+        raise CalibrationCohortStoreError(
+            "invalid durable calibration publication ready item"
+        ) from error
+
+
 def _timestamp(value: datetime) -> str:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("calibration cohort timestamps must be timezone-aware")
     return value.astimezone(UTC).isoformat()
+
+
+def _datetime(row: sqlite3.Row, key: str) -> datetime:
+    return datetime.fromisoformat(_text(row, key)).astimezone(UTC)
+
+
+def _optional_datetime(row: sqlite3.Row, key: str) -> datetime | None:
+    value = _optional_text(row, key)
+    return None if value is None else datetime.fromisoformat(value).astimezone(UTC)
 
 
 def _one(cursor: sqlite3.Cursor) -> sqlite3.Row | None:
@@ -672,6 +1289,25 @@ def _integer(row: sqlite3.Row, key: str) -> int:
     return cast("int", row[key])
 
 
+def _optional_integer(row: sqlite3.Row, key: str) -> int | None:
+    return cast("int | None", row[key])
+
+
+def _require_traversal_pair(
+    after: int | None,
+    through_sequence: int | None,
+) -> None:
+    if (after is None) != (through_sequence is None):
+        raise ValueError(
+            "calibration publication cursor and through_sequence must be "
+            "provided together"
+        )
+    if after is not None and through_sequence is not None and after >= through_sequence:
+        raise ValueError(
+            "calibration publication cursor must be below through_sequence"
+        )
+
+
 __all__ = [
     "CalibrationCohortConflict",
     "CalibrationCohortNotFound",
@@ -679,4 +1315,5 @@ __all__ = [
     "SQLiteCalibrationCohortStore",
     "StoredCalibrationCohortMemberPage",
     "StoredCalibrationCohortPage",
+    "StoredCalibrationPublicationReadyPage",
 ]

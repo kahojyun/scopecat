@@ -281,6 +281,7 @@ def calibration_cohort_merge_revision_source(
     return CalibrationCohortMergeRevisionSource(
         cohort_id=cohort.cohort_id,
         spec_hash=cohort.spec_hash,
+        automatic_publication=cohort.spec.automatic_publication,
         composition_policy_ref=composition_policy_ref,
         base_entry_id=base.entry_id,
         base_content_hash=base.content_hash,
@@ -696,6 +697,24 @@ def _resolved_source_matches(
     return (
         actual.cohort_id == expected.cohort_id
         and actual.spec_hash == expected.spec_hash
+        and actual.automatic_publication_policy_id
+        == (
+            None
+            if expected.automatic_publication is None
+            else expected.automatic_publication.id
+        )
+        and actual.automatic_publication_policy_version
+        == (
+            None
+            if expected.automatic_publication is None
+            else expected.automatic_publication.version
+        )
+        and actual.automatic_publication_policy_fingerprint
+        == (
+            None
+            if expected.automatic_publication is None
+            else expected.automatic_publication.fingerprint
+        )
         and actual.composition_policy_ref == expected.composition_policy_ref
         and actual.merge_policy == expected.merge_policy
         and actual.base_entry_id == expected.base_entry_id

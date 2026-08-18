@@ -11,9 +11,33 @@ CREATE TABLE IF NOT EXISTS calibration_cohorts (
     fanout_scope TEXT NOT NULL,
     member_count INTEGER NOT NULL CHECK (member_count BETWEEN 1 AND 200),
     config_generation INTEGER NOT NULL CHECK (config_generation >= 1),
+    publication_policy_id TEXT,
+    publication_policy_version TEXT,
+    publication_policy_fingerprint TEXT,
+    composition_policy_id TEXT,
+    composition_policy_version TEXT,
+    composition_policy_fingerprint TEXT,
     evaluated_at TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    cohort_json TEXT NOT NULL
+    cohort_json TEXT NOT NULL,
+    CHECK (
+        (
+            publication_policy_id IS NULL
+            AND publication_policy_version IS NULL
+            AND publication_policy_fingerprint IS NULL
+            AND composition_policy_id IS NULL
+            AND composition_policy_version IS NULL
+            AND composition_policy_fingerprint IS NULL
+        )
+        OR (
+            publication_policy_id IS NOT NULL
+            AND publication_policy_version IS NOT NULL
+            AND publication_policy_fingerprint IS NOT NULL
+            AND composition_policy_id IS NOT NULL
+            AND composition_policy_version IS NOT NULL
+            AND composition_policy_fingerprint IS NOT NULL
+        )
+    )
 );
 
 CREATE INDEX IF NOT EXISTS calibration_cohorts_scope_sequence
@@ -92,6 +116,197 @@ CREATE TABLE IF NOT EXISTS calibration_success_publications (
 
 CREATE INDEX IF NOT EXISTS calibration_success_publications_operation
 ON calibration_success_publications(operation_id);
+
+CREATE TABLE IF NOT EXISTS calibration_cohort_finalizations (
+    cohort_id TEXT PRIMARY KEY
+        REFERENCES calibration_cohorts(cohort_id) ON DELETE CASCADE,
+    spec_hash TEXT NOT NULL,
+    policy_id TEXT NOT NULL,
+    policy_version TEXT NOT NULL,
+    policy_fingerprint TEXT NOT NULL,
+    policy_json TEXT NOT NULL,
+    composition_policy_id TEXT NOT NULL,
+    composition_policy_version TEXT NOT NULL,
+    composition_policy_fingerprint TEXT NOT NULL,
+    base_generation INTEGER NOT NULL CHECK (base_generation >= 1),
+    revision INTEGER NOT NULL CHECK (revision >= 1),
+    state TEXT NOT NULL CHECK (
+        state IN (
+            'waiting',
+            'ready',
+            'attention_required',
+            'failed',
+            'superseded',
+            'published'
+        )
+    ),
+    attempt_count INTEGER NOT NULL CHECK (attempt_count >= 0),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    ready_at TEXT,
+    available_at TEXT,
+    attention_actor TEXT,
+    attention_reason TEXT,
+    attention_required_at TEXT,
+    failed_at TEXT,
+    superseded_by_generation INTEGER CHECK (
+        superseded_by_generation IS NULL OR superseded_by_generation >= 1
+    ),
+    superseded_at TEXT,
+    publication_operation_id TEXT
+        REFERENCES config_operations(operation_id) ON DELETE RESTRICT,
+    published_at TEXT,
+    CHECK (
+        (
+            state = 'waiting'
+            AND ready_at IS NULL
+            AND available_at IS NULL
+            AND attention_actor IS NULL
+            AND attention_reason IS NULL
+            AND attention_required_at IS NULL
+            AND failed_at IS NULL
+            AND superseded_by_generation IS NULL
+            AND superseded_at IS NULL
+            AND publication_operation_id IS NULL
+            AND published_at IS NULL
+        )
+        OR (
+            state = 'ready'
+            AND ready_at IS NOT NULL
+            AND available_at IS NOT NULL
+            AND attention_actor IS NULL
+            AND attention_reason IS NULL
+            AND attention_required_at IS NULL
+            AND failed_at IS NULL
+            AND superseded_by_generation IS NULL
+            AND superseded_at IS NULL
+            AND publication_operation_id IS NULL
+            AND published_at IS NULL
+        )
+        OR (
+            state = 'attention_required'
+            AND ready_at IS NOT NULL
+            AND available_at IS NULL
+            AND attention_actor IS NOT NULL
+            AND attention_reason IS NOT NULL
+            AND attention_required_at IS NOT NULL
+            AND failed_at IS NULL
+            AND superseded_by_generation IS NULL
+            AND superseded_at IS NULL
+            AND publication_operation_id IS NULL
+            AND published_at IS NULL
+        )
+        OR (
+            state = 'failed'
+            AND ready_at IS NULL
+            AND available_at IS NULL
+            AND attention_actor IS NULL
+            AND attention_reason IS NULL
+            AND attention_required_at IS NULL
+            AND failed_at IS NOT NULL
+            AND superseded_by_generation IS NULL
+            AND superseded_at IS NULL
+            AND publication_operation_id IS NULL
+            AND published_at IS NULL
+        )
+        OR (
+            state = 'superseded'
+            AND available_at IS NULL
+            AND attention_actor IS NULL
+            AND attention_reason IS NULL
+            AND attention_required_at IS NULL
+            AND failed_at IS NULL
+            AND superseded_by_generation IS NOT NULL
+            AND superseded_by_generation > base_generation
+            AND superseded_at IS NOT NULL
+            AND publication_operation_id IS NULL
+            AND published_at IS NULL
+        )
+        OR (
+            state = 'published'
+            AND ready_at IS NOT NULL
+            AND available_at IS NULL
+            AND attention_actor IS NULL
+            AND attention_reason IS NULL
+            AND attention_required_at IS NULL
+            AND failed_at IS NULL
+            AND superseded_by_generation IS NULL
+            AND superseded_at IS NULL
+            AND publication_operation_id IS NOT NULL
+            AND published_at IS NOT NULL
+        )
+    )
+);
+
+CREATE INDEX IF NOT EXISTS calibration_cohort_finalizations_state
+ON calibration_cohort_finalizations(state, base_generation);
+
+CREATE TABLE IF NOT EXISTS calibration_publication_ready_queue (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    cohort_id TEXT NOT NULL UNIQUE
+        REFERENCES calibration_cohort_finalizations(cohort_id) ON DELETE CASCADE,
+    policy_json TEXT NOT NULL,
+    enqueued_at TEXT NOT NULL,
+    available_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS calibration_publication_ready_capability_sequence
+ON calibration_publication_ready_queue(
+    policy_json,
+    sequence
+);
+
+CREATE TRIGGER IF NOT EXISTS calibration_publication_sync_terminal_failure
+AFTER UPDATE OF closure_status, closed_at ON calibration_cohort_members
+FOR EACH ROW
+WHEN NEW.closure_status IN ('failed', 'cancelled')
+BEGIN
+    UPDATE calibration_cohort_finalizations
+    SET revision = revision + 1,
+        state = 'failed',
+        updated_at = NEW.closed_at,
+        failed_at = NEW.closed_at
+    WHERE cohort_id = NEW.cohort_id
+      AND state = 'waiting';
+END;
+
+CREATE TRIGGER IF NOT EXISTS calibration_publication_sync_terminal_success
+AFTER UPDATE OF closure_status, closed_at ON calibration_cohort_members
+FOR EACH ROW
+WHEN NEW.closure_status = 'succeeded'
+BEGIN
+    UPDATE calibration_cohort_finalizations
+    SET revision = revision + 1,
+        state = 'ready',
+        updated_at = NEW.closed_at,
+        ready_at = NEW.closed_at,
+        available_at = NEW.closed_at
+    WHERE cohort_id = NEW.cohort_id
+      AND state = 'waiting'
+      AND NOT EXISTS (
+          SELECT 1
+          FROM calibration_cohort_members AS member
+          WHERE member.cohort_id = NEW.cohort_id
+            AND (
+                member.closure_status IS NULL
+                OR member.closure_status <> 'succeeded'
+            )
+      );
+
+    INSERT INTO calibration_publication_ready_queue(
+        cohort_id,
+        policy_json,
+        enqueued_at,
+        available_at
+    )
+    SELECT cohort_id,
+           policy_json,
+           ready_at,
+           available_at
+    FROM calibration_cohort_finalizations
+    WHERE cohort_id = NEW.cohort_id
+      AND state = 'ready';
+END;
 """
 
 

@@ -66,6 +66,16 @@ from scopecat.automation.calibration_wire import (
     CalibrationCohortMemberListQuery,
     CalibrationCohortMemberPage,
     CalibrationCohortPage,
+    CalibrationPublicationAttentionCommand,
+    CalibrationPublicationAttentionReceipt,
+    CalibrationPublicationDeferCommand,
+    CalibrationPublicationDeferReceipt,
+    CalibrationPublicationGetQuery,
+    CalibrationPublicationGetReceipt,
+    CalibrationPublicationReadyPage,
+    CalibrationPublicationReadyQuery,
+    CalibrationPublicationRetryCommand,
+    CalibrationPublicationRetryReceipt,
     CalibrationStatusQuery,
     CalibrationStatusReceipt,
 )
@@ -621,6 +631,44 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         return application.calibration_cohorts.get(
             CalibrationCohortGetQuery(cohort_id=cohort_id)
         )
+
+    @app.post(f"{_API_PREFIX}/calibration-publications/ready/query")
+    def list_ready_calibration_publications(
+        query: CalibrationPublicationReadyQuery,
+    ) -> CalibrationPublicationReadyPage:
+        return application.calibration_cohorts.ready_publications(query)
+
+    @app.get(f"{_API_PREFIX}/calibration-publications/by-cohort/{{cohort_id:path}}")
+    def get_calibration_publication(
+        cohort_id: str,
+    ) -> CalibrationPublicationGetReceipt:
+        return application.calibration_cohorts.get_publication(
+            CalibrationPublicationGetQuery(cohort_id=cohort_id)
+        )
+
+    @app.post(f"{_API_PREFIX}/calibration-publication-attentions/{{cohort_id:path}}")
+    def require_calibration_publication_attention(
+        cohort_id: str,
+        command: CalibrationPublicationAttentionCommand,
+    ) -> CalibrationPublicationAttentionReceipt:
+        _require_calibration_publication_cohort_id(cohort_id, command.cohort_id)
+        return application.calibration_cohorts.require_publication_attention(command)
+
+    @app.post(f"{_API_PREFIX}/calibration-publication-retries/{{cohort_id:path}}")
+    def retry_calibration_publication(
+        cohort_id: str,
+        command: CalibrationPublicationRetryCommand,
+    ) -> CalibrationPublicationRetryReceipt:
+        _require_calibration_publication_cohort_id(cohort_id, command.cohort_id)
+        return application.calibration_cohorts.retry_publication(command)
+
+    @app.post(f"{_API_PREFIX}/calibration-publication-deferrals/{{cohort_id:path}}")
+    def defer_calibration_publication(
+        cohort_id: str,
+        command: CalibrationPublicationDeferCommand,
+    ) -> CalibrationPublicationDeferReceipt:
+        _require_calibration_publication_cohort_id(cohort_id, command.cohort_id)
+        return application.calibration_cohorts.defer_publication(command)
 
     @app.post(f"{_API_PREFIX}/procedure-schedules", status_code=201)
     def create_procedure_schedule(
@@ -1428,6 +1476,17 @@ def _require_procedure_run_id(
         raise HTTPException(
             status_code=422,
             detail="path procedure_run_id must match request body",
+        )
+
+
+def _require_calibration_publication_cohort_id(
+    path_cohort_id: str,
+    body_cohort_id: str,
+) -> None:
+    if path_cohort_id != body_cohort_id:
+        raise HTTPException(
+            status_code=422,
+            detail="path cohort_id must match request body",
         )
 
 

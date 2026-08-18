@@ -63,6 +63,15 @@ from scopecat.automation.calibration_wire import (
     CalibrationCohortMemberListQuery,
     CalibrationCohortMemberPage,
     CalibrationCohortPage,
+    CalibrationPublicationAttentionCommand,
+    CalibrationPublicationAttentionReceipt,
+    CalibrationPublicationDeferCommand,
+    CalibrationPublicationDeferReceipt,
+    CalibrationPublicationGetReceipt,
+    CalibrationPublicationReadyPage,
+    CalibrationPublicationReadyQuery,
+    CalibrationPublicationRetryCommand,
+    CalibrationPublicationRetryReceipt,
     CalibrationStatusQuery,
     CalibrationStatusReceipt,
 )
@@ -415,6 +424,67 @@ class DaemonClient:
             ),
             CalibrationCohortMemberPage,
             params=params,
+        )
+
+    def list_ready_calibration_publications(
+        self,
+        query: CalibrationPublicationReadyQuery,
+    ) -> CalibrationPublicationReadyPage:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/calibration-publications/ready/query",
+            query,
+            CalibrationPublicationReadyPage,
+        )
+
+    def get_calibration_publication(
+        self,
+        cohort_id: str,
+    ) -> CalibrationPublicationGetReceipt:
+        return self._get_model(
+            (
+                f"{_API_PREFIX}/calibration-publications/by-cohort/"
+                f"{quote(cohort_id, safe='')}"
+            ),
+            CalibrationPublicationGetReceipt,
+        )
+
+    def require_calibration_publication_attention(
+        self,
+        command: CalibrationPublicationAttentionCommand,
+    ) -> CalibrationPublicationAttentionReceipt:
+        return self._post_model(
+            (
+                f"{_API_PREFIX}/calibration-publication-attentions/"
+                f"{quote(command.cohort_id, safe='')}"
+            ),
+            command,
+            CalibrationPublicationAttentionReceipt,
+        )
+
+    def retry_calibration_publication(
+        self,
+        command: CalibrationPublicationRetryCommand,
+    ) -> CalibrationPublicationRetryReceipt:
+        return self._post_model(
+            (
+                f"{_API_PREFIX}/calibration-publication-retries/"
+                f"{quote(command.cohort_id, safe='')}"
+            ),
+            command,
+            CalibrationPublicationRetryReceipt,
+        )
+
+    def defer_calibration_publication(
+        self,
+        command: CalibrationPublicationDeferCommand,
+    ) -> CalibrationPublicationDeferReceipt:
+        return self._post_model(
+            (
+                f"{_API_PREFIX}/calibration-publication-deferrals/"
+                f"{quote(command.cohort_id, safe='')}"
+            ),
+            command,
+            CalibrationPublicationDeferReceipt,
         )
 
     def list_procedures(

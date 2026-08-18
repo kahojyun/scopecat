@@ -126,6 +126,9 @@ class CalibrationCohortMergeRevisionSource:
     candidate_id: str
     contributions: tuple[ResolvedCalibrationCohortMergeContribution, ...]
     expected_result_content_hash: ConfigContentHash
+    automatic_publication_policy_id: str | None = None
+    automatic_publication_policy_version: str | None = None
+    automatic_publication_policy_fingerprint: Sha256ContentHash | None = None
 
 
 type ConfigRevisionSource = (
@@ -644,6 +647,13 @@ def _prepare_calibration_cohort_merge_locked(
         CalibrationCohortMergeRegistrySource(
             cohort_id=source.cohort_id,
             spec_hash=source.spec_hash,
+            automatic_publication_policy_id=(source.automatic_publication_policy_id),
+            automatic_publication_policy_version=(
+                source.automatic_publication_policy_version
+            ),
+            automatic_publication_policy_fingerprint=(
+                source.automatic_publication_policy_fingerprint
+            ),
             composition_policy_ref=source.composition_policy_ref,
             merge_policy=source.merge_policy,
             base_entry_id=base.entry.id,

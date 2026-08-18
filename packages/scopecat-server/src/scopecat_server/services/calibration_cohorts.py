@@ -15,6 +15,16 @@ from scopecat.automation.calibration_wire import (
     CalibrationCohortMemberListQuery,
     CalibrationCohortMemberPage,
     CalibrationCohortPage,
+    CalibrationPublicationAttentionCommand,
+    CalibrationPublicationAttentionReceipt,
+    CalibrationPublicationDeferCommand,
+    CalibrationPublicationDeferReceipt,
+    CalibrationPublicationGetQuery,
+    CalibrationPublicationGetReceipt,
+    CalibrationPublicationReadyPage,
+    CalibrationPublicationReadyQuery,
+    CalibrationPublicationRetryCommand,
+    CalibrationPublicationRetryReceipt,
     CalibrationStatusQuery,
     CalibrationStatusReceipt,
 )
@@ -233,6 +243,86 @@ class CalibrationCohortService:
             items=page.items,
             next_cursor=page.next_cursor,
         )
+
+    def ready_publications(
+        self,
+        query: CalibrationPublicationReadyQuery,
+    ) -> CalibrationPublicationReadyPage:
+        with _translate_store_errors():
+            page = self._store.list_ready_publications(
+                query.capabilities,
+                at=self._now(),
+                limit=query.limit,
+                after=query.cursor,
+                through_sequence=query.through_sequence,
+            )
+        return CalibrationPublicationReadyPage(
+            items=page.items,
+            next_cursor=page.next_cursor,
+            through_sequence=page.through_sequence,
+        )
+
+    def get_publication(
+        self,
+        query: CalibrationPublicationGetQuery,
+    ) -> CalibrationPublicationGetReceipt:
+        with _translate_store_errors():
+            finalization = self._store.read_finalization(query.cohort_id)
+        return CalibrationPublicationGetReceipt(finalization=finalization)
+
+    def require_publication_attention(
+        self,
+        command: CalibrationPublicationAttentionCommand,
+    ) -> CalibrationPublicationAttentionReceipt:
+        with (
+            _translate_store_errors(),
+            self._store.write_transaction() as connection,
+        ):
+            finalization = self._store.require_publication_attention_in_transaction(
+                connection,
+                cohort_id=command.cohort_id,
+                policy=command.policy,
+                expected_revision=command.expected_finalization_revision,
+                actor=command.actor,
+                reason=command.reason,
+                at=self._now(),
+            )
+        return CalibrationPublicationAttentionReceipt(finalization=finalization)
+
+    def retry_publication(
+        self,
+        command: CalibrationPublicationRetryCommand,
+    ) -> CalibrationPublicationRetryReceipt:
+        with (
+            _translate_store_errors(),
+            self._store.write_transaction() as connection,
+        ):
+            finalization = self._store.retry_publication_in_transaction(
+                connection,
+                cohort_id=command.cohort_id,
+                policy=command.policy,
+                expected_revision=command.expected_finalization_revision,
+                at=self._now(),
+            )
+        return CalibrationPublicationRetryReceipt(finalization=finalization)
+
+    def defer_publication(
+        self,
+        command: CalibrationPublicationDeferCommand,
+    ) -> CalibrationPublicationDeferReceipt:
+        with (
+            _translate_store_errors(),
+            self._store.write_transaction() as connection,
+        ):
+            finalization = self._store.defer_publication_in_transaction(
+                connection,
+                cohort_id=command.cohort_id,
+                policy=command.policy,
+                expected_revision=command.expected_finalization_revision,
+                retry_after_seconds=command.retry_after_seconds,
+                at=self._now(),
+            )
+        return CalibrationPublicationDeferReceipt(finalization=finalization)
 
     def _now(self) -> datetime:
         value = self._clock()

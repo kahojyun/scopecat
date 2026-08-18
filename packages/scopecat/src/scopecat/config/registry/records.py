@@ -270,6 +270,9 @@ class CalibrationCohortMergeRegistrySource(_FrozenRegistryModel):
     kind: Literal["calibration_cohort_merge"] = "calibration_cohort_merge"
     cohort_id: _NonEmptyText
     spec_hash: Sha256ContentHash
+    automatic_publication_policy_id: _NonEmptyText | None = None
+    automatic_publication_policy_version: _NonEmptyText | None = None
+    automatic_publication_policy_fingerprint: Sha256ContentHash | None = None
     composition_policy_ref: ConfigCompositionPolicyRef
     merge_policy: Literal["common_base_cells_v1"] = "common_base_cells_v1"
     base_entry_id: _NonEmptyText
@@ -295,6 +298,21 @@ class CalibrationCohortMergeRegistrySource(_FrozenRegistryModel):
         value: tuple[ResolvedCalibrationCohortMergeContribution, ...],
     ) -> tuple[ResolvedCalibrationCohortMergeContribution, ...]:
         return canonical_resolved_calibration_merge_contributions(value)
+
+    @model_validator(mode="after")
+    def validate_automatic_publication(
+        self,
+    ) -> CalibrationCohortMergeRegistrySource:
+        identity = (
+            self.automatic_publication_policy_id,
+            self.automatic_publication_policy_version,
+            self.automatic_publication_policy_fingerprint,
+        )
+        if any(value is None for value in identity) and any(
+            value is not None for value in identity
+        ):
+            raise ValueError("calibration publication policy identity must be complete")
+        return self
 
 
 ConfigRegistryEntrySource = Annotated[

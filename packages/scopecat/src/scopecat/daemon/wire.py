@@ -21,7 +21,10 @@ from pydantic import (
 )
 
 from scopecat.analysis.dataset_wire import DerivedDatasetPayload
-from scopecat.automation.calibrations import CalibrationSuccessRef
+from scopecat.automation.calibrations import (
+    CalibrationPublicationPolicyRef,
+    CalibrationSuccessRef,
+)
 from scopecat.config.inventory import InstrumentInventoryChange
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry.records import (
@@ -123,6 +126,7 @@ class CalibrationCohortMergeRevisionSource(_WireModel):
     kind: Literal["calibration_cohort_merge"] = "calibration_cohort_merge"
     cohort_id: NonEmptyText
     spec_hash: Sha256ContentHash
+    automatic_publication: CalibrationPublicationPolicyRef | None = None
     composition_policy_ref: ConfigCompositionPolicyRef
     merge_policy: Literal["common_base_cells_v1"] = "common_base_cells_v1"
     base_entry_id: NonEmptyText
@@ -142,6 +146,20 @@ class CalibrationCohortMergeRevisionSource(_WireModel):
         value: tuple[CalibrationCohortMergeContribution, ...],
     ) -> tuple[CalibrationCohortMergeContribution, ...]:
         return canonical_calibration_merge_contributions(value)
+
+    @model_validator(mode="after")
+    def validate_automatic_publication(
+        self,
+    ) -> CalibrationCohortMergeRevisionSource:
+        policy = self.automatic_publication
+        if (
+            policy is not None
+            and policy.composition_policy != self.composition_policy_ref
+        ):
+            raise ValueError(
+                "automatic publication and merge composition policies must match"
+            )
+        return self
 
 
 type ConfigRevisionSource = Annotated[

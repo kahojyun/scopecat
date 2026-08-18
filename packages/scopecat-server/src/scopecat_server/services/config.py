@@ -349,6 +349,22 @@ class ConfigService:
                         connection,
                         success,
                     )
+                if (
+                    isinstance(source, CalibrationCohortMergeRevisionSource)
+                    and source.automatic_publication is not None
+                ):
+                    self._calibration_cohorts.complete_publication_in_transaction(
+                        connection,
+                        cohort_id=source.cohort_id,
+                        policy=source.automatic_publication,
+                        operation_id=operation.operation_id,
+                        at=activation.recorded_at,
+                    )
+                self._calibration_cohorts.supersede_stale_publications_in_transaction(
+                    connection,
+                    active_generation=activation.generation,
+                    at=activation.recorded_at,
+                )
             return receipt
 
     def _prepare_calibration_merge(
@@ -375,6 +391,12 @@ class ConfigService:
         base = cohort.spec.config_source
         if (
             cohort.spec_hash != source.spec_hash
+            or cohort.spec.automatic_publication != source.automatic_publication
+            or (
+                source.automatic_publication is not None
+                and source.automatic_publication.composition_policy
+                != source.composition_policy_ref
+            )
             or base.entry_id != source.base_entry_id
             or base.content_hash != source.base_content_hash
             or base.registry_generation != source.base_generation
@@ -383,6 +405,26 @@ class ConfigService:
             raise BackendConflict(
                 "calibration merge cohort or base config does not match its source"
             )
+        if source.automatic_publication is not None:
+            try:
+                finalization = (
+                    self._calibration_cohorts.read_finalization_in_transaction(
+                        connection,
+                        source.cohort_id,
+                    )
+                )
+            except CalibrationCohortNotFound as error:
+                raise BackendConflict(
+                    "automatic calibration publication state was not found"
+                ) from error
+            if (
+                finalization.policy != source.automatic_publication
+                or finalization.base_config_source != base
+                or finalization.state not in {"ready", "attention_required"}
+            ):
+                raise BackendConflict(
+                    "automatic calibration publication is not eligible"
+                )
 
         contributions = {
             contribution.member_id: contribution
@@ -532,6 +574,21 @@ class ConfigService:
                 config_registry_service.CalibrationCohortMergeRevisionSource(
                     cohort_id=source.cohort_id,
                     spec_hash=source.spec_hash,
+                    automatic_publication_policy_id=(
+                        None
+                        if source.automatic_publication is None
+                        else source.automatic_publication.id
+                    ),
+                    automatic_publication_policy_version=(
+                        None
+                        if source.automatic_publication is None
+                        else source.automatic_publication.version
+                    ),
+                    automatic_publication_policy_fingerprint=(
+                        None
+                        if source.automatic_publication is None
+                        else source.automatic_publication.fingerprint
+                    ),
                     composition_policy_ref=source.composition_policy_ref,
                     merge_policy=source.merge_policy,
                     base_entry_id=source.base_entry_id,
@@ -646,6 +703,11 @@ class ConfigService:
                         result,
                         change_count=len(plan.changes),
                     )
+                    self._calibration_cohorts.supersede_stale_publications_in_transaction(
+                        connection,
+                        active_generation=activation.generation,
+                        at=activation.recorded_at,
+                    )
                     # Old-snapshot claims still lose the generation CAS, while
                     # new-snapshot owners no longer see an activation-to-gate gap.
                     retirement.release_gate()
@@ -756,6 +818,11 @@ class ConfigService:
                     connection,
                     receipt,
                 )
+                self._calibration_cohorts.supersede_stale_publications_in_transaction(
+                    connection,
+                    active_generation=activation.generation,
+                    at=activation.recorded_at,
+                )
             return receipt
 
     def undo_config(
@@ -787,6 +854,11 @@ class ConfigService:
                     )
                 receipt = ConfigUndoReceipt(
                     activation=activation,
+                )
+                self._calibration_cohorts.supersede_stale_publications_in_transaction(
+                    connection,
+                    active_generation=activation.generation,
+                    at=activation.recorded_at,
                 )
             return receipt
 
