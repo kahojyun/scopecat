@@ -420,7 +420,10 @@ def test_bootstrap_refuses_v48_with_legacy_calibration_proof_provenance(
         )
 
     store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
-    with pytest.raises(SchemaVersionError, match="version: 48"):
+    with pytest.raises(
+        SchemaVersionError,
+        match="version: 48; expected 49; rebuild it explicitly",
+    ):
         store.bootstrap()
 
 

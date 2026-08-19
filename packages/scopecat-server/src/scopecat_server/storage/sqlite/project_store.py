@@ -81,7 +81,8 @@ class SQLiteProjectStore:
         version = None if row is None else cast("int", row["version"])
         if version != PROJECT_SCHEMA_VERSION:
             raise SchemaVersionError(
-                f"unsupported project-store schema version: {version}"
+                "unsupported project-store schema version: "
+                f"{version}; expected {PROJECT_SCHEMA_VERSION}; rebuild it explicitly"
             )
         return version
 

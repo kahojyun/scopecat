@@ -81,6 +81,23 @@ serves the replayable event stream used by GUI and notebook clients. See the
 [daemon model](../../docs/development/architecture/daemon.md) for ownership, fencing, quarantine,
 and security boundaries.
 
+## Project-store compatibility
+
+This early implementation uses project-store schema version 49 and does not
+perform implicit migrations. A daemon built from this revision refuses an
+older `.scopecat/control.sqlite3` instead of partially reading or rewriting it.
+Before switching revisions, stop the daemon and back up the complete
+`.scopecat/` directory. If stored runs or configuration history matter, inspect
+or export them with the revision that created the store. Rebuilding means
+explicitly starting from an empty runtime store and accepting that the daemon
+will seed a new registry from `create_bootstrap`; source-controlled project
+files are not a substitute for persisted run history.
+
+The daemon never deletes an incompatible store automatically. This rebuild-only
+policy is intentional for the current closed development phase; a supported
+migration or export/import boundary is required before project stores are
+treated as long-lived user data.
+
 For a bundled source-checkout preview:
 
 ```console

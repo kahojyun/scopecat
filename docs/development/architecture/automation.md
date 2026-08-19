@@ -388,6 +388,15 @@ same ready occurrence using server-clock availability. Disposition responses
 are never blindly replayed: response loss is reconciled by exact finalization,
 and a different worker's revision is counted as a benign race.
 
+The resident path is complete for publication policies retained by the loaded
+project application. Operator-wide discovery is deliberately narrower: there
+is not yet an indexed query that combines publication attention with ready work
+whose exact historical policy is unavailable to the current worker. Adding
+that view requires a durable state/capability ordering; it must not be emulated
+by repeatedly listing all cohorts and reopening every member page. Until that
+query exists, automatic publication should be enabled only where policy
+capabilities are deployed and monitored as part of the project application.
+
 ## Capabilities needed at larger chip scale
 
 Moving beyond the current bounded 200-member flat slice to hundreds or thousands
@@ -424,15 +433,16 @@ authority inside an automation subsystem.
 
 The next safe increments are:
 
-1. add durable cohort traversal, priority, and workload budgets beyond the
-   bounded in-memory 200-member selector;
-2. extend the exact common-base merge with hierarchical ownership, policy gates,
+1. add indexed operator summaries for publication attention, unsupported exact
+   capabilities, procedure attention, and cohort progress without an N+1 scan;
+2. exercise the existing 200-member boundary with synthetic workload and query
+   plan budgets before raising it;
+3. add durable cohort traversal, priority, and workload budgets beyond the
+   bounded in-memory selector;
+4. extend the exact common-base merge with hierarchical ownership, policy gates,
    conflict reporting, and optional joint verification for device-wide
    campaigns;
-3. add a bounded durable pending-publication scan and explicit resident
-   finalizer ownership only when autonomous publication is operationally
-   required;
-4. extend fixed-UTC latest-only intervals with explicit maintenance-window and
+5. extend fixed-UTC latest-only intervals with explicit maintenance-window and
    richer missed-slot policies only when operators require them.
 
 A DAG becomes useful only when fan-out and dependency scheduling are real
