@@ -242,7 +242,7 @@ def test_hidden_executor_lease_ttl_option_reaches_start_and_serve(
     assert "--executor-lease-ttl-seconds" not in help_result.output
 
 
-def test_procedure_worker_cli_supports_once_and_resident_polling(
+def test_automation_worker_cli_supports_once_and_resident_polling(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -302,30 +302,41 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
         def cycle(self) -> object:
             calls.append(("cycle",))
             return SimpleNamespace(
-                ready_calibration_publications=3,
-                prepared_calibration_publications=2,
-                published_calibration_publications=1,
-                deferred_calibration_publications=1,
-                attention_calibration_publications=0,
-                reconciled_calibration_publications=1,
-                superseded_calibration_publications=1,
-                calibration_publication_races=1,
-                calibration_publication_failures=0,
-                calibration_publication_barrier=True,
-                created_interval_schedules=1,
-                planner_failures=0,
-                interval_schedule_drifts=0,
-                calibration_failures=0,
-                calibration_cohort_drifts=0,
-                admitted_calibrations=2,
-                blocked_calibrations=1,
-                materialized_schedules=2,
-                dispatched_procedures=1,
-                schedule_failures=0,
-                procedure_failures=0,
-                procedure_conflicts=0,
-                schedule_conflicts=1,
-                lease_conflicts=0,
+                publications=SimpleNamespace(
+                    ready_items=3,
+                    prepared_items=2,
+                    published_items=1,
+                    deferred_items=1,
+                    attention_items=0,
+                    reconciled_items=1,
+                    superseded_items=1,
+                    benign_races=1,
+                    failures=0,
+                ),
+                intervals=SimpleNamespace(
+                    created_schedules=1,
+                    failures=0,
+                    drifted_schedules=0,
+                ),
+                calibrations=SimpleNamespace(
+                    failures=0,
+                    cohort_drifts=0,
+                    admitted_members=2,
+                    blocked_members=1,
+                ),
+                schedules=SimpleNamespace(
+                    materialized=2,
+                    failures=0,
+                ),
+                procedures=SimpleNamespace(
+                    dispatched=1,
+                    failures=0,
+                    conflicts=0,
+                ),
+                config_planning_blocked=True,
+                needs_review=False,
+                failure_count=0,
+                benign_conflicts=2,
             )
 
         def run_forever(
@@ -340,15 +351,12 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
             calls.append(("run_forever", poll_seconds))
             on_cycle(
                 SimpleNamespace(
-                    calibration_publication_failures=1,
-                    attention_calibration_publications=1,
-                    planner_failures=0,
-                    interval_schedule_drifts=0,
-                    calibration_failures=1,
-                    calibration_cohort_drifts=0,
-                    schedule_failures=1,
-                    procedure_failures=0,
-                    procedure_conflicts=1,
+                    publications=SimpleNamespace(failures=1, attention_items=1),
+                    intervals=SimpleNamespace(failures=0, drifted_schedules=0),
+                    calibrations=SimpleNamespace(failures=1, cohort_drifts=0),
+                    schedules=SimpleNamespace(failures=1),
+                    procedures=SimpleNamespace(failures=0, conflicts=1),
+                    needs_review=True,
                 )
             )
 
@@ -357,18 +365,18 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
 
     monkeypatch.setattr(Project, "connect", connect)
     monkeypatch.setattr(
-        "scopecat.api.procedure_worker.ProjectProcedureWorkerLoop",
+        "scopecat.api.project_worker.ProjectAutomationWorker",
         FakeWorker,
     )
     runner = CliRunner()
 
     once = runner.invoke(
         app,
-        ["procedures", "work", str(tmp_path), "--once"],
+        ["automation", "work", str(tmp_path), "--once"],
     )
     resident = runner.invoke(
         app,
-        ["procedures", "work", str(tmp_path), "--poll-seconds", "2.5"],
+        ["automation", "work", str(tmp_path), "--poll-seconds", "2.5"],
     )
 
     assert once.exit_code == 0, once.output
@@ -383,7 +391,7 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
     assert "dispatched=1" in once.output
     assert resident.exit_code == 0, resident.output
     assert "worker worker-cli" in resident.output
-    assert "procedure cycle needs review" in resident.output
+    assert "automation cycle needs review" in resident.output
     assert "publication_failures=1" in resident.output
     assert "procedure_conflicts=1" in resident.output
     assert ("run_forever", 2.5) in calls
@@ -405,46 +413,54 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
 
         def cycle(self) -> object:
             return SimpleNamespace(
-                ready_calibration_publications=1,
-                prepared_calibration_publications=0,
-                published_calibration_publications=0,
-                deferred_calibration_publications=0,
-                attention_calibration_publications=1,
-                reconciled_calibration_publications=0,
-                superseded_calibration_publications=0,
-                calibration_publication_races=0,
-                calibration_publication_failures=1,
-                calibration_publication_barrier=False,
-                created_interval_schedules=0,
-                planner_failures=0,
-                interval_schedule_drifts=1,
-                calibration_failures=0,
-                calibration_cohort_drifts=0,
-                admitted_calibrations=0,
-                blocked_calibrations=0,
-                materialized_schedules=0,
-                dispatched_procedures=0,
-                schedule_failures=0,
-                procedure_failures=0,
-                procedure_conflicts=0,
-                schedule_conflicts=0,
-                lease_conflicts=0,
+                publications=SimpleNamespace(
+                    ready_items=1,
+                    prepared_items=0,
+                    published_items=0,
+                    deferred_items=0,
+                    attention_items=1,
+                    reconciled_items=0,
+                    superseded_items=0,
+                    benign_races=0,
+                    failures=1,
+                ),
+                intervals=SimpleNamespace(
+                    created_schedules=0,
+                    failures=0,
+                    drifted_schedules=1,
+                ),
+                calibrations=SimpleNamespace(
+                    failures=0,
+                    cohort_drifts=0,
+                    admitted_members=0,
+                    blocked_members=0,
+                ),
+                schedules=SimpleNamespace(materialized=0, failures=0),
+                procedures=SimpleNamespace(
+                    dispatched=0,
+                    failures=0,
+                    conflicts=0,
+                ),
+                config_planning_blocked=False,
+                needs_review=True,
+                failure_count=2,
+                benign_conflicts=0,
             )
 
     monkeypatch.setattr(
-        "scopecat.api.procedure_worker.ProjectProcedureWorkerLoop",
+        "scopecat.api.project_worker.ProjectAutomationWorker",
         OutcomeFailureWorker,
     )
     failed_outcome = runner.invoke(
         app,
-        ["procedures", "work", str(tmp_path), "--once"],
+        ["automation", "work", str(tmp_path), "--once"],
     )
 
     assert failed_outcome.exit_code == 1
     assert "cycle completed with failures" in failed_outcome.output
     assert "publication_failures=1" in failed_outcome.output
     assert "interval_drifts=1" in failed_outcome.output
-    assert "error: procedure worker cycle reported 2 failure" in failed_outcome.output
+    assert "error: automation worker cycle reported 2 failure" in failed_outcome.output
 
     class FailingWorker:
         worker_id = "worker-failing"
@@ -468,12 +484,12 @@ def test_procedure_worker_cli_supports_once_and_resident_polling(
             )
 
     monkeypatch.setattr(
-        "scopecat.api.procedure_worker.ProjectProcedureWorkerLoop",
+        "scopecat.api.project_worker.ProjectAutomationWorker",
         FailingWorker,
     )
     failed = runner.invoke(
         app,
-        ["procedures", "work", str(tmp_path), "--once"],
+        ["automation", "work", str(tmp_path), "--once"],
     )
 
     assert failed.exit_code == 1

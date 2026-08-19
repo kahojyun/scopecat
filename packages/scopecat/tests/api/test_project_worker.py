@@ -23,11 +23,16 @@ from scopecat.api.calibration_publication import (
     CalibrationPublicationOutcomeUnknown,
 )
 from scopecat.api.procedure_planner import ProcedurePlannerCycleResult
-from scopecat.api.procedure_worker import ProjectProcedureWorkerLoop
 from scopecat.api.procedures import (
     LabProcedureOperations,
     ProcedureHandle,
     ProcedureLabSession,
+)
+from scopecat.api.project_worker import (
+    ProcedureDispatchCycleResult,
+    ProjectAutomationCycleResult,
+    ProjectAutomationWorker,
+    ScheduleMaterializationCycleResult,
 )
 from scopecat.automation import (
     ProcedureControlError,
@@ -258,9 +263,13 @@ class _FakePlanner:
 class _FakeCalibrationEvaluator:
     calls: list[tuple[object, ...]]
     result: CalibrationEvaluatorCycleResult
+    stop_after_cycle: Event | None = None
 
     def cycle(self, stop: Event | None = None) -> CalibrationEvaluatorCycleResult:
         self.calls.append(("calibrate", stop))
+        if self.stop_after_cycle is not None:
+            self.stop_after_cycle.set()
+            self.stop_after_cycle = None
         return self.result
 
 
@@ -333,6 +342,58 @@ def _calibration_result() -> CalibrationEvaluatorCycleResult:
     )
 
 
+def _empty_schedule_result() -> ScheduleMaterializationCycleResult:
+    return ScheduleMaterializationCycleResult(
+        discovered=0,
+        materialized=0,
+        conflicts=0,
+        failures=0,
+        has_more=False,
+    )
+
+
+def _empty_procedure_result() -> ProcedureDispatchCycleResult:
+    return ProcedureDispatchCycleResult(
+        discovered=0,
+        dispatched=0,
+        failures=0,
+        conflicts=0,
+        lease_conflicts=0,
+        has_more=False,
+    )
+
+
+def _automation_worker(
+    operations: _FakeWorkerOperations,
+    *,
+    planner: _FakePlanner | None = None,
+    calibration_evaluator: _FakeCalibrationEvaluator | None = None,
+    calibration_finalizer: _FakeCalibrationFinalizer | None = None,
+    worker_id: str | None = None,
+    schedule_limit: int = 50,
+    runnable_limit: int = 50,
+    backoff_initial_seconds: float = 0.25,
+    backoff_max_seconds: float = 10.0,
+) -> ProjectAutomationWorker:
+    return ProjectAutomationWorker(
+        operations,
+        planner=planner or _FakePlanner([], _planner_result()),
+        calibration_evaluator=(
+            calibration_evaluator
+            or _FakeCalibrationEvaluator([], _calibration_result())
+        ),
+        calibration_finalizer=(
+            calibration_finalizer
+            or _FakeCalibrationFinalizer([], _publication_result())
+        ),
+        worker_id=worker_id,
+        schedule_limit=schedule_limit,
+        runnable_limit=runnable_limit,
+        backoff_initial_seconds=backoff_initial_seconds,
+        backoff_max_seconds=backoff_max_seconds,
+    )
+
+
 def test_cycle_finalizes_before_config_sensitive_planning() -> None:
     operations = _FakeWorkerOperations(
         ProcedureScheduleDuePage(),
@@ -353,17 +414,17 @@ def test_cycle_finalizes_before_config_sensitive_planning() -> None:
         _calibration_result(),
     )
 
-    result = ProjectProcedureWorkerLoop(
+    result = _automation_worker(
         operations,
         calibration_finalizer=finalizer,
         planner=planner,
         calibration_evaluator=evaluator,
     ).cycle()
 
-    assert result.ready_calibration_publications == 1
-    assert result.prepared_calibration_publications == 1
-    assert result.published_calibration_publications == 1
-    assert result.calibration_publication_barrier is False
+    assert result.publications.ready_items == 1
+    assert result.publications.prepared_items == 1
+    assert result.publications.published_items == 1
+    assert result.config_planning_blocked is False
     assert operations.calls == [
         ("finalize", None),
         ("plan", None),
@@ -394,7 +455,7 @@ def test_publication_backlog_blocks_new_planning_but_drains_frozen_work() -> Non
         _calibration_result(),
     )
 
-    result = ProjectProcedureWorkerLoop(
+    result = _automation_worker(
         operations,
         calibration_finalizer=finalizer,
         planner=planner,
@@ -402,13 +463,13 @@ def test_publication_backlog_blocks_new_planning_but_drains_frozen_work() -> Non
         worker_id="worker-publication-barrier",
     ).cycle()
 
-    assert result.calibration_publication_barrier is True
-    assert result.deferred_calibration_publications == 1
-    assert result.calibration_publication_races == 1
-    assert result.eligible_interval_occurrences == 0
-    assert result.selected_calibration_targets == 0
-    assert result.materialized_schedules == 1
-    assert result.dispatched_procedures == 1
+    assert result.config_planning_blocked is True
+    assert result.publications.deferred_items == 1
+    assert result.publications.benign_races == 1
+    assert result.intervals.eligible_occurrences == 0
+    assert result.calibrations.selected_targets == 0
+    assert result.schedules.materialized == 1
+    assert result.procedures.dispatched == 1
     assert result.has_more is True
     assert operations.calls == [
         ("finalize", None),
@@ -435,7 +496,7 @@ def test_stop_after_finalizer_prevents_every_later_worker_phase() -> None:
         stop_after_cycle=stop,
     )
 
-    result = ProjectProcedureWorkerLoop(
+    result = _automation_worker(
         operations,
         calibration_finalizer=finalizer,
         planner=_FakePlanner(operations.calls, _planner_result()),
@@ -447,6 +508,70 @@ def test_stop_after_finalizer_prevents_every_later_worker_phase() -> None:
 
     assert result.has_more is False
     assert operations.calls == [("finalize", stop)]
+
+
+def test_stop_after_calibration_evaluation_prevents_durable_work() -> None:
+    stop = Event()
+    operations = _FakeWorkerOperations(
+        ProcedureScheduleDuePage(),
+        ProcedureRunnablePage(),
+    )
+
+    result = _automation_worker(
+        operations,
+        calibration_finalizer=_FakeCalibrationFinalizer(
+            operations.calls,
+            _publication_result(),
+        ),
+        planner=_FakePlanner(operations.calls, _planner_result()),
+        calibration_evaluator=_FakeCalibrationEvaluator(
+            operations.calls,
+            _calibration_result(),
+            stop_after_cycle=stop,
+        ),
+    ).cycle(stop)
+
+    assert result.schedules == _empty_schedule_result()
+    assert result.procedures == _empty_procedure_result()
+    assert operations.calls == [
+        ("finalize", stop),
+        ("plan", stop),
+        ("calibrate", stop),
+    ]
+
+
+def test_cycle_result_derives_review_and_progress_summaries() -> None:
+    result = ProjectAutomationCycleResult(
+        publications=replace(_publication_result(), failures=1, benign_races=11),
+        intervals=replace(_planner_result(), failures=2, drifted_schedules=3),
+        calibrations=replace(
+            _calibration_result(),
+            failures=4,
+            cohort_drifts=5,
+            admission_conflicts=12,
+        ),
+        schedules=ScheduleMaterializationCycleResult(
+            discovered=0,
+            materialized=0,
+            conflicts=7,
+            failures=6,
+            has_more=True,
+        ),
+        procedures=ProcedureDispatchCycleResult(
+            discovered=0,
+            dispatched=0,
+            failures=8,
+            conflicts=9,
+            lease_conflicts=10,
+            has_more=False,
+        ),
+    )
+
+    assert result.failure_count == 38
+    assert result.needs_review is True
+    assert result.benign_conflicts == 40
+    assert result.config_planning_blocked is False
+    assert result.has_more is True
 
 
 def test_cycle_plans_before_due_work_and_surfaces_planner_drift() -> None:
@@ -468,14 +593,14 @@ def test_cycle_plans_before_due_work_and_surfaces_planner_drift() -> None:
         ),
     )
 
-    result = ProjectProcedureWorkerLoop(operations, planner=planner).cycle()
+    result = _automation_worker(operations, planner=planner).cycle()
 
-    assert result.eligible_interval_occurrences == 2
-    assert result.created_interval_schedules == 1
-    assert result.existing_interval_schedules == 1
-    assert result.reconciled_interval_schedules == 0
-    assert result.interval_schedule_drifts == 1
-    assert result.planner_failures == 2
+    assert result.intervals.eligible_occurrences == 2
+    assert result.intervals.created_schedules == 1
+    assert result.intervals.existing_schedules == 1
+    assert result.intervals.reconciled_schedules == 0
+    assert result.intervals.drifted_schedules == 1
+    assert result.intervals.failures == 2
     assert operations.calls == [
         ("plan", None),
         ("due", 50, None, None),
@@ -510,16 +635,16 @@ def test_cycle_admits_calibration_frontier_before_due_work() -> None:
         ),
     )
 
-    result = ProjectProcedureWorkerLoop(
+    result = _automation_worker(
         operations,
         calibration_evaluator=evaluator,
     ).cycle()
 
-    assert result.selected_calibration_targets == 3
-    assert result.fresh_calibrations == 1
-    assert result.blocked_calibrations == 1
-    assert result.admitted_calibrations == 1
-    assert result.created_calibration_cohorts == 1
+    assert result.calibrations.selected_targets == 3
+    assert result.calibrations.fresh_members == 1
+    assert result.calibrations.blocked_members == 1
+    assert result.calibrations.admitted_members == 1
+    assert result.calibrations.created_cohorts == 1
     assert operations.calls == [
         ("calibrate", None),
         ("due", 50, None, None),
@@ -547,7 +672,7 @@ def test_cycle_materializes_before_dispatch_and_continues_known_races() -> None:
         _conflict("lease raced"),
     )
     operations.resume_errors["run-3"] = ValueError("known procedure failure")
-    loop = ProjectProcedureWorkerLoop(
+    loop = _automation_worker(
         operations,
         worker_id="worker-exact",
         schedule_limit=2,
@@ -556,15 +681,15 @@ def test_cycle_materializes_before_dispatch_and_continues_known_races() -> None:
 
     result = loop.cycle()
 
-    assert result.due_schedules == 2
-    assert result.materialized_schedules == 1
-    assert result.schedule_conflicts == 1
-    assert result.schedule_failures == 0
-    assert result.runnable_procedures == 3
-    assert result.dispatched_procedures == 1
-    assert result.procedure_failures == 1
-    assert result.procedure_conflicts == 0
-    assert result.lease_conflicts == 1
+    assert result.schedules.discovered == 2
+    assert result.schedules.materialized == 1
+    assert result.schedules.conflicts == 1
+    assert result.schedules.failures == 0
+    assert result.procedures.discovered == 3
+    assert result.procedures.dispatched == 1
+    assert result.procedures.failures == 1
+    assert result.procedures.conflicts == 0
+    assert result.procedures.lease_conflicts == 1
     assert result.has_more is True
     assert operations.calls == [
         ("due", 2, None, None),
@@ -595,11 +720,11 @@ def test_schedule_conflict_requires_an_exact_terminal_or_revision_race() -> None
         state="cancelled",
     )
 
-    result = ProjectProcedureWorkerLoop(operations).cycle()
+    result = _automation_worker(operations).cycle()
 
-    assert result.schedule_failures == 1
-    assert result.schedule_conflicts == 1
-    assert result.materialized_schedules == 0
+    assert result.schedules.failures == 1
+    assert result.schedules.conflicts == 1
+    assert result.schedules.materialized == 0
 
 
 def test_deterministic_procedure_control_errors_are_local_conflicts() -> None:
@@ -625,12 +750,12 @@ def test_deterministic_procedure_control_errors_are_local_conflicts() -> None:
         _conflict("lease was fenced"),
     )
 
-    result = ProjectProcedureWorkerLoop(operations).cycle()
+    result = _automation_worker(operations).cycle()
 
-    assert result.procedure_conflicts == 1
-    assert result.lease_conflicts == 2
-    assert result.dispatched_procedures == 1
-    assert result.procedure_failures == 0
+    assert result.procedures.conflicts == 1
+    assert result.procedures.lease_conflicts == 2
+    assert result.procedures.dispatched == 1
+    assert result.procedures.failures == 0
 
 
 @pytest.mark.parametrize("status", [404, 422])
@@ -654,7 +779,7 @@ def test_non_conflict_acquire_error_is_fatal_and_lease_error_is_not_benign(
     )
 
     with pytest.raises(ProcedureControlError):
-        ProjectProcedureWorkerLoop(acquire_operations).cycle()
+        _automation_worker(acquire_operations).cycle()
 
     lease_operations = _FakeWorkerOperations(
         ProcedureScheduleDuePage(),
@@ -665,10 +790,10 @@ def test_non_conflict_acquire_error_is_fatal_and_lease_error_is_not_benign(
         cause,
     )
 
-    result = ProjectProcedureWorkerLoop(lease_operations).cycle()
+    result = _automation_worker(lease_operations).cycle()
 
-    assert result.procedure_conflicts == 1
-    assert result.lease_conflicts == 0
+    assert result.procedures.conflicts == 1
+    assert result.procedures.lease_conflicts == 0
 
 
 def test_due_cursor_is_preserved_across_bounded_cycles_and_then_reset() -> None:
@@ -684,7 +809,7 @@ def test_due_cursor_is_preserved_across_bounded_cycles_and_then_reset() -> None:
     operations.due_pages[(10, 20)] = ProcedureScheduleDuePage(
         items=(_schedule("schedule-last-page"),),
     )
-    loop = ProjectProcedureWorkerLoop(operations)
+    loop = _automation_worker(operations)
 
     assert loop.cycle().has_more is True
     assert loop.cycle().has_more is False
@@ -709,15 +834,15 @@ def test_stop_halfway_through_due_page_does_not_advance_traversal() -> None:
         ProcedureRunnablePage(),
     )
     operations.stop_after_materialize = stop
-    loop = ProjectProcedureWorkerLoop(operations)
+    loop = _automation_worker(operations)
 
     interrupted = loop.cycle(stop)
     stop.clear()
     resumed = loop.cycle(stop)
 
-    assert interrupted.materialized_schedules == 1
+    assert interrupted.schedules.materialized == 1
     assert interrupted.has_more is True
-    assert resumed.materialized_schedules == 2
+    assert resumed.schedules.materialized == 2
     due_calls = [call for call in operations.calls if call[0] == "due"]
     assert due_calls == [
         ("due", 50, None, None),
@@ -731,11 +856,11 @@ def test_worker_ids_are_unique_per_loop_instance() -> None:
         ProcedureRunnablePage(),
     )
 
-    first = ProjectProcedureWorkerLoop(operations)
-    second = ProjectProcedureWorkerLoop(operations)
+    first = _automation_worker(operations)
+    second = _automation_worker(operations)
 
-    assert first.worker_id.startswith("project-procedure-")
-    assert second.worker_id.startswith("project-procedure-")
+    assert first.worker_id.startswith("project-automation-")
+    assert second.worker_id.startswith("project-automation-")
     assert first.worker_id != second.worker_id
 
 
@@ -745,7 +870,7 @@ def test_control_failures_back_off_exponentially() -> None:
         ProcedureRunnablePage(),
     )
     operations.due_error = httpx2.ReadError("daemon unavailable")
-    loop = ProjectProcedureWorkerLoop(
+    loop = _automation_worker(
         operations,
         backoff_initial_seconds=0.001,
         backoff_max_seconds=0.004,
@@ -789,7 +914,7 @@ def test_unknown_calibration_publication_outcome_uses_resident_backoff(
         _publication_result(),
         error=unknown,
     )
-    loop = ProjectProcedureWorkerLoop(
+    loop = _automation_worker(
         operations,
         calibration_finalizer=finalizer,
         backoff_initial_seconds=0.001,
@@ -820,7 +945,7 @@ def test_transient_control_statuses_back_off(status: int) -> None:
         if status == 503
         else _http_status(status, "daemon unavailable")
     )
-    loop = ProjectProcedureWorkerLoop(
+    loop = _automation_worker(
         operations,
         backoff_initial_seconds=0.001,
     )
@@ -845,7 +970,7 @@ def test_deterministic_query_error_does_not_enter_retry_loop() -> None:
     retries: list[float] = []
 
     with pytest.raises(DaemonNotFoundError, match="due route missing"):
-        ProjectProcedureWorkerLoop(operations).run_forever(
+        _automation_worker(operations).run_forever(
             Event(),
             poll_seconds=60,
             on_retry=lambda _error, delay: retries.append(delay),
@@ -859,7 +984,7 @@ def test_poll_wait_is_interruptible_by_stop_event() -> None:
         ProcedureScheduleDuePage(),
         ProcedureRunnablePage(),
     )
-    loop = ProjectProcedureWorkerLoop(operations)
+    loop = _automation_worker(operations)
     stop = Event()
     thread = Thread(
         target=lambda: loop.run_forever(stop, poll_seconds=60),
@@ -881,11 +1006,11 @@ def test_stop_event_yields_after_active_procedure_before_next_dispatch() -> None
         ProcedureRunnablePage(items=(_run("run-1"), _run("run-2"))),
     )
     operations.stop_after_resume = stop
-    loop = ProjectProcedureWorkerLoop(operations, worker_id="worker-stopping")
+    loop = _automation_worker(operations, worker_id="worker-stopping")
 
     result = loop.cycle(stop)
 
-    assert result.dispatched_procedures == 1
+    assert result.procedures.dispatched == 1
     assert result.has_more is True
     assert operations.calls == [
         ("due", 50, None, None),

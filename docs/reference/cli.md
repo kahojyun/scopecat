@@ -31,12 +31,12 @@ port.
 `config apply` accepts `--actor` and `--note`. `config export` refuses to replace
 an existing destination unless `--force` is supplied.
 
-## Procedures
+## Automation
 
 | Command | Purpose |
 | --- | --- |
-| `scopecat procedures work [PROJECT]` | Run the project-owned resident calibration finalizer, planners, and procedure worker. |
-| `scopecat procedures work [PROJECT] --once` | Finalize, plan, evaluate, materialize, and dispatch one bounded cycle, then exit. |
+| `scopecat automation work [PROJECT]` | Run the project-owned resident automation worker. |
+| `scopecat automation work [PROJECT] --once` | Finalize, plan, evaluate, materialize, and dispatch one bounded cycle, then exit. |
 
 The resident worker loads the project's exact publication, calibration,
 schedule, and procedure registries in its own process. It finalizes ready

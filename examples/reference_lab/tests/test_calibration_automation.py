@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from threading import Event
 
 import pytest
 from scopecat import Quantity
-from scopecat.api.procedure_worker import ProjectProcedureWorkerLoop
+from scopecat.api.calibration_finalizer import (
+    CalibrationPublicationFinalizerCycleResult,
+)
+from scopecat.api.project_worker import ProjectAutomationWorker
 from scopecat.automation import ConfigPublishOutputRef
 from scopecat.config.registry.records import CalibrationCohortMergeRegistrySource
 from scopecat.daemon.client import DaemonConflictError
@@ -29,6 +33,26 @@ from reference_lab.workflows.drag_beta_publication import (
 )
 
 
+class _DisabledAutomaticPublication:
+    def cycle(
+        self,
+        stop: Event | None = None,
+    ) -> CalibrationPublicationFinalizerCycleResult:
+        del stop
+        return CalibrationPublicationFinalizerCycleResult(
+            ready_items=0,
+            prepared_items=0,
+            published_items=0,
+            deferred_items=0,
+            attention_items=0,
+            reconciled_items=0,
+            superseded_items=0,
+            benign_races=0,
+            failures=0,
+            has_more=False,
+        )
+
+
 def test_resident_automatic_publication_survives_restart_and_q0_only(
     tmp_path: Path,
 ) -> None:
@@ -42,8 +66,9 @@ def test_resident_automatic_publication_survives_restart_and_q0_only(
     try:
         with create_application(project_root).connect(first_record.base_url) as lab:
             active_before = lab.config.active()
-            worker = ProjectProcedureWorkerLoop(
+            worker = ProjectAutomationWorker(
                 lab.procedures,
+                planner=lab.procedures.interval_planner(),
                 calibration_finalizer=lab.calibrations.publication_finalizer(),
                 calibration_evaluator=lab.calibrations.evaluator(),
                 worker_id="reference-lab-resident-before-restart",
@@ -52,11 +77,11 @@ def test_resident_automatic_publication_survives_restart_and_q0_only(
 
             completed = worker.cycle()
 
-            assert completed.ready_calibration_publications == 0
-            assert completed.published_calibration_publications == 0
-            assert completed.admitted_calibrations == 2
-            assert completed.created_calibration_cohorts == 1
-            assert completed.dispatched_procedures == 2
+            assert completed.publications.ready_items == 0
+            assert completed.publications.published_items == 0
+            assert completed.calibrations.admitted_members == 2
+            assert completed.calibrations.created_cohorts == 1
+            assert completed.procedures.dispatched == 2
             [summary] = lab.calibrations.list(
                 fanout_scope=DRAG_BETA_CALIBRATION_FANOUT_SCOPE
             ).items
@@ -80,8 +105,9 @@ def test_resident_automatic_publication_survives_restart_and_q0_only(
         restarted_record = start_project(project)
 
         with create_application(project_root).connect(restarted_record.base_url) as lab:
-            worker = ProjectProcedureWorkerLoop(
+            worker = ProjectAutomationWorker(
                 lab.procedures,
+                planner=lab.procedures.interval_planner(),
                 calibration_finalizer=lab.calibrations.publication_finalizer(),
                 calibration_evaluator=lab.calibrations.evaluator(),
                 worker_id="reference-lab-resident-after-restart",
@@ -90,16 +116,16 @@ def test_resident_automatic_publication_survives_restart_and_q0_only(
 
             published = worker.cycle()
 
-            assert published.ready_calibration_publications == 1
-            assert published.prepared_calibration_publications == 1
-            assert published.published_calibration_publications == 1
-            assert published.calibration_publication_failures == 0
-            assert published.calibration_publication_barrier is False
-            assert published.fresh_calibrations == 2
-            assert published.pending_publication_calibrations == 0
-            assert published.admitted_calibrations == 0
-            assert published.created_calibration_cohorts == 0
-            assert published.dispatched_procedures == 0
+            assert published.publications.ready_items == 1
+            assert published.publications.prepared_items == 1
+            assert published.publications.published_items == 1
+            assert published.publications.failures == 0
+            assert published.config_planning_blocked is False
+            assert published.calibrations.fresh_members == 2
+            assert published.calibrations.pending_publication_members == 0
+            assert published.calibrations.admitted_members == 0
+            assert published.calibrations.created_cohorts == 0
+            assert published.procedures.dispatched == 0
 
             active_published = lab.config.active()
             assert active_published.activation.generation == (
@@ -129,10 +155,10 @@ def test_resident_automatic_publication_survives_restart_and_q0_only(
             )
 
             replay = worker.cycle()
-            assert replay.ready_calibration_publications == 0
-            assert replay.published_calibration_publications == 0
-            assert replay.fresh_calibrations == 2
-            assert replay.created_calibration_cohorts == 0
+            assert replay.publications.ready_items == 0
+            assert replay.publications.published_items == 0
+            assert replay.calibrations.fresh_members == 2
+            assert replay.calibrations.created_cohorts == 0
             assert lab.config.active().activation == active_published.activation
 
             q0_inputs = drag_beta_semantic_freshness_inputs(
@@ -151,13 +177,13 @@ def test_resident_automatic_publication_survives_restart_and_q0_only(
 
             q0_completed = worker.cycle()
 
-            assert q0_completed.ready_calibration_publications == 0
-            assert q0_completed.published_calibration_publications == 0
-            assert q0_completed.fresh_calibrations == 1
-            assert q0_completed.ready_calibrations == 1
-            assert q0_completed.admitted_calibrations == 1
-            assert q0_completed.created_calibration_cohorts == 1
-            assert q0_completed.dispatched_procedures == 1
+            assert q0_completed.publications.ready_items == 0
+            assert q0_completed.publications.published_items == 0
+            assert q0_completed.calibrations.fresh_members == 1
+            assert q0_completed.calibrations.ready_members == 1
+            assert q0_completed.calibrations.admitted_members == 1
+            assert q0_completed.calibrations.created_cohorts == 1
+            assert q0_completed.procedures.dispatched == 1
             summaries = lab.calibrations.list(
                 fanout_scope=DRAG_BETA_CALIBRATION_FANOUT_SCOPE
             ).items
@@ -174,16 +200,16 @@ def test_resident_automatic_publication_survives_restart_and_q0_only(
 
             q0_published = worker.cycle()
 
-            assert q0_published.ready_calibration_publications == 1
-            assert q0_published.prepared_calibration_publications == 1
-            assert q0_published.published_calibration_publications == 1
-            assert q0_published.calibration_publication_failures == 0
-            assert q0_published.calibration_publication_barrier is False
-            assert q0_published.fresh_calibrations == 2
-            assert q0_published.pending_publication_calibrations == 0
-            assert q0_published.admitted_calibrations == 0
-            assert q0_published.created_calibration_cohorts == 0
-            assert q0_published.dispatched_procedures == 0
+            assert q0_published.publications.ready_items == 1
+            assert q0_published.publications.prepared_items == 1
+            assert q0_published.publications.published_items == 1
+            assert q0_published.publications.failures == 0
+            assert q0_published.config_planning_blocked is False
+            assert q0_published.calibrations.fresh_members == 2
+            assert q0_published.calibrations.pending_publication_members == 0
+            assert q0_published.calibrations.admitted_members == 0
+            assert q0_published.calibrations.created_cohorts == 0
+            assert q0_published.procedures.dispatched == 0
             active_q0_published = lab.config.active()
             assert active_q0_published.activation.generation == (
                 external_q0.activation.generation + 1
@@ -224,10 +250,10 @@ def test_resident_automatic_publication_survives_restart_and_q0_only(
             )
 
             q0_replay = worker.cycle()
-            assert q0_replay.ready_calibration_publications == 0
-            assert q0_replay.published_calibration_publications == 0
-            assert q0_replay.fresh_calibrations == 2
-            assert q0_replay.created_calibration_cohorts == 0
+            assert q0_replay.publications.ready_items == 0
+            assert q0_replay.publications.published_items == 0
+            assert q0_replay.calibrations.fresh_members == 2
+            assert q0_replay.calibrations.created_cohorts == 0
             assert lab.config.active().activation == (active_q0_published.activation)
     finally:
         stop_project(project)
@@ -284,19 +310,21 @@ def test_calibration_cohort_survives_restart_and_publishes_once(
         restarted_record = start_project(project)
 
         with create_application(project_root).connect(restarted_record.base_url) as lab:
-            worker = ProjectProcedureWorkerLoop(
+            worker = ProjectAutomationWorker(
                 lab.procedures,
+                planner=lab.procedures.interval_planner(),
                 calibration_evaluator=lab.calibrations.evaluator(),
+                calibration_finalizer=_DisabledAutomaticPublication(),
                 worker_id="reference-lab-calibration-after-restart",
                 runnable_limit=2,
             )
 
             completed = worker.cycle()
 
-            assert completed.suppressed_active_calibrations == 2
-            assert completed.admitted_calibrations == 0
-            assert completed.dispatched_procedures == 2
-            assert completed.procedure_failures == 0
+            assert completed.calibrations.suppressed_active_members == 2
+            assert completed.calibrations.admitted_members == 0
+            assert completed.procedures.dispatched == 2
+            assert completed.procedures.failures == 0
             for procedure_run_id in procedure_run_ids:
                 handle = lab.procedures.get(procedure_run_id)
                 snapshot = handle.snapshot
@@ -327,21 +355,21 @@ def test_calibration_cohort_survives_restart_and_publishes_once(
 
             pending = worker.cycle()
 
-            assert pending.fresh_calibrations == 0
-            assert pending.pending_publication_calibrations == 2
-            assert pending.ready_calibrations == 0
-            assert pending.admitted_calibrations == 0
-            assert pending.created_calibration_cohorts == 0
-            assert pending.dispatched_procedures == 0
+            assert pending.calibrations.fresh_members == 0
+            assert pending.calibrations.pending_publication_members == 2
+            assert pending.calibrations.ready_members == 0
+            assert pending.calibrations.admitted_members == 0
+            assert pending.calibrations.created_cohorts == 0
+            assert pending.procedures.dispatched == 0
 
             same_base = worker.cycle()
 
-            assert same_base.fresh_calibrations == 0
-            assert same_base.pending_publication_calibrations == 2
-            assert same_base.ready_calibrations == 0
-            assert same_base.admitted_calibrations == 0
-            assert same_base.created_calibration_cohorts == 0
-            assert same_base.dispatched_procedures == 0
+            assert same_base.calibrations.fresh_members == 0
+            assert same_base.calibrations.pending_publication_members == 2
+            assert same_base.calibrations.ready_members == 0
+            assert same_base.calibrations.admitted_members == 0
+            assert same_base.calibrations.created_cohorts == 0
+            assert same_base.procedures.dispatched == 0
 
             prepared = prepare_drag_beta_cohort_publication(lab, cohort.cohort_id)
             assert prepared.base_config == active_before.config
@@ -416,12 +444,12 @@ def test_calibration_cohort_survives_restart_and_publishes_once(
             )
 
             fresh = worker.cycle()
-            assert fresh.fresh_calibrations == 2
-            assert fresh.pending_publication_calibrations == 0
-            assert fresh.ready_calibrations == 0
-            assert fresh.admitted_calibrations == 0
-            assert fresh.created_calibration_cohorts == 0
-            assert fresh.dispatched_procedures == 0
+            assert fresh.calibrations.fresh_members == 2
+            assert fresh.calibrations.pending_publication_members == 0
+            assert fresh.calibrations.ready_members == 0
+            assert fresh.calibrations.admitted_members == 0
+            assert fresh.calibrations.created_cohorts == 0
+            assert fresh.procedures.dispatched == 0
 
             [reopened_summary] = lab.calibrations.list(
                 fanout_scope=DRAG_BETA_CALIBRATION_FANOUT_SCOPE
@@ -451,13 +479,13 @@ def test_calibration_cohort_survives_restart_and_publishes_once(
             )
 
             q0_due = worker.cycle()
-            assert q0_due.selected_calibration_targets == 2
-            assert q0_due.fresh_calibrations == 1
-            assert q0_due.pending_publication_calibrations == 0
-            assert q0_due.ready_calibrations == 1
-            assert q0_due.admitted_calibrations == 1
-            assert q0_due.created_calibration_cohorts == 1
-            assert q0_due.dispatched_procedures == 1
+            assert q0_due.calibrations.selected_targets == 2
+            assert q0_due.calibrations.fresh_members == 1
+            assert q0_due.calibrations.pending_publication_members == 0
+            assert q0_due.calibrations.ready_members == 1
+            assert q0_due.calibrations.admitted_members == 1
+            assert q0_due.calibrations.created_cohorts == 1
+            assert q0_due.procedures.dispatched == 1
 
             summaries = lab.calibrations.list(
                 fanout_scope=DRAG_BETA_CALIBRATION_FANOUT_SCOPE
@@ -472,12 +500,12 @@ def test_calibration_cohort_survives_restart_and_publishes_once(
             assert q0_member.spec.target.id == "q0"
 
             q0_pending = worker.cycle()
-            assert q0_pending.fresh_calibrations == 1
-            assert q0_pending.pending_publication_calibrations == 1
-            assert q0_pending.ready_calibrations == 0
-            assert q0_pending.admitted_calibrations == 0
-            assert q0_pending.created_calibration_cohorts == 0
-            assert q0_pending.dispatched_procedures == 0
+            assert q0_pending.calibrations.fresh_members == 1
+            assert q0_pending.calibrations.pending_publication_members == 1
+            assert q0_pending.calibrations.ready_members == 0
+            assert q0_pending.calibrations.admitted_members == 0
+            assert q0_pending.calibrations.created_cohorts == 0
+            assert q0_pending.procedures.dispatched == 0
 
             q0_prepared = prepare_drag_beta_cohort_publication(
                 lab,
@@ -509,12 +537,12 @@ def test_calibration_cohort_survives_restart_and_publishes_once(
             )
 
             q0_fresh = worker.cycle()
-            assert q0_fresh.fresh_calibrations == 2
-            assert q0_fresh.pending_publication_calibrations == 0
-            assert q0_fresh.ready_calibrations == 0
-            assert q0_fresh.admitted_calibrations == 0
-            assert q0_fresh.created_calibration_cohorts == 0
-            assert q0_fresh.dispatched_procedures == 0
+            assert q0_fresh.calibrations.fresh_members == 2
+            assert q0_fresh.calibrations.pending_publication_members == 0
+            assert q0_fresh.calibrations.ready_members == 0
+            assert q0_fresh.calibrations.admitted_members == 0
+            assert q0_fresh.calibrations.created_cohorts == 0
+            assert q0_fresh.procedures.dispatched == 0
     finally:
         stop_project(project)
 
@@ -538,16 +566,18 @@ def test_verified_calibration_cohort_does_not_publish_after_base_drift(
                 fanout_scope=DRAG_BETA_CALIBRATION_FANOUT_SCOPE
             ).items
             cohort = lab.calibrations.get(summary.cohort_id)
-            worker = ProjectProcedureWorkerLoop(
+            worker = ProjectAutomationWorker(
                 lab.procedures,
+                planner=lab.procedures.interval_planner(),
                 calibration_evaluator=lab.calibrations.evaluator(),
+                calibration_finalizer=_DisabledAutomaticPublication(),
                 worker_id="reference-lab-calibration-base-drift",
                 runnable_limit=2,
             )
             completed = worker.cycle()
-            assert completed.dispatched_procedures == 2
+            assert completed.procedures.dispatched == 2
             pending = worker.cycle()
-            assert pending.pending_publication_calibrations == 2
+            assert pending.calibrations.pending_publication_members == 2
             prepared = prepare_drag_beta_cohort_publication(lab, cohort.cohort_id)
 
             drifted = lab.config.set_default(

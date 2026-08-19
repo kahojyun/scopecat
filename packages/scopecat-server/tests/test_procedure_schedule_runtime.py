@@ -8,8 +8,8 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ConfigDict
 from scopecat.api.lab import LabClient
-from scopecat.api.procedure_worker import ProjectProcedureWorkerLoop
 from scopecat.api.procedures import LabProcedureContext
+from scopecat.api.project_worker import ProjectAutomationWorker
 from scopecat.automation import (
     ProcedureDefinitionRef,
     ProcedureRegistry,
@@ -161,8 +161,11 @@ def test_project_worker_materializes_executes_and_reopens_one_shot_schedule(
             due_at=_PAST,
         )
         assert pending.state == "pending"
-        worker = ProjectProcedureWorkerLoop(
+        worker = ProjectAutomationWorker(
             lab.procedures,
+            planner=lab.procedures.interval_planner(),
+            calibration_evaluator=lab.calibrations.evaluator(),
+            calibration_finalizer=lab.calibrations.publication_finalizer(),
             worker_id="project-worker-before-crash",
         )
         with pytest.raises(httpx2.ReadError, match="response was lost"):
@@ -175,15 +178,18 @@ def test_project_worker_materializes_executes_and_reopens_one_shot_schedule(
         _daemon_client(transport) as client,
         LabClient(client, procedures=registry) as lab,
     ):
-        worker = ProjectProcedureWorkerLoop(
+        worker = ProjectAutomationWorker(
             lab.procedures,
+            planner=lab.procedures.interval_planner(),
+            calibration_evaluator=lab.calibrations.evaluator(),
+            calibration_finalizer=lab.calibrations.publication_finalizer(),
             worker_id="project-worker-restarted",
         )
 
         completed_cycle = worker.cycle()
 
-        assert completed_cycle.materialized_schedules == 0
-        assert completed_cycle.dispatched_procedures == 1
+        assert completed_cycle.schedules.materialized == 0
+        assert completed_cycle.procedures.dispatched == 1
         terminal = lab.procedures.get_schedule(schedule_id)
         assert terminal.state == "materialized"
         assert terminal.materialization is not None
@@ -198,7 +204,7 @@ def test_project_worker_materializes_executes_and_reopens_one_shot_schedule(
         assert step.state == "succeeded"
         assert step.output == RunOutputRef(run_id="scheduled-child-run")
         assert len(_SCHEDULED_EFFECT_CALLS) == 1
-        assert worker.cycle().dispatched_procedures == 0
+        assert worker.cycle().procedures.dispatched == 0
         runs = client.list_procedures(ProcedureRunListQuery())
         assert runs.items == (run,)
 

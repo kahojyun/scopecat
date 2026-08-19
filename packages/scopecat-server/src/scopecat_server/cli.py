@@ -22,12 +22,12 @@ config_app = typer.Typer(
     help="Inspect project configuration sources.",
     no_args_is_help=True,
 )
-procedures_app = typer.Typer(
-    help="Run project-owned durable procedure automation.",
+automation_app = typer.Typer(
+    help="Run project-owned resident automation.",
     no_args_is_help=True,
 )
 app.add_typer(config_app, name="config")
-app.add_typer(procedures_app, name="procedures")
+app.add_typer(automation_app, name="automation")
 console = Console()
 error_console = Console(stderr=True)
 
@@ -230,21 +230,21 @@ def config_export(
     )
 
 
-@procedures_app.command("work")
-def procedures_work(
+@automation_app.command("work")
+def automation_work(
     project: Annotated[
         Path,
         typer.Argument(help="Project directory or scopecat.toml."),
     ] = _CURRENT_DIRECTORY,
     once: Annotated[
         bool,
-        typer.Option("--once", help="Run one bounded worker cycle and exit."),
+        typer.Option("--once", help="Run one bounded automation cycle and exit."),
     ] = False,
     poll_seconds: Annotated[
         float,
         typer.Option(
             "--poll-seconds",
-            help="Idle polling interval for the resident project worker.",
+            help="Idle polling interval for the resident automation worker.",
             min=0.001,
         ),
     ] = 1.0,
@@ -255,16 +255,16 @@ def procedures_work(
     from threading import Event
     from types import FrameType
 
-    from scopecat.api.procedure_worker import (
-        ProcedureWorkerCycleResult,
-        ProjectProcedureWorkerLoop,
+    from scopecat.api.project_worker import (
+        ProjectAutomationCycleResult,
+        ProjectAutomationWorker,
     )
     from scopecat.project import open_project
 
     try:
         selected = open_project(project)
         with selected.connect() as lab:
-            worker = ProjectProcedureWorkerLoop(
+            worker = ProjectAutomationWorker(
                 lab.procedures,
                 planner=lab.procedures.interval_planner(),
                 calibration_evaluator=lab.calibrations.evaluator(),
@@ -272,62 +272,52 @@ def procedures_work(
             )
             if once:
                 result = worker.cycle()
-                failure_count = (
-                    result.planner_failures
-                    + result.interval_schedule_drifts
-                    + result.calibration_publication_failures
-                    + result.calibration_failures
-                    + result.calibration_cohort_drifts
-                    + result.schedule_failures
-                    + result.procedure_failures
-                    + result.procedure_conflicts
-                )
                 outcome = (
                     "[green]cycle complete[/green]"
-                    if failure_count == 0
+                    if not result.needs_review
                     else "[red]cycle completed with failures[/red]"
                 )
                 console.print(
                     f"{outcome} "
                     f"publication_ready="
-                    f"{result.ready_calibration_publications} "
+                    f"{result.publications.ready_items} "
                     f"publication_prepared="
-                    f"{result.prepared_calibration_publications} "
+                    f"{result.publications.prepared_items} "
                     f"publication_published="
-                    f"{result.published_calibration_publications} "
+                    f"{result.publications.published_items} "
                     f"publication_deferred="
-                    f"{result.deferred_calibration_publications} "
+                    f"{result.publications.deferred_items} "
                     f"publication_attention="
-                    f"{result.attention_calibration_publications} "
+                    f"{result.publications.attention_items} "
                     f"publication_reconciled="
-                    f"{result.reconciled_calibration_publications} "
+                    f"{result.publications.reconciled_items} "
                     f"publication_superseded="
-                    f"{result.superseded_calibration_publications} "
+                    f"{result.publications.superseded_items} "
                     f"publication_races="
-                    f"{result.calibration_publication_races} "
+                    f"{result.publications.benign_races} "
                     f"publication_barrier="
-                    f"{str(result.calibration_publication_barrier).lower()} "
-                    f"interval_created={result.created_interval_schedules} "
-                    f"calibration_admitted={result.admitted_calibrations} "
-                    f"calibration_blocked={result.blocked_calibrations} "
-                    f"materialized={result.materialized_schedules} "
-                    f"dispatched={result.dispatched_procedures} "
-                    f"planner_failures={result.planner_failures} "
-                    f"interval_drifts={result.interval_schedule_drifts} "
+                    f"{str(result.config_planning_blocked).lower()} "
+                    f"interval_created={result.intervals.created_schedules} "
+                    f"calibration_admitted={result.calibrations.admitted_members} "
+                    f"calibration_blocked={result.calibrations.blocked_members} "
+                    f"materialized={result.schedules.materialized} "
+                    f"dispatched={result.procedures.dispatched} "
+                    f"planner_failures={result.intervals.failures} "
+                    f"interval_drifts={result.intervals.drifted_schedules} "
                     f"publication_failures="
-                    f"{result.calibration_publication_failures} "
-                    f"calibration_failures={result.calibration_failures} "
-                    f"calibration_drifts={result.calibration_cohort_drifts} "
-                    f"schedule_failures={result.schedule_failures} "
-                    f"procedure_failures={result.procedure_failures} "
-                    f"procedure_conflicts={result.procedure_conflicts} "
-                    f"benign_conflicts="
-                    f"{result.schedule_conflicts + result.lease_conflicts}",
+                    f"{result.publications.failures} "
+                    f"calibration_failures={result.calibrations.failures} "
+                    f"calibration_drifts={result.calibrations.cohort_drifts} "
+                    f"schedule_failures={result.schedules.failures} "
+                    f"procedure_failures={result.procedures.failures} "
+                    f"procedure_conflicts={result.procedures.conflicts} "
+                    f"benign_conflicts={result.benign_conflicts}",
                     soft_wrap=True,
                 )
-                if failure_count:
+                if result.needs_review:
                     raise RuntimeError(
-                        f"procedure worker cycle reported {failure_count} failure(s)"
+                        "automation worker cycle reported "
+                        f"{result.failure_count} failure(s)"
                     )
                 return
 
@@ -340,35 +330,26 @@ def procedures_work(
 
             def report_retry(error: Exception, delay: float) -> None:
                 error_console.print(
-                    f"[yellow]project worker control unavailable:[/yellow] {error}; "
+                    f"[yellow]automation worker control unavailable:[/yellow] {error}; "
                     f"retrying in {delay:g}s",
                     soft_wrap=True,
                 )
 
-            def report_cycle(result: ProcedureWorkerCycleResult) -> None:
-                if (
-                    result.planner_failures
-                    or result.interval_schedule_drifts
-                    or result.calibration_publication_failures
-                    or result.calibration_failures
-                    or result.calibration_cohort_drifts
-                    or result.schedule_failures
-                    or result.procedure_failures
-                    or result.procedure_conflicts
-                ):
+            def report_cycle(result: ProjectAutomationCycleResult) -> None:
+                if result.needs_review:
                     error_console.print(
-                        "[yellow]procedure cycle needs review:[/yellow] "
-                        f"planner_failures={result.planner_failures} "
-                        f"interval_drifts={result.interval_schedule_drifts} "
+                        "[yellow]automation cycle needs review:[/yellow] "
+                        f"planner_failures={result.intervals.failures} "
+                        f"interval_drifts={result.intervals.drifted_schedules} "
                         f"publication_failures="
-                        f"{result.calibration_publication_failures} "
+                        f"{result.publications.failures} "
                         f"publication_attention="
-                        f"{result.attention_calibration_publications} "
-                        f"calibration_failures={result.calibration_failures} "
-                        f"calibration_drifts={result.calibration_cohort_drifts} "
-                        f"schedule_failures={result.schedule_failures} "
-                        f"procedure_failures={result.procedure_failures} "
-                        f"procedure_conflicts={result.procedure_conflicts}",
+                        f"{result.publications.attention_items} "
+                        f"calibration_failures={result.calibrations.failures} "
+                        f"calibration_drifts={result.calibrations.cohort_drifts} "
+                        f"schedule_failures={result.schedules.failures} "
+                        f"procedure_failures={result.procedures.failures} "
+                        f"procedure_conflicts={result.procedures.conflicts}",
                         soft_wrap=True,
                     )
 

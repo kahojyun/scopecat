@@ -8,8 +8,8 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel, ConfigDict
 from scopecat.api.lab import LabClient
 from scopecat.api.procedure_planner import ProcedurePlanningContext
-from scopecat.api.procedure_worker import ProjectProcedureWorkerLoop
 from scopecat.api.procedures import LabProcedureContext
+from scopecat.api.project_worker import ProjectAutomationWorker
 from scopecat.application import LabApplication
 from scopecat.automation import (
     IntervalOccurrence,
@@ -123,19 +123,21 @@ def test_interval_worker_plans_executes_and_reopens_one_exact_slot(
         _daemon_client(transport) as client,
         _lab(client, _DUE_APPLICATION) as lab,
     ):
-        worker = ProjectProcedureWorkerLoop(
+        worker = ProjectAutomationWorker(
             lab.procedures,
             planner=lab.procedures.interval_planner(clock=lambda: _DUE_PLANNER_NOW),
+            calibration_evaluator=lab.calibrations.evaluator(),
+            calibration_finalizer=lab.calibrations.publication_finalizer(),
             worker_id="interval-worker-first",
         )
 
         first = worker.cycle()
 
-        assert first.eligible_interval_occurrences == 1
-        assert first.created_interval_schedules == 1
-        assert first.existing_interval_schedules == 0
-        assert first.materialized_schedules == 1
-        assert first.dispatched_procedures == 1
+        assert first.intervals.eligible_occurrences == 1
+        assert first.intervals.created_schedules == 1
+        assert first.intervals.existing_schedules == 0
+        assert first.schedules.materialized == 1
+        assert first.procedures.dispatched == 1
         terminal = lab.procedures.get_schedule(occurrence.schedule_id)
         assert terminal.state == "materialized"
         assert terminal.materialization is not None
@@ -151,10 +153,10 @@ def test_interval_worker_plans_executes_and_reopens_one_exact_slot(
 
         repeated = worker.cycle()
 
-        assert repeated.existing_interval_schedules == 1
-        assert repeated.created_interval_schedules == 0
-        assert repeated.materialized_schedules == 0
-        assert repeated.dispatched_procedures == 0
+        assert repeated.intervals.existing_schedules == 1
+        assert repeated.intervals.created_schedules == 0
+        assert repeated.schedules.materialized == 0
+        assert repeated.procedures.dispatched == 0
         assert _INTENT_BUILDS == [("tests.runtime-due-interval", 2)]
         assert len(_EFFECT_CALLS) == 1
 
@@ -164,18 +166,20 @@ def test_interval_worker_plans_executes_and_reopens_one_exact_slot(
         _daemon_client(transport) as client,
         _lab(client, _DUE_APPLICATION) as lab,
     ):
-        worker = ProjectProcedureWorkerLoop(
+        worker = ProjectAutomationWorker(
             lab.procedures,
             planner=lab.procedures.interval_planner(clock=lambda: _DUE_PLANNER_NOW),
+            calibration_evaluator=lab.calibrations.evaluator(),
+            calibration_finalizer=lab.calibrations.publication_finalizer(),
             worker_id="interval-worker-restarted",
         )
 
         restarted = worker.cycle()
 
-        assert restarted.existing_interval_schedules == 1
-        assert restarted.created_interval_schedules == 0
-        assert restarted.materialized_schedules == 0
-        assert restarted.dispatched_procedures == 0
+        assert restarted.intervals.existing_schedules == 1
+        assert restarted.intervals.created_schedules == 0
+        assert restarted.schedules.materialized == 0
+        assert restarted.procedures.dispatched == 0
         assert _INTENT_BUILDS == [("tests.runtime-due-interval", 2)]
         assert len(_EFFECT_CALLS) == 1
         assert client.list_procedure_schedules(ProcedureScheduleListQuery()).items == (
@@ -199,20 +203,22 @@ def test_planner_clock_cannot_make_a_future_one_shot_due_on_the_server(
         _daemon_client(transport) as client,
         _lab(client, _FUTURE_APPLICATION) as lab,
     ):
-        worker = ProjectProcedureWorkerLoop(
+        worker = ProjectAutomationWorker(
             lab.procedures,
             planner=lab.procedures.interval_planner(clock=lambda: _FUTURE_ANCHOR),
+            calibration_evaluator=lab.calibrations.evaluator(),
+            calibration_finalizer=lab.calibrations.publication_finalizer(),
             worker_id="future-interval-worker",
         )
 
         planned = worker.cycle()
 
-        assert planned.eligible_interval_occurrences == 1
-        assert planned.created_interval_schedules == 1
-        assert planned.due_schedules == 0
-        assert planned.materialized_schedules == 0
-        assert planned.runnable_procedures == 0
-        assert planned.dispatched_procedures == 0
+        assert planned.intervals.eligible_occurrences == 1
+        assert planned.intervals.created_schedules == 1
+        assert planned.schedules.discovered == 0
+        assert planned.schedules.materialized == 0
+        assert planned.procedures.discovered == 0
+        assert planned.procedures.dispatched == 0
         pending = lab.procedures.get_schedule(occurrence.schedule_id)
         assert pending.state == "pending"
         assert pending.due_at == _FUTURE_ANCHOR
