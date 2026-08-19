@@ -15,11 +15,9 @@ from scopecat.api.calibration_policy import CalibrationPublicationPolicyRegistry
 from scopecat.api.calibration_publication import (
     CalibrationCohortPublicationPlan,
     CalibrationPublicationReadSession,
-    build_calibration_cohort_merge_contribution,
-    calibration_cohort_merge_revision_source,
     publish_calibration_cohort,
 )
-from scopecat.api.procedures import LabProcedureOperations, ProcedureHandle
+from scopecat.api.procedures import LabProcedureOperations
 from scopecat.automation.calibration_definition import CalibrationRegistry
 from scopecat.automation.calibration_wire import (
     CalibrationCohortCreateCommand,
@@ -38,22 +36,14 @@ from scopecat.automation.calibration_wire import (
 from scopecat.automation.calibrations import (
     CalibrationCohort,
     CalibrationCohortFinalization,
-    CalibrationCohortMember,
     CalibrationCohortSpec,
     CalibrationConfigSourceRef,
     CalibrationStatusSnapshot,
 )
-from scopecat.config.registry.records import (
-    CalibrationCohortMergeContribution,
-    ConfigCompositionPolicyRef,
-)
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.wire import (
-    CalibrationCohortMergeRevisionSource,
     CalibrationPublicationReceipt,
 )
-from scopecat.records.config import ConfigContentHash
-from scopecat.records.content import Sha256ContentHash
 from scopecat.records.run import ConfigRegistryRunConfigSource
 
 
@@ -248,70 +238,6 @@ class LabCalibrationOperations:
 
         receipt = self._client.defer_calibration_publication(command)
         return receipt.finalization
-
-    def build_merge_contribution(
-        self,
-        *,
-        cohort: CalibrationCohort,
-        member: CalibrationCohortMember,
-        procedure: ProcedureHandle,
-        evidence_step_key: str,
-        decision_output_id: str,
-        result_input_fingerprint: Sha256ContentHash,
-    ) -> CalibrationCohortMergeContribution:
-        """Freeze one exact successful member into merge evidence."""
-
-        if procedure.operations is not self._procedures:
-            raise ValueError(
-                "calibration contribution procedure belongs to another lab client"
-            )
-        return build_calibration_cohort_merge_contribution(
-            cohort=cohort,
-            member=member,
-            procedure=procedure,
-            evidence_step_key=evidence_step_key,
-            decision_output_id=decision_output_id,
-            result_input_fingerprint=result_input_fingerprint,
-            session=self._publication_session,
-        )
-
-    def merge_source(
-        self,
-        *,
-        cohort: CalibrationCohort,
-        member_page: CalibrationCohortMemberPage,
-        composition_policy_ref: ConfigCompositionPolicyRef,
-        candidate_id: str,
-        contributions: tuple[CalibrationCohortMergeContribution, ...],
-        expected_result_content_hash: ConfigContentHash,
-    ) -> CalibrationCohortMergeRevisionSource:
-        """Build a merge source that exactly covers one complete cohort."""
-
-        return calibration_cohort_merge_revision_source(
-            cohort=cohort,
-            member_page=member_page,
-            composition_policy_ref=composition_policy_ref,
-            candidate_id=candidate_id,
-            contributions=contributions,
-            expected_result_content_hash=expected_result_content_hash,
-        )
-
-    def publication_plan(
-        self,
-        source: CalibrationCohortMergeRevisionSource,
-        *,
-        actor: str,
-        note: str = "",
-        expected_finalization_revision: int | None = None,
-    ) -> CalibrationCohortPublicationPlan:
-        """Freeze deterministic config entry and operation identities."""
-
-        return self.publication_planning_context().publication_plan(
-            source,
-            actor=actor,
-            note=note,
-            expected_finalization_revision=expected_finalization_revision,
-        )
 
     def publish(
         self,

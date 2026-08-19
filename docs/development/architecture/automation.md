@@ -12,14 +12,17 @@ or worker restart. It is not yet a scheduler for a whole device.
 The project application owns a versioned `ProcedureRegistry`. A procedure is a
 deterministic imperative Python function with a typed, JSON-encoded initial
 intent. The daemon stores only its definition reference, intent, current state,
-step attempts, leases, and typed output references. A project worker loads the
-same registry and replays the function from its beginning.
+step attempts, leases, and typed output references. A project automation worker
+loads the same registry and replays the function from its beginning.
 
 The definition fingerprint covers the registered function source and intent
 schema. Analysis invocation fingerprints additionally cover their bound
-arguments, defaults, and nonlocal closure values. Authors must still bump the
-explicit procedure version when a transitive imported dependency changes; a
-source fingerprint is not a Python environment lockfile.
+arguments, defaults, and nonlocal closure values. Durable procedure,
+calibration, and automatic-publication callbacks reject nonlocal captures;
+callback configuration must enter typed intent, definition, or reference
+fields. Authors must still bump the corresponding definition or policy version
+when a transitive imported dependency changes; a source fingerprint is not a
+Python environment lockfile.
 
 The daemon must never pickle, import, or deserialize a procedure closure. The
 worker must never replace the authoritative run, analysis, configuration, or
@@ -127,7 +130,7 @@ retry policy, cron trigger, or dynamic loop checkpoint. A linear Python
 procedure with durable step checkpoints remains the unit of execution; the flat
 bounded cohort admission layer described below does not add another run engine.
 
-## One-shot schedules and project workers
+## One-shot schedules and project automation workers
 
 A durable procedure schedule freezes one exact definition reference, canonical
 intent, and UTC due time. Materialization derives a stable request key from that
@@ -136,7 +139,7 @@ schedule is idempotent; changing its exact content under the same schedule ID is
 a conflict. Due-time processing never rebuilds intent from the active
 configuration or the worker's current Python environment.
 
-`scopecat procedures work PROJECT` runs the project-owned Python worker as a
+`scopecat automation work PROJECT` runs the project-owned Python worker as a
 process separate from the daemon. Each bounded cycle first finalizes supported
 ready calibration publications, then performs config-sensitive interval planning
 and calibration evaluation, materializes already-frozen due schedules, and asks
@@ -155,7 +158,7 @@ lower-sequence schedule that became due after the prior cursor passed it. A
 still-pending materialization conflict therefore cannot pin all later due
 schedules behind the first bounded page.
 
-Before due discovery, the same project worker evaluates an immutable
+Before due discovery, the same project automation worker evaluates an immutable
 `ProcedureScheduleRegistry`. Its first recurring trigger is deliberately narrow:
 an aware UTC anchor plus a fixed positive `timedelta`. Evaluation selects only
 the latest due ordinal in constant time. It neither expands every missed slot
@@ -195,8 +198,8 @@ cycle records a deterministic failure. The resident form polls with
 interruptible waits and exponential control-plane backoff. Shutdown stops new
 discovery, callbacks, mutations, or dispatch on `SIGINT` or `SIGTERM`. An
 already-started publication reconciliation or procedure effect completes; at the
-next durable step boundary the procedure worker releases the procedure ready for
-another exact worker. If there is no next step, the procedure closes
+next durable step boundary the underlying procedure worker releases the procedure
+ready for another exact worker. If there is no next step, the procedure closes
 successfully. There is no mid-effect cancellation contract.
 
 ## Freshness evaluation and bounded calibration cohorts

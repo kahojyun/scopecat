@@ -10,6 +10,8 @@ from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.registry.records import (
     ConfigActivationOperation,
     ConfigPublishOperation,
+    ConfigRegistryActivationRecord,
+    ConfigRegistryEntry,
     config_activation_intent_hash,
 )
 from scopecat.config.registry.service import (
@@ -18,12 +20,9 @@ from scopecat.config.registry.service import (
     ConfigRevision,
     DirectConfigRevisionSource,
     activate_config_registry_entry,
-    current_config_registry_generation,
-    list_config_registry_entries,
-    load_active_config_registry_activation,
     load_active_config_registry_snapshot,
     load_config_registry_entry_snapshot,
-    load_config_registry_snapshot,
+    load_config_registry_page,
     publish_config_revision,
     resolve_config_registry_config_source,
 )
@@ -46,6 +45,28 @@ from scopecat_server.storage.sqlite.config_operations import SQLiteConfigOperati
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
+
+
+# Test-only storage observations. Product callers use the exact snapshot/page
+# services instead of these former convenience wrappers.
+def current_config_registry_generation(
+    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
+) -> int:
+    with unit_of_work() as work:
+        return work.registry.current_generation()
+
+
+def list_config_registry_entries(
+    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
+) -> list[ConfigRegistryEntry]:
+    with unit_of_work() as work:
+        return list(work.registry.list_entries())
+
+
+def load_active_config_registry_activation(
+    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
+) -> ConfigRegistryActivationRecord:
+    return load_active_config_registry_snapshot(unit_of_work=unit_of_work).activation
 
 
 def _publish_direct_revision(
@@ -389,7 +410,11 @@ def test_aggregate_reads_open_one_unit_of_work(tmp_path: Path) -> None:
         opens += 1
         return store.write_unit_of_work()
 
-    registry = load_config_registry_snapshot(unit_of_work=counted_unit_of_work)
+    registry = load_config_registry_page(
+        limit=50,
+        before=None,
+        unit_of_work=counted_unit_of_work,
+    )
     assert opens == 1
     opens = 0
     active = load_active_config_registry_snapshot(unit_of_work=counted_unit_of_work)

@@ -6,7 +6,6 @@ import inspect
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
-from textwrap import dedent
 from threading import Event
 from typing import Literal, Protocol, cast, get_type_hints
 
@@ -70,6 +69,10 @@ from scopecat.daemon.wire import (
     CalibrationPublicationReceipt,
 )
 from scopecat.kernel.content_identity import stable_content_hash
+from scopecat.kernel.python_source import (
+    python_source_identity,
+    require_no_python_nonlocals,
+)
 from scopecat.records.config import ConfigContentHash, ConfigProfileSnapshot
 from scopecat.records.content import Sha256ContentHash
 from scopecat.records.run import RunSnapshot
@@ -113,33 +116,6 @@ class CalibrationPublicationProcedureView:
 
     def output(self, step_key: str) -> ProcedureStepOutputRef:
         return self._handle.output(step_key)
-
-    def derive_merge_contribution(
-        self,
-        *,
-        cohort: CalibrationCohort,
-        member: CalibrationCohortMember,
-        evidence_step_key: str,
-        decision_output_id: str,
-        result_input_fingerprint: Sha256ContentHash,
-        owner: LabProcedureOperations,
-        session: CalibrationPublicationReadSession,
-    ) -> CalibrationCohortMergeContribution:
-        """Freeze structural proof without exposing the writable handle."""
-
-        if self._handle.operations is not owner:
-            raise ValueError(
-                "calibration contribution procedure belongs to another lab client"
-            )
-        return build_calibration_cohort_merge_contribution(
-            cohort=cohort,
-            member=member,
-            procedure=self._handle,
-            evidence_step_key=evidence_step_key,
-            decision_output_id=decision_output_id,
-            result_input_fingerprint=result_input_fingerprint,
-            session=session,
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,13 +198,13 @@ class CalibrationPublicationPlanningContext:
     ) -> CalibrationCohortMergeContribution:
         """Freeze one member's exact successful proof without publishing."""
 
-        return procedure.derive_merge_contribution(
+        return build_calibration_cohort_merge_contribution(
             cohort=cohort,
             member=member,
+            procedure=self._procedures.get(procedure.id),
             evidence_step_key=evidence_step_key,
             decision_output_id=decision_output_id,
             result_input_fingerprint=result_input_fingerprint,
-            owner=self._procedures,
             session=self._session,
         )
 
@@ -957,6 +933,10 @@ def _validate_prepare(prepare: Callable[..., object]) -> None:
         raise TypeError("calibration publication prepare callback must be a function")
     if inspect.iscoroutinefunction(prepare):
         raise TypeError("calibration publication prepare callback must be synchronous")
+    require_no_python_nonlocals(
+        prepare,
+        label="calibration publication prepare callback",
+    )
     parameters = tuple(inspect.signature(prepare).parameters.values())
     if len(parameters) != 2 or any(
         parameter.kind
@@ -1004,14 +984,6 @@ def _publication_policy_fingerprint(
     note: str,
     prepare: CalibrationPublicationPrepare,
 ) -> Sha256ContentHash:
-    try:
-        source = dedent(inspect.getsource(prepare)).strip()
-    except (OSError, TypeError) as error:
-        raise TypeError(
-            "calibration publication prepare source must be available to fingerprint"
-        ) from error
-    if not source:
-        raise TypeError("calibration publication prepare source must be non-empty")
     identity = {
         "codec": _CALIBRATION_PUBLICATION_POLICY_FINGERPRINT_CODEC,
         "id": id,
@@ -1021,10 +993,11 @@ def _publication_policy_fingerprint(
         "actor": actor,
         "note": note,
         "prepare": {
-            "module": prepare.__module__,
-            "qualname": prepare.__qualname__,
+            **python_source_identity(
+                prepare,
+                label="calibration publication prepare",
+            ),
             "signature": str(inspect.signature(prepare)),
-            "source": source,
         },
     }
     return f"sha256:{stable_content_hash(identity)}"

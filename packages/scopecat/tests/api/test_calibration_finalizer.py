@@ -114,6 +114,16 @@ def _prepare_alternative(
     return _PLANS[candidate.cohort.cohort_id]
 
 
+def _captured_prepare(marker: str) -> CalibrationPublicationPrepare:
+    def prepare(
+        _context: CalibrationPublicationPlanningContext,
+        _candidate: CalibrationPublicationCandidate,
+    ) -> CalibrationCohortPublicationPlan:
+        raise AssertionError(f"captured publication {marker} must not run")
+
+    return prepare
+
+
 def _prepare_failure(
     _context: CalibrationPublicationPlanningContext,
     _candidate: CalibrationPublicationCandidate,
@@ -300,6 +310,18 @@ def test_policy_fingerprint_covers_exact_contract_and_registry_history() -> None
     )
     with pytest.raises(ValueError, match="declared exact identity"):
         CalibrationPublicationPolicyRegistry((malformed,))
+
+
+@pytest.mark.parametrize("marker", ["first", "second"])
+def test_policy_rejects_nonlocal_callback_state(marker: str) -> None:
+    with pytest.raises(
+        TypeError,
+        match=(
+            "calibration publication prepare callback must not capture "
+            "nonlocal values: marker"
+        ),
+    ):
+        _policy(_captured_prepare(marker))
 
 
 def test_policy_requires_exact_callback_signature() -> None:

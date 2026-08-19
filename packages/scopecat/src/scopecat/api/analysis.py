@@ -7,7 +7,6 @@ import mimetypes
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from pathlib import Path, PurePosixPath
-from textwrap import dedent
 from typing import (
     Concatenate,
     Literal,
@@ -66,6 +65,7 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
+from scopecat.kernel.python_source import python_source_identity
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.dataset import Dataset, ExperimentResultView
 from scopecat.measurements.datasets import MEASUREMENT_DATASET_CODEC
@@ -1240,18 +1240,13 @@ class AnalysisInvocation:
     def implementation_fingerprint(self) -> Sha256ContentHash:
         """Identify the exact Python analysis implementation used by automation."""
 
-        try:
-            source = dedent(inspect.getsource(self._definition)).strip()
-        except (OSError, TypeError) as error:
-            raise TypeError(
-                "analysis implementation source must be available to fingerprint"
-            ) from error
         identity = {
             "codec": "scopecat.analysis-implementation.v1",
             "id": self.id,
-            "module": self._definition.__module__,
-            "qualname": self._definition.__qualname__,
-            "source": source,
+            **python_source_identity(
+                self._definition,
+                label="analysis implementation",
+            ),
             "defaults": content_fingerprint(self._definition.__defaults__),
             "keyword_defaults": content_fingerprint(self._definition.__kwdefaults__),
             "closure": content_fingerprint(

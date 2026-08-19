@@ -16,7 +16,6 @@ from scopecat.api.calibration_publication import (
     build_calibration_cohort_merge_contribution,
     calibration_cohort_merge_revision_source,
     publish_calibration_cohort,
-    reopen_calibration_cohort_publication,
 )
 from scopecat.api.lab import LabClient
 from scopecat.api.procedures import LabProcedureOperations, ProcedureHandle
@@ -386,18 +385,21 @@ def test_publish_unknown_lookup_failure_preserves_original_outcome(
     assert captured.value.__cause__ is lookup_error
 
 
-def test_reopen_rejects_exact_operation_drift_without_republishing() -> None:
+def test_unknown_publish_reconciliation_rejects_exact_operation_drift() -> None:
     cohort, page = _cohort_and_members()
     plan = _plan(cohort, page)
     drifted = _receipt(plan, page, resolved_candidate_id="drifted-candidate")
     operations = _ConfigOperations(
-        publish_result=AssertionError("publish must not run"),
+        publish_result=httpx2.ConnectError(
+            "publish outcome unknown",
+            request=httpx2.Request("POST", "http://daemon.test/config/publish"),
+        ),
         lookup_result=drifted,
     )
 
     with pytest.raises(CalibrationPublicationDriftError):
-        reopen_calibration_cohort_publication(operations, plan)
-    assert operations.publish_calls == 0
+        publish_calibration_cohort(operations, plan)
+    assert operations.publish_calls == 1
     assert operations.lookup_ids == [plan.operation_id]
 
 

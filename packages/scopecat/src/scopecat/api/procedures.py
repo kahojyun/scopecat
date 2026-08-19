@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import inspect
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from textwrap import dedent
 from typing import Protocol
 from uuid import uuid4
 
@@ -77,6 +75,7 @@ from scopecat.daemon.wire import (
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import RunIndeterminate
 from scopecat.kernel.ids import artifact_slug
+from scopecat.kernel.python_source import python_source_identity
 from scopecat.kernel.run_outcome import utc_now
 from scopecat.program.values import MetadataValue
 from scopecat.records.analysis import (
@@ -924,12 +923,6 @@ def _analysis_implementation_fingerprint(
         return analysis.implementation_fingerprint
     implementation = type(analysis)
     try:
-        source = dedent(inspect.getsource(implementation)).strip()
-    except (OSError, TypeError) as error:
-        raise TypeError(
-            "custom procedure analysis source must be available to fingerprint"
-        ) from error
-    try:
         state = content_fingerprint(analysis)
     except TypeError as error:
         try:
@@ -942,9 +935,10 @@ def _analysis_implementation_fingerprint(
     identity = {
         "codec": "scopecat.analysis-implementation.v1",
         "id": analysis.id,
-        "module": implementation.__module__,
-        "qualname": implementation.__qualname__,
-        "source": source,
+        **python_source_identity(
+            implementation,
+            label="custom procedure analysis",
+        ),
         "state": state,
     }
     return f"sha256:{stable_content_hash(identity)}"

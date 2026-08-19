@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import inspect
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
-from textwrap import dedent
 
 from scopecat.api.calibration_finalizer import (
     CalibrationPublicationPlanningContext,
@@ -33,6 +31,7 @@ from scopecat.config.registry.records import (
 from scopecat.daemon.wire import CalibrationPublicationReceipt
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.python_source import python_source_identity
 from scopecat.kernel.value_identity import scalar_values_equal
 from scopecat.records.analysis import MeasurementAnalysisRecordInput
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
@@ -105,35 +104,35 @@ def _drag_beta_composition_policy_fingerprint() -> str:
                 "freshness inputs"
             ),
             "implementation": {
-                "preview": _policy_function_identity(
+                "preview": python_source_identity(
                     prepare_drag_beta_cohort_publication,
                     label="DRAG composition preview",
                 ),
-                "prepare_core": _policy_function_identity(
+                "prepare_core": python_source_identity(
                     prepare_drag_beta_cohort_publication_from_context,
                     label="DRAG composition preparation core",
                 ),
-                "proposal_validator": _policy_function_identity(
+                "proposal_validator": python_source_identity(
                     validate_drag_beta_target_owned_proposal,
                     label="DRAG target-owned proposal validator",
                 ),
-                "result_input": _policy_function_identity(
+                "result_input": python_source_identity(
                     drag_beta_merged_result_input_fingerprint,
                     label="DRAG merged result input projector",
                 ),
-                "cohort_base": _policy_function_identity(
+                "cohort_base": python_source_identity(
                     _drag_beta_cohort_base,
                     label="DRAG cohort base resolver",
                 ),
-                "member_material": _policy_function_identity(
+                "member_material": python_source_identity(
                     _drag_beta_member_material,
                     label="DRAG member proof resolver",
                 ),
-                "qubit_rows": _policy_function_identity(
+                "qubit_rows": python_source_identity(
                     _qubit_rows,
                     label="DRAG owned-row projector",
                 ),
-                "candidate_id": _policy_function_identity(
+                "candidate_id": python_source_identity(
                     _drag_beta_merged_candidate_id,
                     label="DRAG merged candidate identity",
                 ),
@@ -547,24 +546,6 @@ def _drag_beta_merged_candidate_id(cohort: CalibrationCohort) -> str:
         }
     )
     return f"drag-beta-cohort-{digest}"
-
-
-def _policy_function_identity(
-    function: Callable[..., object],
-    *,
-    label: str,
-) -> dict[str, str]:
-    try:
-        source = dedent(inspect.getsource(function)).strip()
-    except (OSError, TypeError) as error:
-        raise TypeError(f"{label} source must be available to fingerprint") from error
-    if not source:
-        raise TypeError(f"{label} source must be non-empty")
-    return {
-        "module": function.__module__,
-        "qualname": function.__qualname__,
-        "source": source,
-    }
 
 
 DRAG_BETA_COMPOSITION_POLICY_REF = drag_beta_composition_policy_ref()

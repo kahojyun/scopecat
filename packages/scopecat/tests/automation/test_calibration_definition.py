@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 
 import pytest
@@ -41,11 +42,31 @@ def _select(_context: object) -> tuple[CalibrationTargetRef, ...]:
     return (CalibrationTargetRef(kind="qubit", id="q0"),)
 
 
+def _select_alternative(_context: object) -> tuple[CalibrationTargetRef, ...]:
+    return (CalibrationTargetRef(kind="qubit", id="q1"),)
+
+
+def _captured_selector(
+    marker: str,
+) -> Callable[[object], tuple[CalibrationTargetRef, ...]]:
+    def select(_context: object) -> tuple[CalibrationTargetRef, ...]:
+        return (CalibrationTargetRef(kind="qubit", id=marker),)
+
+    return select
+
+
 def _observe(
     _context: object,
     _target: CalibrationTargetRef,
 ) -> CalibrationObservation[_Inputs]:
     return CalibrationObservation(inputs=_Inputs(value=1))
+
+
+def _observe_alternative(
+    _context: object,
+    _target: CalibrationTargetRef,
+) -> CalibrationObservation[_Inputs]:
+    return CalibrationObservation(inputs=_Inputs(value=2))
 
 
 def _build(
@@ -55,6 +76,15 @@ def _build(
     _dependencies: tuple[CalibrationDependencyEvidence, ...],
 ) -> _Intent:
     return _Intent(value=inputs.value)
+
+
+def _build_alternative(
+    _context: object,
+    _target: CalibrationTargetRef,
+    inputs: _Inputs,
+    _dependencies: tuple[CalibrationDependencyEvidence, ...],
+) -> _Intent:
+    return _Intent(value=inputs.value + 1)
 
 
 _DEFINITION = CalibrationDefinition(
@@ -93,6 +123,33 @@ def test_definition_fingerprint_covers_procedure_scope_and_capacity() -> None:
     )
     assert _DEFINITION.ref.success_policy == "procedure_success"
     assert changed_success_policy.ref.success_policy == "published_result"
+
+
+def test_definition_fingerprint_covers_each_project_callback() -> None:
+    changed_selector = replace(_DEFINITION, _select_targets=_select_alternative)
+    changed_observer = replace(_DEFINITION, _observe=_observe_alternative)
+    changed_builder = replace(_DEFINITION, _build_intent=_build_alternative)
+
+    assert (
+        len(
+            {
+                _DEFINITION.fingerprint,
+                changed_selector.fingerprint,
+                changed_observer.fingerprint,
+                changed_builder.fingerprint,
+            }
+        )
+        == 4
+    )
+
+
+@pytest.mark.parametrize("marker", ["first", "second"])
+def test_definition_rejects_nonlocal_callback_state(marker: str) -> None:
+    with pytest.raises(
+        TypeError,
+        match="calibration selector must not capture nonlocal values: marker",
+    ):
+        replace(_DEFINITION, _select_targets=_captured_selector(marker))
 
 
 def test_registry_allows_only_one_active_version_per_logical_id() -> None:

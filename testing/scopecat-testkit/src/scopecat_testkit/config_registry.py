@@ -11,7 +11,6 @@ from scopecat.config.registry.service import (
     CandidateConfigRevisionSource,
     ConfigRegistryMutationResult,
     ConfigRevision,
-    current_config_registry_generation,
     load_config_registry_entry_snapshot,
     publish_config_revision,
 )
@@ -48,6 +47,13 @@ def load_config_registry_config(
     ).config
 
 
+def _current_config_registry_generation(
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
+) -> int:
+    with unit_of_work() as work:
+        return work.registry.current_generation()
+
+
 def activate_candidate_config(
     *,
     candidate: CandidateConfig,
@@ -58,7 +64,7 @@ def activate_candidate_config(
     expected_generation: int | None = None,
 ) -> ConfigRegistryMutationResult:
     generation = (
-        current_config_registry_generation(unit_of_work=services.config_registry)
+        _current_config_registry_generation(services.config_registry)
         if expected_generation is None
         else expected_generation
     )

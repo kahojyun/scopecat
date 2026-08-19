@@ -5,7 +5,6 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
-from textwrap import dedent
 from types import MappingProxyType
 from typing import Protocol, cast, get_type_hints, override
 
@@ -16,6 +15,10 @@ from scopecat.automation.models import (
     procedure_intent_hash,
 )
 from scopecat.kernel.content_identity import stable_content_hash
+from scopecat.kernel.python_source import (
+    python_source_identity,
+    require_no_python_nonlocals,
+)
 from scopecat.records.content import Sha256ContentHash
 
 _PROCEDURE_DEFINITION_FINGERPRINT_CODEC = "scopecat.procedure-definition.v1"
@@ -245,6 +248,7 @@ def _validate_procedure_function(
         raise TypeError("procedure implementation must be a Python function")
     if inspect.iscoroutinefunction(definition):
         raise TypeError("procedure functions must be synchronous")
+    require_no_python_nonlocals(definition, label="procedure implementation")
     signature = inspect.signature(definition)
     parameters = tuple(signature.parameters.values())
     if len(parameters) != 2 or any(
@@ -280,15 +284,6 @@ def _definition_fingerprint(
     intent_type: type[BaseModel],
     definition: ProcedureFunction,
 ) -> Sha256ContentHash:
-    try:
-        source = dedent(inspect.getsource(definition)).strip()
-    except (OSError, TypeError) as error:
-        raise TypeError(
-            "procedure implementation source must be available to fingerprint"
-        ) from error
-    if not source:
-        raise TypeError("procedure implementation source must be non-empty")
-
     identity = {
         "codec": _PROCEDURE_DEFINITION_FINGERPRINT_CODEC,
         "id": id,
@@ -298,11 +293,10 @@ def _definition_fingerprint(
             "qualname": intent_type.__qualname__,
             "schema": intent_type.model_json_schema(mode="validation"),
         },
-        "implementation": {
-            "module": definition.__module__,
-            "qualname": definition.__qualname__,
-            "source": source,
-        },
+        "implementation": python_source_identity(
+            definition,
+            label="procedure implementation",
+        ),
     }
     return f"sha256:{stable_content_hash(identity)}"
 

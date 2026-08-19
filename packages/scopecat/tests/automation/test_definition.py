@@ -55,6 +55,15 @@ def record_wider_drag(context: object, intent: WiderDragIntent) -> None:
     del context, intent
 
 
+def captured_procedure(marker: str) -> ProcedureFunction:
+    def definition(context: object, intent: DragIntent) -> None:
+        del context, intent
+        if marker == "never":
+            raise AssertionError("captured procedure must not run")
+
+    return definition
+
+
 def wrong_arity(intent: DragIntent) -> None:
     del intent
 
@@ -174,6 +183,19 @@ def test_procedure_rejects_functions_outside_the_worker_contract(
             version="1",
             intent=DragIntent,
         )(cast("ProcedureFunction", definition))
+
+
+@pytest.mark.parametrize("marker", ["first", "second"])
+def test_procedure_rejects_nonlocal_callback_state(marker: str) -> None:
+    with pytest.raises(
+        TypeError,
+        match="procedure implementation must not capture nonlocal values: marker",
+    ):
+        procedure(
+            id="tests.captured-procedure",
+            version="1",
+            intent=DragIntent,
+        )(captured_procedure(marker))
 
 
 @pytest.mark.parametrize("id,version", [("", "1"), ("tests.drag", "  ")])

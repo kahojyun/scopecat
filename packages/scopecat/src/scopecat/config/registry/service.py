@@ -170,12 +170,6 @@ class ConfigRegistryEntrySnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class ConfigRegistrySnapshot:
-    entries: tuple[ConfigRegistryEntry, ...]
-    activation: ConfigRegistryActivationRecord | None
-
-
-@dataclass(frozen=True, slots=True)
 class ConfigRegistryPageSnapshot:
     entries: tuple[ConfigRegistryEntry, ...]
     activation: ConfigRegistryActivationRecord | None
@@ -717,38 +711,6 @@ def _load_calibration_merge_proposal(
     return proposal
 
 
-def list_config_registry_entries(
-    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
-) -> list[ConfigRegistryEntry]:
-    with unit_of_work() as work:
-        return list(_list_config_registry_entries_locked(work.registry))
-
-
-def load_config_registry_snapshot(
-    *,
-    unit_of_work: ConfigRegistryUnitOfWorkFactory,
-) -> ConfigRegistrySnapshot:
-    """Read the registry list and active projection in one transaction."""
-
-    with unit_of_work() as work:
-        entries = _list_config_registry_entries_locked(work.registry)
-        activation = _read_latest_activation(work.registry)
-        if activation is not None:
-            loaded = _load_config_registry_entry_locked(
-                entry_id=activation.entry_id,
-                work=work,
-            )
-            _validate_active_entry_identity(
-                work.registry,
-                activation,
-                loaded.entry,
-            )
-        return ConfigRegistrySnapshot(
-            entries=entries,
-            activation=activation,
-        )
-
-
 def load_config_registry_page(
     *,
     limit: int,
@@ -775,12 +737,6 @@ def load_config_registry_page(
             activation=activation,
             next_cursor=page.next_cursor,
         )
-
-
-def _list_config_registry_entries_locked(
-    repository: ConfigRegistryRepository,
-) -> tuple[ConfigRegistryEntry, ...]:
-    return tuple(sorted(repository.list_entries(), key=lambda entry: entry.recorded_at))
 
 
 def load_config_registry_entry_snapshot(
@@ -814,19 +770,6 @@ def _load_config_registry_entry_locked(
         entry=entry,
         config=_read_entry_config(work.registry, entry),
     )
-
-
-def load_active_config_registry_config(
-    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
-) -> ConfigProfileSnapshot:
-    with unit_of_work() as work:
-        activation = _load_active_config_registry_activation_locked(work.registry)
-        loaded = _load_config_registry_entry_locked(
-            entry_id=activation.entry_id,
-            work=work,
-        )
-        _validate_active_entry_identity(work.registry, activation, loaded.entry)
-        return loaded.config
 
 
 def load_active_config_registry_snapshot(
@@ -996,20 +939,6 @@ def _commit_config_registry_activation_locked(
     )
 
 
-def current_config_registry_generation(
-    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
-) -> int:
-    with unit_of_work() as work:
-        return work.registry.current_generation()
-
-
-def load_config_registry_activation_history(
-    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
-) -> tuple[ConfigRegistryActivationRecord, ...]:
-    with unit_of_work() as work:
-        return work.registry.list_activation_history()
-
-
 def load_config_registry_activation(
     *,
     generation: int,
@@ -1029,13 +958,6 @@ def load_config_registry_activation_page(
         return work.registry.list_activation_page(limit=limit, before=before)
 
 
-def load_active_config_registry_activation(
-    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
-) -> ConfigRegistryActivationRecord:
-    with unit_of_work() as work:
-        return _load_active_config_registry_activation_locked(work.registry)
-
-
 def _load_active_config_registry_activation_locked(
     repository: ConfigRegistryRepository,
 ) -> ConfigRegistryActivationRecord:
@@ -1048,19 +970,6 @@ def _load_active_config_registry_activation_locked(
             location=_registry_model_location("active"),
         )
     return activation
-
-
-def load_active_config_registry_entry(
-    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
-) -> ConfigRegistryEntry:
-    with unit_of_work() as work:
-        activation = _load_active_config_registry_activation_locked(work.registry)
-        loaded = _load_config_registry_entry_locked(
-            entry_id=activation.entry_id,
-            work=work,
-        )
-        _validate_active_entry_identity(work.registry, activation, loaded.entry)
-        return loaded.entry
 
 
 def _resolve_entry_config_registry_config_source_locked(
@@ -1609,7 +1518,6 @@ __all__ = [
     "ConfigRegistryMutationResult",
     "ConfigRegistryPageSnapshot",
     "ConfigRegistryRepository",
-    "ConfigRegistrySnapshot",
     "ConfigRegistryUnitOfWork",
     "ConfigRegistryUnitOfWorkFactory",
     "ConfigRevision",
@@ -1620,18 +1528,11 @@ __all__ = [
     "ManualConfigDraftResult",
     "ManualConfigDraftRevisionSource",
     "activate_config_registry_entry",
-    "current_config_registry_generation",
-    "list_config_registry_entries",
-    "load_active_config_registry_activation",
-    "load_active_config_registry_config",
-    "load_active_config_registry_entry",
     "load_active_config_registry_snapshot",
     "load_config_registry_activation",
-    "load_config_registry_activation_history",
     "load_config_registry_activation_page",
     "load_config_registry_entry_snapshot",
     "load_config_registry_page",
-    "load_config_registry_snapshot",
     "plan_instrument_inventory_migration",
     "preview_manual_config_draft",
     "publish_config_revision",

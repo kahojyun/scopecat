@@ -442,7 +442,7 @@ def publish_calibration_cohort(
         return _reconcile_unknown_publication(config, plan, cause=error)
 
 
-def reopen_calibration_cohort_publication(
+def _reopen_calibration_cohort_publication(
     config: _CalibrationPublicationOperations,
     plan: CalibrationCohortPublicationPlan,
 ) -> CalibrationPublicationReceipt:
@@ -594,7 +594,7 @@ def _reconcile_unknown_publication(
     cause: BaseException,
 ) -> CalibrationPublicationReceipt:
     try:
-        return reopen_calibration_cohort_publication(config, plan)
+        return _reopen_calibration_cohort_publication(config, plan)
     except (
         DaemonNotFoundError,
         DaemonUnavailableError,
@@ -747,5 +747,4 @@ __all__ = [
     "calibration_cohort_publication_entry_id",
     "calibration_cohort_publication_operation_id",
     "publish_calibration_cohort",
-    "reopen_calibration_cohort_publication",
 ]

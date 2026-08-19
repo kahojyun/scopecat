@@ -6,7 +6,6 @@ import inspect
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import timedelta
-from textwrap import dedent
 from types import MappingProxyType
 from typing import Protocol, cast, get_type_hints, override
 
@@ -22,6 +21,10 @@ from scopecat.automation.calibrations import (
 )
 from scopecat.automation.definition import ProcedureDefinition, RegisteredProcedure
 from scopecat.kernel.content_identity import stable_content_hash
+from scopecat.kernel.python_source import (
+    python_source_identity,
+    require_no_python_nonlocals,
+)
 from scopecat.records.content import Sha256ContentHash
 
 _CALIBRATION_DEFINITION_FINGERPRINT_CODEC = "scopecat.calibration-definition.v2"
@@ -449,6 +452,7 @@ def _validate_function(
         raise TypeError(f"{label} must be a Python function")
     if inspect.iscoroutinefunction(function):
         raise TypeError(f"{label} must be synchronous")
+    require_no_python_nonlocals(function, label=label)
     parameters = tuple(inspect.signature(function).parameters.values())
     if any(
         parameter.kind
@@ -493,29 +497,20 @@ def _calibration_definition_fingerprint(
         "fanout_scope": fanout_scope,
         "max_in_flight": max_in_flight,
         "success_policy": success_policy,
-        "selector": _function_identity(selector, label="calibration selector"),
-        "observer": _function_identity(observer, label="calibration observer"),
-        "builder": _function_identity(builder, label="calibration intent builder"),
+        "selector": python_source_identity(
+            selector,
+            label="calibration selector",
+        ),
+        "observer": python_source_identity(
+            observer,
+            label="calibration observer",
+        ),
+        "builder": python_source_identity(
+            builder,
+            label="calibration intent builder",
+        ),
     }
     return f"sha256:{stable_content_hash(identity)}"
-
-
-def _function_identity(
-    function: Callable[..., object],
-    *,
-    label: str,
-) -> dict[str, str]:
-    try:
-        source = dedent(inspect.getsource(function)).strip()
-    except (OSError, TypeError) as error:
-        raise TypeError(f"{label} source must be available to fingerprint") from error
-    if not source:
-        raise TypeError(f"{label} source must be non-empty")
-    return {
-        "module": function.__module__,
-        "qualname": function.__qualname__,
-        "source": source,
-    }
 
 
 def _require_non_blank(value: str, *, field_name: str) -> None:
