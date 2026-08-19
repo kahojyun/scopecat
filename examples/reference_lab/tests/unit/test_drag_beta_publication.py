@@ -6,11 +6,13 @@ from typing import cast
 import pytest
 from scopecat import Quantity
 from scopecat.api.calibration_finalizer import CalibrationPublicationPlanningContext
+from scopecat.api.calibration_publication import CalibrationCohortPublicationPlan
 from scopecat.api.lab import LabClient
 from scopecat.automation.calibration_wire import CalibrationCohortMemberPage
 from scopecat.automation.calibrations import CalibrationCohort
 from scopecat.config.drafts import ConfigDraft
 from scopecat.config.parameter_updates import ParameterUpdate
+from scopecat.daemon.wire import CalibrationPublicationReceipt
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter import TableParameterValue
 from scopecat.records.parameter_change import (
@@ -42,6 +44,7 @@ from reference_lab.workflows.drag_beta_publication import (
     drag_beta_composition_policy_ref,
     drag_beta_merged_result_input_fingerprint,
     prepare_drag_beta_cohort_publication,
+    publish_verified_drag_beta_cohort,
     validate_drag_beta_target_owned_proposal,
 )
 
@@ -144,6 +147,58 @@ def test_manual_drag_beta_prepare_uses_shared_planning_core(
         )
         is prepared
     )
+
+
+def test_manual_drag_beta_publish_uses_the_prepared_exact_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = cast("CalibrationCohortPublicationPlan", object())
+    receipt = cast("CalibrationPublicationReceipt", object())
+    published: list[CalibrationCohortPublicationPlan] = []
+
+    def publish(
+        actual: CalibrationCohortPublicationPlan,
+    ) -> CalibrationPublicationReceipt:
+        published.append(actual)
+        return receipt
+
+    lab = cast(
+        "LabClient",
+        cast("object", SimpleNamespace(calibrations=SimpleNamespace(publish=publish))),
+    )
+
+    def fake_prepare(
+        actual_lab: LabClient,
+        cohort_id: str,
+        *,
+        actor: str,
+        note: str,
+    ) -> DragBetaCohortPublication:
+        assert actual_lab is lab
+        assert cohort_id == "cohort-exact"
+        assert actor == "manual-actor"
+        assert note == "manual-note"
+        return cast(
+            "DragBetaCohortPublication",
+            cast("object", SimpleNamespace(plan=plan)),
+        )
+
+    monkeypatch.setattr(
+        drag_beta_publication,
+        "prepare_drag_beta_cohort_publication",
+        fake_prepare,
+    )
+
+    assert (
+        publish_verified_drag_beta_cohort(
+            lab,
+            "cohort-exact",
+            actor="manual-actor",
+            note="manual-note",
+        )
+        is receipt
+    )
+    assert published == [plan]
 
 
 def test_drag_beta_proposal_may_change_only_its_owned_target_cell() -> None:
