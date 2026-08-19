@@ -53,6 +53,7 @@ def test_init_creates_runnable_python_project_and_does_not_overwrite(
 
     assert project.manifest.read_text(encoding="utf-8") == (
         "[lab]\n"
+        'bootstrap = "scopecat_lab.application:create_bootstrap"\n'
         'application = "scopecat_lab.application:create_application"\n'
         'instrument_backend = "scopecat_lab.backend:create_backend"\n'
     )
@@ -71,9 +72,9 @@ def test_init_creates_runnable_python_project_and_does_not_overwrite(
     assert 'lab.run(first_run(), name="First run")' in notebook_source
     assert "lab.prepare(" not in notebook_source
 
-    application = project.load_application()
-    assert application.bootstrap_config is not None
-    config = validate_config_profile(application.bootstrap_config())
+    bootstrap = project.load_bootstrap()
+    assert bootstrap.bootstrap_config is not None
+    config = validate_config_profile(bootstrap.bootstrap_config())
     assert config.id == "default"
     assert config.primary_entity_id == "sample"
     assert config.parameter_snapshot.get("repetitions") == ScalarParameterValue(

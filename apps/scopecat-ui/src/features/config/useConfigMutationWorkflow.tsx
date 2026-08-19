@@ -5,15 +5,15 @@ import { errorMessage } from "../../lib/presentation";
 import { useConfirmationDialog } from "../../ui/ConfirmationDialog";
 import {
   activateConfigEntry,
+  createConfigOperationId,
   parseConfigProfileJson,
-  setConfigDefault,
-  undoConfig,
+  publishConfig,
 } from "./config-api";
 import { safeConfigEntryId } from "./config-utils";
 
 export type ConfigMutation =
   | { kind: "activate-entry"; entryId: string }
-  | { kind: "undo" }
+  | { kind: "undo"; entryId: string; expectedGeneration: number }
   | { kind: "import"; draft: ImportDraft };
 
 export interface ImportDraft {
@@ -44,13 +44,23 @@ export function useConfigMutationWorkflow(overview?: ConfigRegistryOverview) {
       }
       switch (action.kind) {
         case "activate-entry":
-          await activateConfigEntry({ ...command, entry_id: action.entryId });
+          await activateConfigEntry({
+            ...command,
+            operation_id: createConfigOperationId("activate"),
+            entry_id: action.entryId,
+          });
           return;
         case "undo":
-          await undoConfig(command);
+          await activateConfigEntry({
+            ...command,
+            operation_id: createConfigOperationId("undo"),
+            entry_id: action.entryId,
+            expected_generation: action.expectedGeneration,
+          });
           return;
         case "import":
-          await setConfigDefault({
+          await publishConfig({
+            operation_id: createConfigOperationId("import"),
             source: {
               kind: "direct_config_profile",
               config: action.draft.config,

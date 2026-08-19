@@ -9,6 +9,8 @@ from scopecat_testkit.workflow_fixtures import load_config
 
 from scopecat.config.inventory import InstrumentInventoryRekey
 from scopecat.config.registry.records import (
+    ConfigActivationOperation,
+    ConfigPublishOperation,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
@@ -31,6 +33,13 @@ from scopecat.daemon.views import (
     RunSummaryPage,
 )
 from scopecat.daemon.wire import (
+    AnalysisSaveCommand,
+    AnalysisSaveReceipt,
+    ConfigActivationReceipt,
+    ConfigEntryActivationCommand,
+    ConfigPublishCommand,
+    ConfigPublishReceipt,
+    DirectConfigRevisionSource,
     ExecutorLease,
     ExecutorStartRequest,
     InstrumentConfiguredDefaultsApplyCommand,
@@ -56,6 +65,7 @@ from scopecat.records.config import (
 )
 from scopecat.records.content import (
     BlobPayloadBody,
+    ContentEntry,
     InlinePayloadBody,
     command_payload_from_bytes,
 )
@@ -277,6 +287,56 @@ def test_run_instrument_provision_retries_the_same_operation_after_response_loss
     ] == [command, command]
 
 
+@pytest.mark.parametrize("scope", ["run", "project"])
+def test_analysis_save_retries_the_exact_command_after_response_loss(
+    scope: str,
+) -> None:
+    requests: list[httpx2.Request] = []
+    command = AnalysisSaveCommand(
+        title="fit",
+        analysis_key="fit",
+        step_id="tests.fit",
+    )
+    receipt = AnalysisSaveReceipt(
+        record=ContentEntry(
+            role="record",
+            id="analysis-fit-r1",
+            kind="analysis",
+            content_hash=_HASH,
+        ),
+        analysis_key=command.analysis_key,
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if len(requests) == 1:
+            raise httpx2.ReadError("analysis response was lost", request=request)
+        return _model(receipt, status_code=201)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    saved = (
+        client.save_analysis("run-1", command)
+        if scope == "run"
+        else client.save_project_analysis(command)
+    )
+
+    assert saved == receipt
+    expected_path = (
+        "/api/v1/runs/run-1/analyses" if scope == "run" else "/api/v1/analyses"
+    )
+    assert [request.url.path for request in requests] == [
+        expected_path,
+        expected_path,
+    ]
+    assert [
+        AnalysisSaveCommand.model_validate_json(request.content) for request in requests
+    ] == [command, command]
+
+
 def test_apply_configured_defaults_posts_the_typed_command_to_the_instrument() -> None:
     requests: list[httpx2.Request] = []
     command = InstrumentConfiguredDefaultsApplyCommand(operation_id="defaults.apply-1")
@@ -394,6 +454,121 @@ def test_migrate_instrument_inventory_posts_the_typed_command() -> None:
     assert (
         InstrumentInventoryMigrationCommand.model_validate_json(request.content)
         == command
+    )
+
+
+def test_config_activation_retries_exact_command_and_supports_lookup() -> None:
+    config = load_config()
+    entry = ConfigRegistryEntry(
+        id="baseline",
+        config_ref="config-registry/entries/baseline/config.json",
+        content_hash=config_content_hash(config),
+        source=DirectConfigRegistrySource(),
+        actor="notebook",
+    )
+    command = ConfigEntryActivationCommand(
+        operation_id="activate-baseline",
+        entry_id=entry.id,
+        actor="operator",
+        expected_generation=0,
+    )
+    activation = ConfigRegistryActivationRecord(
+        generation=1,
+        action="activation",
+        entry_id=entry.id,
+        entry_content_hash=entry.content_hash,
+        actor=command.actor,
+    )
+    receipt = ConfigActivationReceipt(
+        operation=ConfigActivationOperation(
+            operation_id=command.operation_id,
+            intent_hash=command.intent_hash,
+            entry_id=command.entry_id,
+            expected_generation=command.expected_generation,
+            actor=command.actor,
+            activation_generation=activation.generation,
+        ),
+        activation=activation,
+    )
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if request.method == "POST" and len(requests) == 1:
+            raise httpx2.ReadError("activation response was lost", request=request)
+        return _model(receipt)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.activate_config_entry(command) == receipt
+    assert client.config_activation_operation(command.operation_id) == receipt
+    assert [request.method for request in requests] == ["POST", "POST", "GET"]
+    assert requests[0].content == requests[1].content
+    assert requests[0].url.path == ("/api/v1/config-registry/activation-operations")
+    assert requests[2].url.path == (
+        "/api/v1/config-registry/activation-operations/activate-baseline"
+    )
+
+
+def test_config_publish_retries_exact_command_and_supports_lookup() -> None:
+    config = load_config()
+    command = ConfigPublishCommand(
+        operation_id="publish-baseline",
+        source=DirectConfigRevisionSource(config=config),
+        entry_id="baseline",
+        actor="operator",
+        expected_generation=0,
+    )
+    entry = ConfigRegistryEntry(
+        id=command.entry_id,
+        config_ref="config-registry/entries/baseline/config.json",
+        content_hash=config_content_hash(config),
+        source=DirectConfigRegistrySource(),
+        actor=command.actor,
+    )
+    activation = ConfigRegistryActivationRecord(
+        generation=1,
+        action="activation",
+        entry_id=entry.id,
+        entry_content_hash=entry.content_hash,
+        actor=command.actor,
+    )
+    receipt = ConfigPublishReceipt(
+        operation=ConfigPublishOperation(
+            operation_id=command.operation_id,
+            intent_hash=command.intent_hash,
+            source_intent_hash=command.source_intent_hash,
+            entry_id=command.entry_id,
+            expected_generation=command.expected_generation,
+            actor=command.actor,
+            activation_generation=activation.generation,
+        ),
+        entry=entry,
+        activation=activation,
+    )
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if request.method == "POST" and len(requests) == 1:
+            raise httpx2.ReadError("publish response was lost", request=request)
+        return _model(receipt)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.publish_config(command) == receipt
+    assert client.config_publish_operation(command.operation_id) == receipt
+    assert [request.method for request in requests] == ["POST", "POST", "GET"]
+    assert requests[0].content == requests[1].content
+    assert requests[0].url.path == "/api/v1/config-registry/publish-operations"
+    assert requests[2].url.path == (
+        "/api/v1/config-registry/publish-operations/publish-baseline"
     )
 
 

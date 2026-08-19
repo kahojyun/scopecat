@@ -283,6 +283,7 @@ addopts = [
   "-n",
   "auto",
   "--maxprocesses=4",
+  "--dist=worksteal",
   "--import-mode=importlib",
 ]
 minversion = "9.0"
@@ -370,15 +371,9 @@ select = [
   # PEP 695 has no explicit variance syntax; PointAxis[Never] needs covariance.
   "UP046",
 ]
-"packages/scopecat-instruments/src/scopecat_instruments/__init__.py" = [
-  "PLE0605"
-]
-"packages/scopecat-instruments/src/scopecat_instruments/drivers/__init__.py" = [
-  "PLE0605"
-]
-"packages/scopecat-instruments/src/scopecat_instruments/virtual/__init__.py" = [
-  "PLE0605"
-]
+"packages/scopecat-instruments/src/scopecat_instruments/__init__.py" = ["PLE0605"]
+"packages/scopecat-instruments/src/scopecat_instruments/drivers/__init__.py" = ["PLE0605"]
+"packages/scopecat-instruments/src/scopecat_instruments/virtual/__init__.py" = ["PLE0605"]
 "packages/scopecat/src/scopecat/__init__.py" = ["PLE0605"]
 "packages/scopecat/src/scopecat/application/__init__.py" = ["PLE0605"]
 "packages/scopecat/src/scopecat/config/registry/__init__.py" = ["PLE0605"]

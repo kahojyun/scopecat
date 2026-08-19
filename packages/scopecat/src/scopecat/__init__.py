@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         AnalysisField,
         analysis_step,
     )
+    from scopecat.api.calibration_planner import CalibrationPlanningContext
     from scopecat.api.instruments import (
         InstrumentClientFactory,
         InstrumentRef,
@@ -42,6 +43,8 @@ if TYPE_CHECKING:
         instrument,
         temporary_instrument,
     )
+    from scopecat.api.procedure_planner import ProcedurePlanningContext
+    from scopecat.api.procedures import LabProcedureContext
     from scopecat.api.published_analysis import (
         PublishedAnalysis,
         PublishedAnalysisArtifact,
@@ -111,6 +114,21 @@ if TYPE_CHECKING:
         parameter_lookup,
         parameter_schema,
         resource_role,
+    )
+    from scopecat.automation import (
+        CalibrationDefinition,
+        CalibrationDependencyEvidence,
+        CalibrationDependencyRequirement,
+        CalibrationObservation,
+        CalibrationRegistry,
+        CalibrationTargetRef,
+        IntervalOccurrence,
+        IntervalTrigger,
+        ProcedureScheduleDefinition,
+        ProcedureScheduleRegistry,
+        calibration,
+        interval_schedule,
+        procedure,
     )
     from scopecat.config.parameters import (
         delete_parameter_rows,
@@ -224,6 +242,8 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "parameter_field": ("scopecat.authoring", "parameter_field"),
     "parameter_lookup": ("scopecat.authoring", "parameter_lookup"),
     "parameter_schema": ("scopecat.authoring", "parameter_schema"),
+    "procedure": ("scopecat.automation", "procedure"),
+    "interval_schedule": ("scopecat.automation", "interval_schedule"),
     "resource_role": ("scopecat.authoring", "resource_role"),
     "axis": ("scopecat.authoring", "axis"),
     "ExperimentSystem": ("scopecat.planning.system", "ExperimentSystem"),
@@ -265,6 +285,40 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "InstrumentClientFactory",
     ),
     "InstrumentRef": ("scopecat.api.instruments", "InstrumentRef"),
+    "CalibrationPlanningContext": (
+        "scopecat.api.calibration_planner",
+        "CalibrationPlanningContext",
+    ),
+    "CalibrationDefinition": ("scopecat.automation", "CalibrationDefinition"),
+    "CalibrationDependencyEvidence": (
+        "scopecat.automation",
+        "CalibrationDependencyEvidence",
+    ),
+    "CalibrationDependencyRequirement": (
+        "scopecat.automation",
+        "CalibrationDependencyRequirement",
+    ),
+    "CalibrationObservation": ("scopecat.automation", "CalibrationObservation"),
+    "CalibrationRegistry": ("scopecat.automation", "CalibrationRegistry"),
+    "CalibrationTargetRef": ("scopecat.automation", "CalibrationTargetRef"),
+    "IntervalOccurrence": ("scopecat.automation", "IntervalOccurrence"),
+    "IntervalTrigger": ("scopecat.automation", "IntervalTrigger"),
+    "LabProcedureContext": (
+        "scopecat.api.procedures",
+        "LabProcedureContext",
+    ),
+    "ProcedurePlanningContext": (
+        "scopecat.api.procedure_planner",
+        "ProcedurePlanningContext",
+    ),
+    "ProcedureScheduleDefinition": (
+        "scopecat.automation",
+        "ProcedureScheduleDefinition",
+    ),
+    "ProcedureScheduleRegistry": (
+        "scopecat.automation",
+        "ProcedureScheduleRegistry",
+    ),
     "TemporaryInstrumentRef": (
         "scopecat.api.instruments",
         "TemporaryInstrumentRef",
@@ -324,6 +378,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "open_project": ("scopecat.project", "open_project"),
     "analysis_step": ("scopecat.api.analysis", "analysis_step"),
+    "calibration": ("scopecat.automation", "calibration"),
     "instrument": ("scopecat.api.instruments", "instrument"),
     "temporary_instrument": (
         "scopecat.api.instruments",

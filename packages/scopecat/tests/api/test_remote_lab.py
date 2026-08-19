@@ -28,9 +28,17 @@ from scopecat.api._runner import _DaemonRunner
 from scopecat.api.analysis import AnalysisContext
 from scopecat.api.lab import LabClient
 from scopecat.api.run import RunHandle
+from scopecat.config.candidates import (
+    CandidateConfig,
+    resolve_candidate_config_from_snapshot,
+)
+from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.drafts import ConfigDraft
 from scopecat.config.inventory import InstrumentInventoryRekey
 from scopecat.config.registry.records import (
+    CandidateConfigRegistrySource,
+    ConfigActivationOperation,
+    ConfigPublishOperation,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
@@ -47,9 +55,11 @@ from scopecat.daemon.execution import ExecutorLeaseLostError
 from scopecat.daemon.points import RunPointPlanView
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigActivationPage,
     ConfigDraftPreview,
     ConfigRegistryPage,
     RunAdmissionView,
+    RunConfigView,
     RunControlView,
     RunDetail,
     RunPlanView,
@@ -57,10 +67,11 @@ from scopecat.daemon.views import (
     RunSummaryPage,
 )
 from scopecat.daemon.wire import (
+    CandidateConfigRevisionSource,
     ConfigActivationReceipt,
+    ConfigEntryActivationCommand,
     ConfigPublishCommand,
     ConfigPublishReceipt,
-    ConfigUndoCommand,
     DirectConfigRevisionSource,
     ExecutorLease,
     InstrumentContractCatalogRequest,
@@ -75,15 +86,22 @@ from scopecat.daemon.wire import (
 )
 from scopecat.execution.program import RunProgram
 from scopecat.execution.services import ExecutionSession
-from scopecat.kernel.errors import RunCancelled
+from scopecat.kernel.errors import (
+    RunCancelled,
+    RunFailed,
+    RunFailure,
+    RunIndeterminate,
+)
+from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.kernel.run_outcome import RunCertainty, RunOutcome, RunResult
 from scopecat.measurements.results import MeasurementDataset
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.service import PlannedRun
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import (
+    ConfigContentHash,
     ConfigProfileSnapshot,
     config_content_hash,
     instrument_bindings,
@@ -449,6 +467,119 @@ def test_execute_submits_complete_plan_and_heartbeats(
     assert heartbeat_count == completed_heartbeats
 
 
+def test_execute_replays_terminal_success_after_submission_response_loss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    planned = _planned()
+    prepared, intent_hash = runner_module._prepare_run_submission(
+        planned,
+        submission_id="stable-submission",
+    )
+    assert intent_hash == f"sha256:{prepared.intent_content_hash}"
+
+    durable_admission: RunAdmission | None = None
+    submissions: list[RunSubmission] = []
+    requests: list[str] = []
+
+    def handler(http_request: httpx2.Request) -> httpx2.Response:
+        nonlocal durable_admission
+        path = http_request.url.path
+        requests.append(path)
+        if not path.endswith("/runs"):
+            raise AssertionError(f"terminal replay must not execute: {path}")
+        submission = RunSubmission.model_validate_json(http_request.content)
+        submissions.append(submission)
+        if durable_admission is None:
+            accepted = _admission(submission)
+            durable_admission = accepted.model_copy(
+                update={"snapshot": _terminal_manifest(accepted.snapshot)}
+            )
+            raise httpx2.ReadError("submission response was lost", request=http_request)
+        return _model(durable_admission, status_code=201)
+
+    def fail_execution(**_kwargs: object) -> RunSnapshot:
+        pytest.fail("terminal admission must not restart execution")
+
+    monkeypatch.setattr(runner_module, "execute_admitted_run", fail_execution)
+    runner = _DaemonRunner(_client(handler), None)
+
+    with pytest.raises(httpx2.ReadError, match="response was lost"):
+        runner.execute(
+            planned,
+            submission_id="stable-submission",
+            executor_id="stable-executor",
+        )
+    replayed = runner.execute(
+        planned,
+        submission_id="stable-submission",
+        executor_id="stable-executor",
+    )
+
+    assert durable_admission is not None
+    assert replayed == durable_admission.snapshot
+    assert replayed.status == "completed"
+    assert submissions == [prepared, prepared]
+    assert requests == ["/api/v1/runs", "/api/v1/runs"]
+
+
+@pytest.mark.parametrize(
+    ("result", "certainty", "error_type"),
+    [
+        ("failed", "known", RunFailed),
+        ("cancelled", "known", RunCancelled),
+        ("failed", "indeterminate", RunIndeterminate),
+    ],
+)
+def test_execute_replays_terminal_failure_with_existing_kernel_semantics(
+    result: RunResult,
+    certainty: RunCertainty,
+    error_type: type[RunFailure],
+) -> None:
+    planned = _planned()
+    requests: list[str] = []
+    outcome = RunOutcome(
+        run_id="run-1",
+        result=result,
+        certainty=certainty,
+        problems=(
+            problem(
+                "execution.replayed_terminal",
+                "the durable run already terminated",
+                phase=ProblemPhase.EXECUTION,
+            ),
+        ),
+    )
+
+    def handler(http_request: httpx2.Request) -> httpx2.Response:
+        path = http_request.url.path
+        requests.append(path)
+        if not path.endswith("/runs"):
+            raise AssertionError(f"terminal replay must not execute: {path}")
+        submission = RunSubmission.model_validate_json(http_request.content)
+        admitted = _admission(submission)
+        return _model(
+            admitted.model_copy(
+                update={
+                    "snapshot": admitted.snapshot.model_copy(
+                        update={"outcome": outcome}
+                    )
+                }
+            ),
+            status_code=201,
+        )
+
+    with pytest.raises(error_type) as error:
+        _DaemonRunner(_client(handler), None).execute(
+            planned,
+            submission_id="stable-submission",
+            executor_id="stable-executor",
+        )
+
+    assert error.value.run_id == "run-1"
+    assert error.value.outcome == outcome
+    assert requests == ["/api/v1/runs"]
+
+
 def test_execute_honors_initial_lease_cancellation_before_remote_effects(
     tmp_path: Path,
 ) -> None:
@@ -648,7 +779,7 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
             )
         if path == "/api/v1/config-registry/drafts/preview":
             return _model(preview)
-        if path == "/api/v1/config-registry/default":
+        if path == "/api/v1/config-registry/publish-operations":
             command = ConfigPublishCommand.model_validate_json(request.content)
             publishes.append(command)
             return _model(
@@ -677,31 +808,62 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
 def test_lab_config_intents_hide_registry_coordination() -> None:
     config = load_config()
     entry, activation = _config_registry_records(config)
-    seen: list[ConfigPublishCommand | ConfigUndoCommand] = []
+    seen: list[ConfigPublishCommand | ConfigEntryActivationCommand] = []
+    published: ConfigPublishReceipt | None = None
 
     def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal published
         path = request.url.path
         if path == "/api/v1/config-registry":
             return _model(ConfigRegistryPage(entries=(entry,), activation=activation))
         if path == "/api/v1/config-registry/active" and request.method == "GET":
+            if published is not None:
+                return _model(
+                    ActiveConfigView(
+                        entry=published.entry,
+                        activation=published.activation,
+                        config=config,
+                    )
+                )
             return _model(
                 ActiveConfigView(entry=entry, activation=activation, config=config)
             )
-        if path == "/api/v1/config-registry/default":
+        if path == "/api/v1/config-registry/publish-operations":
             command = ConfigPublishCommand.model_validate_json(request.content)
             seen.append(command)
+            published = _direct_config_publish_receipt(command, activation)
+            return _model(published)
+        if path == "/api/v1/config-registry/activations":
+            assert published is not None
             return _model(
-                ConfigPublishReceipt(
-                    entry=entry,
-                    activation=activation,
-                )
+                ConfigActivationPage(items=(published.activation, activation))
             )
-        if path == "/api/v1/config-registry/undo":
-            command = ConfigUndoCommand.model_validate_json(request.content)
+        if path == "/api/v1/config-registry/activation-operations":
+            assert published is not None
+            command = ConfigEntryActivationCommand.model_validate_json(request.content)
             seen.append(command)
+            restored = ConfigRegistryActivationRecord(
+                generation=published.activation.generation + 1,
+                action="activation",
+                entry_id=entry.id,
+                entry_content_hash=entry.content_hash,
+                previous_entry_id=published.entry.id,
+                previous_entry_content_hash=published.entry.content_hash,
+                actor=command.actor,
+                note=command.note,
+            )
             return _model(
                 ConfigActivationReceipt(
-                    activation=activation,
+                    operation=ConfigActivationOperation(
+                        operation_id=command.operation_id,
+                        intent_hash=command.intent_hash,
+                        entry_id=command.entry_id,
+                        expected_generation=command.expected_generation,
+                        actor=command.actor,
+                        note=command.note,
+                        activation_generation=restored.generation,
+                    ),
+                    activation=restored,
                 )
             )
         raise AssertionError(f"unexpected request: {request.method} {path}")
@@ -711,22 +873,290 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
     set_receipt = lab.config.set_default(config, note="use tuned values")
     undo_receipt = lab.config.undo(note="restore prior values")
 
-    assert set_receipt.entry == entry
-    assert undo_receipt.activation == activation
+    assert set_receipt.entry.id == config_revision_entry_id(config)
+    assert undo_receipt.activation.entry_id == entry.id
+    assert undo_receipt.activation.generation == activation.generation + 2
     assert seen == [
         ConfigPublishCommand(
+            operation_id=cast("ConfigPublishCommand", seen[0]).operation_id,
             source=DirectConfigRevisionSource(config=config),
             entry_id=config_revision_entry_id(config),
             actor="notebook-operator",
             expected_generation=activation.generation,
             note="use tuned values",
         ),
-        ConfigUndoCommand(
+        ConfigEntryActivationCommand(
+            operation_id=cast("ConfigEntryActivationCommand", seen[1]).operation_id,
+            entry_id=entry.id,
             actor="notebook-operator",
-            expected_generation=activation.generation,
+            expected_generation=activation.generation + 1,
             note="restore prior values",
         ),
     ]
+    operation_id = cast("ConfigPublishCommand", seen[0]).operation_id
+    assert operation_id.startswith("config-publish:")
+    assert len(operation_id.removeprefix("config-publish:")) == 32
+    activation_operation_id = cast("ConfigEntryActivationCommand", seen[1]).operation_id
+    assert activation_operation_id.startswith("config-activation:")
+    assert len(activation_operation_id.removeprefix("config-activation:")) == 32
+
+
+def test_lab_config_undo_pages_to_the_previous_distinct_exact_entry() -> None:
+    config = load_config()
+    baseline_entry, baseline_activation = _config_registry_records(config)
+    current_entry = baseline_entry.model_copy(
+        update={
+            "id": "current",
+            "config_ref": "config-registry/entries/current/config.json",
+        }
+    )
+    current_activation = ConfigRegistryActivationRecord(
+        generation=102,
+        action="activation",
+        entry_id=current_entry.id,
+        entry_content_hash=current_entry.content_hash,
+        previous_entry_id=current_entry.id,
+        previous_entry_content_hash=current_entry.content_hash,
+        actor="operator",
+    )
+    older_current_activation = current_activation.model_copy(update={"generation": 3})
+    baseline_activation = baseline_activation.model_copy(update={"generation": 2})
+    seen: list[ConfigEntryActivationCommand] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        path = request.url.path
+        if path == "/api/v1/config-registry/active":
+            return _model(
+                ActiveConfigView(
+                    entry=current_entry,
+                    activation=current_activation,
+                    config=config,
+                )
+            )
+        if path == "/api/v1/config-registry/activations":
+            before = request.url.params.get("before")
+            if before is None:
+                return _model(
+                    ConfigActivationPage(
+                        items=(current_activation, older_current_activation),
+                        next_cursor=3,
+                    )
+                )
+            assert before == "3"
+            return _model(ConfigActivationPage(items=(baseline_activation,)))
+        if path == "/api/v1/config-registry/activation-operations":
+            command = ConfigEntryActivationCommand.model_validate_json(request.content)
+            seen.append(command)
+            restored = ConfigRegistryActivationRecord(
+                generation=103,
+                action="activation",
+                entry_id=baseline_entry.id,
+                entry_content_hash=baseline_entry.content_hash,
+                previous_entry_id=current_entry.id,
+                previous_entry_content_hash=current_entry.content_hash,
+                actor=command.actor,
+                note=command.note,
+            )
+            return _model(
+                ConfigActivationReceipt(
+                    operation=ConfigActivationOperation(
+                        operation_id=command.operation_id,
+                        intent_hash=command.intent_hash,
+                        entry_id=command.entry_id,
+                        expected_generation=command.expected_generation,
+                        actor=command.actor,
+                        note=command.note,
+                        activation_generation=restored.generation,
+                    ),
+                    activation=restored,
+                )
+            )
+        raise AssertionError(f"unexpected request: {request.method} {path}")
+
+    lab = LabClient(_client(handler), operator="notebook-operator")
+    receipt = lab.config.undo(operation_id="restore-older-baseline")
+
+    assert receipt.activation.entry_id == baseline_entry.id
+    assert seen == [
+        ConfigEntryActivationCommand(
+            operation_id="restore-older-baseline",
+            entry_id=baseline_entry.id,
+            actor="notebook-operator",
+            expected_generation=current_activation.generation,
+        )
+    ]
+
+
+def test_lab_config_undo_requires_a_previous_distinct_entry() -> None:
+    config = load_config()
+    entry, activation = _config_registry_records(config)
+    requests: list[tuple[str, str]] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append((request.method, request.url.path))
+        if request.url.path == "/api/v1/config-registry/active":
+            return _model(
+                ActiveConfigView(entry=entry, activation=activation, config=config)
+            )
+        if request.url.path == "/api/v1/config-registry/activations":
+            return _model(ConfigActivationPage(items=(activation,)))
+        raise AssertionError(f"unexpected request: {request.method} {request.url.path}")
+
+    lab = LabClient(_client(handler), operator="notebook-operator")
+
+    with pytest.raises(ValueError, match="no previous active entry"):
+        lab.config.undo()
+    assert requests == [
+        ("GET", "/api/v1/config-registry/active"),
+        ("GET", "/api/v1/config-registry/activations"),
+    ]
+
+
+def test_lab_config_activation_uses_explicit_operation_and_exact_lookup() -> None:
+    config = load_config()
+    entry, activation = _config_registry_records(config)
+    command = ConfigEntryActivationCommand(
+        operation_id="activate-baseline",
+        entry_id=entry.id,
+        actor="notebook-operator",
+        expected_generation=activation.generation,
+        note="confirm baseline",
+    )
+    receipt = ConfigActivationReceipt(
+        operation=ConfigActivationOperation(
+            operation_id=command.operation_id,
+            intent_hash=command.intent_hash,
+            entry_id=command.entry_id,
+            expected_generation=command.expected_generation,
+            actor=command.actor,
+            note=command.note,
+            activation_generation=activation.generation,
+        ),
+        activation=activation,
+    )
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if request.method == "POST":
+            assert request.url.path == ("/api/v1/config-registry/activation-operations")
+            assert (
+                ConfigEntryActivationCommand.model_validate_json(request.content)
+                == command
+            )
+            return _model(receipt)
+        assert request.method == "GET"
+        assert request.url.path == (
+            "/api/v1/config-registry/activation-operations/activate-baseline"
+        )
+        return _model(receipt)
+
+    lab = LabClient(_client(handler), operator="notebook-operator")
+
+    activated = lab.config.activate_entry(
+        entry.id,
+        operation_id=command.operation_id,
+        expected_generation=command.expected_generation,
+        note=command.note,
+    )
+    reopened = lab.config.activation_operation(command.operation_id)
+
+    assert activated == receipt
+    assert reopened == receipt
+    assert [request.method for request in requests] == ["POST", "GET"]
+
+
+def test_lab_config_publish_uses_exact_command_and_lookup() -> None:
+    config = load_config()
+    _entry, activation = _config_registry_records(config)
+    command = ConfigPublishCommand(
+        operation_id="procedure:publish-baseline",
+        source=DirectConfigRevisionSource(config=config),
+        entry_id="published-baseline",
+        actor="procedure-worker",
+        expected_generation=activation.generation,
+    )
+    receipt = _direct_config_publish_receipt(command, activation)
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if request.method == "POST":
+            assert request.url.path == "/api/v1/config-registry/publish-operations"
+            assert ConfigPublishCommand.model_validate_json(request.content) == command
+        else:
+            assert request.method == "GET"
+            assert request.url.path == (
+                "/api/v1/config-registry/publish-operations/procedure:publish-baseline"
+            )
+        return _model(receipt)
+
+    lab = LabClient(_client(handler), operator="notebook-operator")
+
+    published = lab.config.publish_config(command)
+    reopened = lab.config.publish_operation(command.operation_id)
+
+    assert published == receipt
+    assert reopened == receipt
+    assert [request.method for request in requests] == ["POST", "GET"]
+
+
+def test_lab_candidate_accept_resolves_default_entry_before_publish() -> None:
+    config = load_config()
+    entry, activation = _config_registry_records(config)
+    draft = ConfigDraft(config).replace_scalar(
+        "drive_frequency",
+        Quantity(value=5.1, unit="GHz"),
+    )
+    proposal = parameter_change_proposal_from_updates(
+        source_run_id="run-source",
+        source_config=config,
+        analysis_title="Fit",
+        analysis_record_id="analysis-fit-r1",
+        proposal_id="fit",
+        updates=draft.updates,
+        reason="fit",
+        confidence=0.9,
+    )
+    candidate = CandidateConfig(parameter_proposal=proposal)
+    resolved = resolve_candidate_config_from_snapshot(
+        candidate,
+        source_config=config,
+    )
+    commands: list[ConfigPublishCommand] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        path = request.url.path
+        if path == "/api/v1/runs/run-source/config":
+            return _model(
+                RunConfigView(
+                    run_id="run-source",
+                    config_content_hash=config_content_hash(config),
+                    config=config,
+                )
+            )
+        if path == "/api/v1/config-registry":
+            return _model(ConfigRegistryPage(entries=(entry,), activation=activation))
+        assert path == "/api/v1/config-registry/publish-operations"
+        command = ConfigPublishCommand.model_validate_json(request.content)
+        commands.append(command)
+        return _model(
+            _candidate_config_publish_receipt(
+                command,
+                resolved,
+                base_content_hash=config_content_hash(config),
+                previous_activation=activation,
+            )
+        )
+
+    lab = LabClient(_client(handler), operator="notebook-operator")
+
+    receipt = lab.config.accept(candidate)
+
+    [command] = commands
+    assert command.entry_id == "candidate-fit-run-source"
+    assert command.operation_id.startswith("config-publish:")
+    assert receipt.entry.id == command.entry_id
 
 
 def test_lab_config_inventory_migration_assembles_registry_coordination() -> None:
@@ -1131,8 +1561,108 @@ def _config_draft_default_receipt(
         recorded_at=_NOW + timedelta(seconds=1),
     )
     return ConfigPublishReceipt(
+        operation=ConfigPublishOperation(
+            operation_id=command.operation_id,
+            intent_hash=command.intent_hash,
+            source_intent_hash=command.source_intent_hash,
+            entry_id=command.entry_id,
+            expected_generation=command.expected_generation,
+            actor=command.actor,
+            note=command.note,
+            activation_generation=activation.generation,
+        ),
         entry=entry,
         deltas=preview.deltas,
+        activation=activation,
+    )
+
+
+def _direct_config_publish_receipt(
+    command: ConfigPublishCommand,
+    previous_activation: ConfigRegistryActivationRecord,
+) -> ConfigPublishReceipt:
+    source = command.source
+    assert isinstance(source, DirectConfigRevisionSource)
+    entry = ConfigRegistryEntry(
+        id=command.entry_id,
+        config_ref=f"config-registry/entries/{command.entry_id}/config.json",
+        content_hash=config_content_hash(source.config),
+        source=DirectConfigRegistrySource(),
+        actor=command.actor,
+        note=command.note,
+    )
+    activation = ConfigRegistryActivationRecord(
+        generation=previous_activation.generation + 1,
+        action="activation",
+        entry_id=entry.id,
+        entry_content_hash=entry.content_hash,
+        previous_entry_id=previous_activation.entry_id,
+        previous_entry_content_hash=previous_activation.entry_content_hash,
+        actor=command.actor,
+        note=command.note,
+        recorded_at=_NOW + timedelta(seconds=1),
+    )
+    return ConfigPublishReceipt(
+        operation=ConfigPublishOperation(
+            operation_id=command.operation_id,
+            intent_hash=command.intent_hash,
+            source_intent_hash=command.source_intent_hash,
+            entry_id=command.entry_id,
+            expected_generation=command.expected_generation,
+            actor=command.actor,
+            note=command.note,
+            activation_generation=activation.generation,
+        ),
+        entry=entry,
+        activation=activation,
+    )
+
+
+def _candidate_config_publish_receipt(
+    command: ConfigPublishCommand,
+    config: ConfigProfileSnapshot,
+    *,
+    base_content_hash: ConfigContentHash,
+    previous_activation: ConfigRegistryActivationRecord,
+) -> ConfigPublishReceipt:
+    source = command.source
+    assert isinstance(source, CandidateConfigRevisionSource)
+    entry = ConfigRegistryEntry(
+        id=command.entry_id,
+        config_ref=f"config-registry/entries/{command.entry_id}/config.json",
+        content_hash=config_content_hash(config),
+        source=CandidateConfigRegistrySource(
+            run_id=source.run_id,
+            proposal_id=source.proposal_id,
+            base_config_content_hash=base_content_hash,
+            acceptance=source.acceptance,
+        ),
+        actor=command.actor,
+        note=command.note,
+    )
+    activation = ConfigRegistryActivationRecord(
+        generation=previous_activation.generation + 1,
+        action="activation",
+        entry_id=entry.id,
+        entry_content_hash=entry.content_hash,
+        previous_entry_id=previous_activation.entry_id,
+        previous_entry_content_hash=previous_activation.entry_content_hash,
+        actor=command.actor,
+        note=command.note,
+        recorded_at=_NOW + timedelta(seconds=1),
+    )
+    return ConfigPublishReceipt(
+        operation=ConfigPublishOperation(
+            operation_id=command.operation_id,
+            intent_hash=command.intent_hash,
+            source_intent_hash=command.source_intent_hash,
+            entry_id=command.entry_id,
+            expected_generation=command.expected_generation,
+            actor=command.actor,
+            note=command.note,
+            activation_generation=activation.generation,
+        ),
+        entry=entry,
         activation=activation,
     )
 

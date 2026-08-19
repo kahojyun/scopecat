@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import cast
+from uuid import uuid4
 
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api.published_analysis import PublishedAnalysis
@@ -17,6 +18,7 @@ from scopecat.config.drafts import ConfigDraft
 from scopecat.config.inventory import InstrumentInventoryChange
 from scopecat.config.registry.records import (
     CandidateAcceptance,
+    ConfigRegistryActivationRecord,
     CrossRunCandidateAcceptance,
     ManualCandidateAcceptance,
 )
@@ -37,7 +39,6 @@ from scopecat.daemon.wire import (
     ConfigEntryActivationCommand,
     ConfigPublishCommand,
     ConfigPublishReceipt,
-    ConfigUndoCommand,
     DirectConfigRevisionSource,
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
@@ -197,8 +198,9 @@ class LabConfigOperations:
                 or preview.result_content_hash is None
             ):
                 raise ValueError("only a valid config draft can become the default")
-            return self.client.publish_config(
+            return self.publish_config(
                 ConfigPublishCommand(
+                    operation_id=_interactive_publish_operation_id(),
                     source=ManualConfigDraftRevisionSource(
                         draft=_reviewed_draft_command(config, preview),
                         expected_result_content_hash=preview.result_content_hash,
@@ -209,8 +211,9 @@ class LabConfigOperations:
                     note=note,
                 )
             )
-        return self.client.publish_config(
+        return self.publish_config(
             ConfigPublishCommand(
+                operation_id=_interactive_publish_operation_id(),
                 source=DirectConfigRevisionSource(config=config),
                 entry_id=entry_id or config_revision_entry_id(config),
                 actor=selected_actor,
@@ -219,26 +222,39 @@ class LabConfigOperations:
             )
         )
 
+    def publish_config(self, command: ConfigPublishCommand) -> ConfigPublishReceipt:
+        """Publish one exact caller-owned idempotent config command."""
+
+        return self.client.publish_config(command)
+
+    def publish_operation(self, operation_id: str) -> ConfigPublishReceipt:
+        """Reopen the exact durable result of a config publication."""
+
+        return self.client.config_publish_operation(operation_id)
+
     def activate_entry(
         self,
         entry_id: str,
         *,
+        operation_id: str,
+        expected_generation: int,
         actor: str | None = None,
-        expected_generation: int | None = None,
         note: str = "",
     ) -> ConfigActivationReceipt:
         return self.client.activate_config_entry(
             ConfigEntryActivationCommand(
+                operation_id=operation_id,
                 entry_id=entry_id,
                 actor=actor or self.operator,
-                expected_generation=(
-                    self._generation()
-                    if expected_generation is None
-                    else expected_generation
-                ),
+                expected_generation=expected_generation,
                 note=note,
             )
         )
+
+    def activation_operation(self, operation_id: str) -> ConfigActivationReceipt:
+        """Reopen the exact durable result of an activate-entry command."""
+
+        return self.client.config_activation_operation(operation_id)
 
     def migrate_instrument_inventory(
         self,
@@ -343,8 +359,17 @@ class LabConfigOperations:
         actor: str | None,
         note: str,
     ) -> ConfigPublishReceipt:
-        return self.client.publish_config(
+        selected_entry_id = entry_id
+        if selected_entry_id is None:
+            source_config = self.runs.load_config(candidate.source_run_id)
+            resolved = resolve_candidate_config_from_snapshot(
+                candidate,
+                source_config=source_config,
+            )
+            selected_entry_id = f"{resolved.id}-{candidate.source_run_id}"
+        return self.publish_config(
             ConfigPublishCommand(
+                operation_id=_interactive_publish_operation_id(),
                 source=CandidateConfigRevisionSource(
                     run_id=candidate.source_run_id,
                     proposal_id=candidate.proposal_id,
@@ -352,7 +377,7 @@ class LabConfigOperations:
                 ),
                 actor=actor or self.operator,
                 expected_generation=self._generation(),
-                entry_id=entry_id,
+                entry_id=selected_entry_id,
                 note=note,
             )
         )
@@ -360,15 +385,23 @@ class LabConfigOperations:
     def undo(
         self,
         *,
+        operation_id: str | None = None,
         actor: str | None = None,
         note: str = "",
     ) -> ConfigActivationReceipt:
-        return self.client.undo_config(
-            ConfigUndoCommand(
-                actor=actor or self.operator,
-                expected_generation=self._generation(),
-                note=note,
-            )
+        """Reactivate the exact previous distinct entry through the operation ledger.
+
+        Supply ``operation_id`` to reopen an ambiguous result later with
+        :meth:`activation_operation`.
+        """
+
+        active = self.active().activation
+        return self.activate_entry(
+            _previous_distinct_entry_id(self.client, active),
+            operation_id=operation_id or _interactive_activation_operation_id(),
+            expected_generation=active.generation,
+            actor=actor,
+            note=note,
         )
 
     def _generation(self) -> int:
@@ -399,6 +432,32 @@ def _reviewed_draft_command(
         candidate_id=config.id,
         updates=draft.updates,
     )
+
+
+def _interactive_publish_operation_id() -> str:
+    return f"config-publish:{uuid4().hex}"
+
+
+def _interactive_activation_operation_id() -> str:
+    return f"config-activation:{uuid4().hex}"
+
+
+def _previous_distinct_entry_id(
+    client: DaemonClient,
+    active: ConfigRegistryActivationRecord,
+) -> str:
+    before: int | None = None
+    while True:
+        page = client.config_activation_history(limit=100, before=before)
+        for record in page.items:
+            if (
+                record.generation < active.generation
+                and record.entry_id != active.entry_id
+            ):
+                return record.entry_id
+        if page.next_cursor is None:
+            raise ValueError("config registry has no previous active entry")
+        before = page.next_cursor
 
 
 __all__ = ["LabConfigOperations"]

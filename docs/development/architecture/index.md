@@ -6,6 +6,8 @@ These documents explain the present implementation to Scopecat contributors:
   specialization, domain lowering, effects, completion, and evidence.
 - [Lab daemon](daemon.md) covers durable run ownership, instrument workers,
   cancellation, API events, configuration, and storage.
+- [Durable procedure automation](automation.md) covers replayable multi-run
+  procedures and the path from one calibration to device-scale orchestration.
 - [Scalability benchmarks](../scalability.md) records representative workload
   profiles, target envelopes, and current boundaries.
 

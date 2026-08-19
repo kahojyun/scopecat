@@ -21,12 +21,24 @@ from pydantic import (
 )
 
 from scopecat.analysis.dataset_wire import DerivedDatasetPayload
+from scopecat.automation.calibrations import (
+    CalibrationPublicationPolicyRef,
+    CalibrationSuccessRef,
+)
 from scopecat.config.inventory import InstrumentInventoryChange
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry.records import (
+    CalibrationCohortMergeContribution,
+    CalibrationCohortMergeRegistrySource,
     CandidateAcceptance,
+    ConfigActivationOperation,
+    ConfigCompositionPolicyRef,
+    ConfigPublishOperation,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
+    canonical_calibration_merge_contributions,
+    config_activation_intent_hash,
+    config_publish_intent_hash,
 )
 from scopecat.control.models import RunPlanSummary
 from scopecat.kernel.content_identity import stable_content_hash
@@ -69,6 +81,8 @@ from scopecat.sdk.instruments.execution import RunHardwareBatch
 
 type NonEmptyText = Annotated[str, Field(min_length=1)]
 
+_CONFIG_PUBLISH_SOURCE_INTENT_CODEC = "scopecat.config-publish-source-intent.v1"
+
 
 class _WireModel(BaseModel):
     model_config = ConfigDict(
@@ -106,10 +120,60 @@ class CandidateConfigRevisionSource(_WireModel):
     acceptance: CandidateAcceptance
 
 
-type ConfigRevisionSource = Annotated[
+class CalibrationCohortMergeRevisionSource(_WireModel):
+    """Compose individually verified cohort proposals against one exact base."""
+
+    kind: Literal["calibration_cohort_merge"] = "calibration_cohort_merge"
+    cohort_id: NonEmptyText
+    spec_hash: Sha256ContentHash
+    automatic_publication: CalibrationPublicationPolicyRef | None = None
+    composition_policy_ref: ConfigCompositionPolicyRef
+    merge_policy: Literal["common_base_cells_v1"] = "common_base_cells_v1"
+    base_entry_id: NonEmptyText
+    base_content_hash: ConfigContentHash
+    base_generation: int = Field(ge=1)
+    candidate_id: NonEmptyText
+    contributions: tuple[CalibrationCohortMergeContribution, ...] = Field(
+        min_length=1,
+        max_length=200,
+    )
+    expected_result_content_hash: ConfigContentHash
+
+    @field_validator("contributions")
+    @classmethod
+    def canonicalize_contributions(
+        cls,
+        value: tuple[CalibrationCohortMergeContribution, ...],
+    ) -> tuple[CalibrationCohortMergeContribution, ...]:
+        return canonical_calibration_merge_contributions(value)
+
+    @model_validator(mode="after")
+    def validate_automatic_publication(
+        self,
+    ) -> CalibrationCohortMergeRevisionSource:
+        policy = self.automatic_publication
+        if (
+            policy is not None
+            and policy.composition_policy != self.composition_policy_ref
+        ):
+            raise ValueError(
+                "automatic publication and merge composition policies must match"
+            )
+        return self
+
+
+type ConfigPublishSource = Annotated[
     DirectConfigRevisionSource
     | ManualConfigDraftRevisionSource
     | CandidateConfigRevisionSource,
+    Field(discriminator="kind"),
+]
+
+type ConfigRevisionSource = Annotated[
+    DirectConfigRevisionSource
+    | ManualConfigDraftRevisionSource
+    | CandidateConfigRevisionSource
+    | CalibrationCohortMergeRevisionSource,
     Field(discriminator="kind"),
 ]
 
@@ -117,25 +181,190 @@ type ConfigRevisionSource = Annotated[
 class ConfigPublishCommand(_WireModel):
     """Validate, save, and select one revision in a single transaction."""
 
-    source: ConfigRevisionSource
+    operation_id: NonEmptyText
+    source: ConfigPublishSource
     actor: NonEmptyText
     expected_generation: int = Field(ge=0)
-    entry_id: NonEmptyText | None = None
+    entry_id: NonEmptyText
     note: str = ""
 
-    @model_validator(mode="after")
-    def validate_entry_id(self) -> ConfigPublishCommand:
-        if self.entry_id is None and not isinstance(
-            self.source, CandidateConfigRevisionSource
-        ):
-            raise ValueError("direct and draft revisions require an entry id")
-        return self
+    @property
+    def source_intent_hash(self) -> Sha256ContentHash:
+        identity = {
+            "codec": _CONFIG_PUBLISH_SOURCE_INTENT_CODEC,
+            "source": self.source.model_dump(mode="json"),
+        }
+        return f"sha256:{stable_content_hash(identity)}"
+
+    @property
+    def intent_hash(self) -> Sha256ContentHash:
+        return config_publish_intent_hash(
+            source_intent_hash=self.source_intent_hash,
+            entry_id=self.entry_id,
+            expected_generation=self.expected_generation,
+            actor=self.actor,
+            note=self.note,
+        )
 
 
 class ConfigPublishReceipt(_WireModel):
+    operation: ConfigPublishOperation
     entry: ConfigRegistryEntry
     deltas: tuple[ParameterValueDelta, ...] = ()
     activation: ConfigRegistryActivationRecord
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> ConfigPublishReceipt:
+        if (
+            self.operation.entry_id != self.entry.id
+            or self.operation.activation_generation != self.activation.generation
+            or self.entry.id != self.activation.entry_id
+            or self.entry.content_hash != self.activation.entry_content_hash
+            or self.operation.actor != self.entry.actor
+            or self.operation.note != self.entry.note
+        ):
+            raise ValueError(
+                "config publish receipt operation, entry, and activation do not match"
+            )
+        return self
+
+
+class CalibrationPublicationCommand(_WireModel):
+    """Publish one verified calibration cohort under its finalization fence."""
+
+    operation_id: NonEmptyText
+    source: CalibrationCohortMergeRevisionSource
+    actor: NonEmptyText
+    expected_generation: int = Field(ge=0)
+    expected_finalization_revision: int | None = Field(default=None, ge=1)
+    entry_id: NonEmptyText
+    note: str = ""
+
+    @model_validator(mode="after")
+    def validate_calibration_contract(self) -> CalibrationPublicationCommand:
+        if self.expected_generation != self.source.base_generation:
+            raise ValueError(
+                "calibration cohort merge expected_generation must equal its "
+                "base_generation"
+            )
+        automatic_merge = self.source.automatic_publication is not None
+        if automatic_merge and self.expected_finalization_revision is None:
+            raise ValueError(
+                "automatic calibration publication requires an expected "
+                "finalization revision"
+            )
+        if not automatic_merge and self.expected_finalization_revision is not None:
+            raise ValueError(
+                "expected finalization revision is only valid for automatic "
+                "calibration publications"
+            )
+        return self
+
+    @property
+    def source_intent_hash(self) -> Sha256ContentHash:
+        identity = {
+            "codec": _CONFIG_PUBLISH_SOURCE_INTENT_CODEC,
+            "source": self.source.model_dump(mode="json"),
+        }
+        return f"sha256:{stable_content_hash(identity)}"
+
+    @property
+    def intent_hash(self) -> Sha256ContentHash:
+        # The finalization revision is an execution fence, not publication
+        # meaning. A retry from a newer ready occurrence keeps the operation.
+        return config_publish_intent_hash(
+            source_intent_hash=self.source_intent_hash,
+            entry_id=self.entry_id,
+            expected_generation=self.expected_generation,
+            actor=self.actor,
+            note=self.note,
+        )
+
+
+class CalibrationPublicationReceipt(ConfigPublishReceipt):
+    """Config publication plus the effective successes anchored by that commit."""
+
+    calibration_successes: tuple[CalibrationSuccessRef, ...]
+
+    @field_validator("calibration_successes")
+    @classmethod
+    def canonicalize_calibration_successes(
+        cls,
+        value: tuple[CalibrationSuccessRef, ...],
+    ) -> tuple[CalibrationSuccessRef, ...]:
+        selected = tuple(
+            sorted(
+                value,
+                key=lambda success: (
+                    success.attempt.member_id,
+                    success.attempt.procedure_run_id,
+                ),
+            )
+        )
+        identities = (
+            tuple(success.attempt.member_id for success in selected),
+            tuple(success.attempt.procedure_run_id for success in selected),
+        )
+        if any(len(items) != len(set(items)) for items in identities):
+            raise ValueError(
+                "calibration publication success identities must be unique"
+            )
+        return selected
+
+    @model_validator(mode="after")
+    def validate_calibration_identity(self) -> CalibrationPublicationReceipt:
+        source = self.entry.source
+        if not isinstance(source, CalibrationCohortMergeRegistrySource):
+            raise ValueError(
+                "calibration publication receipt requires a cohort merge entry"
+            )
+
+        contributions = {item.member_id: item for item in source.contributions}
+        successes = {
+            success.attempt.member_id: success for success in self.calibration_successes
+        }
+        if successes.keys() != contributions.keys():
+            raise ValueError(
+                "merge config publication must cover every resolved contribution"
+            )
+        if (
+            self.operation.expected_generation != source.base_registry_generation
+            or self.activation.previous_entry_id != source.base_entry_id
+            or self.activation.previous_entry_content_hash
+            != source.base_config_content_hash
+        ):
+            raise ValueError("merge config publication does not follow its exact base")
+        for member_id, contribution in contributions.items():
+            success = successes[member_id]
+            publication = success.publication
+            result_source = (
+                None if publication is None else publication.result_config_source
+            )
+            if (
+                publication is None
+                or success.attempt.cohort_id != source.cohort_id
+                or success.attempt.procedure_run_id
+                != contribution.proof.evidence_step.procedure_run_id
+                or success.base_config_source.entry_id != source.base_entry_id
+                or success.base_config_source.content_hash
+                != source.base_config_content_hash
+                or success.base_config_source.registry_generation
+                != source.base_registry_generation
+                or contribution.result_input_fingerprint
+                != publication.result_input_fingerprint
+                or publication.operation_id != self.operation.operation_id
+                or publication.source_intent_hash != self.operation.source_intent_hash
+                or result_source is None
+                or result_source.entry_id != self.entry.id
+                or result_source.config_ref != self.entry.config_ref
+                or result_source.content_hash != self.entry.content_hash
+                or result_source.registry_generation != self.activation.generation
+                or publication.published_at != self.activation.recorded_at
+            ):
+                raise ValueError(
+                    "merge calibration success does not match its config receipt"
+                )
+        return self
 
 
 class InstrumentInventoryMigrationCommand(_WireModel):
@@ -158,22 +387,36 @@ class InstrumentInventoryMigrationReceipt(_WireModel):
 class ConfigEntryActivationCommand(_WireModel):
     """Select a saved revision with generation compare-and-swap."""
 
+    operation_id: NonEmptyText
     entry_id: NonEmptyText
     actor: NonEmptyText
     expected_generation: int = Field(ge=0)
     note: str = ""
 
-
-class ConfigUndoCommand(_WireModel):
-    """Restore the previous distinct entry with generation compare-and-swap."""
-
-    actor: NonEmptyText
-    expected_generation: int = Field(ge=1)
-    note: str = ""
+    @property
+    def intent_hash(self) -> Sha256ContentHash:
+        return config_activation_intent_hash(
+            entry_id=self.entry_id,
+            expected_generation=self.expected_generation,
+            actor=self.actor,
+            note=self.note,
+        )
 
 
 class ConfigActivationReceipt(_WireModel):
+    operation: ConfigActivationOperation
     activation: ConfigRegistryActivationRecord
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> ConfigActivationReceipt:
+        if (
+            self.operation.activation_generation != self.activation.generation
+            or self.operation.entry_id != self.activation.entry_id
+        ):
+            raise ValueError(
+                "config activation receipt operation and activation do not match"
+            )
+        return self
 
 
 class _AnalysisInputPayload(_WireModel):
@@ -831,14 +1074,17 @@ __all__ = [
     "AnalysisSaveReceipt",
     "AnalysisTableOutputPayload",
     "AttentionResolutionReceipt",
+    "CalibrationCohortMergeRevisionSource",
+    "CalibrationPublicationCommand",
+    "CalibrationPublicationReceipt",
     "CandidateConfigRevisionSource",
     "ConfigActivationReceipt",
     "ConfigDraftCommand",
     "ConfigEntryActivationCommand",
     "ConfigPublishCommand",
     "ConfigPublishReceipt",
+    "ConfigPublishSource",
     "ConfigRevisionSource",
-    "ConfigUndoCommand",
     "DirectConfigRevisionSource",
     "ExecutorHeartbeat",
     "ExecutorLease",

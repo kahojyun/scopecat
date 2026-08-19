@@ -12,8 +12,10 @@ with project.connect() as lab:
     runs = lab.runs()
 ```
 
-Project discovery loads the version-controlled `LabApplication` shared with
-the daemon. Its optional system builder receives the accepted configuration
+Project discovery loads the version-controlled `LabApplication` for notebooks
+and the project worker. The daemon instead loads the manifest's lightweight
+`LabBootstrap`, so user execution callbacks stay out of the server process. The
+application's optional system builder receives the accepted configuration
 snapshot selected for each run.
 
 Routine analysis and configuration changes use typed intent APIs:
@@ -38,6 +40,12 @@ with project.connect() as lab:
     changed = lab.config.set_default(draft, note="increase averaging")
     restored = lab.config.undo(note="restore the previous default")
 ```
+
+`undo()` reads activation history, resolves the previous distinct immutable
+entry, and submits that exact entry through the idempotent activation-operation
+ledger. Pass an explicit `operation_id` when the caller needs to reopen the
+same receipt with `lab.config.activation_operation(operation_id)` after a
+process-level failure.
 
 Interactive closures may execute in the notebook process:
 

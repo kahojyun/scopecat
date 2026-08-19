@@ -13,6 +13,70 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi import Path as ApiPath
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from scopecat.automation import (
+    ProcedureCloseCommand,
+    ProcedureCloseReceipt,
+    ProcedureRun,
+    ProcedureRunAttentionCommand,
+    ProcedureRunAttentionReceipt,
+    ProcedureRunListQuery,
+    ProcedureRunnablePage,
+    ProcedureRunnableQuery,
+    ProcedureRunPage,
+    ProcedureRunState,
+    ProcedureSchedule,
+    ProcedureScheduleCancelCommand,
+    ProcedureScheduleCancelReceipt,
+    ProcedureScheduleCreateCommand,
+    ProcedureScheduleCreateReceipt,
+    ProcedureScheduleDuePage,
+    ProcedureScheduleDueQuery,
+    ProcedureScheduleListQuery,
+    ProcedureScheduleMaterializeCommand,
+    ProcedureScheduleMaterializeReceipt,
+    ProcedureSchedulePage,
+    ProcedureScheduleState,
+    ProcedureStepAttemptListQuery,
+    ProcedureStepAttemptPage,
+    ProcedureStepAttentionCommand,
+    ProcedureStepAttentionReceipt,
+    ProcedureStepBeginCommand,
+    ProcedureStepBeginReceipt,
+    ProcedureStepCompleteCommand,
+    ProcedureStepCompleteReceipt,
+    ProcedureStepFailCommand,
+    ProcedureStepFailReceipt,
+    ProcedureSubmitCommand,
+    ProcedureSubmitReceipt,
+    ProcedureWorkerLeaseAcquireCommand,
+    ProcedureWorkerLeaseAcquireReceipt,
+    ProcedureWorkerLeaseHeartbeatCommand,
+    ProcedureWorkerLeaseHeartbeatReceipt,
+    ProcedureWorkerLeaseReleaseCommand,
+    ProcedureWorkerLeaseReleaseReceipt,
+)
+from scopecat.automation.calibration_wire import (
+    CalibrationCohortCreateCommand,
+    CalibrationCohortCreateReceipt,
+    CalibrationCohortGetQuery,
+    CalibrationCohortGetReceipt,
+    CalibrationCohortListQuery,
+    CalibrationCohortMemberListQuery,
+    CalibrationCohortMemberPage,
+    CalibrationCohortPage,
+    CalibrationPublicationAttentionCommand,
+    CalibrationPublicationAttentionReceipt,
+    CalibrationPublicationDeferCommand,
+    CalibrationPublicationDeferReceipt,
+    CalibrationPublicationGetQuery,
+    CalibrationPublicationGetReceipt,
+    CalibrationPublicationReadyPage,
+    CalibrationPublicationReadyQuery,
+    CalibrationPublicationRetryCommand,
+    CalibrationPublicationRetryReceipt,
+    CalibrationStatusQuery,
+    CalibrationStatusReceipt,
+)
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
@@ -84,12 +148,13 @@ from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
     AttentionResolutionReceipt,
+    CalibrationPublicationCommand,
+    CalibrationPublicationReceipt,
     ConfigActivationReceipt,
     ConfigDraftCommand,
     ConfigEntryActivationCommand,
     ConfigPublishCommand,
     ConfigPublishReceipt,
-    ConfigUndoCommand,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -283,7 +348,11 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     def get_config_entry(entry_id: str) -> ConfigEntryView:
         return application.config.get_config_entry(entry_id)
 
-    @app.post(f"{_API_PREFIX}/config-registry/default")
+    @app.get(f"{_API_PREFIX}/config-registry/publish-operations/{{operation_id:path}}")
+    def get_config_publish_operation(operation_id: str) -> ConfigPublishReceipt:
+        return application.config.get_config_publish_operation(operation_id)
+
+    @app.post(f"{_API_PREFIX}/config-registry/publish-operations")
     def publish_config(command: ConfigPublishCommand) -> ConfigPublishReceipt:
         return application.config.publish_config(command)
 
@@ -299,17 +368,19 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> ConfigDraftPreview:
         return application.config.preview_config_draft(command)
 
-    @app.post(f"{_API_PREFIX}/config-registry/active")
+    @app.get(
+        f"{_API_PREFIX}/config-registry/activation-operations/{{operation_id:path}}"
+    )
+    def get_config_activation_operation(
+        operation_id: str,
+    ) -> ConfigActivationReceipt:
+        return application.config.get_config_activation_operation(operation_id)
+
+    @app.post(f"{_API_PREFIX}/config-registry/activation-operations")
     def activate_config_entry(
         command: ConfigEntryActivationCommand,
     ) -> ConfigActivationReceipt:
         return application.config.activate_config_entry(command)
-
-    @app.post(f"{_API_PREFIX}/config-registry/undo")
-    def undo_config(
-        command: ConfigUndoCommand,
-    ) -> ConfigActivationReceipt:
-        return application.config.undo_config(command)
 
     @app.get(f"{_API_PREFIX}/instruments")
     def list_instruments() -> InstrumentListView:
@@ -500,6 +571,304 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         worker_id: Annotated[str, Query(min_length=1)],
     ) -> ReviewSessionCloseReceipt:
         return application.reviews.close(session_id, worker_id)
+
+    @app.post(f"{_API_PREFIX}/procedures", status_code=201)
+    def submit_procedure(
+        command: ProcedureSubmitCommand,
+    ) -> ProcedureSubmitReceipt:
+        return application.automation.submit(command)
+
+    @app.post(f"{_API_PREFIX}/calibration-status/query")
+    def query_calibration_status(
+        query: CalibrationStatusQuery,
+    ) -> CalibrationStatusReceipt:
+        return application.calibration_cohorts.status(query)
+
+    @app.post(f"{_API_PREFIX}/calibration-cohorts", status_code=201)
+    def create_calibration_cohort(
+        command: CalibrationCohortCreateCommand,
+    ) -> CalibrationCohortCreateReceipt:
+        return application.calibration_cohorts.create(command)
+
+    @app.get(f"{_API_PREFIX}/calibration-cohorts")
+    def list_calibration_cohorts(
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+        cursor: Annotated[int | None, Query(ge=1)] = None,
+        fanout_scope: Annotated[str | None, Query(min_length=1)] = None,
+    ) -> CalibrationCohortPage:
+        return application.calibration_cohorts.list(
+            CalibrationCohortListQuery(
+                limit=limit,
+                cursor=cursor,
+                fanout_scope=fanout_scope,
+            )
+        )
+
+    @app.get(f"{_API_PREFIX}/calibration-cohort-members/by-cohort/{{cohort_id:path}}")
+    def list_calibration_cohort_members(
+        cohort_id: str,
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+        cursor: Annotated[int | None, Query(ge=0)] = None,
+    ) -> CalibrationCohortMemberPage:
+        return application.calibration_cohorts.list_members(
+            CalibrationCohortMemberListQuery(
+                cohort_id=cohort_id,
+                limit=limit,
+                cursor=cursor,
+            )
+        )
+
+    @app.get(f"{_API_PREFIX}/calibration-cohorts/by-id/{{cohort_id:path}}")
+    def get_calibration_cohort(cohort_id: str) -> CalibrationCohortGetReceipt:
+        return application.calibration_cohorts.get(
+            CalibrationCohortGetQuery(cohort_id=cohort_id)
+        )
+
+    @app.post(f"{_API_PREFIX}/calibration-publications/ready/query")
+    def list_ready_calibration_publications(
+        query: CalibrationPublicationReadyQuery,
+    ) -> CalibrationPublicationReadyPage:
+        return application.calibration_cohorts.ready_publications(query)
+
+    @app.get(f"{_API_PREFIX}/calibration-publications/by-cohort/{{cohort_id:path}}")
+    def get_calibration_publication(
+        cohort_id: str,
+    ) -> CalibrationPublicationGetReceipt:
+        return application.calibration_cohorts.get_publication(
+            CalibrationPublicationGetQuery(cohort_id=cohort_id)
+        )
+
+    @app.get(f"{_API_PREFIX}/calibration-publications/operations/{{operation_id:path}}")
+    def get_calibration_publication_operation(
+        operation_id: str,
+    ) -> CalibrationPublicationReceipt:
+        return application.config.get_calibration_publication_operation(operation_id)
+
+    @app.post(f"{_API_PREFIX}/calibration-publications/operations")
+    def publish_calibration(
+        command: CalibrationPublicationCommand,
+    ) -> CalibrationPublicationReceipt:
+        return application.config.publish_calibration(command)
+
+    @app.post(f"{_API_PREFIX}/calibration-publication-attentions/{{cohort_id:path}}")
+    def require_calibration_publication_attention(
+        cohort_id: str,
+        command: CalibrationPublicationAttentionCommand,
+    ) -> CalibrationPublicationAttentionReceipt:
+        _require_calibration_publication_cohort_id(cohort_id, command.cohort_id)
+        return application.calibration_cohorts.require_publication_attention(command)
+
+    @app.post(f"{_API_PREFIX}/calibration-publication-retries/{{cohort_id:path}}")
+    def retry_calibration_publication(
+        cohort_id: str,
+        command: CalibrationPublicationRetryCommand,
+    ) -> CalibrationPublicationRetryReceipt:
+        _require_calibration_publication_cohort_id(cohort_id, command.cohort_id)
+        return application.calibration_cohorts.retry_publication(command)
+
+    @app.post(f"{_API_PREFIX}/calibration-publication-deferrals/{{cohort_id:path}}")
+    def defer_calibration_publication(
+        cohort_id: str,
+        command: CalibrationPublicationDeferCommand,
+    ) -> CalibrationPublicationDeferReceipt:
+        _require_calibration_publication_cohort_id(cohort_id, command.cohort_id)
+        return application.calibration_cohorts.defer_publication(command)
+
+    @app.post(f"{_API_PREFIX}/procedure-schedules", status_code=201)
+    def create_procedure_schedule(
+        command: ProcedureScheduleCreateCommand,
+    ) -> ProcedureScheduleCreateReceipt:
+        return application.procedure_schedules.create(command)
+
+    @app.get(f"{_API_PREFIX}/procedure-schedules")
+    def list_procedure_schedules(
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+        cursor: Annotated[int | None, Query(ge=1)] = None,
+        state: ProcedureScheduleState | None = None,
+    ) -> ProcedureSchedulePage:
+        return application.procedure_schedules.list(
+            ProcedureScheduleListQuery(limit=limit, cursor=cursor, state=state)
+        )
+
+    @app.get(f"{_API_PREFIX}/procedure-schedules/due")
+    def list_due_procedure_schedules(
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+        cursor: Annotated[int | None, Query(ge=1)] = None,
+        through_sequence: Annotated[int | None, Query(ge=1)] = None,
+    ) -> ProcedureScheduleDuePage:
+        _require_due_schedule_traversal(cursor, through_sequence)
+        return application.procedure_schedules.due(
+            ProcedureScheduleDueQuery(
+                limit=limit,
+                cursor=cursor,
+                through_sequence=through_sequence,
+            )
+        )
+
+    @app.get(f"{_API_PREFIX}/procedure-schedules/by-id/{{schedule_id:path}}")
+    def get_procedure_schedule(schedule_id: str) -> ProcedureSchedule:
+        return application.procedure_schedules.get(schedule_id)
+
+    @app.post(f"{_API_PREFIX}/procedure-schedule-cancellations/{{schedule_id:path}}")
+    def cancel_procedure_schedule(
+        schedule_id: str,
+        command: ProcedureScheduleCancelCommand,
+    ) -> ProcedureScheduleCancelReceipt:
+        _require_procedure_schedule_id(schedule_id, command.schedule_id)
+        return application.procedure_schedules.cancel(command)
+
+    @app.post(f"{_API_PREFIX}/procedure-schedule-materializations/{{schedule_id:path}}")
+    def materialize_procedure_schedule(
+        schedule_id: str,
+        command: ProcedureScheduleMaterializeCommand,
+    ) -> ProcedureScheduleMaterializeReceipt:
+        _require_procedure_schedule_id(schedule_id, command.schedule_id)
+        return application.procedure_schedules.materialize(command)
+
+    @app.get(f"{_API_PREFIX}/procedures")
+    def list_procedures(
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+        cursor: Annotated[int | None, Query(ge=1)] = None,
+        state: ProcedureRunState | None = None,
+    ) -> ProcedureRunPage:
+        return application.automation.list(
+            ProcedureRunListQuery(limit=limit, cursor=cursor, state=state)
+        )
+
+    @app.post(f"{_API_PREFIX}/procedures/runnable/query")
+    def list_runnable_procedures(
+        query: ProcedureRunnableQuery,
+    ) -> ProcedureRunnablePage:
+        return application.automation.runnable(query)
+
+    @app.get(f"{_API_PREFIX}/procedures/{{procedure_run_id}}")
+    def get_procedure(procedure_run_id: str) -> ProcedureRun:
+        return application.automation.get(procedure_run_id)
+
+    @app.get(f"{_API_PREFIX}/procedures/{{procedure_run_id}}/steps")
+    def list_procedure_step_attempts(
+        procedure_run_id: str,
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+        cursor: Annotated[int | None, Query(ge=1)] = None,
+    ) -> ProcedureStepAttemptPage:
+        return application.automation.step_attempts(
+            procedure_run_id,
+            ProcedureStepAttemptListQuery(limit=limit, cursor=cursor),
+        )
+
+    @app.post(
+        f"{_API_PREFIX}/procedures/{{procedure_run_id}}/worker/lease/acquire",
+        status_code=201,
+    )
+    def acquire_procedure_worker_lease(
+        procedure_run_id: str,
+        command: ProcedureWorkerLeaseAcquireCommand,
+    ) -> ProcedureWorkerLeaseAcquireReceipt:
+        _require_procedure_run_id(procedure_run_id, command.procedure_run_id)
+        return application.automation.acquire_lease(command)
+
+    @app.post(f"{_API_PREFIX}/procedures/{{procedure_run_id}}/worker/lease/heartbeat")
+    def heartbeat_procedure_worker_lease(
+        procedure_run_id: str,
+        command: ProcedureWorkerLeaseHeartbeatCommand,
+    ) -> ProcedureWorkerLeaseHeartbeatReceipt:
+        _require_procedure_run_id(procedure_run_id, command.procedure_run_id)
+        return application.automation.heartbeat_lease(command)
+
+    @app.post(f"{_API_PREFIX}/procedures/{{procedure_run_id}}/worker/lease/release")
+    def release_procedure_worker_lease(
+        procedure_run_id: str,
+        command: ProcedureWorkerLeaseReleaseCommand,
+    ) -> ProcedureWorkerLeaseReleaseReceipt:
+        _require_procedure_run_id(procedure_run_id, command.procedure_run_id)
+        return application.automation.release_lease(command)
+
+    @app.post(
+        f"{_API_PREFIX}/procedures/{{procedure_run_id}}/steps/begin",
+        status_code=201,
+    )
+    def begin_procedure_step(
+        procedure_run_id: str,
+        command: ProcedureStepBeginCommand,
+    ) -> ProcedureStepBeginReceipt:
+        _require_procedure_run_id(procedure_run_id, command.procedure_run_id)
+        return application.automation.begin_step(command)
+
+    @app.post(
+        f"{_API_PREFIX}/procedures/{{procedure_run_id}}/steps/{{step_key:path}}/"
+        "attempts/{attempt}/complete"
+    )
+    def complete_procedure_step(
+        procedure_run_id: str,
+        step_key: str,
+        attempt: Annotated[int, ApiPath(ge=1)],
+        command: ProcedureStepCompleteCommand,
+    ) -> ProcedureStepCompleteReceipt:
+        _require_procedure_step_identity(
+            procedure_run_id,
+            step_key,
+            attempt,
+            command.procedure_run_id,
+            command.step_key,
+            command.attempt,
+        )
+        return application.automation.complete_step(command)
+
+    @app.post(
+        f"{_API_PREFIX}/procedures/{{procedure_run_id}}/steps/{{step_key:path}}/"
+        "attempts/{attempt}/fail"
+    )
+    def fail_procedure_step(
+        procedure_run_id: str,
+        step_key: str,
+        attempt: Annotated[int, ApiPath(ge=1)],
+        command: ProcedureStepFailCommand,
+    ) -> ProcedureStepFailReceipt:
+        _require_procedure_step_identity(
+            procedure_run_id,
+            step_key,
+            attempt,
+            command.procedure_run_id,
+            command.step_key,
+            command.attempt,
+        )
+        return application.automation.fail_step(command)
+
+    @app.post(
+        f"{_API_PREFIX}/procedures/{{procedure_run_id}}/steps/{{step_key:path}}/"
+        "attempts/{attempt}/attention"
+    )
+    def require_procedure_step_attention(
+        procedure_run_id: str,
+        step_key: str,
+        attempt: Annotated[int, ApiPath(ge=1)],
+        command: ProcedureStepAttentionCommand,
+    ) -> ProcedureStepAttentionReceipt:
+        _require_procedure_step_identity(
+            procedure_run_id,
+            step_key,
+            attempt,
+            command.procedure_run_id,
+            command.step_key,
+            command.attempt,
+        )
+        return application.automation.require_step_attention(command)
+
+    @app.post(f"{_API_PREFIX}/procedures/{{procedure_run_id}}/attention")
+    def require_procedure_run_attention(
+        procedure_run_id: str,
+        command: ProcedureRunAttentionCommand,
+    ) -> ProcedureRunAttentionReceipt:
+        _require_procedure_run_id(procedure_run_id, command.procedure_run_id)
+        return application.automation.require_run_attention(command)
+
+    @app.post(f"{_API_PREFIX}/procedures/{{procedure_run_id}}/close")
+    def close_procedure(
+        procedure_run_id: str,
+        command: ProcedureCloseCommand,
+    ) -> ProcedureCloseReceipt:
+        _require_procedure_run_id(procedure_run_id, command.procedure_run_id)
+        return application.automation.close(command)
 
     @app.get(f"{_API_PREFIX}/runs")
     def list_runs(
@@ -1092,6 +1461,75 @@ def _require_run_id(path_run_id: str, body_run_id: str) -> None:
         raise HTTPException(
             status_code=422,
             detail="path run_id must match request body",
+        )
+
+
+def _require_procedure_run_id(
+    path_procedure_run_id: str,
+    body_procedure_run_id: str,
+) -> None:
+    if path_procedure_run_id != body_procedure_run_id:
+        raise HTTPException(
+            status_code=422,
+            detail="path procedure_run_id must match request body",
+        )
+
+
+def _require_calibration_publication_cohort_id(
+    path_cohort_id: str,
+    body_cohort_id: str,
+) -> None:
+    if path_cohort_id != body_cohort_id:
+        raise HTTPException(
+            status_code=422,
+            detail="path cohort_id must match request body",
+        )
+
+
+def _require_procedure_schedule_id(
+    path_schedule_id: str,
+    body_schedule_id: str,
+) -> None:
+    if path_schedule_id != body_schedule_id:
+        raise HTTPException(
+            status_code=422,
+            detail="path schedule_id must match request body",
+        )
+
+
+def _require_due_schedule_traversal(
+    cursor: int | None,
+    through_sequence: int | None,
+) -> None:
+    if (cursor is None) != (through_sequence is None):
+        raise HTTPException(
+            status_code=422,
+            detail="cursor and through_sequence must be provided together",
+        )
+    if (
+        cursor is not None
+        and through_sequence is not None
+        and cursor >= through_sequence
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="cursor must be below through_sequence",
+        )
+
+
+def _require_procedure_step_identity(
+    path_procedure_run_id: str,
+    path_step_key: str,
+    path_attempt: int,
+    body_procedure_run_id: str,
+    body_step_key: str,
+    body_attempt: int,
+) -> None:
+    _require_procedure_run_id(path_procedure_run_id, body_procedure_run_id)
+    if path_step_key != body_step_key or path_attempt != body_attempt:
+        raise HTTPException(
+            status_code=422,
+            detail="path procedure step identity must match request body",
         )
 
 

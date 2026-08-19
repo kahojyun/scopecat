@@ -21,7 +21,7 @@ import type {
   InstrumentStateValue,
   InstrumentView,
 } from "../../api-contract";
-import { setConfigDefault } from "../config/config-api";
+import { publishConfig } from "../config/config-api";
 import { safeConfigEntryId } from "../config/config-utils";
 import { decodeCollectReceipt, HARDWARE_RECEIPT_MEDIA_TYPE } from "./hardware-receipt-wire";
 
@@ -308,7 +308,8 @@ export async function publishInstrumentSpec({
   const suffix = createInstrumentCommandId("config");
   const entryId = safeConfigEntryId(`${config.id}-instrument-${spec.id}-${suffix}`);
   config.id = entryId;
-  await setConfigDefault({
+  await publishConfig({
+    operation_id: suffix,
     source: {
       kind: "direct_config_profile",
       config,

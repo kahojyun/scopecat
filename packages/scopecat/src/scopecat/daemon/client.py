@@ -13,6 +13,66 @@ import httpx2
 import pyarrow as pa
 from pydantic import BaseModel, ValidationError
 
+from scopecat.automation import (
+    ProcedureCloseCommand,
+    ProcedureCloseReceipt,
+    ProcedureRun,
+    ProcedureRunAttentionCommand,
+    ProcedureRunAttentionReceipt,
+    ProcedureRunListQuery,
+    ProcedureRunnablePage,
+    ProcedureRunnableQuery,
+    ProcedureRunPage,
+    ProcedureSchedule,
+    ProcedureScheduleCancelCommand,
+    ProcedureScheduleCancelReceipt,
+    ProcedureScheduleCreateCommand,
+    ProcedureScheduleCreateReceipt,
+    ProcedureScheduleDuePage,
+    ProcedureScheduleDueQuery,
+    ProcedureScheduleListQuery,
+    ProcedureScheduleMaterializeCommand,
+    ProcedureScheduleMaterializeReceipt,
+    ProcedureSchedulePage,
+    ProcedureStepAttemptListQuery,
+    ProcedureStepAttemptPage,
+    ProcedureStepAttentionCommand,
+    ProcedureStepAttentionReceipt,
+    ProcedureStepBeginCommand,
+    ProcedureStepBeginReceipt,
+    ProcedureStepCompleteCommand,
+    ProcedureStepCompleteReceipt,
+    ProcedureStepFailCommand,
+    ProcedureStepFailReceipt,
+    ProcedureSubmitCommand,
+    ProcedureSubmitReceipt,
+    ProcedureWorkerLeaseAcquireCommand,
+    ProcedureWorkerLeaseAcquireReceipt,
+    ProcedureWorkerLeaseHeartbeatCommand,
+    ProcedureWorkerLeaseHeartbeatReceipt,
+    ProcedureWorkerLeaseReleaseCommand,
+    ProcedureWorkerLeaseReleaseReceipt,
+)
+from scopecat.automation.calibration_wire import (
+    CalibrationCohortCreateCommand,
+    CalibrationCohortCreateReceipt,
+    CalibrationCohortGetReceipt,
+    CalibrationCohortListQuery,
+    CalibrationCohortMemberListQuery,
+    CalibrationCohortMemberPage,
+    CalibrationCohortPage,
+    CalibrationPublicationAttentionCommand,
+    CalibrationPublicationAttentionReceipt,
+    CalibrationPublicationDeferCommand,
+    CalibrationPublicationDeferReceipt,
+    CalibrationPublicationGetReceipt,
+    CalibrationPublicationReadyPage,
+    CalibrationPublicationReadyQuery,
+    CalibrationPublicationRetryCommand,
+    CalibrationPublicationRetryReceipt,
+    CalibrationStatusQuery,
+    CalibrationStatusReceipt,
+)
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
@@ -74,12 +134,13 @@ from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
     AttentionResolutionReceipt,
+    CalibrationPublicationCommand,
+    CalibrationPublicationReceipt,
     ConfigActivationReceipt,
     ConfigDraftCommand,
     ConfigEntryActivationCommand,
     ConfigPublishCommand,
     ConfigPublishReceipt,
-    ConfigUndoCommand,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -293,6 +354,366 @@ class DaemonClient:
         )
         return ReviewSessionCloseReceipt.model_validate_json(response.content)
 
+    def submit_procedure(
+        self,
+        command: ProcedureSubmitCommand,
+    ) -> ProcedureSubmitReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/procedures",
+            command,
+            ProcedureSubmitReceipt,
+        )
+
+    def query_calibration_status(
+        self,
+        query: CalibrationStatusQuery,
+    ) -> CalibrationStatusReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/calibration-status/query",
+            query,
+            CalibrationStatusReceipt,
+        )
+
+    def create_calibration_cohort(
+        self,
+        command: CalibrationCohortCreateCommand,
+    ) -> CalibrationCohortCreateReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/calibration-cohorts",
+            command,
+            CalibrationCohortCreateReceipt,
+        )
+
+    def get_calibration_cohort(
+        self,
+        cohort_id: str,
+    ) -> CalibrationCohortGetReceipt:
+        return self._get_model(
+            (f"{_API_PREFIX}/calibration-cohorts/by-id/{quote(cohort_id, safe='')}"),
+            CalibrationCohortGetReceipt,
+        )
+
+    def list_calibration_cohorts(
+        self,
+        query: CalibrationCohortListQuery,
+    ) -> CalibrationCohortPage:
+        params: dict[str, str | int] = {"limit": query.limit}
+        if query.cursor is not None:
+            params["cursor"] = query.cursor
+        if query.fanout_scope is not None:
+            params["fanout_scope"] = query.fanout_scope
+        return self._get_model(
+            f"{_API_PREFIX}/calibration-cohorts",
+            CalibrationCohortPage,
+            params=params,
+        )
+
+    def list_calibration_cohort_members(
+        self,
+        query: CalibrationCohortMemberListQuery,
+    ) -> CalibrationCohortMemberPage:
+        params: dict[str, str | int] = {"limit": query.limit}
+        if query.cursor is not None:
+            params["cursor"] = query.cursor
+        return self._get_model(
+            (
+                f"{_API_PREFIX}/calibration-cohort-members/by-cohort/"
+                f"{quote(query.cohort_id, safe='')}"
+            ),
+            CalibrationCohortMemberPage,
+            params=params,
+        )
+
+    def list_ready_calibration_publications(
+        self,
+        query: CalibrationPublicationReadyQuery,
+    ) -> CalibrationPublicationReadyPage:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/calibration-publications/ready/query",
+            query,
+            CalibrationPublicationReadyPage,
+        )
+
+    def get_calibration_publication(
+        self,
+        cohort_id: str,
+    ) -> CalibrationPublicationGetReceipt:
+        return self._get_model(
+            (
+                f"{_API_PREFIX}/calibration-publications/by-cohort/"
+                f"{quote(cohort_id, safe='')}"
+            ),
+            CalibrationPublicationGetReceipt,
+        )
+
+    def publish_calibration(
+        self,
+        command: CalibrationPublicationCommand,
+    ) -> CalibrationPublicationReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/calibration-publications/operations",
+            command,
+            CalibrationPublicationReceipt,
+        )
+
+    def calibration_publication_operation(
+        self,
+        operation_id: str,
+    ) -> CalibrationPublicationReceipt:
+        return self._get_model(
+            (
+                f"{_API_PREFIX}/calibration-publications/operations/"
+                f"{quote(operation_id, safe='')}"
+            ),
+            CalibrationPublicationReceipt,
+        )
+
+    def require_calibration_publication_attention(
+        self,
+        command: CalibrationPublicationAttentionCommand,
+    ) -> CalibrationPublicationAttentionReceipt:
+        return self._post_model(
+            (
+                f"{_API_PREFIX}/calibration-publication-attentions/"
+                f"{quote(command.cohort_id, safe='')}"
+            ),
+            command,
+            CalibrationPublicationAttentionReceipt,
+        )
+
+    def retry_calibration_publication(
+        self,
+        command: CalibrationPublicationRetryCommand,
+    ) -> CalibrationPublicationRetryReceipt:
+        return self._post_model(
+            (
+                f"{_API_PREFIX}/calibration-publication-retries/"
+                f"{quote(command.cohort_id, safe='')}"
+            ),
+            command,
+            CalibrationPublicationRetryReceipt,
+        )
+
+    def defer_calibration_publication(
+        self,
+        command: CalibrationPublicationDeferCommand,
+    ) -> CalibrationPublicationDeferReceipt:
+        return self._post_model(
+            (
+                f"{_API_PREFIX}/calibration-publication-deferrals/"
+                f"{quote(command.cohort_id, safe='')}"
+            ),
+            command,
+            CalibrationPublicationDeferReceipt,
+        )
+
+    def list_procedures(
+        self,
+        query: ProcedureRunListQuery,
+    ) -> ProcedureRunPage:
+        params: dict[str, str | int] = {"limit": query.limit}
+        if query.cursor is not None:
+            params["cursor"] = query.cursor
+        if query.state is not None:
+            params["state"] = query.state
+        return self._get_model(
+            f"{_API_PREFIX}/procedures",
+            ProcedureRunPage,
+            params=params,
+        )
+
+    def get_procedure(self, procedure_run_id: str) -> ProcedureRun:
+        return self._get_model(
+            f"{_API_PREFIX}/procedures/{quote(procedure_run_id, safe='')}",
+            ProcedureRun,
+        )
+
+    def list_runnable_procedures(
+        self,
+        query: ProcedureRunnableQuery,
+    ) -> ProcedureRunnablePage:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/procedures/runnable/query",
+            query,
+            ProcedureRunnablePage,
+        )
+
+    def create_procedure_schedule(
+        self,
+        command: ProcedureScheduleCreateCommand,
+    ) -> ProcedureScheduleCreateReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/procedure-schedules",
+            command,
+            ProcedureScheduleCreateReceipt,
+        )
+
+    def list_procedure_schedules(
+        self,
+        query: ProcedureScheduleListQuery,
+    ) -> ProcedureSchedulePage:
+        params: dict[str, str | int] = {"limit": query.limit}
+        if query.cursor is not None:
+            params["cursor"] = query.cursor
+        if query.state is not None:
+            params["state"] = query.state
+        return self._get_model(
+            f"{_API_PREFIX}/procedure-schedules",
+            ProcedureSchedulePage,
+            params=params,
+        )
+
+    def list_due_procedure_schedules(
+        self,
+        query: ProcedureScheduleDueQuery,
+    ) -> ProcedureScheduleDuePage:
+        params: dict[str, str | int] = {"limit": query.limit}
+        if query.cursor is not None:
+            params["cursor"] = query.cursor
+        if query.through_sequence is not None:
+            params["through_sequence"] = query.through_sequence
+        return self._get_model(
+            f"{_API_PREFIX}/procedure-schedules/due",
+            ProcedureScheduleDuePage,
+            params=params,
+        )
+
+    def get_procedure_schedule(self, schedule_id: str) -> ProcedureSchedule:
+        return self._get_model(
+            f"{_API_PREFIX}/procedure-schedules/by-id/{quote(schedule_id, safe='')}",
+            ProcedureSchedule,
+        )
+
+    def cancel_procedure_schedule(
+        self,
+        command: ProcedureScheduleCancelCommand,
+    ) -> ProcedureScheduleCancelReceipt:
+        return self._post_idempotent_model(
+            (
+                f"{_API_PREFIX}/procedure-schedule-cancellations/"
+                f"{quote(command.schedule_id, safe='')}"
+            ),
+            command,
+            ProcedureScheduleCancelReceipt,
+        )
+
+    def materialize_procedure_schedule(
+        self,
+        command: ProcedureScheduleMaterializeCommand,
+    ) -> ProcedureScheduleMaterializeReceipt:
+        return self._post_idempotent_model(
+            (
+                f"{_API_PREFIX}/procedure-schedule-materializations/"
+                f"{quote(command.schedule_id, safe='')}"
+            ),
+            command,
+            ProcedureScheduleMaterializeReceipt,
+        )
+
+    def list_procedure_step_attempts(
+        self,
+        procedure_run_id: str,
+        query: ProcedureStepAttemptListQuery,
+    ) -> ProcedureStepAttemptPage:
+        params: dict[str, str | int] = {"limit": query.limit}
+        if query.cursor is not None:
+            params["cursor"] = query.cursor
+        return self._get_model(
+            (f"{_API_PREFIX}/procedures/{quote(procedure_run_id, safe='')}/steps"),
+            ProcedureStepAttemptPage,
+            params=params,
+        )
+
+    def acquire_procedure_worker_lease(
+        self,
+        command: ProcedureWorkerLeaseAcquireCommand,
+    ) -> ProcedureWorkerLeaseAcquireReceipt:
+        return self._post_idempotent_model(
+            self._procedure_path(command.procedure_run_id, "worker/lease/acquire"),
+            command,
+            ProcedureWorkerLeaseAcquireReceipt,
+        )
+
+    def heartbeat_procedure_worker_lease(
+        self,
+        command: ProcedureWorkerLeaseHeartbeatCommand,
+    ) -> ProcedureWorkerLeaseHeartbeatReceipt:
+        return self._post_idempotent_model(
+            self._procedure_path(command.procedure_run_id, "worker/lease/heartbeat"),
+            command,
+            ProcedureWorkerLeaseHeartbeatReceipt,
+        )
+
+    def release_procedure_worker_lease(
+        self,
+        command: ProcedureWorkerLeaseReleaseCommand,
+    ) -> ProcedureWorkerLeaseReleaseReceipt:
+        return self._post_idempotent_model(
+            self._procedure_path(command.procedure_run_id, "worker/lease/release"),
+            command,
+            ProcedureWorkerLeaseReleaseReceipt,
+        )
+
+    def begin_procedure_step(
+        self,
+        command: ProcedureStepBeginCommand,
+    ) -> ProcedureStepBeginReceipt:
+        return self._post_idempotent_model(
+            self._procedure_path(command.procedure_run_id, "steps/begin"),
+            command,
+            ProcedureStepBeginReceipt,
+        )
+
+    def complete_procedure_step(
+        self,
+        command: ProcedureStepCompleteCommand,
+    ) -> ProcedureStepCompleteReceipt:
+        return self._post_idempotent_model(
+            self._procedure_step_path(command, "complete"),
+            command,
+            ProcedureStepCompleteReceipt,
+        )
+
+    def fail_procedure_step(
+        self,
+        command: ProcedureStepFailCommand,
+    ) -> ProcedureStepFailReceipt:
+        return self._post_idempotent_model(
+            self._procedure_step_path(command, "fail"),
+            command,
+            ProcedureStepFailReceipt,
+        )
+
+    def require_procedure_step_attention(
+        self,
+        command: ProcedureStepAttentionCommand,
+    ) -> ProcedureStepAttentionReceipt:
+        return self._post_idempotent_model(
+            self._procedure_step_path(command, "attention"),
+            command,
+            ProcedureStepAttentionReceipt,
+        )
+
+    def require_procedure_run_attention(
+        self,
+        command: ProcedureRunAttentionCommand,
+    ) -> ProcedureRunAttentionReceipt:
+        return self._post_idempotent_model(
+            self._procedure_path(command.procedure_run_id, "attention"),
+            command,
+            ProcedureRunAttentionReceipt,
+        )
+
+    def close_procedure(
+        self,
+        command: ProcedureCloseCommand,
+    ) -> ProcedureCloseReceipt:
+        return self._post_idempotent_model(
+            self._procedure_path(command.procedure_run_id, "close"),
+            command,
+            ProcedureCloseReceipt,
+        )
+
     def config_registry(
         self,
         *,
@@ -339,9 +760,19 @@ class DaemonClient:
         self,
         command: ConfigPublishCommand,
     ) -> ConfigPublishReceipt:
-        return self._post_model(
-            f"{_API_PREFIX}/config-registry/default",
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/config-registry/publish-operations",
             command,
+            ConfigPublishReceipt,
+        )
+
+    def config_publish_operation(
+        self,
+        operation_id: str,
+    ) -> ConfigPublishReceipt:
+        return self._get_model(
+            f"{_API_PREFIX}/config-registry/publish-operations/"
+            f"{quote(operation_id, safe='')}",
             ConfigPublishReceipt,
         )
 
@@ -369,19 +800,19 @@ class DaemonClient:
         self,
         command: ConfigEntryActivationCommand,
     ) -> ConfigActivationReceipt:
-        return self._post_model(
-            f"{_API_PREFIX}/config-registry/active",
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/config-registry/activation-operations",
             command,
             ConfigActivationReceipt,
         )
 
-    def undo_config(
+    def config_activation_operation(
         self,
-        command: ConfigUndoCommand,
+        operation_id: str,
     ) -> ConfigActivationReceipt:
-        return self._post_model(
-            f"{_API_PREFIX}/config-registry/undo",
-            command,
+        return self._get_model(
+            f"{_API_PREFIX}/config-registry/activation-operations/"
+            f"{quote(operation_id, safe='')}",
             ConfigActivationReceipt,
         )
 
@@ -654,7 +1085,7 @@ class DaemonClient:
         run_id: str,
         command: AnalysisSaveCommand,
     ) -> AnalysisSaveReceipt:
-        return self._post_model(
+        return self._post_idempotent_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/analyses",
             command,
             AnalysisSaveReceipt,
@@ -713,7 +1144,7 @@ class DaemonClient:
         self,
         command: AnalysisSaveCommand,
     ) -> AnalysisSaveReceipt:
-        return self._post_model(
+        return self._post_idempotent_model(
             f"{_API_PREFIX}/analyses",
             command,
             AnalysisSaveReceipt,
@@ -1324,6 +1755,23 @@ class DaemonClient:
         return (
             f"{_API_PREFIX}/instrument-sessions/{quote(session_id, safe='')}/"
             f"instruments/{quote(instrument_id, safe='')}/{suffix}"
+        )
+
+    @staticmethod
+    def _procedure_path(procedure_run_id: str, suffix: str) -> str:
+        return f"{_API_PREFIX}/procedures/{quote(procedure_run_id, safe='')}/{suffix}"
+
+    @staticmethod
+    def _procedure_step_path(
+        command: ProcedureStepCompleteCommand
+        | ProcedureStepFailCommand
+        | ProcedureStepAttentionCommand,
+        suffix: str,
+    ) -> str:
+        return (
+            f"{_API_PREFIX}/procedures/"
+            f"{quote(command.procedure_run_id, safe='')}/steps/"
+            f"{quote(command.step_key, safe='')}/attempts/{command.attempt}/{suffix}"
         )
 
     def _post_model[ModelT: BaseModel](

@@ -1,14 +1,13 @@
 """Function-authored 2-D DRAG-beta calibration experiment."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
+from typing import Literal
 
 import scopecat as sc
 from scopecat import Quantity
 from scopecat_quantum.measurement_computes import BinaryIqProbabilityProducts
 
-from reference_lab.parameters import Q0_DRAG_BETA
+from reference_lab.parameters import Q0_DRAG_BETA, Q1_DRAG_BETA
 from reference_lab.quantum_runner import quantum_capture
 from reference_lab.workflows.drag_beta_calibration import (
     drag_beta_program,
@@ -18,6 +17,12 @@ DRAG_BETA_SHOTS = 64
 DRAG_BETA_SPAN = Quantity(1.0, "ns")
 DRAG_BETA_POINTS = 5
 DEFAULT_AMPLIFICATIONS = (1, 2, 3)
+type DragBetaQubit = Literal["q0", "q1"]
+
+_DRAG_BETA_PARAMETERS = {
+    "q0": Q0_DRAG_BETA,
+    "q1": Q1_DRAG_BETA,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,12 +35,15 @@ class DragBetaDataset:
 
 
 @sc.experiment
-def drag_beta_experiment(experiment: sc.ExperimentContext) -> DragBetaDataset:
-    """Scan pulse DRAG beta against gate amplification in one program."""
+def drag_beta_experiment(
+    experiment: sc.ExperimentContext,
+    qubit: DragBetaQubit = "q0",
+) -> DragBetaDataset:
+    """Scan one selected qubit's DRAG beta against gate amplification."""
 
     beta = experiment.scan(
         "beta",
-        overlay=Q0_DRAG_BETA.ref,
+        overlay=_DRAG_BETA_PARAMETERS[qubit].ref,
         span=DRAG_BETA_SPAN,
         points=DRAG_BETA_POINTS,
     )
@@ -47,7 +55,7 @@ def drag_beta_experiment(experiment: sc.ExperimentContext) -> DragBetaDataset:
     probabilities = experiment.use(
         quantum_capture(
             drag_beta_program(
-                qubit="q0",
+                qubit=qubit,
                 amplification=amplification,
                 beta=beta,
             ).with_shots(DRAG_BETA_SHOTS)
@@ -70,6 +78,7 @@ __all__ = [
     "DRAG_BETA_SHOTS",
     "DRAG_BETA_SPAN",
     "DragBetaDataset",
+    "DragBetaQubit",
     "drag_beta_experiment",
     "drag_beta_program",
 ]

@@ -31,6 +31,23 @@ port.
 `config apply` accepts `--actor` and `--note`. `config export` refuses to replace
 an existing destination unless `--force` is supplied.
 
+## Automation
+
+| Command | Purpose |
+| --- | --- |
+| `scopecat automation work [PROJECT]` | Run the project-owned resident automation worker. |
+| `scopecat automation work [PROJECT] --once` | Finalize, plan, evaluate, materialize, and dispatch one bounded cycle, then exit. |
+
+The resident worker loads the project's exact publication, calibration,
+schedule, and procedure registries in its own process. It finalizes ready
+calibration cohorts before config-sensitive planning, turns latest-only fixed UTC
+interval occurrences into ordinary exact one-shot schedules, and executes
+compatible procedures; the daemon never executes user-authored closures. A
+remaining publication page temporarily blocks interval and calibration planning
+but not already-frozen due or runnable work. `--once` prints publication and
+procedure counters and exits nonzero for recorded deterministic failures.
+`--poll-seconds` controls the idle polling interval.
+
 Use `scopecat COMMAND --help` as the authority for all current options. See the
 [configuration how-to](../how-to/manage-configuration.md) for the intended
 review workflow.

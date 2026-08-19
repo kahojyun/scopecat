@@ -8,16 +8,18 @@ from importlib import import_module
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from scopecat.application.lab import (
+    from scopecat.application.bootstrap import (
         BootstrapConfigFactory,
-        LabApplication,
+        LabBootstrap,
     )
+    from scopecat.application.lab import LabApplication
 
 _EXPORTS = {
     "BootstrapConfigFactory": (
-        "scopecat.application.lab",
+        "scopecat.application.bootstrap",
         "BootstrapConfigFactory",
     ),
+    "LabBootstrap": ("scopecat.application.bootstrap", "LabBootstrap"),
     "LabApplication": ("scopecat.application.lab", "LabApplication"),
 }
 

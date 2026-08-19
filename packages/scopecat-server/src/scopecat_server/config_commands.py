@@ -79,9 +79,9 @@ class ProjectConfigExportResult:
 def load_source_config(project: Project) -> ConfigProfileSnapshot:
     """Freshly evaluate and validate the project's executable config source."""
 
-    bootstrap_config = project.load_application().bootstrap_config
+    bootstrap_config = project.load_bootstrap().bootstrap_config
     if bootstrap_config is None:
-        raise ValueError("project application does not define bootstrap_config")
+        raise ValueError("project bootstrap does not define bootstrap_config")
     return validate_config_profile(bootstrap_config())
 
 

@@ -10,6 +10,7 @@ from scopecat.api.run import RunHandle
 from scopecat.measurements.results import Dataset
 
 from reference_lab.workflows.drag_beta_analysis import drag_beta_observation_frame
+from reference_lab.workflows.drag_beta_experiment import DragBetaQubit
 
 DRAG_BETA_VERIFICATION_KEY = "drag-beta-candidate-verification"
 DRAG_BETA_MINIMUM_IMPROVEMENT = 0.001
@@ -64,12 +65,13 @@ def evaluate_drag_beta_candidate(
     baseline: Dataset,
     candidate: Dataset,
     *,
+    qubit: DragBetaQubit = "q0",
     minimum_improvement: float = DRAG_BETA_MINIMUM_IMPROVEMENT,
 ) -> DragBetaVerification:
     """Compare mean amplified leakage across the standard calibration scan."""
 
-    baseline_score = _mean_probability_one(baseline)
-    candidate_score = _mean_probability_one(candidate)
+    baseline_score = _mean_probability_one(baseline, qubit=qubit)
+    candidate_score = _mean_probability_one(candidate, qubit=qubit)
     improvement = baseline_score - candidate_score
     return DragBetaVerification(
         baseline_mean_probability_1=baseline_score,
@@ -86,6 +88,7 @@ def drag_beta_candidate_verification(
     *,
     baseline_run: RunHandle,
     candidate_run: RunHandle,
+    qubit: DragBetaQubit = "q0",
     minimum_improvement: float = DRAG_BETA_MINIMUM_IMPROVEMENT,
 ) -> sc.Analysis:
     """Author one project analysis over exact baseline and candidate datasets."""
@@ -105,6 +108,7 @@ def drag_beta_candidate_verification(
     decision = evaluate_drag_beta_candidate(
         baseline,
         candidate,
+        qubit=qubit,
         minimum_improvement=minimum_improvement,
     )
     comparison = (
@@ -147,8 +151,12 @@ def drag_beta_candidate_verification(
     )
 
 
-def _mean_probability_one(dataset: Dataset) -> float:
-    frame = drag_beta_observation_frame(dataset)
+def _mean_probability_one(
+    dataset: Dataset,
+    *,
+    qubit: DragBetaQubit,
+) -> float:
+    frame = drag_beta_observation_frame(dataset, qubit=qubit)
     value = cast("float | None", frame.get_column("probability_1").mean())
     if value is None:
         raise ValueError("DRAG beta verification requires measured probabilities")

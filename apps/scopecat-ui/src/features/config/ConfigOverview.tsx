@@ -11,12 +11,14 @@ import { ConfigInlineEmpty } from "./ConfigUi";
 export function ConfigSummary({
   overview,
   activeEntry,
+  undoEntryId,
   undoDisabled,
   undoPending,
   onUndo,
 }: {
   overview: ConfigRegistryOverview;
   activeEntry?: ConfigRegistryEntry;
+  undoEntryId?: string;
   undoDisabled: boolean;
   undoPending: boolean;
   onUndo: () => void;
@@ -28,7 +30,8 @@ export function ConfigSummary({
   // Browser state cannot prove whether runtime changes were copied back to Git.
   const runtimeDerived =
     defaultEntry?.source.kind === "manual_parameter_updates" ||
-    defaultEntry?.source.kind === "candidate_config";
+    defaultEntry?.source.kind === "candidate_config" ||
+    defaultEntry?.source.kind === "calibration_cohort_merge";
   return (
     <div
       className="grid grid-cols-[minmax(260px,1.5fr)_minmax(230px,1fr)_minmax(280px,1.2fr)] items-stretch overflow-hidden rounded-lg border border-line bg-panel max-[1100px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] max-[460px]:grid-cols-[minmax(0,1fr)]"
@@ -70,9 +73,9 @@ export function ConfigSummary({
         <span className={summaryLabel}>Previous</span>
         <strong
           className="overflow-hidden text-[0.66rem] text-ellipsis whitespace-nowrap text-text-soft"
-          title={history[1]?.entry_id}
+          title={undoEntryId}
         >
-          {history[1]?.entry_id ?? "Nothing to undo"}
+          {undoEntryId ?? "Nothing to undo"}
         </strong>
         <button
           className={classes(secondaryButton, "min-h-[31px]")}
@@ -220,7 +223,7 @@ function activationActionLabel(action: ConfigActivationRecord["action"]) {
       return "Activated";
     case "inventory_migration":
       return "Inventory migration";
-    case "undo":
-      return "Undo";
+    default:
+      return action;
   }
 }

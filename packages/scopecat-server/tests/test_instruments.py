@@ -1127,6 +1127,7 @@ def test_open_retry_recovers_before_resolving_replacement_config(
                 updated = load_config().model_copy(update={"id": "updated-config"})
                 runtime.application.config.publish_config(
                     ConfigPublishCommand(
+                        operation_id="publish:updated-config-after-open",
                         source=DirectConfigRevisionSource(config=updated),
                         entry_id="updated-config",
                         actor="operator",
@@ -1333,6 +1334,7 @@ def test_config_activation_reuses_matching_connection_with_fresh_state(
 
             receipt = runtime.application.config.publish_config(
                 ConfigPublishCommand(
+                    operation_id="publish:updated-config-session-state",
                     source=DirectConfigRevisionSource(config=updated),
                     entry_id="updated-config",
                     actor="operator",
@@ -1371,6 +1373,7 @@ def test_session_open_fences_an_activation_after_active_resolution(
                 resolved = get_active()
                 runtime.application.config.publish_config(
                     ConfigPublishCommand(
+                        operation_id="publish:activated-during-open",
                         source=DirectConfigRevisionSource(
                             config=config.model_copy(
                                 update={"id": "activated-during-open"}
@@ -1448,6 +1451,7 @@ def test_exclusivity_key_survives_logical_instrument_rename(tmp_path: Path) -> N
             )
             runtime.application.config.publish_config(
                 ConfigPublishCommand(
+                    operation_id="publish:renamed-config",
                     source=DirectConfigRevisionSource(config=renamed),
                     entry_id="renamed-config",
                     actor="operator",
@@ -1525,6 +1529,7 @@ def test_binding_identity_change_reconnects_idle_instrument(
             )
             runtime.application.config.publish_config(
                 ConfigPublishCommand(
+                    operation_id="publish:updated-binding",
                     source=DirectConfigRevisionSource(config=updated),
                     entry_id="updated-binding",
                     actor="operator",
@@ -2315,6 +2320,7 @@ def test_explicit_defaults_use_session_pinned_preserve_config(
             ).model_copy(update={"id": "later-defaults"})
             runtime.application.config.publish_config(
                 ConfigPublishCommand(
+                    operation_id="publish:later-defaults",
                     source=DirectConfigRevisionSource(config=later_config),
                     entry_id="later-defaults",
                     actor="operator",

@@ -1,5 +1,7 @@
 import { apiClient, apiData } from "../../api-client";
 import type { ConfigPublishCommand, ParameterProposalPage } from "../../api-contract";
+import { createConfigOperationId, publishConfig } from "../../features/config/config-api";
+import { safeConfigEntryId } from "../../features/config/config-utils";
 import type {
   AcceptProposalCommand,
   ParameterProposal,
@@ -46,7 +48,9 @@ async function getRunParameterProposalPage(
 }
 
 export async function acceptProposal(command: AcceptProposalCommand): Promise<void> {
+  const operationId = createConfigOperationId("accept-proposal");
   const payload: ConfigPublishCommand = {
+    operation_id: operationId,
     source: {
       kind: "candidate_config",
       run_id: command.runId,
@@ -54,10 +58,11 @@ export async function acceptProposal(command: AcceptProposalCommand): Promise<vo
       acceptance: { kind: "manual_review" },
     },
     actor: command.actor,
+    entry_id: safeConfigEntryId(`${command.proposalId}-${operationId}`),
     expected_generation: command.expectedGeneration,
     note: command.note ?? "",
   };
-  await apiData(apiClient.POST("/api/v1/config-registry/default", { body: payload }));
+  await publishConfig(payload);
 }
 
 function normalizeProposalView(source: WireProposalView): ParameterProposal {

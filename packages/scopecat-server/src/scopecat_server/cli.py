@@ -22,7 +22,12 @@ config_app = typer.Typer(
     help="Inspect project configuration sources.",
     no_args_is_help=True,
 )
+automation_app = typer.Typer(
+    help="Run project-owned resident automation.",
+    no_args_is_help=True,
+)
 app.add_typer(config_app, name="config")
+app.add_typer(automation_app, name="automation")
 console = Console()
 error_console = Console(stderr=True)
 
@@ -94,7 +99,7 @@ def config_check(
         typer.Argument(help="Project directory or scopecat.toml."),
     ] = _CURRENT_DIRECTORY,
 ) -> None:
-    """Validate the application's lazy bootstrap configuration source."""
+    """Validate the project's lazy bootstrap configuration source."""
 
     from scopecat.config.resolution import validate_config_profile
     from scopecat.project import open_project
@@ -102,9 +107,9 @@ def config_check(
 
     try:
         selected = open_project(project)
-        bootstrap_config = selected.load_application().bootstrap_config
+        bootstrap_config = selected.load_bootstrap().bootstrap_config
         if bootstrap_config is None:
-            raise ValueError("project application does not define bootstrap_config")
+            raise ValueError("project bootstrap does not define bootstrap_config")
         config = validate_config_profile(bootstrap_config())
     except _project_config_errors() as error:
         _fail(error)
@@ -223,6 +228,152 @@ def config_export(
         f"content_hash={result.content_hash}",
         soft_wrap=True,
     )
+
+
+@automation_app.command("work")
+def automation_work(
+    project: Annotated[
+        Path,
+        typer.Argument(help="Project directory or scopecat.toml."),
+    ] = _CURRENT_DIRECTORY,
+    once: Annotated[
+        bool,
+        typer.Option("--once", help="Run one bounded automation cycle and exit."),
+    ] = False,
+    poll_seconds: Annotated[
+        float,
+        typer.Option(
+            "--poll-seconds",
+            help="Idle polling interval for the resident automation worker.",
+            min=0.001,
+        ),
+    ] = 1.0,
+) -> None:
+    """Finalize calibrations, plan work, and execute exact procedures."""
+
+    import signal
+    from threading import Event
+    from types import FrameType
+
+    from scopecat.api.project_worker import (
+        ProjectAutomationCycleResult,
+        ProjectAutomationWorker,
+    )
+    from scopecat.project import open_project
+
+    try:
+        selected = open_project(project)
+        with selected.connect() as lab:
+            worker = ProjectAutomationWorker(
+                lab.procedures,
+                planner=lab.procedures.interval_planner(),
+                calibration_evaluator=lab.calibrations.evaluator(),
+                calibration_finalizer=lab.calibrations.publication_finalizer(),
+            )
+            if once:
+                result = worker.cycle()
+                outcome = (
+                    "[green]cycle complete[/green]"
+                    if not result.needs_review
+                    else "[red]cycle completed with failures[/red]"
+                )
+                console.print(
+                    f"{outcome} "
+                    f"publication_ready="
+                    f"{result.publications.ready_items} "
+                    f"publication_prepared="
+                    f"{result.publications.prepared_items} "
+                    f"publication_published="
+                    f"{result.publications.published_items} "
+                    f"publication_deferred="
+                    f"{result.publications.deferred_items} "
+                    f"publication_attention="
+                    f"{result.publications.attention_items} "
+                    f"publication_reconciled="
+                    f"{result.publications.reconciled_items} "
+                    f"publication_superseded="
+                    f"{result.publications.superseded_items} "
+                    f"publication_races="
+                    f"{result.publications.benign_races} "
+                    f"publication_barrier="
+                    f"{str(result.config_planning_blocked).lower()} "
+                    f"interval_created={result.intervals.created_schedules} "
+                    f"calibration_admitted={result.calibrations.admitted_members} "
+                    f"calibration_blocked={result.calibrations.blocked_members} "
+                    f"materialized={result.schedules.materialized} "
+                    f"dispatched={result.procedures.dispatched} "
+                    f"planner_failures={result.intervals.failures} "
+                    f"interval_drifts={result.intervals.drifted_schedules} "
+                    f"publication_failures="
+                    f"{result.publications.failures} "
+                    f"calibration_failures={result.calibrations.failures} "
+                    f"calibration_drifts={result.calibrations.cohort_drifts} "
+                    f"schedule_failures={result.schedules.failures} "
+                    f"procedure_failures={result.procedures.failures} "
+                    f"procedure_conflicts={result.procedures.conflicts} "
+                    f"benign_conflicts={result.benign_conflicts}",
+                    soft_wrap=True,
+                )
+                if result.needs_review:
+                    raise RuntimeError(
+                        "automation worker cycle reported "
+                        f"{result.failure_count} failure(s)"
+                    )
+                return
+
+            console.print(
+                f"[green]working[/green] {selected.root} "
+                f"[dim](worker {worker.worker_id})[/dim]",
+                soft_wrap=True,
+            )
+            stop_event = Event()
+
+            def report_retry(error: Exception, delay: float) -> None:
+                error_console.print(
+                    f"[yellow]automation worker control unavailable:[/yellow] {error}; "
+                    f"retrying in {delay:g}s",
+                    soft_wrap=True,
+                )
+
+            def report_cycle(result: ProjectAutomationCycleResult) -> None:
+                if result.needs_review:
+                    error_console.print(
+                        "[yellow]automation cycle needs review:[/yellow] "
+                        f"planner_failures={result.intervals.failures} "
+                        f"interval_drifts={result.intervals.drifted_schedules} "
+                        f"publication_failures="
+                        f"{result.publications.failures} "
+                        f"publication_attention="
+                        f"{result.publications.attention_items} "
+                        f"calibration_failures={result.calibrations.failures} "
+                        f"calibration_drifts={result.calibrations.cohort_drifts} "
+                        f"schedule_failures={result.schedules.failures} "
+                        f"procedure_failures={result.procedures.failures} "
+                        f"procedure_conflicts={result.procedures.conflicts}",
+                        soft_wrap=True,
+                    )
+
+            def request_stop(_signum: int, _frame: FrameType | None) -> None:
+                stop_event.set()
+
+            previous_sigint = signal.getsignal(signal.SIGINT)
+            previous_sigterm = signal.getsignal(signal.SIGTERM)
+            signal.signal(signal.SIGINT, request_stop)
+            signal.signal(signal.SIGTERM, request_stop)
+            try:
+                worker.run_forever(
+                    stop_event,
+                    poll_seconds=poll_seconds,
+                    on_cycle=report_cycle,
+                    on_retry=report_retry,
+                )
+            except KeyboardInterrupt:
+                stop_event.set()
+            finally:
+                signal.signal(signal.SIGINT, previous_sigint)
+                signal.signal(signal.SIGTERM, previous_sigterm)
+    except _project_config_errors() as error:
+        _fail(error)
 
 
 @app.command()

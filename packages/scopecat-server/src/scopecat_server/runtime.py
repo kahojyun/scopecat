@@ -12,13 +12,13 @@ from typing import Self
 
 from fastapi import FastAPI
 from filelock import FileLock, Timeout
-from scopecat.application.lab import BootstrapConfigFactory
+from scopecat.application.bootstrap import BootstrapConfigFactory
 from scopecat.config.resolution import validate_config_profile
 from scopecat.daemon.wire import (
     ConfigPublishCommand,
     DirectConfigRevisionSource,
 )
-from scopecat.project import load_application_factory
+from scopecat.project import load_bootstrap_factory
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 
@@ -27,16 +27,27 @@ from scopecat_server.services.active_measurements import ActiveMeasurementStore
 from scopecat_server.services.admission import AdmissionService
 from scopecat_server.services.analyses import AnalysisService
 from scopecat_server.services.application import DaemonApplication
+from scopecat_server.services.automation import AutomationService
+from scopecat_server.services.calibration_cohorts import CalibrationCohortService
 from scopecat_server.services.config import ConfigService
 from scopecat_server.services.executor import ExecutorService
 from scopecat_server.services.leases import OwnershipLeaseSupervisor
 from scopecat_server.services.point_plans import RunPointPlanService
+from scopecat_server.services.procedure_schedules import ProcedureScheduleService
 from scopecat_server.services.reviews import ReviewService
 from scopecat_server.services.runs import RunService
 from scopecat_server.storage.sqlite.analysis_repository import SQLiteAnalysisRepository
+from scopecat_server.storage.sqlite.automation import SQLiteAutomationStore
+from scopecat_server.storage.sqlite.calibration_cohorts import (
+    SQLiteCalibrationCohortStore,
+)
+from scopecat_server.storage.sqlite.config_operations import SQLiteConfigOperationStore
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
+from scopecat_server.storage.sqlite.procedure_schedules import (
+    SQLiteProcedureScheduleStore,
+)
 from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
@@ -58,7 +69,7 @@ class LocalDaemonRuntime:
         project_root: str | Path,
         *,
         bootstrap_config: ConfigProfileSnapshot | BootstrapConfigFactory | None = None,
-        application_spec: str | None = None,
+        bootstrap_spec: str | None = None,
         instrument_backend_spec: str | None = None,
         instrument_endpoint: InstrumentBackendEndpoint | None = None,
         instrument_shutdown_grace: timedelta = _DEFAULT_INSTRUMENT_SHUTDOWN_GRACE,
@@ -88,15 +99,15 @@ class LocalDaemonRuntime:
             ) from error
         database = self.state_dir / "control.sqlite3"
         objects = self.state_dir / "objects"
-        application_bootstrap: BootstrapConfigFactory | None = None
+        project_bootstrap: BootstrapConfigFactory | None = None
 
         try:
-            if application_spec is not None:
-                lab_application = load_application_factory(
-                    application_spec,
+            if bootstrap_spec is not None:
+                bootstrap = load_bootstrap_factory(
+                    bootstrap_spec,
                     self.project_root,
                 )(self.project_root)
-                application_bootstrap = lab_application.bootstrap_config
+                project_bootstrap = bootstrap.bootstrap_config
             if instrument_backend_spec is not None:
                 instrument_endpoint = SubprocessInstrumentBackendEndpoint(
                     self.project_root,
@@ -108,12 +119,16 @@ class LocalDaemonRuntime:
             project_store.bootstrap()
 
             control = SQLiteControlPlane(sqlite)
+            automation_store = SQLiteAutomationStore(sqlite)
+            calibration_cohort_store = SQLiteCalibrationCohortStore(sqlite)
+            procedure_schedule_store = SQLiteProcedureScheduleStore(sqlite)
             runs = SQLiteRunRepository(sqlite, objects)
             analyses = SQLiteAnalysisRepository(sqlite, objects)
             config_registry = SQLiteConfigRegistryStore(
                 sqlite,
                 runs=runs,
             )
+            config_operations = SQLiteConfigOperationStore(sqlite)
             payloads = CommandPayloadService()
 
             services = ProjectStateServices(
@@ -122,6 +137,16 @@ class LocalDaemonRuntime:
             )
             active_measurements = ActiveMeasurementStore()
             reviews = ReviewService()
+            automation = AutomationService(automation_store)
+            calibration_cohorts = CalibrationCohortService(
+                calibration_cohort_store,
+                automation,
+                config_registry,
+            )
+            procedure_schedules = ProcedureScheduleService(
+                procedure_schedule_store,
+                automation,
+            )
             instrument_actors = InstrumentActorRegistry()
             analysis_service = AnalysisService(
                 repository=analyses,
@@ -131,10 +156,13 @@ class LocalDaemonRuntime:
             config_service = ConfigService(
                 control=control,
                 config_registry=config_registry,
+                config_operations=config_operations,
                 runs=runs,
                 services=services,
                 actors=instrument_actors,
                 analyses=analysis_service,
+                automation=automation_store,
+                calibration_cohorts=calibration_cohort_store,
             )
             point_plans = RunPointPlanService(control=control, runs=runs)
             run_service = RunService(
@@ -187,13 +215,16 @@ class LocalDaemonRuntime:
                 payloads=payloads,
                 lease_supervisor=lease_supervisor,
                 reviews=reviews,
+                automation=automation,
+                calibration_cohorts=calibration_cohorts,
+                procedure_schedules=procedure_schedules,
                 point_plans=point_plans,
             )
             try:
                 bootstrap_source = (
                     bootstrap_config
                     if bootstrap_config is not None
-                    else application_bootstrap
+                    else project_bootstrap
                 )
                 if bootstrap_source is not None:
                     _bootstrap_config_registry(
@@ -256,10 +287,12 @@ def _bootstrap_config_registry(
     selected = config() if callable(config) else config
     validated = validate_config_profile(selected)
     digest = config_content_hash(validated).removeprefix("sha256:")
+    entry_id = f"daemon-{digest}"
     config_service.publish_config(
         ConfigPublishCommand(
+            operation_id=f"bootstrap-config:{entry_id}",
             source=DirectConfigRevisionSource(config=validated),
-            entry_id=f"daemon-{digest}",
+            entry_id=entry_id,
             actor="scopecat",
             expected_generation=0,
             note="imported while bootstrapping a new lab instance",

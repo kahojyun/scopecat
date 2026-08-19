@@ -18,7 +18,7 @@ export type ConfigActivationRecord = components["schemas"]["ConfigRegistryActiva
 export type ConfigDraftCommand = components["schemas"]["ConfigDraftCommand"];
 export type ConfigPublishCommand = components["schemas"]["ConfigPublishCommand"];
 export type ConfigPublishReceipt = Omit<
-  PostResponse<"/api/v1/config-registry/default">,
+  PostResponse<"/api/v1/config-registry/publish-operations">,
   "deltas"
 > & {
   deltas: ParameterValueDelta[];

@@ -15,7 +15,6 @@ from scopecat.config.changes import (
     load_parameter_change_proposal,
 )
 from scopecat.config.parameter_updates import ParameterUpdate
-from scopecat.config.registry import list_config_registry_entries
 from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.parameter import ScalarParameterValue
@@ -270,12 +269,8 @@ def test_candidate_config_rejects_drifted_source_snapshot_before_publish(
         )
 
     assert error.value.problems[0].code == "run.config_provenance_mismatch"
-    assert (
-        list_config_registry_entries(
-            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
-        )
-        == []
-    )
+    with sqlite_config_registry_unit_of_work(tmp_path)() as work:
+        assert work.registry.list_entries() == ()
 
 
 def test_parameter_change_proposal_round_trips_and_is_persisted(

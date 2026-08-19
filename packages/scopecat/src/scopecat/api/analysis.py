@@ -52,6 +52,7 @@ from scopecat.config.changes import (
 )
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.kernel.content_identity import (
+    content_fingerprint,
     model_wire_content_hash,
     sha256_content_hash,
     stable_content_hash,
@@ -64,6 +65,7 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
+from scopecat.kernel.python_source import python_source_identity
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.dataset import Dataset, ExperimentResultView
 from scopecat.measurements.datasets import MEASUREMENT_DATASET_CODEC
@@ -88,6 +90,7 @@ from scopecat.records.analysis import (
     is_analysis_rows,
 )
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.content import Sha256ContentHash
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.sdk.compute import (
     PYTHON_JSON_CODEC,
@@ -1232,6 +1235,25 @@ class AnalysisInvocation:
     id: str
     _definition: AnalysisFunction
     arguments: tuple[tuple[str, object], ...]
+
+    @property
+    def implementation_fingerprint(self) -> Sha256ContentHash:
+        """Identify the exact Python analysis implementation used by automation."""
+
+        identity = {
+            "codec": "scopecat.analysis-implementation.v1",
+            "id": self.id,
+            **python_source_identity(
+                self._definition,
+                label="analysis implementation",
+            ),
+            "defaults": content_fingerprint(self._definition.__defaults__),
+            "keyword_defaults": content_fingerprint(self._definition.__kwdefaults__),
+            "closure": content_fingerprint(
+                inspect.getclosurevars(self._definition).nonlocals
+            ),
+        }
+        return f"sha256:{stable_content_hash(identity)}"
 
     def run(self, context: AnalysisContext) -> Analysis:
         """Evaluate the analysis function against its declared inputs."""

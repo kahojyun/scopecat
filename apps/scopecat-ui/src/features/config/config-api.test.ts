@@ -12,9 +12,8 @@ import {
   getOlderConfigActivationHistory,
   getOlderConfigRegistryEntries,
   parseConfigProfileJson,
+  publishConfig,
   previewConfigDraft,
-  undoConfig,
-  setConfigDefault,
 } from "./config-api";
 
 const HASH_A = `sha256:${"a".repeat(64)}`;
@@ -118,26 +117,25 @@ describe("config registry reads", () => {
 });
 
 describe("config registry commands", () => {
-  it("sends generated wire commands unchanged", async () => {
+  it("sends an exact activation operation unchanged", async () => {
     const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({})));
     vi.stubGlobal("fetch", fetchMock);
     const activationCommand = {
+      operation_id: "ui-config-activate-1",
       entry_id: "config/b",
       actor: "Ada",
       note: "promote calibrated values",
       expected_generation: 2,
     };
-    const undo = {
-      actor: activationCommand.actor,
-      note: activationCommand.note,
-      expected_generation: activationCommand.expected_generation,
-    };
     await activateConfigEntry(activationCommand);
-    await undoConfig(undo);
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    await expectRequest(fetchMock, 0, "/api/v1/config-registry/active", activationCommand);
-    await expectRequest(fetchMock, 1, "/api/v1/config-registry/undo", undo);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await expectRequest(
+      fetchMock,
+      0,
+      "/api/v1/config-registry/activation-operations",
+      activationCommand,
+    );
   });
 });
 
@@ -185,6 +183,7 @@ describe("typed config drafts", () => {
 
   it("sends one publish command unchanged", async () => {
     const publishCommand = {
+      operation_id: "ui-config-publish-1",
       source: {
         kind: "manual_parameter_updates" as const,
         draft,
@@ -209,8 +208,50 @@ describe("typed config drafts", () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(publishReceipt));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(setConfigDefault(publishCommand)).resolves.toEqual(publishReceipt);
-    await expectRequest(fetchMock, 0, "/api/v1/config-registry/default", publishCommand);
+    await expect(publishConfig(publishCommand)).resolves.toEqual(publishReceipt);
+    await expectRequest(fetchMock, 0, "/api/v1/config-registry/publish-operations", publishCommand);
+  });
+
+  it("retries one transport failure with the exact publish command", async () => {
+    const publishCommand = {
+      operation_id: "ui-config-publish-stable",
+      source: {
+        kind: "manual_parameter_updates" as const,
+        draft,
+        expected_result_content_hash: HASH_B,
+      },
+      entry_id: "config-a-edit",
+      actor: "Ada",
+      expected_generation: 3,
+      note: "accepted edit",
+    };
+    const receipt = {
+      entry: registryEntry("config-a-edit", HASH_B),
+      deltas: [],
+      activation: activation(4, "config-a-edit", HASH_B),
+      operation: {
+        operation_id: publishCommand.operation_id,
+        intent_hash: HASH_A,
+        source_intent_hash: HASH_B,
+        entry_id: publishCommand.entry_id,
+        expected_generation: 3,
+        actor: "Ada",
+        note: "accepted edit",
+        activation_generation: 4,
+      },
+    };
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("connection reset"))
+      .mockResolvedValueOnce(jsonResponse(receipt));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(publishConfig(publishCommand)).resolves.toEqual(receipt);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const bodies = await Promise.all(
+      fetchMock.mock.calls.map(([input, init]) => requestJson(input, init)),
+    );
+    expect(bodies).toEqual([publishCommand, publishCommand]);
   });
 });
 

@@ -38,6 +38,7 @@ from scopecat.daemon.wire import (
 )
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.inspection import CompiledProgramInspectionQuery
+from scopecat.kernel.errors import RunCancelled, RunFailed, RunIndeterminate
 from scopecat.planning.point_selection import point_coordinate_contract
 from scopecat.planning.preview import PreviewCoordinateMode, build_run_program_preview
 from scopecat.planning.preview_models import ExperimentPreview
@@ -48,6 +49,7 @@ from scopecat.planning.system import (
     build_experiment_system,
 )
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.content import Sha256ContentHash
 from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
     RunConfigSource,
@@ -69,14 +71,13 @@ class _DaemonRunner:
     ) -> RunSnapshot:
         """Admit a plan remotely while executing its Python closures locally."""
 
-        submission = RunSubmission(
+        submission, _ = _prepare_run_submission(
+            planned,
             submission_id=submission_id or uuid4().hex,
-            config=planned.config,
-            config_source=planned.config_source,
-            request=planned.request,
-            plan=_run_plan_summary(planned),
         )
         admission = self.client.submit_run(submission)
+        if admission.snapshot.outcome is not None:
+            return _resolve_terminal_snapshot(admission.snapshot)
         heartbeat = _LeaseHeartbeat()
         session = daemon_execution_session(
             self.client,
@@ -396,4 +397,34 @@ def _run_plan_summary(planned: PlannedRun) -> RunPlanSummary:
     )
 
 
-__all__ = ["_DaemonRunner"]
+def _prepare_run_submission(
+    planned: PlannedRun,
+    *,
+    submission_id: str,
+) -> tuple[RunSubmission, Sha256ContentHash]:
+    """Build one exact admission command and its prefixed intent content hash."""
+
+    submission = RunSubmission(
+        submission_id=submission_id,
+        config=planned.config,
+        config_source=planned.config_source,
+        request=planned.request,
+        plan=_run_plan_summary(planned),
+    )
+    return submission, f"sha256:{submission.intent_content_hash}"
+
+
+def _resolve_terminal_snapshot(snapshot: RunSnapshot) -> RunSnapshot:
+    outcome = snapshot.outcome
+    if outcome is None:
+        raise AssertionError("terminal admission returned a non-terminal snapshot")
+    if outcome.result == "succeeded":
+        return snapshot
+    if outcome.certainty == "indeterminate":
+        raise RunIndeterminate(run_id=snapshot.run_id, outcome=outcome)
+    if outcome.result == "cancelled":
+        raise RunCancelled(run_id=snapshot.run_id, outcome=outcome)
+    raise RunFailed(run_id=snapshot.run_id, outcome=outcome)
+
+
+__all__ = ["_DaemonRunner", "_prepare_run_submission"]

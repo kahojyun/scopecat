@@ -68,6 +68,26 @@ The scripts are ordinary Python with `# %%` cells and can be followed in order.
 | `40_measurement_workbench.py` | Selection, grouping, Xarray, Arrow, and paged reads |
 | `50_ragged_scope_capture.py` | Point-varying oscilloscope record length and ragged waveform slicing |
 
+The application also registers one bounded q0/q1 DRAG calibration definition.
+Its project-side policy evaluates semantic freshness from active configuration
+contents, admits immutable bounded cohorts, and runs independent durable
+procedures through baseline, fit, candidate, and verification. These automated
+members are verify-only: successful closure leaves each result pending a
+published freshness anchor and makes the complete cohort durable finalization
+work. The application selects an active binding from the exact DRAG v2
+definition to a fingerprinted automatic-publication policy while retaining it
+as a historical drain capability. The resident worker resolves that same policy
+after restart and calls `prepare_drag_beta_cohort_publication` through a narrow
+read-only facade. The preparation resolves each exact versioned verification
+checkpoint, rejects edits outside each target's owned beta cell, previews the
+common-base cell merge, and requires each verified candidate to retain the same
+semantic inputs in the merged result. The generic finalizer then performs one
+generation-checked activation and records one published freshness anchor per
+contribution before freshness is evaluated in the same worker cycle.
+`publish_verified_drag_beta_cohort` remains the explicit operator/debug path;
+both paths derive the same deterministic plan, so an exact retry returns the
+original receipt rather than publishing another generation.
+
 ## Source map
 
 | Path | Responsibility |
@@ -79,7 +99,7 @@ The scripts are ordinary Python with `# %%` cells and can be followed in order.
 | `src/reference_lab/physical_policies.py` | Lab-owned IQ-offset coupling and host preparation policy |
 | `src/reference_lab/provider.py` | Bare virtual device provider and coupled AWG/scope world |
 | `src/reference_lab/virtual_lab/` | Injected deterministic quantum plant adapter |
-| `src/reference_lab/workflows/` | Copyable experiment, analysis, and production workflows |
+| `src/reference_lab/workflows/` | Copyable experiment, analysis, production, and calibration automation workflows |
 | `notebooks/` | User-facing recipes and their intent |
 | `tests/` | Daemon, worker, target, storage, analysis, and configuration checks |
 

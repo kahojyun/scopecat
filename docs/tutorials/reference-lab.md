@@ -70,7 +70,8 @@ The structured summary verifies the design outcomes directly:
 - the candidate run identifies the analysis proposal as its config source;
 - project analysis freezes both run datasets and records the acceptance metric;
 - the production run uses the accepted default;
-- undo restores the previous default without deleting history.
+- undo resolves the previous distinct immutable entry and reactivates it through
+  the same idempotent operation ledger without deleting history.
 
 If users must manually transfer revision IDs between these steps, or cannot tell
 which configuration a run used, treat that as workflow design feedback rather

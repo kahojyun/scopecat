@@ -477,6 +477,22 @@ def test_analysis_decorator_preserves_configuration_signature() -> None:
         readout_fit(unknown="q0")  # pyright: ignore[reportCallIssue]
 
 
+def test_analysis_implementation_fingerprint_covers_nonlocal_values() -> None:
+    def invocation(marker: str) -> AnalysisInvocation:
+        @sc.analysis_step(id="tests.analysis-fingerprint")
+        def fingerprinted(context: sc.AnalysisContext) -> sc.Analysis:
+            raise AssertionError(f"analysis {marker} must not run in this test")
+
+        return fingerprinted()
+
+    first = invocation("first")
+    same = invocation("first")
+    changed = invocation("changed")
+
+    assert first.implementation_fingerprint == same.implementation_fingerprint
+    assert first.implementation_fingerprint != changed.implementation_fingerprint
+
+
 def test_experiment_separates_runtime_inputs_from_structural_arguments() -> None:
     count = sc.coordinate("count", sc.ScalarType(_COUNT_TYPE))
     elaborations = 0

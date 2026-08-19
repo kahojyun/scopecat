@@ -18,12 +18,23 @@ Projects may add a `config/` directory for external, version-controlled
 infrastructure inputs. Runtime state lives in `.scopecat/` and is owned by the
 daemon rather than edited by users.
 
+The runtime directory contains `control.sqlite3`, its SQLite side files, the
+immutable `objects/` store, daemon metadata, and logs. The current early project
+store is rebuild-only across schema changes: the daemon refuses every schema
+version other than the one compiled into it and never migrates or deletes state
+implicitly. Stop the daemon and back up the entire `.scopecat/` directory before
+changing revisions. If historical state matters, inspect or export it with the
+revision that created it before explicitly rebuilding from an empty runtime
+directory and the project's bootstrap configuration.
+
 ## Manifest
 
-`scopecat.toml` identifies the application and instrument backend factories:
+`scopecat.toml` identifies daemon bootstrap, project application, and instrument
+backend factories:
 
 ```toml
 [lab]
+bootstrap = "scopecat_lab.application:create_bootstrap"
 application = "scopecat_lab.application:create_application"
 instrument_backend = "scopecat_lab.backend:create_backend"
 ```
@@ -33,8 +44,8 @@ the supplied path and makes the project's `src` directory importable.
 
 ## Source ownership
 
-- `application.py` composes the version-controlled configuration and execution
-  capabilities shared by daemon and notebook clients.
+- `application.py` exports a lightweight bootstrap factory for the daemon and a
+  separate full application factory for notebooks and the project worker.
 - `backend.py` composes worker-only instrument providers and drivers.
 - `configuration.py` builds the bootstrap configuration used only while the
   daemon registry is empty.
@@ -44,3 +55,7 @@ After initialization, these are application source files: edit, test, and
 version them with the rest of the lab project. Use the
 [configuration review workflow](../how-to/manage-configuration.md) to publish
 configuration changes explicitly.
+
+Keep procedure, schedule, calibration, publication, and system-builder imports
+inside the full application factory. Importing the bootstrap factory must not
+load those user execution callbacks into the daemon process.

@@ -183,8 +183,9 @@ async function startAbandonedRun(
     },
   };
   await expectResponseOk(
-    await page.request.post(`${baseUrl}/api/v1/config-registry/default`, {
+    await page.request.post(`${baseUrl}/api/v1/config-registry/publish-operations`, {
       data: {
+        operation_id: `e2e-config-${suffix}`,
         source: {
           kind: "direct_config_profile",
           config: runConfig,

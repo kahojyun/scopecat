@@ -370,6 +370,16 @@ def test_drag_calibration_closes_the_reviewed_config_loop(
     namespace = run_path(str(NOTEBOOKS / "30_drag_calibration.py"))
     summary = cast("dict[str, object]", namespace["drag_beta_summary"])
 
+    assert cast("str", summary["procedure"]).startswith("procedure-")
+    assert summary["procedure_state"] == "closed"
+    assert summary["procedure_status"] == "succeeded"
+    assert summary["procedure_steps"] == {
+        "baseline": "succeeded",
+        "fit": "succeeded",
+        "candidate": "succeeded",
+        "verification": "succeeded",
+        "accept": "succeeded",
+    }
     assert summary["status"] == "completed"
     assert summary["point_count"] == 15
     assert summary["output_kinds"] == [
@@ -394,8 +404,18 @@ def test_drag_calibration_closes_the_reviewed_config_loop(
     assert summary["verification_report"] == "drag-beta-verification.md"
     assert summary["verification_is_project_owned"]
     assert summary["accepted_verification"] == summary["verification"]
+    assert summary["accepted_output_matches_entry"]
     assert summary["candidate_run_uses_analysis"]
+    assert summary["production_source_identity"] == summary["accepted_source_identity"]
+    accepted_source_identity = cast(
+        "tuple[str, str, str, str, int]", summary["accepted_source_identity"]
+    )
+    assert accepted_source_identity[0] == "active"
+    assert summary["production_config_content_hash"] == accepted_source_identity[3]
     assert summary["accepted_as_default"]
+    assert cast("str", summary["restore_operation"]).startswith(
+        "reference-lab.drag-beta.restore:procedure-"
+    )
     assert summary["default_restored"]
 
 

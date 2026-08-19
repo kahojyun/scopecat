@@ -1,4 +1,4 @@
-import { apiClient, apiData } from "../../api-client";
+import { ApiError, apiClient, apiData } from "../../api-client";
 import type {
   ConfigDraftCommand,
   ConfigDraftPreview,
@@ -98,13 +98,9 @@ export async function getConfigRegistryEntry(
 export async function activateConfigEntry(
   command: components["schemas"]["ConfigEntryActivationCommand"],
 ): Promise<void> {
-  await apiData(apiClient.POST("/api/v1/config-registry/active", { body: command }));
-}
-
-export async function undoConfig(
-  command: components["schemas"]["ConfigUndoCommand"],
-): Promise<void> {
-  await apiData(apiClient.POST("/api/v1/config-registry/undo", { body: command }));
+  await retryOneTransportFailure(() =>
+    apiData(apiClient.POST("/api/v1/config-registry/activation-operations", { body: command })),
+  );
 }
 
 export async function previewConfigDraft(command: ConfigDraftCommand): Promise<ConfigDraftPreview> {
@@ -116,15 +112,32 @@ export async function previewConfigDraft(command: ConfigDraftCommand): Promise<C
   return response as ConfigDraftPreview;
 }
 
-export async function setConfigDefault(
-  command: ConfigPublishCommand,
-): Promise<ConfigPublishReceipt> {
-  const response = await apiData(
-    apiClient.POST("/api/v1/config-registry/default", {
-      body: command,
-    }),
+export async function publishConfig(command: ConfigPublishCommand): Promise<ConfigPublishReceipt> {
+  const response = await retryOneTransportFailure(() =>
+    apiData(
+      apiClient.POST("/api/v1/config-registry/publish-operations", {
+        body: command,
+      }),
+    ),
   );
   return response as ConfigPublishReceipt;
+}
+
+export function createConfigOperationId(purpose: string): string {
+  const random =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `ui-config-${purpose}-${random}`;
+}
+
+async function retryOneTransportFailure<Result>(send: () => Promise<Result>): Promise<Result> {
+  try {
+    return await send();
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== undefined) throw error;
+    return send();
+  }
 }
 
 function summarizeConfigSnapshot(config: ConfigProfileSnapshot): ConfigSnapshotSummary {

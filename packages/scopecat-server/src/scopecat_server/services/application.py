@@ -18,10 +18,13 @@ from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
 from ..command_payloads import CommandPayloadService
 from .admission import AdmissionService
 from .analyses import AnalysisService
+from .automation import AutomationService
+from .calibration_cohorts import CalibrationCohortService
 from .config import ConfigService
 from .executor import ExecutorService
 from .leases import OwnershipLeaseSupervisor
 from .point_plans import RunPointPlanService
+from .procedure_schedules import ProcedureScheduleService
 from .reviews import ReviewService
 from .runs import RunService
 
@@ -47,6 +50,9 @@ class DaemonApplication:
         payloads: CommandPayloadService,
         lease_supervisor: OwnershipLeaseSupervisor,
         reviews: ReviewService,
+        automation: AutomationService,
+        calibration_cohorts: CalibrationCohortService,
+        procedure_schedules: ProcedureScheduleService,
         point_plans: RunPointPlanService,
     ) -> None:
         self.project_root = Path(project_root).resolve()
@@ -60,6 +66,9 @@ class DaemonApplication:
         self.instruments = instruments
         self.payloads = payloads
         self.reviews = reviews
+        self.automation = automation
+        self.calibration_cohorts = calibration_cohorts
+        self.procedure_schedules = procedure_schedules
         self.point_plans = point_plans
         self._lease_supervisor = lease_supervisor
 

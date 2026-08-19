@@ -2,7 +2,8 @@
 
 The registry stores named configuration snapshots under the project-local
 ``config-registry`` tree. Its append-only activation log projects the active
-entry for later runs and supplies an independent history view for undo.
+entry for later runs and supplies an independent history view for clients that
+want to select an earlier exact entry.
 Revisions can be saved directly from a
 ``ConfigProfileSnapshot`` or from a candidate configuration.
 
@@ -20,6 +21,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from scopecat.config.candidate_merges import (
+    merge_common_base_parameter_proposals,
+)
 from scopecat.config.candidates import (
     CandidateConfig,
     resolve_candidate_config_from_snapshot,
@@ -33,13 +37,16 @@ from scopecat.config.registry.ports import (
     ConfigRegistryUnitOfWorkFactory,
 )
 from scopecat.config.registry.records import (
+    CalibrationCohortMergeRegistrySource,
     CandidateAcceptance,
     CandidateConfigRegistrySource,
+    ConfigCompositionPolicyRef,
     ConfigRegistryActivationPage,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
     ManualConfigDraftRegistrySource,
+    ResolvedCalibrationCohortMergeContribution,
 )
 from scopecat.kernel.errors import (
     CheckFailed,
@@ -61,7 +68,7 @@ from scopecat.records.config import (
     config_content_equal,
     config_content_hash,
 )
-from scopecat.records.content import ContentEntry
+from scopecat.records.content import ContentEntry, Sha256ContentHash
 from scopecat.records.parameter_change import (
     ParameterChangeProposal,
     ParameterValueDelta,
@@ -106,10 +113,30 @@ class CandidateConfigRevisionSource:
     acceptance: CandidateAcceptance
 
 
+@dataclass(frozen=True, slots=True)
+class CalibrationCohortMergeRevisionSource:
+    """Individually verified contributions selected for one cell merge."""
+
+    cohort_id: str
+    spec_hash: Sha256ContentHash
+    composition_policy_ref: ConfigCompositionPolicyRef
+    merge_policy: Literal["common_base_cells_v1"]
+    base_entry_id: str
+    base_content_hash: ConfigContentHash
+    base_generation: int
+    candidate_id: str
+    contributions: tuple[ResolvedCalibrationCohortMergeContribution, ...]
+    expected_result_content_hash: ConfigContentHash
+    automatic_publication_policy_id: str | None = None
+    automatic_publication_policy_version: str | None = None
+    automatic_publication_policy_fingerprint: Sha256ContentHash | None = None
+
+
 type ConfigRevisionSource = (
     DirectConfigRevisionSource
     | ManualConfigDraftRevisionSource
     | CandidateConfigRevisionSource
+    | CalibrationCohortMergeRevisionSource
 )
 
 
@@ -140,12 +167,6 @@ class InstrumentInventoryMigrationPlan:
 class ConfigRegistryEntrySnapshot:
     entry: ConfigRegistryEntry
     config: ConfigProfileSnapshot
-
-
-@dataclass(frozen=True, slots=True)
-class ConfigRegistrySnapshot:
-    entries: tuple[ConfigRegistryEntry, ...]
-    activation: ConfigRegistryActivationRecord | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -403,7 +424,7 @@ def _save_config_revision_locked(
             source=source,
         )
         entry_id = _required_revision_entry_id(revision)
-    else:
+    elif isinstance(source, CandidateConfigRevisionSource):
         validated = _validate_candidate_source_records(
             storage=work.runs,
             run_id=source.run_id,
@@ -415,6 +436,12 @@ def _save_config_revision_locked(
         deltas = validated.deltas
         entry_id = revision.entry_id or f"{config.id}-{source.run_id}"
         _validate_entry_id(entry_id)
+    else:
+        config, entry_source, deltas = _prepare_calibration_cohort_merge_locked(
+            work=work,
+            source=source,
+        )
+        entry_id = _required_revision_entry_id(revision)
     entry = ConfigRegistryEntry(
         id=entry_id,
         config_ref=work.registry.config_ref(entry_id),
@@ -444,6 +471,29 @@ def _validate_config_revision(
     if isinstance(revision.source, CandidateConfigRevisionSource):
         _validate_required_text(revision.source.run_id, field="run_id")
         _validate_required_text(revision.source.proposal_id, field="proposal_id")
+    elif isinstance(revision.source, CalibrationCohortMergeRevisionSource):
+        source = revision.source
+        _validate_required_text(source.cohort_id, field="cohort_id")
+        _validate_required_text(source.base_entry_id, field="base_entry_id")
+        _validate_required_text(source.candidate_id, field="candidate_id")
+        if source.base_generation < 1:
+            raise _registry_failure(
+                CheckFailed,
+                code="config_registry.calibration_merge_generation_invalid",
+                message="calibration merge base generation must be positive",
+                location=_registry_model_location("revision", "source"),
+            )
+        if not 1 <= len(source.contributions) <= 200:
+            raise _registry_failure(
+                CheckFailed,
+                code="config_registry.calibration_merge_contributions_invalid",
+                message=("calibration merge requires between 1 and 200 contributions"),
+                location=_registry_model_location(
+                    "revision",
+                    "source",
+                    "contributions",
+                ),
+            )
 
 
 def _required_revision_entry_id(
@@ -516,36 +566,149 @@ def _validate_candidate_source_records(
     )
 
 
-def list_config_registry_entries(
-    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
-) -> list[ConfigRegistryEntry]:
-    with unit_of_work() as work:
-        return list(_list_config_registry_entries_locked(work.registry))
-
-
-def load_config_registry_snapshot(
+def _prepare_calibration_cohort_merge_locked(
     *,
-    unit_of_work: ConfigRegistryUnitOfWorkFactory,
-) -> ConfigRegistrySnapshot:
-    """Read the registry list and active projection in one transaction."""
+    work: ConfigRegistryUnitOfWork,
+    source: CalibrationCohortMergeRevisionSource,
+) -> tuple[
+    ConfigProfileSnapshot,
+    CalibrationCohortMergeRegistrySource,
+    tuple[ParameterValueDelta, ...],
+]:
+    """Resolve exact proposal records and compose their common active base."""
 
-    with unit_of_work() as work:
-        entries = _list_config_registry_entries_locked(work.registry)
-        activation = _read_latest_activation(work.registry)
-        if activation is not None:
-            loaded = _load_config_registry_entry_locked(
-                entry_id=activation.entry_id,
-                work=work,
-            )
-            _validate_active_entry_identity(
-                work.registry,
-                activation,
-                loaded.entry,
-            )
-        return ConfigRegistrySnapshot(
-            entries=entries,
-            activation=activation,
+    activation = _load_active_config_registry_activation_locked(work.registry)
+    _require_expected_generation(
+        activation,
+        source.base_generation,
+        active_ref=work.registry.active_ref,
+    )
+    if (
+        activation.entry_id != source.base_entry_id
+        or activation.entry_content_hash != source.base_content_hash
+    ):
+        raise _registry_failure(
+            Conflict,
+            code="config_registry.calibration_merge_base_changed",
+            message="calibration merge base is no longer the active entry",
+            location=_registry_model_location(
+                "revision",
+                "source",
+                "base_entry_id",
+            ),
+            related_locations=(_registry_storage_location(work.registry.active_ref),),
+            details={
+                "expected_entry_id": source.base_entry_id,
+                "actual_entry_id": activation.entry_id,
+                "expected_content_hash": source.base_content_hash,
+                "actual_content_hash": activation.entry_content_hash,
+            },
         )
+    base = _load_config_registry_entry_locked(
+        entry_id=source.base_entry_id,
+        work=work,
+    )
+    _validate_active_entry_identity(work.registry, activation, base.entry)
+
+    proposals = tuple(
+        _load_calibration_merge_proposal(
+            storage=work.runs,
+            contribution=contribution,
+        )
+        for contribution in source.contributions
+    )
+    result = merge_common_base_parameter_proposals(
+        proposals,
+        base_config=base.config,
+        candidate_id=source.candidate_id,
+    )
+    if result.content_hash != source.expected_result_content_hash:
+        raise _registry_failure(
+            Conflict,
+            code="config_registry.calibration_merge_result_changed",
+            message="calibration merge result changed since it was evaluated",
+            location=_registry_model_location(
+                "revision",
+                "source",
+                "expected_result_content_hash",
+            ),
+            details={
+                "expected_content_hash": source.expected_result_content_hash,
+                "actual_content_hash": result.content_hash,
+            },
+        )
+    return (
+        result.config,
+        CalibrationCohortMergeRegistrySource(
+            cohort_id=source.cohort_id,
+            spec_hash=source.spec_hash,
+            automatic_publication_policy_id=(source.automatic_publication_policy_id),
+            automatic_publication_policy_version=(
+                source.automatic_publication_policy_version
+            ),
+            automatic_publication_policy_fingerprint=(
+                source.automatic_publication_policy_fingerprint
+            ),
+            composition_policy_ref=source.composition_policy_ref,
+            merge_policy=source.merge_policy,
+            base_entry_id=base.entry.id,
+            base_config_content_hash=base.entry.content_hash,
+            base_registry_generation=activation.generation,
+            candidate_id=source.candidate_id,
+            contributions=source.contributions,
+        ),
+        result.deltas,
+    )
+
+
+def _load_calibration_merge_proposal(
+    *,
+    storage: RunRepository,
+    contribution: ResolvedCalibrationCohortMergeContribution,
+) -> ParameterChangeProposal:
+    proof = contribution.proof
+    proposal_record = _require_run_record(
+        storage=storage,
+        run_id=proof.baseline_run_id,
+        record_id=proof.proposal_id,
+        kind="parameter_change_proposal",
+    )
+    proposal_ref = record_content_ref(
+        record_id=proposal_record.id,
+        kind=proposal_record.kind,
+    )
+    proposal = storage.read_model(
+        proof.baseline_run_id,
+        proposal_ref,
+        ParameterChangeProposal,
+    )
+    if (
+        proposal.id != proof.proposal_id
+        or proposal.source_run_id != proof.baseline_run_id
+        or proposal.analysis_record_id != proof.fit_analysis_record_id
+    ):
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.calibration_merge_proposal_mismatch",
+            message="calibration contribution does not match its proposal record",
+            location=_registry_storage_location(
+                proposal_ref,
+                run_id=proof.baseline_run_id,
+            ),
+            related_locations=(
+                _registry_model_location(
+                    "revision",
+                    "source",
+                    "contributions",
+                    contribution.member_id,
+                ),
+            ),
+            details={
+                "member_id": contribution.member_id,
+                "proposal_id": proof.proposal_id,
+            },
+        )
+    return proposal
 
 
 def load_config_registry_page(
@@ -574,12 +737,6 @@ def load_config_registry_page(
             activation=activation,
             next_cursor=page.next_cursor,
         )
-
-
-def _list_config_registry_entries_locked(
-    repository: ConfigRegistryRepository,
-) -> tuple[ConfigRegistryEntry, ...]:
-    return tuple(sorted(repository.list_entries(), key=lambda entry: entry.recorded_at))
 
 
 def load_config_registry_entry_snapshot(
@@ -613,19 +770,6 @@ def _load_config_registry_entry_locked(
         entry=entry,
         config=_read_entry_config(work.registry, entry),
     )
-
-
-def load_active_config_registry_config(
-    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
-) -> ConfigProfileSnapshot:
-    with unit_of_work() as work:
-        activation = _load_active_config_registry_activation_locked(work.registry)
-        loaded = _load_config_registry_entry_locked(
-            entry_id=activation.entry_id,
-            work=work,
-        )
-        _validate_active_entry_identity(work.registry, activation, loaded.entry)
-        return loaded.config
 
 
 def load_active_config_registry_snapshot(
@@ -795,96 +939,6 @@ def _commit_config_registry_activation_locked(
     )
 
 
-def undo_config_registry(
-    *,
-    unit_of_work: ConfigRegistryUnitOfWorkFactory,
-    actor: str,
-    expected_generation: int,
-    note: str = "",
-) -> ConfigRegistryMutationResult:
-    _validate_required_text(actor, field="actor")
-    with unit_of_work() as work:
-        current_activation = _read_latest_activation(work.registry)
-        _require_expected_generation(
-            current_activation,
-            expected_generation,
-            active_ref=work.registry.active_ref,
-        )
-        if current_activation is None:
-            raise _registry_failure(
-                NotFound,
-                code="config_registry.no_active_entry",
-                message="config registry has no active entry",
-                location=_registry_model_location("active"),
-            )
-        current = _load_config_registry_entry_locked(
-            entry_id=current_activation.entry_id,
-            work=work,
-        )
-        _validate_active_entry_identity(
-            work.registry,
-            current_activation,
-            current.entry,
-        )
-        undo_target = _previous_distinct_activation(
-            work.registry,
-            active_entry_id=current_activation.entry_id,
-            active_generation=current_activation.generation,
-        )
-        loaded = _load_config_registry_entry_locked(
-            entry_id=undo_target.entry_id,
-            work=work,
-        )
-        entry = loaded.entry
-        if entry.content_hash != undo_target.entry_content_hash:
-            raise _registry_failure(
-                DataIntegrityError,
-                code="config_registry.undo_content_mismatch",
-                message="undo target no longer matches activation history",
-                location=_registry_storage_location(work.registry.active_ref),
-                related_locations=(_registry_storage_location(entry.config_ref),),
-                details={"entry_id": entry.id},
-            )
-        _require_stable_instrument_exclusivity_keys(
-            current=current.config,
-            candidate=loaded.config,
-        )
-        generation = expected_generation + 1
-        record = ConfigRegistryActivationRecord(
-            generation=generation,
-            action="undo",
-            entry_id=entry.id,
-            entry_content_hash=entry.content_hash,
-            previous_entry_id=current_activation.entry_id,
-            previous_entry_content_hash=current_activation.entry_content_hash,
-            actor=actor,
-            note=note,
-        )
-        work.registry.commit_activation(
-            expected_generation=expected_generation,
-            record=record,
-        )
-        return ConfigRegistryMutationResult(
-            entry=entry,
-            activation=record,
-            activated=True,
-        )
-
-
-def current_config_registry_generation(
-    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
-) -> int:
-    with unit_of_work() as work:
-        return work.registry.current_generation()
-
-
-def load_config_registry_activation_history(
-    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
-) -> tuple[ConfigRegistryActivationRecord, ...]:
-    with unit_of_work() as work:
-        return work.registry.list_activation_history()
-
-
 def load_config_registry_activation(
     *,
     generation: int,
@@ -904,13 +958,6 @@ def load_config_registry_activation_page(
         return work.registry.list_activation_page(limit=limit, before=before)
 
 
-def load_active_config_registry_activation(
-    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
-) -> ConfigRegistryActivationRecord:
-    with unit_of_work() as work:
-        return _load_active_config_registry_activation_locked(work.registry)
-
-
 def _load_active_config_registry_activation_locked(
     repository: ConfigRegistryRepository,
 ) -> ConfigRegistryActivationRecord:
@@ -923,19 +970,6 @@ def _load_active_config_registry_activation_locked(
             location=_registry_model_location("active"),
         )
     return activation
-
-
-def load_active_config_registry_entry(
-    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
-) -> ConfigRegistryEntry:
-    with unit_of_work() as work:
-        activation = _load_active_config_registry_activation_locked(work.registry)
-        loaded = _load_config_registry_entry_locked(
-            entry_id=activation.entry_id,
-            work=work,
-        )
-        _validate_active_entry_identity(work.registry, activation, loaded.entry)
-        return loaded.entry
 
 
 def _resolve_entry_config_registry_config_source_locked(
@@ -1191,7 +1225,11 @@ def _validate_derived_entry_base(
     _validate_active_entry_identity(work.registry, activation, active_entry)
     if isinstance(
         entry.source,
-        (CandidateConfigRegistrySource, ManualConfigDraftRegistrySource),
+        (
+            CalibrationCohortMergeRegistrySource,
+            CandidateConfigRegistrySource,
+            ManualConfigDraftRegistrySource,
+        ),
     ):
         base_content_hash = entry.source.base_config_content_hash
     else:
@@ -1436,32 +1474,6 @@ def _require_stable_instrument_exclusivity_keys(
         )
 
 
-def _previous_distinct_activation(
-    repository: ConfigRegistryRepository,
-    *,
-    active_entry_id: str,
-    active_generation: int,
-) -> ConfigRegistryActivationRecord:
-    before: int | None = None
-    while True:
-        page = repository.list_activation_page(limit=100, before=before)
-        for record in page.items:
-            if (
-                record.generation < active_generation
-                and record.entry_id != active_entry_id
-            ):
-                return record
-        if page.next_cursor is None:
-            break
-        before = page.next_cursor
-    raise _registry_failure(
-        Conflict,
-        code="config_registry.no_undo_target",
-        message="config registry has no previous active entry",
-        location=_registry_model_location("active"),
-    )
-
-
 def _registry_failure(
     failure_type: type[ProblemFailure],
     *,
@@ -1500,12 +1512,12 @@ def _registry_storage_location(
 __all__ = [
     "ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR",
     "ActiveConfigRegistrySnapshot",
+    "CalibrationCohortMergeRevisionSource",
     "CandidateConfigRevisionSource",
     "ConfigRegistryEntrySnapshot",
     "ConfigRegistryMutationResult",
     "ConfigRegistryPageSnapshot",
     "ConfigRegistryRepository",
-    "ConfigRegistrySnapshot",
     "ConfigRegistryUnitOfWork",
     "ConfigRegistryUnitOfWorkFactory",
     "ConfigRevision",
@@ -1516,22 +1528,14 @@ __all__ = [
     "ManualConfigDraftResult",
     "ManualConfigDraftRevisionSource",
     "activate_config_registry_entry",
-    "current_config_registry_generation",
-    "list_config_registry_entries",
-    "load_active_config_registry_activation",
-    "load_active_config_registry_config",
-    "load_active_config_registry_entry",
     "load_active_config_registry_snapshot",
     "load_config_registry_activation",
-    "load_config_registry_activation_history",
     "load_config_registry_activation_page",
     "load_config_registry_entry_snapshot",
     "load_config_registry_page",
-    "load_config_registry_snapshot",
     "plan_instrument_inventory_migration",
     "preview_manual_config_draft",
     "publish_config_revision",
     "publish_instrument_inventory_migration_revision",
     "resolve_config_registry_config_source",
-    "undo_config_registry",
 ]

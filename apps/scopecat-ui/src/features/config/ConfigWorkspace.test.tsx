@@ -11,7 +11,6 @@ import {
   getConfigRegistryEntry,
   getOlderConfigActivationHistory,
   getOlderConfigRegistryEntries,
-  undoConfig,
 } from "./config-api";
 import { ConfigWorkspace } from "./ConfigWorkspace";
 import type { ConfigProfileSnapshot, ConfigRegistryEntry } from "../../api-contract";
@@ -29,7 +28,6 @@ vi.mock("./config-api", async (importOriginal) => ({
   getConfigRegistryEntry: vi.fn(),
   getOlderConfigActivationHistory: vi.fn(),
   getOlderConfigRegistryEntries: vi.fn(),
-  undoConfig: vi.fn(),
 }));
 
 vi.mock("../../data/parameter-proposals/api", async (importOriginal) => ({
@@ -97,6 +95,7 @@ describe("ConfigWorkspace", () => {
 
     renderWorkspace();
 
+    expect(await screen.findByRole("button", { name: "Undo" })).toBeDisabled();
     fireEvent.click(await screen.findByRole("button", { name: "Load older versions" }));
     expect(await screen.findByText("older")).toBeInTheDocument();
     expect(getOlderConfigRegistryEntries).toHaveBeenCalledWith(2);
@@ -104,12 +103,14 @@ describe("ConfigWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Load older changes" }));
     expect(await screen.findByText("G2")).toBeInTheDocument();
     expect(getOlderConfigActivationHistory).toHaveBeenCalledWith(3);
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
   });
 
   it("presents saved versions as defaults and undo without generation ceremony", async () => {
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      activation: activation(2, "baseline", "sha256:baseline"),
+      activation: activation(3, "baseline", "sha256:baseline"),
       activation_history: [
+        activation(3, "baseline", "sha256:baseline", "baseline"),
         activation(2, "baseline", "sha256:baseline", "calibrated"),
         activation(1, "calibrated", "sha256:calibrated", undefined, "inventory_migration"),
       ],
@@ -132,7 +133,6 @@ describe("ConfigWorkspace", () => {
       };
     });
     vi.mocked(activateConfigEntry).mockResolvedValue();
-    vi.mocked(undoConfig).mockResolvedValue();
 
     renderWorkspace();
 
@@ -155,10 +155,11 @@ describe("ConfigWorkspace", () => {
 
     await waitFor(() =>
       expect(activateConfigEntry).toHaveBeenCalledWith({
+        operation_id: expect.stringMatching(/^ui-config-activate-/),
         entry_id: "calibrated",
         actor: "local-operator",
         note: "",
-        expected_generation: 2,
+        expected_generation: 3,
       }),
     );
 
@@ -168,10 +169,18 @@ describe("ConfigWorkspace", () => {
     const undoDialog = await screen.findByRole("alertdialog");
     expect(undoDialog).toHaveTextContent("Restore calibrated as the default configuration?");
     fireEvent.click(within(undoDialog).getByRole("button", { name: "Restore default" }));
-    await waitFor(() => expect(undoConfig).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(activateConfigEntry).toHaveBeenLastCalledWith({
+        operation_id: expect.stringMatching(/^ui-config-undo-/),
+        entry_id: "calibrated",
+        actor: "local-operator",
+        note: "",
+        expected_generation: 3,
+      }),
+    );
   });
 
-  it.each(["manual_parameter_updates", "candidate_config"] as const)(
+  it.each(["manual_parameter_updates", "candidate_config", "calibration_cohort_merge"] as const)(
     "marks a %s default as runtime-derived without claiming source drift",
     async (sourceKind) => {
       const entry = runtimeDerivedEntry(sourceKind);
@@ -224,6 +233,44 @@ describe("ConfigWorkspace", () => {
 
     expect(await screen.findByRole("heading", { name: "baseline" })).toBeInTheDocument();
     expect(screen.getByText("Direct configuration profile")).toBeInTheDocument();
+  });
+
+  it("renders calibration cohort provenance without treating it as one candidate", async () => {
+    const entry = runtimeDerivedEntry("calibration_cohort_merge");
+    const baseline = configEntry("baseline", "sha256:baseline");
+    const entries = [entry, baseline];
+    vi.mocked(getConfigRegistry).mockResolvedValue({
+      activation: activation(3, entry.id, entry.content_hash),
+      activation_history: [activation(3, entry.id, entry.content_hash)],
+      entries,
+    });
+    vi.mocked(getConfigRegistryEntry).mockImplementation(async (entryId) => {
+      const selected = entries.find((item) => item.id === entryId)!;
+      return entryDetail(selected);
+    });
+    const openRun = vi.fn();
+
+    renderWorkspace(openRun);
+
+    expect(await screen.findByText("Verified calibration cohort")).toBeInTheDocument();
+    expect(screen.getAllByText("Calibration cohort merge").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Analysis candidate")).not.toBeInTheDocument();
+    expect(screen.getByText("drag-nightly-2026-07-24")).toBeInTheDocument();
+    expect(screen.getByText("reference_lab.drag-composition@1")).toBeInTheDocument();
+    const contribution = screen.getByRole("article", { name: "Calibration member q0" });
+    expect(contribution).toHaveTextContent("verified_parameter_proposal_v1");
+    expect(contribution).toHaveTextContent("procedure-drag-q0");
+    expect(contribution).toHaveTextContent("verification#1");
+    expect(contribution).toHaveTextContent("run-baseline-q0");
+    expect(contribution).toHaveTextContent("analysis-fit-q0");
+    expect(contribution).toHaveTextContent("proposal-q0");
+    expect(contribution).toHaveTextContent("run-candidate-q0");
+    expect(contribution).toHaveTextContent("analysis-verify-q0 · decision");
+    fireEvent.click(screen.getByRole("button", { name: "Open candidate run" }));
+    expect(openRun).toHaveBeenCalledWith("run-candidate-q0");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open base version baseline" }));
+    expect(await screen.findByRole("heading", { name: "baseline" })).toBeInTheDocument();
   });
 
   it("follows a refreshed default until the operator selects a saved version", async () => {
@@ -440,10 +487,54 @@ function configEntry(id: string, contentHash: string): ConfigRegistryEntry {
 }
 
 function runtimeDerivedEntry(
-  kind: "manual_parameter_updates" | "candidate_config",
+  kind: "manual_parameter_updates" | "candidate_config" | "calibration_cohort_merge",
   proposalId = "fit-result",
 ): ConfigRegistryEntry {
   const entry = configEntry("runtime-default", "sha256:runtime-default");
+  if (kind === "calibration_cohort_merge") {
+    return {
+      ...entry,
+      source: {
+        kind,
+        cohort_id: "drag-nightly-2026-07-24",
+        spec_hash: `sha256:${"b".repeat(64)}`,
+        composition_policy_ref: {
+          id: "reference_lab.drag-composition",
+          version: "1",
+          fingerprint: `sha256:${"c".repeat(64)}`,
+        },
+        merge_policy: "common_base_cells_v1",
+        base_entry_id: "baseline",
+        base_config_content_hash: "sha256:baseline",
+        base_registry_generation: 2,
+        candidate_id: "drag-nightly-merged",
+        contributions: [
+          {
+            member_id: "q0",
+            proof: {
+              kind: "verified_parameter_proposal_v1",
+              evidence_step: {
+                procedure_run_id: "procedure-drag-q0",
+                step_key: "verification",
+                attempt: 1,
+              },
+              baseline_run_id: "run-baseline-q0",
+              fit_analysis_record_id: "analysis-fit-q0",
+              proposal_id: "proposal-q0",
+              candidate_run_id: "run-candidate-q0",
+              decision: {
+                analysis_record_id: "analysis-verify-q0",
+                output_id: "decision",
+                schema_id: "reference_lab.drag-decision.v1",
+                schema_hash: `sha256:${"d".repeat(64)}`,
+              },
+            },
+            result_input_fingerprint: `sha256:${"e".repeat(64)}`,
+          },
+        ],
+      },
+    };
+  }
   return {
     ...entry,
     source:
@@ -477,7 +568,7 @@ function activation(
   entryId: string,
   entryContentHash: string,
   previousEntryId?: string,
-  action: "activation" | "inventory_migration" | "undo" = "activation",
+  action: "activation" | "inventory_migration" = "activation",
 ) {
   return {
     generation,
