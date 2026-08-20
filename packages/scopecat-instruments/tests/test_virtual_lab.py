@@ -9,16 +9,11 @@ from scopecat.sdk.instruments import (
     DriverStateReadback,
     DriverSuccess,
     InstrumentDriver,
+    ObjectInstrumentDriver,
     state_capture_request,
 )
 
 from scopecat_instruments._support import LinearSweepSettings
-from scopecat_instruments.driver_handlers import (
-    DCSourceMonitorDriverAdapter,
-    NetworkSweepDriverAdapter,
-    RFOutputDriverAdapter,
-    TemperatureReadoutDriverAdapter,
-)
 from scopecat_instruments.members import (
     DC_MONITOR_CURRENT_RESULT,
     DC_MONITOR_INTEGRATION_CYCLES,
@@ -58,11 +53,11 @@ def _notch_frequency(
     return trace_frequencies[index]
 
 
-def test_virtual_drivers_use_generated_adapters() -> None:
-    assert issubclass(VirtualRfSource, RFOutputDriverAdapter)
-    assert issubclass(VirtualDcSource, DCSourceMonitorDriverAdapter)
-    assert issubclass(VirtualTemperatureMonitor, TemperatureReadoutDriverAdapter)
-    assert issubclass(VirtualNetworkAnalyzer, NetworkSweepDriverAdapter)
+def test_virtual_drivers_use_oo_adapter() -> None:
+    assert issubclass(VirtualRfSource, ObjectInstrumentDriver)
+    assert issubclass(VirtualDcSource, ObjectInstrumentDriver)
+    assert issubclass(VirtualTemperatureMonitor, ObjectInstrumentDriver)
+    assert issubclass(VirtualNetworkAnalyzer, ObjectInstrumentDriver)
 
 
 def test_virtual_state_survives_driver_disconnect() -> None:
@@ -83,7 +78,7 @@ def test_virtual_state_survives_driver_disconnect() -> None:
     second = VirtualDcSource("flux", world)
 
     assert isinstance(transitioned, DriverSuccess)
-    assert second.output_enabled() is True
+    assert second.output_enabled is True
     assert world.flux_bias() == 0.5
     assert _capture(second).values[DC_SOURCE_MODE] == "voltage"
 
@@ -158,7 +153,7 @@ def test_virtual_dc_source_operations_select_mode() -> None:
         )
     )
     assert isinstance(current, DriverSuccess)
-    assert driver.source_mode() == "current"
+    assert driver.source_mode == "current"
 
     voltage = driver.invoke(
         DriverOperation(
@@ -171,7 +166,7 @@ def test_virtual_dc_source_operations_select_mode() -> None:
     )
 
     assert isinstance(voltage, DriverSuccess)
-    assert driver.source_mode() == "voltage"
+    assert driver.source_mode == "voltage"
 
 
 def test_virtual_dc_monitor_configuration_round_trips_through_state() -> None:

@@ -417,7 +417,7 @@ def test_virtual_state_survives_driver_recreation() -> None:
         "unused",
     ]
     assert isinstance(second, VirtualDcSource)
-    assert second.output_enabled() is True
+    assert second.output_enabled is True
     assert provider.world.flux_bias() == 0.8
 
 

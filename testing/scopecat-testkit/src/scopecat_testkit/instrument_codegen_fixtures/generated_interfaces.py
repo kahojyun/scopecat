@@ -25,34 +25,34 @@ def catalog_projection_interface() -> InterfaceSpec:
     return InterfaceSpec.model_validate_json(_CATALOG_PROJECTION_SPEC_JSON)
 
 
-_SHARED_STATE_FIRST_SPEC_JSON = (
-    '{"id":"test.generated_shared_state_first'
-    '/v1","label":null,"description":null,"pr'
-    'operties":[{"id":"enabled","label":null,'
-    '"description":null,"access":"read_write"'
-    ',"capture":true,"restore":true,"value_ty'
-    'pe":{"type":"bool"}}],"operations":[],"a'
-    'cquisitions":[],"components":[]}'
+_SHARED_PROPERTY_FIRST_SPEC_JSON = (
+    '{"id":"test.generated_shared_property_fi'
+    'rst/v1","label":null,"description":null,'
+    '"properties":[{"id":"enabled","label":nu'
+    'll,"description":null,"access":"read_wri'
+    'te","capture":true,"restore":true,"value'
+    '_type":{"type":"bool"}}],"operations":[]'
+    ',"acquisitions":[],"components":[]}'
 )
 
 
-def shared_state_first_interface() -> InterfaceSpec:
-    return InterfaceSpec.model_validate_json(_SHARED_STATE_FIRST_SPEC_JSON)
+def shared_property_first_interface() -> InterfaceSpec:
+    return InterfaceSpec.model_validate_json(_SHARED_PROPERTY_FIRST_SPEC_JSON)
 
 
-_SHARED_STATE_SECOND_SPEC_JSON = (
-    '{"id":"test.generated_shared_state_secon'
-    'd/v1","label":null,"description":null,"p'
-    'roperties":[{"id":"enabled","label":null'
-    ',"description":null,"access":"read_write'
-    '","capture":true,"restore":true,"value_t'
-    'ype":{"type":"bool"}}],"operations":[],"'
-    'acquisitions":[],"components":[]}'
+_SHARED_PROPERTY_SECOND_SPEC_JSON = (
+    '{"id":"test.generated_shared_property_se'
+    'cond/v1","label":null,"description":null'
+    ',"properties":[{"id":"enabled","label":n'
+    'ull,"description":null,"access":"read_wr'
+    'ite","capture":true,"restore":true,"valu'
+    'e_type":{"type":"bool"}}],"operations":['
+    '],"acquisitions":[],"components":[]}'
 )
 
 
-def shared_state_second_interface() -> InterfaceSpec:
-    return InterfaceSpec.model_validate_json(_SHARED_STATE_SECOND_SPEC_JSON)
+def shared_property_second_interface() -> InterfaceSpec:
+    return InterfaceSpec.model_validate_json(_SHARED_PROPERTY_SECOND_SPEC_JSON)
 
 
 _SCALAR_OPERATION_SPEC_JSON = (
@@ -183,6 +183,6 @@ __all__ = [
     "literal_operation_interface",
     "payload_operation_interface",
     "scalar_operation_interface",
-    "shared_state_first_interface",
-    "shared_state_second_interface",
+    "shared_property_first_interface",
+    "shared_property_second_interface",
 ]

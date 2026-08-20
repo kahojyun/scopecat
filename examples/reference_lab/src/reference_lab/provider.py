@@ -431,7 +431,7 @@ class MultiChannelVirtualDcSource:
                 if isinstance(tolerance, sc.Quantity):
                     self._settle_tolerance_v[component_id] = tolerance.to("V").value
                 if isinstance(target, sc.Quantity):
-                    outcome = self._drivers[component_id].handle_source_voltage(
+                    outcome = self._drivers[component_id].source_voltage(
                         range=sc.Quantity(1.0, "V"),
                         level=target,
                     )

@@ -9,13 +9,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import keyword
 import re
 import sys
 import types
 import typing
 from dataclasses import dataclass
-from dataclasses import fields as dataclass_fields
 from importlib import import_module
 from pathlib import Path
 from typing import Protocol, TypeAliasType, TypeVar, cast, get_args, get_origin
@@ -34,10 +32,10 @@ from scopecat.sdk.instruments.declarations import (
     DeclaredAcquisition,
     DeclaredInterfaceLayout,
     DeclaredOperation,
+    DeclaredProperty,
+    DeclaredPropertyLayout,
     DeclaredResultField,
     DeclaredScopeLayout,
-    DeclaredStateField,
-    DeclaredStateLayout,
     compile_interface,
     declared_interface_layout,
 )
@@ -56,12 +54,8 @@ MEMBERS_OUTPUT = (
 INTERFACES_OUTPUT = (
     INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "interfaces.py"
 )
-STATES_OUTPUT = INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "states.py"
-DRIVER_STATES_OUTPUT = (
-    INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "driver_states.py"
-)
-DRIVER_HANDLERS_OUTPUT = (
-    INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "driver_handlers.py"
+PROJECTIONS_OUTPUT = (
+    INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "projections.py"
 )
 PACKAGE_EXPORTS_OUTPUT = (
     INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "__init__.py"
@@ -77,10 +71,8 @@ FIXTURE_PACKAGE_ROOT = (
 )
 FIXTURE_MEMBERS_OUTPUT = FIXTURE_PACKAGE_ROOT / "generated_members.py"
 FIXTURE_INTERFACES_OUTPUT = FIXTURE_PACKAGE_ROOT / "generated_interfaces.py"
-FIXTURE_STATES_OUTPUT = FIXTURE_PACKAGE_ROOT / "generated_states.py"
-FIXTURE_DRIVER_STATES_OUTPUT = FIXTURE_PACKAGE_ROOT / "generated_driver_states.py"
-FIXTURE_DRIVER_HANDLERS_OUTPUT = FIXTURE_PACKAGE_ROOT / "generated_driver_handlers.py"
-PRODUCTION_STATE_PROJECTION_MODULE = "scopecat_instruments.states"
+FIXTURE_PROJECTIONS_OUTPUT = FIXTURE_PACKAGE_ROOT / "generated_projections.py"
+PRODUCTION_MEMBER_PROJECTION_MODULE = "scopecat_instruments.projections"
 _TYPING_UNION_ORIGIN: object = typing.Union  # pyright: ignore[reportDeprecated]
 
 
@@ -106,10 +98,6 @@ class CompositeClientSurface:
 
 
 type GenerationSurface = ClientSurface | CompositeClientSurface
-
-
-def _type_identity(interface_type: type[object]) -> str:
-    return f"{interface_type.__module__}.{interface_type.__qualname__}"
 
 
 def clients_for(
@@ -173,7 +161,7 @@ class GenerationTarget:
 
     output: Path
     surfaces: tuple[GenerationSurface, ...]
-    state_projection_module: str
+    member_projection_module: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,32 +170,21 @@ class CatalogTarget:
 
     members_output: Path
     interfaces_output: Path
-    states_output: Path
-    driver_states_output: Path
+    projections_output: Path
     members_module: str
     interface_types: tuple[type[object], ...]
     public_types: tuple[object, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class DriverHandlerTarget:
-    """One generated typed driver-adapter module."""
-
-    output: Path
-    surfaces: tuple[GenerationSurface, ...]
-    members_module: str
-    driver_states_module: str
-
-
-@dataclass(frozen=True, slots=True)
 class PackageExportsTarget:
-    """Lazy package exports derived from generated client and state surfaces."""
+    """Lazy package exports derived from clients and member projections."""
 
     output: Path
     client_target: GenerationTarget
     catalog_target: CatalogTarget
     client_module: str
-    states_module: str
+    projections_module: str
     static_exports: tuple[tuple[str, str], ...] = ()
 
 
@@ -241,8 +218,8 @@ class _FixtureDeclarations(Protocol):
     LiteralOperationInterface: type[object]
     PayloadOperationInterface: type[object]
     ScalarOperationInterface: type[object]
-    SharedStateFirstInterface: type[object]
-    SharedStateSecondInterface: type[object]
+    SharedPropertyFirstInterface: type[object]
+    SharedPropertySecondInterface: type[object]
 
 
 def _manifest_surface(registration: SurfaceRegistration, /) -> GenerationSurface:
@@ -265,24 +242,16 @@ _PRODUCTION_SURFACES = tuple(
 PRODUCTION_TARGET = GenerationTarget(
     output=OUTPUT,
     surfaces=_PRODUCTION_SURFACES,
-    state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
+    member_projection_module=PRODUCTION_MEMBER_PROJECTION_MODULE,
 )
 
 PRODUCTION_CATALOG_TARGET = CatalogTarget(
     members_output=MEMBERS_OUTPUT,
     interfaces_output=INTERFACES_OUTPUT,
-    states_output=STATES_OUTPUT,
-    driver_states_output=DRIVER_STATES_OUTPUT,
+    projections_output=PROJECTIONS_OUTPUT,
     members_module="scopecat_instruments.members",
     interface_types=_surface_interface_types(_PRODUCTION_SURFACES),
     public_types=PACKAGE_MANIFEST.public_types,
-)
-
-PRODUCTION_DRIVER_HANDLER_TARGET = DriverHandlerTarget(
-    output=DRIVER_HANDLERS_OUTPUT,
-    surfaces=_PRODUCTION_SURFACES,
-    members_module="scopecat_instruments.members",
-    driver_states_module="scopecat_instruments.driver_states",
 )
 
 PRODUCTION_PACKAGE_EXPORTS_TARGET = PackageExportsTarget(
@@ -290,30 +259,29 @@ PRODUCTION_PACKAGE_EXPORTS_TARGET = PackageExportsTarget(
     client_target=PRODUCTION_TARGET,
     catalog_target=PRODUCTION_CATALOG_TARGET,
     client_module="scopecat_instruments.clients",
-    states_module="scopecat_instruments.states",
+    projections_module="scopecat_instruments.projections",
     static_exports=(("ConfiguredInstrumentProvider", "scopecat_instruments.provider"),),
 )
 
 
 def _fixture_catalog_target() -> CatalogTarget:
     declarations = _fixture_declarations()
-    handler_surfaces = _fixture_driver_handler_surfaces(declarations)
+    catalog_surfaces = _fixture_catalog_surfaces(declarations)
     return CatalogTarget(
         members_output=FIXTURE_MEMBERS_OUTPUT,
         interfaces_output=FIXTURE_INTERFACES_OUTPUT,
-        states_output=FIXTURE_STATES_OUTPUT,
-        driver_states_output=FIXTURE_DRIVER_STATES_OUTPUT,
+        projections_output=FIXTURE_PROJECTIONS_OUTPUT,
         members_module=f"{FIXTURE_MODULE}.generated_members",
         interface_types=(
             declarations.CatalogProjectionInterface,
-            declarations.SharedStateFirstInterface,
-            declarations.SharedStateSecondInterface,
-            *_surface_interface_types(handler_surfaces),
+            declarations.SharedPropertyFirstInterface,
+            declarations.SharedPropertySecondInterface,
+            *_surface_interface_types(catalog_surfaces),
         ),
     )
 
 
-def _fixture_driver_handler_surfaces(
+def _fixture_catalog_surfaces(
     declarations: _FixtureDeclarations,
 ) -> tuple[GenerationSurface, ...]:
     return (
@@ -331,16 +299,6 @@ def _fixture_driver_handler_surfaces(
     )
 
 
-def _fixture_driver_handler_target() -> DriverHandlerTarget:
-    declarations = _fixture_declarations()
-    return DriverHandlerTarget(
-        output=FIXTURE_DRIVER_HANDLERS_OUTPUT,
-        surfaces=_fixture_driver_handler_surfaces(declarations),
-        members_module=f"{FIXTURE_MODULE}.generated_members",
-        driver_states_module=f"{FIXTURE_MODULE}.generated_driver_states",
-    )
-
-
 def _fixture_declarations() -> _FixtureDeclarations:
     return cast(
         "_FixtureDeclarations",
@@ -354,10 +312,6 @@ def _generation_targets() -> tuple[GenerationTarget, ...]:
 
 def _catalog_targets() -> tuple[CatalogTarget, ...]:
     return (PRODUCTION_CATALOG_TARGET, _fixture_catalog_target())
-
-
-def _driver_handler_targets() -> tuple[DriverHandlerTarget, ...]:
-    return (PRODUCTION_DRIVER_HANDLER_TARGET, _fixture_driver_handler_target())
 
 
 def _package_exports_targets() -> tuple[PackageExportsTarget, ...]:
@@ -445,7 +399,7 @@ class _ScopeModel:
 
 
 @dataclass(frozen=True, slots=True)
-class _StateKeywordFieldModel:
+class _ProjectionKeywordFieldModel:
     python_name: str
     concrete_annotation: str
     symbolic_annotation: str
@@ -453,11 +407,11 @@ class _StateKeywordFieldModel:
 
 
 @dataclass(frozen=True, slots=True)
-class _StateKeywordModel:
+class _ProjectionKeywordModel:
     patch_type_name: str
     target_type_name: str
     group_target_type_name: str
-    fields: tuple[_StateKeywordFieldModel, ...]
+    fields: tuple[_ProjectionKeywordFieldModel, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -477,18 +431,11 @@ class _InterfaceConstituentModel:
     interface_stem: str
     constant_prefix: str
     layout: DeclaredInterfaceLayout[object]
-    state_type_name: str | None
     members: tuple[_MemberClientModel, ...]
 
     @property
     def ref_name(self) -> str:
         return f"_{self.constant_prefix}_REF"
-
-    @property
-    def state_schema_name(self) -> str | None:
-        if self.state_type_name is None:
-            return None
-        return f"_{self.constant_prefix}_STATE_SCHEMA"
 
 
 @dataclass(frozen=True, slots=True)
@@ -497,47 +444,47 @@ class _InterfaceModel:
     stem: str
     factory_name: str
     generate_family: bool
-    live_state_type_names: tuple[str, ...]
-    symbolic_state_type_names: tuple[str, ...]
-    group_state_type_names: tuple[str, ...]
-    keyword_state: _StateKeywordModel | None
+    live_projection_type_names: tuple[str, ...]
+    symbolic_projection_type_names: tuple[str, ...]
+    group_projection_type_names: tuple[str, ...]
+    keyword_projection: _ProjectionKeywordModel | None
     constituents: tuple[_InterfaceConstituentModel, ...]
     root: _ScopeModel
 
     @property
-    def live_state_type_name(self) -> str | None:
-        if not self.live_state_type_names:
+    def live_projection_type_name(self) -> str | None:
+        if not self.live_projection_type_names:
             return None
-        if len(self.live_state_type_names) == 1:
-            return self.live_state_type_names[0]
-        return self.live_state_alias_name
+        if len(self.live_projection_type_names) == 1:
+            return self.live_projection_type_names[0]
+        return self.live_projection_alias_name
 
     @property
-    def symbolic_state_type_name(self) -> str | None:
-        if not self.symbolic_state_type_names:
+    def symbolic_projection_type_name(self) -> str | None:
+        if not self.symbolic_projection_type_names:
             return None
-        if len(self.symbolic_state_type_names) == 1:
-            return self.symbolic_state_type_names[0]
-        return self.symbolic_state_alias_name
+        if len(self.symbolic_projection_type_names) == 1:
+            return self.symbolic_projection_type_names[0]
+        return self.symbolic_projection_alias_name
 
     @property
-    def group_state_type_name(self) -> str | None:
-        if not self.group_state_type_names:
+    def group_projection_type_name(self) -> str | None:
+        if not self.group_projection_type_names:
             return None
-        if len(self.group_state_type_names) == 1:
-            return self.group_state_type_names[0]
-        return self.group_state_alias_name
+        if len(self.group_projection_type_names) == 1:
+            return self.group_projection_type_names[0]
+        return self.group_projection_alias_name
 
     @property
-    def live_state_alias_name(self) -> str:
+    def live_projection_alias_name(self) -> str:
         return f"_{self.stem}Patch"
 
     @property
-    def symbolic_state_alias_name(self) -> str:
+    def symbolic_projection_alias_name(self) -> str:
         return f"_{self.stem}Target"
 
     @property
-    def group_state_alias_name(self) -> str:
+    def group_projection_alias_name(self) -> str:
         return f"_{self.stem}GroupTarget"
 
     @property
@@ -560,27 +507,6 @@ class _InterfaceModel:
     def requires_expression(self) -> str:
         return _render_tuple(self.ref_names)
 
-    @property
-    def state_constituents(self) -> tuple[_InterfaceConstituentModel, ...]:
-        return tuple(
-            constituent
-            for constituent in self.constituents
-            if constituent.state_type_name is not None
-        )
-
-    @property
-    def state_type_name(self) -> str | None:
-        constituents = self.state_constituents
-        if not constituents:
-            return None
-        if len(self.constituents) == 1:
-            return constituents[0].state_type_name
-        return f"{self.stem}State"
-
-    @property
-    def generates_composite_state(self) -> bool:
-        return len(self.constituents) > 1 and bool(self.state_constituents)
-
 
 @dataclass(frozen=True, slots=True)
 class _CatalogInterfaceModel:
@@ -591,87 +517,41 @@ class _CatalogInterfaceModel:
     factory_name: str
     spec: InterfaceSpec
     root: DeclaredScopeLayout
-    state: DeclaredStateLayout | None
+    properties: DeclaredPropertyLayout | None
 
 
 @dataclass(frozen=True, slots=True)
-class _StateProjectionNames:
+class _MemberProjectionNames:
     patch: str
     target: str
     group_target: str
 
 
-@dataclass(frozen=True, slots=True)
-class _DriverPatchField:
-    property_id: str
-    annotation: object
-
-
-@dataclass(frozen=True, slots=True)
-class _DriverHandlerConstituent:
-    interface_type: type[object]
-    stem: str
-    constant_prefix: str
-    field_name: str
-    layout: DeclaredInterfaceLayout[object]
-    optional: bool
-
-
-@dataclass(frozen=True, slots=True)
-class _DriverHandlerSurface:
-    stem: str
-    flag_name: str | None
-    constituents: tuple[_DriverHandlerConstituent, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class _DriverAcquisitionField:
-    python_name: str
-    member_name: str
-
-
-@dataclass(frozen=True, slots=True)
-class _DriverAcquisitionModel:
-    hook_name: str
-    member_name: str
-    type_stem: str
-    fields: tuple[_DriverAcquisitionField, ...]
-    optional: bool
-
-
-@dataclass(frozen=True, slots=True)
-class _DriverOperationModel:
-    declaration: DeclaredOperation
-    hook_name: str
-    member_name: str
-    optional: bool
-
-
-def _state_projection_names(
+def _member_projection_names(
     interface_stem: str,
-) -> _StateProjectionNames:
-    return _StateProjectionNames(
+) -> _MemberProjectionNames:
+    return _MemberProjectionNames(
         patch=f"{interface_stem}Patch",
         target=f"{interface_stem}Target",
         group_target=f"{interface_stem}GroupTarget",
     )
 
 
-def _register_state_projection_types(
+def _register_member_projection_types(
     renderer: _AnnotationRenderer,
-    state: DeclaredStateLayout | None,
+    properties: DeclaredPropertyLayout | None,
     *,
     interface_stem: str,
-    state_projection_module: str,
+    member_projection_module: str,
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
     names = (
-        (_state_projection_names(interface_stem),)
-        if state is not None and _layout_has_writable_state(state)
+        (_member_projection_names(interface_stem),)
+        if properties is not None and _layout_has_writable_properties(properties)
         else ()
     )
     if names:
         imported = renderer.imports.setdefault(
-            state_projection_module,
+            member_projection_module,
             set(),
         )
         imported.update(
@@ -690,33 +570,33 @@ def _register_state_projection_types(
     )
 
 
-def _state_keyword_model(
-    state: DeclaredStateLayout | None,
+def _projection_keyword_model(
+    properties: DeclaredPropertyLayout | None,
     *,
     interface_stem: str,
     renderer: _AnnotationRenderer,
-) -> _StateKeywordModel | None:
-    """Describe the unambiguous keyword surface for one flat state schema."""
+) -> _ProjectionKeywordModel | None:
+    """Describe the keyword surface for one interface's writable properties."""
 
-    if state is None:
+    if properties is None:
         return None
-    writable_fields = _writable_state_fields(state)
+    writable_fields = _writable_properties(properties)
     if not writable_fields:
         return None
-    names = _state_projection_names(interface_stem)
-    fields: list[_StateKeywordFieldModel] = []
+    names = _member_projection_names(interface_stem)
+    fields: list[_ProjectionKeywordFieldModel] = []
     for field in writable_fields:
         concrete = renderer.render(field.annotation)
         symbolic = _symbolic_annotation(concrete)
         fields.append(
-            _StateKeywordFieldModel(
+            _ProjectionKeywordFieldModel(
                 python_name=field.python_name,
                 concrete_annotation=concrete,
                 symbolic_annotation=symbolic,
                 group_annotation=f"{symbolic} | PerEntity[{symbolic}]",
             )
         )
-    return _StateKeywordModel(
+    return _ProjectionKeywordModel(
         patch_type_name=names.patch,
         target_type_name=names.target,
         group_target_type_name=names.group_target,
@@ -728,18 +608,18 @@ def _symbolic_annotation(concrete: str) -> str:
     return f"Symbolic[{concrete}]"
 
 
-def _writable_state_fields(
-    layout: DeclaredStateLayout,
-) -> tuple[DeclaredStateField, ...]:
+def _writable_properties(
+    layout: DeclaredPropertyLayout,
+) -> tuple[DeclaredProperty, ...]:
     return tuple(field for field in layout.fields if field.spec.access != "read_only")
 
 
-def _layout_has_writable_state(layout: DeclaredStateLayout) -> bool:
-    return bool(_writable_state_fields(layout))
+def _layout_has_writable_properties(layout: DeclaredPropertyLayout) -> bool:
+    return bool(_writable_properties(layout))
 
 
 @dataclass(frozen=True, slots=True)
-class _MemberProjection:
+class _MemberIdentity:
     name: str
     expression: str
     owner: str
@@ -844,16 +724,12 @@ def render_catalog_target(
         (target.members_output, _render_members_module(models)),
         (target.interfaces_output, _render_interfaces_module(models)),
         (
-            target.states_output,
-            _render_states_module(
+            target.projections_output,
+            _render_projections_module(
                 models,
                 public_types=target.public_types,
                 members_module=target.members_module,
             ),
-        ),
-        (
-            target.driver_states_output,
-            _render_driver_states_module(models, members_module=target.members_module),
         ),
     )
 
@@ -886,7 +762,7 @@ def _catalog_models(
                 factory_name=f"{_snake_case(stem)}_interface",
                 spec=layout.compiled.spec,
                 root=layout.root,
-                state=layout.state,
+                properties=layout.properties,
             )
         )
     return tuple(models)
@@ -896,14 +772,14 @@ def _render_members_module(models: tuple[_CatalogInterfaceModel, ...]) -> str:
     projections = tuple(
         projection
         for model in models
-        for projection in _interface_member_projections(model)
+        for projection in _interface_member_identities(model)
     )
-    _validate_member_projections(projections)
+    _validate_member_identities(projections)
     imports: dict[str, set[str]] = {
         "scopecat.sdk.instruments": {"InterfaceRef"},
     }
     declarations = "".join(
-        _render_member_projection(projection) for projection in projections
+        _render_member_identity(projection) for projection in projections
     )
     return (
         _generated_module_header(
@@ -916,18 +792,18 @@ def _render_members_module(models: tuple[_CatalogInterfaceModel, ...]) -> str:
     )
 
 
-def _interface_member_projections(
+def _interface_member_identities(
     model: _CatalogInterfaceModel,
-) -> tuple[_MemberProjection, ...]:
+) -> tuple[_MemberIdentity, ...]:
     root_name = model.constant_prefix
     projections = [
-        _MemberProjection(
+        _MemberIdentity(
             name=root_name,
             expression=f"InterfaceRef({_string_literal(model.root.ref.interface_id)})",
             owner=f"{model.interface_identity} interface",
         )
     ]
-    _append_scope_member_projections(
+    _append_scope_member_identities(
         projections,
         model.root,
         scope_name=root_name,
@@ -936,8 +812,8 @@ def _interface_member_projections(
     return tuple(projections)
 
 
-def _append_scope_member_projections(
-    projections: list[_MemberProjection],
+def _append_scope_member_identities(
+    projections: list[_MemberIdentity],
     scope: DeclaredScopeLayout,
     *,
     scope_name: str,
@@ -946,7 +822,7 @@ def _append_scope_member_projections(
     for property_spec in scope.spec.properties:
         name = _join_constant_name(scope_name, property_spec.id)
         projections.append(
-            _MemberProjection(
+            _MemberIdentity(
                 name=name,
                 expression=(
                     f"{scope_name}.property({_string_literal(property_spec.id)})"
@@ -960,7 +836,7 @@ def _append_scope_member_projections(
             operation.ref.operation_id,
         )
         projections.append(
-            _MemberProjection(
+            _MemberIdentity(
                 name=operation_name,
                 expression=(
                     f"{scope_name}.operation("
@@ -975,7 +851,7 @@ def _append_scope_member_projections(
                 argument.ref.argument_id,
             )
             projections.append(
-                _MemberProjection(
+                _MemberIdentity(
                     name=argument_name,
                     expression=(
                         f"{operation_name}.argument("
@@ -995,7 +871,7 @@ def _append_scope_member_projections(
         if acquisition_name == scope_name:
             acquisition_name = f"{scope_name}_ACQUISITION"
         projections.append(
-            _MemberProjection(
+            _MemberIdentity(
                 name=acquisition_name,
                 expression=(
                     f"{scope_name}.acquisition("
@@ -1013,7 +889,7 @@ def _append_scope_member_projections(
                 f"{_join_constant_name(scope_name, result_field.python_name)}_RESULT"
             )
             projections.append(
-                _MemberProjection(
+                _MemberIdentity(
                     name=result_name,
                     expression=(
                         f"{acquisition_name}.result("
@@ -1027,8 +903,8 @@ def _append_scope_member_projections(
             )
 
 
-def _validate_member_projections(
-    projections: tuple[_MemberProjection, ...],
+def _validate_member_identities(
+    projections: tuple[_MemberIdentity, ...],
 ) -> None:
     owners_by_name: dict[str, list[str]] = {}
     for projection in projections:
@@ -1044,7 +920,7 @@ def _validate_member_projections(
     raise ClientGenerationError(f"generated catalog symbol collisions: {details}")
 
 
-def _render_member_projection(projection: _MemberProjection) -> str:
+def _render_member_identity(projection: _MemberIdentity) -> str:
     compact = f"{projection.name} = {projection.expression}\n"
     if len(compact.rstrip("\n")) <= 88:
         return compact
@@ -1110,26 +986,32 @@ def _render_interfaces_module(models: tuple[_CatalogInterfaceModel, ...]) -> str
     )
 
 
-def _unique_state_layouts(
+def _writable_property_layouts(
     models: tuple[_CatalogInterfaceModel, ...],
-) -> tuple[tuple[_CatalogInterfaceModel, DeclaredStateLayout], ...]:
+) -> tuple[tuple[_CatalogInterfaceModel, DeclaredPropertyLayout], ...]:
     return tuple(
-        (model, state)
+        (model, properties)
         for model in models
-        if (state := model.state) is not None
-        if _layout_has_writable_state(state)
+        if (properties := model.properties) is not None
+        if _layout_has_writable_properties(properties)
     )
 
 
-def _state_export_owners(
+def _projection_export_owners(
     models: tuple[_CatalogInterfaceModel, ...],
     *,
     public_types: tuple[object, ...],
-    state_layouts: tuple[tuple[_CatalogInterfaceModel, DeclaredStateLayout], ...],
+    projection_layouts: tuple[
+        tuple[_CatalogInterfaceModel, DeclaredPropertyLayout], ...
+    ],
 ) -> dict[str, str]:
     exports_by_name: dict[str, str] = {}
     for candidate in (
-        *(model.state.source_type for model in models if model.state is not None),
+        *(
+            model.properties.source_type
+            for model in models
+            if model.properties is not None
+        ),
         *public_types,
     ):
         module, name = _public_type_location(candidate)
@@ -1137,26 +1019,27 @@ def _state_export_owners(
         existing = exports_by_name.get(name)
         if existing is not None and existing != owner:
             raise ClientGenerationError(
-                f"generated state export collision {name}: {existing} vs {owner}"
+                f"generated projection export collision {name}: {existing} vs {owner}"
             )
         exports_by_name[name] = owner
 
-    for model, layout in state_layouts:
+    for model, layout in projection_layouts:
         owner = f"{layout.source_type.__module__}.{layout.source_type.__qualname__}"
-        names = _state_projection_names(
+        names = _member_projection_names(
             model.interface_type_name.removesuffix("Interface"),
         )
         for name in (names.patch, names.target, names.group_target):
             existing = exports_by_name.get(name)
             if existing is not None:
                 raise ClientGenerationError(
-                    f"generated state export collision {name}: {existing} vs {owner}"
+                    "generated projection export collision "
+                    f"{name}: {existing} vs {owner}"
                 )
             exports_by_name[name] = owner
     return exports_by_name
 
 
-def _render_states_module(
+def _render_projections_module(
     models: tuple[_CatalogInterfaceModel, ...],
     *,
     public_types: tuple[object, ...],
@@ -1166,36 +1049,40 @@ def _render_states_module(
     imports: dict[str, set[str]] = {}
     declarations: list[str] = []
     member_imports: set[str] = set()
-    state_layouts = _unique_state_layouts(models)
-    exports_by_name = _state_export_owners(
+    projection_layouts = _writable_property_layouts(models)
+    exports_by_name = _projection_export_owners(
         models,
         public_types=public_types,
-        state_layouts=state_layouts,
+        projection_layouts=projection_layouts,
     )
 
     for candidate in (
-        *(model.state.source_type for model in models if model.state is not None),
+        *(
+            model.properties.source_type
+            for model in models
+            if model.properties is not None
+        ),
         *public_types,
     ):
         module, name = _public_type_location(candidate)
         imports.setdefault(module, set()).add(f"{name} as {name}")
 
-    if state_layouts:
+    if projection_layouts:
         imports["scopecat.authoring"] = {"PerEntity", "Symbolic"}
         imports["scopecat.sdk.instruments.declarations"] = {
-            "StateProjectionField",
-            "StateProjectionLayout",
-            "instrument_state_projection",
-            "state_projection_field",
+            "MemberProjectionField",
+            "MemberProjectionLayout",
+            "instrument_member_projection",
+            "member_projection_field",
         }
 
-    for model, layout in state_layouts:
-        names = _state_projection_names(
+    for model, layout in projection_layouts:
+        names = _member_projection_names(
             model.interface_type_name.removesuffix("Interface"),
         )
-        layout_expression = _state_projection_layout_name(names)
+        layout_expression = _member_projection_layout_name(names)
         declarations.append(
-            _render_state_projection_layout(
+            _render_member_projection_layout(
                 layout_expression,
                 layout,
                 constant_prefix=model.constant_prefix,
@@ -1204,21 +1091,21 @@ def _render_states_module(
         )
         declarations.extend(
             (
-                _render_state_projection(
+                _render_member_projection(
                     names.patch,
                     layout,
                     layout_expression=layout_expression,
                     renderer=renderer,
                     projection="live",
                 ),
-                _render_state_projection(
+                _render_member_projection(
                     names.target,
                     layout,
                     layout_expression=layout_expression,
                     renderer=renderer,
                     projection="symbolic",
                 ),
-                _render_state_projection(
+                _render_member_projection(
                     names.group_target,
                     layout,
                     layout_expression=layout_expression,
@@ -1238,7 +1125,7 @@ def _render_states_module(
         declaration_block = declaration_block.removeprefix("\n")
     return (
         _generated_module_header(
-            "Typed state projections generated from instrument interfaces."
+            "Typed member projections generated from instrument interfaces."
         )
         + import_block
         + declaration_block
@@ -1247,1062 +1134,39 @@ def _render_states_module(
     )
 
 
-def _render_driver_states_module(
-    models: tuple[_CatalogInterfaceModel, ...],
-    *,
-    members_module: str,
-) -> str:
-    renderer = _AnnotationRenderer()
-    imports: dict[str, set[str]] = {
-        "collections.abc": {"Mapping"},
-        "pydantic": {"JsonValue"},
-        "scopecat.sdk.instruments": {
-            "DriverScalar",
-            "DriverStateObservation",
-            "DriverStatePatch",
-            "DriverStateReadRequest",
-            "DriverStateReadback",
-            "PropertyRef",
-        },
-        "typing": {"TypedDict", "cast"},
-    }
-    member_imports: set[str] = set()
-    declarations: list[str] = []
-    exports: list[str] = ["encode_driver_readback"]
-    encoder_owners: dict[str, str] = {}
-
-    for model in models:
-        patch_fields = _driver_patch_fields(model)
-        if patch_fields:
-            patch_name = _driver_patch_name(model)
-            decoder_name = _driver_patch_decoder_name(model)
-            exports.extend((patch_name, decoder_name))
-            rendered_fields = tuple(
-                (field.property_id, renderer.render(field.annotation))
-                for field in patch_fields
-            )
-            declarations.append(_render_driver_patch_type(patch_name, rendered_fields))
-            declarations.append(
-                _render_driver_patch_decoder(
-                    model,
-                    patch_name=patch_name,
-                    decoder_name=decoder_name,
-                    fields=rendered_fields,
-                    member_imports=member_imports,
-                )
-            )
-
-        if model.state is not None:
-            encoder_name = _state_encoder_name(
-                model.interface_type_name.removesuffix("Interface"),
-            )
-            owner = (
-                f"{model.interface_identity}:{_type_identity(model.state.source_type)}"
-            )
-            existing_owner = encoder_owners.get(encoder_name)
-            if existing_owner is not None:
-                if existing_owner != owner:
-                    raise ClientGenerationError(
-                        f"generated driver state encoder collision {encoder_name}: "
-                        f"{existing_owner} vs {owner}"
-                    )
-            else:
-                encoder_owners[encoder_name] = owner
-                exports.append(encoder_name)
-                source_type_name = renderer.reference(model.state.source_type)
-                declarations.append(
-                    _render_exact_state_encoder(
-                        model.state,
-                        constant_prefix=model.constant_prefix,
-                        encoder_name=encoder_name,
-                        source_type_name=source_type_name,
-                        member_imports=member_imports,
-                    )
-                )
-
-    imports[members_module] = member_imports
-    for module, names in renderer.imports.items():
-        imports.setdefault(module, set()).update(names)
-    return (
-        _generated_module_header(
-            "Typed driver state codecs generated from instrument interfaces."
-        )
-        + _render_driver_import_block(imports)
-        + "".join(declarations)
-        + _render_encode_driver_readback()
-        + "\n"
-        + _render_all(tuple(exports))
-    )
-
-
-def render_driver_handler_target(
-    target: DriverHandlerTarget,
-    *,
-    declaration_cache: _DeclarationCache | None = None,
-) -> str:
-    """Render typed ABC adapters for selected driver-facing surfaces."""
-
-    cache = declaration_cache or _DeclarationCache()
-    surfaces = tuple(
-        _driver_handler_surface(item, declaration_cache=cache)
-        for item in target.surfaces
-    )
-    if not surfaces:
-        raise ClientGenerationError("a driver handler module requires a surface")
-    return _render_driver_handlers_module(
-        surfaces,
-        members_module=target.members_module,
-        driver_states_module=target.driver_states_module,
-    )
-
-
-def _driver_handler_surface(
-    surface: GenerationSurface,
-    *,
-    declaration_cache: _DeclarationCache,
-) -> _DriverHandlerSurface:
-    if isinstance(surface, CompositeClientSurface):
-        interface_types = surface.interface_types
-        stem = surface.name.removesuffix("Interface")
-        flag_name = surface.driver_optional_flag
-        if flag_name is not None and len(interface_types) != 2:
-            raise ClientGenerationError(
-                "optional composite driver adapters require exactly two interfaces"
-            )
-    else:
-        interface_types = (surface.interface_type,)
-        stem = surface.interface_type.__name__.removesuffix("Interface")
-        flag_name = None
-    constituents = tuple(
-        _DriverHandlerConstituent(
-            interface_type=interface_type,
-            stem=(interface_stem := interface_type.__name__.removesuffix("Interface")),
-            constant_prefix=_snake_case(interface_stem).upper(),
-            field_name=_snake_case(interface_stem),
-            layout=declaration_cache.layout(interface_type),
-            optional=flag_name is not None and index > 0,
-        )
-        for index, interface_type in enumerate(interface_types)
-    )
-    return _DriverHandlerSurface(
-        stem=stem,
-        flag_name=flag_name,
-        constituents=constituents,
-    )
-
-
-def _render_driver_handlers_module(
-    surfaces: tuple[_DriverHandlerSurface, ...],
-    *,
-    members_module: str,
-    driver_states_module: str,
-) -> str:
-    renderer = _AnnotationRenderer()
-    operations = tuple(
-        operation
-        for surface in surfaces
-        for constituent in surface.constituents
-        for operation in constituent.layout.root.operations
-    )
-    has_operation_arguments = any(operation.arguments for operation in operations)
-    has_payload_arguments = any(
-        isinstance(argument.spec.value_type.atom, PayloadType)
-        for operation in operations
-        for argument in operation.arguments
-    )
-    imports: dict[str, set[str]] = {
-        "abc": {"ABC", "abstractmethod"},
-        "collections.abc": {"Mapping"},
-        "dataclasses": {"dataclass", "field"},
-        "pydantic": {"JsonValue"},
-        "scopecat.records.measurement": {"MeasurementAcquisitionValue"},
-        "scopecat.sdk.instruments": {
-            "AcquisitionResultRef",
-            "DriverAcquisition",
-            "DriverOperation",
-            "DriverOutcome",
-            "DriverReadback",
-            "DriverRejected",
-            "DriverScalar",
-            "DriverStateReadRequest",
-            "DriverStateReadback",
-            "DriverStatePatch",
-            "DriverSuccess",
-            "PropertyRef",
-        },
-        "scopecat.sdk.problems": {"ProblemPhase", "model_location", "problem"},
-    }
-    if has_operation_arguments:
-        imports.setdefault("typing", set()).add("cast")
-    if has_payload_arguments:
-        imports["scopecat.sdk.instruments"].add("DriverPayload")
-    member_imports: set[str] = set()
-    driver_state_imports: set[str] = {"encode_driver_readback"}
-    declarations: list[str] = []
-    exports: list[str] = []
-
-    acquisition_models: dict[object, _DriverAcquisitionModel] = {}
-    for surface in surfaces:
-        for constituent in surface.constituents:
-            for acquisition in constituent.layout.root.acquisitions:
-                if acquisition.ref in acquisition_models:
-                    continue
-                model = _driver_acquisition_model(
-                    constituent,
-                    acquisition,
-                    member_imports=member_imports,
-                )
-                acquisition_models[acquisition.ref] = model
-                declarations.append(_render_driver_acquisition_types(model))
-                exports.append(f"{model.type_stem}DriverReadback")
-
-    for surface in surfaces:
-        rendered, surface_exports = _render_driver_adapter(
-            surface,
-            renderer=renderer,
-            member_imports=member_imports,
-            driver_state_imports=driver_state_imports,
-            acquisition_models=acquisition_models,
-            imports=imports,
-        )
-        declarations.append(rendered)
-        exports.extend(surface_exports)
-
-    imports[members_module] = member_imports
-    imports[driver_states_module] = driver_state_imports
-    for module, names in renderer.imports.items():
-        imports.setdefault(module, set()).update(names)
-    return (
-        _generated_module_header(
-            "Typed driver adapters generated from instrument interfaces."
-        )
-        + _render_driver_import_block(imports)
-        + _render_driver_unsupported_helper()
-        + "".join(declarations)
-        + "\n"
-        + _render_all(tuple(dict.fromkeys(exports)))
-    )
-
-
-def _driver_acquisition_model(
-    constituent: _DriverHandlerConstituent,
-    acquisition: DeclaredAcquisition[object],
-    *,
-    member_imports: set[str],
-) -> _DriverAcquisitionModel:
-    scope_name = constituent.constant_prefix
-    member_name = _join_constant_name(scope_name, acquisition.method_name)
-    if member_name == scope_name:
-        member_name = f"{scope_name}_ACQUISITION"
-    member_imports.add(member_name)
-    fields: list[_DriverAcquisitionField] = []
-    seen_refs: set[object] = set()
-    for declared_field in acquisition.result_fields:
-        if declared_field.ref in seen_refs:
-            continue
-        seen_refs.add(declared_field.ref)
-        result_name = (
-            f"{_join_constant_name(scope_name, declared_field.python_name)}_RESULT"
-        )
-        member_imports.add(result_name)
-        fields.append(
-            _DriverAcquisitionField(
-                python_name=declared_field.python_name,
-                member_name=result_name,
-            )
-        )
-    type_stem = constituent.stem + _pascal_case(acquisition.method_name)
-    return _DriverAcquisitionModel(
-        hook_name=f"handle_{acquisition.method_name}",
-        member_name=member_name,
-        type_stem=type_stem,
-        fields=tuple(fields),
-        optional=constituent.optional,
-    )
-
-
-def _render_driver_acquisition_types(model: _DriverAcquisitionModel) -> str:
-    readback_type = f"{model.type_stem}DriverReadback"
-    values = "".join(
-        f"    {field.python_name}: MeasurementAcquisitionValue\n"
-        for field in model.fields
-    )
-    return (
-        "\n\n@dataclass(frozen=True, slots=True)\n"
-        f"class {readback_type}:\n"
-        f"{values}"
-        "    metadata: dict[str, JsonValue] = field(default_factory=dict)\n"
-    )
-
-
-def _render_driver_adapter(
-    surface: _DriverHandlerSurface,
-    *,
-    renderer: _AnnotationRenderer,
-    member_imports: set[str],
-    driver_state_imports: set[str],
-    acquisition_models: dict[object, _DriverAcquisitionModel],
-    imports: dict[str, set[str]],
-) -> tuple[str, tuple[str, ...]]:
-    class_name = f"{surface.stem}DriverAdapter"
-    snapshot_name = f"{surface.stem}DriverSnapshot"
-    patch_name = f"{surface.stem}DriverPatch"
-    snapshot_fields = _driver_snapshot_fields(
-        surface,
-        imports=imports,
-        driver_state_imports=driver_state_imports,
-    )
-    state_constituents = tuple(
-        constituent
-        for constituent in surface.constituents
-        if constituent.layout.state is not None
-        if _layout_has_writable_state(constituent.layout.state)
-    )
-    operation_models = tuple(
-        _driver_operation_model(
-            constituent,
-            operation,
-            member_imports=member_imports,
-        )
-        for constituent in surface.constituents
-        for operation in constituent.layout.root.operations
-    )
-    selected_acquisitions = tuple(
-        acquisition_models[acquisition.ref]
-        for constituent in surface.constituents
-        for acquisition in constituent.layout.root.acquisitions
-    )
-
-    declarations: list[str] = []
-    exports: list[str] = [class_name]
-    if snapshot_fields:
-        declarations.append(
-            "\n\n@dataclass(frozen=True, slots=True, kw_only=True)\n"
-            f"class {snapshot_name}:\n"
-            + "".join(
-                f"    {name}: {annotation}\n"
-                for name, annotation, _constituent in snapshot_fields
-            )
-            + "    metadata: dict[str, JsonValue] = field(default_factory=dict)\n"
-        )
-        exports.append(snapshot_name)
-    if len(state_constituents) > 1:
-        declarations.append(
-            "\n\n@dataclass(frozen=True, slots=True)\n"
-            f"class {patch_name}:\n"
-            + "".join(
-                f"    {constituent.field_name}: {constituent.stem}DriverPatch\n"
-                for constituent in state_constituents
-            )
-        )
-        exports.append(patch_name)
-
-    body: list[str] = [f"\n\nclass {class_name}(ABC):\n", "    instrument_id: str\n"]
-    if surface.flag_name is not None:
-        private_flag = f"_driver_{surface.flag_name}_enabled"
-        body.extend(
-            (
-                "\n",
-                f"    def __init__(self, *, {surface.flag_name}: bool) -> None:\n",
-                f"        self.{private_flag} = {surface.flag_name}\n",
-            )
-        )
-
-    if snapshot_fields:
-        read_hook = f"read_{_snake_case(surface.stem)}_state"
-        body.extend(
-            (
-                "\n",
-                "    @abstractmethod\n",
-                f"    def {read_hook}(self) -> {snapshot_name}: ...\n",
-            )
-        )
-    if state_constituents:
-        apply_hook = f"apply_{_snake_case(surface.stem)}_state"
-        hook_patch = (
-            patch_name
-            if len(state_constituents) > 1
-            else f"{state_constituents[0].stem}DriverPatch"
-        )
-        body.extend(
-            (
-                "\n",
-                "    @abstractmethod\n",
-                f"    def {apply_hook}(\n",
-                "        self,\n",
-                f"        patch: {hook_patch},\n",
-                "        /,\n",
-                "    ) -> DriverOutcome[None]: ...\n",
-            )
-        )
-    for operation in operation_models:
-        body.append(_render_driver_operation_hook(operation, renderer=renderer))
-    for acquisition in selected_acquisitions:
-        body.append(_render_driver_acquisition_hook(acquisition))
-
-    body.append(
-        _render_adapter_read_state(
-            surface,
-            snapshot_fields=snapshot_fields,
-        )
-    )
-    body.append(
-        _render_adapter_apply_state(
-            surface,
-            state_constituents=state_constituents,
-            patch_name=patch_name,
-        )
-    )
-    body.append(_render_adapter_invoke(surface, operation_models, renderer=renderer))
-    body.append(_render_adapter_collect(surface, selected_acquisitions))
-    declarations.append("".join(body))
-    return "".join(declarations), tuple(exports)
-
-
-def _driver_snapshot_fields(
-    surface: _DriverHandlerSurface,
-    *,
-    imports: dict[str, set[str]],
-    driver_state_imports: set[str],
-) -> tuple[tuple[str, str, _DriverHandlerConstituent], ...]:
-    selected: list[tuple[str, str, _DriverHandlerConstituent]] = []
-    is_composite = len(surface.constituents) > 1
-    for constituent in surface.constituents:
-        state = constituent.layout.state
-        if state is not None:
-            state_type = state.source_type
-            imports.setdefault(state_type.__module__, set()).add(state_type.__name__)
-            annotation = state_type.__name__
-            if constituent.optional:
-                annotation = f"{annotation} | None"
-            field_name = constituent.field_name if is_composite else "state"
-            selected.append((field_name, annotation, constituent))
-            if _layout_has_writable_state(state):
-                driver_state_imports.add(
-                    f"decode_{_snake_case(constituent.stem)}_patch"
-                )
-                driver_state_imports.add(f"{constituent.stem}DriverPatch")
-            driver_state_imports.add(_state_encoder_name(constituent.stem))
-    return tuple(selected)
-
-
-def _driver_operation_model(
-    constituent: _DriverHandlerConstituent,
-    operation: DeclaredOperation,
-    *,
-    member_imports: set[str],
-) -> _DriverOperationModel:
-    scope_name = constituent.constant_prefix
-    member_name = _join_constant_name(scope_name, operation.ref.operation_id)
-    member_imports.add(member_name)
-    return _DriverOperationModel(
-        declaration=operation,
-        hook_name=f"handle_{operation.method_name}",
-        member_name=member_name,
-        optional=constituent.optional,
-    )
-
-
-def _render_driver_unsupported_helper() -> str:
-    return (
-        "\n\ndef _unsupported_driver_request(\n"
-        "    instrument_id: str,\n"
-        "    kind: str,\n"
-        "    member_id: str,\n"
-        ") -> DriverRejected:\n"
-        "    return DriverRejected(\n"
-        "        problems=(\n"
-        "            problem(\n"
-        '                f"instrument_{kind}_not_implemented",\n'
-        '                f"{instrument_id} does not implement {member_id}",\n'
-        "                phase=ProblemPhase.EXECUTION,\n"
-        '                location=model_location(f"driver_{kind}", member_id),\n'
-        "            ),\n"
-        "        )\n"
-        "    )\n"
-    )
-
-
-def _render_driver_operation_hook(
-    model: _DriverOperationModel,
-    *,
-    renderer: _AnnotationRenderer,
-) -> str:
-    arguments = model.declaration.arguments
-    lines = [
-        "\n",
-        "    @abstractmethod\n",
-        f"    def {model.hook_name}(\n",
-        "        self,\n",
-    ]
-    previous_kind: str | None = None
-    for index, argument in enumerate(arguments):
-        kind = argument.parameter.kind.name
-        if kind == "KEYWORD_ONLY" and previous_kind != "KEYWORD_ONLY":
-            lines.append("        *,\n")
-        lines.append(
-            f"        {argument.python_name}: {renderer.render(argument.annotation)},\n"
-        )
-        if kind == "POSITIONAL_ONLY" and (
-            index == len(arguments) - 1
-            or arguments[index + 1].parameter.kind.name != "POSITIONAL_ONLY"
-        ):
-            lines.append("        /,\n")
-        previous_kind = kind
-    lines.append("    ) -> DriverOutcome[None]: ...\n")
-    return "".join(lines)
-
-
-def _render_driver_acquisition_hook(model: _DriverAcquisitionModel) -> str:
-    return (
-        "\n"
-        "    @abstractmethod\n"
-        f"    def {model.hook_name}(\n"
-        "        self,\n"
-        f"    ) -> DriverOutcome[{model.type_stem}DriverReadback]: ...\n"
-    )
-
-
-def _render_adapter_read_state(
-    surface: _DriverHandlerSurface,
-    *,
-    snapshot_fields: tuple[tuple[str, str, _DriverHandlerConstituent], ...],
-) -> str:
-    lines = [
-        "\n",
-        "    def read_state(\n",
-        "        self,\n",
-        "        request: DriverStateReadRequest,\n",
-        "    ) -> DriverStateReadback:\n",
-    ]
-    if not snapshot_fields:
-        lines.append("        return encode_driver_readback(request)\n")
-        return "".join(lines)
-
-    read_hook = f"read_{_snake_case(surface.stem)}_state"
-    lines.extend(
-        (
-            f"        snapshot = self.{read_hook}()\n",
-            "        encoded: list[Mapping[PropertyRef, DriverScalar]] = []\n",
-        )
-    )
-    for field_name, _annotation, constituent in snapshot_fields:
-        value = f"snapshot.{field_name}"
-        indent = "        "
-        if constituent.optional:
-            flag = cast("str", surface.flag_name)
-            lines.append(
-                f"        if self._driver_{flag}_enabled and {value} is not None:\n"
-            )
-            indent = "            "
-        lines.append(
-            f"{indent}encoded.append("
-            f"{_state_encoder_name(constituent.stem)}({value}))\n"
-        )
-    lines.append(
-        "        return encode_driver_readback("
-        "request, *encoded, metadata=snapshot.metadata)\n"
-    )
-    return "".join(lines)
-
-
-def _render_adapter_apply_state(
-    surface: _DriverHandlerSurface,
-    *,
-    state_constituents: tuple[_DriverHandlerConstituent, ...],
-    patch_name: str,
-) -> str:
-    lines = [
-        "\n",
-        "    def apply_state(\n",
-        "        self,\n",
-        "        request: DriverStatePatch,\n",
-        "    ) -> DriverOutcome[DriverStateReadback | None]:\n",
-    ]
-    if not state_constituents:
-        lines.extend(
-            (
-                "        del request\n",
-                (
-                    "        return _unsupported_driver_request("
-                    'self.instrument_id, "state", "state")\n'
-                ),
-            )
-        )
-        return "".join(lines)
-
-    decoded_names: list[str] = []
-    for constituent in state_constituents:
-        decoded_name = f"{constituent.field_name}_patch"
-        decoded_names.append(decoded_name)
-        lines.append(
-            f"        {decoded_name} = "
-            f"decode_{_snake_case(constituent.stem)}_patch(request)\n"
-        )
-        if constituent.optional:
-            flag = cast("str", surface.flag_name)
-            lines.extend(
-                (
-                    f"        if {decoded_name} and not self._driver_{flag}_enabled:\n",
-                    "            return _unsupported_driver_request(\n",
-                    (
-                        f'                self.instrument_id, "state", '
-                        f"{_string_literal(constituent.layout.compiled.ref.interface_id)}\n"
-                    ),
-                    "            )\n",
-                )
-            )
-
-    apply_hook = f"apply_{_snake_case(surface.stem)}_state"
-    if len(state_constituents) == 1:
-        lines.append(f"        outcome = self.{apply_hook}({decoded_names[0]})\n")
-    else:
-        lines.extend(
-            (
-                f"        outcome = self.{apply_hook}(\n",
-                f"            {patch_name}(\n",
-                *(
-                    f"                {constituent.field_name}={decoded_name},\n"
-                    for constituent, decoded_name in zip(
-                        state_constituents, decoded_names, strict=True
-                    )
-                ),
-                "            )\n",
-                "        )\n",
-            )
-        )
-    lines.extend(
-        (
-            "        if isinstance(outcome, DriverSuccess):\n",
-            "            return DriverSuccess(None, metadata=outcome.metadata)\n",
-            "        return outcome\n",
-        )
-    )
-    return "".join(lines)
-
-
-def _annotation_string_literal(annotation: str) -> str:
-    return repr(annotation) if '"' in annotation else _string_literal(annotation)
-
-
-def _render_adapter_invoke(
-    surface: _DriverHandlerSurface,
-    models: tuple[_DriverOperationModel, ...],
-    *,
-    renderer: _AnnotationRenderer,
-) -> str:
-    lines = [
-        "\n",
-        "    def invoke(\n",
-        "        self,\n",
-        "        request: DriverOperation,\n",
-        "    ) -> DriverOutcome[DriverStateReadback | None]:\n",
-    ]
-    for model in models:
-        condition = f"request.target == {model.member_name}"
-        if model.optional:
-            condition += f" and self._driver_{cast('str', surface.flag_name)}_enabled"
-        lines.extend(
-            (
-                f"        if {condition}:\n",
-                "            arguments = request.arguments\n",
-            )
-        )
-        call_arguments: list[str] = []
-        for argument in model.declaration.arguments:
-            annotation = renderer.render(argument.annotation)
-            value = f"arguments[{_string_literal(argument.ref.argument_id)}]"
-            if isinstance(argument.spec.value_type.atom, PayloadType):
-                value = f'cast("DriverPayload", {value}).value'
-            value = f"cast({_annotation_string_literal(annotation)}, {value})"
-            if argument.parameter.kind.name == "KEYWORD_ONLY":
-                call_arguments.append(
-                    f"                {argument.python_name}={value},\n"
-                )
-            else:
-                call_arguments.append(f"                {value},\n")
-        if call_arguments:
-            lines.extend(
-                (
-                    f"            outcome = self.{model.hook_name}(\n",
-                    *call_arguments,
-                    "            )\n",
-                )
-            )
-        else:
-            lines.append(f"            outcome = self.{model.hook_name}()\n")
-        lines.extend(
-            (
-                "            if isinstance(outcome, DriverSuccess):\n",
-                (
-                    "                return DriverSuccess(None, "
-                    "metadata=outcome.metadata)\n"
-                ),
-                "            return outcome\n",
-            )
-        )
-    lines.extend(
-        (
-            "        return _unsupported_driver_request(\n",
-            "            self.instrument_id,\n",
-            '            "operation",\n',
-            "            request.target.operation_id,\n",
-            "        )\n",
-        )
-    )
-    return "".join(lines)
-
-
-def _render_adapter_collect(
-    surface: _DriverHandlerSurface,
-    models: tuple[_DriverAcquisitionModel, ...],
-) -> str:
-    lines = [
-        "\n",
-        "    def collect(\n",
-        "        self,\n",
-        "        request: DriverAcquisition,\n",
-        "    ) -> DriverOutcome[DriverReadback]:\n",
-    ]
-    for model in models:
-        variable_suffix = model.hook_name.removeprefix("handle_")
-        outcome_name = f"outcome_{variable_suffix}"
-        readback_name = f"readback_{variable_suffix}"
-        values_name = f"values_{variable_suffix}"
-        condition = f"request.target == {model.member_name}"
-        if model.optional:
-            condition += f" and self._driver_{cast('str', surface.flag_name)}_enabled"
-        if len(f"        if {condition}:") <= 88:
-            lines.append(f"        if {condition}:\n")
-        elif model.optional:
-            flag = cast("str", surface.flag_name)
-            lines.extend(
-                (
-                    "        if (\n",
-                    f"            request.target == {model.member_name}\n",
-                    f"            and self._driver_{flag}_enabled\n",
-                    "        ):\n",
-                )
-            )
-        else:
-            lines.extend(
-                ("        if (\n", f"            {condition}\n", "        ):\n")
-            )
-        lines.append("            for result in request.results:\n")
-        if len(model.fields) == 1:
-            lines.append(
-                f"                if result not in ({model.fields[0].member_name},):\n"
-            )
-        else:
-            lines.extend(
-                (
-                    "                if result not in (\n",
-                    *(
-                        f"                    {field.member_name},\n"
-                        for field in model.fields
-                    ),
-                    "                ):\n",
-                )
-            )
-        lines.extend(
-            (
-                "                    return _unsupported_driver_request(\n",
-                "                        self.instrument_id,\n",
-                '                        "acquisition_result",\n',
-                "                        result.result_id,\n",
-                "                    )\n",
-                f"            {outcome_name} = self.{model.hook_name}()\n",
-            )
-        )
-        values_declaration = (
-            f"            {values_name}: dict[AcquisitionResultRef, "
-            "MeasurementAcquisitionValue] = {}\n"
-        )
-        if len(values_declaration.rstrip()) > 88:
-            values_declaration = (
-                f"            {values_name}: dict[\n"
-                "                AcquisitionResultRef, "
-                "MeasurementAcquisitionValue\n"
-                "            ] = {}\n"
-            )
-        lines.extend(
-            (
-                f"            if not isinstance({outcome_name}, DriverSuccess):\n",
-                f"                return {outcome_name}\n",
-                f"            {readback_name} = {outcome_name}.value\n",
-                values_declaration,
-            )
-        )
-        for field in model.fields:
-            lines.append(f"            if {field.member_name} in request.results:\n")
-            assignment = (
-                f"                {values_name}[{field.member_name}] = "
-                f"{readback_name}.{field.python_name}\n"
-            )
-            if len(assignment.rstrip("\n")) <= 88:
-                lines.append(assignment)
-            else:
-                lines.extend(
-                    (
-                        f"                {values_name}[{field.member_name}] = (\n",
-                        f"                    {readback_name}.{field.python_name}\n",
-                        "                )\n",
-                    )
-                )
-        lines.extend(
-            (
-                "            return DriverSuccess(\n",
-                "                DriverReadback(\n",
-                f"                    values={values_name},\n",
-                f"                    metadata={readback_name}.metadata,\n",
-                "                ),\n",
-                f"                metadata={outcome_name}.metadata,\n",
-                "            )\n",
-            )
-        )
-    lines.extend(
-        (
-            "        return _unsupported_driver_request(\n",
-            "            self.instrument_id,\n",
-            '            "acquisition",\n',
-            "            request.target.acquisition_id,\n",
-            "        )\n",
-        )
-    )
-    return "".join(lines)
-
-
-def _driver_patch_fields(
-    model: _CatalogInterfaceModel,
-) -> tuple[_DriverPatchField, ...]:
-    annotations_by_id: dict[str, object] = {}
-    if model.state is not None:
-        for declared_field in model.state.fields:
-            property_id = declared_field.property_id
-            existing = annotations_by_id.get(property_id)
-            if existing is not None and existing != declared_field.annotation:
-                raise ClientGenerationError(
-                    f"driver patch property {model.interface_identity}.{property_id} "
-                    "has inconsistent concrete annotations"
-                )
-            annotations_by_id[property_id] = declared_field.annotation
-
-    return tuple(
-        _DriverPatchField(property_id=property_spec.id, annotation=annotation)
-        for property_spec in model.root.spec.properties
-        if property_spec.access != "read_only"
-        if (annotation := annotations_by_id.get(property_spec.id)) is not None
-    )
-
-
-def _driver_patch_name(model: _CatalogInterfaceModel) -> str:
-    stem = model.interface_type_name.removesuffix("Interface")
-    return f"{stem}DriverPatch"
-
-
-def _driver_patch_decoder_name(model: _CatalogInterfaceModel) -> str:
-    stem = model.interface_type_name.removesuffix("Interface")
-    return f"decode_{_snake_case(stem)}_patch"
-
-
-def _render_driver_patch_type(
-    name: str,
-    fields: tuple[tuple[str, str], ...],
-) -> str:
-    if all(
-        field_name.isidentifier() and not keyword.iskeyword(field_name)
-        for field_name, _ in fields
-    ):
-        body = "".join(
-            _render_state_projection_field(field_name, annotation, required=True)
-            for field_name, annotation in fields
-        )
-        return f"\n\nclass {name}(TypedDict, total=False):\n{body}"
-    entries = "".join(
-        f"        {_string_literal(field_name)}: {annotation},\n"
-        for field_name, annotation in fields
-    )
-    return (
-        f"\n\n{name} = TypedDict(\n"
-        f"    {_string_literal(name)},\n"
-        "    {\n"
-        f"{entries}"
-        "    },\n"
-        "    total=False,\n"
-        ")\n"
-    )
-
-
-def _render_driver_patch_decoder(
-    model: _CatalogInterfaceModel,
-    *,
-    patch_name: str,
-    decoder_name: str,
-    fields: tuple[tuple[str, str], ...],
-    member_imports: set[str],
-) -> str:
-    body: list[str] = [
-        _render_driver_function_header(
-            decoder_name,
-            parameter="request",
-            parameter_type="DriverStatePatch",
-            return_type=patch_name,
-        ),
-        f"    decoded: {patch_name} = {{}}\n",
-        "    values = {entry.target: entry.value for entry in request.entries}\n",
-    ]
-    for property_id, annotation in fields:
-        member_name = _join_constant_name(model.constant_prefix, property_id)
-        member_imports.add(member_name)
-        annotation_literal = (
-            repr(annotation) if '"' in annotation else _string_literal(annotation)
-        )
-        body.extend(
-            (
-                f"    if {member_name} in values:\n",
-                f"        decoded[{_string_literal(property_id)}] = cast(\n",
-                f"            {annotation_literal},\n",
-                f"            values[{member_name}],\n",
-                "        )\n",
-            )
-        )
-    body.append("    return decoded\n")
-    return "\n\n" + "".join(body)
-
-
-def _state_encoder_name(
-    interface_stem: str,
-) -> str:
-    projection = _state_projection_names(interface_stem)
-    stem = _snake_case(projection.patch.removesuffix("Patch"))
-    if not stem.endswith("_state"):
-        stem = f"{stem}_state"
-    return f"encode_{stem}"
-
-
-def _render_exact_state_encoder(
-    layout: DeclaredStateLayout,
-    *,
-    constant_prefix: str,
-    encoder_name: str,
-    source_type_name: str,
-    member_imports: set[str],
-) -> str:
-    source_fields = {
-        item.name
-        for item in dataclass_fields(
-            layout.source_type  # pyright: ignore[reportArgumentType]
-        )
-    }
-    selected_fields = tuple(
-        declared_field
-        for declared_field in layout.fields
-        if declared_field.python_name in source_fields
-    )
-    entries: list[str] = []
-    for declared_field in selected_fields:
-        member_name = _member_constant_name(constant_prefix, declared_field.ref)
-        member_imports.add(member_name)
-        entries.append(f"        {member_name}: state.{declared_field.python_name},\n")
-    return (
-        "\n\n"
-        + _render_driver_function_header(
-            encoder_name,
-            parameter="state",
-            parameter_type=source_type_name,
-            return_type="dict[PropertyRef, DriverScalar]",
-        )
-        + "    return {\n"
-        + "".join(entries)
-        + "    }\n"
-    )
+def _member_projection_layout_name(names: _MemberProjectionNames) -> str:
+    stem = names.patch.removesuffix("Patch")
+    return f"_{_snake_case(stem).upper()}_MEMBER_LAYOUT"
 
 
 def _member_constant_name(constant_prefix: str, ref: PropertyRef) -> str:
     return _join_constant_name(constant_prefix, ref.property_id)
 
 
-def _render_driver_function_header(
+def _render_member_projection_layout(
     name: str,
-    *,
-    parameter: str,
-    parameter_type: str,
-    return_type: str,
-) -> str:
-    compact = f"def {name}({parameter}: {parameter_type}, /) -> {return_type}:\n"
-    if len(compact.rstrip("\n")) <= 88:
-        return compact
-    return f"def {name}(\n    {parameter}: {parameter_type}, /\n) -> {return_type}:\n"
-
-
-def _render_driver_import_block(imports: dict[str, set[str]]) -> str:
-    standard_modules = {"abc", "collections.abc", "dataclasses", "typing"}
-    local_modules = {
-        module
-        for module in imports
-        if module.startswith(("scopecat_instruments", "scopecat_testkit"))
-    }
-    third_party_modules = imports.keys() - standard_modules - local_modules
-    sections = tuple(
-        "".join(
-            _render_from_import(module, imports[module])
-            for module in sorted(modules & imports.keys())
-        )
-        for modules in (standard_modules, third_party_modules, local_modules)
-    )
-    return "\n".join(section for section in sections if section)
-
-
-def _render_encode_driver_readback() -> str:
-    return (
-        "\n\n"
-        "def encode_driver_readback(\n"
-        "    request: DriverStateReadRequest,\n"
-        "    *states: Mapping[PropertyRef, DriverScalar],\n"
-        "    metadata: dict[str, JsonValue] | None = None,\n"
-        ") -> DriverStateReadback:\n"
-        "    values: dict[PropertyRef, DriverScalar] = {}\n"
-        "    for state in states:\n"
-        "        values.update(state)\n"
-        "    return DriverStateReadback(\n"
-        "        observations=tuple(\n"
-        "            DriverStateObservation(target=target, value=value)\n"
-        "            for target, value in values.items()\n"
-        "            if target in request.targets\n"
-        "        ),\n"
-        "        metadata={} if metadata is None else metadata,\n"
-        "    )\n"
-    )
-
-
-def _state_projection_layout_name(names: _StateProjectionNames) -> str:
-    stem = names.patch.removesuffix("Patch")
-    return f"_{_snake_case(stem).upper()}_STATE_LAYOUT"
-
-
-def _render_state_projection_layout(
-    name: str,
-    layout: DeclaredStateLayout,
+    layout: DeclaredPropertyLayout,
     *,
     constant_prefix: str,
     member_imports: set[str],
 ) -> str:
     fields: list[str] = []
-    for field in _writable_state_fields(layout):
+    for field in _writable_properties(layout):
         member_name = _member_constant_name(constant_prefix, field.ref)
         member_imports.add(member_name)
         fields.append(
-            f"StateProjectionField({_string_literal(field.python_name)}, {member_name})"
+            "MemberProjectionField("
+            f"{_string_literal(field.python_name)}, {member_name})"
         )
 
     return (
-        f"\n\n{name} = StateProjectionLayout(\n"
-        + _render_state_layout_argument("fields", fields)
+        f"\n\n{name} = MemberProjectionLayout(\n"
+        + _render_layout_argument("fields", fields)
         + ")\n"
     )
 
 
-def _render_state_layout_argument(name: str, values: list[str]) -> str:
+def _render_layout_argument(name: str, values: list[str]) -> str:
     compact_tuple = f"({', '.join(values)}{',' if len(values) == 1 else ''})"
     compact = f"    {name}={compact_tuple},\n"
     if len(compact.rstrip("\n")) <= 88:
@@ -2314,16 +1178,16 @@ def _render_state_layout_argument(name: str, values: list[str]) -> str:
     )
 
 
-def _render_state_projection(
+def _render_member_projection(
     name: str,
-    layout: DeclaredStateLayout,
+    layout: DeclaredPropertyLayout,
     *,
     layout_expression: str,
     renderer: _AnnotationRenderer,
     projection: str,
 ) -> str:
     fields: list[str] = []
-    for declared_field in _writable_state_fields(layout):
+    for declared_field in _writable_properties(layout):
         concrete = renderer.render(declared_field.annotation)
         if projection == "live":
             annotation = concrete
@@ -2333,9 +1197,9 @@ def _render_state_projection(
             symbolic = _symbolic_annotation(concrete)
             annotation = f"{symbolic} | PerEntity[{symbolic}]"
         else:
-            raise AssertionError(f"unknown state projection {projection!r}")
+            raise AssertionError(f"unknown member projection {projection!r}")
         fields.append(
-            _render_state_projection_field(
+            _render_member_projection_field(
                 declared_field.python_name,
                 annotation,
                 required=False,
@@ -2343,24 +1207,24 @@ def _render_state_projection(
         )
     body = "".join(fields) or "    pass\n"
     return (
-        f"\n\n@instrument_state_projection({layout_expression})\nclass {name}:\n{body}"
+        f"\n\n@instrument_member_projection({layout_expression})\nclass {name}:\n{body}"
     )
 
 
-def _render_state_projection_field(
+def _render_member_projection_field(
     name: str,
     annotation: str,
     *,
     required: bool,
 ) -> str:
-    default = "" if required else " = state_projection_field()"
+    default = "" if required else " = member_projection_field()"
     compact = f"    {name}: {annotation}{default}\n"
     if len(compact.rstrip("\n")) <= 88:
         return compact
     if not required:
         wrapped_default = f"    {name}: {annotation} = (\n"
         if len(wrapped_default.rstrip("\n")) <= 88:
-            return wrapped_default + "        state_projection_field()\n    )\n"
+            return wrapped_default + "        member_projection_field()\n    )\n"
 
     branches = _split_top_level_union(annotation)
     if len(branches) == 1:
@@ -2369,7 +1233,7 @@ def _render_state_projection_field(
     lines.extend(f"        | {branch}\n" for branch in branches[1:])
     lines.append("    )")
     if not required:
-        lines.append(" = state_projection_field()")
+        lines.append(" = member_projection_field()")
     lines.append("\n")
     return "".join(lines)
 
@@ -2403,7 +1267,7 @@ def render_generation_target(
 
     return render_client_module(
         target.surfaces,
-        state_projection_module=target.state_projection_module,
+        member_projection_module=target.member_projection_module,
         declaration_cache=declaration_cache,
     )
 
@@ -2411,7 +1275,7 @@ def render_generation_target(
 def render_client_module(
     surfaces: tuple[GenerationSurface, ...],
     *,
-    state_projection_module: str,
+    member_projection_module: str,
     declaration_cache: _DeclarationCache | None = None,
 ) -> str:
     """Render an independently importable module for selected declarations."""
@@ -2421,7 +1285,7 @@ def render_client_module(
     models = _client_models(
         surfaces,
         renderer=renderer,
-        state_projection_module=state_projection_module,
+        member_projection_module=member_projection_module,
         declaration_cache=cache,
     )
 
@@ -2434,8 +1298,7 @@ def render_client_module(
     for model in models:
         sections.extend(
             (
-                _render_client_state_type(model),
-                _render_state_alias(model),
+                _render_projection_aliases(model),
                 _render_result_types(model, rendered=rendered_result_types),
                 _render_live_scopes(model),
                 _render_symbolic_scopes(model),
@@ -2447,42 +1310,18 @@ def render_client_module(
     return "".join(sections)
 
 
-def _render_client_state_type(model: _InterfaceModel) -> str:
-    if not model.generates_composite_state:
-        return ""
-    state_type_name = model.state_type_name
-    if state_type_name is None:
-        raise AssertionError("composite state requires a type name")
-    fields = tuple(
-        (_snake_case(constituent.interface_stem), constituent.state_type_name)
-        for constituent in model.state_constituents
-    )
-    if any(state_type is None for _, state_type in fields):
-        raise AssertionError("composite state constituent requires a type name")
-    field_names = tuple(name for name, _ in fields)
-    if len(field_names) != len(set(field_names)):
-        raise ClientGenerationError(
-            f"generated composite {model.interface_identity} has colliding state fields"
-        )
-    return (
-        "\n\n@dataclass(frozen=True, slots=True)\n"
-        f"class {state_type_name}:\n"
-        + "".join(f"    {name}: {state_type}\n" for name, state_type in fields)
-    )
-
-
 def _client_models(
     surfaces: tuple[GenerationSurface, ...],
     *,
     renderer: _AnnotationRenderer,
-    state_projection_module: str,
+    member_projection_module: str,
     declaration_cache: _DeclarationCache,
 ) -> tuple[_InterfaceModel, ...]:
     models = tuple(
         _generation_model(
             surface,
             renderer=renderer,
-            state_projection_module=state_projection_module,
+            member_projection_module=member_projection_module,
             declaration_cache=declaration_cache,
         )
         for surface in surfaces
@@ -2504,18 +1343,18 @@ def render_package_exports_target(
     client_models = _client_models(
         target.client_target.surfaces,
         renderer=_AnnotationRenderer(),
-        state_projection_module=target.client_target.state_projection_module,
+        member_projection_module=target.client_target.member_projection_module,
         declaration_cache=cache,
     )
     catalog_models = _catalog_models(
         target.catalog_target.interface_types,
         declaration_cache=cache,
     )
-    state_layouts = _unique_state_layouts(catalog_models)
-    state_exports = _state_export_owners(
+    projection_layouts = _writable_property_layouts(catalog_models)
+    state_exports = _projection_export_owners(
         catalog_models,
         public_types=target.catalog_target.public_types,
-        state_layouts=state_layouts,
+        projection_layouts=projection_layouts,
     )
 
     routes: dict[str, str] = {}
@@ -2524,7 +1363,7 @@ def render_package_exports_target(
     for name in _client_export_names(client_models):
         _register_package_export(routes, name=name, module=target.client_module)
     for name in state_exports:
-        _register_package_export(routes, name=name, module=target.states_module)
+        _register_package_export(routes, name=name, module=target.projections_module)
     return _render_package_exports_module(routes)
 
 
@@ -2601,20 +1440,20 @@ def _generation_model(
     surface: GenerationSurface,
     *,
     renderer: _AnnotationRenderer,
-    state_projection_module: str,
+    member_projection_module: str,
     declaration_cache: _DeclarationCache,
 ) -> _InterfaceModel:
     if isinstance(surface, CompositeClientSurface):
         return _composite_model(
             surface,
             renderer=renderer,
-            state_projection_module=state_projection_module,
+            member_projection_module=member_projection_module,
             declaration_cache=declaration_cache,
         )
     return _interface_model(
         surface,
         renderer=renderer,
-        state_projection_module=state_projection_module,
+        member_projection_module=member_projection_module,
         generate_family=True,
         declaration_cache=declaration_cache,
     )
@@ -2624,7 +1463,7 @@ def _interface_model(
     surface: ClientSurface,
     *,
     renderer: _AnnotationRenderer,
-    state_projection_module: str,
+    member_projection_module: str,
     generate_family: bool,
     declaration_cache: _DeclarationCache,
 ) -> _InterfaceModel:
@@ -2644,11 +1483,11 @@ def _interface_model(
         overrides=overrides,
         renderer=renderer,
     )
-    live_states, symbolic_states, group_states = _register_state_projection_types(
+    live_states, symbolic_states, group_states = _register_member_projection_types(
         renderer,
-        layout.state,
+        layout.properties,
         interface_stem=stem,
-        state_projection_module=state_projection_module,
+        member_projection_module=member_projection_module,
     )
     return _InterfaceModel(
         interface_identity=(
@@ -2657,11 +1496,11 @@ def _interface_model(
         stem=stem,
         factory_name=overrides.get("factory", _snake_case(stem)),
         generate_family=generate_family,
-        live_state_type_names=live_states,
-        symbolic_state_type_names=symbolic_states,
-        group_state_type_names=group_states,
-        keyword_state=_state_keyword_model(
-            layout.state,
+        live_projection_type_names=live_states,
+        symbolic_projection_type_names=symbolic_states,
+        group_projection_type_names=group_states,
+        keyword_projection=_projection_keyword_model(
+            layout.properties,
             interface_stem=stem,
             renderer=renderer,
         ),
@@ -2674,7 +1513,7 @@ def _composite_model(
     surface: CompositeClientSurface,
     *,
     renderer: _AnnotationRenderer,
-    state_projection_module: str,
+    member_projection_module: str,
     declaration_cache: _DeclarationCache,
 ) -> _InterfaceModel:
     composite_identity = "composite:" + surface.name
@@ -2732,11 +1571,11 @@ def _composite_model(
     symbolic_states: list[str] = []
     group_states: list[str] = []
     for constituent in constituents:
-        registered = _register_state_projection_types(
+        registered = _register_member_projection_types(
             renderer,
-            constituent.layout.state,
+            constituent.layout.properties,
             interface_stem=constituent.interface_stem,
-            state_projection_module=state_projection_module,
+            member_projection_module=member_projection_module,
         )
         live_states.extend(registered[0])
         symbolic_states.extend(registered[1])
@@ -2746,10 +1585,10 @@ def _composite_model(
         stem=stem,
         factory_name=_snake_case(stem),
         generate_family=True,
-        live_state_type_names=tuple(live_states),
-        symbolic_state_type_names=tuple(symbolic_states),
-        group_state_type_names=tuple(group_states),
-        keyword_state=None,
+        live_projection_type_names=tuple(live_states),
+        symbolic_projection_type_names=tuple(symbolic_states),
+        group_projection_type_names=tuple(group_states),
+        keyword_projection=None,
         constituents=constituents,
         root=root,
     )
@@ -2776,12 +1615,7 @@ def _constituent_model(
             ),
             writable=field.spec.access == "read_write",
         )
-        for field in (() if layout.state is None else layout.state.fields)
-    )
-    state_type_name = (
-        renderer.reference(layout.state.source_type)
-        if layout.state is not None
-        else None
+        for field in (() if layout.properties is None else layout.properties.fields)
     )
     return _InterfaceConstituentModel(
         interface_identity=f"{interface_type.__module__}.{interface_type.__qualname__}",
@@ -2789,7 +1623,6 @@ def _constituent_model(
         interface_stem=interface_stem,
         constant_prefix=_snake_case(interface_stem).upper(),
         layout=layout,
-        state_type_name=state_type_name,
         members=members,
     )
 
@@ -2807,11 +1640,6 @@ def _validate_generated_symbols(
     for constituent in _unique_constituents(models):
         declaration = constituent.interface_identity
         register(constituent.ref_name, f"{declaration} interface ref")
-        if constituent.state_schema_name is not None:
-            register(
-                constituent.state_schema_name,
-                f"{declaration} state schema",
-            )
         for operation in constituent.layout.root.operations:
             register(
                 _descriptor_name(
@@ -2833,18 +1661,18 @@ def _validate_generated_symbols(
         declaration = model.interface_identity
         for type_names, alias_name, projection in (
             (
-                model.live_state_type_names,
-                model.live_state_alias_name,
+                model.live_projection_type_names,
+                model.live_projection_alias_name,
                 "live patch",
             ),
             (
-                model.symbolic_state_type_names,
-                model.symbolic_state_alias_name,
+                model.symbolic_projection_type_names,
+                model.symbolic_projection_alias_name,
                 "symbolic target",
             ),
             (
-                model.group_state_type_names,
-                model.group_state_alias_name,
+                model.group_projection_type_names,
+                model.group_projection_alias_name,
                 "group target",
             ),
         ):
@@ -2852,11 +1680,6 @@ def _validate_generated_symbols(
                 register(alias_name, f"{declaration} {projection} union")
         if model.generate_family:
             register(model.factory_name, f"{declaration} factory")
-        if model.generates_composite_state:
-            state_type_name = model.state_type_name
-            if state_type_name is None:
-                raise AssertionError("composite state requires a type name")
-            register(state_type_name, f"{declaration} composite state")
         scope = model.root
         register(scope.live_client_name, f"{declaration} live client")
         register(scope.symbolic_client_name, f"{declaration} symbolic client")
@@ -3001,10 +1824,13 @@ def _render_header(
     scopes = tuple(model.root for model in models)
     has_operations = any(scope.operations for scope in scopes)
     has_acquisitions = any(scope.acquisitions for scope in scopes)
-    has_state_schemas = any(model.state_type_name for model in models)
-    has_state = any(model.live_state_type_name is not None for model in models)
-    has_keyword_state = any(model.keyword_state is not None for model in models)
-    has_plain_root = any(model.live_state_type_name is None for model in models)
+    has_projections = any(
+        model.live_projection_type_name is not None for model in models
+    )
+    has_keyword_projection = any(
+        model.keyword_projection is not None for model in models
+    )
+    has_plain_root = any(model.live_projection_type_name is None for model in models)
     has_member_clients = any(
         constituent.members for model in models for constituent in model.constituents
     )
@@ -3032,22 +1858,22 @@ def _render_header(
     if has_member_clients:
         imports.setdefault("scopecat_instruments._client_runtime", set()).update(
             {
-                "ClientStateField",
+                "ClientMemberDeclaration",
                 "InstrumentMemberClient",
                 "client_property_value_type",
             }
         )
-    if has_state:
+    if has_projections:
         imports.setdefault("scopecat_instruments._client_runtime", set()).add(
-            "DeclaredStateClientBase"
+            "ProjectedMemberClientBase"
         )
         imports["scopecat_instruments._symbolic_runtime"].update(
             {
-                "DeclaredStateSymbolicClientBase",
-                "DeclaredStateSymbolicGroupBase",
+                "ProjectedMemberSymbolicClientBase",
+                "ProjectedMemberSymbolicGroupBase",
             }
         )
-    if has_keyword_state:
+    if has_keyword_projection:
         imports.setdefault("typing", set()).update({"overload", "override"})
         imports["scopecat.authoring"].update({"PerEntity", "Symbolic"})
         imports.setdefault("scopecat.sdk.instruments", set()).add("ApplyReceipt")
@@ -3077,16 +1903,6 @@ def _render_header(
         )
     if has_operations:
         imports.setdefault("scopecat.sdk.instruments", set()).add("InvokeReceipt")
-    if any(model.generates_composite_state for model in models):
-        imports.setdefault("dataclasses", set()).add("dataclass")
-    if has_state_schemas:
-        imports.setdefault("scopecat_instruments._client_runtime", set()).update(
-            {
-                "ClientStateField",
-                "ClientStateSchema",
-                "client_property_value_type",
-            }
-        )
     for module, names in renderer.imports.items():
         imports.setdefault(module, set()).update(names)
 
@@ -3194,13 +2010,16 @@ def _import_name_key(name: str) -> tuple[int | str, ...]:
     return (2, *name.casefold().split("_"))
 
 
-def _render_state_alias(model: _InterfaceModel) -> str:
+def _render_projection_aliases(model: _InterfaceModel) -> str:
     return "".join(
         _render_type_union(alias_name, type_names)
         for alias_name, type_names in (
-            (model.live_state_alias_name, model.live_state_type_names),
-            (model.symbolic_state_alias_name, model.symbolic_state_type_names),
-            (model.group_state_alias_name, model.group_state_type_names),
+            (model.live_projection_alias_name, model.live_projection_type_names),
+            (
+                model.symbolic_projection_alias_name,
+                model.symbolic_projection_type_names,
+            ),
+            (model.group_projection_alias_name, model.group_projection_type_names),
         )
         if len(type_names) > 1
     )
@@ -3242,18 +2061,6 @@ def _render_constituent_descriptors(
     constituent: _InterfaceConstituentModel,
 ) -> str:
     sections: list[str] = []
-    if constituent.state_type_name is not None:
-        schema_name = constituent.state_schema_name
-        state = constituent.layout.state
-        if schema_name is None or state is None:
-            raise AssertionError("client state requires one flat schema")
-        sections.append(
-            _render_client_state_schema(
-                schema_name,
-                constituent.state_type_name,
-                state,
-            )
-        )
     _append_client_scope_descriptors(
         sections,
         constituent.layout.root,
@@ -3261,42 +2068,6 @@ def _render_constituent_descriptors(
         constant_prefix=constituent.constant_prefix,
     )
     return "".join(sections)
-
-
-def _render_client_state_schema(
-    name: str,
-    state_type_name: str,
-    layout: DeclaredStateLayout,
-) -> str:
-    fields: list[str] = []
-    for field in layout.fields:
-        value_type_json = _json_model_field(
-            field.spec.model_dump_json(),
-            "value_type",
-        )
-        ref_argument = _render_client_ref_argument(
-            _property_ref_expression(field.ref),
-            indent=12,
-        )
-        value_type_argument = _render_client_value_type_argument(
-            value_type_json,
-            indent=12,
-        )
-        fields.append(
-            "        ClientStateField(\n"
-            f"            {_string_literal(field.python_name)},\n"
-            f"{ref_argument}"
-            f"{value_type_argument}"
-            "        ),\n"
-        )
-    return (
-        f"\n{name} = ClientStateSchema(\n"
-        f"    {state_type_name},\n"
-        "    fields=(\n"
-        f"{''.join(fields)}"
-        "    ),\n"
-        ")\n"
-    )
 
 
 def _append_client_scope_descriptors(
@@ -3495,7 +2266,7 @@ def _render_keyword_projection_method(
     positional_name: str,
     positional_annotation: str,
     projection_type_name: str,
-    fields: tuple[_StateKeywordFieldModel, ...],
+    fields: tuple[_ProjectionKeywordFieldModel, ...],
     field_annotation: str,
     return_annotation: str,
     helper_name: str,
@@ -3585,7 +2356,7 @@ def _render_client_value_type_argument(value_type_json: str, *, indent: int) -> 
 
 
 def _render_optional_keyword_parameter(
-    field: _StateKeywordFieldModel,
+    field: _ProjectionKeywordFieldModel,
     *,
     annotation: str,
 ) -> str:
@@ -3606,17 +2377,17 @@ def _render_live_scopes(model: _InterfaceModel) -> str:
 def _render_live_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
     base = (
         "InstrumentClientBase"
-        if model.live_state_type_name is None
-        else f"DeclaredStateClientBase[{model.live_state_type_name}]"
+        if model.live_projection_type_name is None
+        else f"ProjectedMemberClientBase[{model.live_projection_type_name}]"
     )
     body: list[str] = []
     for constituent in model.constituents:
         for member in constituent.members:
             _append_member_separator(body)
             body.append(_render_live_member(member))
-    if model.keyword_state is not None:
+    if model.keyword_projection is not None:
         _append_member_separator(body)
-        state = model.keyword_state
+        state = model.keyword_projection
         body.append(
             _render_keyword_projection_method(
                 method_name="apply",
@@ -3630,9 +2401,6 @@ def _render_live_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
                 returns=True,
             )
         )
-    if model.state_type_name is not None:
-        _append_member_separator(body)
-        body.append(_render_client_state_methods(model))
     for operation in scope.operations:
         _append_member_separator(body)
         body.append(_render_live_operation(operation))
@@ -3663,7 +2431,7 @@ def _render_live_member(member: _MemberClientModel) -> str:
         "    @property\n"
         f"{signature}"
         "        return self._member(\n"
-        "            ClientStateField(\n"
+        "            ClientMemberDeclaration(\n"
         f"                {_string_literal(member.python_name)},\n"
         f"                {member.ref_name}.property("
         f"{_string_literal(member.property_id)}),\n"
@@ -3671,43 +2439,6 @@ def _render_live_member(member: _MemberClientModel) -> str:
         "            ),\n"
         f"            writable={member.writable!r},\n"
         "        )\n"
-    )
-
-
-def _render_client_state_methods(model: _InterfaceModel) -> str:
-    state_type_name = model.state_type_name
-    if state_type_name is None:
-        raise AssertionError("client state methods require a state type")
-
-    def render_method(method_name: str, session_method: str) -> str:
-        lines = [
-            f"    def {method_name}(self) -> {state_type_name}:\n",
-            f"        snapshot = self._session.{session_method}(self.instrument_id)\n",
-        ]
-        if not model.generates_composite_state:
-            [constituent] = model.state_constituents
-            schema_name = constituent.state_schema_name
-            if schema_name is None:
-                raise AssertionError("client state requires a schema")
-            lines.append(f"        return {schema_name}.decode(snapshot)\n")
-            return "".join(lines)
-
-        lines.append(f"        return {state_type_name}(\n")
-        for constituent in model.state_constituents:
-            schema_name = constituent.state_schema_name
-            if schema_name is None:
-                raise AssertionError("composite state requires constituent schemas")
-            lines.append(
-                f"            {_snake_case(constituent.interface_stem)}="
-                f"{schema_name}.decode(snapshot),\n"
-            )
-        lines.append("        )\n")
-        return "".join(lines)
-
-    return (
-        render_method("state", "observed_state")
-        + "\n"
-        + render_method("refresh_state", "read_state")
     )
 
 
@@ -3742,8 +2473,8 @@ def _render_symbolic_scopes(model: _InterfaceModel) -> str:
 def _render_symbolic_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
     base = (
         "SymbolicInstrumentClientBase"
-        if model.symbolic_state_type_name is None
-        else f"DeclaredStateSymbolicClientBase[{model.symbolic_state_type_name}]"
+        if model.symbolic_projection_type_name is None
+        else f"ProjectedMemberSymbolicClientBase[{model.symbolic_projection_type_name}]"
     )
     body: list[str] = ["    __slots__ = ()\n"]
     body.extend(
@@ -3768,9 +2499,9 @@ def _render_symbolic_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
             "        )\n",
         )
     )
-    if model.keyword_state is not None:
+    if model.keyword_projection is not None:
         _append_member_separator(body)
-        state = model.keyword_state
+        state = model.keyword_projection
         body.append(
             _render_keyword_projection_method(
                 method_name="ensure",
@@ -3837,10 +2568,10 @@ def _render_symbolic_group_scope(
 ) -> str:
     base = (
         f"SymbolicInstrumentGroupBase[{scope.symbolic_client_name}]"
-        if model.symbolic_state_type_name is None
-        else "DeclaredStateSymbolicGroupBase["
-        f"{model.symbolic_state_type_name}, "
-        f"{model.group_state_type_name}, {scope.symbolic_client_name}]"
+        if model.symbolic_projection_type_name is None
+        else "ProjectedMemberSymbolicGroupBase["
+        f"{model.symbolic_projection_type_name}, "
+        f"{model.group_projection_type_name}, {scope.symbolic_client_name}]"
     )
     body: list[str] = ["    __slots__ = ()\n"]
     body.extend(
@@ -3865,9 +2596,9 @@ def _render_symbolic_group_scope(
             "        )\n",
         )
     )
-    if model.keyword_state is not None:
+    if model.keyword_projection is not None:
         _append_member_separator(body)
-        state = model.keyword_state
+        state = model.keyword_projection
         body.append(
             _render_keyword_projection_method(
                 method_name="ensure",
@@ -4075,11 +2806,6 @@ def _client_export_names(
     for model in models:
         if model.generate_family:
             exports.add(model.factory_name)
-        if model.generates_composite_state:
-            state_type_name = model.state_type_name
-            if state_type_name is None:
-                raise AssertionError("composite state requires a type name")
-            exports.add(state_type_name)
         scope = model.root
         exports.update(
             {
@@ -4185,10 +2911,6 @@ def _append_member_separator(body: list[str]) -> None:
         body.append("\n")
 
 
-def _pascal_case(name: str) -> str:
-    return "".join(part.capitalize() for part in re.split(r"[^a-zA-Z0-9]+|_", name))
-
-
 def _snake_case(name: str) -> str:
     words = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
     return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", words).lower()
@@ -4222,16 +2944,6 @@ def main(argv: list[str] | None = None) -> None:
                 target,
                 declaration_cache=declaration_cache,
             )
-        ),
-        *(
-            (
-                target.output,
-                render_driver_handler_target(
-                    target,
-                    declaration_cache=declaration_cache,
-                ),
-            )
-            for target in _driver_handler_targets()
         ),
         *(
             (

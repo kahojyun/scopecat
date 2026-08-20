@@ -3,11 +3,13 @@ from __future__ import annotations
 from typing import Protocol
 
 from scopecat.sdk.instruments import (
+    DevicePropertyRef,
     DriverOperation,
     DriverStatePatch,
     DriverStateReadRequest,
     DriverSuccess,
     ObjectInstrumentDriver,
+    device_member,
     instrument_driver,
 )
 from scopecat.sdk.instruments.declarations import (
@@ -41,11 +43,14 @@ class OOSource(Protocol):
     "1",
     interfaces=(OOSource,),
     label="OO source",
+    device_schema_id="test.oo_source.device/v1",
+    device_label="OO source implementation state",
 )
 class OOSourceDriver(ObjectInstrumentDriver):
     def __init__(self) -> None:
         self.instrument_id = "source"
         self._level = 3
+        self._front_panel_locked = False
         self.zero_count = 0
 
     @property
@@ -59,6 +64,15 @@ class OOSourceDriver(ObjectInstrumentDriver):
     @property
     def serial_number(self) -> str:
         return "SN-1"
+
+    @property
+    @device_member(description="Local front-panel lock state")
+    def front_panel_locked(self) -> bool:
+        return self._front_panel_locked
+
+    @front_panel_locked.setter
+    def front_panel_locked(self, value: bool) -> None:
+        self._front_panel_locked = value
 
     def zero(self) -> None:
         self._level = 0
@@ -95,3 +109,25 @@ def test_object_driver_adapts_properties_and_methods() -> None:
     assert invoked == DriverSuccess(None)
     assert driver.level == 0
     assert driver.zero_count == 1
+
+
+def test_object_driver_captures_and_restores_device_owned_properties() -> None:
+    driver = OOSourceDriver()
+    target = DevicePropertyRef(
+        "test.oo_source.device/v1",
+        (),
+        "front_panel_locked",
+    )
+
+    description = driver.describe()
+    assert description.device_state is not None
+    assert description.device_state.id == "test.oo_source.device/v1"
+    assert description.device_state.members[0].property.restore is True
+    assert driver.read_state(DriverStateReadRequest(frozenset({target}))).values == {
+        target: False
+    }
+
+    assert driver.apply_state(DriverStatePatch(values={target: True})) == DriverSuccess(
+        None
+    )
+    assert driver.front_panel_locked is True

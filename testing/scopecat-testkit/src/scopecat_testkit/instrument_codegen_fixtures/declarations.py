@@ -11,8 +11,7 @@ from scopecat.sdk.instruments.declarations import (
     axis,
     instrument_interface,
     instrument_result,
-    instrument_state,
-    member_field,
+    member,
     operation,
     result_field,
 )
@@ -34,30 +33,38 @@ class ScalarOperationInterface(Protocol):
     ) -> None: ...
 
 
-@instrument_state
-class CatalogProjectionState:
-    enabled: bool = member_field()
-    status: str = member_field(access="read_only")
+@instrument_interface("test.generated_catalog_projection/v1")
+class CatalogProjectionInterface(Protocol):
+    @property
+    @member()
+    def enabled(self) -> bool: ...
+
+    @enabled.setter
+    def enabled(self, value: bool) -> None: ...
+
+    @property
+    @member()
+    def status(self) -> str: ...
 
 
-@instrument_interface(
-    "test.generated_catalog_projection/v1",
-    state=CatalogProjectionState,
-)
-class CatalogProjectionInterface(Protocol): ...
+@instrument_interface("test.generated_shared_property_first/v1")
+class SharedPropertyFirstInterface(Protocol):
+    @property
+    @member()
+    def enabled(self) -> bool: ...
+
+    @enabled.setter
+    def enabled(self, value: bool) -> None: ...
 
 
-@instrument_state
-class SharedFixtureState:
-    enabled: bool = member_field()
+@instrument_interface("test.generated_shared_property_second/v1")
+class SharedPropertySecondInterface(Protocol):
+    @property
+    @member()
+    def enabled(self) -> bool: ...
 
-
-@instrument_interface("test.generated_shared_state_first/v1", state=SharedFixtureState)
-class SharedStateFirstInterface(Protocol): ...
-
-
-@instrument_interface("test.generated_shared_state_second/v1", state=SharedFixtureState)
-class SharedStateSecondInterface(Protocol): ...
+    @enabled.setter
+    def enabled(self, value: bool) -> None: ...
 
 
 @instrument_interface("test.generated_composite_peer/v1")
@@ -112,22 +119,21 @@ class DriverFixedAcquisitionInterface(Protocol):
     def acquire(self) -> DriverFixedResults: ...
 
 
-@instrument_state
-class DriverSourceState:
-    enabled: bool = member_field()
-    level: int = member_field()
+@instrument_interface("test.generated_driver_source/v1")
+class DriverSourceInterface(Protocol):
+    @property
+    @member()
+    def enabled(self) -> bool: ...
 
+    @enabled.setter
+    def enabled(self, value: bool) -> None: ...
 
-@instrument_interface(
-    "test.generated_driver_source/v1",
-    state=DriverSourceState,
-)
-class DriverSourceInterface(Protocol): ...
+    @property
+    @member()
+    def level(self) -> int: ...
 
-
-@instrument_state
-class DriverMonitorState:
-    enabled: bool = member_field()
+    @level.setter
+    def level(self, value: int) -> None: ...
 
 
 @instrument_result
@@ -136,11 +142,15 @@ class DriverMonitorResults:
     right: float = result_field(id="right_value", dtype="float64")
 
 
-@instrument_interface(
-    "test.generated_driver_monitor/v1",
-    state=DriverMonitorState,
-)
+@instrument_interface("test.generated_driver_monitor/v1")
 class DriverMonitorInterface(Protocol):
+    @property
+    @member()
+    def enabled(self) -> bool: ...
+
+    @enabled.setter
+    def enabled(self, value: bool) -> None: ...
+
     @acquisition()
     def monitor(self) -> DriverMonitorResults: ...
 
@@ -183,7 +193,6 @@ class EffectIdCollisionInterface(Protocol):
 
 __all__ = [
     "CatalogProjectionInterface",
-    "CatalogProjectionState",
     "CompositeMethodLeftInterface",
     "CompositeMethodPeerInterface",
     "CompositeMethodRightInterface",
@@ -192,14 +201,11 @@ __all__ = [
     "DriverFixedResults",
     "DriverMonitorInterface",
     "DriverMonitorResults",
-    "DriverMonitorState",
     "DriverSourceInterface",
-    "DriverSourceState",
     "EffectIdCollisionInterface",
     "LiteralOperationInterface",
     "PayloadOperationInterface",
     "ScalarOperationInterface",
-    "SharedFixtureState",
-    "SharedStateFirstInterface",
-    "SharedStateSecondInterface",
+    "SharedPropertyFirstInterface",
+    "SharedPropertySecondInterface",
 ]

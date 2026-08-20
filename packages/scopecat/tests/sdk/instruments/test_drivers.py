@@ -230,7 +230,7 @@ def test_operation_contract_declares_state_knowledge_invalidations() -> None:
     assert description.interfaces[0].operations[0].invalidates == reset.invalidates
 
 
-def test_invoke_state_projection_forgets_only_declared_invalidations() -> None:
+def test_invoke_member_projection_forgets_only_declared_invalidations() -> None:
     output = InterfaceRef("test.output/v1")
     offset = output.property("offset")
     enabled = output.property("enabled")
@@ -1894,7 +1894,7 @@ def test_state_snapshot_requires_declared_quantity_units() -> None:
     assert problem.location.path == ("observations", 0, "value", "unit")
 
 
-def test_state_projection_overlays_flat_observable_properties() -> None:
+def test_member_projection_overlays_flat_observable_properties() -> None:
     description = InstrumentDescription(
         instrument_id="source-0",
         implementation_id="tests.flat_projection",

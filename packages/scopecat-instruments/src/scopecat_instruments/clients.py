@@ -32,29 +32,20 @@ from scopecat_instruments._client_runtime import (
     ClientAcquisition,
     ClientAcquisitionAxis,
     ClientAcquisitionResult,
-    ClientStateField,
-    ClientStateSchema,
-    DeclaredStateClientBase,
+    ClientMemberDeclaration,
     InstrumentClientBase,
     InstrumentMemberClient,
+    ProjectedMemberClientBase,
     client_property_value_type,
 )
 from scopecat_instruments._family_runtime import InstrumentFamily
 from scopecat_instruments._symbolic_runtime import (
-    DeclaredStateSymbolicClientBase,
-    DeclaredStateSymbolicGroupBase,
+    ProjectedMemberSymbolicClientBase,
+    ProjectedMemberSymbolicGroupBase,
     SymbolicInstrumentClientBase,
     SymbolicInstrumentGroupBase,
 )
-from scopecat_instruments.interface_declarations import (
-    DCBiasState,
-    DCMonitorState,
-    DCSourceState,
-    NetworkSweepState,
-    RFOutputState,
-    TemperatureReadoutState,
-)
-from scopecat_instruments.states import (
+from scopecat_instruments.projections import (
     DCBiasGroupTarget,
     DCBiasPatch,
     DCBiasTarget,
@@ -84,26 +75,6 @@ _DC_MONITOR_REF = InterfaceRef("scopecat.dc_monitor/v4")
 
 _NETWORK_SWEEP_REF = InterfaceRef("scopecat.network_sweep/v1")
 
-_TEMPERATURE_READOUT_STATE_SCHEMA = ClientStateSchema(
-    TemperatureReadoutState,
-    fields=(
-        ClientStateField(
-            "scan_channel",
-            InterfaceRef("scopecat.temperature_readout/v1").property("scan_channel"),
-            client_property_value_type(
-                '{"type":"int","minimum":1,"maximum":9007199254740991}'
-            ),
-        ),
-        ClientStateField(
-            "autoscan_enabled",
-            InterfaceRef("scopecat.temperature_readout/v1").property(
-                "autoscan_enabled"
-            ),
-            client_property_value_type('{"type":"bool"}'),
-        ),
-    ),
-)
-
 _TEMPERATURE_READOUT_SAMPLE_DECLARATION = ClientAcquisition(
     ref=_TEMPERATURE_READOUT_REF.acquisition("sample"),
     result_fields=(
@@ -122,89 +93,6 @@ _TEMPERATURE_READOUT_SAMPLE_DECLARATION = ClientAcquisition(
             unit="Ohm",
             role="observable",
             axes=(),
-        ),
-    ),
-)
-
-_RF_OUTPUT_STATE_SCHEMA = ClientStateSchema(
-    RFOutputState,
-    fields=(
-        ClientStateField(
-            "frequency",
-            InterfaceRef("scopecat.rf_output/v1").property("frequency"),
-            client_property_value_type(
-                '{"type":"quantity","dimension":nul'
-                'l,"unit":"Hz","minimum":null,"maxi'
-                'mum":null,"finite":true}'
-            ),
-        ),
-        ClientStateField(
-            "power",
-            InterfaceRef("scopecat.rf_output/v1").property("power"),
-            client_property_value_type(
-                '{"type":"quantity","dimension":nul'
-                'l,"unit":"dBm","minimum":null,"max'
-                'imum":null,"finite":true}'
-            ),
-        ),
-        ClientStateField(
-            "output_enabled",
-            InterfaceRef("scopecat.rf_output/v1").property("output_enabled"),
-            client_property_value_type('{"type":"bool"}'),
-        ),
-        ClientStateField(
-            "reference_source",
-            InterfaceRef("scopecat.rf_output/v1").property("reference_source"),
-            client_property_value_type(
-                '{"type":"string","choices":["internal","external"]}'
-            ),
-        ),
-    ),
-)
-
-_DC_BIAS_STATE_SCHEMA = ClientStateSchema(
-    DCBiasState,
-    fields=(
-        ClientStateField(
-            "target_voltage",
-            InterfaceRef("scopecat.dc_bias/v1").property("target_voltage"),
-            client_property_value_type(
-                '{"type":"quantity","dimension":nul'
-                'l,"unit":"V","minimum":null,"maxim'
-                'um":null,"finite":true}'
-            ),
-        ),
-        ClientStateField(
-            "ramp_duration",
-            InterfaceRef("scopecat.dc_bias/v1").property("ramp_duration"),
-            client_property_value_type(
-                '{"type":"quantity","dimension":nul'
-                'l,"unit":"s","minimum":0.0,"maximu'
-                'm":null,"finite":true}'
-            ),
-        ),
-        ClientStateField(
-            "settle_tolerance",
-            InterfaceRef("scopecat.dc_bias/v1").property("settle_tolerance"),
-            client_property_value_type(
-                '{"type":"quantity","dimension":nul'
-                'l,"unit":"V","minimum":0.0,"maximu'
-                'm":null,"finite":true}'
-            ),
-        ),
-        ClientStateField(
-            "actual_voltage",
-            InterfaceRef("scopecat.dc_bias/v1").property("actual_voltage"),
-            client_property_value_type(
-                '{"type":"quantity","dimension":nul'
-                'l,"unit":"V","minimum":null,"maxim'
-                'um":null,"finite":true}'
-            ),
-        ),
-        ClientStateField(
-            "settled",
-            InterfaceRef("scopecat.dc_bias/v1").property("settled"),
-            client_property_value_type('{"type":"bool"}'),
         ),
     ),
 )
@@ -231,72 +119,9 @@ _DC_BIAS_READBACK_DECLARATION = ClientAcquisition(
     ),
 )
 
-_DC_SOURCE_STATE_SCHEMA = ClientStateSchema(
-    DCSourceState,
-    fields=(
-        ClientStateField(
-            "voltage_protection",
-            InterfaceRef("scopecat.dc_source/v3").property("voltage_protection"),
-            client_property_value_type(
-                '{"type":"quantity","dimension":nul'
-                'l,"unit":"V","minimum":null,"maxim'
-                'um":null,"finite":true}'
-            ),
-        ),
-        ClientStateField(
-            "current_protection",
-            InterfaceRef("scopecat.dc_source/v3").property("current_protection"),
-            client_property_value_type(
-                '{"type":"quantity","dimension":nul'
-                'l,"unit":"A","minimum":null,"maxim'
-                'um":null,"finite":true}'
-            ),
-        ),
-        ClientStateField(
-            "output_enabled",
-            InterfaceRef("scopecat.dc_source/v3").property("output_enabled"),
-            client_property_value_type('{"type":"bool"}'),
-        ),
-        ClientStateField(
-            "source_mode",
-            InterfaceRef("scopecat.dc_source/v3").property("source_mode"),
-            client_property_value_type(
-                '{"type":"string","choices":["voltage","current"]}'
-            ),
-        ),
-    ),
-)
-
 _DC_SOURCE_SOURCE_VOLTAGE_DECLARATION = _DC_SOURCE_REF.operation("source_voltage")
 
 _DC_SOURCE_SOURCE_CURRENT_DECLARATION = _DC_SOURCE_REF.operation("source_current")
-
-_DC_MONITOR_STATE_SCHEMA = ClientStateSchema(
-    DCMonitorState,
-    fields=(
-        ClientStateField(
-            "measurement_enabled",
-            InterfaceRef("scopecat.dc_monitor/v4").property("measurement_enabled"),
-            client_property_value_type('{"type":"bool"}'),
-        ),
-        ClientStateField(
-            "integration_cycles",
-            InterfaceRef("scopecat.dc_monitor/v4").property("integration_cycles"),
-            client_property_value_type(
-                '{"type":"int","minimum":1,"maximum":9007199254740991}'
-            ),
-        ),
-        ClientStateField(
-            "measurement_delay",
-            InterfaceRef("scopecat.dc_monitor/v4").property("measurement_delay"),
-            client_property_value_type(
-                '{"type":"quantity","dimension":nul'
-                'l,"unit":"s","minimum":0.0,"maximu'
-                'm":null,"finite":true}'
-            ),
-        ),
-    ),
-)
 
 _DC_MONITOR_MEASURE_CURRENT_DECLARATION = ClientAcquisition(
     ref=_DC_MONITOR_REF.acquisition("measure_current"),
@@ -322,62 +147,6 @@ _DC_MONITOR_MEASURE_VOLTAGE_DECLARATION = ClientAcquisition(
             unit="V",
             role="observable",
             axes=(),
-        ),
-    ),
-)
-
-_NETWORK_SWEEP_STATE_SCHEMA = ClientStateSchema(
-    NetworkSweepState,
-    fields=(
-        ClientStateField(
-            "start_frequency",
-            InterfaceRef("scopecat.network_sweep/v1").property("start_frequency"),
-            client_property_value_type(
-                '{"type":"quantity","dimension":nul'
-                'l,"unit":"Hz","minimum":null,"maxi'
-                'mum":null,"finite":true}'
-            ),
-        ),
-        ClientStateField(
-            "stop_frequency",
-            InterfaceRef("scopecat.network_sweep/v1").property("stop_frequency"),
-            client_property_value_type(
-                '{"type":"quantity","dimension":nul'
-                'l,"unit":"Hz","minimum":null,"maxi'
-                'mum":null,"finite":true}'
-            ),
-        ),
-        ClientStateField(
-            "points",
-            InterfaceRef("scopecat.network_sweep/v1").property("points"),
-            client_property_value_type(
-                '{"type":"int","minimum":2,"maximum":9007199254740991}'
-            ),
-        ),
-        ClientStateField(
-            "if_bandwidth",
-            InterfaceRef("scopecat.network_sweep/v1").property("if_bandwidth"),
-            client_property_value_type(
-                '{"type":"quantity","dimension":nul'
-                'l,"unit":"Hz","minimum":null,"maxi'
-                'mum":null,"finite":true}'
-            ),
-        ),
-        ClientStateField(
-            "source_power",
-            InterfaceRef("scopecat.network_sweep/v1").property("source_power"),
-            client_property_value_type(
-                '{"type":"quantity","dimension":nul'
-                'l,"unit":"dBm","minimum":null,"max'
-                'imum":null,"finite":true}'
-            ),
-        ),
-        ClientStateField(
-            "s_parameter",
-            InterfaceRef("scopecat.network_sweep/v1").property("s_parameter"),
-            client_property_value_type(
-                '{"type":"string","choices":["S11","S21","S12","S22"]}'
-            ),
         ),
     ),
 )
@@ -440,7 +209,7 @@ class TemperatureReadoutClient(InstrumentClientBase):
     @property
     def scan_channel(self) -> InstrumentMemberClient[int]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "scan_channel",
                 _TEMPERATURE_READOUT_REF.property("scan_channel"),
                 client_property_value_type(
@@ -453,21 +222,13 @@ class TemperatureReadoutClient(InstrumentClientBase):
     @property
     def autoscan_enabled(self) -> InstrumentMemberClient[bool]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "autoscan_enabled",
                 _TEMPERATURE_READOUT_REF.property("autoscan_enabled"),
                 client_property_value_type('{"type":"bool"}'),
             ),
             writable=False,
         )
-
-    def state(self) -> TemperatureReadoutState:
-        snapshot = self._session.observed_state(self.instrument_id)
-        return _TEMPERATURE_READOUT_STATE_SCHEMA.decode(snapshot)
-
-    def refresh_state(self) -> TemperatureReadoutState:
-        snapshot = self._session.read_state(self.instrument_id)
-        return _TEMPERATURE_READOUT_STATE_SCHEMA.decode(snapshot)
 
     def sample(self) -> TemperatureReadback:
         return self._collect(
@@ -553,11 +314,11 @@ temperature_readout: InstrumentFamily[
 )
 
 
-class RFOutputClient(DeclaredStateClientBase[RFOutputPatch]):
+class RFOutputClient(ProjectedMemberClientBase[RFOutputPatch]):
     @property
     def frequency(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "frequency",
                 _RF_OUTPUT_REF.property("frequency"),
                 client_property_value_type(
@@ -572,7 +333,7 @@ class RFOutputClient(DeclaredStateClientBase[RFOutputPatch]):
     @property
     def power(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "power",
                 _RF_OUTPUT_REF.property("power"),
                 client_property_value_type(
@@ -587,7 +348,7 @@ class RFOutputClient(DeclaredStateClientBase[RFOutputPatch]):
     @property
     def output_enabled(self) -> InstrumentMemberClient[bool]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "output_enabled",
                 _RF_OUTPUT_REF.property("output_enabled"),
                 client_property_value_type('{"type":"bool"}'),
@@ -600,7 +361,7 @@ class RFOutputClient(DeclaredStateClientBase[RFOutputPatch]):
         self,
     ) -> InstrumentMemberClient[Literal["internal", "external"]]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "reference_source",
                 _RF_OUTPUT_REF.property("reference_source"),
                 client_property_value_type(
@@ -638,16 +399,8 @@ class RFOutputClient(DeclaredStateClientBase[RFOutputPatch]):
             fields,
         )
 
-    def state(self) -> RFOutputState:
-        snapshot = self._session.observed_state(self.instrument_id)
-        return _RF_OUTPUT_STATE_SCHEMA.decode(snapshot)
 
-    def refresh_state(self) -> RFOutputState:
-        snapshot = self._session.read_state(self.instrument_id)
-        return _RF_OUTPUT_STATE_SCHEMA.decode(snapshot)
-
-
-class SymbolicRFOutputClient(DeclaredStateSymbolicClientBase[RFOutputTarget]):
+class SymbolicRFOutputClient(ProjectedMemberSymbolicClientBase[RFOutputTarget]):
     __slots__ = ()
 
     def __init__(
@@ -698,7 +451,7 @@ class SymbolicRFOutputClient(DeclaredStateSymbolicClientBase[RFOutputTarget]):
 
 
 class SymbolicRFOutputGroup(
-    DeclaredStateSymbolicGroupBase[
+    ProjectedMemberSymbolicGroupBase[
         RFOutputTarget, RFOutputGroupTarget, SymbolicRFOutputClient
     ]
 ):
@@ -784,11 +537,11 @@ class DCBiasReadbackProducts(ProductBundle):
     settled: ProductRef[bool]
 
 
-class DCBiasClient(DeclaredStateClientBase[DCBiasPatch]):
+class DCBiasClient(ProjectedMemberClientBase[DCBiasPatch]):
     @property
     def target_voltage(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "target_voltage",
                 _DC_BIAS_REF.property("target_voltage"),
                 client_property_value_type(
@@ -803,7 +556,7 @@ class DCBiasClient(DeclaredStateClientBase[DCBiasPatch]):
     @property
     def ramp_duration(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "ramp_duration",
                 _DC_BIAS_REF.property("ramp_duration"),
                 client_property_value_type(
@@ -818,7 +571,7 @@ class DCBiasClient(DeclaredStateClientBase[DCBiasPatch]):
     @property
     def settle_tolerance(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "settle_tolerance",
                 _DC_BIAS_REF.property("settle_tolerance"),
                 client_property_value_type(
@@ -833,7 +586,7 @@ class DCBiasClient(DeclaredStateClientBase[DCBiasPatch]):
     @property
     def actual_voltage(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "actual_voltage",
                 _DC_BIAS_REF.property("actual_voltage"),
                 client_property_value_type(
@@ -848,7 +601,7 @@ class DCBiasClient(DeclaredStateClientBase[DCBiasPatch]):
     @property
     def settled(self) -> InstrumentMemberClient[bool]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "settled",
                 _DC_BIAS_REF.property("settled"),
                 client_property_value_type('{"type":"bool"}'),
@@ -883,14 +636,6 @@ class DCBiasClient(DeclaredStateClientBase[DCBiasPatch]):
             fields,
         )
 
-    def state(self) -> DCBiasState:
-        snapshot = self._session.observed_state(self.instrument_id)
-        return _DC_BIAS_STATE_SCHEMA.decode(snapshot)
-
-    def refresh_state(self) -> DCBiasState:
-        snapshot = self._session.read_state(self.instrument_id)
-        return _DC_BIAS_STATE_SCHEMA.decode(snapshot)
-
     def readback(self) -> DCBiasReadbackReadback:
         return self._collect(
             _DC_BIAS_READBACK_DECLARATION,
@@ -898,7 +643,7 @@ class DCBiasClient(DeclaredStateClientBase[DCBiasPatch]):
         )
 
 
-class SymbolicDCBiasClient(DeclaredStateSymbolicClientBase[DCBiasTarget]):
+class SymbolicDCBiasClient(ProjectedMemberSymbolicClientBase[DCBiasTarget]):
     __slots__ = ()
 
     def __init__(
@@ -959,7 +704,7 @@ class SymbolicDCBiasClient(DeclaredStateSymbolicClientBase[DCBiasTarget]):
 
 
 class SymbolicDCBiasGroup(
-    DeclaredStateSymbolicGroupBase[
+    ProjectedMemberSymbolicGroupBase[
         DCBiasTarget, DCBiasGroupTarget, SymbolicDCBiasClient
     ]
 ):
@@ -1031,11 +776,11 @@ dc_bias: InstrumentFamily[
 )
 
 
-class DCSourceClient(DeclaredStateClientBase[DCSourcePatch]):
+class DCSourceClient(ProjectedMemberClientBase[DCSourcePatch]):
     @property
     def voltage_protection(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "voltage_protection",
                 _DC_SOURCE_REF.property("voltage_protection"),
                 client_property_value_type(
@@ -1050,7 +795,7 @@ class DCSourceClient(DeclaredStateClientBase[DCSourcePatch]):
     @property
     def current_protection(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "current_protection",
                 _DC_SOURCE_REF.property("current_protection"),
                 client_property_value_type(
@@ -1065,7 +810,7 @@ class DCSourceClient(DeclaredStateClientBase[DCSourcePatch]):
     @property
     def output_enabled(self) -> InstrumentMemberClient[bool]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "output_enabled",
                 _DC_SOURCE_REF.property("output_enabled"),
                 client_property_value_type('{"type":"bool"}'),
@@ -1076,7 +821,7 @@ class DCSourceClient(DeclaredStateClientBase[DCSourcePatch]):
     @property
     def source_mode(self) -> InstrumentMemberClient[Literal["voltage", "current"]]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "source_mode",
                 _DC_SOURCE_REF.property("source_mode"),
                 client_property_value_type(
@@ -1113,14 +858,6 @@ class DCSourceClient(DeclaredStateClientBase[DCSourcePatch]):
             fields,
         )
 
-    def state(self) -> DCSourceState:
-        snapshot = self._session.observed_state(self.instrument_id)
-        return _DC_SOURCE_STATE_SCHEMA.decode(snapshot)
-
-    def refresh_state(self) -> DCSourceState:
-        snapshot = self._session.read_state(self.instrument_id)
-        return _DC_SOURCE_STATE_SCHEMA.decode(snapshot)
-
     def source_voltage(
         self,
         *,
@@ -1150,7 +887,7 @@ class DCSourceClient(DeclaredStateClientBase[DCSourcePatch]):
         )
 
 
-class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[DCSourceTarget]):
+class SymbolicDCSourceClient(ProjectedMemberSymbolicClientBase[DCSourceTarget]):
     __slots__ = ()
 
     def __init__(
@@ -1232,7 +969,7 @@ class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[DCSourceTarget]):
 
 
 class SymbolicDCSourceGroup(
-    DeclaredStateSymbolicGroupBase[
+    ProjectedMemberSymbolicGroupBase[
         DCSourceTarget, DCSourceGroupTarget, SymbolicDCSourceClient
     ]
 ):
@@ -1359,11 +1096,11 @@ class DCMonitorVoltageProducts(ProductBundle):
     voltage: ProductRef[float]
 
 
-class DCMonitorClient(DeclaredStateClientBase[DCMonitorPatch]):
+class DCMonitorClient(ProjectedMemberClientBase[DCMonitorPatch]):
     @property
     def measurement_enabled(self) -> InstrumentMemberClient[bool]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "measurement_enabled",
                 _DC_MONITOR_REF.property("measurement_enabled"),
                 client_property_value_type('{"type":"bool"}'),
@@ -1374,7 +1111,7 @@ class DCMonitorClient(DeclaredStateClientBase[DCMonitorPatch]):
     @property
     def integration_cycles(self) -> InstrumentMemberClient[int]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "integration_cycles",
                 _DC_MONITOR_REF.property("integration_cycles"),
                 client_property_value_type(
@@ -1387,7 +1124,7 @@ class DCMonitorClient(DeclaredStateClientBase[DCMonitorPatch]):
     @property
     def measurement_delay(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "measurement_delay",
                 _DC_MONITOR_REF.property("measurement_delay"),
                 client_property_value_type(
@@ -1426,14 +1163,6 @@ class DCMonitorClient(DeclaredStateClientBase[DCMonitorPatch]):
             fields,
         )
 
-    def state(self) -> DCMonitorState:
-        snapshot = self._session.observed_state(self.instrument_id)
-        return _DC_MONITOR_STATE_SCHEMA.decode(snapshot)
-
-    def refresh_state(self) -> DCMonitorState:
-        snapshot = self._session.read_state(self.instrument_id)
-        return _DC_MONITOR_STATE_SCHEMA.decode(snapshot)
-
     def measure_current(self) -> DCMonitorCurrentReadback:
         return self._collect(
             _DC_MONITOR_MEASURE_CURRENT_DECLARATION,
@@ -1447,7 +1176,7 @@ class DCMonitorClient(DeclaredStateClientBase[DCMonitorPatch]):
         )
 
 
-class SymbolicDCMonitorClient(DeclaredStateSymbolicClientBase[DCMonitorTarget]):
+class SymbolicDCMonitorClient(ProjectedMemberSymbolicClientBase[DCMonitorTarget]):
     __slots__ = ()
 
     def __init__(
@@ -1519,7 +1248,7 @@ class SymbolicDCMonitorClient(DeclaredStateSymbolicClientBase[DCMonitorTarget]):
 
 
 class SymbolicDCMonitorGroup(
-    DeclaredStateSymbolicGroupBase[
+    ProjectedMemberSymbolicGroupBase[
         DCMonitorTarget, DCMonitorGroupTarget, SymbolicDCMonitorClient
     ]
 ):
@@ -1598,12 +1327,6 @@ dc_monitor: InstrumentFamily[
 )
 
 
-@dataclass(frozen=True, slots=True)
-class DCSourceMonitorState:
-    dc_source: DCSourceState
-    dc_monitor: DCMonitorState
-
-
 type _DCSourceMonitorPatch = DCSourcePatch | DCMonitorPatch
 
 
@@ -1613,11 +1336,11 @@ type _DCSourceMonitorTarget = DCSourceTarget | DCMonitorTarget
 type _DCSourceMonitorGroupTarget = DCSourceGroupTarget | DCMonitorGroupTarget
 
 
-class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorPatch]):
+class DCSourceMonitorClient(ProjectedMemberClientBase[_DCSourceMonitorPatch]):
     @property
     def voltage_protection(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "voltage_protection",
                 _DC_SOURCE_REF.property("voltage_protection"),
                 client_property_value_type(
@@ -1632,7 +1355,7 @@ class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorPatch]):
     @property
     def current_protection(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "current_protection",
                 _DC_SOURCE_REF.property("current_protection"),
                 client_property_value_type(
@@ -1647,7 +1370,7 @@ class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorPatch]):
     @property
     def output_enabled(self) -> InstrumentMemberClient[bool]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "output_enabled",
                 _DC_SOURCE_REF.property("output_enabled"),
                 client_property_value_type('{"type":"bool"}'),
@@ -1658,7 +1381,7 @@ class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorPatch]):
     @property
     def source_mode(self) -> InstrumentMemberClient[Literal["voltage", "current"]]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "source_mode",
                 _DC_SOURCE_REF.property("source_mode"),
                 client_property_value_type(
@@ -1671,7 +1394,7 @@ class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorPatch]):
     @property
     def measurement_enabled(self) -> InstrumentMemberClient[bool]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "measurement_enabled",
                 _DC_MONITOR_REF.property("measurement_enabled"),
                 client_property_value_type('{"type":"bool"}'),
@@ -1682,7 +1405,7 @@ class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorPatch]):
     @property
     def integration_cycles(self) -> InstrumentMemberClient[int]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "integration_cycles",
                 _DC_MONITOR_REF.property("integration_cycles"),
                 client_property_value_type(
@@ -1695,7 +1418,7 @@ class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorPatch]):
     @property
     def measurement_delay(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "measurement_delay",
                 _DC_MONITOR_REF.property("measurement_delay"),
                 client_property_value_type(
@@ -1705,20 +1428,6 @@ class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorPatch]):
                 ),
             ),
             writable=True,
-        )
-
-    def state(self) -> DCSourceMonitorState:
-        snapshot = self._session.observed_state(self.instrument_id)
-        return DCSourceMonitorState(
-            dc_source=_DC_SOURCE_STATE_SCHEMA.decode(snapshot),
-            dc_monitor=_DC_MONITOR_STATE_SCHEMA.decode(snapshot),
-        )
-
-    def refresh_state(self) -> DCSourceMonitorState:
-        snapshot = self._session.read_state(self.instrument_id)
-        return DCSourceMonitorState(
-            dc_source=_DC_SOURCE_STATE_SCHEMA.decode(snapshot),
-            dc_monitor=_DC_MONITOR_STATE_SCHEMA.decode(snapshot),
         )
 
     def source_voltage(
@@ -1763,7 +1472,7 @@ class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorPatch]):
 
 
 class SymbolicDCSourceMonitorClient(
-    DeclaredStateSymbolicClientBase[_DCSourceMonitorTarget]
+    ProjectedMemberSymbolicClientBase[_DCSourceMonitorTarget]
 ):
     __slots__ = ()
 
@@ -1841,7 +1550,7 @@ class SymbolicDCSourceMonitorClient(
 
 
 class SymbolicDCSourceMonitorGroup(
-    DeclaredStateSymbolicGroupBase[
+    ProjectedMemberSymbolicGroupBase[
         _DCSourceMonitorTarget,
         _DCSourceMonitorGroupTarget,
         SymbolicDCSourceMonitorClient,
@@ -1944,11 +1653,11 @@ class NetworkSweepProducts(ProductBundle):
     s_parameter: ProductRef[MeasurementArrayData]
 
 
-class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):
+class NetworkSweepClient(ProjectedMemberClientBase[NetworkSweepPatch]):
     @property
     def start_frequency(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "start_frequency",
                 _NETWORK_SWEEP_REF.property("start_frequency"),
                 client_property_value_type(
@@ -1963,7 +1672,7 @@ class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):
     @property
     def stop_frequency(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "stop_frequency",
                 _NETWORK_SWEEP_REF.property("stop_frequency"),
                 client_property_value_type(
@@ -1978,7 +1687,7 @@ class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):
     @property
     def points(self) -> InstrumentMemberClient[int]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "points",
                 _NETWORK_SWEEP_REF.property("points"),
                 client_property_value_type(
@@ -1991,7 +1700,7 @@ class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):
     @property
     def if_bandwidth(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "if_bandwidth",
                 _NETWORK_SWEEP_REF.property("if_bandwidth"),
                 client_property_value_type(
@@ -2006,7 +1715,7 @@ class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):
     @property
     def source_power(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "source_power",
                 _NETWORK_SWEEP_REF.property("source_power"),
                 client_property_value_type(
@@ -2023,7 +1732,7 @@ class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):
         self,
     ) -> InstrumentMemberClient[Literal["S11", "S21", "S12", "S22"]]:
         return self._member(
-            ClientStateField(
+            ClientMemberDeclaration(
                 "s_parameter",
                 _NETWORK_SWEEP_REF.property("s_parameter"),
                 client_property_value_type(
@@ -2063,14 +1772,6 @@ class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):
             fields,
         )
 
-    def state(self) -> NetworkSweepState:
-        snapshot = self._session.observed_state(self.instrument_id)
-        return _NETWORK_SWEEP_STATE_SCHEMA.decode(snapshot)
-
-    def refresh_state(self) -> NetworkSweepState:
-        snapshot = self._session.read_state(self.instrument_id)
-        return _NETWORK_SWEEP_STATE_SCHEMA.decode(snapshot)
-
     def sweep(self) -> NetworkSweepReadback:
         return self._collect(
             _NETWORK_SWEEP_SWEEP_DECLARATION,
@@ -2078,7 +1779,7 @@ class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):
         )
 
 
-class SymbolicNetworkSweepClient(DeclaredStateSymbolicClientBase[NetworkSweepTarget]):
+class SymbolicNetworkSweepClient(ProjectedMemberSymbolicClientBase[NetworkSweepTarget]):
     __slots__ = ()
 
     def __init__(
@@ -2142,7 +1843,7 @@ class SymbolicNetworkSweepClient(DeclaredStateSymbolicClientBase[NetworkSweepTar
 
 
 class SymbolicNetworkSweepGroup(
-    DeclaredStateSymbolicGroupBase[
+    ProjectedMemberSymbolicGroupBase[
         NetworkSweepTarget, NetworkSweepGroupTarget, SymbolicNetworkSweepClient
     ]
 ):
@@ -2230,7 +1931,6 @@ __all__ = [
     "DCMonitorVoltageReadback",
     "DCSourceClient",
     "DCSourceMonitorClient",
-    "DCSourceMonitorState",
     "NetworkSweepClient",
     "NetworkSweepProducts",
     "NetworkSweepReadback",

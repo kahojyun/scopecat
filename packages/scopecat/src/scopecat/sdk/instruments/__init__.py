@@ -93,6 +93,7 @@ if TYPE_CHECKING:
         state_capture_request,
         string_property,
     )
+    from scopecat.sdk.instruments.declarations import device_member
     from scopecat.sdk.instruments.errors import InstrumentCollectFailure
     from scopecat.sdk.instruments.members import (
         AcquisitionRef,
@@ -354,6 +355,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "capture_state_members",
     ),
     "component": ("scopecat.sdk.instruments.contracts", "component"),
+    "device_member": (
+        "scopecat.sdk.instruments.declarations",
+        "device_member",
+    ),
     "enum_property": ("scopecat.sdk.instruments.contracts", "enum_property"),
     "float_property": ("scopecat.sdk.instruments.contracts", "float_property"),
     "format_number": ("scopecat.sdk.instruments.scpi", "format_number"),

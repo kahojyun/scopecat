@@ -24,19 +24,28 @@ from scopecat.sdk.instruments.authoring import (
     DriverUnknown,
     state_readback,
 )
-from scopecat.sdk.instruments.contracts import InstrumentDescription
+from scopecat.sdk.instruments.contracts import (
+    DeviceStateMemberSpec,
+    DeviceStateSpec,
+    InstrumentDescription,
+)
 from scopecat.sdk.instruments.declarations import (
     DeclaredAcquisition,
+    DeclaredDeviceProperty,
     DeclaredInterfaceLayout,
     DeclaredOperation,
-    DeclaredStateField,
+    DeclaredProperty,
     compile_interface,
+    declared_device_properties,
     declared_interface_layout,
 )
 from scopecat.sdk.instruments.members import (
     AcquisitionRef,
+    DevicePropertyRef,
+    DeviceSchemaId,
     OperationRef,
     PropertyRef,
+    StateMemberRef,
 )
 from scopecat.sdk.problems import ProblemPhase, model_location, problem
 
@@ -50,6 +59,9 @@ class InstrumentDriverMetadata:
     interfaces: tuple[type[object], ...]
     label: str | None
     description: str | None
+    device_schema_id: DeviceSchemaId | None
+    device_label: str | None
+    device_description: str | None
 
 
 def instrument_driver[DriverT: type[object]](
@@ -59,6 +71,9 @@ def instrument_driver[DriverT: type[object]](
     interfaces: Sequence[type[object]],
     label: str | None = None,
     description: str | None = None,
+    device_schema_id: DeviceSchemaId | None = None,
+    device_label: str | None = None,
+    device_description: str | None = None,
 ) -> Callable[[DriverT], DriverT]:
     """Bind an ordinary Python implementation class to declared interfaces."""
 
@@ -68,6 +83,9 @@ def instrument_driver[DriverT: type[object]](
         interfaces=tuple(interfaces),
         label=label,
         description=description,
+        device_schema_id=device_schema_id,
+        device_label=device_label,
+        device_description=device_description,
     )
 
     def decorate(cls: DriverT) -> DriverT:
@@ -96,12 +114,32 @@ class ObjectInstrumentDriver:
 
     def describe(self) -> InstrumentDescription:
         metadata = _driver_metadata(type(self))
+        device_properties = _device_property_bindings(
+            type(self),
+            metadata.device_schema_id,
+        )
         return InstrumentDescription(
             instrument_id=self.instrument_id,
             implementation_id=metadata.implementation_id,
             implementation_version=metadata.implementation_version,
             label=metadata.label,
             description=metadata.description,
+            device_state=(
+                None
+                if metadata.device_schema_id is None
+                else DeviceStateSpec(
+                    id=metadata.device_schema_id,
+                    label=metadata.device_label,
+                    description=metadata.device_description,
+                    members=[
+                        DeviceStateMemberSpec(
+                            component_path=list(binding.ref.component_path),
+                            property=binding.spec,
+                        )
+                        for binding in device_properties.values()
+                    ],
+                )
+            ),
             interfaces=[
                 compile_interface(interface_type).spec
                 for interface_type in self.declared_interfaces()
@@ -109,13 +147,10 @@ class ObjectInstrumentDriver:
         )
 
     def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
-        properties = _property_bindings(self.declared_interfaces())
-        values: dict[PropertyRef, DriverScalar] = {}
-        for target in request.targets:
-            if not isinstance(target, PropertyRef):
-                continue
-            binding = properties.get(target)
-            if binding is None:
+        properties = self._property_bindings()
+        values: dict[StateMemberRef, DriverScalar] = {}
+        for target, binding in properties.items():
+            if target not in request.targets:
                 continue
             values[target] = cast("DriverScalar", getattr(self, binding.python_name))
         return state_readback(request, values)
@@ -124,23 +159,29 @@ class ObjectInstrumentDriver:
         self,
         request: DriverStatePatch,
     ) -> DriverOutcome[DriverStateReadback | None]:
-        properties = _property_bindings(self.declared_interfaces())
-        for assignment in request.entries:
-            if not isinstance(assignment.target, PropertyRef):
+        properties = self._property_bindings()
+        assignments = {assignment.target: assignment for assignment in request.entries}
+        for target, binding in properties.items():
+            assignment = assignments.get(target)
+            if assignment is None:
+                continue
+            if binding.spec.access != "read_write":
                 return _unsupported(
                     self.instrument_id,
                     "state_member",
-                    assignment.target.property_id,
-                )
-            binding = properties.get(assignment.target)
-            if binding is None or binding.spec.access != "read_write":
-                return _unsupported(
-                    self.instrument_id,
-                    "state_member",
-                    assignment.target.property_id,
+                    target.property_id,
                 )
             setattr(self, binding.python_name, assignment.value)
         return DriverSuccess(None)
+
+    def _property_bindings(
+        self,
+    ) -> dict[StateMemberRef, DeclaredProperty | DeclaredDeviceProperty]:
+        metadata = _driver_metadata(type(self))
+        return {
+            **_interface_property_bindings(self.declared_interfaces()),
+            **_device_property_bindings(type(self), metadata.device_schema_id),
+        }
 
     def invoke(
         self,
@@ -212,14 +253,23 @@ def _layouts(
     )
 
 
-def _property_bindings(
+def _interface_property_bindings(
     interfaces: Sequence[type[object]],
-) -> dict[PropertyRef, DeclaredStateField]:
+) -> dict[PropertyRef, DeclaredProperty]:
     return {
         field.ref: field
         for layout in _layouts(interfaces)
-        if layout.state is not None
-        for field in layout.state.fields
+        if layout.properties is not None
+        for field in layout.properties.fields
+    }
+
+
+def _device_property_bindings(
+    driver_type: type[object],
+    schema_id: DeviceSchemaId | None,
+) -> dict[DevicePropertyRef, DeclaredDeviceProperty]:
+    return {
+        field.ref: field for field in declared_device_properties(driver_type, schema_id)
     }
 
 

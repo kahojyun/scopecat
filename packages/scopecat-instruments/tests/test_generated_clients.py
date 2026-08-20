@@ -10,9 +10,9 @@ FIXTURE_DECLARATIONS_MODULE = (
     "scopecat_testkit.instrument_codegen_fixtures.declarations"
 )
 FIXTURE_STATE_PROJECTION_MODULE = (
-    "scopecat_testkit.instrument_codegen_fixtures.generated_states"
+    "scopecat_testkit.instrument_codegen_fixtures.generated_projections"
 )
-PRODUCTION_STATE_PROJECTION_MODULE = "scopecat_instruments.states"
+PRODUCTION_MEMBER_PROJECTION_MODULE = "scopecat_instruments.projections"
 _RENDER_SURFACE = """
 from importlib import import_module
 from runpy import run_path
@@ -42,7 +42,7 @@ else:
 print(
     render_client_module(
         surfaces,
-        state_projection_module=sys.argv[6],
+        member_projection_module=sys.argv[6],
     ),
     end="",
 )
@@ -59,7 +59,7 @@ declarations.compile_interface = reject_runtime_compilation
 
 import scopecat_instruments.clients
 import scopecat_instruments.members
-import scopecat_instruments.states
+import scopecat_instruments.projections
 from scopecat_instruments.interfaces import (
     dc_monitor_interface,
     dc_source_interface,
@@ -84,7 +84,7 @@ for factory in (
 
 def _render_surface(
     *interface_names: str,
-    state_projection_module: str = FIXTURE_STATE_PROJECTION_MODULE,
+    member_projection_module: str = FIXTURE_STATE_PROJECTION_MODULE,
     module: str = FIXTURE_DECLARATIONS_MODULE,
     composite_name: str | None = None,
     driver_optional_flag: str | None = None,
@@ -99,7 +99,7 @@ def _render_surface(
             ",".join(interface_names),
             "-" if composite_name is None else composite_name,
             "-" if driver_optional_flag is None else driver_optional_flag,
-            state_projection_module,
+            member_projection_module,
         ],
         cwd=REPOSITORY_ROOT,
         check=False,
@@ -120,23 +120,23 @@ def test_generated_catalog_imports_without_runtime_declaration_compilation() -> 
     assert completed.returncode == 0, completed.stderr
 
 
-def test_codegen_imports_state_projections_from_the_configured_module() -> None:
+def test_codegen_imports_member_projections_from_the_configured_module() -> None:
     completed = _render_surface(
         "CatalogProjectionInterface",
-        state_projection_module="custom.state_projections",
+        member_projection_module="custom.member_projections",
     )
 
     assert completed.returncode == 0, completed.stderr
-    assert "from custom.state_projections import (" in completed.stdout
+    assert "from custom.member_projections import (" in completed.stdout
     assert "CatalogProjectionPatch" in completed.stdout
     assert "CatalogProjectionTarget" in completed.stdout
 
 
-def test_codegen_adds_keyword_convenience_for_one_flat_state_schema() -> None:
+def test_codegen_adds_keyword_convenience_for_one_flat_property_set() -> None:
     completed = _render_surface("CatalogProjectionInterface")
 
     assert completed.returncode == 0, completed.stderr
-    compile(completed.stdout, "<generated-flat-state>", "exec")
+    compile(completed.stdout, "<generated-member-projection>", "exec")
     assert "patch: CatalogProjectionPatch," in completed.stdout
     assert "enabled: bool = ...," in completed.stdout
     assert "state: CatalogProjectionTarget," in completed.stdout
@@ -145,15 +145,16 @@ def test_codegen_adds_keyword_convenience_for_one_flat_state_schema() -> None:
         "enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = ...," in completed.stdout
     )
     assert "status: str = ...," not in completed.stdout
-    assert "def state(self) -> CatalogProjectionState:" in completed.stdout
-    assert "def refresh_state(self) -> CatalogProjectionState:" in completed.stdout
+    assert "def enabled(self) -> InstrumentMemberClient[bool]:" in completed.stdout
+    assert "def status(self) -> InstrumentMemberClient[str]:" in completed.stdout
+    assert "def state(self)" not in completed.stdout
 
 
-def test_codegen_renders_flat_dc_source_state_and_typed_transitions() -> None:
+def test_codegen_renders_flat_dc_source_members_and_typed_transitions() -> None:
     completed = _render_surface(
         "DCSourceInterface",
         module="scopecat_instruments.interface_declarations",
-        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
+        member_projection_module=PRODUCTION_MEMBER_PROJECTION_MODULE,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -165,7 +166,8 @@ def test_codegen_renders_flat_dc_source_state_and_typed_transitions() -> None:
     assert "current_protection: Quantity = ...," in live_client
     assert "output_enabled: bool = ...," in live_client
     assert "source_mode:" not in live_client
-    assert 'ClientStateField(\n            "source_mode",' in completed.stdout
+    assert "def source_mode(" in live_client
+    assert 'InstrumentMemberClient[Literal["voltage", "current"]]' in live_client
     assert "def source_voltage(" in live_client
     assert "def source_current(" in live_client
     assert live_client.count("range: Quantity,") == 2
@@ -197,13 +199,15 @@ def test_codegen_keeps_read_only_state_out_of_authoring_projections() -> None:
     completed = _render_surface(
         "TemperatureReadoutInterface",
         module="scopecat_instruments.interface_declarations",
-        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
+        member_projection_module=PRODUCTION_MEMBER_PROJECTION_MODULE,
     )
 
     assert completed.returncode == 0, completed.stderr
     assert "class TemperatureReadoutClient(InstrumentClientBase):" in completed.stdout
-    assert "def state(self) -> TemperatureReadoutState:" in completed.stdout
-    assert "def refresh_state(self) -> TemperatureReadoutState:" in completed.stdout
+    assert "def scan_channel(self) -> InstrumentMemberClient[int]:" in completed.stdout
+    assert "def autoscan_enabled(self) -> InstrumentMemberClient[bool]:" in (
+        completed.stdout
+    )
     assert "TemperatureReadoutPatch" not in completed.stdout
     assert "TemperatureReadoutTarget" not in completed.stdout
 
@@ -265,7 +269,7 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
         "DCSourceInterface",
         "DCMonitorInterface",
         module="scopecat_instruments.interface_declarations",
-        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
+        member_projection_module=PRODUCTION_MEMBER_PROJECTION_MODULE,
         composite_name="DCSourceMonitor",
         driver_optional_flag="monitor",
     )
@@ -292,13 +296,12 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     assert "DCMonitorCurrentResults" not in completed.stdout
     assert "DCMonitorVoltageResults" not in completed.stdout
     assert "class DCSourceMonitorClient(" in completed.stdout
-    assert "class DCSourceMonitorState:" in completed.stdout
-    assert "    dc_source: DCSourceState" in completed.stdout
-    assert "    dc_monitor: DCMonitorState" in completed.stdout
-    assert "def state(self) -> DCSourceMonitorState:" in completed.stdout
+    assert "class DCSourceMonitorState:" not in completed.stdout
+    assert "def source_mode(" in completed.stdout
+    assert "def measurement_enabled(" in completed.stdout
     assert (
         "class SymbolicDCSourceMonitorClient("
-        "\n    DeclaredStateSymbolicClientBase[_DCSourceMonitorTarget]"
+        "\n    ProjectedMemberSymbolicClientBase[_DCSourceMonitorTarget]"
     ) in completed.stdout
     assert "class SymbolicDCSourceMonitorGroup(" in completed.stdout
     assert '_DC_SOURCE_REF = InterfaceRef("scopecat.dc_source/v3")' in (

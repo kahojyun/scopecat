@@ -42,6 +42,7 @@ from scopecat.authoring.entity_selection import PerEntity
 from scopecat.authoring.experiments import (
     Experiment,
 )
+from scopecat.authoring.member_projection import StateProjector
 from scopecat.authoring.scans import (
     Axis,
     PointRow,
@@ -51,7 +52,6 @@ from scopecat.authoring.scans import (
     ScanValueType,
     scan_axis,
 )
-from scopecat.authoring.state_projection import StateProjector
 from scopecat.kernel.entity import EntityRef, entity_axis_fingerprint, entity_identity
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.instrument_members import (

@@ -45,6 +45,10 @@ from scopecat.authoring.instrument_recorder import (
     InstrumentStateTarget,
     instrument_recorder,
 )
+from scopecat.authoring.member_projection import (
+    StateProjector,
+    StateTarget,
+)
 from scopecat.authoring.parameters import (
     ParameterAssignment,
     ParameterCell,
@@ -58,10 +62,6 @@ from scopecat.authoring.parameters import (
     parameter_schema,
 )
 from scopecat.authoring.scans import Axis, PointRow, axis
-from scopecat.authoring.state_projection import (
-    StateProjector,
-    StateTarget,
-)
 from scopecat.kernel.resource_identity import (
     ANY_RESOURCE_ROLE,
     DEFAULT_RESOURCE_ROLE,

@@ -48,8 +48,9 @@ uv run --locked python scripts/generate_instrument_clients.py --check
 Generated modules and the package facade are committed build outputs; edit the
 declarations or manifest and regenerate them. Static descriptors make imports
 independent of declaration compilation. Writable interfaces receive sparse
-patches and canonical snapshot encoders; generated adapters own generic worker
-dispatch, wire conversion, and exact `PerEntity` joins.
+member projections; generated clients own wire conversion and exact
+`PerEntity` joins. Driver dispatch is supplied once by
+`ObjectInstrumentDriver` and does not generate a handler class per device.
 
 One group `ensure(...)` remains a coherent state intent so routing can batch
 channels that resolve to the same instrument. Group operations expand to scalar
@@ -59,7 +60,7 @@ presentation metadata over existing wire interfaces.
 
 The generator currently requires schema-specific client carriers before
 exposing payload-bearing operations. The declaration compiler and driver
-handlers already accept decoded payloads. Reusable instrument components compile
+adapter already accept decoded payloads. Reusable instrument components compile
 to nested interface members; resource routes mount root client members at their
 physical `component_path`.
 
@@ -67,49 +68,56 @@ physical `component_path`.
 
 The shortest driver workflow is:
 
-1. Declare state/results and a `Protocol` or ABC with the decorators in
+1. Declare properties, results, and a `Protocol` or ABC with the decorators in
    `interface_declarations.py`.
 2. Register any new surface and the lazy driver implementation in
    `PACKAGE_MANIFEST`.
 3. Run `uv run --locked python scripts/generate_instrument_clients.py`.
-4. Subclass the generated adapter and implement its typed hooks.
+4. Subclass `ObjectInstrumentDriver` and implement ordinary Python properties
+   and methods.
 
-For example, an RF implementation handles Python field names rather than member
-refs or generic requests:
+For example, an RF implementation does not handle member refs or generic
+requests:
 
 ```python
-from typing import override
-
-from scopecat.sdk.instruments import DriverOutcome, DriverSuccess
-from scopecat_instruments.driver_handlers import (
-    RFOutputDriverAdapter,
-    RFOutputDriverSnapshot,
+from scopecat.sdk.instruments import (
+    ObjectInstrumentDriver,
+    device_member,
+    instrument_driver,
 )
-from scopecat_instruments.driver_states import RFOutputDriverPatch
+from scopecat_instruments.interface_declarations import RFOutputInterface
 
 
-class MyRfSource(RFOutputDriverAdapter):
-    instrument_id: str
+@instrument_driver(
+    "example.rf_source",
+    "1",
+    interfaces=(RFOutputInterface,),
+    device_schema_id="example.rf_source/v1",
+)
+class MyRfSource(ObjectInstrumentDriver):
+    def __init__(self, instrument_id: str) -> None:
+        self.instrument_id = instrument_id
 
-    @override
-    def read_rf_output_state(self) -> RFOutputDriverSnapshot:
-        return RFOutputDriverSnapshot(state=self._read_hardware_state())
+    @property
+    def frequency(self) -> Quantity:
+        return self._query_frequency()
 
-    @override
-    def apply_rf_output_state(
-        self,
-        patch: RFOutputDriverPatch,
-        /,
-    ) -> DriverOutcome[None]:
-        if "frequency" in patch:
-            self._set_frequency(patch["frequency"])
-        return DriverSuccess(None)
+    @frequency.setter
+    def frequency(self, value: Quantity) -> None:
+        self._set_frequency(value)
+
+    @property
+    @device_member(capture=True, restore=False)
+    def reference_locked(self) -> bool:
+        return self._query_reference_lock()
 ```
 
-The adapter supplies `read_state`, `apply_state`, `invoke`, and `collect` at the
-worker boundary; the implementation supplies device policy plus normal
-description and lifecycle methods. All four real and four virtual first-party
-drivers use this pattern.
+The base class supplies `describe`, `read_state`, `apply_state`, `invoke`, and
+`collect` at the worker boundary. A driver overrides one only when the hardware
+needs batching or sequencing. `@device_member` records model-specific
+background information without inventing a one-device interface; its
+`capture`/`restore` policy is independent for every property. All four real and
+four virtual first-party drivers use this pattern.
 
 ## Configuration
 
@@ -169,8 +177,9 @@ run-start-adjusted baseline before terminal readback and release. Failure always
 aborts first; `abort_then_safe_state` may additionally apply the configured
 sparse safe state when the device remains commandable.
 
-Driver snapshots contain complete public physical state. Experiment entity and
-channel bindings are routing provenance, not fields a driver reads back.
+Lifecycle snapshots capture the requested public and model-specific members
+independently. Experiment entity and channel bindings are routing provenance,
+not fields a driver reads back.
 
 The DC monitor exposes `measure_current()` and `measure_voltage()` as separate
 acquisitions. A concrete driver rejects the call at runtime when its

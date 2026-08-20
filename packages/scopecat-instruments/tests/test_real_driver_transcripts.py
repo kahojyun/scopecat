@@ -8,6 +8,7 @@ from scopecat.records.measurement import MeasurementScalar, MeasurementUnavailab
 from scopecat.sdk.instruments import (
     AcquisitionRef,
     AcquisitionResultRef,
+    DevicePropertyRef,
     DriverAcquisition,
     DriverOperation,
     DriverOutcome,
@@ -65,6 +66,10 @@ from scopecat_instruments.members import (
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
 from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
+
+_GS200_MONITOR_OPTION = DevicePropertyRef("yokogawa.gs200/v1", (), "monitor_option")
+_GS200_REMOTE_SENSE = DevicePropertyRef("yokogawa.gs200/v1", (), "remote_sense")
+_GS200_GUARD_ENABLED = DevicePropertyRef("yokogawa.gs200/v1", (), "guard_enabled")
 
 
 def _apply_request(
@@ -272,7 +277,13 @@ def test_gs200_source_operation_restores_output_after_safe_transition(
         DC_SOURCE_VOLTAGE_PROTECTION,
         DC_SOURCE_CURRENT_PROTECTION,
         DC_SOURCE_OUTPUT_ENABLED,
+        _GS200_MONITOR_OPTION,
+        _GS200_REMOTE_SENSE,
+        _GS200_GUARD_ENABLED,
     }
+    assert state.values[_GS200_MONITOR_OPTION] is False
+    assert state.values[_GS200_REMOTE_SENSE] is False
+    assert state.values[_GS200_GUARD_ENABLED] is False
     transport.assert_complete()
 
 
@@ -893,7 +904,7 @@ def test_lakeshore_372_rejects_observed_state_apply_without_io() -> None:
     )
 
     assert isinstance(receipt, DriverRejected)
-    assert receipt.problems[0].code == "instrument_state_not_implemented"
+    assert receipt.problems[0].code == "instrument_state_member_not_implemented"
     transport.assert_complete()
 
 

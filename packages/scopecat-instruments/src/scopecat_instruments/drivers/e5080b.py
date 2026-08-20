@@ -10,8 +10,12 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import MeasurementArray
 from scopecat.sdk.instruments import (
     DriverOutcome,
+    DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     DriverSuccess,
-    InstrumentDescription,
+    ObjectInstrumentDriver,
+    instrument_driver,
 )
 from scopecat.sdk.instruments.scpi import (
     ScpiIdentity,
@@ -33,25 +37,23 @@ from scopecat_instruments._support import (
     collect_unknown,
     quantity_value,
 )
-from scopecat_instruments.driver_handlers import (
-    NetworkSweepDriverAdapter,
-    NetworkSweepDriverSnapshot,
-    NetworkSweepSweepDriverReadback,
-)
-from scopecat_instruments.driver_states import NetworkSweepDriverPatch
+from scopecat_instruments.driver_results import NetworkSweepDriverResult
 from scopecat_instruments.interface_declarations import (
-    NetworkSweepState,
+    NetworkSweepInterface,
     SParameter,
 )
-from scopecat_instruments.interfaces import network_sweep_interface
 from scopecat_instruments.package_manifest import KEYSIGHT_E5080B_DRIVER
 
 
-class KeysightE5080B(NetworkSweepDriverAdapter):
+@instrument_driver(
+    KEYSIGHT_E5080B_DRIVER.id,
+    KEYSIGHT_E5080B_DRIVER.implementation_version,
+    interfaces=(NetworkSweepInterface,),
+    label="Keysight E5080B",
+    description="Minimal two-port linear S-parameter sweep driver.",
+)
+class KeysightE5080B(ObjectInstrumentDriver):
     """Two-port linear sweep configuration and ASCII complex data retrieval."""
-
-    implementation_id = KEYSIGHT_E5080B_DRIVER.id
-    implementation_version = KEYSIGHT_E5080B_DRIVER.implementation_version
 
     def __init__(
         self,
@@ -69,24 +71,10 @@ class KeysightE5080B(NetworkSweepDriverAdapter):
         self.measurement = measurement
         self._identity: ScpiIdentity | None = None
 
-    def describe(self) -> InstrumentDescription:
-        return InstrumentDescription(
-            instrument_id=self.instrument_id,
-            implementation_id=self.implementation_id,
-            implementation_version=self.implementation_version,
-            label="Keysight E5080B",
-            description=(
-                "Minimal two-port linear S-parameter sweep driver using one "
-                "existing standard measurement. Calibration management and "
-                "option-dependent applications are outside the v1 boundary."
-            ),
-            interfaces=[network_sweep_interface()],
-        )
-
     @override
-    def read_network_sweep_state(self) -> NetworkSweepDriverSnapshot:
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
         self._require_linear_sweep()
-        settings = self.sweep_settings()
+        readback = super().read_state(request)
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Keysight",
             "model": "E5080B",
@@ -95,48 +83,27 @@ class KeysightE5080B(NetworkSweepDriverAdapter):
         }
         if self._identity is not None:
             metadata["identity"] = self._identity.raw
-        return NetworkSweepDriverSnapshot(
-            state=NetworkSweepState(
-                start_frequency=Quantity(settings.start_frequency_hz, "Hz"),
-                stop_frequency=Quantity(settings.stop_frequency_hz, "Hz"),
-                points=settings.points,
-                if_bandwidth=Quantity(settings.if_bandwidth_hz, "Hz"),
-                source_power=Quantity(settings.source_power_dbm, "dBm"),
-                s_parameter=settings.s_parameter,
-            ),
+        return DriverStateReadback(
+            observations=readback.observations,
             metadata=metadata,
         )
 
     @override
-    def apply_network_sweep_state(
+    def apply_state(
         self,
-        patch: NetworkSweepDriverPatch,
-        /,
-    ) -> DriverOutcome[None]:
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverStateReadback | None]:
         try:
             self._establish_linear_sweep()
-            if "start_frequency" in patch:
-                self.set_start_frequency(quantity_value(patch["start_frequency"], "Hz"))
-            if "stop_frequency" in patch:
-                self.set_stop_frequency(quantity_value(patch["stop_frequency"], "Hz"))
-            if "points" in patch:
-                self.set_points(patch["points"])
-            if "if_bandwidth" in patch:
-                self.set_if_bandwidth(quantity_value(patch["if_bandwidth"], "Hz"))
-            if "source_power" in patch:
-                self.set_source_power(quantity_value(patch["source_power"], "dBm"))
-            if "s_parameter" in patch:
-                self.set_s_parameter(patch["s_parameter"])
-            return DriverSuccess(None)
+            return super().apply_state(request)
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
 
-    @override
-    def handle_sweep(self) -> DriverOutcome[NetworkSweepSweepDriverReadback]:
+    def sweep(self) -> DriverOutcome[NetworkSweepDriverResult]:
         try:
             trace = self.acquire_trace()
             return DriverSuccess(
-                NetworkSweepSweepDriverReadback(
+                NetworkSweepDriverResult(
                     frequency=MeasurementArray.create(
                         dtype="float64",
                         unit="Hz",
@@ -193,8 +160,60 @@ class KeysightE5080B(NetworkSweepDriverAdapter):
                 self.transport,
                 f"SOUR{self.channel}:POW?",
             ),
-            s_parameter=self.s_parameter(),
+            s_parameter=self.s_parameter,
         )
+
+    @property
+    def start_frequency(self) -> Quantity:
+        return Quantity(
+            query_float(self.transport, f"SENS{self.channel}:FREQ:STAR?"), "Hz"
+        )
+
+    @start_frequency.setter
+    def start_frequency(self, value: Quantity) -> None:
+        self.set_start_frequency(quantity_value(value, "Hz"))
+
+    @property
+    def stop_frequency(self) -> Quantity:
+        return Quantity(
+            query_float(self.transport, f"SENS{self.channel}:FREQ:STOP?"), "Hz"
+        )
+
+    @stop_frequency.setter
+    def stop_frequency(self, value: Quantity) -> None:
+        self.set_stop_frequency(quantity_value(value, "Hz"))
+
+    @property
+    def points(self) -> int:
+        return query_int(self.transport, f"SENS{self.channel}:SWE:POIN?")
+
+    @points.setter
+    def points(self, value: int) -> None:
+        self.set_points(value)
+
+    @property
+    def if_bandwidth(self) -> Quantity:
+        return Quantity(query_float(self.transport, f"SENS{self.channel}:BWID?"), "Hz")
+
+    @if_bandwidth.setter
+    def if_bandwidth(self, value: Quantity) -> None:
+        self.set_if_bandwidth(quantity_value(value, "Hz"))
+
+    @property
+    def source_power(self) -> Quantity:
+        return Quantity(query_float(self.transport, f"SOUR{self.channel}:POW?"), "dBm")
+
+    @source_power.setter
+    def source_power(self, value: Quantity) -> None:
+        self.set_source_power(quantity_value(value, "dBm"))
+
+    @property
+    def s_parameter(self) -> SParameter:
+        return self._read_s_parameter()
+
+    @s_parameter.setter
+    def s_parameter(self, value: SParameter) -> None:
+        self.set_s_parameter(value)
 
     def set_start_frequency(self, frequency_hz: float) -> None:
         self.transport.write(
@@ -224,7 +243,7 @@ class KeysightE5080B(NetworkSweepDriverAdapter):
             f'CALC{self.channel}:MEAS{self.measurement}:PAR "{s_parameter}"'
         )
 
-    def s_parameter(self) -> SParameter:
+    def _read_s_parameter(self) -> SParameter:
         response = query_string(
             self.transport,
             f"CALC{self.channel}:MEAS{self.measurement}:PAR?",
@@ -320,9 +339,11 @@ class KeysightE5080B(NetworkSweepDriverAdapter):
         self._identity = identity
         return identity
 
+    @override
     def disconnect(self) -> None:
         self.transport.close()
 
+    @override
     def abort(self) -> None:
         self.transport.write("ABOR")
 

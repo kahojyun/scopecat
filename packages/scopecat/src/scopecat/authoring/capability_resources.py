@@ -10,7 +10,7 @@ from typing import Protocol, cast, overload
 
 from scopecat.authoring._module_context import DefinitionResource
 from scopecat.authoring.entity_selection import EachEntity, OneEntity, PerEntity, one
-from scopecat.authoring.state_projection import StateTarget
+from scopecat.authoring.member_projection import StateTarget
 from scopecat.kernel.resource_identity import ResourceRoleInput
 from scopecat.kernel.value_types import Entity, Scalar
 from scopecat.program.products import ProductRef

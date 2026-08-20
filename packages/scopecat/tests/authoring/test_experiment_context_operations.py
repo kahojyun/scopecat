@@ -11,7 +11,7 @@ from numpy.typing import NDArray
 
 import scopecat as sc
 from scopecat.authoring._module_context import DefinitionResource
-from scopecat.authoring.state_projection import StateTarget
+from scopecat.authoring.member_projection import StateTarget
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.measurements.results import MeasurementValue
 from scopecat.program.logical import (

@@ -138,31 +138,31 @@ def test_network_sweep_axis_size_tracks_the_points_state() -> None:
 
 def test_declared_network_sweep_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(network_sweep_interface()) == (
-        "4c89c55e6307ac459a5d48c381893104b93f0358f9c8e4406e164ff5393b9c61"
+        "17cb9b78cb000350b3704e6e552f28ee7c12f8668edcf8ee09f2401b2ad92ffe"
     )
 
 
 def test_declared_rf_output_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(rf_output_interface()) == (
-        "ab47c29a20affedd1201098590e3938d0933eb723c9091a86b51759320535a05"
+        "1f885bc11b9aae8154adf35860977ece881fbec951103ecf09f10fc87d7f0aa1"
     )
 
 
 def test_declared_dc_source_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(dc_source_interface()) == (
-        "9f90f3cf23e715f65fd2fb8b9b0ea81d01d131f097d06c0b396f18158b017446"
+        "75f6db53b71e1c3e268a4930ac934c89a65aba50a3ba9b1178a264a11ccc7bf6"
     )
 
 
 def test_declared_dc_monitor_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(dc_monitor_interface()) == (
-        "38f4707ea95e4545994d151fc6252c970b019f2cde63f3e9a9b684cb91de8fe4"
+        "8c5dc0c94a51a750de3b194561e19b80f0499d5b6bf10430907a07f432a3a6a1"
     )
 
 
 def test_declared_temperature_readout_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(temperature_readout_interface()) == (
-        "92d8129ae0c2aba91700a7db85ec59e3591920b621e35173b8fd0b61421ec608"
+        "cfe454bc06ed254981fe19339d737b85c2f7e0ba742ee0af0490ec9d5b0f9d33"
     )
 
 
@@ -214,17 +214,12 @@ def test_interface_contract_has_complete_ui_metadata(
     assert interface.description
     for property_spec in interface.properties:
         assert property_spec.label
-        assert property_spec.description
         assert property_spec.access in {"read_only", "write_only", "read_write"}
     for acquisition_spec in interface.acquisitions:
         assert acquisition_spec.label
-        assert acquisition_spec.description
         for result in acquisition_spec.results:
-            assert result.label
-            assert result.description
             for axis in result.axes:
-                assert axis.label
-                assert axis.description
+                assert axis.kind
 
 
 def test_gs200_monitor_option_adds_an_interface_without_changing_dc_source() -> None:

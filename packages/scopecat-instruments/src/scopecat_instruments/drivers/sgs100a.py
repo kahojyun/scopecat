@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from typing import override
+from typing import cast, override
 
 from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments import (
     DriverOutcome,
+    DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     DriverSuccess,
-    InstrumentDescription,
+    ObjectInstrumentDriver,
+    instrument_driver,
 )
 from scopecat.sdk.instruments.scpi import (
     ScpiIdentity,
@@ -25,114 +29,118 @@ from scopecat_instruments._support import (
     apply_unknown,
     quantity_value,
 )
-from scopecat_instruments.driver_handlers import (
-    RFOutputDriverAdapter,
-    RFOutputDriverSnapshot,
-)
-from scopecat_instruments.driver_states import RFOutputDriverPatch
 from scopecat_instruments.interface_declarations import (
     ReferenceSource,
-    RFOutputState,
+    RFOutputInterface,
 )
-from scopecat_instruments.interfaces import rf_output_interface
+from scopecat_instruments.members import (
+    RF_OUTPUT_ENABLED,
+    RF_OUTPUT_FREQUENCY,
+    RF_OUTPUT_POWER,
+    RF_OUTPUT_REFERENCE_SOURCE,
+)
 from scopecat_instruments.package_manifest import ROHDE_SCHWARZ_SGS100A_DRIVER
 
 
-class RohdeSchwarzSGS100A(RFOutputDriverAdapter):
+@instrument_driver(
+    ROHDE_SCHWARZ_SGS100A_DRIVER.id,
+    ROHDE_SCHWARZ_SGS100A_DRIVER.implementation_version,
+    interfaces=(RFOutputInterface,),
+    label="R&S SGS100A",
+    description="Minimal continuous-wave RF source driver.",
+)
+class RohdeSchwarzSGS100A(ObjectInstrumentDriver):
     """CW frequency, power, RF output, and reference source controls."""
-
-    implementation_id = ROHDE_SCHWARZ_SGS100A_DRIVER.id
-    implementation_version = ROHDE_SCHWARZ_SGS100A_DRIVER.implementation_version
 
     def __init__(self, instrument_id: str, transport: ScpiTransport) -> None:
         self.instrument_id = instrument_id
         self.transport = transport
         self._identity: ScpiIdentity | None = None
 
-    def describe(self) -> InstrumentDescription:
-        return InstrumentDescription(
-            instrument_id=self.instrument_id,
-            implementation_id=self.implementation_id,
-            implementation_version=self.implementation_version,
-            label="R&S SGS100A",
-            description=(
-                "Minimal continuous-wave RF source driver. Modulation and "
-                "option-dependent features are outside the v1 boundary."
-            ),
-            interfaces=[rf_output_interface()],
-        )
-
     @override
-    def read_rf_output_state(self) -> RFOutputDriverSnapshot:
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
         self._require_cw_state()
+        readback = super().read_state(request)
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Rohde & Schwarz",
             "model": "SGS100A",
         }
         if self._identity is not None:
             metadata["identity"] = self._identity.raw
-        return RFOutputDriverSnapshot(
-            state=RFOutputState(
-                frequency=Quantity(self.frequency(), "Hz"),
-                power=Quantity(self.power(), "dBm"),
-                output_enabled=self.output_enabled(),
-                reference_source=self.reference_source(),
-            ),
+        return DriverStateReadback(
+            observations=readback.observations,
             metadata=metadata,
         )
 
     @override
-    def apply_rf_output_state(
+    def apply_state(
         self,
-        patch: RFOutputDriverPatch,
-        /,
-    ) -> DriverOutcome[None]:
-        target_output = patch.get("output_enabled")
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverStateReadback | None]:
+        values = request.values
+        target_output = cast("bool | None", values.get(RF_OUTPUT_ENABLED))
         try:
-            observed_output = self.output_enabled()
+            observed_output = self.output_enabled
             if observed_output:
-                self.set_output(False)
+                self.output_enabled = False
             self._establish_cw_state()
-            if "reference_source" in patch:
-                self.set_reference_source(patch["reference_source"])
-            if "frequency" in patch:
-                self.set_frequency(quantity_value(patch["frequency"], "Hz"))
-            if "power" in patch:
-                self.set_power(quantity_value(patch["power"], "dBm"))
+            if RF_OUTPUT_REFERENCE_SOURCE in values:
+                self.reference_source = cast(
+                    "ReferenceSource", values[RF_OUTPUT_REFERENCE_SOURCE]
+                )
+            if RF_OUTPUT_FREQUENCY in values:
+                self.frequency = cast("Quantity", values[RF_OUTPUT_FREQUENCY])
+            if RF_OUTPUT_POWER in values:
+                self.power = cast("Quantity", values[RF_OUTPUT_POWER])
             final_output = observed_output if target_output is None else target_output
             if final_output:
-                self.set_output(True)
+                self.output_enabled = True
             return DriverSuccess(None)
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
 
-    def set_frequency(self, frequency_hz: float) -> None:
-        self.transport.write(f":SOUR:FREQ {format_number(frequency_hz)}")
-
-    def frequency(self) -> float:
+    @property
+    def frequency(self) -> Quantity:
         # FREQ? includes the downstream display offset, which does not shift RF.
         displayed = query_float(self.transport, ":SOUR:FREQ?")
         offset = query_float(self.transport, ":SOUR:FREQ:OFFS?")
-        return displayed - offset
+        return Quantity(displayed - offset, "Hz")
+
+    @frequency.setter
+    def frequency(self, value: Quantity) -> None:
+        self.transport.write(f":SOUR:FREQ {format_number(quantity_value(value, 'Hz'))}")
+
+    @property
+    def power(self) -> Quantity:
+        return Quantity(query_float(self.transport, ":SOUR:POW:POW?"), "dBm")
+
+    def set_frequency(self, frequency_hz: float) -> None:
+        self.frequency = Quantity(frequency_hz, "Hz")
 
     def set_power(self, power_dbm: float) -> None:
-        self.transport.write(f":SOUR:POW:POW {format_number(power_dbm)}")
-
-    def power(self) -> float:
-        return query_float(self.transport, ":SOUR:POW:POW?")
+        self.power = Quantity(power_dbm, "dBm")
 
     def set_output(self, enabled: bool) -> None:
-        self.transport.write(f":OUTP {'ON' if enabled else 'OFF'}")
+        self.output_enabled = enabled
 
+    def set_reference_source(self, source: ReferenceSource) -> None:
+        self.reference_source = source
+
+    @power.setter
+    def power(self, value: Quantity) -> None:
+        self.transport.write(
+            f":SOUR:POW:POW {format_number(quantity_value(value, 'dBm'))}"
+        )
+
+    @property
     def output_enabled(self) -> bool:
         return query_bool(self.transport, ":OUTP?")
 
-    def set_reference_source(self, source: ReferenceSource) -> None:
-        command = {"internal": "INT", "external": "EXT"}.get(source)
-        if command is None:
-            raise ValueError("SGS100A reference source must be internal or external")
-        self.transport.write(f":SOUR:ROSC:SOUR {command}")
+    @output_enabled.setter
+    def output_enabled(self, value: bool) -> None:
+        self.transport.write(f":OUTP {'ON' if value else 'OFF'}")
 
+    @property
     def reference_source(self) -> ReferenceSource:
         response = query_text(self.transport, ":SOUR:ROSC:SOUR?").upper()
         if response.startswith("INT"):
@@ -140,6 +148,13 @@ class RohdeSchwarzSGS100A(RFOutputDriverAdapter):
         if response.startswith("EXT"):
             return "external"
         raise ValueError(f"SGS100A returned unknown reference source {response!r}")
+
+    @reference_source.setter
+    def reference_source(self, value: ReferenceSource) -> None:
+        command = {"internal": "INT", "external": "EXT"}.get(value)
+        if command is None:
+            raise ValueError("SGS100A reference source must be internal or external")
+        self.transport.write(f":SOUR:ROSC:SOUR {command}")
 
     def _establish_cw_state(self) -> None:
         self.transport.write(":SOUR:OPM NORM")
@@ -170,9 +185,11 @@ class RohdeSchwarzSGS100A(RFOutputDriverAdapter):
         self._identity = identity
         return identity
 
+    @override
     def disconnect(self) -> None:
         self.transport.close()
 
+    @override
     def abort(self) -> None:
         """The CW source has no acquisition operation to abort."""
 

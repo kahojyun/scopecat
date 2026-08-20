@@ -37,13 +37,13 @@ from scopecat.sdk.instruments import (
     PropertySpec,
 )
 from scopecat.sdk.instruments.declarations import (
-    state_projection_assignments,
+    member_projection_assignments,
 )
 from scopecat.sdk.problems import ProblemPhase, model_location, problem
 
 
 @dataclass(frozen=True, slots=True)
-class ClientStateField:
+class ClientMemberDeclaration:
     python_name: str
     ref: PropertyRef
     value_type: ValueType
@@ -62,7 +62,7 @@ class InstrumentMemberClient[ValueT]:
 
     _session: InstrumentClientChannel = field(repr=False)
     instrument_id: str
-    declaration: ClientStateField
+    declaration: ClientMemberDeclaration
     writable: bool
 
     def observed(self) -> ValueT:
@@ -112,41 +112,6 @@ class InstrumentMemberClient[ValueT]:
             metadata=readback.metadata,
         )
         return self._decode_snapshot(snapshot)
-
-
-@dataclass(frozen=True, slots=True)
-class ClientStateSchema[StateT]:
-    state_type: type[StateT]
-    fields: tuple[ClientStateField, ...]
-
-    def decode(self, snapshot: InstrumentStateSnapshot, /) -> StateT:
-        properties = {
-            PropertyRef(
-                item.target.interface_id,
-                item.target.component_path,
-                item.target.property_id,
-            ): item
-            for item in snapshot.observations
-            if isinstance(item.target, InterfaceStateMemberTarget)
-        }
-        missing = tuple(field for field in self.fields if field.ref not in properties)
-        if missing:
-            rendered = ", ".join(
-                f"{field.python_name} ({field.ref!r})" for field in missing
-            )
-            raise ValueError(
-                f"instrument-state snapshot is missing declared fields: {rendered}"
-            )
-        values = {
-            field.python_name: coerce_literal(
-                field.value_type,
-                properties[field.ref].value.root,
-                path=("state", field.python_name),
-            )
-            for field in self.fields
-        }
-        constructor = cast("Callable[..., StateT]", self.state_type)
-        return constructor(**values)
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,7 +175,7 @@ class InstrumentClientBase:
 
     def _member[ValueT](
         self,
-        declaration: ClientStateField,
+        declaration: ClientMemberDeclaration,
         /,
         *,
         writable: bool,
@@ -284,7 +249,7 @@ class InstrumentClientBase:
         return output_factory(receipt=receipt, **values)
 
 
-class DeclaredStateClientBase[StateT](InstrumentClientBase):
+class ProjectedMemberClientBase[StateT](InstrumentClientBase):
     def apply(self, patch: StateT) -> ApplyReceipt:
         return self._apply_declared(patch)
 
@@ -305,7 +270,7 @@ def _concrete_assignments(state: object) -> dict[PropertyRef, StateLiteral]:
     try:
         return {
             target: StateValue.model_validate(value).root
-            for target, value in state_projection_assignments(state).items()
+            for target, value in member_projection_assignments(state).items()
         }
     except ValueError as error:
         raise TypeError(
@@ -317,10 +282,9 @@ __all__ = [
     "ClientAcquisition",
     "ClientAcquisitionAxis",
     "ClientAcquisitionResult",
-    "ClientStateField",
-    "ClientStateSchema",
-    "DeclaredStateClientBase",
+    "ClientMemberDeclaration",
     "InstrumentClientBase",
     "InstrumentMemberClient",
+    "ProjectedMemberClientBase",
     "client_property_value_type",
 ]

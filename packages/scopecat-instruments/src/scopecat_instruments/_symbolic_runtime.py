@@ -36,7 +36,7 @@ from scopecat.sdk.instruments import (
     PropertyRef,
 )
 from scopecat.sdk.instruments.declarations import (
-    state_projection_assignments,
+    member_projection_assignments,
 )
 
 from scopecat_instruments._client_runtime import (
@@ -148,7 +148,7 @@ class SymbolicInstrumentClientBase:
         return output_factory(**products)
 
 
-class DeclaredStateSymbolicClientBase[StateT](SymbolicInstrumentClientBase):
+class ProjectedMemberSymbolicClientBase[StateT](SymbolicInstrumentClientBase):
     def ensure(self, state: StateT) -> None:
         self._ensure_projected_state(state)
 
@@ -178,7 +178,7 @@ class DeclaredStateSymbolicClientBase[StateT](SymbolicInstrumentClientBase):
         self,
         state: StateT,
     ) -> Mapping[PropertyRef, StateBinding]:
-        return state_projection_assignments(state)
+        return member_projection_assignments(state)
 
 
 class _SymbolicClientFactory[ClientT: SymbolicInstrumentClientBase](Protocol):
@@ -263,7 +263,7 @@ class SymbolicInstrumentGroupBase[ClientT: SymbolicInstrumentClientBase]:
         return self._entities.align(value)
 
 
-class DeclaredStateSymbolicGroupBase[
+class ProjectedMemberSymbolicGroupBase[
     StateT,
     GroupStateT,
     ClientT: SymbolicInstrumentClientBase,
@@ -315,13 +315,13 @@ class DeclaredStateSymbolicGroupBase[
         if isinstance(state, PerEntity):
             projections = self._align(cast("PerEntity[StateT]", state))
             return tuple(
-                (entity, state_projection_assignments(projection))
+                (entity, member_projection_assignments(projection))
                 for entity, projection in projections.items()
             )
 
         assignments = cast(
             "Mapping[PropertyRef, StateBinding | PerEntity[StateBinding]]",
-            state_projection_assignments(state),
+            member_projection_assignments(state),
         )
         aligned = {
             property_ref: self._align(value)
@@ -341,9 +341,9 @@ class DeclaredStateSymbolicGroupBase[
     def _state_client(
         self,
         entity: EntityRef,
-    ) -> DeclaredStateSymbolicClientBase[StateT]:
+    ) -> ProjectedMemberSymbolicClientBase[StateT]:
         return cast(
-            "DeclaredStateSymbolicClientBase[StateT]",
+            "ProjectedMemberSymbolicClientBase[StateT]",
             self._clients[entity],
         )
 
@@ -415,8 +415,8 @@ def _product_axis_size(
 
 
 __all__ = [
-    "DeclaredStateSymbolicClientBase",
-    "DeclaredStateSymbolicGroupBase",
+    "ProjectedMemberSymbolicClientBase",
+    "ProjectedMemberSymbolicGroupBase",
     "SymbolicInstrumentClientBase",
     "SymbolicInstrumentGroupBase",
 ]

@@ -7,7 +7,7 @@ from typing import cast
 
 import scopecat_instruments as instrument_package
 import scopecat_instruments.clients as client_module
-import scopecat_instruments.states as state_module
+import scopecat_instruments.projections as state_module
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 _LAZY_EXPORT_CHECK = """
@@ -21,7 +21,7 @@ public_export_modules = instruments.__dict__["_PUBLIC_EXPORT_MODULES"]
 lazy_modules = {
     "scopecat_instruments.clients",
     "scopecat_instruments.provider",
-    "scopecat_instruments.states",
+    "scopecat_instruments.projections",
 }
 assert lazy_modules.isdisjoint(sys.modules)
 assert instruments.__all__ == sorted(public_export_modules)
@@ -47,7 +47,7 @@ def test_package_export_routes_match_generated_module_exports() -> None:
     expected = {
         "ConfiguredInstrumentProvider": "scopecat_instruments.provider",
         **dict.fromkeys(client_module.__all__, "scopecat_instruments.clients"),
-        **dict.fromkeys(state_module.__all__, "scopecat_instruments.states"),
+        **dict.fromkeys(state_module.__all__, "scopecat_instruments.projections"),
     }
 
     assert set(client_module.__all__).isdisjoint(state_module.__all__)
