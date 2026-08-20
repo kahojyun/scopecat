@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
@@ -312,6 +313,79 @@ class MountedInstrumentRouter:
         )
 
 
+class MountedInstrumentDriver(ABC):
+    """OO adapter for a physical driver assembled from mounted child drivers.
+
+    Subclasses retain ownership of transport identity and lifecycle. Construction
+    declares the child mounts once; the standard driver protocol delegates through
+    the router. Override ``_state_metadata`` for dynamic physical-device evidence.
+    """
+
+    implementation_id: str
+    implementation_version: str
+
+    def __init__(
+        self,
+        instrument_id: str,
+        *,
+        mounts: Mapping[MountPath, InstrumentDriver],
+        label: str | None = None,
+        description: str | None = None,
+        device_labels: Mapping[DeviceSchemaId, str] | None = None,
+        device_descriptions: Mapping[DeviceSchemaId, str] | None = None,
+    ) -> None:
+        self.instrument_id = instrument_id
+        self._mounted_router = MountedInstrumentRouter(
+            instrument_id=instrument_id,
+            implementation_id=self.implementation_id,
+            implementation_version=self.implementation_version,
+            mounts=mounts,
+            label=label,
+            description=description,
+            device_labels=device_labels,
+            device_descriptions=device_descriptions,
+        )
+
+    def describe(self) -> InstrumentDescription:
+        return self._mounted_router.describe()
+
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
+        readback = self._mounted_router.read_state(request)
+        return DriverStateReadback(
+            observations=readback.observations,
+            metadata={**readback.metadata, **self._state_metadata()},
+        )
+
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverStateReadback | None]:
+        return self._mounted_router.apply_state(request)
+
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverStateReadback | None]:
+        return self._mounted_router.invoke(request)
+
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        return self._mounted_router.collect(request)
+
+    def _state_metadata(self) -> Mapping[str, JsonValue]:
+        return {}
+
+    @abstractmethod
+    def disconnect(self) -> None:
+        """Release the physical transport owned by the containing driver."""
+
+    @abstractmethod
+    def abort(self) -> None:
+        """Best-effort interruption for the containing physical device."""
+
+
 def _compose_description(
     *,
     instrument_id: str,
@@ -558,4 +632,4 @@ def _display_path(path: Sequence[str]) -> str:
     return "/".join(path) or "<root>"
 
 
-__all__ = ["MountPath", "MountedInstrumentRouter"]
+__all__ = ["MountPath", "MountedInstrumentDriver", "MountedInstrumentRouter"]

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import override
+
 from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     AcquisitionRef,
@@ -19,6 +21,7 @@ from scopecat.sdk.instruments import (
     DriverUnknown,
     InstrumentDescription,
     InterfaceRef,
+    MountedInstrumentDriver,
     MountedInstrumentRouter,
     PropertyRef,
     acquisition,
@@ -170,6 +173,30 @@ class _ChildDriver:
         return None
 
 
+class _MountedDevice(MountedInstrumentDriver):
+    implementation_id = "test.mounted"
+    implementation_version = "1"
+
+    def __init__(self, child: _ChildDriver) -> None:
+        super().__init__(
+            "device",
+            mounts={("channels", "1"): child},
+            label="Mounted device",
+        )
+
+    @override
+    def _state_metadata(self) -> dict[str, bool]:
+        return {"identified": True}
+
+    @override
+    def disconnect(self) -> None:
+        return None
+
+    @override
+    def abort(self) -> None:
+        return None
+
+
 def _mounted_property(target: PropertyRef, channel: str) -> PropertyRef:
     return PropertyRef(
         target.interface_id,
@@ -304,4 +331,19 @@ def test_mounted_router_keeps_multiple_device_schemas_distinct() -> None:
     } == {
         ("test.mounted_child.device/v1", ("channels", "1"), "locked"),
         ("test.other_child.device/v1", ("channels", "2"), "locked"),
+    }
+
+
+def test_mounted_driver_declares_mounts_once_and_adds_physical_metadata() -> None:
+    child = _ChildDriver("child-1", 1)
+    driver = _MountedDevice(child)
+    target = _mounted_property(_VALUE, "1")
+
+    readback = driver.read_state(DriverStateReadRequest(frozenset({target})))
+
+    assert driver.describe().label == "Mounted device"
+    assert readback.values == {target: 1}
+    assert readback.metadata == {
+        "mounts": {"channels/1": {"child": "child-1"}},
+        "identified": True,
     }

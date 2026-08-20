@@ -111,6 +111,7 @@ if TYPE_CHECKING:
         StateMemberRef,
     )
     from scopecat.sdk.instruments.mounted_driver import (
+        MountedInstrumentDriver,
         MountedInstrumentRouter,
         MountPath,
     )
@@ -313,6 +314,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "InterfaceRef": ("scopecat.sdk.instruments.members", "InterfaceRef"),
     "Member": ("scopecat.sdk.instruments.declarations", "Member"),
     "MountPath": ("scopecat.sdk.instruments.mounted_driver", "MountPath"),
+    "MountedInstrumentDriver": (
+        "scopecat.sdk.instruments.mounted_driver",
+        "MountedInstrumentDriver",
+    ),
     "MountedInstrumentRouter": (
         "scopecat.sdk.instruments.mounted_driver",
         "MountedInstrumentRouter",
