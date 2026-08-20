@@ -48,9 +48,11 @@ uv run --locked python scripts/generate_instrument_clients.py --check
 Generated modules and the package facade are committed build outputs; edit the
 declarations or manifest and regenerate them. Static descriptors make imports
 independent of declaration compilation. Writable interfaces receive sparse
-member projections; generated clients own wire conversion and exact
-`PerEntity` joins. Driver dispatch is supplied once by
-`ObjectInstrumentDriver` and does not generate a handler class per device.
+member projections; acquisition result declarations produce both public client
+carriers and the measurement-valued observations returned by drivers. Generated
+clients own wire conversion and exact `PerEntity` joins. Driver dispatch is
+supplied once by `ObjectInstrumentDriver` and does not generate a handler class
+per device.
 
 One group `ensure(...)` remains a coherent state intent so routing can batch
 channels that resolve to the same instrument. Group operations expand to scalar
@@ -144,7 +146,11 @@ from scopecat.sdk.instruments import (
     read,
     update,
 )
-from scopecat.sdk.instruments.declarations import instrument_interface, member
+from scopecat.sdk.instruments.declarations import (
+    instrument_interface,
+    member,
+    observation,
+)
 
 
 @instrument_interface("example.rf_output/v1")
@@ -207,6 +213,50 @@ The base class supplies `describe`, `read_state`, `apply_state`, `invoke`, and
 `@query`/`@update` preserve hardware batching and sequencing without creating
 aggregate state. A driver overrides a worker method only for routing or a
 failure model that these bindings cannot express.
+
+Use a member-derived observation when an acquisition only records a fresh read
+of independently queryable state. It does not need a result dataclass or a
+driver method:
+
+```python
+@instrument_interface("example.dc_bias/v1")
+class DCBias(Protocol):
+    actual_voltage: Member[Quantity] = member(access="read_only", unit="V")
+    settled: Member[bool] = member(access="read_only")
+
+    readback = observation(actual_voltage, settled, label="Read back bias")
+```
+
+`ObjectInstrumentDriver.collect` reads those members coherently through the
+normal state bindings. Use `@acquisition` with an `@instrument_result`
+dataclass instead when the device performs a distinct measurement, produces an
+array, or has acquisition-specific failure and evidence. After generation, the
+driver returns the corresponding class from
+`scopecat_instruments.driver_observations`:
+
+```python
+from scopecat.records.measurement import MeasurementScalar
+from scopecat.sdk.instruments import DriverOutcome, DriverSuccess
+from scopecat_instruments.driver_observations import DCMonitorCurrentObservation
+
+
+def measure_current(self) -> DriverOutcome[DCMonitorCurrentObservation]:
+    return DriverSuccess(
+        DCMonitorCurrentObservation(
+            current=MeasurementScalar.create(
+                dtype="float64",
+                unit="A",
+                value=self._measure_current(),
+            ),
+            evidence={"integration_cycles": self.integration_cycles},
+        )
+    )
+```
+
+The generated observation fields mirror the declared result fields but contain
+`MeasurementAcquisitionValue` envelopes. `evidence` belongs to the persisted
+acquisition readback; `DriverSuccess.metadata` describes the invocation outcome.
+Do not define a parallel driver-only result schema.
 
 An interface declares the maximum portable member surface. The concrete
 driver's I/O bindings declare what one model actually implements. If a model can
