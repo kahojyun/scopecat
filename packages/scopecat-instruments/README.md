@@ -144,6 +144,7 @@ from scopecat.sdk.instruments import (
     Observed,
     device_member,
     instrument_driver,
+    member_constraint,
     member_policy,
     observed,
     read,
@@ -170,6 +171,9 @@ class RFOutput(Protocol):
     "example.rf_source",
     "1",
     interfaces=(RFOutput,),
+    member_constraints=(
+        member_constraint(RFOutput.frequency, minimum=1.0e9, maximum=20.0e9),
+    ),
     member_policies=(member_policy(RFOutput.frequency, restore=False),),
     device_schema_id="example.rf_source/v1",
 )
@@ -291,6 +295,14 @@ widen the interface and does not repeat its identity, type, units, or bounds.
 Generated member clients expose the resolved result through
 `member.implementation()` and `member.is_writable()`; `member.set(...)` checks
 the concrete endpoint rather than only the portable interface.
+
+When one model supports only a subset of an interface member's values, add
+`member_constraint(...)` with narrower numeric bounds or string choices. The
+interface continues to own the member's identity, type, unit, and portable
+meaning; the instrument description carries only the concrete refinement. Use
+a separate interface only when behavior or meaning changes, and keep
+cross-member or mode-dependent combinations in driver validation rather than
+trying to encode them as per-member bounds.
 
 `device_member(...)` records model-specific background information without
 inventing a one-device interface; its `capture`/`restore` policy is independent

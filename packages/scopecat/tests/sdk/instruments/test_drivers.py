@@ -16,7 +16,7 @@ from scopecat_testkit.signal_instruments import TestSignalInstrumentProvider
 from scopecat.kernel.problems import ModelLocation, Problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.kernel.value_types import Entity, Float, Int, Payload, Scalar
+from scopecat.kernel.value_types import Entity, Float, Int, Payload, Scalar, String
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
 from scopecat.program.measurement_types import MeasurementDType
@@ -88,6 +88,7 @@ from scopecat.sdk.instruments.contracts import (
     project_instrument_state,
     resolve_acquisition_dimensions,
     resolve_interactive_collect,
+    resolve_state_member_spec,
     validate_collect_command,
     validate_collect_plan,
     validate_collect_receipt,
@@ -226,7 +227,13 @@ def test_interface_property_implementations_may_only_narrow_contract_policy() ->
         interfaces=[
             interface(
                 reference.interface_id,
-                properties=[string_property(reference.property_id, access="read_only")],
+                properties=[
+                    enum_property(
+                        reference.property_id,
+                        choices=("external", "internal"),
+                        access="read_only",
+                    )
+                ],
             )
         ],
         interface_property_implementations=[
@@ -235,11 +242,18 @@ def test_interface_property_implementations_may_only_narrow_contract_policy() ->
                 access="read_only",
                 capture=False,
                 restore=False,
+                value_type=Scalar(String(choices=("external",))),
             )
         ],
     )
 
     assert capture_state_members(description) == ()
+    resolved = resolve_state_member_spec(
+        description,
+        state_member_target(PropertyRef(reference.interface_id, (), "identity")),
+    )
+    assert resolved is not None
+    assert resolved.value_type == Scalar(String(choices=("external",)))
     with pytest.raises(ValidationError, match="cannot widen access"):
         InstrumentDescription(
             instrument_id="fixed",
@@ -252,6 +266,22 @@ def test_interface_property_implementations_may_only_narrow_contract_policy() ->
                     access="read_write",
                     capture=True,
                     restore=False,
+                )
+            ],
+        )
+    with pytest.raises(ValidationError, match="cannot widen values"):
+        InstrumentDescription(
+            instrument_id="fixed",
+            implementation_id="test.fixed",
+            implementation_version="1",
+            interfaces=description.interfaces,
+            interface_property_implementations=[
+                InterfacePropertyImplementationSpec(
+                    property=reference,
+                    access="read_only",
+                    capture=False,
+                    restore=False,
+                    value_type=Scalar(String(choices=("external", "unsupported"))),
                 )
             ],
         )

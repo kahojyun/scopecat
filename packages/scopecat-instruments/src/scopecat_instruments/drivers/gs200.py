@@ -25,6 +25,7 @@ from scopecat.sdk.instruments import (
     device_member,
     implements,
     instrument_driver,
+    member_constraint,
     observed,
     read,
     state_capture_request,
@@ -80,6 +81,10 @@ _CONDITION_NO_TRIGGER_SAMPLING_ERROR = 1 << 4
     YOKOGAWA_GS200_DRIVER.id,
     YOKOGAWA_GS200_DRIVER.implementation_version,
     interfaces=(DCSourceInterface, DCMonitorInterface),
+    member_constraints=(
+        member_constraint(DCMonitorInterface.integration_cycles, maximum=25),
+        member_constraint(DCMonitorInterface.measurement_delay, maximum=999.999),
+    ),
     label="Yokogawa GS200",
     description="Voltage/current source with optional monitor capability.",
     device_schema_id="yokogawa.gs200/v1",

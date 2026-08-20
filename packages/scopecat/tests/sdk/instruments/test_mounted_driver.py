@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import override
 
+from scopecat.kernel.value_types import Int, Scalar
 from scopecat.records.instrument import state_member_target
 from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
@@ -108,6 +109,7 @@ class _ChildDriver:
                         access="read_only",
                         capture=True,
                         restore=False,
+                        value_type=Scalar(Int(minimum=0, maximum=10)),
                     )
                 ]
                 if self.read_only
@@ -353,6 +355,7 @@ def test_mounted_router_preserves_per_endpoint_property_implementations() -> Non
     assert implementation.property.component_path == ["channels", "2"]
     assert first_spec is not None and first_spec.access == "read_write"
     assert second_spec is not None and second_spec.access == "read_only"
+    assert second_spec.value_type == Scalar(Int(minimum=0, maximum=10))
 
 
 def test_mounted_router_keeps_multiple_device_schemas_distinct() -> None:

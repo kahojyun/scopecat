@@ -125,6 +125,7 @@ if TYPE_CHECKING:
     )
     from scopecat.sdk.instruments.object_driver import (
         Change,
+        DriverMemberConstraint,
         DriverMemberPolicy,
         InstrumentDriverMetadata,
         ObjectInstrumentDriver,
@@ -132,6 +133,7 @@ if TYPE_CHECKING:
         device_member_ref,
         implements,
         instrument_driver,
+        member_constraint,
         member_policy,
         observed,
         query,
@@ -226,6 +228,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "DriverMemberPolicy": (
         "scopecat.sdk.instruments.object_driver",
         "DriverMemberPolicy",
+    ),
+    "DriverMemberConstraint": (
+        "scopecat.sdk.instruments.object_driver",
+        "DriverMemberConstraint",
     ),
     "DriverOperation": ("scopecat.sdk.instruments.authoring", "DriverOperation"),
     "DriverOutcome": ("scopecat.sdk.instruments.authoring", "DriverOutcome"),
@@ -459,6 +465,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "member_policy": (
         "scopecat.sdk.instruments.object_driver",
         "member_policy",
+    ),
+    "member_constraint": (
+        "scopecat.sdk.instruments.object_driver",
+        "member_constraint",
     ),
     "query": ("scopecat.sdk.instruments.object_driver", "query"),
     "read": ("scopecat.sdk.instruments.object_driver", "read"),

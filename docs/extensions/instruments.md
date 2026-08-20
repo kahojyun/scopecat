@@ -79,6 +79,12 @@ it describes instead of duplicating it in every other observation. An operation
 that disturbs persistent state lists the affected members in `invalidates`; a
 later `ensure` establishes a new guarantee.
 
+Concrete models may narrow a portable member's numeric range or string choices
+with `member_constraint(...)`. This is an endpoint refinement, not a new
+interface declaration. Relational constraints such as “remote sense requires a
+voltage range of at least 1 V” remain explicit driver behavior because they
+depend on several independently queryable members.
+
 Use the package's source-adjacent guides for the exact extension workflow:
 
 - [driver authoring](https://github.com/scopecat-project/scopecat/blob/main/packages/scopecat-instruments/README.md#driver-authoring)

@@ -444,6 +444,7 @@ def _compose_description(
                 access=implementation.access,
                 capture=implementation.capture,
                 restore=implementation.restore,
+                value_type=implementation.value_type,
             )
             for implementation in mount.description.interface_property_implementations
         )

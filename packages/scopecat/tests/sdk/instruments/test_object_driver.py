@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Literal, Protocol
 
 import pytest
 
+from scopecat.kernel.value_types import Int, Scalar, String
 from scopecat.records.instrument import state_member_target
 from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
@@ -21,6 +22,7 @@ from scopecat.sdk.instruments import (
     device_member_ref,
     implements,
     instrument_driver,
+    member_constraint,
     member_policy,
     observed,
     query,
@@ -319,10 +321,90 @@ def test_object_driver_infers_narrower_interface_property_capabilities() -> None
     assert implementation.access == "read_only"
     assert implementation.capture is True
     assert implementation.restore is False
+    assert "value_type" not in implementation.model_dump(mode="json")
     assert resolved is not None
     assert resolved.access == "read_only"
     assert capture_state_members(description) == (target,)
     assert restorable_state_members(description) == frozenset()
+
+
+def test_object_driver_declares_concrete_member_value_constraints() -> None:
+    @instrument_interface("test.constrained_setting/v1")
+    class ConstrainedSetting(Protocol):
+        count: Member[int] = member(
+            access="read_write",
+            minimum=0,
+            maximum=10,
+        )
+        mode: Member[Literal["fast", "balanced", "quiet"]] = member(access="read_write")
+
+    @instrument_driver(
+        "test.constrained_setting",
+        "1",
+        interfaces=(ConstrainedSetting,),
+        member_constraints=(
+            member_constraint(ConstrainedSetting.count, minimum=2, maximum=8),
+            member_constraint(
+                ConstrainedSetting.mode,
+                choices=("balanced", "quiet"),
+            ),
+        ),
+    )
+    class ConstrainedSettingDriver(ObjectInstrumentDriver):
+        instrument_id = "constrained"
+
+        @query(ConstrainedSetting.count, ConstrainedSetting.mode)
+        def query_values(self) -> tuple[int, str]:
+            return 5, "balanced"
+
+        @update(ConstrainedSetting.count, ConstrainedSetting.mode)
+        def update_values(
+            self,
+            *,
+            count: Change[int],
+            mode: Change[str],
+        ) -> None:
+            del count, mode
+
+    description = ConstrainedSettingDriver().describe()
+    count = declared_property_ref(ConstrainedSetting, "count")
+    mode = declared_property_ref(ConstrainedSetting, "mode")
+    count_spec = resolve_state_member_spec(description, state_member_target(count))
+    mode_spec = resolve_state_member_spec(description, state_member_target(mode))
+
+    assert count_spec is not None
+    assert count_spec.value_type == Scalar(Int(minimum=2, maximum=8))
+    assert mode_spec is not None
+    assert mode_spec.value_type == Scalar(String(choices=("balanced", "quiet")))
+    assert all(
+        "value_type" in implementation.model_dump(mode="json")
+        for implementation in description.interface_property_implementations
+    )
+    declared = compile_interface(ConstrainedSetting).spec
+    assert declared.properties[0].value_type == Scalar(Int(minimum=0, maximum=10))
+
+
+def test_object_driver_rejects_member_constraint_widening() -> None:
+    @instrument_interface("test.invalid_constraint/v1")
+    class InvalidConstraint(Protocol):
+        count: Member[int] = member(access="read_only", minimum=0)
+
+    with pytest.raises(TypeError, match="must narrow the interface value set"):
+
+        @instrument_driver(
+            "test.invalid_constraint",
+            "1",
+            interfaces=(InvalidConstraint,),
+            member_constraints=(
+                member_constraint(InvalidConstraint.count, minimum=-1),
+            ),
+        )
+        class InvalidConstraintDriver(  # pyright: ignore[reportUnusedClass]
+            ObjectInstrumentDriver
+        ):
+            @read(InvalidConstraint.count)
+            def read_count(self) -> int:
+                return 1
 
 
 def test_object_driver_applies_exception_only_member_lifecycle_policies() -> None:

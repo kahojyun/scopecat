@@ -28,6 +28,7 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.units import compatible_units
 from scopecat.kernel.value_identity import scalar_values_equal
+from scopecat.kernel.value_type_compatibility import is_assignable
 from scopecat.kernel.value_type_wire import (
     InstrumentOperationScalarWire,
     InstrumentPropertyScalarWire,
@@ -91,6 +92,10 @@ type PropertyAccess = Literal["read_only", "write_only", "read_write"]
 _JSON_SAFE_INTEGER = (1 << 53) - 1
 
 
+def _exclude_none(value: object) -> bool:
+    return value is None
+
+
 def _validate_property_lifecycle(
     access: PropertyAccess,
     *,
@@ -145,8 +150,8 @@ class InterfacePropertyImplementationSpec(BaseModel):
     """Concrete semantics for one portable property at a physical endpoint.
 
     Omitted properties retain their interface contract semantics. Implementations
-    may narrow access or lifecycle participation, but never widen the portable
-    contract.
+    may narrow access, lifecycle participation, or admitted values, but never
+    widen the portable contract.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -155,6 +160,10 @@ class InterfacePropertyImplementationSpec(BaseModel):
     access: PropertyAccess
     capture: bool
     restore: bool
+    value_type: InstrumentPropertyScalarWire | None = Field(
+        default=None,
+        exclude_if=_exclude_none,
+    )
 
     @model_validator(mode="after")
     def validate_lifecycle_policy(self) -> InterfacePropertyImplementationSpec:
@@ -182,10 +191,6 @@ class AcquisitionAxisSpec(BaseModel):
     kind: _NonEmptyId
     size: AcquisitionAxisSize
     unit: str | None = None
-
-
-def _exclude_none(value: object) -> bool:
-    return value is None
 
 
 class AcquisitionResultSpec(BaseModel):
@@ -531,6 +536,14 @@ class InstrumentDescription(BaseModel):
             if implementation.restore and not declared.restore:
                 raise ValueError(
                     "interface property implementation cannot enable restoration for "
+                    f"{implementation.property.property_id!r}"
+                )
+            if implementation.value_type is not None and not is_assignable(
+                implementation.value_type,
+                declared.value_type,
+            ):
+                raise ValueError(
+                    "interface property implementation cannot widen values for "
                     f"{implementation.property.property_id!r}"
                 )
         _validate_contract_state_references(self)
@@ -2322,13 +2335,14 @@ def resolve_state_member_spec(
         )
         if implementation is None:
             return declared
-        return declared.model_copy(
-            update={
-                "access": implementation.access,
-                "capture": implementation.capture,
-                "restore": implementation.restore,
-            }
-        )
+        updates: dict[str, object] = {
+            "access": implementation.access,
+            "capture": implementation.capture,
+            "restore": implementation.restore,
+        }
+        if implementation.value_type is not None:
+            updates["value_type"] = implementation.value_type
+        return declared.model_copy(update=updates)
     device_schema = next(
         (
             schema

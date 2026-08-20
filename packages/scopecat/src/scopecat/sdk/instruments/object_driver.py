@@ -12,6 +12,12 @@ from uuid import uuid4
 from pydantic import JsonValue
 
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.value_type_compatibility import is_assignable
+from scopecat.kernel.value_types import Float as FloatType
+from scopecat.kernel.value_types import Int as IntType
+from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_types import String as StringType
 from scopecat.records.instrument import ObservationSource
 from scopecat.records.measurement import (
     MeasurementAcquisitionValue,
@@ -116,6 +122,50 @@ def member_policy(
     """Narrow capture or restoration for one concrete driver implementation."""
 
     return DriverMemberPolicy(member, capture=capture, restore=restore)
+
+
+@dataclass(frozen=True, slots=True)
+class DriverMemberConstraint:
+    """Concrete value-set narrowing for one portable member."""
+
+    member: Member[object]
+    minimum: float | None = None
+    maximum: float | None = None
+    choices: tuple[str, ...] | None = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.member, DeviceMember):
+            raise TypeError("device member constraints belong in device_member(...)")
+        if self.minimum is None and self.maximum is None and self.choices is None:
+            raise ValueError("driver member constraint must narrow admitted values")
+        if self.choices is not None and (
+            self.minimum is not None or self.maximum is not None
+        ):
+            raise ValueError("driver member constraint cannot mix bounds and choices")
+        if self.choices is not None and (
+            not self.choices or len(set(self.choices)) != len(self.choices)
+        ):
+            raise ValueError(
+                "driver member constraint choices must be non-empty and unique"
+            )
+
+
+def member_constraint(
+    member: Member[object],
+    /,
+    *,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    choices: Sequence[str] | None = None,
+) -> DriverMemberConstraint:
+    """Narrow the values admitted by one concrete driver implementation."""
+
+    return DriverMemberConstraint(
+        member,
+        minimum=minimum,
+        maximum=maximum,
+        choices=None if choices is None else tuple(choices),
+    )
 
 
 class _NoChange:
@@ -245,6 +295,7 @@ class InstrumentDriverMetadata:
     implementation_version: str
     interfaces: tuple[type[object], ...]
     member_policies: tuple[DriverMemberPolicy, ...]
+    member_constraints: tuple[DriverMemberConstraint, ...]
     label: str | None
     description: str | None
     device_schema_id: DeviceSchemaId | None
@@ -258,6 +309,7 @@ def instrument_driver[DriverT: type[object]](
     *,
     interfaces: Sequence[type[object]],
     member_policies: Sequence[DriverMemberPolicy] = (),
+    member_constraints: Sequence[DriverMemberConstraint] = (),
     label: str | None = None,
     description: str | None = None,
     device_schema_id: DeviceSchemaId | None = None,
@@ -271,6 +323,7 @@ def instrument_driver[DriverT: type[object]](
         implementation_version=implementation_version,
         interfaces=tuple(interfaces),
         member_policies=tuple(member_policies),
+        member_constraints=tuple(member_constraints),
         label=label,
         description=description,
         device_schema_id=device_schema_id,
@@ -282,7 +335,6 @@ def instrument_driver[DriverT: type[object]](
         setattr(cls, _DRIVER_METADATA, metadata)
         setattr(cls, "implementation_id", implementation_id)  # noqa: B010
         setattr(cls, "implementation_version", implementation_version)  # noqa: B010
-        _driver_member_policies(metadata)
         _validate_driver_bindings(cls)
         return cls
 
@@ -725,6 +777,7 @@ def _validate_driver_binding_method(
 def _validate_driver_bindings(driver_type: type[object]) -> None:
     metadata = _driver_metadata(driver_type)
     _driver_implementation_bindings(driver_type)
+    _driver_member_constraints(metadata)
     interface_fields = _interface_property_bindings(metadata.interfaces)
     device_fields = _device_property_bindings(
         driver_type,
@@ -783,7 +836,9 @@ def _interface_property_implementations(
     interfaces: Sequence[type[object]],
 ) -> list[InterfacePropertyImplementationSpec]:
     fields = _interface_property_bindings(interfaces)
-    policies = _driver_member_policies(_driver_metadata(driver_type))
+    metadata = _driver_metadata(driver_type)
+    policies = _driver_member_policies(metadata)
+    constraints = _driver_member_constraints(metadata)
     readers = {
         target
         for binding in _driver_io_bindings(
@@ -815,6 +870,7 @@ def _interface_property_implementations(
         else:
             continue
         policy = policies.get(target)
+        constraint = constraints.get(target)
         capture = (
             field.spec.capture
             and readable
@@ -831,6 +887,7 @@ def _interface_property_implementations(
             access == field.spec.access
             and capture == field.spec.capture
             and restore == field.spec.restore
+            and constraint is None
         ):
             continue
         implementations.append(
@@ -843,6 +900,11 @@ def _interface_property_implementations(
                 access=access,
                 capture=capture,
                 restore=restore,
+                value_type=(
+                    None
+                    if constraint is None
+                    else _refined_member_value_type(field, constraint)
+                ),
             )
         )
     return implementations
@@ -877,6 +939,116 @@ def _driver_member_policies(
             )
         policies[target] = policy
     return policies
+
+
+def _driver_member_constraints(
+    metadata: InstrumentDriverMetadata,
+) -> dict[PropertyRef, DriverMemberConstraint]:
+    declared = {
+        id(field.declaration): (target, field)
+        for target, field in _interface_property_bindings(metadata.interfaces).items()
+    }
+    constraints: dict[PropertyRef, DriverMemberConstraint] = {}
+    for constraint in metadata.member_constraints:
+        resolved = declared.get(id(constraint.member))
+        if resolved is None:
+            raise TypeError(
+                "driver member constraint targets an undeclared interface member"
+            )
+        target, field = resolved
+        if target in constraints:
+            raise TypeError(
+                f"driver member constraint repeats {field.ref.property_id!r}"
+            )
+        _refined_member_value_type(field, constraint)
+        constraints[target] = constraint
+    return constraints
+
+
+def _refined_member_value_type(
+    field: DeclaredProperty,
+    constraint: DriverMemberConstraint,
+) -> Scalar:
+    declared = field.spec.value_type
+    atom = declared.atom
+    if constraint.choices is not None:
+        if not isinstance(atom, StringType):
+            raise TypeError(
+                f"driver member constraint for {field.ref.property_id!r} cannot "
+                "apply choices to a non-string member"
+            )
+        refined = Scalar(StringType(choices=constraint.choices))
+    elif isinstance(atom, IntType):
+        if any(
+            value is not None
+            and (not isinstance(value, int) or isinstance(value, bool))
+            for value in (constraint.minimum, constraint.maximum)
+        ):
+            raise TypeError(
+                f"driver member constraint for {field.ref.property_id!r} requires "
+                "integer bounds"
+            )
+        refined = Scalar(
+            IntType(
+                minimum=(
+                    atom.minimum
+                    if constraint.minimum is None
+                    else cast("int", constraint.minimum)
+                ),
+                maximum=(
+                    atom.maximum
+                    if constraint.maximum is None
+                    else cast("int", constraint.maximum)
+                ),
+            )
+        )
+    elif isinstance(atom, FloatType):
+        refined = Scalar(
+            FloatType(
+                minimum=(
+                    atom.minimum
+                    if constraint.minimum is None
+                    else float(constraint.minimum)
+                ),
+                maximum=(
+                    atom.maximum
+                    if constraint.maximum is None
+                    else float(constraint.maximum)
+                ),
+            )
+        )
+    elif isinstance(atom, QuantityType):
+        refined = Scalar(
+            QuantityType(
+                dimension=atom.dimension,
+                unit=atom.unit,
+                minimum=(
+                    atom.minimum
+                    if constraint.minimum is None
+                    else float(constraint.minimum)
+                ),
+                maximum=(
+                    atom.maximum
+                    if constraint.maximum is None
+                    else float(constraint.maximum)
+                ),
+            )
+        )
+    else:
+        raise TypeError(
+            f"driver member constraint for {field.ref.property_id!r} requires a "
+            "numeric or string member"
+        )
+    if not is_assignable(refined, declared):
+        raise TypeError(
+            f"driver member constraint for {field.ref.property_id!r} must narrow "
+            "the interface value set"
+        )
+    if refined == declared:
+        raise TypeError(
+            f"driver member constraint for {field.ref.property_id!r} is redundant"
+        )
+    return refined
 
 
 def _driver_methods(driver_type: type[object]) -> dict[str, object]:
@@ -1106,6 +1278,7 @@ __all__ = [
     "Change",
     "DriverImplementationBinding",
     "DriverMemberBinding",
+    "DriverMemberConstraint",
     "DriverMemberPolicy",
     "InstrumentDriverMetadata",
     "ObjectInstrumentDriver",
@@ -1113,6 +1286,7 @@ __all__ = [
     "device_member_ref",
     "implements",
     "instrument_driver",
+    "member_constraint",
     "member_policy",
     "observed",
     "query",
