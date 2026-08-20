@@ -43,10 +43,18 @@ class _ChildDriver:
     implementation_id = "test.mounted_child"
     implementation_version = "1"
 
-    def __init__(self, instrument_id: str, value: int, *, reject_apply: bool = False):
+    def __init__(
+        self,
+        instrument_id: str,
+        value: int,
+        *,
+        reject_apply: bool = False,
+        device_schema_id: str = "test.mounted_child.device/v1",
+    ):
         self.instrument_id = instrument_id
         self.value = value
         self.locked = False
+        self.locked_ref = DevicePropertyRef(device_schema_id, (), "locked")
         self.reject_apply = reject_apply
         self.state_requests: list[DriverStateReadRequest] = []
         self.state_patches: list[DriverStatePatch] = []
@@ -71,19 +79,21 @@ class _ChildDriver:
                     ],
                 )
             ],
-            device_state=DeviceStateSpec(
-                id=_LOCKED.schema_id,
-                members=[
-                    DeviceStateMemberSpec(
-                        property=bool_property("locked"),
-                    )
-                ],
-            ),
+            device_schemas=[
+                DeviceStateSpec(
+                    id=self.locked_ref.schema_id,
+                    members=[
+                        DeviceStateMemberSpec(
+                            property=bool_property("locked"),
+                        )
+                    ],
+                )
+            ],
         )
 
     def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
         self.state_requests.append(request)
-        values = {_VALUE: self.value, _LOCKED: self.locked}
+        values = {_VALUE: self.value, self.locked_ref: self.locked}
         return DriverStateReadback(
             observations=tuple(
                 DriverStateObservation(
@@ -118,7 +128,7 @@ class _ChildDriver:
                     entry.value, bool
                 )
                 self.value = entry.value
-            elif entry.target == _LOCKED:
+            elif entry.target == self.locked_ref:
                 assert isinstance(entry.value, bool)
                 self.locked = entry.value
         return DriverSuccess(None)
@@ -200,10 +210,11 @@ def test_mounted_router_composes_contracts_and_preserves_observation_provenance(
         ("channels", "1"),
         ("channels", "2"),
     }
-    assert description.device_state is not None
-    assert {
-        tuple(member.component_path) for member in description.device_state.members
-    } == {("channels", "1"), ("channels", "2")}
+    [device_schema] = description.device_schemas
+    assert {tuple(member.component_path) for member in device_schema.members} == {
+        ("channels", "1"),
+        ("channels", "2"),
+    }
     assert state_capture_request(description).targets == {
         _mounted_property(_VALUE, "1"),
         _mounted_property(_VALUE, "2"),
@@ -270,3 +281,27 @@ def test_mounted_router_routes_commands_and_marks_partial_apply_unknown() -> Non
     assert set(collected.value.values) == {mounted_result}
     assert first.acquisitions[0].target == _SAMPLE
     assert first.acquisitions[0].results == {_RESULT}
+
+
+def test_mounted_router_keeps_multiple_device_schemas_distinct() -> None:
+    first = _ChildDriver("child-1", 1)
+    second = _ChildDriver(
+        "child-2",
+        2,
+        device_schema_id="test.other_child.device/v1",
+    )
+
+    description = _router(first, second).describe()
+
+    assert [schema.id for schema in description.device_schemas] == [
+        "test.mounted_child.device/v1",
+        "test.other_child.device/v1",
+    ]
+    assert {
+        (schema.id, tuple(member.component_path), member.property.id)
+        for schema in description.device_schemas
+        for member in schema.members
+    } == {
+        ("test.mounted_child.device/v1", ("channels", "1"), "locked"),
+        ("test.other_child.device/v1", ("channels", "2"), "locked"),
+    }

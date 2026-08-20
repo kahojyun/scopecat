@@ -219,21 +219,23 @@ class ObjectInstrumentDriver:
             implementation_version=metadata.implementation_version,
             label=metadata.label,
             description=metadata.description,
-            device_state=(
-                None
+            device_schemas=(
+                []
                 if metadata.device_schema_id is None
-                else DeviceStateSpec(
-                    id=metadata.device_schema_id,
-                    label=metadata.device_label,
-                    description=metadata.device_description,
-                    members=[
-                        DeviceStateMemberSpec(
-                            component_path=list(binding.ref.component_path),
-                            property=binding.spec,
-                        )
-                        for binding in device_properties.values()
-                    ],
-                )
+                else [
+                    DeviceStateSpec(
+                        id=metadata.device_schema_id,
+                        label=metadata.device_label,
+                        description=metadata.device_description,
+                        members=[
+                            DeviceStateMemberSpec(
+                                component_path=list(binding.ref.component_path),
+                                property=binding.spec,
+                            )
+                            for binding in device_properties.values()
+                        ],
+                    )
+                ]
             ),
             interfaces=[
                 compile_interface(interface_type).spec

@@ -140,9 +140,9 @@ def test_object_driver_captures_and_restores_device_owned_properties() -> None:
     )
 
     description = driver.describe()
-    assert description.device_state is not None
-    assert description.device_state.id == "test.oo_source.device/v1"
-    assert description.device_state.members[0].property.restore is True
+    [device_schema] = description.device_schemas
+    assert device_schema.id == "test.oo_source.device/v1"
+    assert device_schema.members[0].property.restore is True
     assert driver.read_state(DriverStateReadRequest(frozenset({target}))).values == {
         target: False
     }

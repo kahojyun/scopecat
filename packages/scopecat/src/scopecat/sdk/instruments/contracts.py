@@ -373,19 +373,26 @@ class InstrumentDescription(BaseModel):
     label: str | None = None
     description: str | None = None
     components: list[InstrumentComponentSpec] = Field(default_factory=list)
-    device_state: DeviceStateSpec | None = None
+    device_schemas: list[DeviceStateSpec] = Field(default_factory=list)
     interfaces: list[InterfaceSpec] = Field(default_factory=list)
     interface_mounts: list[InterfaceMountSpec] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_unique_interfaces(self) -> InstrumentDescription:
-        # Description normalization must not mutate reusable interface specs.
+    def validate_description(self) -> InstrumentDescription:
+        # Description normalization must not mutate reusable contract specs.
         self.interfaces = [
             interface_spec.model_copy(deep=True) for interface_spec in self.interfaces
+        ]
+        self.device_schemas = [
+            device_schema.model_copy(deep=True) for device_schema in self.device_schemas
         ]
         _require_unique(
             (interface.id for interface in self.interfaces),
             "instrument interface ids",
+        )
+        _require_unique(
+            (device_schema.id for device_schema in self.device_schemas),
+            "instrument device schema ids",
         )
         _require_unique(
             (component.id for component in self.components),
@@ -417,8 +424,8 @@ class InstrumentDescription(BaseModel):
                     f"interface {mount.interface_id!r} mount references unknown "
                     f"instrument component {'/'.join(mount.component_path)!r}"
                 )
-        if self.device_state is not None:
-            for member in self.device_state.members:
+        for device_schema in self.device_schemas:
+            for member in device_schema.members:
                 if (
                     member.component_path
                     and _resolve_instrument_component(self, member.component_path)
@@ -2150,15 +2157,14 @@ def capture_state_members(
             continue
         for mount in mounts:
             walk(interface_spec.id, mount, interface_spec)
-    device_state = description.device_state
-    if device_state is not None:
+    for device_schema in description.device_schemas:
         members.extend(
             DevicePropertyRef(
-                device_state.id,
+                device_schema.id,
                 tuple(member.component_path),
                 member.property.id,
             )
-            for member in device_state.members
+            for member in device_schema.members
             if member.property.capture
         )
     return tuple(sorted(members, key=repr))
@@ -2221,13 +2227,20 @@ def resolve_state_member_spec(
             ),
             None,
         )
-    device_state = description.device_state
-    if device_state is None or device_state.id != target.schema_id:
+    device_schema = next(
+        (
+            schema
+            for schema in description.device_schemas
+            if schema.id == target.schema_id
+        ),
+        None,
+    )
+    if device_schema is None:
         return None
     return next(
         (
             member.property
-            for member in device_state.members
+            for member in device_schema.members
             if tuple(member.component_path) == target.component_path
             and member.property.id == target.property_id
         ),

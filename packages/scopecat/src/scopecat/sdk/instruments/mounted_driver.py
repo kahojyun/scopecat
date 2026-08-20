@@ -34,6 +34,7 @@ from scopecat.sdk.instruments.members import (
     AcquisitionRef,
     AcquisitionResultRef,
     DevicePropertyRef,
+    DeviceSchemaId,
     OperationRef,
     PropertyRef,
     StateMemberRef,
@@ -86,8 +87,8 @@ class MountedInstrumentRouter:
         mounts: Mapping[MountPath, InstrumentDriver],
         label: str | None = None,
         description: str | None = None,
-        device_label: str | None = None,
-        device_description: str | None = None,
+        device_labels: Mapping[DeviceSchemaId, str] | None = None,
+        device_descriptions: Mapping[DeviceSchemaId, str] | None = None,
     ) -> None:
         if not instrument_id:
             raise ValueError("mounted instrument id must be non-empty")
@@ -133,8 +134,10 @@ class MountedInstrumentRouter:
             mounts=normalized,
             label=label,
             description=description,
-            device_label=device_label,
-            device_description=device_description,
+            device_labels={} if device_labels is None else device_labels,
+            device_descriptions=(
+                {} if device_descriptions is None else device_descriptions
+            ),
         )
 
     def describe(self) -> InstrumentDescription:
@@ -317,13 +320,13 @@ def _compose_description(
     mounts: Sequence[_Mount],
     label: str | None,
     description: str | None,
-    device_label: str | None,
-    device_description: str | None,
+    device_labels: Mapping[DeviceSchemaId, str],
+    device_descriptions: Mapping[DeviceSchemaId, str],
 ) -> InstrumentDescription:
     root = _ComponentNode()
     interfaces: dict[str, InterfaceSpec] = {}
     interface_mounts: list[InterfaceMountSpec] = []
-    device_specs: list[tuple[MountPath, DeviceStateSpec]] = []
+    device_specs: dict[DeviceSchemaId, list[tuple[MountPath, DeviceStateSpec]]] = {}
 
     for mount in mounts:
         target_node = _ensure_component_path(root, mount.path)
@@ -350,33 +353,39 @@ def _compose_description(
                 )
                 for relative_path in relative_mounts
             )
-        if mount.description.device_state is not None:
-            device_specs.append((mount.path, mount.description.device_state))
-
-    device_state: DeviceStateSpec | None = None
-    if device_specs:
-        schema_ids = {spec.id for _, spec in device_specs}
-        if len(schema_ids) != 1:
-            raise ValueError(
-                "mounted child drivers expose multiple device schemas; "
-                "one physical instrument description can expose only one"
+        for device_schema in mount.description.device_schemas:
+            device_specs.setdefault(device_schema.id, []).append(
+                (mount.path, device_schema)
             )
-        first = device_specs[0][1]
-        device_state = DeviceStateSpec(
-            id=first.id,
-            label=first.label if device_label is None else device_label,
-            description=(
-                first.description if device_description is None else device_description
+
+    known_schema_ids = set(device_specs)
+    unknown_overrides = (set(device_labels) | set(device_descriptions)) - (
+        known_schema_ids
+    )
+    if unknown_overrides:
+        raise ValueError(
+            "mounted device metadata references unknown schemas: "
+            + ", ".join(sorted(unknown_overrides))
+        )
+    device_schemas = [
+        DeviceStateSpec(
+            id=schema_id,
+            label=device_labels.get(schema_id, specs[0][1].label),
+            description=device_descriptions.get(
+                schema_id,
+                specs[0][1].description,
             ),
             members=[
                 DeviceStateMemberSpec(
                     component_path=[*path, *member.component_path],
                     property=member.property.model_copy(deep=True),
                 )
-                for path, spec in device_specs
+                for path, spec in specs
                 for member in spec.members
             ],
         )
+        for schema_id, specs in sorted(device_specs.items())
+    ]
 
     return InstrumentDescription(
         instrument_id=instrument_id,
@@ -385,7 +394,7 @@ def _compose_description(
         label=label,
         description=description,
         components=[child.component() for child in root.children.values()],
-        device_state=device_state,
+        device_schemas=device_schemas,
         interfaces=list(interfaces.values()),
         interface_mounts=interface_mounts,
     )
