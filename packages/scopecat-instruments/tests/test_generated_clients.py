@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -14,6 +15,7 @@ FIXTURE_STATE_PROJECTION_MODULE = (
 )
 PRODUCTION_MEMBER_PROJECTION_MODULE = "scopecat_instruments.projections"
 _RENDER_SURFACE = """
+import json
 from importlib import import_module
 from runpy import run_path
 
@@ -32,11 +34,19 @@ interface_types = tuple(
 if sys.argv[4] == "-":
     surfaces = (clients_for(interface_types[0]),)
 else:
+    member_name_overrides = tuple(
+        (
+            getattr(getattr(declarations, interface_name), member_name),
+            public_name,
+        )
+        for interface_name, member_name, public_name in json.loads(sys.argv[7])
+    )
     surfaces = (
         clients_for_composite(
             sys.argv[4],
             *interface_types,
             driver_optional_flag=None if sys.argv[5] == "-" else sys.argv[5],
+            member_name_overrides=member_name_overrides,
         ),
     )
 print(
@@ -88,6 +98,7 @@ def _render_surface(
     module: str = FIXTURE_DECLARATIONS_MODULE,
     composite_name: str | None = None,
     driver_optional_flag: str | None = None,
+    member_name_overrides: tuple[tuple[str, str, str], ...] = (),
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - fixed interpreter and repository code
         [
@@ -100,6 +111,7 @@ def _render_surface(
             "-" if composite_name is None else composite_name,
             "-" if driver_optional_flag is None else driver_optional_flag,
             member_projection_module,
+            json.dumps(member_name_overrides),
         ],
         cwd=REPOSITORY_ROOT,
         check=False,
@@ -353,3 +365,44 @@ def test_codegen_rejects_composite_method_collisions() -> None:
     assert "fire:" in completed.stderr
     assert "CompositeMethodLeftInterface" in completed.stderr
     assert "CompositeMethodRightInterface" in completed.stderr
+
+
+def test_codegen_requires_explicit_names_for_composite_member_collisions() -> None:
+    completed = _render_surface(
+        "DriverSourceInterface",
+        "DriverMonitorInterface",
+        composite_name="MonitorComposite",
+    )
+
+    assert completed.returncode != 0
+    assert "composite MonitorComposite member name collision 'enabled'" in (
+        completed.stderr
+    )
+    assert "member_name_overrides" in completed.stderr
+
+
+def test_codegen_aliases_colliding_composite_members_across_the_client_view() -> None:
+    completed = _render_surface(
+        "DriverSourceInterface",
+        "DriverMonitorInterface",
+        composite_name="MonitorComposite",
+        driver_optional_flag="monitor",
+        member_name_overrides=(
+            ("DriverSourceInterface", "enabled", "source_enabled"),
+            ("DriverMonitorInterface", "enabled", "monitor_enabled"),
+        ),
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-aliased-composite>", "exec")
+    assert "MonitorCompositePatch" in completed.stdout
+    assert "source_enabled: bool = ..." in completed.stdout
+    assert "monitor_enabled: bool = ..." in completed.stdout
+    assert "def source_enabled(self) -> InstrumentMemberClient[bool]:" in (
+        completed.stdout
+    )
+    assert "def monitor_enabled(self) -> InstrumentMemberClient[bool]:" in (
+        completed.stdout
+    )
+    assert '"source_enabled",' in completed.stdout
+    assert '"monitor_enabled",' in completed.stdout

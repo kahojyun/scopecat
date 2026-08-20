@@ -56,7 +56,24 @@ One group `ensure(...)` remains a coherent state intent so routing can batch
 channels that resolve to the same instrument. Group operations expand to scalar
 invocations after validating every entity mapping, preventing partial effects
 from a missing or extra identity. Composite client families are package
-presentation metadata over existing wire interfaces.
+presentation metadata over existing wire interfaces. When two constituents use
+the same Python member name for different property identities, keep both wire
+interfaces unchanged and name the package-local view explicitly:
+
+```python
+CompositeSurfaceRegistration(
+    name="SourceMonitor",
+    interface_types=(SourceInterface, MonitorInterface),
+    member_name_overrides=(
+        (SourceInterface.enabled, "source_enabled"),
+        (MonitorInterface.enabled, "monitor_enabled"),
+    ),
+)
+```
+
+These names apply consistently to member accessors and generated patch/target
+fields; recording, restoration, routing, and driver dispatch continue to use
+the original interface and property identities.
 
 The generator currently requires schema-specific client carriers before
 exposing payload-bearing operations. The declaration compiler and driver

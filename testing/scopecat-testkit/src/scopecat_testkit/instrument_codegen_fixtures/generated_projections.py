@@ -142,6 +142,40 @@ class DriverMonitorGroupTarget:
     enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = member_projection_field()
 
 
+_MONITOR_COMPOSITE_MEMBER_LAYOUT = MemberProjectionLayout(
+    fields=(
+        MemberProjectionField("source_enabled", DRIVER_SOURCE_ENABLED),
+        MemberProjectionField("level", DRIVER_SOURCE_LEVEL),
+        MemberProjectionField("monitor_enabled", DRIVER_MONITOR_ENABLED),
+    ),
+)
+
+
+@instrument_member_projection(_MONITOR_COMPOSITE_MEMBER_LAYOUT)
+class MonitorCompositePatch:
+    source_enabled: bool = member_projection_field()
+    level: int = member_projection_field()
+    monitor_enabled: bool = member_projection_field()
+
+
+@instrument_member_projection(_MONITOR_COMPOSITE_MEMBER_LAYOUT)
+class MonitorCompositeTarget:
+    source_enabled: Symbolic[bool] = member_projection_field()
+    level: Symbolic[int] = member_projection_field()
+    monitor_enabled: Symbolic[bool] = member_projection_field()
+
+
+@instrument_member_projection(_MONITOR_COMPOSITE_MEMBER_LAYOUT)
+class MonitorCompositeGroupTarget:
+    source_enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = (
+        member_projection_field()
+    )
+    level: Symbolic[int] | PerEntity[Symbolic[int]] = member_projection_field()
+    monitor_enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = (
+        member_projection_field()
+    )
+
+
 __all__ = [
     "CatalogProjectionGroupTarget",
     "CatalogProjectionInterface",
@@ -155,6 +189,9 @@ __all__ = [
     "DriverSourceInterface",
     "DriverSourcePatch",
     "DriverSourceTarget",
+    "MonitorCompositeGroupTarget",
+    "MonitorCompositePatch",
+    "MonitorCompositeTarget",
     "SharedPropertyFirstGroupTarget",
     "SharedPropertyFirstInterface",
     "SharedPropertyFirstPatch",

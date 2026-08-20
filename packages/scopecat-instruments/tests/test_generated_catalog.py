@@ -14,6 +14,8 @@ from scopecat_testkit.instrument_codegen_fixtures.generated_members import (
     CATALOG_PROJECTION,
     CATALOG_PROJECTION_ENABLED,
     CATALOG_PROJECTION_STATUS,
+    DRIVER_MONITOR_ENABLED,
+    DRIVER_SOURCE_ENABLED,
     SHARED_PROPERTY_FIRST_ENABLED,
     SHARED_PROPERTY_SECOND_ENABLED,
 )
@@ -21,6 +23,9 @@ from scopecat_testkit.instrument_codegen_fixtures.generated_projections import (
     CatalogProjectionGroupTarget,
     CatalogProjectionPatch,
     CatalogProjectionTarget,
+    MonitorCompositeGroupTarget,
+    MonitorCompositePatch,
+    MonitorCompositeTarget,
     SharedPropertyFirstPatch,
     SharedPropertySecondPatch,
 )
@@ -61,4 +66,24 @@ def test_shared_schema_projections_keep_each_interface_identity() -> None:
     }
     assert member_projection_assignments(SharedPropertySecondPatch(enabled=False)) == {
         SHARED_PROPERTY_SECOND_ENABLED: False
+    }
+
+
+def test_composite_projection_aliases_keep_each_property_identity() -> None:
+    assert_type(
+        MonitorCompositeGroupTarget(source_enabled=True),
+        MonitorCompositeGroupTarget,
+    )
+    assert_type(
+        MonitorCompositeTarget(monitor_enabled=True),
+        MonitorCompositeTarget,
+    )
+    assert member_projection_assignments(
+        MonitorCompositePatch(
+            source_enabled=True,
+            monitor_enabled=False,
+        )
+    ) == {
+        DRIVER_SOURCE_ENABLED: True,
+        DRIVER_MONITOR_ENABLED: False,
     }

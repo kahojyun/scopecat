@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from importlib import import_module
 from typing import Literal, cast
 
+from scopecat.sdk.instruments.declarations import Member
+
 from scopecat_instruments.connection_options import (
     ConnectionOptions,
     E5080BConnectionOptions,
@@ -45,11 +47,15 @@ class InterfaceSurfaceRegistration:
     public_name_overrides: tuple[tuple[str, str], ...] = ()
 
 
+type CompositeMemberNameOverride = tuple[Member[object], str]
+
+
 @dataclass(frozen=True, slots=True)
 class CompositeSurfaceRegistration:
     name: str
     interface_types: tuple[type[object], ...]
     driver_optional_flag: str | None = None
+    member_name_overrides: tuple[CompositeMemberNameOverride, ...] = ()
 
 
 type SurfaceRegistration = InterfaceSurfaceRegistration | CompositeSurfaceRegistration
@@ -236,6 +242,7 @@ __all__ = [
     "VIRTUAL_VNA_DRIVER",
     "YOKOGAWA_GS200",
     "YOKOGAWA_GS200_DRIVER",
+    "CompositeMemberNameOverride",
     "CompositeSurfaceRegistration",
     "DriverRegistration",
     "InstrumentPackageManifest",

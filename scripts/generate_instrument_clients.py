@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import keyword
 import re
 import sys
 import types
@@ -36,6 +37,7 @@ from scopecat.sdk.instruments.declarations import (
     DeclaredPropertyLayout,
     DeclaredResultField,
     DeclaredScopeLayout,
+    Member,
     compile_interface,
     declared_interface_layout,
 )
@@ -95,6 +97,7 @@ class CompositeClientSurface:
     name: str
     interface_types: tuple[type[object], ...]
     driver_optional_flag: str | None = None
+    member_name_overrides: tuple[tuple[Member[object], str], ...] = ()
 
 
 type GenerationSurface = ClientSurface | CompositeClientSurface
@@ -118,6 +121,7 @@ def clients_for_composite(
     name: str,
     *interface_types: type[object],
     driver_optional_flag: str | None = None,
+    member_name_overrides: tuple[tuple[Member[object], str], ...] = (),
 ) -> CompositeClientSurface:
     """Select one explicit package-local interface composition."""
 
@@ -131,6 +135,7 @@ def clients_for_composite(
         name=name,
         interface_types=interface_types,
         driver_optional_flag=driver_optional_flag,
+        member_name_overrides=member_name_overrides,
     )
 
 
@@ -237,6 +242,7 @@ def _manifest_surface(registration: SurfaceRegistration, /) -> GenerationSurface
             registration.name,
             *registration.interface_types,
             driver_optional_flag=registration.driver_optional_flag,
+            member_name_overrides=registration.member_name_overrides,
         )
     return clients_for(
         registration.interface_type,
@@ -288,6 +294,7 @@ def _fixture_catalog_target() -> CatalogTarget:
             declarations.SharedPropertySecondInterface,
             *_surface_interface_types(catalog_surfaces),
         ),
+        composite_surfaces=_composite_surfaces(catalog_surfaces),
     )
 
 
@@ -305,8 +312,22 @@ def _fixture_catalog_surfaces(
             declarations.DriverSourceInterface,
             declarations.DriverMonitorInterface,
             driver_optional_flag="monitor",
+            member_name_overrides=(
+                (
+                    _fixture_member(declarations.DriverSourceInterface, "enabled"),
+                    "source_enabled",
+                ),
+                (
+                    _fixture_member(declarations.DriverMonitorInterface, "enabled"),
+                    "monitor_enabled",
+                ),
+            ),
         ),
     )
+
+
+def _fixture_member(interface_type: type[object], name: str) -> Member[object]:
+    return cast("Member[object]", getattr(interface_type, name))
 
 
 def _fixture_declarations() -> _FixtureDeclarations:
@@ -579,19 +600,10 @@ def _composite_projection_keyword_model(
     composite_stem: str,
 ) -> _ProjectionKeywordModel | None:
     fields: list[_ProjectionKeywordFieldModel] = []
-    owners: dict[str, str] = {}
     for constituent in constituents:
         for member in constituent.members:
             if not member.writable:
                 continue
-            existing = owners.get(member.python_name)
-            if existing is not None:
-                raise ClientGenerationError(
-                    f"composite {composite_stem} writable member collision "
-                    f"{member.python_name!r}: {existing} vs "
-                    f"{constituent.interface_identity}"
-                )
-            owners[member.python_name] = constituent.interface_identity
             symbolic = _symbolic_annotation(member.annotation)
             fields.append(
                 _ProjectionKeywordFieldModel(
@@ -1080,13 +1092,10 @@ def _catalog_composite_projection_models(
 ) -> tuple[_ProjectionKeywordModel, ...]:
     projections: list[_ProjectionKeywordModel] = []
     for surface in surfaces:
-        constituents = tuple(
-            _constituent_model(
-                interface_type,
-                renderer=renderer,
-                declaration_cache=declaration_cache,
-            )
-            for interface_type in surface.interface_types
+        constituents = _composite_constituents(
+            surface,
+            renderer=renderer,
+            declaration_cache=declaration_cache,
         )
         projection = _composite_projection_keyword_model(
             constituents,
@@ -1681,13 +1690,10 @@ def _composite_model(
     declaration_cache: _DeclarationCache,
 ) -> _InterfaceModel:
     composite_identity = "composite:" + surface.name
-    constituents = tuple(
-        _constituent_model(
-            interface_type,
-            renderer=renderer,
-            declaration_cache=declaration_cache,
-        )
-        for interface_type in surface.interface_types
+    constituents = _composite_constituents(
+        surface,
+        renderer=renderer,
+        declaration_cache=declaration_cache,
     )
     owners_by_method: dict[str, list[str]] = {}
     for constituent in constituents:
@@ -1771,13 +1777,18 @@ def _constituent_model(
     *,
     renderer: _AnnotationRenderer,
     declaration_cache: _DeclarationCache,
+    member_name_overrides: dict[str, str] | None = None,
 ) -> _InterfaceConstituentModel:
     layout = declaration_cache.layout(interface_type)
     interface_name = interface_type.__name__
     interface_stem = interface_name.removesuffix("Interface")
     members = tuple(
         _MemberClientModel(
-            python_name=field.python_name,
+            python_name=(
+                field.python_name
+                if member_name_overrides is None
+                else member_name_overrides.get(field.property_id, field.python_name)
+            ),
             annotation=renderer.render(field.annotation),
             ref_name=f"_{_snake_case(interface_stem).upper()}_REF",
             property_id=field.property_id,
@@ -1797,6 +1808,82 @@ def _constituent_model(
         layout=layout,
         members=members,
     )
+
+
+def _composite_constituents(
+    surface: CompositeClientSurface,
+    *,
+    renderer: _AnnotationRenderer,
+    declaration_cache: _DeclarationCache,
+) -> tuple[_InterfaceConstituentModel, ...]:
+    overrides: dict[tuple[type[object], str], str] = {}
+    for member, public_name in surface.member_name_overrides:
+        if (
+            member.owner is None
+            or member.python_name is None
+            or member.owner not in surface.interface_types
+        ):
+            raise ClientGenerationError(
+                f"composite {surface.name} member name override must reference "
+                "a member declared by one of its constituent interfaces"
+            )
+        if not public_name.isidentifier() or keyword.iskeyword(public_name):
+            raise ClientGenerationError(
+                f"composite {surface.name} member name override must be a Python "
+                f"identifier: {public_name!r}"
+            )
+        property_id = member.metadata.id or member.python_name
+        key = (member.owner, property_id)
+        if key in overrides:
+            raise ClientGenerationError(
+                f"composite {surface.name} repeats a member name override for "
+                f"{member.owner.__qualname__}.{property_id}"
+            )
+        overrides[key] = public_name
+
+    constituents = tuple(
+        _constituent_model(
+            interface_type,
+            renderer=renderer,
+            declaration_cache=declaration_cache,
+            member_name_overrides={
+                property_id: public_name
+                for (owner, property_id), public_name in overrides.items()
+                if owner is interface_type
+            },
+        )
+        for interface_type in surface.interface_types
+    )
+    available = {
+        (interface_type, member.property_id)
+        for interface_type, constituent in zip(
+            surface.interface_types,
+            constituents,
+            strict=True,
+        )
+        for member in constituent.members
+    }
+    unknown = overrides.keys() - available
+    if unknown:
+        owner, property_id = next(iter(unknown))
+        raise ClientGenerationError(
+            f"composite {surface.name} member name override does not match a "
+            f"declared property: {owner.__qualname__}.{property_id}"
+        )
+
+    owners_by_name: dict[str, str] = {}
+    for constituent in constituents:
+        for member in constituent.members:
+            owner = f"{constituent.interface_identity}.{member.property_id}"
+            existing = owners_by_name.get(member.python_name)
+            if existing is not None:
+                raise ClientGenerationError(
+                    f"composite {surface.name} member name collision "
+                    f"{member.python_name!r}: {existing} vs {owner}; assign a "
+                    "distinct public name with member_name_overrides"
+                )
+            owners_by_name[member.python_name] = owner
+    return constituents
 
 
 def _validate_generated_symbols(
