@@ -61,6 +61,7 @@ from scopecat.kernel.instrument_members import (
     OperationRef,
     PropertyRef,
 )
+from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import parse_product_id
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import ResourceRoleInput
@@ -400,7 +401,11 @@ class ExperimentContext:
         *,
         resource: DefinitionResource,
         operation: OperationRef,
-        arguments: Mapping[OperationArgumentRef, StateBinding | None] | None = None,
+        arguments: Mapping[
+            OperationArgumentRef,
+            StateBinding | PayloadValue | None,
+        ]
+        | None = None,
     ) -> None:
         """Append an operation for a generated symbolic client."""
 

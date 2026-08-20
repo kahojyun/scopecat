@@ -368,11 +368,18 @@ def test_codegen_keeps_read_only_state_out_of_authoring_projections() -> None:
     assert "TemperatureReadoutTarget" not in completed.stdout
 
 
-def test_codegen_rejects_payload_operation_arguments_explicitly() -> None:
+def test_codegen_supports_payload_operation_arguments() -> None:
     completed = _render_surface("PayloadOperationInterface")
 
-    assert completed.returncode != 0
-    assert "payload operation argument upload.payload" in completed.stderr
+    assert completed.returncode == 0, completed.stderr
+    assert "from scopecat.kernel.payloads import PayloadValue" in completed.stdout
+    assert "from scopecat.records.content import CommandPayload" in completed.stdout
+    assert "payload: CommandPayload," in completed.stdout
+    assert "payload: Symbolic[PayloadValue]," in completed.stdout
+    assert (
+        "payload: Symbolic[PayloadValue] | PerEntity[Symbolic[PayloadValue]],"
+        in completed.stdout
+    )
 
 
 def test_codegen_reserves_symbolic_effect_id_parameter() -> None:
@@ -552,8 +559,13 @@ def test_codegen_aliases_colliding_operations_across_all_client_time_models() ->
     assert completed.stdout.count("    def fire_right(") == 3
     assert completed.stdout.count("self._clients[entity].fire_left(") == 1
     assert completed.stdout.count("self._clients[entity].fire_right(") == 1
-    assert '_COMPOSITE_METHOD_LEFT_REF.operation("left_fire")' in completed.stdout
-    assert '_COMPOSITE_METHOD_RIGHT_REF.operation("right_fire")' in completed.stdout
+    assert (
+        '_COMPOSITE_METHOD_LEFT_REF.operation(\n    "left_fire"\n)' in completed.stdout
+    )
+    assert (
+        '_COMPOSITE_METHOD_RIGHT_REF.operation(\n    "right_fire"\n)'
+        in completed.stdout
+    )
 
 
 def test_codegen_requires_explicit_names_for_colliding_acquisition_carriers() -> None:

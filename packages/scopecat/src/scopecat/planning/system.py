@@ -291,6 +291,7 @@ def _compile_system_program(
             product_use_ids=frozenset(local_product_use_ids),
             instrument_order=tuple(item.instrument_id for item in catalog.instruments),
             acquisition_cohorts=measurements.acquisition_cohorts,
+            payload_codecs=system.payload_codecs,
         )
         if local_execution_required
         else None

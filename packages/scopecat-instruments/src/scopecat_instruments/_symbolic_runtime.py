@@ -21,6 +21,7 @@ from scopecat.authoring import (
 )
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.entity import EntityRef, entity_identity
+from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.products import ProductAxis, ProductRecording, ProductRef
 from scopecat.program.state import StateBinding
@@ -85,7 +86,7 @@ class SymbolicInstrumentClientBase:
         self,
         operation: OperationRef,
         effect_id: str | None,
-        arguments: Mapping[OperationArgumentRef, StateBinding],
+        arguments: Mapping[OperationArgumentRef, StateBinding | PayloadValue],
         /,
     ) -> None:
         occurrence_name = operation.operation_id if effect_id is None else effect_id

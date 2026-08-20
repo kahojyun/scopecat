@@ -23,6 +23,7 @@ from scopecat.kernel.resource_identity import (
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import DataType
 from scopecat.program.value_graph import ComputeOutput
+from scopecat.records.content import CommandPayload
 from scopecat.records.instrument import CommandChannelBinding, state_member_target
 from scopecat.sdk.instruments.commands import (
     CollectCommand,
@@ -166,6 +167,7 @@ class InvokeOperation:
     operation_id: str
     arguments: tuple[InstrumentOperationArgument, ...]
     resource: ResourceProvenance
+    payloads: tuple[CommandPayload, ...] = ()
     entity_ids: tuple[str, ...] = ()
     channel_bindings: tuple[CommandChannelBinding, ...] = ()
 

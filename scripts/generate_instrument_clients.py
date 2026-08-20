@@ -402,6 +402,7 @@ class _OperationArgumentModel:
     kind: str
     concrete_annotation: str
     symbolic_annotation: str
+    payload: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -2321,19 +2322,22 @@ def _operation_model(
                 "generated symbolic clients reserve operation parameter "
                 f"{operation.method_name}.effect_id"
             )
-        if isinstance(argument.spec.value_type.atom, PayloadType):
-            raise ClientGenerationError(
-                "generated clients do not support payload operation argument "
-                f"{operation.method_name}.{argument.python_name}"
-            )
-        concrete_annotation = renderer.render(argument.annotation)
+        payload = isinstance(argument.spec.value_type.atom, PayloadType)
+        concrete_annotation = (
+            "CommandPayload" if payload else renderer.render(argument.annotation)
+        )
         arguments.append(
             _OperationArgumentModel(
                 python_name=argument.python_name,
                 argument_id=argument.argument_id,
                 kind=argument.parameter.kind.name,
                 concrete_annotation=concrete_annotation,
-                symbolic_annotation=_symbolic_annotation(concrete_annotation),
+                symbolic_annotation=(
+                    "Symbolic[PayloadValue]"
+                    if payload
+                    else _symbolic_annotation(concrete_annotation)
+                ),
+                payload=payload,
             )
         )
     return _OperationModel(
@@ -2393,6 +2397,12 @@ def _render_header(
 ) -> str:
     scopes = tuple(model.root for model in models)
     has_operations = any(scope.operations for scope in scopes)
+    has_payload_operations = any(
+        argument.payload
+        for scope in scopes
+        for operation in scope.operations
+        for argument in operation.arguments
+    )
     has_acquisitions = any(scope.acquisitions for scope in scopes)
     has_projections = any(
         model.live_projection_type_name is not None for model in models
@@ -2451,6 +2461,9 @@ def _render_header(
         imports["scopecat.authoring"].add("PerEntity")
     if has_operations:
         imports["scopecat.authoring"].add("Symbolic")
+    if has_payload_operations:
+        imports["scopecat.kernel.payloads"] = {"PayloadValue"}
+        imports["scopecat.records.content"] = {"CommandPayload"}
     if has_acquisitions:
         imports["dataclasses"] = {"dataclass", "field"}
         imports["scopecat.authoring"].add("ProductRef")
@@ -2757,6 +2770,16 @@ def _render_ref_assignment(name: str, expression: str) -> str:
     compact = f"{name} = {expression}\n"
     if len(compact.rstrip("\n")) <= 88:
         return compact
+    receiver, separator, invocation = expression.rpartition(".")
+    method, call_separator, argument = invocation.partition("(")
+    call_prefix = f"{name} = {receiver}.{method}("
+    if (
+        separator
+        and call_separator
+        and argument.endswith(")")
+        and len(call_prefix) <= 88
+    ):
+        return f"{call_prefix}\n    {argument[:-1]}\n)\n"
     chained = expression.replace(").", ")\n    .")
     return f"{name} = (\n    {chained}\n)\n"
 
@@ -3240,12 +3263,12 @@ def _render_symbolic_group_scope(
     for acquisition in scope.acquisitions:
         _append_member_separator(body)
         body.append(_render_group_acquisition(acquisition))
-    return (
-        "\n\n"
-        f"class {scope.symbolic_group_name}(\n"
-        f"{_render_group_base(base)}"
-        "):\n" + "".join(body).rstrip("\n") + "\n"
-    )
+    declaration = f"class {scope.symbolic_group_name}({base}):\n"
+    if len(declaration.rstrip("\n")) > 88:
+        declaration = (
+            f"class {scope.symbolic_group_name}(\n{_render_group_base(base)}):\n"
+        )
+    return "\n\n" + declaration + "".join(body).rstrip("\n") + "\n"
 
 
 def _render_group_base(base: str) -> str:

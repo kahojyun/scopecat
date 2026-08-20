@@ -22,6 +22,7 @@ from scopecat.execution.local.program import (
 )
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
+from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import ModelLocation, Problem, model_location
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import LogicalResourcePortId
@@ -40,7 +41,9 @@ from scopecat.planning.local_resources import (
 from scopecat.planning.routing import ResourceBindingError
 from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
 from scopecat.program.logical import LogicalInvocation, LogicalStateAssignment
+from scopecat.records.content import CommandPayload, command_payload_from_bytes
 from scopecat.sdk.instruments.commands import InstrumentOperationArgument
+from scopecat.sdk.payloads import PayloadCodecRegistry
 
 type _PhysicalPropertyKey = tuple[InterfaceId, tuple[str, ...], str]
 
@@ -262,6 +265,7 @@ def bind_invocation(
     ctx: EvalContext,
     payload_ids: Mapping[ValueId, str],
     known_compute_results: AbstractSet[ValueId],
+    payload_codecs: PayloadCodecRegistry,
     problems: list[Problem],
 ) -> InvokeOperation | None:
     try:
@@ -282,6 +286,7 @@ def bind_invocation(
         return None
 
     arguments: list[InstrumentOperationArgument] = []
+    payloads: list[CommandPayload] = []
     for argument in effect.arguments:
         try:
             value = evaluate_effect_value(
@@ -337,6 +342,39 @@ def bind_invocation(
                 )
                 continue
             selected_value = StateValue(PayloadRef(payload_id=payload_id))
+        elif isinstance(value, PayloadValue):
+            payload_id = (
+                f"{point_uid}.invoke.{effect.qualified_name}.arguments."
+                f"{argument.id}.payload"
+            )
+            try:
+                encoded = payload_codecs.encode(value.schema_id, value.payload)
+            except Exception as error:
+                problems.append(
+                    compiler_problem(
+                        "instrument_invocation_payload_encoding_failed",
+                        f"invocation {effect.qualified_name!r} argument "
+                        f"{argument.id!r} payload encoding failed: {error}",
+                        model_location(
+                            "invocations",
+                            effect.qualified_name,
+                            "arguments",
+                            argument.id,
+                        ),
+                    )
+                )
+                continue
+            payloads.append(
+                command_payload_from_bytes(
+                    id=payload_id,
+                    schema_id=encoded.schema_id,
+                    codec_id=encoded.codec_id,
+                    codec_version=encoded.codec_version,
+                    media_type=encoded.media_type,
+                    content=encoded.content,
+                )
+            )
+            selected_value = StateValue(PayloadRef(payload_id=payload_id))
         else:
             selected_value = _state_value(value)
             if selected_value is None:
@@ -373,6 +411,7 @@ def bind_invocation(
             route_id=binding.route_id,
             route_role_id=binding.route_role_id,
         ),
+        payloads=tuple(payloads),
         entity_ids=binding.entity_ids,
         channel_bindings=binding.channel_bindings,
     )

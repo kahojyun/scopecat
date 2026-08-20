@@ -60,6 +60,7 @@ from scopecat.program.logical import (
     LogicalInvocation,
     LogicalStateAssignment,
 )
+from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
 
 
 class _InstrumentOperation(Protocol):
@@ -191,6 +192,7 @@ def materialize_local_execution(
                     ),
                     payload_ids=payload_ids_by_ordinal[ordinal],
                     known_compute_results=known_compute_results,
+                    payload_codecs=target.payload_codecs,
                     problems=problems,
                 )
                 if invocation is not None:
@@ -407,6 +409,7 @@ def prepare_local_target(
     product_use_ids: AbstractSet[ProductUseId],
     instrument_order: Sequence[str] = (),
     acquisition_cohorts: Sequence[EntityAcquisitionCohortPlan] = (),
+    payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
 ) -> LocalTargetPlan:
     """Select the complete local target once for all bounded coverage.
 
@@ -446,6 +449,7 @@ def prepare_local_target(
         instrument_order=_validate_instrument_order(instrument_order),
         resource_ports=resource_ports,
         acquisition_cohorts=tuple(acquisition_cohorts),
+        payload_codecs=payload_codecs,
     )
 
 

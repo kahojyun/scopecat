@@ -23,7 +23,7 @@ from scopecat.program.value_refs import ValueRef
 
 type EntitySource = ValueRef
 type BindingValue = StateBinding
-type InvocationArgumentValue = StateBinding | None
+type InvocationArgumentValue = StateBinding | PayloadValue | None
 
 
 @dataclass(frozen=True)

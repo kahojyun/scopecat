@@ -194,6 +194,14 @@ def _action(
             for argument in operation.arguments
             if isinstance((value := argument.value.root), PayloadRef)
         }
+        payloads = {payload.id: payload for payload in operation.payloads}
+        payloads.update(
+            {
+                payload_id: frame.payloads[payload_id]
+                for payload_id in payload_ids
+                if payload_id in frame.payloads
+            }
+        )
         return RunHardwareInvoke(
             effect_id=operation.effect_id,
             point_index=effect.point_index,
@@ -203,11 +211,7 @@ def _action(
             component_path=operation.component_path,
             operation_id=operation.operation_id,
             arguments=operation.arguments,
-            payloads={
-                payload_id: frame.payloads[payload_id]
-                for payload_id in payload_ids
-                if payload_id in frame.payloads
-            },
+            payloads=payloads,
             entity_ids=operation.entity_ids,
             channel_bindings=operation.channel_bindings,
         )

@@ -138,7 +138,7 @@ from scopecat.sdk.compute import (
 )
 
 type BindingInput = StateBinding
-type InvocationInput = BindingInput | None
+type InvocationInput = BindingInput | PayloadValue | None
 
 _BUNDLE_FIELD_IMPLEMENTATION = "scopecat.bundle-field"
 
@@ -423,7 +423,11 @@ def _is_public_state_binding(value: object) -> bool:
 
 
 def _is_public_invocation_input(value: object) -> bool:
-    return value is None or _is_public_state_binding(value)
+    return (
+        value is None
+        or _is_payload_binding_input(value)
+        or _is_public_state_binding(value)
+    )
 
 
 def _require_public_state_binding(value: object) -> None:
@@ -1536,7 +1540,7 @@ def build_ensure_state_intent(
 
 
 def _capture_binding_literal(value: object) -> object:
-    if isinstance(value, ValueRef):
+    if isinstance(value, ValueRef | PayloadValue):
         return value
     return capture_runtime_input(value)
 
