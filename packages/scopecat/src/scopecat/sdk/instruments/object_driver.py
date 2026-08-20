@@ -483,7 +483,7 @@ class ObjectInstrumentDriver:
             return outcome
         else:
             result = outcome
-        metadata = cast("dict[str, JsonValue]", getattr(result, "metadata", {}))
+        evidence = cast("dict[str, JsonValue]", getattr(result, "evidence", {}))
         values = {
             field.ref: cast(
                 "MeasurementAcquisitionValue",
@@ -493,7 +493,7 @@ class ObjectInstrumentDriver:
             if field.ref in request.results
         }
         return DriverSuccess(
-            DriverReadback(values=values, metadata=metadata),
+            DriverReadback(values=values, metadata=evidence),
             metadata=outcome_metadata,
         )
 

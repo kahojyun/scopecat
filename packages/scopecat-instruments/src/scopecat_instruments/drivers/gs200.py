@@ -49,9 +49,9 @@ from scopecat_instruments._support import (
     state_property_problem,
     state_sync_failed,
 )
-from scopecat_instruments.driver_results import (
-    DCMonitorCurrentDriverResult,
-    DCMonitorVoltageDriverResult,
+from scopecat_instruments.driver_observations import (
+    DCMonitorCurrentObservation,
+    DCMonitorVoltageObservation,
 )
 from scopecat_instruments.interface_declarations import (
     DCMonitorInterface,
@@ -281,14 +281,14 @@ class YokogawaGS200(ObjectInstrumentDriver):
 
     def measure_current(
         self,
-    ) -> DriverOutcome[DCMonitorCurrentDriverResult]:
+    ) -> DriverOutcome[DCMonitorCurrentObservation]:
         outcome = self._measure_monitor(expected_mode="voltage", unit="A")
         if not isinstance(outcome, DriverSuccess):
             return outcome
         return DriverSuccess(
-            DCMonitorCurrentDriverResult(
+            DCMonitorCurrentObservation(
                 current=outcome.value,
-                metadata={
+                evidence={
                     "manufacturer": "Yokogawa",
                     "model": "GS200",
                     "source_mode": "voltage",
@@ -299,14 +299,14 @@ class YokogawaGS200(ObjectInstrumentDriver):
 
     def measure_voltage(
         self,
-    ) -> DriverOutcome[DCMonitorVoltageDriverResult]:
+    ) -> DriverOutcome[DCMonitorVoltageObservation]:
         outcome = self._measure_monitor(expected_mode="current", unit="V")
         if not isinstance(outcome, DriverSuccess):
             return outcome
         return DriverSuccess(
-            DCMonitorVoltageDriverResult(
+            DCMonitorVoltageObservation(
                 voltage=outcome.value,
-                metadata={
+                evidence={
                     "manufacturer": "Yokogawa",
                     "model": "GS200",
                     "source_mode": "current",

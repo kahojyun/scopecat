@@ -35,7 +35,7 @@ from scopecat.sdk.instruments.scpi import (
 )
 
 from scopecat_instruments._support import collect_unknown
-from scopecat_instruments.driver_results import TemperatureSampleDriverResult
+from scopecat_instruments.driver_observations import TemperatureSampleObservation
 from scopecat_instruments.interface_declarations import TemperatureReadoutInterface
 from scopecat_instruments.members import (
     TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
@@ -91,7 +91,7 @@ class LakeShore372(ObjectInstrumentDriver):
             evidence=metadata,
         )
 
-    def sample(self) -> DriverOutcome[TemperatureSampleDriverResult]:
+    def sample(self) -> DriverOutcome[TemperatureSampleObservation]:
         try:
             sample = self._read_sample()
             metadata: dict[str, JsonValue] = {
@@ -103,10 +103,10 @@ class LakeShore372(ObjectInstrumentDriver):
                 "curve_number": sample.curve_number,
             }
             return DriverSuccess(
-                TemperatureSampleDriverResult(
+                TemperatureSampleObservation(
                     temperature=sample.temperature,
                     resistance=sample.resistance,
-                    metadata=metadata,
+                    evidence=metadata,
                 ),
             )
         except _SampleQualityUnavailable as error:
@@ -115,7 +115,7 @@ class LakeShore372(ObjectInstrumentDriver):
                 **error.details,
             }
             return DriverSuccess(
-                TemperatureSampleDriverResult(
+                TemperatureSampleObservation(
                     temperature=_unavailable_result(
                         "temperature",
                         reason=error.reason,
@@ -126,7 +126,7 @@ class LakeShore372(ObjectInstrumentDriver):
                         reason=error.reason,
                         metadata=quality_metadata,
                     ),
-                    metadata={
+                    evidence={
                         "manufacturer": "Lake Shore Cryotronics",
                         "model": "372",
                         "quality_code": error.code,

@@ -28,11 +28,11 @@ from scopecat_instruments._support import (
     quantity_value,
     state_property_problem,
 )
-from scopecat_instruments.driver_results import (
-    DCMonitorCurrentDriverResult,
-    DCMonitorVoltageDriverResult,
-    NetworkSweepDriverResult,
-    TemperatureSampleDriverResult,
+from scopecat_instruments.driver_observations import (
+    DCMonitorCurrentObservation,
+    DCMonitorVoltageObservation,
+    NetworkSweepObservation,
+    TemperatureSampleObservation,
 )
 from scopecat_instruments.interface_declarations import (
     DCMonitorInterface,
@@ -253,25 +253,25 @@ class VirtualDcSource(_VirtualDriver):
         except Exception as error:
             return invoke_unknown(self.instrument_id, error)
 
-    def measure_current(self) -> DriverOutcome[DCMonitorCurrentDriverResult]:
+    def measure_current(self) -> DriverOutcome[DCMonitorCurrentObservation]:
         outcome = self._measure_monitor(expected_mode="voltage")
         if not isinstance(outcome, DriverSuccess):
             return outcome
         return DriverSuccess(
-            DCMonitorCurrentDriverResult(
+            DCMonitorCurrentObservation(
                 current=outcome.value,
-                metadata={"mode": "virtual", "world_seed": self.world.seed},
+                evidence={"mode": "virtual", "world_seed": self.world.seed},
             )
         )
 
-    def measure_voltage(self) -> DriverOutcome[DCMonitorVoltageDriverResult]:
+    def measure_voltage(self) -> DriverOutcome[DCMonitorVoltageObservation]:
         outcome = self._measure_monitor(expected_mode="current")
         if not isinstance(outcome, DriverSuccess):
             return outcome
         return DriverSuccess(
-            DCMonitorVoltageDriverResult(
+            DCMonitorVoltageObservation(
                 voltage=outcome.value,
-                metadata={"mode": "virtual", "world_seed": self.world.seed},
+                evidence={"mode": "virtual", "world_seed": self.world.seed},
             )
         )
 
@@ -378,17 +378,17 @@ class VirtualTemperatureMonitor(_VirtualDriver):
         with self.world.lock:
             return self.world.temperature_monitor(self.instrument_id).autoscan_enabled
 
-    def sample(self) -> DriverOutcome[TemperatureSampleDriverResult]:
+    def sample(self) -> DriverOutcome[TemperatureSampleObservation]:
         sample = self.read_sample()
         return DriverSuccess(
-            TemperatureSampleDriverResult(
+            TemperatureSampleObservation(
                 temperature=MeasurementScalar.create(
                     dtype="float64", unit="K", value=sample.temperature_k
                 ),
                 resistance=MeasurementScalar.create(
                     dtype="float64", unit="Ohm", value=sample.resistance_ohm
                 ),
-                metadata={
+                evidence={
                     "mode": "virtual",
                     "world_seed": self.world.seed,
                     "scan_channel": sample.scan_channel,
@@ -480,10 +480,10 @@ class VirtualNetworkAnalyzer(_VirtualDriver):
         with self.world.lock:
             self.world.vna(self.instrument_id).s_parameter = value
 
-    def sweep(self) -> DriverOutcome[NetworkSweepDriverResult]:
+    def sweep(self) -> DriverOutcome[NetworkSweepObservation]:
         trace = self.acquire_trace()
         return DriverSuccess(
-            NetworkSweepDriverResult(
+            NetworkSweepObservation(
                 frequency=MeasurementArray.create(
                     dtype="float64",
                     unit="Hz",
@@ -494,7 +494,7 @@ class VirtualNetworkAnalyzer(_VirtualDriver):
                     unit="ratio",
                     values=np.asarray(trace.values, dtype=np.complex128),
                 ),
-                metadata={"mode": "virtual", "world_seed": self.world.seed},
+                evidence={"mode": "virtual", "world_seed": self.world.seed},
             )
         )
 

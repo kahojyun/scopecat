@@ -62,6 +62,9 @@ INTERFACES_OUTPUT = (
 PROJECTIONS_OUTPUT = (
     INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "projections.py"
 )
+DRIVER_OBSERVATIONS_OUTPUT = (
+    INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "driver_observations.py"
+)
 PACKAGE_EXPORTS_OUTPUT = (
     INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "__init__.py"
 )
@@ -199,6 +202,7 @@ class CatalogTarget:
     projections_output: Path
     members_module: str
     interface_types: tuple[type[object], ...]
+    driver_observations_output: Path | None = None
     composite_surfaces: tuple[CompositeClientSurface, ...] = ()
     public_types: tuple[object, ...] = ()
 
@@ -281,6 +285,7 @@ PRODUCTION_CATALOG_TARGET = CatalogTarget(
     projections_output=PROJECTIONS_OUTPUT,
     members_module="scopecat_instruments.members",
     interface_types=_surface_interface_types(_PRODUCTION_SURFACES),
+    driver_observations_output=DRIVER_OBSERVATIONS_OUTPUT,
     composite_surfaces=_composite_surfaces(_PRODUCTION_SURFACES),
     public_types=PACKAGE_MANIFEST.public_types,
 )
@@ -763,7 +768,7 @@ def render_catalog_target(
 
     cache = declaration_cache or _DeclarationCache()
     models = _catalog_models(target.interface_types, declaration_cache=cache)
-    return (
+    rendered: list[tuple[Path, str]] = [
         (target.members_output, _render_members_module(models)),
         (target.interfaces_output, _render_interfaces_module(models)),
         (
@@ -776,7 +781,15 @@ def render_catalog_target(
                 members_module=target.members_module,
             ),
         ),
-    )
+    ]
+    if target.driver_observations_output is not None:
+        rendered.append(
+            (
+                target.driver_observations_output,
+                _render_driver_observations_module(models),
+            )
+        )
+    return tuple(rendered)
 
 
 def _catalog_models(
@@ -834,6 +847,62 @@ def _render_members_module(models: tuple[_CatalogInterfaceModel, ...]) -> str:
         + "\n"
         + declarations
         + _render_all(tuple(projection.name for projection in projections))
+    )
+
+
+def _render_driver_observations_module(
+    models: tuple[_CatalogInterfaceModel, ...],
+) -> str:
+    """Render measurement-valued carriers implemented by concrete drivers."""
+
+    declarations: dict[str, tuple[tuple[str, ...], str]] = {}
+    sections: list[str] = []
+    for model in models:
+        for acquisition in model.root.acquisitions:
+            if acquisition.kind == "member_observation":
+                continue
+            name = f"{acquisition.result.type_name.removesuffix('Results')}Observation"
+            field_names = tuple(
+                field.python_name for field in acquisition.result_fields
+            )
+            owner = f"{model.interface_identity}.{acquisition.method_name}"
+            existing = declarations.get(name)
+            if existing is not None:
+                existing_fields, existing_owner = existing
+                if existing_fields != field_names:
+                    raise ClientGenerationError(
+                        f"generated driver observation collision {name}: "
+                        f"{existing_owner} vs {owner}"
+                    )
+                continue
+            declarations[name] = (field_names, owner)
+            fields_source = "".join(
+                f"    {field_name}: MeasurementAcquisitionValue\n"
+                for field_name in field_names
+            )
+            sections.append(
+                "\n\n"
+                "@dataclass(frozen=True, slots=True)\n"
+                f"class {name}:\n"
+                f'    """Measurement-valued {acquisition.method_name} observation."""\n'
+                "\n"
+                f"{fields_source}"
+                "    evidence: dict[str, JsonValue] = field(default_factory=dict)\n"
+            )
+    return (
+        _generated_module_header(
+            "Measurement-valued observations generated for instrument drivers."
+        )
+        + _render_import_block(
+            {
+                "dataclasses": {"dataclass", "field"},
+                "pydantic": {"JsonValue"},
+                "scopecat.records.measurement": {"MeasurementAcquisitionValue"},
+            }
+        )
+        + "".join(sections)
+        + "\n"
+        + _render_all(tuple(declarations))
     )
 
 
@@ -2374,7 +2443,11 @@ def _render_bare_from_import(module: str, names: set[str]) -> str:
 
 def _render_import_block(imports: dict[str, set[str]]) -> str:
     standard_modules = {"dataclasses", "typing"}
-    external_modules = {module for module in imports if module.startswith("scopecat.")}
+    external_modules = {
+        module
+        for module in imports
+        if module == "pydantic" or module.startswith("scopecat.")
+    }
     local_modules = imports.keys() - standard_modules - external_modules
     standard_imports = "".join(
         _render_from_import(module, imports[module])

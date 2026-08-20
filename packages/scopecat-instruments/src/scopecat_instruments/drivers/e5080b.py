@@ -39,7 +39,7 @@ from scopecat_instruments._support import (
     collect_unknown,
     quantity_value,
 )
-from scopecat_instruments.driver_results import NetworkSweepDriverResult
+from scopecat_instruments.driver_observations import NetworkSweepObservation
 from scopecat_instruments.interface_declarations import (
     NetworkSweepInterface,
     SParameter,
@@ -98,11 +98,11 @@ class KeysightE5080B(ObjectInstrumentDriver):
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
 
-    def sweep(self) -> DriverOutcome[NetworkSweepDriverResult]:
+    def sweep(self) -> DriverOutcome[NetworkSweepObservation]:
         try:
             trace = self.acquire_trace()
             return DriverSuccess(
-                NetworkSweepDriverResult(
+                NetworkSweepObservation(
                     frequency=MeasurementArray.create(
                         dtype="float64",
                         unit="Hz",
@@ -113,7 +113,7 @@ class KeysightE5080B(ObjectInstrumentDriver):
                         unit="ratio",
                         values=np.asarray(trace.values, dtype=np.complex128),
                     ),
-                    metadata={
+                    evidence={
                         "manufacturer": "Keysight",
                         "model": "E5080B",
                         "channel": self.channel,

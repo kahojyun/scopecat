@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from dataclasses import fields
 from pathlib import Path
 
 from scopecat_testkit.instrument_codegen_fixtures.declarations import (
@@ -11,6 +12,13 @@ from scopecat_testkit.instrument_codegen_fixtures.declarations import (
     DriverSourceInterface,
 )
 
+import scopecat_instruments.driver_observations as driver_observations
+from scopecat_instruments.driver_observations import (
+    DCMonitorCurrentObservation,
+    DCMonitorVoltageObservation,
+    NetworkSweepObservation,
+    TemperatureSampleObservation,
+)
 from scopecat_instruments.package_manifest import (
     AcquisitionPublicNames,
     CompositeSurfaceRegistration,
@@ -99,6 +107,7 @@ def reject_runtime_compilation(*args: object, **kwargs: object) -> object:
 declarations.compile_interface = reject_runtime_compilation
 
 import scopecat_instruments.clients
+import scopecat_instruments.driver_observations
 import scopecat_instruments.members
 import scopecat_instruments.projections
 from scopecat_instruments.interfaces import (
@@ -165,6 +174,28 @@ def test_generated_catalog_imports_without_runtime_declaration_compilation() -> 
     )
 
     assert completed.returncode == 0, completed.stderr
+
+
+def test_codegen_generates_driver_observations_only_for_physical_acquisitions() -> None:
+    assert [field.name for field in fields(TemperatureSampleObservation)] == [
+        "temperature",
+        "resistance",
+        "evidence",
+    ]
+    assert [field.name for field in fields(DCMonitorCurrentObservation)] == [
+        "current",
+        "evidence",
+    ]
+    assert [field.name for field in fields(DCMonitorVoltageObservation)] == [
+        "voltage",
+        "evidence",
+    ]
+    assert [field.name for field in fields(NetworkSweepObservation)] == [
+        "frequency",
+        "s_parameter",
+        "evidence",
+    ]
+    assert "DCBiasReadbackObservation" not in driver_observations.__all__
 
 
 def test_composite_registration_uses_oo_declaration_objects_for_public_names() -> None:
