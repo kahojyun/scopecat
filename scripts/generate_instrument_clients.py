@@ -155,6 +155,14 @@ def _surface_interface_types(
     return tuple(selected)
 
 
+def _composite_surfaces(
+    surfaces: tuple[GenerationSurface, ...],
+) -> tuple[CompositeClientSurface, ...]:
+    return tuple(
+        surface for surface in surfaces if isinstance(surface, CompositeClientSurface)
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class GenerationTarget:
     """One independently importable generated module and its declarations."""
@@ -173,6 +181,7 @@ class CatalogTarget:
     projections_output: Path
     members_module: str
     interface_types: tuple[type[object], ...]
+    composite_surfaces: tuple[CompositeClientSurface, ...] = ()
     public_types: tuple[object, ...] = ()
 
 
@@ -251,6 +260,7 @@ PRODUCTION_CATALOG_TARGET = CatalogTarget(
     projections_output=PROJECTIONS_OUTPUT,
     members_module="scopecat_instruments.members",
     interface_types=_surface_interface_types(_PRODUCTION_SURFACES),
+    composite_surfaces=_composite_surfaces(_PRODUCTION_SURFACES),
     public_types=PACKAGE_MANIFEST.public_types,
 )
 
@@ -405,6 +415,7 @@ class _ProjectionKeywordFieldModel:
     symbolic_annotation: str
     group_annotation: str
     ref_expression: str
+    member_name: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -446,48 +457,12 @@ class _InterfaceModel:
     stem: str
     factory_name: str
     generate_family: bool
-    live_projection_type_names: tuple[str, ...]
-    symbolic_projection_type_names: tuple[str, ...]
-    group_projection_type_names: tuple[str, ...]
+    live_projection_type_name: str | None
+    symbolic_projection_type_name: str | None
+    group_projection_type_name: str | None
     keyword_projection: _ProjectionKeywordModel | None
     constituents: tuple[_InterfaceConstituentModel, ...]
     root: _ScopeModel
-
-    @property
-    def live_projection_type_name(self) -> str | None:
-        if not self.live_projection_type_names:
-            return None
-        if len(self.live_projection_type_names) == 1:
-            return self.live_projection_type_names[0]
-        return self.live_projection_alias_name
-
-    @property
-    def symbolic_projection_type_name(self) -> str | None:
-        if not self.symbolic_projection_type_names:
-            return None
-        if len(self.symbolic_projection_type_names) == 1:
-            return self.symbolic_projection_type_names[0]
-        return self.symbolic_projection_alias_name
-
-    @property
-    def group_projection_type_name(self) -> str | None:
-        if not self.group_projection_type_names:
-            return None
-        if len(self.group_projection_type_names) == 1:
-            return self.group_projection_type_names[0]
-        return self.group_projection_alias_name
-
-    @property
-    def live_projection_alias_name(self) -> str:
-        return f"_{self.stem}Patch"
-
-    @property
-    def symbolic_projection_alias_name(self) -> str:
-        return f"_{self.stem}Target"
-
-    @property
-    def group_projection_alias_name(self) -> str:
-        return f"_{self.stem}GroupTarget"
 
     @property
     def live_client_name(self) -> str:
@@ -545,31 +520,14 @@ def _register_member_projection_types(
     *,
     interface_stem: str,
     member_projection_module: str,
-) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
-    names = (
-        (_member_projection_names(interface_stem),)
-        if properties is not None and _layout_has_writable_properties(properties)
-        else ()
+) -> _MemberProjectionNames | None:
+    if properties is None or not _layout_has_writable_properties(properties):
+        return None
+    names = _member_projection_names(interface_stem)
+    renderer.imports.setdefault(member_projection_module, set()).update(
+        (names.patch, names.target, names.group_target)
     )
-    if names:
-        imported = renderer.imports.setdefault(
-            member_projection_module,
-            set(),
-        )
-        imported.update(
-            name
-            for projection_names in names
-            for name in (
-                projection_names.patch,
-                projection_names.target,
-                projection_names.group_target,
-            )
-        )
-    return (
-        tuple(item.patch for item in names),
-        tuple(item.target for item in names),
-        tuple(item.group_target for item in names),
-    )
+    return names
 
 
 def _projection_keyword_model(
@@ -599,6 +557,10 @@ def _projection_keyword_model(
                 ref_expression=(
                     f"_{_snake_case(interface_stem).upper()}_REF.property("
                     f"{_string_literal(field.ref.property_id)})"
+                ),
+                member_name=_member_constant_name(
+                    _snake_case(interface_stem).upper(),
+                    field.ref,
                 ),
             )
         )
@@ -641,16 +603,20 @@ def _composite_projection_keyword_model(
                         f"{member.ref_name}.property("
                         f"{_string_literal(member.property_id)})"
                     ),
+                    member_name=_join_constant_name(
+                        constituent.constant_prefix,
+                        member.property_id,
+                    ),
                 )
             )
     if not fields:
         return None
     return _ProjectionKeywordModel(
-        patch_type_name=f"_{composite_stem}Patch",
-        target_type_name=f"_{composite_stem}Target",
-        group_target_type_name=f"_{composite_stem}GroupTarget",
+        patch_type_name=f"{composite_stem}Patch",
+        target_type_name=f"{composite_stem}Target",
+        group_target_type_name=f"{composite_stem}GroupTarget",
         fields=tuple(fields),
-        projection_factory=False,
+        projection_factory=True,
     )
 
 
@@ -777,6 +743,8 @@ def render_catalog_target(
             target.projections_output,
             _render_projections_module(
                 models,
+                composite_surfaces=target.composite_surfaces,
+                declaration_cache=cache,
                 public_types=target.public_types,
                 members_module=target.members_module,
             ),
@@ -1050,6 +1018,7 @@ def _writable_property_layouts(
 def _projection_export_owners(
     models: tuple[_CatalogInterfaceModel, ...],
     *,
+    composite_projections: tuple[_ProjectionKeywordModel, ...],
     public_types: tuple[object, ...],
     projection_layouts: tuple[
         tuple[_CatalogInterfaceModel, DeclaredPropertyLayout], ...
@@ -1086,12 +1055,53 @@ def _projection_export_owners(
                     f"{name}: {existing} vs {owner}"
                 )
             exports_by_name[name] = owner
+    for projection in composite_projections:
+        owner = f"composite:{projection.patch_type_name.removesuffix('Patch')}"
+        for name in (
+            projection.patch_type_name,
+            projection.target_type_name,
+            projection.group_target_type_name,
+        ):
+            existing = exports_by_name.get(name)
+            if existing is not None:
+                raise ClientGenerationError(
+                    f"generated projection export collision {name}: "
+                    f"{existing} vs {owner}"
+                )
+            exports_by_name[name] = owner
     return exports_by_name
+
+
+def _catalog_composite_projection_models(
+    surfaces: tuple[CompositeClientSurface, ...],
+    *,
+    renderer: _AnnotationRenderer,
+    declaration_cache: _DeclarationCache,
+) -> tuple[_ProjectionKeywordModel, ...]:
+    projections: list[_ProjectionKeywordModel] = []
+    for surface in surfaces:
+        constituents = tuple(
+            _constituent_model(
+                interface_type,
+                renderer=renderer,
+                declaration_cache=declaration_cache,
+            )
+            for interface_type in surface.interface_types
+        )
+        projection = _composite_projection_keyword_model(
+            constituents,
+            composite_stem=surface.name.removesuffix("Interface"),
+        )
+        if projection is not None:
+            projections.append(projection)
+    return tuple(projections)
 
 
 def _render_projections_module(
     models: tuple[_CatalogInterfaceModel, ...],
     *,
+    composite_surfaces: tuple[CompositeClientSurface, ...],
+    declaration_cache: _DeclarationCache,
     public_types: tuple[object, ...],
     members_module: str,
 ) -> str:
@@ -1100,8 +1110,14 @@ def _render_projections_module(
     declarations: list[str] = []
     member_imports: set[str] = set()
     projection_layouts = _writable_property_layouts(models)
+    composite_projections = _catalog_composite_projection_models(
+        composite_surfaces,
+        renderer=renderer,
+        declaration_cache=declaration_cache,
+    )
     exports_by_name = _projection_export_owners(
         models,
+        composite_projections=composite_projections,
         public_types=public_types,
         projection_layouts=projection_layouts,
     )
@@ -1117,7 +1133,7 @@ def _render_projections_module(
         module, name = _public_type_location(candidate)
         imports.setdefault(module, set()).add(f"{name} as {name}")
 
-    if projection_layouts:
+    if projection_layouts or composite_projections:
         imports["scopecat.authoring"] = {"PerEntity", "Symbolic"}
         imports["scopecat.sdk.instruments.declarations"] = {
             "MemberProjectionField",
@@ -1160,6 +1176,43 @@ def _render_projections_module(
                     layout,
                     layout_expression=layout_expression,
                     renderer=renderer,
+                    projection="group",
+                ),
+            )
+        )
+
+    for projection in composite_projections:
+        names = _MemberProjectionNames(
+            projection.patch_type_name,
+            projection.target_type_name,
+            projection.group_target_type_name,
+        )
+        layout_expression = _member_projection_layout_name(names)
+        declarations.append(
+            _render_composite_projection_layout(
+                layout_expression,
+                projection,
+                member_imports=member_imports,
+            )
+        )
+        declarations.extend(
+            (
+                _render_composite_member_projection(
+                    names.patch,
+                    projection,
+                    layout_expression=layout_expression,
+                    projection="live",
+                ),
+                _render_composite_member_projection(
+                    names.target,
+                    projection,
+                    layout_expression=layout_expression,
+                    projection="symbolic",
+                ),
+                _render_composite_member_projection(
+                    names.group_target,
+                    projection,
+                    layout_expression=layout_expression,
                     projection="group",
                 ),
             )
@@ -1216,6 +1269,26 @@ def _render_member_projection_layout(
     )
 
 
+def _render_composite_projection_layout(
+    name: str,
+    projection: _ProjectionKeywordModel,
+    *,
+    member_imports: set[str],
+) -> str:
+    fields: list[str] = []
+    for field in projection.fields:
+        member_imports.add(field.member_name)
+        fields.append(
+            "MemberProjectionField("
+            f"{_string_literal(field.python_name)}, {field.member_name})"
+        )
+    return (
+        f"\n\n{name} = MemberProjectionLayout(\n"
+        + _render_layout_argument("fields", fields)
+        + ")\n"
+    )
+
+
 def _render_layout_argument(name: str, values: list[str]) -> str:
     compact_tuple = f"({', '.join(values)}{',' if len(values) == 1 else ''})"
     compact = f"    {name}={compact_tuple},\n"
@@ -1251,6 +1324,36 @@ def _render_member_projection(
         fields.append(
             _render_member_projection_field(
                 declared_field.python_name,
+                annotation,
+                required=False,
+            )
+        )
+    body = "".join(fields) or "    pass\n"
+    return (
+        f"\n\n@instrument_member_projection({layout_expression})\nclass {name}:\n{body}"
+    )
+
+
+def _render_composite_member_projection(
+    name: str,
+    model: _ProjectionKeywordModel,
+    *,
+    layout_expression: str,
+    projection: str,
+) -> str:
+    fields: list[str] = []
+    for field in model.fields:
+        if projection == "live":
+            annotation = field.concrete_annotation
+        elif projection == "symbolic":
+            annotation = field.symbolic_annotation
+        elif projection == "group":
+            annotation = field.group_annotation
+        else:
+            raise AssertionError(f"unknown member projection {projection!r}")
+        fields.append(
+            _render_member_projection_field(
+                field.python_name,
                 annotation,
                 required=False,
             )
@@ -1348,7 +1451,6 @@ def render_client_module(
     for model in models:
         sections.extend(
             (
-                _render_projection_aliases(model),
                 _render_result_types(model, rendered=rendered_result_types),
                 _render_live_scopes(model),
                 _render_symbolic_scopes(model),
@@ -1401,8 +1503,14 @@ def render_package_exports_target(
         declaration_cache=cache,
     )
     projection_layouts = _writable_property_layouts(catalog_models)
+    composite_projections = _catalog_composite_projection_models(
+        target.catalog_target.composite_surfaces,
+        renderer=_AnnotationRenderer(),
+        declaration_cache=cache,
+    )
     state_exports = _projection_export_owners(
         catalog_models,
+        composite_projections=composite_projections,
         public_types=target.catalog_target.public_types,
         projection_layouts=projection_layouts,
     )
@@ -1533,7 +1641,7 @@ def _interface_model(
         overrides=overrides,
         renderer=renderer,
     )
-    live_states, symbolic_states, group_states = _register_member_projection_types(
+    projection_names = _register_member_projection_types(
         renderer,
         layout.properties,
         interface_stem=stem,
@@ -1546,9 +1654,15 @@ def _interface_model(
         stem=stem,
         factory_name=overrides.get("factory", _snake_case(stem)),
         generate_family=generate_family,
-        live_projection_type_names=live_states,
-        symbolic_projection_type_names=symbolic_states,
-        group_projection_type_names=group_states,
+        live_projection_type_name=(
+            None if projection_names is None else projection_names.patch
+        ),
+        symbolic_projection_type_name=(
+            None if projection_names is None else projection_names.target
+        ),
+        group_projection_type_name=(
+            None if projection_names is None else projection_names.group_target
+        ),
         keyword_projection=_projection_keyword_model(
             layout.properties,
             interface_stem=stem,
@@ -1617,31 +1731,36 @@ def _composite_model(
             acquisition for scope in scopes for acquisition in scope.acquisitions
         ),
     )
-    live_states: list[str] = []
-    symbolic_states: list[str] = []
-    group_states: list[str] = []
-    for constituent in constituents:
-        registered = _register_member_projection_types(
-            renderer,
-            constituent.layout.properties,
-            interface_stem=constituent.interface_stem,
-            member_projection_module=member_projection_module,
+    keyword_projection = _composite_projection_keyword_model(
+        constituents,
+        composite_stem=stem,
+    )
+    projection_names = None
+    if keyword_projection is not None:
+        projection_names = _member_projection_names(stem)
+    if projection_names is not None:
+        renderer.imports.setdefault(member_projection_module, set()).update(
+            (
+                projection_names.patch,
+                projection_names.target,
+                projection_names.group_target,
+            )
         )
-        live_states.extend(registered[0])
-        symbolic_states.extend(registered[1])
-        group_states.extend(registered[2])
     return _InterfaceModel(
         interface_identity=composite_identity,
         stem=stem,
         factory_name=_snake_case(stem),
         generate_family=True,
-        live_projection_type_names=tuple(live_states),
-        symbolic_projection_type_names=tuple(symbolic_states),
-        group_projection_type_names=tuple(group_states),
-        keyword_projection=_composite_projection_keyword_model(
-            constituents,
-            composite_stem=stem,
+        live_projection_type_name=(
+            None if projection_names is None else projection_names.patch
         ),
+        symbolic_projection_type_name=(
+            None if projection_names is None else projection_names.target
+        ),
+        group_projection_type_name=(
+            None if projection_names is None else projection_names.group_target
+        ),
+        keyword_projection=keyword_projection,
         constituents=constituents,
         root=root,
     )
@@ -1712,25 +1831,22 @@ def _validate_generated_symbols(
 
     for model in models:
         declaration = model.interface_identity
-        for type_names, alias_name, projection in (
+        for type_name, projection in (
             (
-                model.live_projection_type_names,
-                model.live_projection_alias_name,
+                model.live_projection_type_name,
                 "live patch",
             ),
             (
-                model.symbolic_projection_type_names,
-                model.symbolic_projection_alias_name,
+                model.symbolic_projection_type_name,
                 "symbolic target",
             ),
             (
-                model.group_projection_type_names,
-                model.group_projection_alias_name,
+                model.group_projection_type_name,
                 "group target",
             ),
         ):
-            if len(type_names) > 1:
-                register(alias_name, f"{declaration} {projection} union")
+            if type_name is not None:
+                register(type_name, f"{declaration} imported {projection}")
         if model.generate_family:
             register(model.factory_name, f"{declaration} factory")
         scope = model.root
@@ -2061,38 +2177,6 @@ def _import_name_key(name: str) -> tuple[int | str, ...]:
     if name[0].isupper():
         return (1, *name.casefold().split("_"))
     return (2, *name.casefold().split("_"))
-
-
-def _render_projection_aliases(model: _InterfaceModel) -> str:
-    return "".join(
-        _render_type_union(alias_name, type_names)
-        for alias_name, type_names in (
-            (model.live_projection_alias_name, model.live_projection_type_names),
-            (
-                model.symbolic_projection_alias_name,
-                model.symbolic_projection_type_names,
-            ),
-            (model.group_projection_alias_name, model.group_projection_type_names),
-        )
-        if len(type_names) > 1
-    )
-
-
-def _render_type_union(alias_name: str, type_names: tuple[str, ...]) -> str:
-    union = " | ".join(type_names)
-    compact = f"type {alias_name} = {union}\n"
-    if len(compact.rstrip("\n")) <= 88:
-        return "\n\n" + compact
-    if len(f"    {union}") <= 88:
-        return f"\n\ntype {alias_name} = (\n    {union}\n)\n"
-    return (
-        f"\n\ntype {alias_name} = (\n"
-        + "\n".join(
-            f"    {'| ' if index else ''}{state_type}"
-            for index, state_type in enumerate(type_names)
-        )
-        + "\n)\n"
-    )
 
 
 def _render_interface_refs(models: tuple[_InterfaceModel, ...]) -> str:

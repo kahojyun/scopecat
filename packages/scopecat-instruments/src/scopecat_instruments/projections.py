@@ -290,6 +290,105 @@ class NetworkSweepGroupTarget:
     ) = member_projection_field()
 
 
+_RF_SOURCE_MEMBER_LAYOUT = MemberProjectionLayout(
+    fields=(
+        MemberProjectionField("frequency", RF_OUTPUT_FREQUENCY),
+        MemberProjectionField("power", RF_OUTPUT_POWER),
+        MemberProjectionField("output_enabled", RF_OUTPUT_ENABLED),
+        MemberProjectionField("reference_source", REFERENCE_CLOCK_REFERENCE_SOURCE),
+    ),
+)
+
+
+@instrument_member_projection(_RF_SOURCE_MEMBER_LAYOUT)
+class RFSourcePatch:
+    frequency: Quantity = member_projection_field()
+    power: Quantity = member_projection_field()
+    output_enabled: bool = member_projection_field()
+    reference_source: Literal["internal", "external"] = member_projection_field()
+
+
+@instrument_member_projection(_RF_SOURCE_MEMBER_LAYOUT)
+class RFSourceTarget:
+    frequency: Symbolic[Quantity] = member_projection_field()
+    power: Symbolic[Quantity] = member_projection_field()
+    output_enabled: Symbolic[bool] = member_projection_field()
+    reference_source: Symbolic[Literal["internal", "external"]] = (
+        member_projection_field()
+    )
+
+
+@instrument_member_projection(_RF_SOURCE_MEMBER_LAYOUT)
+class RFSourceGroupTarget:
+    frequency: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = (
+        member_projection_field()
+    )
+    power: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = (
+        member_projection_field()
+    )
+    output_enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = (
+        member_projection_field()
+    )
+    reference_source: (
+        Symbolic[Literal["internal", "external"]]
+        | PerEntity[Symbolic[Literal["internal", "external"]]]
+    ) = member_projection_field()
+
+
+_DC_SOURCE_MONITOR_MEMBER_LAYOUT = MemberProjectionLayout(
+    fields=(
+        MemberProjectionField("voltage_protection", DC_SOURCE_VOLTAGE_PROTECTION),
+        MemberProjectionField("current_protection", DC_SOURCE_CURRENT_PROTECTION),
+        MemberProjectionField("output_enabled", DC_SOURCE_OUTPUT_ENABLED),
+        MemberProjectionField("measurement_enabled", DC_MONITOR_MEASUREMENT_ENABLED),
+        MemberProjectionField("integration_cycles", DC_MONITOR_INTEGRATION_CYCLES),
+        MemberProjectionField("measurement_delay", DC_MONITOR_MEASUREMENT_DELAY),
+    ),
+)
+
+
+@instrument_member_projection(_DC_SOURCE_MONITOR_MEMBER_LAYOUT)
+class DCSourceMonitorPatch:
+    voltage_protection: Quantity = member_projection_field()
+    current_protection: Quantity = member_projection_field()
+    output_enabled: bool = member_projection_field()
+    measurement_enabled: bool = member_projection_field()
+    integration_cycles: int = member_projection_field()
+    measurement_delay: Quantity = member_projection_field()
+
+
+@instrument_member_projection(_DC_SOURCE_MONITOR_MEMBER_LAYOUT)
+class DCSourceMonitorTarget:
+    voltage_protection: Symbolic[Quantity] = member_projection_field()
+    current_protection: Symbolic[Quantity] = member_projection_field()
+    output_enabled: Symbolic[bool] = member_projection_field()
+    measurement_enabled: Symbolic[bool] = member_projection_field()
+    integration_cycles: Symbolic[int] = member_projection_field()
+    measurement_delay: Symbolic[Quantity] = member_projection_field()
+
+
+@instrument_member_projection(_DC_SOURCE_MONITOR_MEMBER_LAYOUT)
+class DCSourceMonitorGroupTarget:
+    voltage_protection: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = (
+        member_projection_field()
+    )
+    current_protection: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = (
+        member_projection_field()
+    )
+    output_enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = (
+        member_projection_field()
+    )
+    measurement_enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = (
+        member_projection_field()
+    )
+    integration_cycles: Symbolic[int] | PerEntity[Symbolic[int]] = (
+        member_projection_field()
+    )
+    measurement_delay: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = (
+        member_projection_field()
+    )
+
+
 __all__ = [
     "DCBiasGroupTarget",
     "DCBiasInterface",
@@ -301,6 +400,9 @@ __all__ = [
     "DCMonitorTarget",
     "DCSourceGroupTarget",
     "DCSourceInterface",
+    "DCSourceMonitorGroupTarget",
+    "DCSourceMonitorPatch",
+    "DCSourceMonitorTarget",
     "DCSourcePatch",
     "DCSourceTarget",
     "NetworkSweepGroupTarget",
@@ -311,6 +413,9 @@ __all__ = [
     "RFOutputInterface",
     "RFOutputPatch",
     "RFOutputTarget",
+    "RFSourceGroupTarget",
+    "RFSourcePatch",
+    "RFSourceTarget",
     "ReferenceClockGroupTarget",
     "ReferenceClockInterface",
     "ReferenceClockPatch",

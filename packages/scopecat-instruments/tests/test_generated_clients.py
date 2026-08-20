@@ -276,13 +276,10 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
 
     assert completed.returncode == 0, completed.stderr
     compile(completed.stdout, "<generated-dc-source-monitor>", "exec")
-    assert "type _DCSourceMonitorPatch = DCSourcePatch | DCMonitorPatch" in (
-        completed.stdout
-    )
-    assert "DCSourcePatch" in completed.stdout
-    assert "DCSourceTarget" in completed.stdout
-    assert "DCSourceGroupTarget" in completed.stdout
-    assert "DCMonitorPatch" in completed.stdout
+    assert "type _DCSourceMonitorPatch" not in completed.stdout
+    assert "DCSourceMonitorPatch" in completed.stdout
+    assert "DCSourceMonitorTarget" in completed.stdout
+    assert "DCSourceMonitorGroupTarget" in completed.stdout
     assert "class DCMonitorCurrentReadback:" in completed.stdout
     assert "    current: MeasurementAcquisitionValue" in completed.stdout
     assert "class DCMonitorCurrentRecords:" not in completed.stdout
@@ -299,15 +296,15 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     assert "class DCSourceMonitorState:" not in completed.stdout
     assert "def apply(" in completed.stdout
     assert "measurement_enabled: bool = ..." in completed.stdout
-    assert "self._apply_projected_fields(" in completed.stdout
+    assert "self._apply_projected(" in completed.stdout
     assert "def source_mode(" in completed.stdout
     assert "def measurement_enabled(" in completed.stdout
     assert (
         "class SymbolicDCSourceMonitorClient("
-        "\n    ProjectedMemberSymbolicClientBase[_DCSourceMonitorTarget]"
+        "\n    ProjectedMemberSymbolicClientBase[DCSourceMonitorTarget]"
     ) in completed.stdout
     assert "class SymbolicDCSourceMonitorGroup(" in completed.stdout
-    assert "self._ensure_projected_fields(" in completed.stdout
+    assert "self._ensure_projected(" in completed.stdout
     assert '_DC_SOURCE_REF = InterfaceRef("scopecat.dc_source/v3")' in (
         completed.stdout
     )

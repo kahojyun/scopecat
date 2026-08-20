@@ -31,10 +31,10 @@ from scopecat.program.recording import ProgramRecordSelection
 
 from scopecat_instruments import (
     DCMonitorCurrentProducts,
-    DCMonitorGroupTarget,
-    DCMonitorTarget,
     DCMonitorVoltageProducts,
     DCSourceGroupTarget,
+    DCSourceMonitorGroupTarget,
+    DCSourceMonitorTarget,
     DCSourceTarget,
     NetworkSweepProducts,
     NetworkSweepTarget,
@@ -718,12 +718,16 @@ def test_dc_monitor_exposes_independent_fixed_result_acquisitions() -> None:
     context = ModuleContext()
     source = dc_source_monitor(context)
     assert_type(source, SymbolicDCSourceMonitorClient)
-    source.ensure(DCSourceTarget(output_enabled=True))
+    source.ensure(
+        DCSourceMonitorTarget(
+            output_enabled=True,
+            measurement_enabled=True,
+        )
+    )
     source.source_voltage(
         range=Quantity(1.0, "V"),
         level=Quantity(0.05, "V"),
     )
-    source.ensure(DCMonitorTarget(measurement_enabled=True))
 
     current = source.measure_current()
     voltage = source.measure_voltage()
@@ -810,7 +814,7 @@ def test_dc_monitor_group_maps_each_fixed_acquisition_per_entity() -> None:
             )
         ),
     )
-    sources.ensure(DCMonitorGroupTarget(measurement_enabled=True))
+    sources.ensure(DCSourceMonitorGroupTarget(measurement_enabled=True))
 
     current_samples = sources.measure_current()
     voltage_samples = sources.measure_voltage()

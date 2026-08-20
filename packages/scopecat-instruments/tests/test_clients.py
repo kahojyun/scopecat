@@ -39,9 +39,9 @@ from scopecat.sdk.instruments.declarations import (
 )
 
 from scopecat_instruments import (
-    DCMonitorPatch,
     DCSourceClient,
     DCSourceMonitorClient,
+    DCSourceMonitorPatch,
     DCSourcePatch,
     NetworkSweepClient,
     NetworkSweepPatch,
@@ -488,7 +488,7 @@ def test_live_dc_source_factories_expose_explicit_capabilities() -> None:
     assert source.requires == (DC_SOURCE, DC_MONITOR)
 
 
-def test_generated_live_dc_monitor_applies_monitor_state() -> None:
+def test_generated_live_dc_monitor_applies_composite_state() -> None:
     channel = _ApplyChannel()
     client = DCSourceMonitorClient(
         cast("InstrumentClientChannel", cast("object", channel)),
@@ -496,12 +496,20 @@ def test_generated_live_dc_monitor_applies_monitor_state() -> None:
     )
 
     receipt = assert_type(
-        client.apply(DCMonitorPatch(measurement_enabled=True)),
+        client.apply(
+            DCSourceMonitorPatch(
+                output_enabled=True,
+                measurement_enabled=True,
+            )
+        ),
         ApplyReceipt,
     )
 
     assert receipt is channel.receipt
-    assert channel.values == {DC_MONITOR_MEASUREMENT_ENABLED: True}
+    assert channel.values == {
+        DC_SOURCE_OUTPUT_ENABLED: True,
+        DC_MONITOR_MEASUREMENT_ENABLED: True,
+    }
 
 
 def test_dc_source_patch_only_projects_persistent_controls() -> None:

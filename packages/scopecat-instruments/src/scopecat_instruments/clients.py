@@ -54,6 +54,9 @@ from scopecat_instruments.projections import (
     DCMonitorPatch,
     DCMonitorTarget,
     DCSourceGroupTarget,
+    DCSourceMonitorGroupTarget,
+    DCSourceMonitorPatch,
+    DCSourceMonitorTarget,
     DCSourcePatch,
     DCSourceTarget,
     NetworkSweepGroupTarget,
@@ -65,6 +68,9 @@ from scopecat_instruments.projections import (
     RFOutputGroupTarget,
     RFOutputPatch,
     RFOutputTarget,
+    RFSourceGroupTarget,
+    RFSourcePatch,
+    RFSourceTarget,
 )
 
 _TEMPERATURE_READOUT_REF = InterfaceRef("scopecat.temperature_readout/v1")
@@ -674,16 +680,7 @@ reference_clock: InstrumentFamily[
 )
 
 
-type _RFSourcePatch = RFOutputPatch | ReferenceClockPatch
-
-
-type _RFSourceTarget = RFOutputTarget | ReferenceClockTarget
-
-
-type _RFSourceGroupTarget = RFOutputGroupTarget | ReferenceClockGroupTarget
-
-
-class RFSourceClient(ProjectedMemberClientBase[_RFSourcePatch]):
+class RFSourceClient(ProjectedMemberClientBase[RFSourcePatch]):
     @property
     def frequency(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
@@ -743,7 +740,7 @@ class RFSourceClient(ProjectedMemberClientBase[_RFSourcePatch]):
     @overload
     def apply(
         self,
-        patch: _RFSourcePatch,
+        patch: RFSourcePatch,
     ) -> ApplyReceipt: ...
 
     @overload
@@ -759,22 +756,17 @@ class RFSourceClient(ProjectedMemberClientBase[_RFSourcePatch]):
     @override
     def apply(
         self,
-        patch: _RFSourcePatch | None = None,
+        patch: RFSourcePatch | None = None,
         **fields: object,
     ) -> ApplyReceipt:
-        return self._apply_projected_fields(
+        return self._apply_projected(
             patch,
-            {
-                "frequency": _RF_OUTPUT_REF.property("frequency"),
-                "power": _RF_OUTPUT_REF.property("power"),
-                "output_enabled": _RF_OUTPUT_REF.property("output_enabled"),
-                "reference_source": _REFERENCE_CLOCK_REF.property("reference_source"),
-            },
+            RFSourcePatch,
             fields,
         )
 
 
-class SymbolicRFSourceClient(ProjectedMemberSymbolicClientBase[_RFSourceTarget]):
+class SymbolicRFSourceClient(ProjectedMemberSymbolicClientBase[RFSourceTarget]):
     __slots__ = ()
 
     def __init__(
@@ -802,7 +794,7 @@ class SymbolicRFSourceClient(ProjectedMemberSymbolicClientBase[_RFSourceTarget])
     @overload
     def ensure(
         self,
-        state: _RFSourceTarget,
+        state: RFSourceTarget,
     ) -> None: ...
 
     @overload
@@ -818,24 +810,19 @@ class SymbolicRFSourceClient(ProjectedMemberSymbolicClientBase[_RFSourceTarget])
     @override
     def ensure(
         self,
-        state: _RFSourceTarget | None = None,
+        state: RFSourceTarget | None = None,
         **fields: object,
     ) -> None:
-        self._ensure_projected_fields(
+        self._ensure_projected(
             state,
-            {
-                "frequency": _RF_OUTPUT_REF.property("frequency"),
-                "power": _RF_OUTPUT_REF.property("power"),
-                "output_enabled": _RF_OUTPUT_REF.property("output_enabled"),
-                "reference_source": _REFERENCE_CLOCK_REF.property("reference_source"),
-            },
+            RFSourceTarget,
             fields,
         )
 
 
 class SymbolicRFSourceGroup(
     ProjectedMemberSymbolicGroupBase[
-        _RFSourceTarget, _RFSourceGroupTarget, SymbolicRFSourceClient
+        RFSourceTarget, RFSourceGroupTarget, SymbolicRFSourceClient
     ]
 ):
     __slots__ = ()
@@ -866,7 +853,7 @@ class SymbolicRFSourceGroup(
     @overload
     def ensure(
         self,
-        state: _RFSourceGroupTarget | PerEntity[_RFSourceTarget],
+        state: RFSourceGroupTarget | PerEntity[RFSourceTarget],
     ) -> None: ...
 
     @overload
@@ -885,17 +872,12 @@ class SymbolicRFSourceGroup(
     @override
     def ensure(
         self,
-        state: _RFSourceGroupTarget | PerEntity[_RFSourceTarget] | None = None,
+        state: RFSourceGroupTarget | PerEntity[RFSourceTarget] | None = None,
         **fields: object,
     ) -> None:
-        self._ensure_projected_fields(
+        self._ensure_projected(
             state,
-            {
-                "frequency": _RF_OUTPUT_REF.property("frequency"),
-                "power": _RF_OUTPUT_REF.property("power"),
-                "output_enabled": _RF_OUTPUT_REF.property("output_enabled"),
-                "reference_source": _REFERENCE_CLOCK_REF.property("reference_source"),
-            },
+            RFSourceGroupTarget,
             fields,
         )
 
@@ -1729,16 +1711,7 @@ dc_monitor: InstrumentFamily[
 )
 
 
-type _DCSourceMonitorPatch = DCSourcePatch | DCMonitorPatch
-
-
-type _DCSourceMonitorTarget = DCSourceTarget | DCMonitorTarget
-
-
-type _DCSourceMonitorGroupTarget = DCSourceGroupTarget | DCMonitorGroupTarget
-
-
-class DCSourceMonitorClient(ProjectedMemberClientBase[_DCSourceMonitorPatch]):
+class DCSourceMonitorClient(ProjectedMemberClientBase[DCSourceMonitorPatch]):
     @property
     def voltage_protection(self) -> InstrumentMemberClient[Quantity]:
         return self._member(
@@ -1835,7 +1808,7 @@ class DCSourceMonitorClient(ProjectedMemberClientBase[_DCSourceMonitorPatch]):
     @overload
     def apply(
         self,
-        patch: _DCSourceMonitorPatch,
+        patch: DCSourceMonitorPatch,
     ) -> ApplyReceipt: ...
 
     @overload
@@ -1853,19 +1826,12 @@ class DCSourceMonitorClient(ProjectedMemberClientBase[_DCSourceMonitorPatch]):
     @override
     def apply(
         self,
-        patch: _DCSourceMonitorPatch | None = None,
+        patch: DCSourceMonitorPatch | None = None,
         **fields: object,
     ) -> ApplyReceipt:
-        return self._apply_projected_fields(
+        return self._apply_projected(
             patch,
-            {
-                "voltage_protection": _DC_SOURCE_REF.property("voltage_protection"),
-                "current_protection": _DC_SOURCE_REF.property("current_protection"),
-                "output_enabled": _DC_SOURCE_REF.property("output_enabled"),
-                "measurement_enabled": _DC_MONITOR_REF.property("measurement_enabled"),
-                "integration_cycles": _DC_MONITOR_REF.property("integration_cycles"),
-                "measurement_delay": _DC_MONITOR_REF.property("measurement_delay"),
-            },
+            DCSourceMonitorPatch,
             fields,
         )
 
@@ -1911,7 +1877,7 @@ class DCSourceMonitorClient(ProjectedMemberClientBase[_DCSourceMonitorPatch]):
 
 
 class SymbolicDCSourceMonitorClient(
-    ProjectedMemberSymbolicClientBase[_DCSourceMonitorTarget]
+    ProjectedMemberSymbolicClientBase[DCSourceMonitorTarget]
 ):
     __slots__ = ()
 
@@ -1940,7 +1906,7 @@ class SymbolicDCSourceMonitorClient(
     @overload
     def ensure(
         self,
-        state: _DCSourceMonitorTarget,
+        state: DCSourceMonitorTarget,
     ) -> None: ...
 
     @overload
@@ -1958,19 +1924,12 @@ class SymbolicDCSourceMonitorClient(
     @override
     def ensure(
         self,
-        state: _DCSourceMonitorTarget | None = None,
+        state: DCSourceMonitorTarget | None = None,
         **fields: object,
     ) -> None:
-        self._ensure_projected_fields(
+        self._ensure_projected(
             state,
-            {
-                "voltage_protection": _DC_SOURCE_REF.property("voltage_protection"),
-                "current_protection": _DC_SOURCE_REF.property("current_protection"),
-                "output_enabled": _DC_SOURCE_REF.property("output_enabled"),
-                "measurement_enabled": _DC_MONITOR_REF.property("measurement_enabled"),
-                "integration_cycles": _DC_MONITOR_REF.property("integration_cycles"),
-                "measurement_delay": _DC_MONITOR_REF.property("measurement_delay"),
-            },
+            DCSourceMonitorTarget,
             fields,
         )
 
@@ -2031,9 +1990,7 @@ class SymbolicDCSourceMonitorClient(
 
 class SymbolicDCSourceMonitorGroup(
     ProjectedMemberSymbolicGroupBase[
-        _DCSourceMonitorTarget,
-        _DCSourceMonitorGroupTarget,
-        SymbolicDCSourceMonitorClient,
+        DCSourceMonitorTarget, DCSourceMonitorGroupTarget, SymbolicDCSourceMonitorClient
     ]
 ):
     __slots__ = ()
@@ -2064,7 +2021,7 @@ class SymbolicDCSourceMonitorGroup(
     @overload
     def ensure(
         self,
-        state: _DCSourceMonitorGroupTarget | PerEntity[_DCSourceMonitorTarget],
+        state: DCSourceMonitorGroupTarget | PerEntity[DCSourceMonitorTarget],
     ) -> None: ...
 
     @overload
@@ -2083,20 +2040,13 @@ class SymbolicDCSourceMonitorGroup(
     def ensure(
         self,
         state: (
-            _DCSourceMonitorGroupTarget | PerEntity[_DCSourceMonitorTarget] | None
+            DCSourceMonitorGroupTarget | PerEntity[DCSourceMonitorTarget] | None
         ) = None,
         **fields: object,
     ) -> None:
-        self._ensure_projected_fields(
+        self._ensure_projected(
             state,
-            {
-                "voltage_protection": _DC_SOURCE_REF.property("voltage_protection"),
-                "current_protection": _DC_SOURCE_REF.property("current_protection"),
-                "output_enabled": _DC_SOURCE_REF.property("output_enabled"),
-                "measurement_enabled": _DC_MONITOR_REF.property("measurement_enabled"),
-                "integration_cycles": _DC_MONITOR_REF.property("integration_cycles"),
-                "measurement_delay": _DC_MONITOR_REF.property("measurement_delay"),
-            },
+            DCSourceMonitorGroupTarget,
             fields,
         )
 

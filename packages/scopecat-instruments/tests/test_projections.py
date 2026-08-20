@@ -7,6 +7,8 @@ from scopecat.sdk.instruments.declarations import member_projection_assignments
 
 from scopecat_instruments import (
     DCMonitorPatch,
+    DCSourceMonitorPatch,
+    DCSourceMonitorTarget,
     DCSourcePatch,
     DCSourceTarget,
     NetworkSweepPatch,
@@ -87,6 +89,28 @@ def test_dc_source_and_monitor_patches_use_the_shared_declaration_codec() -> Non
         DC_MONITOR_MEASUREMENT_ENABLED: True,
         DC_MONITOR_INTEGRATION_CYCLES: 3,
         DC_MONITOR_MEASUREMENT_DELAY: sc.Quantity(10.0, "ms"),
+    }
+
+
+def test_composite_projection_spans_constituent_interfaces() -> None:
+    target = DCSourceMonitorTarget(
+        output_enabled=True,
+        measurement_enabled=True,
+    )
+
+    assert_type(target, DCSourceMonitorTarget)
+    assert member_projection_assignments(target) == {
+        DC_SOURCE_OUTPUT_ENABLED: True,
+        DC_MONITOR_MEASUREMENT_ENABLED: True,
+    }
+    assert member_projection_assignments(
+        DCSourceMonitorPatch(
+            output_enabled=False,
+            integration_cycles=5,
+        )
+    ) == {
+        DC_SOURCE_OUTPUT_ENABLED: False,
+        DC_MONITOR_INTEGRATION_CYCLES: 5,
     }
 
 

@@ -23,7 +23,7 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments import InstrumentCapabilityRef
-from scopecat_instruments import ReferenceClockTarget, RFOutputTarget, rf_source
+from scopecat_instruments import RFSourceTarget, rf_source
 from scopecat_instruments.members import (
     REFERENCE_CLOCK_REFERENCE_SOURCE,
     RF_OUTPUT_ENABLED,
@@ -149,16 +149,12 @@ class XYDriveGroup:
         for entity in self._entities:
             targets.extend(
                 self._lo[entity].state_targets(
-                    RFOutputTarget(
+                    RFSourceTarget(
                         frequency=lo_by_entity[entity],
                         power=lo_power,
                         output_enabled=output_enabled,
+                        reference_source=reference_source,
                     )
-                )
-            )
-            targets.extend(
-                self._lo[entity].state_targets(
-                    ReferenceClockTarget(reference_source=reference_source)
                 )
             )
             targets.extend(
