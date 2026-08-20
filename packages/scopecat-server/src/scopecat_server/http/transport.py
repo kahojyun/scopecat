@@ -188,7 +188,7 @@ from scopecat.daemon.wire import (
 )
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.content import ContentEntry
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import InstrumentStateReadback, InstrumentStateSnapshot
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.data import (
@@ -203,6 +203,7 @@ from scopecat.sdk.instruments.commands import (
     CollectReceipt,
     InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentStateCommand,
+    InstrumentStateReadCommand,
     InteractiveCollectIntent,
     InvokeCommand,
     InvokeReceipt,
@@ -429,6 +430,21 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         return application.instruments.read_state(
             session_id,
             instrument_id,
+        )
+
+    @app.post(
+        f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"
+        "{instrument_id}/state/read"
+    )
+    def read_instrument_state_members(
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentStateReadCommand,
+    ) -> InstrumentStateReadback:
+        return application.instruments.read_state_members(
+            session_id,
+            instrument_id,
+            command,
         )
 
     @app.post(

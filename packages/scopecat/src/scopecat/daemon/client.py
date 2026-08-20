@@ -182,7 +182,7 @@ from scopecat.records.content import (
     ContentEntry,
     InlinePayloadBody,
 )
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import InstrumentStateReadback, InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
@@ -202,6 +202,7 @@ from scopecat.sdk.instruments.commands import (
     CollectReceipt,
     InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentStateCommand,
+    InstrumentStateReadCommand,
     InteractiveCollectIntent,
     InvokeCommand,
     InvokeReceipt,
@@ -888,6 +889,22 @@ class DaemonClient:
                 "state",
             ),
             InstrumentStateSnapshot,
+        )
+
+    def read_instrument_state_members(
+        self,
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentStateReadCommand,
+    ) -> InstrumentStateReadback:
+        return self._post_model(
+            self._instrument_session_path(
+                session_id,
+                instrument_id,
+                "state/read",
+            ),
+            command,
+            InstrumentStateReadback,
         )
 
     def apply_instrument_state(

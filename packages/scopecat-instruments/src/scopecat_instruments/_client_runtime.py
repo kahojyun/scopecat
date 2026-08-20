@@ -19,6 +19,7 @@ from scopecat.program.measurement_types import (
     MeasurementVariableRole,
 )
 from scopecat.records.instrument import (
+    InstrumentStateReadback,
     InstrumentStateSnapshot,
     InterfaceStateMemberTarget,
 )
@@ -46,6 +47,71 @@ class ClientStateField:
     python_name: str
     ref: PropertyRef
     value_type: ValueType
+
+    def decode(self, value: object, /) -> object:
+        return coerce_literal(
+            self.value_type,
+            value,
+            path=("state_member", self.python_name),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class InstrumentMemberClient[ValueT]:
+    """One independently observed and writable interface property."""
+
+    _session: InstrumentClientChannel = field(repr=False)
+    instrument_id: str
+    declaration: ClientStateField
+    writable: bool
+
+    def observed(self) -> ValueT:
+        snapshot = self._session.observed_state(self.instrument_id)
+        return self._decode_snapshot(snapshot)
+
+    def read(self) -> ValueT:
+        readback = self._session.read_state_members(
+            self.instrument_id,
+            self.declaration.ref,
+        )
+        return self._decode_readback(readback)
+
+    def set(self, value: ValueT, /) -> ApplyReceipt:
+        if not self.writable:
+            raise TypeError(f"instrument member {self.declaration.ref!r} is read-only")
+        return self._session.apply(
+            {self.declaration.ref: StateValue.model_validate(value).root},
+            instrument_id=self.instrument_id,
+        )
+
+    def _decode_snapshot(self, snapshot: InstrumentStateSnapshot) -> ValueT:
+        observation = next(
+            (
+                item
+                for item in snapshot.observations
+                if isinstance(item.target, InterfaceStateMemberTarget)
+                and PropertyRef(
+                    item.target.interface_id,
+                    item.target.component_path,
+                    item.target.property_id,
+                )
+                == self.declaration.ref
+            ),
+            None,
+        )
+        if observation is None:
+            raise ValueError(
+                f"observed state does not contain {self.declaration.ref!r}"
+            )
+        return cast("ValueT", self.declaration.decode(observation.value.root))
+
+    def _decode_readback(self, readback: InstrumentStateReadback) -> ValueT:
+        snapshot = InstrumentStateSnapshot(
+            instrument_id=readback.instrument_id,
+            observations=readback.observations,
+            metadata=readback.metadata,
+        )
+        return self._decode_snapshot(snapshot)
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +206,20 @@ class InstrumentClientBase:
         return self._session.apply(
             _concrete_assignments(patch),
             instrument_id=self.instrument_id,
+        )
+
+    def _member[ValueT](
+        self,
+        declaration: ClientStateField,
+        /,
+        *,
+        writable: bool,
+    ) -> InstrumentMemberClient[ValueT]:
+        return InstrumentMemberClient(
+            self._session,
+            self.instrument_id,
+            declaration,
+            writable,
         )
 
     def _invoke(
@@ -241,5 +321,6 @@ __all__ = [
     "ClientStateSchema",
     "DeclaredStateClientBase",
     "InstrumentClientBase",
+    "InstrumentMemberClient",
     "client_property_value_type",
 ]

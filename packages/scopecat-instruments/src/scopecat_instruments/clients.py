@@ -36,6 +36,7 @@ from scopecat_instruments._client_runtime import (
     ClientStateSchema,
     DeclaredStateClientBase,
     InstrumentClientBase,
+    InstrumentMemberClient,
     client_property_value_type,
 )
 from scopecat_instruments._family_runtime import InstrumentFamily
@@ -436,6 +437,30 @@ class TemperatureSampleProducts(ProductBundle):
 
 
 class TemperatureReadoutClient(InstrumentClientBase):
+    @property
+    def scan_channel(self) -> InstrumentMemberClient[int]:
+        return self._member(
+            ClientStateField(
+                "scan_channel",
+                _TEMPERATURE_READOUT_REF.property("scan_channel"),
+                client_property_value_type(
+                    '{"type":"int","minimum":1,"maximum":9007199254740991}'
+                ),
+            ),
+            writable=False,
+        )
+
+    @property
+    def autoscan_enabled(self) -> InstrumentMemberClient[bool]:
+        return self._member(
+            ClientStateField(
+                "autoscan_enabled",
+                _TEMPERATURE_READOUT_REF.property("autoscan_enabled"),
+                client_property_value_type('{"type":"bool"}'),
+            ),
+            writable=False,
+        )
+
     def state(self) -> TemperatureReadoutState:
         snapshot = self._session.observed_state(self.instrument_id)
         return _TEMPERATURE_READOUT_STATE_SCHEMA.decode(snapshot)
@@ -529,6 +554,62 @@ temperature_readout: InstrumentFamily[
 
 
 class RFOutputClient(DeclaredStateClientBase[RFOutputPatch]):
+    @property
+    def frequency(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientStateField(
+                "frequency",
+                _RF_OUTPUT_REF.property("frequency"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"Hz","minimum":null,"'
+                    'maximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def power(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientStateField(
+                "power",
+                _RF_OUTPUT_REF.property("power"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"dBm","minimum":null,'
+                    '"maximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def output_enabled(self) -> InstrumentMemberClient[bool]:
+        return self._member(
+            ClientStateField(
+                "output_enabled",
+                _RF_OUTPUT_REF.property("output_enabled"),
+                client_property_value_type('{"type":"bool"}'),
+            ),
+            writable=True,
+        )
+
+    @property
+    def reference_source(
+        self,
+    ) -> InstrumentMemberClient[Literal["internal", "external"]]:
+        return self._member(
+            ClientStateField(
+                "reference_source",
+                _RF_OUTPUT_REF.property("reference_source"),
+                client_property_value_type(
+                    '{"type":"string","choices":["internal","external"]}'
+                ),
+            ),
+            writable=True,
+        )
+
     @overload
     def apply(
         self,
@@ -704,6 +785,77 @@ class DCBiasReadbackProducts(ProductBundle):
 
 
 class DCBiasClient(DeclaredStateClientBase[DCBiasPatch]):
+    @property
+    def target_voltage(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientStateField(
+                "target_voltage",
+                _DC_BIAS_REF.property("target_voltage"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"V","minimum":null,"m'
+                    'aximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def ramp_duration(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientStateField(
+                "ramp_duration",
+                _DC_BIAS_REF.property("ramp_duration"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"s","minimum":0.0,"ma'
+                    'ximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def settle_tolerance(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientStateField(
+                "settle_tolerance",
+                _DC_BIAS_REF.property("settle_tolerance"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"V","minimum":0.0,"ma'
+                    'ximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def actual_voltage(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientStateField(
+                "actual_voltage",
+                _DC_BIAS_REF.property("actual_voltage"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"V","minimum":null,"m'
+                    'aximum":null,"finite":true}'
+                ),
+            ),
+            writable=False,
+        )
+
+    @property
+    def settled(self) -> InstrumentMemberClient[bool]:
+        return self._member(
+            ClientStateField(
+                "settled",
+                _DC_BIAS_REF.property("settled"),
+                client_property_value_type('{"type":"bool"}'),
+            ),
+            writable=False,
+        )
+
     @overload
     def apply(
         self,
@@ -880,6 +1032,60 @@ dc_bias: InstrumentFamily[
 
 
 class DCSourceClient(DeclaredStateClientBase[DCSourcePatch]):
+    @property
+    def voltage_protection(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientStateField(
+                "voltage_protection",
+                _DC_SOURCE_REF.property("voltage_protection"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"V","minimum":null,"m'
+                    'aximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def current_protection(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientStateField(
+                "current_protection",
+                _DC_SOURCE_REF.property("current_protection"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"A","minimum":null,"m'
+                    'aximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def output_enabled(self) -> InstrumentMemberClient[bool]:
+        return self._member(
+            ClientStateField(
+                "output_enabled",
+                _DC_SOURCE_REF.property("output_enabled"),
+                client_property_value_type('{"type":"bool"}'),
+            ),
+            writable=True,
+        )
+
+    @property
+    def source_mode(self) -> InstrumentMemberClient[Literal["voltage", "current"]]:
+        return self._member(
+            ClientStateField(
+                "source_mode",
+                _DC_SOURCE_REF.property("source_mode"),
+                client_property_value_type(
+                    '{"type":"string","choices":["voltage","current"]}'
+                ),
+            ),
+            writable=False,
+        )
+
     @overload
     def apply(
         self,
@@ -1154,6 +1360,45 @@ class DCMonitorVoltageProducts(ProductBundle):
 
 
 class DCMonitorClient(DeclaredStateClientBase[DCMonitorPatch]):
+    @property
+    def measurement_enabled(self) -> InstrumentMemberClient[bool]:
+        return self._member(
+            ClientStateField(
+                "measurement_enabled",
+                _DC_MONITOR_REF.property("measurement_enabled"),
+                client_property_value_type('{"type":"bool"}'),
+            ),
+            writable=True,
+        )
+
+    @property
+    def integration_cycles(self) -> InstrumentMemberClient[int]:
+        return self._member(
+            ClientStateField(
+                "integration_cycles",
+                _DC_MONITOR_REF.property("integration_cycles"),
+                client_property_value_type(
+                    '{"type":"int","minimum":1,"maximum":9007199254740991}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def measurement_delay(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientStateField(
+                "measurement_delay",
+                _DC_MONITOR_REF.property("measurement_delay"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"s","minimum":0.0,"ma'
+                    'ximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
     @overload
     def apply(
         self,
@@ -1369,6 +1614,99 @@ type _DCSourceMonitorGroupTarget = DCSourceGroupTarget | DCMonitorGroupTarget
 
 
 class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorPatch]):
+    @property
+    def voltage_protection(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientStateField(
+                "voltage_protection",
+                _DC_SOURCE_REF.property("voltage_protection"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"V","minimum":null,"m'
+                    'aximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def current_protection(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientStateField(
+                "current_protection",
+                _DC_SOURCE_REF.property("current_protection"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"A","minimum":null,"m'
+                    'aximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def output_enabled(self) -> InstrumentMemberClient[bool]:
+        return self._member(
+            ClientStateField(
+                "output_enabled",
+                _DC_SOURCE_REF.property("output_enabled"),
+                client_property_value_type('{"type":"bool"}'),
+            ),
+            writable=True,
+        )
+
+    @property
+    def source_mode(self) -> InstrumentMemberClient[Literal["voltage", "current"]]:
+        return self._member(
+            ClientStateField(
+                "source_mode",
+                _DC_SOURCE_REF.property("source_mode"),
+                client_property_value_type(
+                    '{"type":"string","choices":["voltage","current"]}'
+                ),
+            ),
+            writable=False,
+        )
+
+    @property
+    def measurement_enabled(self) -> InstrumentMemberClient[bool]:
+        return self._member(
+            ClientStateField(
+                "measurement_enabled",
+                _DC_MONITOR_REF.property("measurement_enabled"),
+                client_property_value_type('{"type":"bool"}'),
+            ),
+            writable=True,
+        )
+
+    @property
+    def integration_cycles(self) -> InstrumentMemberClient[int]:
+        return self._member(
+            ClientStateField(
+                "integration_cycles",
+                _DC_MONITOR_REF.property("integration_cycles"),
+                client_property_value_type(
+                    '{"type":"int","minimum":1,"maximum":9007199254740991}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def measurement_delay(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientStateField(
+                "measurement_delay",
+                _DC_MONITOR_REF.property("measurement_delay"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"s","minimum":0.0,"ma'
+                    'ximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
     def state(self) -> DCSourceMonitorState:
         snapshot = self._session.observed_state(self.instrument_id)
         return DCSourceMonitorState(
@@ -1607,6 +1945,94 @@ class NetworkSweepProducts(ProductBundle):
 
 
 class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):
+    @property
+    def start_frequency(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientStateField(
+                "start_frequency",
+                _NETWORK_SWEEP_REF.property("start_frequency"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"Hz","minimum":null,"'
+                    'maximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def stop_frequency(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientStateField(
+                "stop_frequency",
+                _NETWORK_SWEEP_REF.property("stop_frequency"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"Hz","minimum":null,"'
+                    'maximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def points(self) -> InstrumentMemberClient[int]:
+        return self._member(
+            ClientStateField(
+                "points",
+                _NETWORK_SWEEP_REF.property("points"),
+                client_property_value_type(
+                    '{"type":"int","minimum":2,"maximum":9007199254740991}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def if_bandwidth(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientStateField(
+                "if_bandwidth",
+                _NETWORK_SWEEP_REF.property("if_bandwidth"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"Hz","minimum":null,"'
+                    'maximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def source_power(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientStateField(
+                "source_power",
+                _NETWORK_SWEEP_REF.property("source_power"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"dBm","minimum":null,'
+                    '"maximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def s_parameter(
+        self,
+    ) -> InstrumentMemberClient[Literal["S11", "S21", "S12", "S22"]]:
+        return self._member(
+            ClientStateField(
+                "s_parameter",
+                _NETWORK_SWEEP_REF.property("s_parameter"),
+                client_property_value_type(
+                    '{"type":"string","choices":["S11","S21","S12","S22"]}'
+                ),
+            ),
+            writable=True,
+        )
+
     @overload
     def apply(
         self,

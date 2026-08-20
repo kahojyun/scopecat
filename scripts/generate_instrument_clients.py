@@ -461,6 +461,16 @@ class _StateKeywordModel:
 
 
 @dataclass(frozen=True, slots=True)
+class _MemberClientModel:
+    python_name: str
+    annotation: str
+    ref_name: str
+    property_id: str
+    value_type_json: str
+    writable: bool
+
+
+@dataclass(frozen=True, slots=True)
 class _InterfaceConstituentModel:
     interface_identity: str
     interface_id: str
@@ -468,6 +478,7 @@ class _InterfaceConstituentModel:
     constant_prefix: str
     layout: DeclaredInterfaceLayout[object]
     state_type_name: str | None
+    members: tuple[_MemberClientModel, ...]
 
     @property
     def ref_name(self) -> str:
@@ -2753,6 +2764,20 @@ def _constituent_model(
     layout = declaration_cache.layout(interface_type)
     interface_name = interface_type.__name__
     interface_stem = interface_name.removesuffix("Interface")
+    members = tuple(
+        _MemberClientModel(
+            python_name=field.python_name,
+            annotation=renderer.render(field.annotation),
+            ref_name=f"_{_snake_case(interface_stem).upper()}_REF",
+            property_id=field.property_id,
+            value_type_json=_json_model_field(
+                field.spec.model_dump_json(),
+                "value_type",
+            ),
+            writable=field.spec.access == "read_write",
+        )
+        for field in (() if layout.state is None else layout.state.fields)
+    )
     state_type_name = (
         renderer.reference(layout.state.source_type)
         if layout.state is not None
@@ -2765,6 +2790,7 @@ def _constituent_model(
         constant_prefix=_snake_case(interface_stem).upper(),
         layout=layout,
         state_type_name=state_type_name,
+        members=members,
     )
 
 
@@ -2979,6 +3005,9 @@ def _render_header(
     has_state = any(model.live_state_type_name is not None for model in models)
     has_keyword_state = any(model.keyword_state is not None for model in models)
     has_plain_root = any(model.live_state_type_name is None for model in models)
+    has_member_clients = any(
+        constituent.members for model in models for constituent in model.constituents
+    )
 
     imports: dict[str, set[str]] = {
         "scopecat.authoring": {
@@ -2998,6 +3027,14 @@ def _render_header(
             {
                 "SymbolicInstrumentClientBase",
                 "SymbolicInstrumentGroupBase",
+            }
+        )
+    if has_member_clients:
+        imports.setdefault("scopecat_instruments._client_runtime", set()).update(
+            {
+                "ClientStateField",
+                "InstrumentMemberClient",
+                "client_property_value_type",
             }
         )
     if has_state:
@@ -3573,7 +3610,12 @@ def _render_live_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
         else f"DeclaredStateClientBase[{model.live_state_type_name}]"
     )
     body: list[str] = []
+    for constituent in model.constituents:
+        for member in constituent.members:
+            _append_member_separator(body)
+            body.append(_render_live_member(member))
     if model.keyword_state is not None:
+        _append_member_separator(body)
         state = model.keyword_state
         body.append(
             _render_keyword_projection_method(
@@ -3602,6 +3644,33 @@ def _render_live_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
     return (
         "\n\n"
         f"class {scope.live_client_name}({base}):\n" + "".join(body).rstrip("\n") + "\n"
+    )
+
+
+def _render_live_member(member: _MemberClientModel) -> str:
+    return_annotation = f"InstrumentMemberClient[{member.annotation}]"
+    compact_signature = f"    def {member.python_name}(self) -> {return_annotation}:\n"
+    signature = (
+        compact_signature
+        if len(compact_signature.rstrip("\n")) <= 88
+        else (
+            f"    def {member.python_name}(\n"
+            "        self,\n"
+            f"    ) -> {return_annotation}:\n"
+        )
+    )
+    return (
+        "    @property\n"
+        f"{signature}"
+        "        return self._member(\n"
+        "            ClientStateField(\n"
+        f"                {_string_literal(member.python_name)},\n"
+        f"                {member.ref_name}.property("
+        f"{_string_literal(member.property_id)}),\n"
+        f"{_render_client_value_type_argument(member.value_type_json, indent=16)}"
+        "            ),\n"
+        f"            writable={member.writable!r},\n"
+        "        )\n"
     )
 
 

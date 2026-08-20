@@ -30,7 +30,11 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateLiteral, StateValue
 from scopecat.records.config import InstrumentBindingSpec, InstrumentConnection
 from scopecat.records.content import CommandPayload
-from scopecat.records.instrument import InstrumentStateSnapshot, state_member_target
+from scopecat.records.instrument import (
+    InstrumentStateReadback,
+    InstrumentStateSnapshot,
+    state_member_target,
+)
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectReceipt,
@@ -38,6 +42,7 @@ from scopecat.sdk.instruments.commands import (
     InstrumentOperationArgument,
     InstrumentStateAssignment,
     InstrumentStateCommand,
+    InstrumentStateReadCommand,
     InteractiveCollectIntent,
     InvokeCommand,
     InvokeReceipt,
@@ -50,6 +55,7 @@ from scopecat.sdk.instruments.members import (
     OperationArgumentRef,
     OperationRef,
     PropertyRef,
+    StateMemberRef,
 )
 
 type OperationArgumentValue = (
@@ -362,6 +368,23 @@ class InstrumentSessionHandle:
             selected,
         )
 
+    def _read_state_members(
+        self,
+        targets: Sequence[StateMemberRef],
+        /,
+        *,
+        instrument_id: str | None = None,
+    ) -> InstrumentStateReadback:
+        selected = self._selected_instrument_id(instrument_id)
+        session = self._require_session()
+        return self._client.read_instrument_state_members(
+            session.session_id,
+            selected,
+            InstrumentStateReadCommand(
+                targets=[state_member_target(target) for target in targets]
+            ),
+        )
+
     def _apply_configured_defaults(
         self,
         *,
@@ -592,6 +615,16 @@ class InstrumentClientChannel:
     def read_state(self, instrument_id: str) -> InstrumentStateSnapshot:
         return self._session._read_state(  # pyright: ignore[reportPrivateUsage]
             instrument_id
+        )
+
+    def read_state_members(
+        self,
+        instrument_id: str,
+        *targets: StateMemberRef,
+    ) -> InstrumentStateReadback:
+        return self._session._read_state_members(  # pyright: ignore[reportPrivateUsage]
+            targets,
+            instrument_id=instrument_id,
         )
 
     def apply_configured_defaults(

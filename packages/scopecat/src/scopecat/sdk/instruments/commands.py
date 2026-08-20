@@ -58,6 +58,21 @@ class InstrumentStateAssignment(BaseModel):
         return self
 
 
+class InstrumentStateReadCommand(BaseModel):
+    """Explicit member selection for one live hardware observation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    targets: list[_StateMemberTarget] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_unique_targets(self) -> InstrumentStateReadCommand:
+        identities = [_state_member_identity(target) for target in self.targets]
+        if len(identities) != len(set(identities)):
+            raise ValueError("instrument state read targets must be unique")
+        return self
+
+
 class InstrumentStateCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

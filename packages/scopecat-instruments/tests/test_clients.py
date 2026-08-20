@@ -14,13 +14,19 @@ from scopecat.authoring import QuantityType, coordinate
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateLiteral, StateValue
 from scopecat.kernel.value_types import Bool, Int, Scalar
-from scopecat.records.instrument import InstrumentStateSnapshot, state_observation
+from scopecat.records.instrument import (
+    InstrumentStateReadback,
+    InstrumentStateSnapshot,
+    state_member_ref,
+    state_observation,
+)
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     InvokeReceipt,
     OperationArgumentRef,
     OperationRef,
     PropertyRef,
+    StateMemberRef,
 )
 from scopecat.sdk.instruments.declarations import (
     compile_interface,
@@ -98,6 +104,7 @@ class _StateChannel:
         self.fresh = fresh
         self.observed_requests: list[str] = []
         self.refresh_requests: list[str] = []
+        self.member_requests: list[tuple[str, tuple[StateMemberRef, ...]]] = []
 
     def observed_state(self, instrument_id: str) -> InstrumentStateSnapshot:
         self.observed_requests.append(instrument_id)
@@ -106,6 +113,22 @@ class _StateChannel:
     def read_state(self, instrument_id: str) -> InstrumentStateSnapshot:
         self.refresh_requests.append(instrument_id)
         return self.fresh
+
+    def read_state_members(
+        self,
+        instrument_id: str,
+        *targets: StateMemberRef,
+    ) -> InstrumentStateReadback:
+        self.member_requests.append((instrument_id, targets))
+        selected = set(targets)
+        return InstrumentStateReadback(
+            instrument_id=instrument_id,
+            observations=[
+                observation
+                for observation in self.fresh.observations
+                if state_member_ref(observation.target) in selected
+            ],
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +194,18 @@ def _dc_source_snapshot(*, source_mode: str) -> InstrumentStateSnapshot:
             ),
             state_observation(DC_SOURCE_OUTPUT_ENABLED, StateValue(True)),
             state_observation(DC_SOURCE_MODE, StateValue(source_mode)),
+        ],
+    )
+
+
+def _rf_output_snapshot(*, frequency_ghz: float) -> InstrumentStateSnapshot:
+    return InstrumentStateSnapshot(
+        instrument_id="drive-source",
+        observations=[
+            state_observation(
+                RF_OUTPUT_FREQUENCY,
+                StateValue(Quantity(frequency_ghz, "GHz")),
+            )
         ],
     )
 
@@ -341,6 +376,29 @@ def test_generated_rf_live_client_lowers_declared_state() -> None:
         RF_OUTPUT_POWER: Quantity(-20.0, "dBm"),
         RF_OUTPUT_ENABLED: True,
     }
+
+
+def test_generated_member_client_reads_and_writes_one_property() -> None:
+    state_channel = _StateChannel(
+        _rf_output_snapshot(frequency_ghz=5.0),
+        _rf_output_snapshot(frequency_ghz=6.0),
+    )
+    client = RFOutputClient(
+        cast("InstrumentClientChannel", cast("object", state_channel)),
+        "drive-source",
+    )
+
+    assert client.frequency.observed() == Quantity(5e9, "Hz")
+    assert client.frequency.read() == Quantity(6e9, "Hz")
+    assert state_channel.member_requests == [("drive-source", (RF_OUTPUT_FREQUENCY,))]
+
+    apply_channel = _ApplyChannel()
+    writable = RFOutputClient(
+        cast("InstrumentClientChannel", cast("object", apply_channel)),
+        "drive-source",
+    )
+    assert writable.frequency.set(Quantity(7.0, "GHz")) is apply_channel.receipt
+    assert apply_channel.values == {RF_OUTPUT_FREQUENCY: Quantity(7.0, "GHz")}
 
 
 def test_generated_rf_live_client_rejects_symbolic_state_before_io() -> None:
