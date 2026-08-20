@@ -73,12 +73,15 @@ class InstrumentMemberClient[ValueT]:
         """Return this physical member's effective access and lifecycle policy."""
 
         target = self.declaration.ref
+        physical_target = self._session.state_member_ref(target)
+        if not isinstance(physical_target, PropertyRef):
+            raise AssertionError("interface member resolved to a device property")
         resolved = resolve_state_member_spec(
             self._session.describe(self.instrument_id),
             InterfaceStateMemberTarget(
-                interface_id=target.interface_id,
-                component_path=target.component_path,
-                property_id=target.property_id,
+                interface_id=physical_target.interface_id,
+                component_path=physical_target.component_path,
+                property_id=physical_target.property_id,
             ),
         )
         if resolved is None:
@@ -167,15 +170,11 @@ class InstrumentMemberClient[ValueT]:
         )
 
     def _matches(self, target: object) -> bool:
-        return (
-            isinstance(target, InterfaceStateMemberTarget)
-            and PropertyRef(
-                target.interface_id,
-                target.component_path,
-                target.property_id,
-            )
-            == self.declaration.ref
-        )
+        return isinstance(target, InterfaceStateMemberTarget) and PropertyRef(
+            target.interface_id,
+            target.component_path,
+            target.property_id,
+        ) == self._session.state_member_ref(self.declaration.ref)
 
 
 @dataclass(frozen=True, slots=True)

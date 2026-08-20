@@ -81,7 +81,13 @@ class InstrumentFamily[LiveT, SymbolicT, GroupT]:
         self._requires = requires
 
     @overload
-    def __call__(self, context_or_id: str, /) -> InstrumentRef[LiveT]: ...
+    def __call__(
+        self,
+        context_or_id: str,
+        /,
+        *,
+        component_path: Sequence[str] = (),
+    ) -> InstrumentRef[LiveT]: ...
 
     @overload
     def __call__(
@@ -116,6 +122,7 @@ class InstrumentFamily[LiveT, SymbolicT, GroupT]:
         role: ResourceRoleInput = None,
         name: str | None = None,
         requires: Sequence[InstrumentCapabilityRef] | None = None,
+        component_path: Sequence[str] = (),
     ) -> InstrumentRef[LiveT] | SymbolicT | GroupT:
         if isinstance(context_or_id, str):
             if (
@@ -124,12 +131,18 @@ class InstrumentFamily[LiveT, SymbolicT, GroupT]:
                 or name is not None
                 or requires is not None
             ):
-                raise TypeError("live instrument clients only accept an instrument id")
+                raise TypeError(
+                    "live instrument clients accept only an instrument id and "
+                    "component_path"
+                )
             return instrument(
                 context_or_id,
                 self._live_factory,
                 requires=self._requires,
+                component_path=component_path,
             )
+        if component_path:
+            raise TypeError("symbolic instrument component paths come from routing")
         recorder = instrument_recorder(context_or_id)
         resource_name = self._name if name is None else name
         resource_id = recorder.allocate_resource_id(resource_name)

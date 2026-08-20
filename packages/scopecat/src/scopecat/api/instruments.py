@@ -52,6 +52,7 @@ from scopecat.sdk.instruments.contracts import InstrumentDescription
 from scopecat.sdk.instruments.members import (
     AcquisitionRef,
     AcquisitionResultRef,
+    DevicePropertyRef,
     InterfaceRef,
     OperationArgumentRef,
     OperationRef,
@@ -87,10 +88,13 @@ class InstrumentRef[ClientT]:
         compare=False,
     )
     requires: tuple[InterfaceRef, ...] = ()
+    component_path: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.instrument_id:
             raise ValueError("typed instrument id must be non-empty")
+        if any(not component_id for component_id in self.component_path):
+            raise ValueError("typed instrument component ids must be non-empty")
         interface_ids = tuple(item.interface_id for item in self.requires)
         if len(interface_ids) != len(set(interface_ids)):
             raise ValueError("typed instrument requirements must be unique")
@@ -101,6 +105,7 @@ def instrument[ClientT](
     client_factory: InstrumentClientFactory[ClientT],
     *,
     requires: Sequence[InterfaceRef] = (),
+    component_path: Sequence[str] = (),
 ) -> InstrumentRef[ClientT]:
     """Declare one typed physical instrument reference for notebook use."""
 
@@ -108,6 +113,7 @@ def instrument[ClientT](
         instrument_id=instrument_id,
         client_factory=client_factory,
         requires=tuple(requires),
+        component_path=tuple(component_path),
     )
 
 
@@ -121,11 +127,14 @@ class TemporaryInstrumentRef[ClientT]:
         compare=False,
     )
     requires: tuple[InterfaceRef, ...] = ()
+    component_path: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         interface_ids = tuple(item.interface_id for item in self.requires)
         if len(interface_ids) != len(set(interface_ids)):
             raise ValueError("typed instrument requirements must be unique")
+        if any(not component_id for component_id in self.component_path):
+            raise ValueError("typed instrument component ids must be non-empty")
 
     @property
     def instrument_id(self) -> str:
@@ -148,6 +157,7 @@ def temporary_instrument[ClientT](
         ),
         client_factory=reference.client_factory,
         requires=reference.requires,
+        component_path=reference.component_path,
     )
 
 
@@ -319,18 +329,24 @@ class InstrumentSessionHandle:
         selected = self._selected_instrument_id(target.instrument_id)
         if target.requires:
             description = self._describe(selected)
-            available = {item.id for item in description.interfaces}
             missing = tuple(
                 requirement.interface_id
                 for requirement in target.requires
-                if requirement.interface_id not in available
+                if not _implements_interface_at(
+                    description,
+                    requirement.interface_id,
+                    target.component_path,
+                )
             )
             if missing:
                 raise ValueError(
                     f"instrument {selected!r} does not implement required interfaces: "
                     + ", ".join(missing)
                 )
-        return target.client_factory(InstrumentClientChannel(self), selected)
+        return target.client_factory(
+            InstrumentClientChannel(self, target.component_path),
+            selected,
+        )
 
     def _describe(
         self,
@@ -613,12 +629,34 @@ class InstrumentClientChannel:
     """Low-level channel used only to implement typed instrument clients."""
 
     _session: InstrumentSessionHandle = field(repr=False)
+    _component_path: tuple[str, ...] = ()
 
     @property
     def raw_session(self) -> InstrumentSessionHandle:
         """Return the backing session for SDK integrations and tests."""
 
         return self._session
+
+    @property
+    def component_path(self) -> tuple[str, ...]:
+        """Return the physical component prefix selected by the typed reference."""
+
+        return self._component_path
+
+    def state_member_ref(self, target: StateMemberRef, /) -> StateMemberRef:
+        """Map a client-relative state member onto the selected component."""
+
+        if isinstance(target, PropertyRef):
+            return PropertyRef(
+                target.interface_id,
+                (*self._component_path, *target.component_path),
+                target.property_id,
+            )
+        return DevicePropertyRef(
+            target.schema_id,
+            (*self._component_path, *target.component_path),
+            target.property_id,
+        )
 
     def describe(self, instrument_id: str) -> InstrumentDescription:
         return self._session._describe(  # pyright: ignore[reportPrivateUsage]
@@ -641,7 +679,7 @@ class InstrumentClientChannel:
         *targets: StateMemberRef,
     ) -> InstrumentStateReadback:
         return self._session._read_state_members(  # pyright: ignore[reportPrivateUsage]
-            targets,
+            tuple(self.state_member_ref(target) for target in targets),
             instrument_id=instrument_id,
         )
 
@@ -651,7 +689,7 @@ class InstrumentClientChannel:
         *targets: StateMemberRef,
     ) -> InstrumentStateCacheReadback:
         return self._session._observed_state_members(  # pyright: ignore[reportPrivateUsage]
-            targets,
+            tuple(self.state_member_ref(target) for target in targets),
             instrument_id=instrument_id,
         )
 
@@ -659,6 +697,11 @@ class InstrumentClientChannel:
         self,
         instrument_id: str,
     ) -> InstrumentConfiguredDefaultsApplyReceipt:
+        if self._component_path:
+            raise TypeError(
+                "configured defaults belong to the whole physical instrument, "
+                "not one mounted component"
+            )
         return self._session._apply_configured_defaults(  # pyright: ignore[reportPrivateUsage]
             instrument_id=instrument_id
         )
@@ -670,7 +713,10 @@ class InstrumentClientChannel:
         instrument_id: str,
     ) -> ApplyReceipt:
         return self._session._apply(  # pyright: ignore[reportPrivateUsage]
-            values,
+            {
+                _mount_property_ref(target, self._component_path): value
+                for target, value in values.items()
+            },
             instrument_id=instrument_id,
         )
 
@@ -682,8 +728,18 @@ class InstrumentClientChannel:
         instrument_id: str,
     ) -> InvokeReceipt:
         return self._session._invoke(  # pyright: ignore[reportPrivateUsage]
-            operation,
-            arguments,
+            _mount_operation_ref(operation, self._component_path),
+            (
+                None
+                if arguments is None
+                else {
+                    _mount_operation_argument_ref(
+                        target,
+                        self._component_path,
+                    ): value
+                    for target, value in arguments.items()
+                }
+            ),
             instrument_id=instrument_id,
         )
 
@@ -694,10 +750,87 @@ class InstrumentClientChannel:
         instrument_id: str,
     ) -> CollectReceipt:
         return self._session._collect(  # pyright: ignore[reportPrivateUsage]
-            acquisition,
-            *results,
+            _mount_acquisition_ref(acquisition, self._component_path),
+            *(
+                _mount_acquisition_result_ref(result, self._component_path)
+                for result in results
+            ),
             instrument_id=instrument_id,
         )
+
+
+def _implements_interface_at(
+    description: InstrumentDescription,
+    interface_id: str,
+    component_path: tuple[str, ...],
+) -> bool:
+    if interface_id not in {interface.id for interface in description.interfaces}:
+        return False
+    mounts = tuple(
+        tuple(mount.component_path)
+        for mount in description.interface_mounts
+        if mount.interface_id == interface_id
+    )
+    if component_path:
+        return component_path in mounts
+    return not mounts
+
+
+def _mount_property_ref(
+    target: PropertyRef,
+    component_path: tuple[str, ...],
+) -> PropertyRef:
+    return PropertyRef(
+        target.interface_id,
+        (*component_path, *target.component_path),
+        target.property_id,
+    )
+
+
+def _mount_operation_ref(
+    target: OperationRef,
+    component_path: tuple[str, ...],
+) -> OperationRef:
+    return OperationRef(
+        target.interface_id,
+        (*component_path, *target.component_path),
+        target.operation_id,
+    )
+
+
+def _mount_operation_argument_ref(
+    target: OperationArgumentRef,
+    component_path: tuple[str, ...],
+) -> OperationArgumentRef:
+    return OperationArgumentRef(
+        target.interface_id,
+        (*component_path, *target.component_path),
+        target.operation_id,
+        target.argument_id,
+    )
+
+
+def _mount_acquisition_ref(
+    target: AcquisitionRef,
+    component_path: tuple[str, ...],
+) -> AcquisitionRef:
+    return AcquisitionRef(
+        target.interface_id,
+        (*component_path, *target.component_path),
+        target.acquisition_id,
+    )
+
+
+def _mount_acquisition_result_ref(
+    target: AcquisitionResultRef,
+    component_path: tuple[str, ...],
+) -> AcquisitionResultRef:
+    return AcquisitionResultRef(
+        target.interface_id,
+        (*component_path, *target.component_path),
+        target.acquisition_id,
+        target.result_id,
+    )
 
 
 def _new_command_id(kind: str, subject: str) -> str:

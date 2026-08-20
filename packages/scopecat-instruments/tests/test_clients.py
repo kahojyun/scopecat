@@ -104,6 +104,9 @@ class _StateChannel:
         self.refresh_requests: list[str] = []
         self.member_requests: list[tuple[str, tuple[StateMemberRef, ...]]] = []
 
+    def state_member_ref(self, target: StateMemberRef) -> StateMemberRef:
+        return target
+
     def observed_state_members(
         self,
         instrument_id: str,
@@ -167,6 +170,9 @@ class _ApplyChannel:
             None
         )
         self.instrument_id: str | None = None
+
+    def state_member_ref(self, target: StateMemberRef) -> StateMemberRef:
+        return target
 
     def describe(self, instrument_id: str) -> InstrumentDescription:
         if self.description is None:
@@ -268,6 +274,15 @@ def test_first_party_factories_retain_static_client_types() -> None:
     assert source_with_clock.requires == (RF_OUTPUT, REFERENCE_CLOCK)
     assert vna.requires == (NETWORK_SWEEP,)
     assert thermometer.requires == (TEMPERATURE_READOUT,)
+
+
+def test_live_instrument_factory_selects_a_physical_component() -> None:
+    rf = rf_output("multi-source", component_path=("channels", "2"))
+
+    assert_type(rf, InstrumentRef[RFOutputClient])
+    assert rf.instrument_id == "multi-source"
+    assert rf.component_path == ("channels", "2")
+    assert rf.requires == (RF_OUTPUT,)
 
 
 def test_generated_dc_source_live_client_applies_flat_state() -> None:

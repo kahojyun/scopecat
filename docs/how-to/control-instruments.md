@@ -41,6 +41,28 @@ triggers hardware and returns typed readback with receipt evidence. The session
 owns synchronization and the same exclusive claim used by experiment runs; it
 does not create a one-point experiment.
 
+When one inventory entry owns several implementations of the same interface,
+select the physical mount on the live reference:
+
+```python
+from scopecat_instruments import rf_output
+
+
+PUMP_2 = rf_output("pump-source", component_path=("channels", "2"))
+
+with sc.open_project(".").connect(operator="alice") as lab:
+    with lab.instruments.open(PUMP_2) as devices:
+        source = devices[PUMP_2]
+        source.apply(frequency=sc.Quantity(6, "GHz"), output_enabled=True)
+```
+
+Generated members stay relative to the selected mount; the live channel maps
+state, operations, and acquisitions onto the physical component path and checks
+that the interface is mounted there. `describe()`, `observed_state()`, and
+`refresh()` still describe or return the owning physical instrument for
+diagnostics. Configured defaults also belong to that owner and therefore cannot
+be applied through a component-scoped client.
+
 A genuinely temporary diagnostic device can use a session-only binding without
 publishing configuration or defining entity routes:
 

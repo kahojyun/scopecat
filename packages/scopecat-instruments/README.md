@@ -30,6 +30,12 @@ raises `InstrumentCollectFailure` with its receipt and outcome certainty.
 value was unavailable. Raw snapshots and lower-level receipt channels remain
 available for diagnostics.
 
+A live family call may select a repeated interface on one physical device with
+`component_path=("channels", "2")`. Generated members remain relative while the
+client maps state, operations, acquisitions, and concrete member constraints to
+that exact mount. Whole-device snapshots remain diagnostic surfaces, and
+configured defaults are intentionally unavailable through a mounted client.
+
 ## Typed client source generation
 
 Decorated Python interface declarations are the shared source for the wire
