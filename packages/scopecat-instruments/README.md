@@ -428,6 +428,32 @@ Virtual drivers created by one provider share a deterministic virtual lab
 world, so bias, RF heating, temperature, and the VNA response interact across
 sessions.
 
+A project package adds drivers by composing lazy registrations rather than
+reimplementing provider dispatch:
+
+```python
+from scopecat_instruments.package_manifest import PACKAGE_MANIFEST
+from scopecat_instruments.provider import (
+    ConfiguredInstrumentProvider,
+    compose_driver_registrations,
+)
+
+provider = ConfiguredInstrumentProvider(
+    provider_id="example.lab.instruments",
+    registrations=compose_driver_registrations(
+        PACKAGE_MANIFEST.drivers,
+        PROJECT_DRIVER_REGISTRATIONS,
+    ),
+)
+```
+
+Each `DriverRegistration` supplies one lazy `PythonSymbol`, implementation
+version, connection kind, strict Pydantic options model, and catalog metadata.
+The shared provider derives schemas, creates description-only drivers, opens
+TCP transports, identifies hardware, closes failed connections, and maps
+provider problems. A project registration's constructor receives
+`instrument_id`, the SCPI transport, and its validated option fields.
+
 ## Testing
 
 The explicit testing module provides strict SCPI transcript helpers:

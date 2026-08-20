@@ -7,10 +7,10 @@ from dataclasses import dataclass
 from importlib import import_module
 from typing import Literal, cast
 
+from pydantic import BaseModel
 from scopecat.sdk.instruments.declarations import Member, MemberObservation
 
 from scopecat_instruments.connection_options import (
-    ConnectionOptions,
     E5080BConnectionOptions,
     Gs200ConnectionOptions,
     NoConnectionOptions,
@@ -78,7 +78,7 @@ class DriverRegistration:
     implementation_version: str
     implementation: PythonSymbol
     connection_kind: Literal["tcpip_socket", "virtual"]
-    options_type: type[ConnectionOptions]
+    options_type: type[BaseModel]
     label: str
     manufacturer: str | None = None
     model: str | None = None

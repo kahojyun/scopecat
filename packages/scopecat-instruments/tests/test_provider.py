@@ -29,6 +29,7 @@ from scopecat.sdk.instruments import (
 )
 
 from scopecat_instruments.drivers import YokogawaGS200
+from scopecat_instruments.package_manifest import YOKOGAWA_GS200_DRIVER
 from scopecat_instruments.provider import (
     KEYSIGHT_E5080B,
     LAKESHORE_372,
@@ -40,6 +41,7 @@ from scopecat_instruments.provider import (
     VIRTUAL_VNA,
     YOKOGAWA_GS200,
     ConfiguredInstrumentProvider,
+    compose_driver_registrations,
 )
 from scopecat_instruments.virtual import VirtualDcSource
 
@@ -115,6 +117,22 @@ def test_driver_catalog_exposes_connection_option_schemas() -> None:
     assert virtual is not None
     assert virtual.connections[0].kind == "virtual"
     assert virtual.connections[0].options_schema["properties"] == {}
+
+
+def test_provider_composes_an_external_registration_set() -> None:
+    registrations = compose_driver_registrations((YOKOGAWA_GS200_DRIVER,))
+    provider = ConfiguredInstrumentProvider(
+        provider_id="test.lab.instruments",
+        registrations=registrations,
+    )
+
+    assert provider.provider_id == "test.lab.instruments"
+    assert provider.world is None
+    assert [item.driver_id for item in provider.driver_catalog.drivers] == [
+        YOKOGAWA_GS200
+    ]
+    with pytest.raises(ValueError, match="unique ids"):
+        compose_driver_registrations(registrations, registrations)
 
 
 class _IdnServer:
@@ -418,6 +436,7 @@ def test_virtual_state_survives_driver_recreation() -> None:
     ]
     assert isinstance(second, VirtualDcSource)
     assert second.read_output_enabled() is True
+    assert provider.world is not None
     assert provider.world.flux_bias() == 0.8
 
 

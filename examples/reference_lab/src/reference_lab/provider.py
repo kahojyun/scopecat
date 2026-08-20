@@ -98,6 +98,10 @@ class ReferenceLabProvider:
 
     def __init__(self, *, seed: int = 7) -> None:
         self._instruments = ConfiguredInstrumentProvider(seed=seed)
+        world = self._instruments.world
+        if world is None:
+            raise AssertionError("stock provider must create its virtual world")
+        self._world = world
         self._bench = BenchSignalWorld()
         self.driver_catalog = DriverCatalog(
             provider_id=self.provider_id,
@@ -115,7 +119,7 @@ class ReferenceLabProvider:
     def world(self) -> VirtualLabWorld:
         """Expose the coupled instrument world for gallery verification."""
 
-        return self._instruments.world
+        return self._world
 
     def describe(
         self,
