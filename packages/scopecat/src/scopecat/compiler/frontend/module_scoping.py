@@ -136,7 +136,7 @@ def localize_resource_port(
         port,
         symbol_id=port_id,
         selector=ResourceSelector(
-            interfaces=port.selector.interfaces,
+            capabilities=port.selector.capabilities,
             entity_inputs=entity_inputs,
             role=port.selector.role,
         ),

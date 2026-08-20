@@ -200,7 +200,7 @@ def resolve_resource_port(
     return replace(
         port,
         selector=ResourceSelector(
-            interfaces=port.selector.interfaces,
+            capabilities=port.selector.capabilities,
             entity_inputs=tuple(
                 resolver.resolve(value) for value in port.selector.entity_inputs
             ),

@@ -31,12 +31,11 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.instrument_members import (
     AcquisitionResultRef,
-    InterfaceRef,
+    InstrumentCapabilityRef,
     OperationArgumentRef,
     OperationRef,
     PropertyRef,
 )
-from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.payloads import PayloadValue, unwrap_payload_values
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
@@ -440,12 +439,6 @@ def _require_public_state_binding(value: object) -> None:
         )
 
 
-def _resource_interfaces(
-    requires: Sequence[InterfaceRef],
-) -> tuple[InterfaceId, ...]:
-    return tuple(interface.interface_id for interface in requires)
-
-
 @dataclass(frozen=True, slots=True)
 class DefinitionResource:
     """One logical resource owned by a module definition context."""
@@ -791,13 +784,12 @@ class ModuleContext:
         self,
         id: str,
         *,
-        requires: Sequence[InterfaceRef] = (),
+        requires: Sequence[InstrumentCapabilityRef] = (),
         for_entities: Sequence[ValueRef] = (),
         role: ResourceRoleInput = None,
     ) -> DefinitionResource:
-        """Declare a generated client's logical resource."""
+        """Declare a logical resource and its required instrument capabilities."""
 
-        interfaces = _resource_interfaces(requires)
         selected_entities = tuple(
             cast("ValueRef", self._capture_domain_value(value))
             for value in for_entities
@@ -811,7 +803,7 @@ class ModuleContext:
             resource_port(
                 id,
                 ResourceSelector(
-                    interfaces=interfaces,
+                    capabilities=tuple(requires),
                     entity_inputs=selected_entities,
                     role=normalize_resource_role(role),
                 ),

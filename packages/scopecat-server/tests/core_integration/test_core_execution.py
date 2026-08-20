@@ -786,7 +786,10 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),
-                interfaces=("test.play_program/v1", "test.scalar_signal/v1"),
+                capabilities=(
+                    InterfaceRef("test.play_program/v1"),
+                    InterfaceRef("test.scalar_signal/v1"),
+                ),
             ),
         ),
         invocations=[

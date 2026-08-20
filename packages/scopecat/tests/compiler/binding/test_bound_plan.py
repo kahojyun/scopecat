@@ -41,6 +41,7 @@ from scopecat.domain.program import DomainProgramDef
 from scopecat.execution.local.program import CollectOperation
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.instrument_members import InterfaceRef
 from scopecat.kernel.problems import (
     ProblemPhase,
     model_location,
@@ -186,7 +187,7 @@ def _symbolic_program() -> ProgramFixture:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),
-                interfaces=("test.scalar_signal/v1",),
+                capabilities=(InterfaceRef("test.scalar_signal/v1"),),
             ),
         ),
         effects=(selected_acquisition,),
@@ -463,7 +464,7 @@ def test_bind_rejects_remaining_relation_input_imports() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),
-                interfaces=("test.set_frequency/v1",),
+                capabilities=(InterfaceRef("test.set_frequency/v1"),),
             ),
         ),
         effects=(

@@ -6,6 +6,7 @@ from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import ApplyStateOperation, InvokeOperation
 from scopecat.execution.program import RunCoverageEffect
 from scopecat.planning.compilation import compile_run_program
+from scopecat.sdk.instruments import InterfaceRef
 from scopecat_instruments.members import REFERENCE_CLOCK, RF_OUTPUT
 from scopecat_testkit.instrument_host import compose_test_instruments
 
@@ -33,6 +34,22 @@ def test_xy_drive_declares_physical_i_and_q_resources_per_entity() -> None:
     ]
     i_ports = logical.resource_ports[2:4]
     q_ports = logical.resource_ports[4:]
+    assert all(
+        len(port.selector.capabilities) == 4
+        and all(
+            not isinstance(capability, InterfaceRef)
+            for capability in port.selector.capabilities
+        )
+        for port in logical.resource_ports[:2]
+    )
+    assert all(
+        len(port.selector.capabilities) == 8
+        and all(
+            not isinstance(capability, InterfaceRef)
+            for capability in port.selector.capabilities
+        )
+        for port in (*i_ports, *q_ports)
+    )
     assert all(
         port.selector.interfaces
         == (RF_OUTPUT.interface_id, REFERENCE_CLOCK.interface_id)

@@ -19,7 +19,7 @@ from scopecat.program.value_refs import ValueRef, internal_literal_value_ref
 from scopecat.program.values import ComputeInput
 from scopecat.sdk.instruments.members import (
     AcquisitionResultRef,
-    InterfaceRef,
+    InstrumentCapabilityRef,
     OperationArgumentRef,
     OperationRef,
     PropertyRef,
@@ -35,7 +35,7 @@ class _CapabilityRecorder(Protocol):
         self,
         id: str,
         *,
-        requires: Sequence[InterfaceRef],
+        requires: Sequence[InstrumentCapabilityRef],
         for_entities: Sequence[ValueRef],
         role: ResourceRoleInput = None,
     ) -> DefinitionResource: ...
@@ -157,7 +157,7 @@ def capability_resource(
     context: object,
     name: str,
     *,
-    requires: Sequence[InterfaceRef],
+    requires: Sequence[InstrumentCapabilityRef],
     for_: EachEntity,
     role: ResourceRoleInput = None,
 ) -> PerEntity[CapabilityResource]: ...
@@ -168,7 +168,7 @@ def capability_resource(
     context: object,
     name: str,
     *,
-    requires: Sequence[InterfaceRef],
+    requires: Sequence[InstrumentCapabilityRef],
     for_: OneEntity | None = None,
     role: ResourceRoleInput = None,
 ) -> CapabilityResource: ...
@@ -178,11 +178,11 @@ def capability_resource(
     context: object,
     name: str,
     *,
-    requires: Sequence[InterfaceRef],
+    requires: Sequence[InstrumentCapabilityRef],
     for_: OneEntity | EachEntity | None = None,
     role: ResourceRoleInput = None,
 ) -> CapabilityResource | PerEntity[CapabilityResource]:
-    """Declare one capability resource, or one identity-keyed resource per entity."""
+    """Declare resources requiring whole interfaces or exact interface members."""
 
     recorder = cast("_CapabilityRecorder", context)
     resource_id = recorder._allocate_resource_id(name)
@@ -225,7 +225,7 @@ def _declare_capability_resource(
     resource_id: str,
     *,
     namespace_hint: str,
-    requires: Sequence[InterfaceRef],
+    requires: Sequence[InstrumentCapabilityRef],
     for_: OneEntity | None,
     role: ResourceRoleInput,
 ) -> CapabilityResource:

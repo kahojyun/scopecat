@@ -190,7 +190,7 @@ def test_public_capability_resources_support_lab_owned_group_composition() -> No
         resources = sc.capability_resource(
             experiment,
             "drive",
-            requires=(_DEVICE,),
+            requires=(_DEVICE_LEVEL, _DEVICE_ENABLED),
             for_=entities,
             role="xy",
         )
@@ -208,6 +208,15 @@ def test_public_capability_resources_support_lab_owned_group_composition() -> No
         )
 
     invocation = direct()
+    assert [
+        port.selector.capabilities for port in invocation.definition.interface.resources
+    ] == [
+        (_DEVICE_LEVEL, _DEVICE_ENABLED),
+        (_DEVICE_LEVEL, _DEVICE_ENABLED),
+    ]
+    assert [
+        port.selector.interfaces for port in invocation.definition.interface.resources
+    ] == [(_DEVICE.interface_id,), (_DEVICE.interface_id,)]
     assert [
         (port.id, port.selector.role.role_id)
         for port in invocation.definition.interface.resources
@@ -232,7 +241,7 @@ def test_public_capability_resource_supports_lab_owned_acquisition() -> None:
         monitor = sc.capability_resource(
             experiment,
             "monitor",
-            requires=(_DEVICE,),
+            requires=(_DEVICE_SIGNAL.acquisition,),
         )
         signal = experiment._product("signal")
         monitor.acquire({_DEVICE_SIGNAL: signal})
@@ -244,6 +253,25 @@ def test_public_capability_resource_supports_lab_owned_acquisition() -> None:
     assert acquisition.resource_port_id.local_id == "monitor"
     assert acquisition.acquisition_id == "sample"
     assert acquisition.results[0].result_id == "signal"
+
+
+def test_public_capability_resource_supports_exact_operation_requirement() -> None:
+    @sc.experiment(id="test.capability-resource-operation", kind="direct")
+    def direct(experiment: sc.ExperimentContext) -> None:
+        device = sc.capability_resource(
+            experiment,
+            "device",
+            requires=(_DEVICE_TRIGGER,),
+        )
+        device.invoke(_DEVICE_TRIGGER)
+
+    invocation = direct()
+    [port] = invocation.definition.interface.resources
+    assert port.selector.capabilities == (_DEVICE_TRIGGER,)
+
+    logical = compile_invocation(invocation).program.program
+    [operation] = logical.invocations
+    assert operation.operation_id == "trigger"
 
 
 def test_experiment_records_a_compute_result_as_a_named_dataset_value() -> None:

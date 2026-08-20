@@ -16,6 +16,7 @@ from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.topology_selection import TopologyEntitySetResolution
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.graph_identity import ValueId
+from scopecat.kernel.instrument_members import InstrumentCapabilityRef
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
@@ -105,18 +106,24 @@ class BoundMeasurementCompute:
 
 @dataclass(frozen=True, slots=True)
 class LogicalResourceRequirement:
-    """Stable logical interfaces plus point-local object selection.
+    """Stable logical capabilities plus point-local object selection.
 
-    ``interfaces`` is the compile-time contract for the logical port,
+    ``capabilities`` is the compile-time contract for the logical port,
     ``entity_uses`` selects its objects at each point, and ``role``
     distinguishes equivalent endpoints by lab purpose. Physical instrument and
     channel identity enter only during target materialization.
     """
 
     port_id: LogicalResourcePortId
-    interfaces: tuple[InterfaceId, ...] = ()
+    capabilities: tuple[InstrumentCapabilityRef, ...] = ()
     entity_uses: tuple[ScalarExpr, ...] = ()
     role: ResourceRoleSelector = DEFAULT_RESOURCE_ROLE
+
+    @property
+    def interfaces(self) -> tuple[InterfaceId, ...]:
+        return tuple(
+            dict.fromkeys(capability.interface_id for capability in self.capabilities)
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -56,7 +56,7 @@ from scopecat.kernel.entity import EntityRef, entity_axis_fingerprint, entity_id
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.instrument_members import (
     AcquisitionResultRef,
-    InterfaceRef,
+    InstrumentCapabilityRef,
     OperationArgumentRef,
     OperationRef,
     PropertyRef,
@@ -341,7 +341,7 @@ class ExperimentContext:
         self,
         id: str,
         *,
-        requires: Sequence[InterfaceRef] = (),
+        requires: Sequence[InstrumentCapabilityRef] = (),
         for_entities: Sequence[ValueRef] = (),
         role: ResourceRoleInput = None,
     ) -> DefinitionResource:

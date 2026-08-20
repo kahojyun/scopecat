@@ -182,12 +182,18 @@ class AcquisitionResultRef:
         )
 
 
+type InstrumentCapabilityRef = (
+    InterfaceRef | PropertyRef | OperationRef | AcquisitionRef
+)
+
+
 __all__ = [
     "AcquisitionRef",
     "AcquisitionResultRef",
     "ComponentRef",
     "DevicePropertyRef",
     "DeviceSchemaId",
+    "InstrumentCapabilityRef",
     "InterfaceRef",
     "OperationArgumentRef",
     "OperationRef",

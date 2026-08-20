@@ -40,6 +40,7 @@ from scopecat.execution.local.program import (
     ComputeOperation,
     InvokeOperation,
 )
+from scopecat.kernel.instrument_members import InterfaceRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.state import PayloadRef
@@ -99,7 +100,7 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("readout"),
-                interfaces=("test.pulse/v1",),
+                capabilities=(InterfaceRef("test.pulse/v1"),),
             ),
         ),
         parameter_overlays=[
@@ -188,7 +189,7 @@ def test_separated_state_groups_have_distinct_operation_ids() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=drive,
-                interfaces=("test.drive/v1",),
+                capabilities=(InterfaceRef("test.drive/v1"),),
             ),
         ),
         product_defs=[product],
@@ -234,7 +235,7 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=drive,
-                interfaces=("test.play_waveforms/v1",),
+                capabilities=(InterfaceRef("test.play_waveforms/v1"),),
             ),
         ),
         compute_nodes=[
@@ -299,7 +300,7 @@ def test_materialized_state_can_reference_a_compute_payload() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=drive,
-                interfaces=("test.play_waveforms/v1",),
+                capabilities=(InterfaceRef("test.play_waveforms/v1"),),
             ),
         ),
         state=[
@@ -347,7 +348,7 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("drive-a"),
-                interfaces=("test.play_waveforms/v1",),
+                capabilities=(InterfaceRef("test.play_waveforms/v1"),),
             ),
         ),
         invocations=[
@@ -451,7 +452,7 @@ def test_materialized_effects_binds_acquisition_to_its_logical_port() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("readout"),
-                interfaces=("test.measure_iq/v1",),
+                capabilities=(InterfaceRef("test.measure_iq/v1"),),
             ),
         ),
         product_defs=[product],

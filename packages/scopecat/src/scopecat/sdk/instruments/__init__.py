@@ -109,6 +109,7 @@ if TYPE_CHECKING:
         AcquisitionResultRef,
         ComponentRef,
         DevicePropertyRef,
+        InstrumentCapabilityRef,
         InterfaceRef,
         OperationArgumentRef,
         OperationRef,
@@ -282,6 +283,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "InstrumentDescription": (
         "scopecat.sdk.instruments.contracts",
         "InstrumentDescription",
+    ),
+    "InstrumentCapabilityRef": (
+        "scopecat.sdk.instruments.members",
+        "InstrumentCapabilityRef",
     ),
     "InterfacePropertyImplementationSpec": (
         "scopecat.sdk.instruments.contracts",

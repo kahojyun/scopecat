@@ -5,6 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from scopecat.compiler.diagnostics import compiler_problem
+from scopecat.kernel.instrument_members import (
+    AcquisitionRef,
+    InstrumentCapabilityRef,
+    OperationRef,
+    PropertyRef,
+)
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
@@ -54,27 +60,39 @@ def verify_effect_resource_ports(
     problems: list[Problem],
 ) -> None:
     for index, binding in enumerate(program.bindings):
-        _verify_interface_resource_port(
+        _verify_capability_resource_port(
             binding.port_id,
-            binding.interface_id,
+            PropertyRef(
+                binding.interface_id,
+                binding.component_path,
+                binding.property_id,
+            ),
             ports,
             context="binding",
             location=model_location("bindings", index, "resource"),
             problems=problems,
         )
     for index, acquire in enumerate(program.acquisitions):
-        _verify_interface_resource_port(
+        _verify_capability_resource_port(
             acquire.resource_port_id,
-            acquire.interface_id,
+            AcquisitionRef(
+                acquire.interface_id,
+                acquire.component_path,
+                acquire.acquisition_id,
+            ),
             ports,
             context="acquisition",
             location=model_location("acquisitions", index, "resource_port"),
             problems=problems,
         )
     for index, invocation in enumerate(program.invocations):
-        _verify_interface_resource_port(
+        _verify_capability_resource_port(
             invocation.port_id,
-            invocation.interface_id,
+            OperationRef(
+                invocation.interface_id,
+                invocation.component_path,
+                invocation.operation_id,
+            ),
             ports,
             context="invocation",
             location=model_location("invocations", index, "resource"),
@@ -143,9 +161,9 @@ def verify_success_state_resources(
             )
 
 
-def _verify_interface_resource_port(
+def _verify_capability_resource_port(
     port_id: LogicalResourcePortId,
-    interface_id: str | None,
+    capability: InstrumentCapabilityRef,
     ports: Mapping[LogicalResourcePortId, ResourcePort],
     *,
     context: str,
@@ -164,16 +182,29 @@ def _verify_interface_resource_port(
             )
         )
         return
-    if interface_id is not None and interface_id not in port.selector.interfaces:
+    if not port.selector.covers(capability):
         problems.append(
             compiler_problem(
-                "module_resource_port_interface_missing",
+                "module_resource_port_capability_missing",
                 f"resource port {port_id.qualified_name!r} does not declare "
-                f"interface {interface_id!r}",
+                f"capability {_describe_capability(capability)}",
                 location,
                 phase=ProblemPhase.AUTHORING,
             )
         )
+
+
+def _describe_capability(capability: InstrumentCapabilityRef) -> str:
+    if not isinstance(capability, PropertyRef | OperationRef | AcquisitionRef):
+        return f"interface {capability.interface_id!r}"
+    path = "/".join(capability.component_path) or "<root>"
+    if isinstance(capability, PropertyRef):
+        member = f"property {capability.property_id!r}"
+    elif isinstance(capability, OperationRef):
+        member = f"operation {capability.operation_id!r}"
+    else:
+        member = f"acquisition {capability.acquisition_id!r}"
+    return f"{member} on {capability.interface_id!r} at {path}"
 
 
 def _verify_resource_entity_input(

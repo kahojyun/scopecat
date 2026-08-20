@@ -5,6 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
+from scopecat.kernel.instrument_members import (
+    InstrumentCapabilityRef,
+    InterfaceRef,
+)
 from scopecat.kernel.interface_identity import InterfaceId, require_interface_id
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.resource_identity import (
@@ -24,9 +28,31 @@ type InvocationArgumentValue = StateBinding | None
 
 @dataclass(frozen=True)
 class ResourceSelector:
-    interfaces: tuple[InterfaceId, ...] = ()
+    """Logical capability requirements plus entity and role constraints."""
+
+    capabilities: tuple[InstrumentCapabilityRef, ...] = ()
     entity_inputs: tuple[EntitySource, ...] = ()
     role: ResourceRoleSelector = DEFAULT_RESOURCE_ROLE
+
+    @property
+    def interfaces(self) -> tuple[InterfaceId, ...]:
+        """Return the interface endpoints needed for physical route selection."""
+
+        return tuple(
+            dict.fromkeys(capability.interface_id for capability in self.capabilities)
+        )
+
+    def covers(self, capability: InstrumentCapabilityRef) -> bool:
+        """Return whether this selector declares an exact capability."""
+
+        return any(
+            (
+                isinstance(declared, InterfaceRef)
+                and declared.interface_id == capability.interface_id
+            )
+            or declared == capability
+            for declared in self.capabilities
+        )
 
 
 @dataclass(frozen=True)
@@ -85,12 +111,12 @@ class InvocationIntent:
 
 
 def requires(
-    *interfaces: InterfaceId,
+    *capabilities: InstrumentCapabilityRef,
     for_entities: Sequence[EntitySource] = (),
     role: ResourceRoleSelector = DEFAULT_RESOURCE_ROLE,
 ) -> ResourceSelector:
     return ResourceSelector(
-        interfaces=tuple(require_interface_id(item) for item in interfaces),
+        capabilities=tuple(capabilities),
         entity_inputs=tuple(for_entities),
         role=role,
     )

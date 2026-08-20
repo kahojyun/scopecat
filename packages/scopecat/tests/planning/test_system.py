@@ -59,6 +59,7 @@ from scopecat.execution.program import (
     RunDomainJob,
 )
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
+from scopecat.kernel.instrument_members import InterfaceRef
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.points import PointProposalAttempt, PointProposalSource
 from scopecat.kernel.problems import ProblemPhase, problem
@@ -481,10 +482,13 @@ def _bound_program(
                 (
                     LogicalResourceRequirement(
                         port_id=logical_resource_port_id("source"),
-                        interfaces=(
-                            ("test.set_frequency/v1", "test.scalar_signal/v1")
-                            if state
-                            else ("test.scalar_signal/v1",)
+                        capabilities=tuple(
+                            InterfaceRef(interface_id)
+                            for interface_id in (
+                                ("test.set_frequency/v1", "test.scalar_signal/v1")
+                                if state
+                                else ("test.scalar_signal/v1",)
+                            )
                         ),
                     ),
                 )
@@ -564,7 +568,7 @@ def _bound_instrument_fed_compute_program() -> BoundPlan:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),
-                interfaces=("test.scalar_signal/v1",),
+                capabilities=(InterfaceRef("test.scalar_signal/v1"),),
             ),
         ),
         instrument_acquisitions=(

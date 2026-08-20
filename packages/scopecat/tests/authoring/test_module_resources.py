@@ -71,7 +71,13 @@ def _resource_module() -> sc.ExperimentModule[None, ...]:
 
     @sc.module(id="test.resources.child")
     def module(context: sc.ModuleContext) -> None:
-        drive = context._resource("drive.v1", requires=(_SET_FREQUENCY,))
+        drive = context._resource(
+            "drive.v1",
+            requires=(
+                _SET_FREQUENCY_VALUE_PATH,
+                _SET_FREQUENCY_SAMPLE_SIGNAL.acquisition,
+            ),
+        )
         context._bind_property(
             drive,
             _SET_FREQUENCY_VALUE_PATH,
@@ -370,7 +376,7 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
     }
 
 
-def test_acquire_resource_interfaces_are_checked_before_binding() -> None:
+def test_acquire_resource_capabilities_are_checked_before_binding() -> None:
     @sc.module(id="test.resources.missing-record-interface")
     def module(context: sc.ModuleContext) -> None:
         readout = context._resource("readout", requires=(_MEASURE_IQ,))
@@ -391,8 +397,8 @@ def test_acquire_resource_interfaces_are_checked_before_binding() -> None:
         verify_logical_program(compose_module(module.definition))
 
     assert [problem.code for problem in error.value.problems] == [
-        "module_resource_port_interface_missing",
-        "module_resource_port_interface_missing",
+        "module_resource_port_capability_missing",
+        "module_resource_port_capability_missing",
     ]
     assert [problem.location for problem in error.value.problems] == [
         model_location("acquisitions", 0, "resource_port"),
@@ -400,7 +406,7 @@ def test_acquire_resource_interfaces_are_checked_before_binding() -> None:
     ]
 
 
-def test_state_resource_interfaces_are_checked_before_binding() -> None:
+def test_state_resource_capabilities_are_checked_before_binding() -> None:
     @sc.module(id="test.resources.missing-state-interface")
     def module(context: sc.ModuleContext) -> None:
         drive = context._resource("drive", requires=(_SET_FREQUENCY,))
@@ -414,7 +420,29 @@ def test_state_resource_interfaces_are_checked_before_binding() -> None:
         verify_logical_program(compose_module(module.definition))
 
     assert [problem.code for problem in error.value.problems] == [
-        "module_resource_port_interface_missing",
+        "module_resource_port_capability_missing",
+    ]
+
+
+def test_exact_member_requirement_does_not_cover_sibling_member() -> None:
+    @sc.module(id="test.resources.exact-member")
+    def module(context: sc.ModuleContext) -> None:
+        drive = context._resource(
+            "drive",
+            requires=(_SET_FREQUENCY_VALUE_PATH,),
+        )
+        signal = context._product("signal")
+        context._acquire(
+            "read-signal",
+            resource=drive,
+            results={_SET_FREQUENCY_SAMPLE_SIGNAL: signal},
+        )
+
+    with pytest.raises(CheckFailed) as error:
+        verify_logical_program(compose_module(module.definition))
+
+    assert [problem.code for problem in error.value.problems] == [
+        "module_resource_port_capability_missing",
     ]
 
 

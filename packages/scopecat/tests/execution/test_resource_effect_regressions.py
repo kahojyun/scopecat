@@ -34,6 +34,7 @@ from scopecat.execution.local.program import (
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.instrument_members import InterfaceRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
@@ -115,15 +116,15 @@ def test_record_products_keep_their_exact_logical_resource_bindings() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=left,
-                interfaces=("test.measure_left/v1",),
+                capabilities=(InterfaceRef("test.measure_left/v1"),),
             ),
             LogicalResourceRequirement(
                 port_id=right,
-                interfaces=("test.measure_right/v1",),
+                capabilities=(InterfaceRef("test.measure_right/v1"),),
             ),
             LogicalResourceRequirement(
                 port_id=direct,
-                interfaces=("test.measure_direct/v1",),
+                capabilities=(InterfaceRef("test.measure_direct/v1"),),
             ),
         ),
         products=(left_product, right_product, direct_product),
@@ -199,7 +200,7 @@ def test_each_effect_uses_only_its_explicit_interface_endpoints() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=port,
-                interfaces=("test.a/v1", "test.b/v1"),
+                capabilities=(InterfaceRef("test.a/v1"), InterfaceRef("test.b/v1")),
                 entity_uses=(_entity("q0"),),
             ),
         ),
@@ -283,7 +284,7 @@ def test_logical_state_bindings_reach_required_instrument() -> None:
             resource_requirements=(
                 LogicalResourceRequirement(
                     port_id=source,
-                    interfaces=("test.set_level/v1",),
+                    capabilities=(InterfaceRef("test.set_level/v1"),),
                     entity_uses=(_entity("q0"),),
                 ),
             ),
@@ -312,7 +313,7 @@ def test_logical_state_does_not_broadcast_across_instruments() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=source,
-                interfaces=("test.set_level/v1",),
+                capabilities=(InterfaceRef("test.set_level/v1"),),
                 entity_uses=(
                     _entity("q0"),
                     _entity("q1"),
@@ -346,7 +347,10 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=signal,
-                interfaces=("test.set_level/v1", "test.measure_signal/v1"),
+                capabilities=(
+                    InterfaceRef("test.set_level/v1"),
+                    InterfaceRef("test.measure_signal/v1"),
+                ),
                 entity_uses=(_entity("q0"),),
             ),
         ),
@@ -400,12 +404,12 @@ def test_equal_demands_for_one_physical_state_owner_are_coalesced() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=left,
-                interfaces=("test.set_frequency/v1",),
+                capabilities=(InterfaceRef("test.set_frequency/v1"),),
                 entity_uses=(_entity("q0"),),
             ),
             LogicalResourceRequirement(
                 port_id=right,
-                interfaces=("test.set_frequency/v1",),
+                capabilities=(InterfaceRef("test.set_frequency/v1"),),
                 entity_uses=(_entity("q1"),),
             ),
         ),
@@ -450,12 +454,12 @@ def test_conflicting_demands_for_one_physical_state_owner_are_rejected() -> None
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=left,
-                interfaces=("test.set_frequency/v1",),
+                capabilities=(InterfaceRef("test.set_frequency/v1"),),
                 entity_uses=(_entity("q0"),),
             ),
             LogicalResourceRequirement(
                 port_id=right,
-                interfaces=("test.set_frequency/v1",),
+                capabilities=(InterfaceRef("test.set_frequency/v1"),),
                 entity_uses=(_entity("q1"),),
             ),
         ),

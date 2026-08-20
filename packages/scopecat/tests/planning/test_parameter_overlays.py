@@ -36,6 +36,7 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import DomainInputPort, DomainProgramDef
+from scopecat.kernel.instrument_members import InterfaceRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_data import CellValue, Row
@@ -111,7 +112,7 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("readout"),
-                interfaces=("test.readout/v1",),
+                capabilities=(InterfaceRef("test.readout/v1"),),
             ),
         ),
         parameter_overlays=[_frequency_overlay(axis_id="frequency")],

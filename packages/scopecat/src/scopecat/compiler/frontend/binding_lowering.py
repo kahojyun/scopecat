@@ -49,7 +49,7 @@ def build_resource_requirements(
         resource_requirements.append(
             LogicalResourceRequirement(
                 port_id=port.symbol_id,
-                interfaces=tuple(port.selector.interfaces),
+                capabilities=tuple(port.selector.capabilities),
                 entity_uses=tuple(
                     _resource_entity_expr(
                         topology,

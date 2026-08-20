@@ -16,7 +16,7 @@ from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments.members import (
     AcquisitionResultRef,
-    InterfaceRef,
+    InstrumentCapabilityRef,
     OperationArgumentRef,
     OperationRef,
     PropertyRef,
@@ -37,7 +37,7 @@ class _RecorderTarget(Protocol):
         self,
         id: str,
         *,
-        requires: Sequence[InterfaceRef],
+        requires: Sequence[InstrumentCapabilityRef],
         for_entities: Sequence[ValueRef],
         role: ResourceRoleInput = None,
     ) -> DefinitionResource: ...
@@ -119,7 +119,7 @@ class InstrumentRecorder:
         self,
         id: str,
         *,
-        requires: Sequence[InterfaceRef],
+        requires: Sequence[InstrumentCapabilityRef],
         for_entities: Sequence[ValueRef],
         role: ResourceRoleInput = None,
     ) -> InstrumentResource:
