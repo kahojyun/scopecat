@@ -105,6 +105,11 @@ if TYPE_CHECKING:
         PropertyRef,
         StateMemberRef,
     )
+    from scopecat.sdk.instruments.object_driver import (
+        InstrumentDriverMetadata,
+        ObjectInstrumentDriver,
+        instrument_driver,
+    )
     from scopecat.sdk.instruments.provider import (
         DriverFault,
         InstrumentConnectionContext,
@@ -217,6 +222,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "DriverSuccess": ("scopecat.sdk.instruments.authoring", "DriverSuccess"),
     "DriverUnknown": ("scopecat.sdk.instruments.authoring", "DriverUnknown"),
     "InstrumentBackend": ("scopecat.sdk.instruments.backend", "InstrumentBackend"),
+    "InstrumentDriverMetadata": (
+        "scopecat.sdk.instruments.object_driver",
+        "InstrumentDriverMetadata",
+    ),
     "InstrumentBindingSpec": (
         "scopecat.records.config",
         "InstrumentBindingSpec",
@@ -247,6 +256,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "InstrumentDescription",
     ),
     "InstrumentDriver": ("scopecat.sdk.instruments.provider", "InstrumentDriver"),
+    "ObjectInstrumentDriver": (
+        "scopecat.sdk.instruments.object_driver",
+        "ObjectInstrumentDriver",
+    ),
     "InstrumentStateObservation": (
         "scopecat.records.instrument",
         "InstrumentStateObservation",
@@ -353,6 +366,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "instrument_component": (
         "scopecat.sdk.instruments.contracts",
         "instrument_component",
+    ),
+    "instrument_driver": (
+        "scopecat.sdk.instruments.object_driver",
+        "instrument_driver",
     ),
     "operation": ("scopecat.sdk.instruments.contracts", "operation"),
     "operation_argument": (
