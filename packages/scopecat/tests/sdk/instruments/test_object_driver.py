@@ -18,6 +18,7 @@ from scopecat.sdk.instruments import (
     Member,
     ObjectInstrumentDriver,
     device_member,
+    implements,
     instrument_driver,
     member_policy,
     query,
@@ -100,7 +101,8 @@ class OOSourceDriver(ObjectInstrumentDriver):
     def write_front_panel_locked(self, value: bool) -> None:
         self._front_panel_locked = value
 
-    def zero(self) -> None:
+    @implements(OOSource.zero)
+    def reset_level(self) -> None:
         self._level = 0
         self.zero_count += 1
 
@@ -209,6 +211,64 @@ def test_driver_declaration_requires_complete_member_io_bindings() -> None:
             ObjectInstrumentDriver
         ):
             pass
+
+
+def test_driver_declaration_requires_explicit_operation_implementations() -> None:
+    @instrument_interface("test.missing_operation/v1")
+    class MissingOperation(Protocol):
+        @operation()
+        def arm(self) -> None: ...
+
+    with pytest.raises(TypeError, match=r"no implementation.*arm"):
+
+        @instrument_driver(
+            "test.missing_operation",
+            "1",
+            interfaces=(MissingOperation,),
+        )
+        class MissingOperationDriver(  # pyright: ignore[reportUnusedClass]
+            ObjectInstrumentDriver
+        ):
+            pass
+
+
+def test_explicit_implementation_bindings_disambiguate_equal_method_names() -> None:
+    @instrument_interface("test.left_action/v1")
+    class LeftAction(Protocol):
+        @operation()
+        def fire(self) -> None: ...
+
+    @instrument_interface("test.right_action/v1")
+    class RightAction(Protocol):
+        @operation()
+        def fire(self) -> None: ...
+
+    @instrument_driver(
+        "test.two_actions",
+        "1",
+        interfaces=(LeftAction, RightAction),
+    )
+    class TwoActionsDriver(ObjectInstrumentDriver):
+        instrument_id = "actions"
+
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        @implements(LeftAction.fire)
+        def fire_left(self) -> None:
+            self.calls.append("left")
+
+        @implements(RightAction.fire)
+        def fire_right(self) -> None:
+            self.calls.append("right")
+
+    driver = TwoActionsDriver()
+    left = compile_interface(LeftAction).ref.operation("fire")
+    right = compile_interface(RightAction).ref.operation("fire")
+
+    assert driver.invoke(DriverOperation(target=left)) == DriverSuccess(None)
+    assert driver.invoke(DriverOperation(target=right)) == DriverSuccess(None)
+    assert driver.calls == ["left", "right"]
 
 
 def test_object_driver_infers_narrower_interface_property_capabilities() -> None:

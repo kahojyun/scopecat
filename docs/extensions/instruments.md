@@ -59,8 +59,10 @@ A driver subclasses `ObjectInstrumentDriver` and binds typed methods to member
 declarations with `@read`, `@write`, `@query`, or `@update`. The base class
 handles dispatch and wire conversion; the driver owns command ordering, device
 limits, temporary setup and restoration, and response interpretation. A true
-acquisition method returns its generated class from
-`scopecat_instruments.driver_observations`.
+operation or acquisition is attached to its interface declaration with
+`@implements(...)`; acquisition methods return their generated class from
+`scopecat_instruments.driver_observations`. Class creation rejects missing,
+duplicate, or signature-incompatible behavior bindings.
 
 When the values to record are already members, declare an `observation(...)`
 on those members instead of repeating their schema in a result dataclass. The

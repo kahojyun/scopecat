@@ -128,6 +128,7 @@ if TYPE_CHECKING:
         DriverMemberPolicy,
         InstrumentDriverMetadata,
         ObjectInstrumentDriver,
+        implements,
         instrument_driver,
         member_policy,
         query,
@@ -444,6 +445,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.object_driver",
         "instrument_driver",
     ),
+    "implements": ("scopecat.sdk.instruments.object_driver", "implements"),
     "observation": ("scopecat.sdk.instruments.declarations", "observation"),
     "member_policy": (
         "scopecat.sdk.instruments.object_driver",

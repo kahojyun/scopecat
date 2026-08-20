@@ -22,6 +22,7 @@ from scopecat.sdk.instruments import (
     DriverSuccess,
     ObjectInstrumentDriver,
     device_member,
+    implements,
     instrument_driver,
     read,
     state_capture_request,
@@ -222,6 +223,7 @@ class YokogawaGS200(ObjectInstrumentDriver):
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
 
+    @implements(DCSourceInterface.source_voltage)
     def source_voltage(
         self,
         *,
@@ -247,6 +249,7 @@ class YokogawaGS200(ObjectInstrumentDriver):
             level_value=quantity_value(level, "V"),
         )
 
+    @implements(DCSourceInterface.source_current)
     def source_current(
         self,
         *,
@@ -279,6 +282,7 @@ class YokogawaGS200(ObjectInstrumentDriver):
         except Exception as error:
             return invoke_unknown(self.instrument_id, error)
 
+    @implements(DCMonitorInterface.measure_current)
     def measure_current(
         self,
     ) -> DriverOutcome[DCMonitorCurrentObservation]:
@@ -297,6 +301,7 @@ class YokogawaGS200(ObjectInstrumentDriver):
             metadata=outcome.metadata,
         )
 
+    @implements(DCMonitorInterface.measure_voltage)
     def measure_voltage(
         self,
     ) -> DriverOutcome[DCMonitorVoltageObservation]:

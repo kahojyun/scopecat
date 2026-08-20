@@ -125,8 +125,9 @@ The shortest driver workflow is:
 2. Register any new surface and the lazy driver implementation in
    `PACKAGE_MANIFEST`.
 3. Run `uv run --locked python scripts/generate_instrument_clients.py`.
-4. Subclass `ObjectInstrumentDriver` and bind explicit read/write/query/update
-   methods to the declared members.
+4. Subclass `ObjectInstrumentDriver`, bind state I/O with
+   `@read`/`@write`/`@query`/`@update`, and bind operations or true acquisitions
+   with `@implements`.
 
 For example, an RF implementation does not handle member refs or generic
 requests:
@@ -236,10 +237,12 @@ driver returns the corresponding class from
 
 ```python
 from scopecat.records.measurement import MeasurementScalar
-from scopecat.sdk.instruments import DriverOutcome, DriverSuccess
+from scopecat.sdk.instruments import DriverOutcome, DriverSuccess, implements
+from scopecat_instruments.interface_declarations import DCMonitorInterface
 from scopecat_instruments.driver_observations import DCMonitorCurrentObservation
 
 
+@implements(DCMonitorInterface.measure_current)
 def measure_current(self) -> DriverOutcome[DCMonitorCurrentObservation]:
     return DriverSuccess(
         DCMonitorCurrentObservation(
@@ -256,7 +259,9 @@ def measure_current(self) -> DriverOutcome[DCMonitorCurrentObservation]:
 The generated observation fields mirror the declared result fields but contain
 `MeasurementAcquisitionValue` envelopes. `evidence` belongs to the persisted
 acquisition readback; `DriverSuccess.metadata` describes the invocation outcome.
-Do not define a parallel driver-only result schema.
+Do not define a parallel driver-only result schema. The explicit implementation
+binding is the dispatch identity, so the concrete method may use a different
+Python name and equal method names from different interfaces remain distinct.
 
 An interface declares the maximum portable member surface. The concrete
 driver's I/O bindings declare what one model actually implements. If a model can

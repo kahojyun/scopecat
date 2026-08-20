@@ -15,6 +15,7 @@ from scopecat.sdk.instruments import (
     DriverStateReadRequest,
     DriverSuccess,
     ObjectInstrumentDriver,
+    implements,
     instrument_driver,
     read,
     write,
@@ -98,6 +99,7 @@ class KeysightE5080B(ObjectInstrumentDriver):
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
 
+    @implements(NetworkSweepInterface.sweep)
     def sweep(self) -> DriverOutcome[NetworkSweepObservation]:
         try:
             trace = self.acquire_trace()

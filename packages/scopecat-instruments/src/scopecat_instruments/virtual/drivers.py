@@ -15,6 +15,7 @@ from scopecat.sdk.instruments import (
     DriverStateReadRequest,
     DriverSuccess,
     ObjectInstrumentDriver,
+    implements,
     instrument_driver,
     query,
     read,
@@ -227,6 +228,7 @@ class VirtualDcSource(_VirtualDriver):
                 self.instrument_id
             ).measurement_delay_s = quantity_value(value, "s")
 
+    @implements(DCSourceInterface.source_voltage)
     def source_voltage(
         self, *, range: Quantity, level: Quantity
     ) -> DriverOutcome[None]:
@@ -240,6 +242,7 @@ class VirtualDcSource(_VirtualDriver):
         except Exception as error:
             return invoke_unknown(self.instrument_id, error)
 
+    @implements(DCSourceInterface.source_current)
     def source_current(
         self, *, range: Quantity, level: Quantity
     ) -> DriverOutcome[None]:
@@ -253,6 +256,7 @@ class VirtualDcSource(_VirtualDriver):
         except Exception as error:
             return invoke_unknown(self.instrument_id, error)
 
+    @implements(DCMonitorInterface.measure_current)
     def measure_current(self) -> DriverOutcome[DCMonitorCurrentObservation]:
         outcome = self._measure_monitor(expected_mode="voltage")
         if not isinstance(outcome, DriverSuccess):
@@ -264,6 +268,7 @@ class VirtualDcSource(_VirtualDriver):
             )
         )
 
+    @implements(DCMonitorInterface.measure_voltage)
     def measure_voltage(self) -> DriverOutcome[DCMonitorVoltageObservation]:
         outcome = self._measure_monitor(expected_mode="current")
         if not isinstance(outcome, DriverSuccess):
@@ -378,6 +383,7 @@ class VirtualTemperatureMonitor(_VirtualDriver):
         with self.world.lock:
             return self.world.temperature_monitor(self.instrument_id).autoscan_enabled
 
+    @implements(TemperatureReadoutInterface.sample)
     def sample(self) -> DriverOutcome[TemperatureSampleObservation]:
         sample = self.read_sample()
         return DriverSuccess(
@@ -480,6 +486,7 @@ class VirtualNetworkAnalyzer(_VirtualDriver):
         with self.world.lock:
             self.world.vna(self.instrument_id).s_parameter = value
 
+    @implements(NetworkSweepInterface.sweep)
     def sweep(self) -> DriverOutcome[NetworkSweepObservation]:
         trace = self.acquire_trace()
         return DriverSuccess(

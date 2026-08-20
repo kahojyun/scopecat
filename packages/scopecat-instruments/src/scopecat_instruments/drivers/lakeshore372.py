@@ -19,6 +19,7 @@ from scopecat.sdk.instruments import (
     DriverStateReadRequest,
     DriverSuccess,
     ObjectInstrumentDriver,
+    implements,
     instrument_driver,
     query,
     state_readback,
@@ -91,6 +92,7 @@ class LakeShore372(ObjectInstrumentDriver):
             evidence=metadata,
         )
 
+    @implements(TemperatureReadoutInterface.sample)
     def sample(self) -> DriverOutcome[TemperatureSampleObservation]:
         try:
             sample = self._read_sample()

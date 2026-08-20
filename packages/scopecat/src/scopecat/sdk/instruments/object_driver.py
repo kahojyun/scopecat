@@ -63,6 +63,7 @@ from scopecat.sdk.problems import ProblemPhase, model_location, problem
 _DRIVER_METADATA = "__scopecat_instrument_driver__"
 _DRIVER_READ_METADATA = "__scopecat_instrument_read__"
 _DRIVER_WRITE_METADATA = "__scopecat_instrument_write__"
+_DRIVER_IMPLEMENTATION_METADATA = "__scopecat_instrument_implementation__"
 
 type DriverMember = Member[object] | DeviceMember[object]
 
@@ -72,6 +73,13 @@ class DriverMemberBinding:
     """One method binding that may cover one member or a coherent group."""
 
     members: tuple[DriverMember, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DriverImplementationBinding:
+    """One driver method bound to an interface operation or acquisition."""
+
+    declaration: Callable[..., object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +179,23 @@ def update[MethodT: Callable[..., object]](
     return _bind_driver_members(_DRIVER_WRITE_METADATA, members)
 
 
+def implements[MethodT: Callable[..., object]](
+    declaration: Callable[..., object],
+    /,
+) -> Callable[[MethodT], MethodT]:
+    """Bind one driver method to a declared operation or true acquisition."""
+
+    binding = DriverImplementationBinding(declaration)
+
+    def decorate(method: MethodT) -> MethodT:
+        if getattr(method, _DRIVER_IMPLEMENTATION_METADATA, None) is not None:
+            raise TypeError("a driver method cannot repeat its implementation binding")
+        setattr(method, _DRIVER_IMPLEMENTATION_METADATA, binding)
+        return method
+
+    return decorate
+
+
 def _bind_driver_members[MethodT: Callable[..., object]](
     attribute: str,
     members: Sequence[DriverMember],
@@ -232,7 +257,7 @@ def instrument_driver[DriverT: type[object]](
         setattr(cls, "implementation_id", implementation_id)  # noqa: B010
         setattr(cls, "implementation_version", implementation_version)  # noqa: B010
         _driver_member_policies(metadata)
-        _validate_driver_io_bindings(cls)
+        _validate_driver_bindings(cls)
         return cls
 
     return decorate
@@ -410,7 +435,8 @@ class ObjectInstrumentDriver:
                 "operation",
                 request.target.operation_id,
             )
-        outcome = _call_operation(self, operation, request.arguments)
+        implementation = _implemented_operations(type(self))[request.target]
+        outcome = _call_operation(self, implementation, request.arguments)
         if isinstance(outcome, DriverSuccess):
             return DriverSuccess(None, metadata=outcome.metadata)
         if outcome is None:
@@ -474,7 +500,8 @@ class ObjectInstrumentDriver:
                     metadata={"state_observations": evidence},
                 )
             )
-        outcome = cast("object", getattr(self, acquisition.method_name)())
+        implementation = _implemented_acquisitions(type(self))[request.target]
+        outcome = cast("object", getattr(self, implementation.method_name)())
         outcome_metadata: dict[str, JsonValue] = {}
         if isinstance(outcome, DriverSuccess):
             result = cast("object", outcome.value)
@@ -637,8 +664,9 @@ def _validate_driver_binding_method(
         )
 
 
-def _validate_driver_io_bindings(driver_type: type[object]) -> None:
+def _validate_driver_bindings(driver_type: type[object]) -> None:
     metadata = _driver_metadata(driver_type)
+    _driver_implementation_bindings(driver_type)
     interface_fields = _interface_property_bindings(metadata.interfaces)
     device_fields = _device_property_bindings(
         driver_type,
@@ -842,11 +870,144 @@ def _acquisition_bindings(
     }
 
 
+type _DeclaredDriverImplementation = DeclaredOperation | DeclaredAcquisition[object]
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedDriverImplementation:
+    method_name: str
+    declaration: _DeclaredDriverImplementation
+
+
+def _driver_implementation_bindings(
+    driver_type: type[object],
+) -> tuple[_ResolvedDriverImplementation, ...]:
+    interfaces = _driver_metadata(driver_type).interfaces
+    declared_by_identity: dict[int, list[_DeclaredDriverImplementation]] = {}
+    expected: list[_DeclaredDriverImplementation] = []
+    for layout in _layouts(interfaces):
+        for declaration in (
+            *layout.root.operations,
+            *layout.root.acquisitions,
+        ):
+            member = cast(
+                "object",
+                getattr(
+                    layout.root.capability_type,
+                    declaration.method_name,
+                ),
+            )
+            declared_by_identity.setdefault(id(member), []).append(declaration)
+            if not (
+                isinstance(declaration, DeclaredAcquisition)
+                and declaration.kind == "member_observation"
+            ):
+                expected.append(declaration)
+
+    claimed: dict[OperationRef | AcquisitionRef, str] = {}
+    resolved: list[_ResolvedDriverImplementation] = []
+    for method_name, method in _driver_methods(driver_type).items():
+        binding = getattr(method, _DRIVER_IMPLEMENTATION_METADATA, None)
+        if not isinstance(binding, DriverImplementationBinding):
+            continue
+        declarations = declared_by_identity.get(id(binding.declaration))
+        if declarations is None:
+            raise TypeError(
+                f"driver implementation {method_name!r} targets a method not "
+                "declared by this driver"
+            )
+        for declaration in declarations:
+            if (
+                isinstance(declaration, DeclaredAcquisition)
+                and declaration.kind == "member_observation"
+            ):
+                raise TypeError(
+                    f"driver implementation {method_name!r} targets member "
+                    "observation; member observations use state readers"
+                )
+            previous = claimed.get(declaration.ref)
+            if previous is not None:
+                raise TypeError(
+                    f"driver methods {previous!r} and {method_name!r} both "
+                    f"implement {declaration.ref!r}"
+                )
+            _validate_driver_implementation_method(
+                method_name,
+                method,
+                declaration,
+            )
+            claimed[declaration.ref] = method_name
+            resolved.append(_ResolvedDriverImplementation(method_name, declaration))
+
+    missing = next(
+        (declaration for declaration in expected if declaration.ref not in claimed),
+        None,
+    )
+    if missing is not None:
+        kind = "operation" if isinstance(missing, DeclaredOperation) else "acquisition"
+        raise TypeError(
+            f"driver has no implementation for declared {kind} {missing.method_name!r}"
+        )
+    return tuple(resolved)
+
+
+def _validate_driver_implementation_method(
+    method_name: str,
+    method: object,
+    declaration: _DeclaredDriverImplementation,
+) -> None:
+    if not callable(method):
+        raise TypeError(f"driver implementation {method_name!r} must be a method")
+    parameters = tuple(signature(method).parameters.values())
+    if not parameters or parameters[0].name != "self":
+        raise TypeError(
+            f"driver implementation {method_name!r} must be an instance method"
+        )
+    actual = parameters[1:]
+    if isinstance(declaration, DeclaredAcquisition):
+        if actual:
+            raise TypeError(
+                f"acquisition implementation {method_name!r} must accept only self"
+            )
+        return
+    expected = tuple(
+        (argument.python_name, argument.parameter.kind)
+        for argument in declaration.arguments
+    )
+    observed = tuple((parameter.name, parameter.kind) for parameter in actual)
+    if observed != expected:
+        raise TypeError(
+            f"operation implementation {method_name!r} parameters must match "
+            f"declaration {declaration.method_name!r}"
+        )
+
+
+def _implemented_operations(
+    driver_type: type[object],
+) -> dict[OperationRef, _ResolvedDriverImplementation]:
+    return {
+        implementation.declaration.ref: implementation
+        for implementation in _driver_implementation_bindings(driver_type)
+        if isinstance(implementation.declaration, DeclaredOperation)
+    }
+
+
+def _implemented_acquisitions(
+    driver_type: type[object],
+) -> dict[AcquisitionRef, _ResolvedDriverImplementation]:
+    return {
+        implementation.declaration.ref: implementation
+        for implementation in _driver_implementation_bindings(driver_type)
+        if isinstance(implementation.declaration, DeclaredAcquisition)
+    }
+
+
 def _call_operation(
     driver: object,
-    operation: DeclaredOperation,
+    implementation: _ResolvedDriverImplementation,
     arguments: Mapping[str, object],
 ) -> object:
+    operation = cast("DeclaredOperation", implementation.declaration)
     positional: list[object] = []
     keywords: dict[str, object] = {}
     for argument in operation.arguments:
@@ -855,7 +1016,7 @@ def _call_operation(
             positional.append(value)
         else:
             keywords[argument.python_name] = value
-    method = cast("Callable[..., object]", getattr(driver, operation.method_name))
+    method = cast("Callable[..., object]", getattr(driver, implementation.method_name))
     return method(*positional, **keywords)
 
 
@@ -885,10 +1046,12 @@ def _unsupported(
 
 __all__ = [
     "Change",
+    "DriverImplementationBinding",
     "DriverMemberBinding",
     "DriverMemberPolicy",
     "InstrumentDriverMetadata",
     "ObjectInstrumentDriver",
+    "implements",
     "instrument_driver",
     "member_policy",
     "query",
