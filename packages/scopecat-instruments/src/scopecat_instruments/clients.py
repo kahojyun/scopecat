@@ -24,6 +24,7 @@ from scopecat.records.measurement import MeasurementAcquisitionValue
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectReceipt,
+    InstrumentCapabilityRef,
     InterfaceRef,
     InvokeReceipt,
 )
@@ -251,6 +252,7 @@ class SymbolicTemperatureReadoutClient(SymbolicInstrumentClientBase):
         resource_id: str,
         *,
         namespace_hint: str,
+        requires: tuple[InstrumentCapabilityRef, ...] = (_TEMPERATURE_READOUT_REF,),
         for_: OneEntity | None = None,
         role: ResourceRoleInput = None,
     ) -> None:
@@ -258,7 +260,7 @@ class SymbolicTemperatureReadoutClient(SymbolicInstrumentClientBase):
             recorder,
             resource_id,
             namespace_hint=namespace_hint,
-            requires=(_TEMPERATURE_READOUT_REF,),
+            requires=requires,
             for_=for_,
             role=role,
         )
@@ -287,6 +289,7 @@ class SymbolicTemperatureReadoutGroup(
         *,
         namespace_hint: str,
         for_: EachEntity,
+        requires: tuple[InstrumentCapabilityRef, ...] = (_TEMPERATURE_READOUT_REF,),
         role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
@@ -295,6 +298,7 @@ class SymbolicTemperatureReadoutGroup(
             namespace_hint=namespace_hint,
             for_=for_,
             client_factory=SymbolicTemperatureReadoutClient,
+            requires=requires,
             role=role,
         )
 
@@ -398,6 +402,7 @@ class SymbolicRFOutputClient(ProjectedMemberSymbolicClientBase[RFOutputTarget]):
         resource_id: str,
         *,
         namespace_hint: str,
+        requires: tuple[InstrumentCapabilityRef, ...] = (_RF_OUTPUT_REF,),
         for_: OneEntity | None = None,
         role: ResourceRoleInput = None,
     ) -> None:
@@ -405,7 +410,7 @@ class SymbolicRFOutputClient(ProjectedMemberSymbolicClientBase[RFOutputTarget]):
             recorder,
             resource_id,
             namespace_hint=namespace_hint,
-            requires=(_RF_OUTPUT_REF,),
+            requires=requires,
             for_=for_,
             role=role,
         )
@@ -452,6 +457,7 @@ class SymbolicRFOutputGroup(
         *,
         namespace_hint: str,
         for_: EachEntity,
+        requires: tuple[InstrumentCapabilityRef, ...] = (_RF_OUTPUT_REF,),
         role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
@@ -460,6 +466,7 @@ class SymbolicRFOutputGroup(
             namespace_hint=namespace_hint,
             for_=for_,
             client_factory=SymbolicRFOutputClient,
+            requires=requires,
             role=role,
         )
 
@@ -557,6 +564,7 @@ class SymbolicReferenceClockClient(
         resource_id: str,
         *,
         namespace_hint: str,
+        requires: tuple[InstrumentCapabilityRef, ...] = (_REFERENCE_CLOCK_REF,),
         for_: OneEntity | None = None,
         role: ResourceRoleInput = None,
     ) -> None:
@@ -564,7 +572,7 @@ class SymbolicReferenceClockClient(
             recorder,
             resource_id,
             namespace_hint=namespace_hint,
-            requires=(_REFERENCE_CLOCK_REF,),
+            requires=requires,
             for_=for_,
             role=role,
         )
@@ -609,6 +617,7 @@ class SymbolicReferenceClockGroup(
         *,
         namespace_hint: str,
         for_: EachEntity,
+        requires: tuple[InstrumentCapabilityRef, ...] = (_REFERENCE_CLOCK_REF,),
         role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
@@ -617,6 +626,7 @@ class SymbolicReferenceClockGroup(
             namespace_hint=namespace_hint,
             for_=for_,
             client_factory=SymbolicReferenceClockClient,
+            requires=requires,
             role=role,
         )
 
@@ -773,6 +783,10 @@ class SymbolicRFSourceClient(ProjectedMemberSymbolicClientBase[_RFSourceTarget])
         resource_id: str,
         *,
         namespace_hint: str,
+        requires: tuple[InstrumentCapabilityRef, ...] = (
+            _RF_OUTPUT_REF,
+            _REFERENCE_CLOCK_REF,
+        ),
         for_: OneEntity | None = None,
         role: ResourceRoleInput = None,
     ) -> None:
@@ -780,7 +794,7 @@ class SymbolicRFSourceClient(ProjectedMemberSymbolicClientBase[_RFSourceTarget])
             recorder,
             resource_id,
             namespace_hint=namespace_hint,
-            requires=(_RF_OUTPUT_REF, _REFERENCE_CLOCK_REF),
+            requires=requires,
             for_=for_,
             role=role,
         )
@@ -833,6 +847,10 @@ class SymbolicRFSourceGroup(
         *,
         namespace_hint: str,
         for_: EachEntity,
+        requires: tuple[InstrumentCapabilityRef, ...] = (
+            _RF_OUTPUT_REF,
+            _REFERENCE_CLOCK_REF,
+        ),
         role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
@@ -841,6 +859,7 @@ class SymbolicRFSourceGroup(
             namespace_hint=namespace_hint,
             for_=for_,
             client_factory=SymbolicRFSourceClient,
+            requires=requires,
             role=role,
         )
 
@@ -1026,6 +1045,7 @@ class SymbolicDCBiasClient(ProjectedMemberSymbolicClientBase[DCBiasTarget]):
         resource_id: str,
         *,
         namespace_hint: str,
+        requires: tuple[InstrumentCapabilityRef, ...] = (_DC_BIAS_REF,),
         for_: OneEntity | None = None,
         role: ResourceRoleInput = None,
     ) -> None:
@@ -1033,7 +1053,7 @@ class SymbolicDCBiasClient(ProjectedMemberSymbolicClientBase[DCBiasTarget]):
             recorder,
             resource_id,
             namespace_hint=namespace_hint,
-            requires=(_DC_BIAS_REF,),
+            requires=requires,
             for_=for_,
             role=role,
         )
@@ -1091,6 +1111,7 @@ class SymbolicDCBiasGroup(
         *,
         namespace_hint: str,
         for_: EachEntity,
+        requires: tuple[InstrumentCapabilityRef, ...] = (_DC_BIAS_REF,),
         role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
@@ -1099,6 +1120,7 @@ class SymbolicDCBiasGroup(
             namespace_hint=namespace_hint,
             for_=for_,
             client_factory=SymbolicDCBiasClient,
+            requires=requires,
             role=role,
         )
 
@@ -1270,6 +1292,7 @@ class SymbolicDCSourceClient(ProjectedMemberSymbolicClientBase[DCSourceTarget]):
         resource_id: str,
         *,
         namespace_hint: str,
+        requires: tuple[InstrumentCapabilityRef, ...] = (_DC_SOURCE_REF,),
         for_: OneEntity | None = None,
         role: ResourceRoleInput = None,
     ) -> None:
@@ -1277,7 +1300,7 @@ class SymbolicDCSourceClient(ProjectedMemberSymbolicClientBase[DCSourceTarget]):
             recorder,
             resource_id,
             namespace_hint=namespace_hint,
-            requires=(_DC_SOURCE_REF,),
+            requires=requires,
             for_=for_,
             role=role,
         )
@@ -1356,6 +1379,7 @@ class SymbolicDCSourceGroup(
         *,
         namespace_hint: str,
         for_: EachEntity,
+        requires: tuple[InstrumentCapabilityRef, ...] = (_DC_SOURCE_REF,),
         role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
@@ -1364,6 +1388,7 @@ class SymbolicDCSourceGroup(
             namespace_hint=namespace_hint,
             for_=for_,
             client_factory=SymbolicDCSourceClient,
+            requires=requires,
             role=role,
         )
 
@@ -1559,6 +1584,7 @@ class SymbolicDCMonitorClient(ProjectedMemberSymbolicClientBase[DCMonitorTarget]
         resource_id: str,
         *,
         namespace_hint: str,
+        requires: tuple[InstrumentCapabilityRef, ...] = (_DC_MONITOR_REF,),
         for_: OneEntity | None = None,
         role: ResourceRoleInput = None,
     ) -> None:
@@ -1566,7 +1592,7 @@ class SymbolicDCMonitorClient(ProjectedMemberSymbolicClientBase[DCMonitorTarget]
             recorder,
             resource_id,
             namespace_hint=namespace_hint,
-            requires=(_DC_MONITOR_REF,),
+            requires=requires,
             for_=for_,
             role=role,
         )
@@ -1635,6 +1661,7 @@ class SymbolicDCMonitorGroup(
         *,
         namespace_hint: str,
         for_: EachEntity,
+        requires: tuple[InstrumentCapabilityRef, ...] = (_DC_MONITOR_REF,),
         role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
@@ -1643,6 +1670,7 @@ class SymbolicDCMonitorGroup(
             namespace_hint=namespace_hint,
             for_=for_,
             client_factory=SymbolicDCMonitorClient,
+            requires=requires,
             role=role,
         )
 
@@ -1893,6 +1921,10 @@ class SymbolicDCSourceMonitorClient(
         resource_id: str,
         *,
         namespace_hint: str,
+        requires: tuple[InstrumentCapabilityRef, ...] = (
+            _DC_SOURCE_REF,
+            _DC_MONITOR_REF,
+        ),
         for_: OneEntity | None = None,
         role: ResourceRoleInput = None,
     ) -> None:
@@ -1900,7 +1932,7 @@ class SymbolicDCSourceMonitorClient(
             recorder,
             resource_id,
             namespace_hint=namespace_hint,
-            requires=(_DC_SOURCE_REF, _DC_MONITOR_REF),
+            requires=requires,
             for_=for_,
             role=role,
         )
@@ -2013,6 +2045,10 @@ class SymbolicDCSourceMonitorGroup(
         *,
         namespace_hint: str,
         for_: EachEntity,
+        requires: tuple[InstrumentCapabilityRef, ...] = (
+            _DC_SOURCE_REF,
+            _DC_MONITOR_REF,
+        ),
         role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
@@ -2021,6 +2057,7 @@ class SymbolicDCSourceMonitorGroup(
             namespace_hint=namespace_hint,
             for_=for_,
             client_factory=SymbolicDCSourceMonitorClient,
+            requires=requires,
             role=role,
         )
 
@@ -2275,6 +2312,7 @@ class SymbolicNetworkSweepClient(ProjectedMemberSymbolicClientBase[NetworkSweepT
         resource_id: str,
         *,
         namespace_hint: str,
+        requires: tuple[InstrumentCapabilityRef, ...] = (_NETWORK_SWEEP_REF,),
         for_: OneEntity | None = None,
         role: ResourceRoleInput = None,
     ) -> None:
@@ -2282,7 +2320,7 @@ class SymbolicNetworkSweepClient(ProjectedMemberSymbolicClientBase[NetworkSweepT
             recorder,
             resource_id,
             namespace_hint=namespace_hint,
-            requires=(_NETWORK_SWEEP_REF,),
+            requires=requires,
             for_=for_,
             role=role,
         )
@@ -2343,6 +2381,7 @@ class SymbolicNetworkSweepGroup(
         *,
         namespace_hint: str,
         for_: EachEntity,
+        requires: tuple[InstrumentCapabilityRef, ...] = (_NETWORK_SWEEP_REF,),
         role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
@@ -2351,6 +2390,7 @@ class SymbolicNetworkSweepGroup(
             namespace_hint=namespace_hint,
             for_=for_,
             client_factory=SymbolicNetworkSweepClient,
+            requires=requires,
             role=role,
         )
 

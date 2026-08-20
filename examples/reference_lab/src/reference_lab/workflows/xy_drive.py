@@ -23,6 +23,7 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments import InstrumentCapabilityRef
+from scopecat_instruments import ReferenceClockTarget, RFOutputTarget, rf_source
 from scopecat_instruments.members import (
     REFERENCE_CLOCK_REFERENCE_SOURCE,
     RF_OUTPUT_ENABLED,
@@ -92,15 +93,16 @@ class XYDriveGroup:
     ) -> None:
         self._context = context
         self._entities = for_
-        self._lo = self._resources(
+        self._lo = rf_source(
             context,
-            "xy_drive.lo",
-            (
+            name="xy_drive.lo",
+            requires=(
                 RF_OUTPUT_FREQUENCY,
                 RF_OUTPUT_POWER,
                 RF_OUTPUT_ENABLED,
                 REFERENCE_CLOCK_REFERENCE_SOURCE,
             ),
+            for_=self._entities,
             role="drive-lo",
         )
         awg_capabilities = (
@@ -146,15 +148,21 @@ class XYDriveGroup:
         targets: list[StateTarget] = []
         for entity in self._entities:
             targets.extend(
+                self._lo[entity].state_targets(
+                    RFOutputTarget(
+                        frequency=lo_by_entity[entity],
+                        power=lo_power,
+                        output_enabled=output_enabled,
+                    )
+                )
+            )
+            targets.extend(
+                self._lo[entity].state_targets(
+                    ReferenceClockTarget(reference_source=reference_source)
+                )
+            )
+            targets.extend(
                 (
-                    self._lo[entity].state_target(
-                        {
-                            RF_OUTPUT_FREQUENCY: lo_by_entity[entity],
-                            RF_OUTPUT_POWER: lo_power,
-                            RF_OUTPUT_ENABLED: output_enabled,
-                            REFERENCE_CLOCK_REFERENCE_SOURCE: reference_source,
-                        }
-                    ),
                     self._i[entity].state_target(
                         {
                             AWG_SAMPLE_RATE: AWG_SAMPLE_CLOCK,

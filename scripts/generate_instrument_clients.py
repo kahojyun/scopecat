@@ -1895,7 +1895,7 @@ def _render_header(
             "OneEntity",
             "ResourceRoleInput",
         },
-        "scopecat.sdk.instruments": {"InterfaceRef"},
+        "scopecat.sdk.instruments": {"InstrumentCapabilityRef", "InterfaceRef"},
         "scopecat_instruments._symbolic_runtime": set(),
     }
     if any(model.generate_family for model in models):
@@ -2557,6 +2557,20 @@ def _render_symbolic_scopes(model: _InterfaceModel) -> str:
     return _render_symbolic_scope(model, model.root)
 
 
+def _render_symbolic_requires_parameter(model: _InterfaceModel) -> str:
+    compact = (
+        "        requires: tuple[InstrumentCapabilityRef, ...] = "
+        f"{model.requires_expression},\n"
+    )
+    if len(compact.rstrip("\n")) <= 88:
+        return compact
+    return (
+        "        requires: tuple[InstrumentCapabilityRef, ...] = (\n"
+        + "".join(f"            {ref_name},\n" for ref_name in model.ref_names)
+        + "        ),\n"
+    )
+
+
 def _render_symbolic_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
     base = (
         "SymbolicInstrumentClientBase"
@@ -2573,6 +2587,7 @@ def _render_symbolic_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
             "        resource_id: str,\n",
             "        *,\n",
             "        namespace_hint: str,\n",
+            _render_symbolic_requires_parameter(model),
             "        for_: OneEntity | None = None,\n",
             "        role: ResourceRoleInput = None,\n",
             "    ) -> None:\n",
@@ -2580,7 +2595,7 @@ def _render_symbolic_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
             "            recorder,\n",
             "            resource_id,\n",
             "            namespace_hint=namespace_hint,\n",
-            f"            requires={model.requires_expression},\n",
+            "            requires=requires,\n",
             "            for_=for_,\n",
             "            role=role,\n",
             "        )\n",
@@ -2676,6 +2691,7 @@ def _render_symbolic_group_scope(
             "        *,\n",
             "        namespace_hint: str,\n",
             "        for_: EachEntity,\n",
+            _render_symbolic_requires_parameter(model),
             "        role: ResourceRoleInput = None,\n",
             "    ) -> None:\n",
             "        super().__init__(\n",
@@ -2684,6 +2700,7 @@ def _render_symbolic_group_scope(
             "            namespace_hint=namespace_hint,\n",
             "            for_=for_,\n",
             f"            client_factory={scope.symbolic_client_name},\n",
+            "            requires=requires,\n",
             "            role=role,\n",
             "        )\n",
         )

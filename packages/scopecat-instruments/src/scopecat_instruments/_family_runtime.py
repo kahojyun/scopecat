@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol, overload
 
 from scopecat.api.instruments import (
@@ -19,7 +20,7 @@ from scopecat.authoring import (
     ResourceRoleInput,
     instrument_recorder,
 )
-from scopecat.sdk.instruments import InterfaceRef
+from scopecat.sdk.instruments import InstrumentCapabilityRef, InterfaceRef
 
 
 class _SymbolicClientFactory[ClientT](Protocol):
@@ -29,6 +30,7 @@ class _SymbolicClientFactory[ClientT](Protocol):
         resource_id: str,
         *,
         namespace_hint: str,
+        requires: tuple[InstrumentCapabilityRef, ...],
         for_: OneEntity | None = None,
         role: ResourceRoleInput = None,
     ) -> ClientT: ...
@@ -41,13 +43,19 @@ class _SymbolicGroupFactory[GroupT](Protocol):
         resource_id: str,
         *,
         namespace_hint: str,
+        requires: tuple[InstrumentCapabilityRef, ...],
         for_: EachEntity,
         role: ResourceRoleInput = None,
     ) -> GroupT: ...
 
 
 class InstrumentFamily[LiveT, SymbolicT, GroupT]:
-    """One typed factory shape shared by live, scalar, and grouped clients."""
+    """One full-contract client family with fixed symbolic resource views.
+
+    Generated families default to their complete interface contracts. Symbolic
+    authoring may replace that default with an explicit member requirement set
+    when a composition intentionally uses only a narrower capability view.
+    """
 
     __slots__ = (
         "_group_factory",
@@ -83,6 +91,8 @@ class InstrumentFamily[LiveT, SymbolicT, GroupT]:
         *,
         for_: EachEntity,
         role: ResourceRoleInput = None,
+        name: str | None = None,
+        requires: Sequence[InstrumentCapabilityRef] | None = None,
     ) -> GroupT: ...
 
     @overload
@@ -93,6 +103,8 @@ class InstrumentFamily[LiveT, SymbolicT, GroupT]:
         *,
         for_: OneEntity | None = None,
         role: ResourceRoleInput = None,
+        name: str | None = None,
+        requires: Sequence[InstrumentCapabilityRef] | None = None,
     ) -> SymbolicT: ...
 
     def __call__(
@@ -102,9 +114,16 @@ class InstrumentFamily[LiveT, SymbolicT, GroupT]:
         *,
         for_: EntitySelection | None = None,
         role: ResourceRoleInput = None,
+        name: str | None = None,
+        requires: Sequence[InstrumentCapabilityRef] | None = None,
     ) -> InstrumentRef[LiveT] | SymbolicT | GroupT:
         if isinstance(context_or_id, str):
-            if for_ is not None or role is not None:
+            if (
+                for_ is not None
+                or role is not None
+                or name is not None
+                or requires is not None
+            ):
                 raise TypeError("live instrument clients only accept an instrument id")
             return instrument(
                 context_or_id,
@@ -112,19 +131,23 @@ class InstrumentFamily[LiveT, SymbolicT, GroupT]:
                 requires=self._requires,
             )
         recorder = instrument_recorder(context_or_id)
-        resource_id = recorder.allocate_resource_id(self._name)
+        resource_name = self._name if name is None else name
+        resource_id = recorder.allocate_resource_id(resource_name)
+        selected_requirements = self._requires if requires is None else tuple(requires)
         if isinstance(for_, EachEntity):
             return self._group_factory(
                 recorder,
                 resource_id,
-                namespace_hint=self._name,
+                namespace_hint=resource_name,
+                requires=selected_requirements,
                 for_=for_,
                 role=role,
             )
         return self._symbolic_factory(
             recorder,
             resource_id,
-            namespace_hint=self._name,
+            namespace_hint=resource_name,
+            requires=selected_requirements,
             for_=for_,
             role=role,
         )

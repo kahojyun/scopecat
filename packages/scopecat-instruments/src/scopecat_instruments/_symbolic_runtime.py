@@ -30,7 +30,7 @@ from scopecat.program.value_refs import (
     internal_value_ref_requires_execution,
 )
 from scopecat.sdk.instruments import (
-    InterfaceRef,
+    InstrumentCapabilityRef,
     OperationArgumentRef,
     OperationRef,
     PropertyRef,
@@ -54,7 +54,7 @@ class SymbolicInstrumentClientBase:
         resource_id: str,
         *,
         namespace_hint: str,
-        requires: Sequence[InterfaceRef],
+        requires: Sequence[InstrumentCapabilityRef],
         for_: OneEntity | None = None,
         role: ResourceRoleInput = None,
     ) -> None:
@@ -207,6 +207,7 @@ class _SymbolicClientFactory[ClientT: SymbolicInstrumentClientBase](Protocol):
         resource_id: str,
         *,
         namespace_hint: str,
+        requires: tuple[InstrumentCapabilityRef, ...],
         for_: OneEntity | None = None,
         role: ResourceRoleInput = None,
     ) -> ClientT: ...
@@ -230,6 +231,7 @@ class SymbolicInstrumentGroupBase[ClientT: SymbolicInstrumentClientBase]:
         namespace_hint: str,
         for_: EachEntity,
         client_factory: _SymbolicClientFactory[ClientT],
+        requires: tuple[InstrumentCapabilityRef, ...],
         role: ResourceRoleInput = None,
     ) -> None:
         self._recorder = recorder
@@ -242,6 +244,7 @@ class SymbolicInstrumentGroupBase[ClientT: SymbolicInstrumentClientBase]:
                     recorder,
                     f"{resource_id}.{_entity_token(entity)}",
                     namespace_hint=f"{namespace_hint}.{_entity_token(entity)}",
+                    requires=requires,
                     for_=one(entity),
                     role=role,
                 ),

@@ -24,9 +24,10 @@ from reference_lab.workflows.xy_drive import XY_LO_SWEEP
 def test_xy_drive_declares_physical_i_and_q_resources_per_entity() -> None:
     logical = compile_invocation(XY_LO_SWEEP).program.program
 
-    assert [port.id for port in logical.resource_ports] == [
-        "xy_drive.lo.q0",
-        "xy_drive.lo.q1",
+    resource_ids = [port.id for port in logical.resource_ports]
+    assert resource_ids[0].startswith("xy_drive.lo.logical-qubit-q0-")
+    assert resource_ids[1].startswith("xy_drive.lo.logical-qubit-q1-")
+    assert resource_ids[2:] == [
         "xy_drive.i.q0",
         "xy_drive.i.q1",
         "xy_drive.q.q0",

@@ -319,6 +319,8 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     assert "def measure_current(" in completed.stdout
     assert "def measure_voltage(" in completed.stdout
     assert "dc_source_monitor: InstrumentFamily[" in completed.stdout
+    assert "requires: tuple[InstrumentCapabilityRef, ...] = (" in completed.stdout
+    assert "requires=requires," in completed.stdout
     assert "requires=(_DC_SOURCE_REF, _DC_MONITOR_REF)," in completed.stdout
     assert "compile_interface" not in completed.stdout
 
