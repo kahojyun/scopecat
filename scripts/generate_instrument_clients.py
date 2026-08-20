@@ -39,6 +39,7 @@ from scopecat.sdk.instruments.declarations import (
     DeclaredResultField,
     DeclaredScopeLayout,
     Member,
+    MemberObservation,
     compile_interface,
     declared_interface_layout,
 )
@@ -100,7 +101,9 @@ class CompositeClientSurface:
     interface_types: tuple[type[object], ...]
     driver_optional_flag: str | None = None
     member_name_overrides: tuple[tuple[Member[object], str], ...] = ()
-    method_name_overrides: tuple[tuple[Callable[..., object], str], ...] = ()
+    method_name_overrides: tuple[
+        tuple[Callable[..., object] | MemberObservation, str], ...
+    ] = ()
     acquisition_names: tuple[AcquisitionPublicNames, ...] = ()
 
 
@@ -126,7 +129,9 @@ def clients_for_composite(
     *interface_types: type[object],
     driver_optional_flag: str | None = None,
     member_name_overrides: tuple[tuple[Member[object], str], ...] = (),
-    method_name_overrides: tuple[tuple[Callable[..., object], str], ...] = (),
+    method_name_overrides: tuple[
+        tuple[Callable[..., object] | MemberObservation, str], ...
+    ] = (),
     acquisition_names: tuple[AcquisitionPublicNames, ...] = (),
 ) -> CompositeClientSurface:
     """Select one explicit package-local interface composition."""
@@ -1909,7 +1914,7 @@ def _composite_method_name_overrides(
     surface: CompositeClientSurface,
     constituents: tuple[_InterfaceConstituentModel, ...],
 ) -> dict[tuple[type[object], str], str]:
-    targets: dict[Callable[..., object], list[tuple[type[object], str]]] = {}
+    targets: dict[object, list[tuple[type[object], str]]] = {}
     for interface_type, constituent in zip(
         surface.interface_types,
         constituents,
@@ -1922,10 +1927,7 @@ def _composite_method_name_overrides(
             for acquisition in constituent.layout.root.acquisitions
         )
         for method_name in declared_method_names:
-            method = cast(
-                "Callable[..., object]",
-                getattr(interface_type, method_name),
-            )
+            method = cast("object", getattr(interface_type, method_name))
             targets.setdefault(method, []).append((interface_type, method_name))
 
     overrides: dict[tuple[type[object], str], str] = {}
@@ -1959,17 +1961,14 @@ def _acquisition_public_names(
     constituents: tuple[_InterfaceConstituentModel, ...],
     declarations: tuple[AcquisitionPublicNames, ...],
 ) -> dict[tuple[type[object], str], AcquisitionPublicNames]:
-    targets: dict[Callable[..., object], list[tuple[type[object], str]]] = {}
+    targets: dict[object, list[tuple[type[object], str]]] = {}
     for interface_type, constituent in zip(
         interface_types,
         constituents,
         strict=True,
     ):
         for acquisition in constituent.layout.root.acquisitions:
-            method = cast(
-                "Callable[..., object]",
-                getattr(interface_type, acquisition.method_name),
-            )
+            method = cast("object", getattr(interface_type, acquisition.method_name))
             targets.setdefault(method, []).append(
                 (interface_type, acquisition.method_name)
             )
@@ -2214,9 +2213,7 @@ def _acquisition_model(
     public_names: AcquisitionPublicNames | None,
     public_name: str | None,
 ) -> _AcquisitionModel:
-    result_alias = acquisition.result.result_type
-    result_type = cast("type[object]", get_origin(result_alias) or result_alias)
-    result_type_name = result_type.__name__
+    result_type_name = acquisition.result.type_name
     result_stem = result_type_name.removesuffix("Results")
     declared_method_name = acquisition.method_name
     method_name = declared_method_name if public_name is None else public_name

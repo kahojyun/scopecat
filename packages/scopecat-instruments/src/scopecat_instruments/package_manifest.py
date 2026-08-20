@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from importlib import import_module
 from typing import Literal, cast
 
-from scopecat.sdk.instruments.declarations import Member
+from scopecat.sdk.instruments.declarations import Member, MemberObservation
 
 from scopecat_instruments.connection_options import (
     ConnectionOptions,
@@ -44,7 +44,7 @@ class PythonSymbol:
 
 @dataclass(frozen=True, slots=True)
 class AcquisitionPublicNames:
-    acquisition: Callable[..., object]
+    acquisition: Callable[..., object] | MemberObservation
     readback: str | None = None
     products: str | None = None
 
@@ -56,7 +56,7 @@ class InterfaceSurfaceRegistration:
 
 
 type CompositeMemberNameOverride = tuple[Member[object], str]
-type CompositeMethodNameOverride = tuple[Callable[..., object], str]
+type CompositeMethodNameOverride = tuple[Callable[..., object] | MemberObservation, str]
 
 
 @dataclass(frozen=True, slots=True)

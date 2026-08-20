@@ -45,12 +45,10 @@ from scopecat_instruments.interfaces import (
 )
 from scopecat_instruments.members import (
     DC_BIAS_ACTUAL_VOLTAGE,
-    DC_BIAS_ACTUAL_VOLTAGE_RESULT,
     DC_BIAS_RAMP_DURATION,
     DC_BIAS_READBACK,
     DC_BIAS_SETTLE_TOLERANCE,
     DC_BIAS_SETTLED,
-    DC_BIAS_SETTLED_RESULT,
     DC_BIAS_TARGET_VOLTAGE,
     DC_SOURCE_OUTPUT_ENABLED,
 )
@@ -488,25 +486,60 @@ class MultiChannelVirtualDcSource:
             request.target.interface_id == DC_BIAS_READBACK.interface_id
             and request.target.acquisition_id == DC_BIAS_READBACK.acquisition_id
         ):
-            route_id = self._route_ids[component_id]
-            source = self._world.dc_source(f"{self.instrument_id}:{route_id}")
-            values: dict[AcquisitionResultRef, MeasurementAcquisitionValue] = {}
+            readback_spec = next(
+                acquisition
+                for acquisition in dc_bias_interface().acquisitions
+                if acquisition.id == DC_BIAS_READBACK.acquisition_id
+            )
+            specs_by_id = {result.id: result for result in readback_spec.results}
+            targets_by_result: dict[AcquisitionResultRef, PropertyRef] = {}
             for result in request.results:
-                if result.result_id == DC_BIAS_ACTUAL_VOLTAGE_RESULT.result_id:
-                    values[result] = MeasurementScalar.create(
-                        dtype="float64",
-                        unit="V",
-                        value=source.voltage_level_v,
+                source_property = specs_by_id[result.result_id].source_property
+                if source_property is None:
+                    raise AssertionError(
+                        "member observation result requires a source property"
                     )
-                if result.result_id == DC_BIAS_SETTLED_RESULT.result_id:
-                    values[result] = MeasurementScalar.create(
-                        dtype="bool",
-                        value=True,
-                    )
+                targets_by_result[result] = PropertyRef(
+                    source_property.interface_id,
+                    request.target.component_path
+                    + tuple(source_property.component_path),
+                    source_property.property_id,
+                )
+            state = self.read_state(
+                DriverStateReadRequest(frozenset(targets_by_result.values()))
+            )
+            observations = {
+                observation.target: observation for observation in state.observations
+            }
+            values: dict[AcquisitionResultRef, MeasurementAcquisitionValue] = {}
+            evidence: dict[str, JsonValue] = {}
+            for result, target in targets_by_result.items():
+                result_spec = specs_by_id[result.result_id]
+                observation = observations[target]
+                value = observation.value
+                if isinstance(value, sc.Quantity):
+                    if result_spec.unit is None:
+                        raise AssertionError(
+                            "quantity member observation result requires a unit"
+                        )
+                    value = value.to(result_spec.unit).value
+                values[result] = MeasurementScalar.create(
+                    dtype=result_spec.dtype,
+                    unit=result_spec.unit,
+                    value=value,
+                    metadata=observation.metadata,
+                )
+                evidence[result.result_id] = {
+                    "source": observation.source,
+                    "coherence_id": observation.coherence_id,
+                }
             return DriverSuccess(
                 DriverReadback(
                     values=values,
-                    metadata={"component_path": ["channels", component_id]},
+                    metadata={
+                        "component_path": ["channels", component_id],
+                        "state_observations": evidence,
+                    },
                 )
             )
         root_results = frozenset(_root_result(result) for result in request.results)

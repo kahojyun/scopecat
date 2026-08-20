@@ -16,13 +16,6 @@ class TemperatureSampleDriverResult:
 
 
 @dataclass(frozen=True, slots=True)
-class DCBiasReadbackDriverResult:
-    actual_voltage: MeasurementAcquisitionValue
-    settled: MeasurementAcquisitionValue
-    metadata: dict[str, JsonValue] = field(default_factory=dict)
-
-
-@dataclass(frozen=True, slots=True)
 class DCMonitorCurrentDriverResult:
     current: MeasurementAcquisitionValue
     metadata: dict[str, JsonValue] = field(default_factory=dict)
@@ -42,7 +35,6 @@ class NetworkSweepDriverResult:
 
 
 __all__ = [
-    "DCBiasReadbackDriverResult",
     "DCMonitorCurrentDriverResult",
     "DCMonitorVoltageDriverResult",
     "NetworkSweepDriverResult",

@@ -29,6 +29,7 @@ from scopecat.sdk.instruments.declarations import (
     member,
     member_projection_assignments,
     member_projection_field,
+    observation,
     operation,
     precondition,
     result_field,
@@ -154,6 +155,43 @@ def test_declared_layout_keeps_interface_as_member_source() -> None:
     ]
     assert layout.root.operations[0].method_name == "set_output"
     assert layout.root.acquisitions[0].method_name == "sweep"
+
+
+def test_member_observation_derives_results_from_existing_members() -> None:
+    @instrument_interface("test.observed_status/v1")
+    class ObservedStatus(Protocol):
+        voltage: Member[Quantity] = member(
+            access="read_only",
+            id="actual_voltage",
+            unit="V",
+            label="Actual voltage",
+        )
+        settled: Member[bool] = member(access="read_only")
+        readback = observation(voltage, settled, label="Read back status")
+
+    compiled = compile_interface(ObservedStatus)
+    [readback] = compiled.spec.acquisitions
+    layout = declared_interface_layout(compiled)
+    [declared] = layout.root.acquisitions
+
+    assert readback.id == "readback"
+    assert [(result.id, result.dtype, result.unit) for result in readback.results] == [
+        ("actual_voltage", "float64", "V"),
+        ("settled", "bool", None),
+    ]
+    assert readback.results[0].source_property == StatePropertyRef(
+        interface_id="test.observed_status/v1",
+        property_id="actual_voltage",
+    )
+    assert declared.kind == "member_observation"
+    assert declared.result.type_name == "ObservedStatusReadbackResults"
+    assert [field.python_name for field in declared.result_fields] == [
+        "voltage",
+        "settled",
+    ]
+    assert declared_result_ref(ObservedStatus, "readback", "voltage").result_id == (
+        "actual_voltage"
+    )
 
 
 @instrument_component(label="Channel")

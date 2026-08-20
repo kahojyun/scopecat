@@ -259,6 +259,30 @@ class AcquisitionMetadata:
     preconditions: tuple[PreconditionMetadata, ...]
 
 
+class MemberObservation:
+    """A named acquisition projection of independently declared state members."""
+
+    __slots__ = ("members", "metadata", "owner", "python_name")
+
+    def __init__(
+        self,
+        members: tuple[Member[object], ...],
+        metadata: AcquisitionMetadata,
+    ) -> None:
+        self.members = members
+        self.metadata = metadata
+        self.owner: type[object] | None = None
+        self.python_name: str | None = None
+
+    def __set_name__(self, owner: type[object], name: str) -> None:
+        if self.owner is not None and (
+            self.owner is not owner or self.python_name != name
+        ):
+            raise TypeError("member observation declarations cannot be reused")
+        self.owner = owner
+        self.python_name = name
+
+
 @dataclass(frozen=True, slots=True)
 class OperationMetadata:
     id: str | None
@@ -356,6 +380,7 @@ class DeclaredResultField:
     ref: AcquisitionResultRef
     spec: AcquisitionResultSpec
     annotation: object
+    source_property: PropertyRef | None = None
 
     @property
     def result_id(self) -> str:
@@ -366,7 +391,8 @@ class DeclaredResultField:
 class DeclaredResultLayout:
     """The complete result schema for one acquisition."""
 
-    result_type: object
+    result_type: object | None
+    type_name: str
     fields: tuple[DeclaredResultField, ...]
 
 
@@ -378,6 +404,7 @@ class DeclaredAcquisition[ResultT]:
     ref: AcquisitionRef
     spec: AcquisitionSpec
     result: DeclaredResultLayout
+    kind: Literal["acquisition", "member_observation"]
 
     @property
     def result_fields(self) -> tuple[DeclaredResultField, ...]:
@@ -740,6 +767,30 @@ def acquisition[**P, ReturnT](
     return decorate
 
 
+def observation(
+    *members: Member[object],
+    id: str | None = None,
+    label: str | None = None,
+    description: str | None = None,
+) -> MemberObservation:
+    """Declare a fresh, recordable observation of existing scalar members."""
+
+    if not members:
+        raise ValueError("member observation requires at least one member")
+    if len(set(members)) != len(members):
+        raise ValueError("member observation cannot repeat a member")
+    return MemberObservation(
+        tuple(members),
+        AcquisitionMetadata(
+            id=id,
+            axes=(),
+            label=label,
+            description=description,
+            preconditions=(),
+        ),
+    )
+
+
 def compile_interface[InterfaceT](
     interface_type: type[InterfaceT],
 ) -> CompiledInterface[InterfaceT]:
@@ -817,6 +868,16 @@ def _compile_scope_members(
     operations: list[OperationSpec] = []
     acquisitions: list[AcquisitionSpec] = []
     for method_name, method in _declared_members(scope_type).items():
+        if isinstance(method, MemberObservation):
+            acquisitions.append(
+                _compile_member_observation(
+                    method_name,
+                    method,
+                    scope_type=scope_type,
+                    scope=scope,
+                )
+            )
+            continue
         operation_declaration = getattr(method, _OPERATION_METADATA, None)
         acquisition_declaration = getattr(method, _ACQUISITION_METADATA, None)
         if isinstance(operation_declaration, OperationMetadata) and isinstance(
@@ -1054,6 +1115,9 @@ def _declared_scope_layout[InterfaceT](
     operations: list[DeclaredOperation] = []
     acquisitions: list[DeclaredAcquisition[object]] = []
     for method in _declared_members(compiled.interface_type).values():
+        if isinstance(method, MemberObservation):
+            acquisitions.append(declared_acquisition(compiled, method))
+            continue
         operation_declaration = getattr(method, _OPERATION_METADATA, None)
         acquisition_declaration = getattr(method, _ACQUISITION_METADATA, None)
         if isinstance(operation_declaration, OperationMetadata):
@@ -1147,10 +1211,10 @@ def declared_operation[InterfaceT](
 
 def declared_acquisition[InterfaceT, ResultT](
     compiled: CompiledInterface[InterfaceT],
-    method: Callable[..., ResultT],
+    method: Callable[..., ResultT] | MemberObservation,
     /,
 ) -> DeclaredAcquisition[ResultT]:
-    """Bind a decorated interface method to its compiled result layout."""
+    """Bind an acquisition declaration to its compiled result layout."""
 
     method_name = next(
         (
@@ -1163,28 +1227,45 @@ def declared_acquisition[InterfaceT, ResultT](
         None,
     )
     if method_name is None:
-        raise ValueError("acquisition method does not belong to the compiled interface")
-    declaration = _required_metadata(
-        method,
-        _ACQUISITION_METADATA,
-        AcquisitionMetadata,
-        f"interface method {method_name!r}",
+        raise ValueError("acquisition declaration does not belong to the interface")
+    declaration = (
+        method.metadata
+        if isinstance(method, MemberObservation)
+        else _required_metadata(
+            method,
+            _ACQUISITION_METADATA,
+            AcquisitionMetadata,
+            f"interface method {method_name!r}",
+        )
     )
     acquisition_id = declaration.id or method_name
     acquisition_spec = next(
         item for item in compiled.spec.acquisitions if item.id == acquisition_id
     )
     acquisition_ref = compiled.ref.acquisition(acquisition_id)
-    result_type = _declared_method_result_type(method, method_name=method_name)
+    if isinstance(method, MemberObservation):
+        result_layout = _declared_member_observation_result_layout(
+            compiled,
+            method,
+            method_name=method_name,
+            acquisition_ref=acquisition_ref,
+            result_specs=acquisition_spec.results,
+        )
+        kind: Literal["acquisition", "member_observation"] = "member_observation"
+    else:
+        result_type = _declared_method_result_type(method, method_name=method_name)
+        result_layout = _declared_result_layout(
+            result_type,
+            acquisition_ref=acquisition_ref,
+            result_specs=acquisition_spec.results,
+        )
+        kind = "acquisition"
     return DeclaredAcquisition(
         method_name=method_name,
         ref=acquisition_ref,
         spec=acquisition_spec,
-        result=_declared_result_layout(
-            result_type,
-            acquisition_ref=acquisition_ref,
-            result_specs=acquisition_spec.results,
-        ),
+        result=result_layout,
+        kind=kind,
     )
 
 
@@ -1197,11 +1278,15 @@ def declared_acquisition_ref(
     method = _declared_members(interface_type).get(method_name)
     if method is None:
         raise ValueError(f"declared scope has no method {method_name!r}")
-    declaration = _required_metadata(
-        method,
-        _ACQUISITION_METADATA,
-        AcquisitionMetadata,
-        f"declared scope method {method_name!r}",
+    declaration = (
+        method.metadata
+        if isinstance(method, MemberObservation)
+        else _required_metadata(
+            method,
+            _ACQUISITION_METADATA,
+            AcquisitionMetadata,
+            f"declared scope method {method_name!r}",
+        )
     )
     return declared_interface_ref(interface_type).acquisition(
         declaration.id or method_name
@@ -1218,6 +1303,22 @@ def declared_result_ref(
     method = _declared_members(interface_type).get(method_name)
     if method is None:
         raise ValueError(f"declared scope has no method {method_name!r}")
+    if isinstance(method, MemberObservation):
+        layout = declared_interface_layout(compile_interface(interface_type))
+        acquisition = next(
+            item for item in layout.root.acquisitions if item.method_name == method_name
+        )
+        result = next(
+            (
+                field
+                for field in acquisition.result_fields
+                if field.python_name == field_name
+            ),
+            None,
+        )
+        if result is None:
+            raise ValueError(f"acquisition result has no field {field_name!r}")
+        return result.ref
     _required_metadata(
         method,
         _ACQUISITION_METADATA,
@@ -1297,7 +1398,51 @@ def _declared_result_layout(
     )
     return DeclaredResultLayout(
         result_type=result_type,
+        type_name=result_class.__name__,
         fields=declared_fields,
+    )
+
+
+def _declared_member_observation_result_layout[InterfaceT](
+    compiled: CompiledInterface[InterfaceT],
+    declaration: MemberObservation,
+    *,
+    method_name: str,
+    acquisition_ref: AcquisitionRef,
+    result_specs: Sequence[AcquisitionResultSpec],
+) -> DeclaredResultLayout:
+    properties = {
+        field.declaration: field for field in _declared_property_fields(compiled)
+    }
+    specs_by_id = {item.id: item for item in result_specs}
+    declared_fields: list[DeclaredResultField] = []
+    for member in declaration.members:
+        field = properties.get(member)
+        if field is None:
+            raise TypeError(
+                f"member observation {method_name!r} targets a member not declared "
+                "by its interface"
+            )
+        spec = specs_by_id[field.property_id]
+        declared_fields.append(
+            DeclaredResultField(
+                python_name=field.python_name,
+                ref=acquisition_ref.result(spec.id),
+                spec=spec,
+                annotation=field.annotation,
+                source_property=field.ref,
+            )
+        )
+    interface_name = compiled.interface_type.__name__.removesuffix("Interface")
+    observation_name = "".join(
+        segment[:1].upper() + segment[1:]
+        for segment in method_name.split("_")
+        if segment
+    )
+    return DeclaredResultLayout(
+        result_type=None,
+        type_name=f"{interface_name}{observation_name}Results",
+        fields=tuple(declared_fields),
     )
 
 
@@ -1551,6 +1696,50 @@ def _compile_operation_argument(
     )
 
 
+def _compile_member_observation(
+    name: str,
+    declaration: MemberObservation,
+    *,
+    scope_type: type[object],
+    scope: _DeclaredScopeRef,
+) -> AcquisitionSpec:
+    acquisition_id = declaration.metadata.id or name
+    declared_members = {
+        member: (python_name, member)
+        for python_name, member in _declared_properties(scope_type).items()
+    }
+    results: list[AcquisitionResultSpec] = []
+    for member in declaration.members:
+        selected = declared_members.get(member)
+        if selected is None:
+            raise TypeError(
+                f"member observation {name!r} targets a member not declared "
+                "by its interface scope"
+            )
+        python_name, selected_member = selected
+        annotation, property_spec = _compile_declared_property(
+            scope_type,
+            python_name,
+            selected_member,
+        )
+        results.append(
+            build_acquisition_result(
+                property_spec.id,
+                dtype=_infer_result_dtype(annotation),
+                unit=selected_member.metadata.unit,
+                label=property_spec.label,
+                description=property_spec.description,
+                source_property=scope.property(property_spec.id),
+            )
+        )
+    return build_acquisition(
+        acquisition_id,
+        label=declaration.metadata.label,
+        description=declaration.metadata.description,
+        results=results,
+    )
+
+
 def _compile_acquisition(
     method_name: str,
     method: Callable[..., object],
@@ -1762,6 +1951,11 @@ def _infer_result_dtype(annotation: object) -> MeasurementDType:
     if annotation is complex:
         return "complex128"
     if annotation is str:
+        return "string"
+    literal_choices = cast("tuple[object, ...]", get_args(annotation))
+    if get_origin(annotation) is Literal and all(
+        isinstance(choice, str) for choice in literal_choices
+    ):
         return "string"
     raise TypeError(
         f"cannot infer a measurement dtype from {annotation!r}; set result(dtype=...)"
@@ -2082,6 +2276,7 @@ __all__ = [
     "InterfaceMetadata",
     "Member",
     "MemberMetadata",
+    "MemberObservation",
     "MemberProjectionField",
     "MemberProjectionLayout",
     "OperationMetadata",
@@ -2111,6 +2306,7 @@ __all__ = [
     "member",
     "member_projection_assignments",
     "member_projection_field",
+    "observation",
     "operation",
     "precondition",
     "result",

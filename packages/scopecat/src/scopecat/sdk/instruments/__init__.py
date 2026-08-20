@@ -101,7 +101,9 @@ if TYPE_CHECKING:
     from scopecat.sdk.instruments.declarations import (
         DeviceMember,
         Member,
+        MemberObservation,
         device_member,
+        observation,
     )
     from scopecat.sdk.instruments.errors import InstrumentCollectFailure
     from scopecat.sdk.instruments.members import (
@@ -349,6 +351,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "InterfaceRef": ("scopecat.sdk.instruments.members", "InterfaceRef"),
     "Member": ("scopecat.sdk.instruments.declarations", "Member"),
+    "MemberObservation": (
+        "scopecat.sdk.instruments.declarations",
+        "MemberObservation",
+    ),
     "MountPath": ("scopecat.sdk.instruments.mounted_driver", "MountPath"),
     "MountedInstrumentDriver": (
         "scopecat.sdk.instruments.mounted_driver",
@@ -438,6 +444,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.object_driver",
         "instrument_driver",
     ),
+    "observation": ("scopecat.sdk.instruments.declarations", "observation"),
     "member_policy": (
         "scopecat.sdk.instruments.object_driver",
         "member_policy",

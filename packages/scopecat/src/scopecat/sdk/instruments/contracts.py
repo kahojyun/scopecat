@@ -184,6 +184,10 @@ class AcquisitionAxisSpec(BaseModel):
     unit: str | None = None
 
 
+def _exclude_none(value: object) -> bool:
+    return value is None
+
+
 class AcquisitionResultSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -194,6 +198,10 @@ class AcquisitionResultSpec(BaseModel):
     dtype: MeasurementDType = "float64"
     unit: str | None = None
     axes: list[AcquisitionAxisSpec] = Field(default_factory=list)
+    source_property: StatePropertyRef | None = Field(
+        default=None,
+        exclude_if=_exclude_none,
+    )
 
     @field_validator("axes")
     @classmethod
@@ -628,6 +636,7 @@ def acquisition_result(
     label: str | None = None,
     description: str | None = None,
     axes: list[AcquisitionAxisSpec] | tuple[AcquisitionAxisSpec, ...] = (),
+    source_property: PropertyRef | None = None,
 ) -> AcquisitionResultSpec:
     return AcquisitionResultSpec(
         id=id,
@@ -637,6 +646,9 @@ def acquisition_result(
         dtype=dtype,
         unit=unit,
         axes=list(axes),
+        source_property=(
+            None if source_property is None else _state_property_ref(source_property)
+        ),
     )
 
 

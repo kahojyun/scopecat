@@ -10,7 +10,11 @@ from uuid import uuid4
 
 from pydantic import JsonValue
 
-from scopecat.records.measurement import MeasurementAcquisitionValue
+from scopecat.kernel.quantity import Quantity
+from scopecat.records.measurement import (
+    MeasurementAcquisitionValue,
+    MeasurementScalar,
+)
 from scopecat.sdk.instruments.authoring import (
     DriverAcquisition,
     DriverOperation,
@@ -47,6 +51,7 @@ from scopecat.sdk.instruments.declarations import (
 )
 from scopecat.sdk.instruments.members import (
     AcquisitionRef,
+    AcquisitionResultRef,
     DevicePropertyRef,
     DeviceSchemaId,
     OperationRef,
@@ -424,6 +429,50 @@ class ObjectInstrumentDriver:
                 self.instrument_id,
                 "acquisition",
                 request.target.acquisition_id,
+            )
+        if acquisition.kind == "member_observation":
+            source_targets = frozenset(
+                field.source_property
+                for field in acquisition.result_fields
+                if field.source_property is not None
+            )
+            state = self.read_state(DriverStateReadRequest(source_targets))
+            observations = {
+                observation.target: observation for observation in state.observations
+            }
+            values: dict[AcquisitionResultRef, MeasurementAcquisitionValue] = {}
+            evidence: dict[str, JsonValue] = {}
+            for field in acquisition.result_fields:
+                source = field.source_property
+                if source is None:
+                    raise AssertionError(
+                        "member observation result must reference a source property"
+                    )
+                observation = observations[source]
+                evidence[field.result_id] = {
+                    "source": observation.source,
+                    "coherence_id": observation.coherence_id,
+                }
+                if field.ref not in request.results:
+                    continue
+                value = observation.value
+                if isinstance(value, Quantity):
+                    if field.spec.unit is None:
+                        raise AssertionError(
+                            "quantity member observation result requires a unit"
+                        )
+                    value = value.to(field.spec.unit).value
+                values[field.ref] = MeasurementScalar.create(
+                    value=value,
+                    dtype=field.spec.dtype,
+                    unit=field.spec.unit,
+                    metadata=observation.metadata,
+                )
+            return DriverSuccess(
+                DriverReadback(
+                    values=values,
+                    metadata={"state_observations": evidence},
+                )
             )
         outcome = cast("object", getattr(self, acquisition.method_name)())
         outcome_metadata: dict[str, JsonValue] = {}

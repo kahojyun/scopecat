@@ -13,18 +13,13 @@ from scopecat.sdk.instruments.declarations import (
     instrument_interface,
     instrument_result,
     member,
+    observation,
     operation,
     result_field,
 )
 
 type ReferenceSource = Literal["internal", "external"]
 type SParameter = Literal["S11", "S21", "S12", "S22"]
-
-
-@instrument_result
-class DCBiasReadbackResults:
-    actual_voltage: float = result_field(dtype="float64", unit="V")
-    settled: bool = result_field(dtype="bool")
 
 
 @instrument_interface(
@@ -55,8 +50,7 @@ class DCBiasInterface(Protocol):
     )
     settled: Member[bool] = member(access="read_only", label="Settled")
 
-    @acquisition(label="Read back bias")
-    def readback(self) -> DCBiasReadbackResults: ...
+    readback = observation(actual_voltage, settled, label="Read back bias")
 
 
 @instrument_interface(
@@ -225,7 +219,6 @@ class NetworkSweepInterface(Protocol):
 
 __all__ = [
     "DCBiasInterface",
-    "DCBiasReadbackResults",
     "DCMonitorCurrentResults",
     "DCMonitorInterface",
     "DCMonitorVoltageResults",

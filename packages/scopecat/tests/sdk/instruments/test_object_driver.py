@@ -5,10 +5,12 @@ from typing import Protocol
 import pytest
 
 from scopecat.records.instrument import state_member_target
+from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     Change,
     DeviceMember,
     DevicePropertyRef,
+    DriverAcquisition,
     DriverOperation,
     DriverStatePatch,
     DriverStateReadRequest,
@@ -30,9 +32,12 @@ from scopecat.sdk.instruments.contracts import (
 )
 from scopecat.sdk.instruments.declarations import (
     compile_interface,
+    declared_acquisition_ref,
     declared_property_ref,
+    declared_result_ref,
     instrument_interface,
     member,
+    observation,
     operation,
 )
 
@@ -44,6 +49,7 @@ class OOSource(Protocol):
     )
     limit: Member[int] = member(access="read_write", minimum=0, maximum=10)
     serial_number: Member[str] = member(access="read_only", capture=False)
+    readback = observation(level, serial_number)
 
     @operation()
     def zero(self) -> None: ...
@@ -138,6 +144,29 @@ def test_object_driver_adapts_properties_and_methods() -> None:
     assert invoked == DriverSuccess(None)
     assert driver._level == 0
     assert driver.zero_count == 1
+
+
+def test_object_driver_projects_member_observations_as_measurements() -> None:
+    driver = OOSourceDriver()
+    level = declared_result_ref(OOSource, "readback", "level")
+    serial_number = declared_result_ref(OOSource, "readback", "serial_number")
+
+    outcome = driver.collect(
+        DriverAcquisition(
+            target=declared_acquisition_ref(OOSource, "readback"),
+            results=frozenset({level, serial_number}),
+        )
+    )
+
+    assert isinstance(outcome, DriverSuccess)
+    assert outcome.value.values == {
+        level: MeasurementScalar.create(value=3, dtype="int64"),
+        serial_number: MeasurementScalar.create(value="SN-1", dtype="string"),
+    }
+    assert set(outcome.value.metadata["state_observations"]) == {
+        "level",
+        "serial_number",
+    }
 
 
 def test_object_driver_captures_and_restores_device_owned_properties() -> None:
