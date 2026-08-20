@@ -1,0 +1,272 @@
+from __future__ import annotations
+
+from scopecat.records.measurement import MeasurementScalar
+from scopecat.sdk.instruments import (
+    AcquisitionRef,
+    DevicePropertyRef,
+    DeviceStateMemberSpec,
+    DeviceStateSpec,
+    DriverAcquisition,
+    DriverOperation,
+    DriverOutcome,
+    DriverReadback,
+    DriverRejected,
+    DriverStateObservation,
+    DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
+    DriverSuccess,
+    DriverUnknown,
+    InstrumentDescription,
+    InterfaceRef,
+    MountedInstrumentRouter,
+    PropertyRef,
+    acquisition,
+    acquisition_result,
+    bool_property,
+    int_property,
+    interface,
+    operation,
+    state_capture_request,
+)
+from scopecat.sdk.problems import ProblemPhase, problem
+
+_INTERFACE = InterfaceRef("test.mounted_child/v1")
+_VALUE = _INTERFACE.property("value")
+_ZERO = _INTERFACE.operation("zero")
+_SAMPLE = _INTERFACE.acquisition("sample")
+_RESULT = _SAMPLE.result("value")
+_LOCKED = DevicePropertyRef("test.mounted_child.device/v1", (), "locked")
+
+
+class _ChildDriver:
+    implementation_id = "test.mounted_child"
+    implementation_version = "1"
+
+    def __init__(self, instrument_id: str, value: int, *, reject_apply: bool = False):
+        self.instrument_id = instrument_id
+        self.value = value
+        self.locked = False
+        self.reject_apply = reject_apply
+        self.state_requests: list[DriverStateReadRequest] = []
+        self.state_patches: list[DriverStatePatch] = []
+        self.operations: list[DriverOperation] = []
+        self.acquisitions: list[DriverAcquisition] = []
+
+    def describe(self) -> InstrumentDescription:
+        return InstrumentDescription(
+            instrument_id=self.instrument_id,
+            implementation_id=self.implementation_id,
+            implementation_version=self.implementation_version,
+            interfaces=[
+                interface(
+                    _INTERFACE.interface_id,
+                    properties=[int_property("value")],
+                    operations=[operation("zero")],
+                    acquisitions=[
+                        acquisition(
+                            "sample",
+                            results=[acquisition_result("value")],
+                        )
+                    ],
+                )
+            ],
+            device_state=DeviceStateSpec(
+                id=_LOCKED.schema_id,
+                members=[
+                    DeviceStateMemberSpec(
+                        property=bool_property("locked"),
+                    )
+                ],
+            ),
+        )
+
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
+        self.state_requests.append(request)
+        values = {_VALUE: self.value, _LOCKED: self.locked}
+        return DriverStateReadback(
+            observations=tuple(
+                DriverStateObservation(
+                    target,
+                    values[target],
+                    coherence_id="child-query",
+                    entity_ids=("entity",),
+                )
+                for target in request.targets
+            ),
+            metadata={"child": self.instrument_id},
+        )
+
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverStateReadback | None]:
+        self.state_patches.append(request)
+        if self.reject_apply:
+            return DriverRejected(
+                problems=(
+                    problem(
+                        "child_rejected",
+                        "child rejected state",
+                        phase=ProblemPhase.EXECUTION,
+                    ),
+                )
+            )
+        for entry in request.entries:
+            if entry.target == _VALUE:
+                assert isinstance(entry.value, int) and not isinstance(
+                    entry.value, bool
+                )
+                self.value = entry.value
+            elif entry.target == _LOCKED:
+                assert isinstance(entry.value, bool)
+                self.locked = entry.value
+        return DriverSuccess(None)
+
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverStateReadback | None]:
+        self.operations.append(request)
+        self.value = 0
+        return DriverSuccess(
+            DriverStateReadback(
+                observations=(DriverStateObservation(_VALUE, self.value),)
+            )
+        )
+
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        self.acquisitions.append(request)
+        return DriverSuccess(
+            DriverReadback(
+                values={
+                    result: MeasurementScalar.create(
+                        dtype="float64",
+                        value=float(self.value),
+                    )
+                    for result in request.results
+                },
+                metadata={"sampled": True},
+            )
+        )
+
+    def disconnect(self) -> None:
+        return None
+
+    def abort(self) -> None:
+        return None
+
+
+def _mounted_property(target: PropertyRef, channel: str) -> PropertyRef:
+    return PropertyRef(
+        target.interface_id,
+        ("channels", channel),
+        target.property_id,
+    )
+
+
+def _router(*children: _ChildDriver) -> MountedInstrumentRouter:
+    return MountedInstrumentRouter(
+        instrument_id="device",
+        implementation_id="test.mounted",
+        implementation_version="1",
+        mounts={
+            ("channels", str(index)): child
+            for index, child in enumerate(children, start=1)
+        },
+    )
+
+
+def test_mounted_router_composes_contracts_and_preserves_observation_provenance() -> (
+    None
+):
+    first = _ChildDriver("child-1", 1)
+    second = _ChildDriver("child-2", 2)
+    router = _router(first, second)
+    mounted_value = _mounted_property(_VALUE, "2")
+
+    description = router.describe()
+    readback = router.read_state(DriverStateReadRequest(frozenset({mounted_value})))
+
+    assert [component.id for component in description.components] == ["channels"]
+    assert [component.id for component in description.components[0].components] == [
+        "1",
+        "2",
+    ]
+    assert {tuple(mount.component_path) for mount in description.interface_mounts} == {
+        ("channels", "1"),
+        ("channels", "2"),
+    }
+    assert description.device_state is not None
+    assert {
+        tuple(member.component_path) for member in description.device_state.members
+    } == {("channels", "1"), ("channels", "2")}
+    assert state_capture_request(description).targets == {
+        _mounted_property(_VALUE, "1"),
+        _mounted_property(_VALUE, "2"),
+        DevicePropertyRef(_LOCKED.schema_id, ("channels", "1"), "locked"),
+        DevicePropertyRef(_LOCKED.schema_id, ("channels", "2"), "locked"),
+    }
+    [observation] = readback.observations
+    assert observation.target == mounted_value
+    assert observation.coherence_id == "child-query"
+    assert observation.entity_ids == ("entity",)
+    assert readback.metadata == {"mounts": {"channels/2": {"child": "child-2"}}}
+    assert second.state_requests == [DriverStateReadRequest(frozenset({_VALUE}))]
+
+
+def test_mounted_router_routes_commands_and_marks_partial_apply_unknown() -> None:
+    first = _ChildDriver("child-1", 1)
+    second = _ChildDriver("child-2", 2, reject_apply=True)
+    router = _router(first, second)
+
+    outcome = router.apply_state(
+        DriverStatePatch(
+            values={
+                _mounted_property(_VALUE, "1"): 10,
+                _mounted_property(_VALUE, "2"): 20,
+            }
+        )
+    )
+
+    assert isinstance(outcome, DriverUnknown)
+    assert outcome.problems[0].code == "instrument_partial_apply_outcome_unknown"
+    assert outcome.problems[0].details == {
+        "completed_mounts": ("channels/1",),
+        "failed_mount": "channels/2",
+        "failure_codes": ("child_rejected",),
+    }
+    assert first.value == 10
+
+    mounted_operation = DriverOperation(
+        target=type(_ZERO)(
+            _ZERO.interface_id,
+            ("channels", "1"),
+            _ZERO.operation_id,
+        )
+    )
+    invoked = router.invoke(mounted_operation)
+    assert isinstance(invoked, DriverSuccess)
+    assert invoked.value is not None
+    assert invoked.value.observations[0].target == _mounted_property(_VALUE, "1")
+    assert first.operations[0].target == _ZERO
+
+    mounted_acquisition = AcquisitionRef(
+        _SAMPLE.interface_id,
+        ("channels", "1"),
+        _SAMPLE.acquisition_id,
+    )
+    mounted_result = mounted_acquisition.result(_RESULT.result_id)
+    collected = router.collect(
+        DriverAcquisition(
+            target=mounted_acquisition,
+            results=frozenset({mounted_result}),
+        )
+    )
+    assert isinstance(collected, DriverSuccess)
+    assert set(collected.value.values) == {mounted_result}
+    assert first.acquisitions[0].target == _SAMPLE
+    assert first.acquisitions[0].results == {_RESULT}

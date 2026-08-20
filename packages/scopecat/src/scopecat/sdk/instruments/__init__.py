@@ -110,6 +110,10 @@ if TYPE_CHECKING:
         PropertyRef,
         StateMemberRef,
     )
+    from scopecat.sdk.instruments.mounted_driver import (
+        MountedInstrumentRouter,
+        MountPath,
+    )
     from scopecat.sdk.instruments.object_driver import (
         Change,
         InstrumentDriverMetadata,
@@ -308,6 +312,11 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "InterfaceRef": ("scopecat.sdk.instruments.members", "InterfaceRef"),
     "Member": ("scopecat.sdk.instruments.declarations", "Member"),
+    "MountPath": ("scopecat.sdk.instruments.mounted_driver", "MountPath"),
+    "MountedInstrumentRouter": (
+        "scopecat.sdk.instruments.mounted_driver",
+        "MountedInstrumentRouter",
+    ),
     "DevicePropertyRef": (
         "scopecat.sdk.instruments.members",
         "DevicePropertyRef",
