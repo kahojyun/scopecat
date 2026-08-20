@@ -163,7 +163,9 @@ def test_object_driver_projects_member_observations_as_measurements() -> None:
         level: MeasurementScalar.create(value=3, dtype="int64"),
         serial_number: MeasurementScalar.create(value="SN-1", dtype="string"),
     }
-    assert set(outcome.value.metadata["state_observations"]) == {
+    state_observations = outcome.value.metadata["state_observations"]
+    assert isinstance(state_observations, dict)
+    assert set(state_observations) == {
         "level",
         "serial_number",
     }
