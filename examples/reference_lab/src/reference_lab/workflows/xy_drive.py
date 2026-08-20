@@ -24,11 +24,12 @@ from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments import InterfaceRef
 from scopecat_instruments.members import (
+    REFERENCE_CLOCK,
+    REFERENCE_CLOCK_REFERENCE_SOURCE,
     RF_OUTPUT,
     RF_OUTPUT_ENABLED,
     RF_OUTPUT_FREQUENCY,
     RF_OUTPUT_POWER,
-    RF_OUTPUT_REFERENCE_SOURCE,
 )
 
 from reference_lab.bench_interfaces import (
@@ -43,9 +44,8 @@ from reference_lab.bench_interfaces import (
     AWG_SEQUENCER,
 )
 from reference_lab.interfaces import (
-    CLOCK_REFERENCE,
-    CLOCK_REFERENCE_FREQUENCY,
-    CLOCK_REFERENCE_SOURCE,
+    CLOCK_TIMING,
+    CLOCK_TIMING_FREQUENCY,
 )
 from reference_lab.payloads import SAMPLED_WAVEFORM_SCHEMA_ID
 
@@ -100,13 +100,14 @@ class XYDriveGroup:
         self._lo = self._resources(
             context,
             "xy_drive.lo",
-            (RF_OUTPUT,),
+            (RF_OUTPUT, REFERENCE_CLOCK),
             role="drive-lo",
         )
         awg_interfaces = (
             AWG_SEQUENCER,
             ANALOG_WAVEFORM_OUTPUT,
-            CLOCK_REFERENCE,
+            REFERENCE_CLOCK,
+            CLOCK_TIMING,
         )
         self._i = self._resources(
             context,
@@ -147,7 +148,7 @@ class XYDriveGroup:
                             RF_OUTPUT_FREQUENCY: lo_by_entity[entity],
                             RF_OUTPUT_POWER: lo_power,
                             RF_OUTPUT_ENABLED: output_enabled,
-                            RF_OUTPUT_REFERENCE_SOURCE: reference_source,
+                            REFERENCE_CLOCK_REFERENCE_SOURCE: reference_source,
                         }
                     ),
                     self._i[entity].state_target(
@@ -159,8 +160,8 @@ class XYDriveGroup:
                             ],
                             ANALOG_WAVEFORM_OUTPUT_OFFSET: sc.Quantity(0.0, "V"),
                             ANALOG_WAVEFORM_OUTPUT_ENABLED: output_enabled,
-                            CLOCK_REFERENCE_SOURCE: reference_source,
-                            CLOCK_REFERENCE_FREQUENCY: reference_frequency,
+                            REFERENCE_CLOCK_REFERENCE_SOURCE: reference_source,
+                            CLOCK_TIMING_FREQUENCY: reference_frequency,
                         },
                     ),
                     self._q[entity].state_target(
@@ -172,8 +173,8 @@ class XYDriveGroup:
                             ],
                             ANALOG_WAVEFORM_OUTPUT_OFFSET: sc.Quantity(0.0, "V"),
                             ANALOG_WAVEFORM_OUTPUT_ENABLED: output_enabled,
-                            CLOCK_REFERENCE_SOURCE: reference_source,
-                            CLOCK_REFERENCE_FREQUENCY: reference_frequency,
+                            REFERENCE_CLOCK_REFERENCE_SOURCE: reference_source,
+                            CLOCK_TIMING_FREQUENCY: reference_frequency,
                         },
                     ),
                 )

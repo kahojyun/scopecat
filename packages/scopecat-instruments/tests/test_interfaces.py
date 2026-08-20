@@ -30,6 +30,7 @@ from scopecat_instruments.interfaces import (
     dc_monitor_interface,
     dc_source_interface,
     network_sweep_interface,
+    reference_clock_interface,
     rf_output_interface,
     temperature_readout_interface,
 )
@@ -55,6 +56,7 @@ from scopecat_instruments.members import (
     DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP,
     NETWORK_SWEEP_POINTS,
+    REFERENCE_CLOCK,
     RF_OUTPUT,
     TEMPERATURE_READOUT,
     TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
@@ -71,6 +73,7 @@ def test_member_catalog_resolves_against_the_interface_contracts() -> None:
         interface.id: interface
         for interface in (
             rf_output_interface(),
+            reference_clock_interface(),
             dc_bias_interface(),
             dc_source_interface(),
             dc_monitor_interface(),
@@ -144,7 +147,13 @@ def test_declared_network_sweep_preserves_the_contract_fingerprint() -> None:
 
 def test_declared_rf_output_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(rf_output_interface()) == (
-        "1f885bc11b9aae8154adf35860977ece881fbec951103ecf09f10fc87d7f0aa1"
+        "9630bc4d4ad178baa2b502fc367c828be225ff92494707f3ec06feba2f8f5655"
+    )
+
+
+def test_declared_reference_clock_preserves_the_contract_fingerprint() -> None:
+    assert model_wire_content_hash(reference_clock_interface()) == (
+        "5349b0592718ffa1d4c49b82805f5860aaa5bc86c8a08db18dfc1a2db15dc186"
     )
 
 
@@ -186,6 +195,7 @@ def _resolve_component(
     ("driver", "interface_id"),
     [
         (RohdeSchwarzSGS100A("rf", ScriptedTransport([])), RF_OUTPUT),
+        (RohdeSchwarzSGS100A("clock", ScriptedTransport([])), REFERENCE_CLOCK),
         (YokogawaGS200("dc", ScriptedTransport([])), DC_SOURCE),
         (
             YokogawaGS200(

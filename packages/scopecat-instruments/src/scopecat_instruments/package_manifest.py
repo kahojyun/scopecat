@@ -17,6 +17,7 @@ from scopecat_instruments.interface_declarations import (
     DCMonitorInterface,
     DCSourceInterface,
     NetworkSweepInterface,
+    ReferenceClockInterface,
     ReferenceSource,
     RFOutputInterface,
     SParameter,
@@ -89,7 +90,7 @@ YOKOGAWA_GS200_DRIVER = DriverRegistration(
 )
 ROHDE_SCHWARZ_SGS100A_DRIVER = DriverRegistration(
     id="scopecat.rohde_schwarz.sgs100a",
-    implementation_version="v1",
+    implementation_version="v2",
     implementation=PythonSymbol(
         "scopecat_instruments.drivers.sgs100a",
         "RohdeSchwarzSGS100A",
@@ -128,7 +129,7 @@ KEYSIGHT_E5080B_DRIVER = DriverRegistration(
 )
 VIRTUAL_RF_SOURCE_DRIVER = DriverRegistration(
     id="scopecat.virtual.rf_source",
-    implementation_version="v1",
+    implementation_version="v2",
     implementation=PythonSymbol(
         "scopecat_instruments.virtual.drivers",
         "VirtualRfSource",
@@ -188,6 +189,11 @@ PACKAGE_MANIFEST = InstrumentPackageManifest(
             public_name_overrides=(("sample.readback", "TemperatureReadback"),),
         ),
         InterfaceSurfaceRegistration(RFOutputInterface),
+        InterfaceSurfaceRegistration(ReferenceClockInterface),
+        CompositeSurfaceRegistration(
+            name="RFSource",
+            interface_types=(RFOutputInterface, ReferenceClockInterface),
+        ),
         InterfaceSurfaceRegistration(DCBiasInterface),
         InterfaceSurfaceRegistration(DCSourceInterface),
         InterfaceSurfaceRegistration(DCMonitorInterface),

@@ -45,16 +45,21 @@ from scopecat_instruments import (
     DCSourcePatch,
     NetworkSweepClient,
     NetworkSweepPatch,
+    ReferenceClockClient,
     RFOutputClient,
     RFOutputPatch,
+    RFSourceClient,
     TemperatureReadoutClient,
     dc_source,
     dc_source_monitor,
     network_sweep,
+    reference_clock,
     rf_output,
+    rf_source,
     temperature_readout,
 )
 from scopecat_instruments.interface_declarations import (
+    ReferenceClockInterface,
     RFOutputInterface,
     TemperatureReadoutInterface,
 )
@@ -75,11 +80,12 @@ from scopecat_instruments.members import (
     NETWORK_SWEEP_POINTS,
     NETWORK_SWEEP_S_PARAMETER,
     NETWORK_SWEEP_START_FREQUENCY,
+    REFERENCE_CLOCK,
+    REFERENCE_CLOCK_REFERENCE_SOURCE,
     RF_OUTPUT,
     RF_OUTPUT_ENABLED,
     RF_OUTPUT_FREQUENCY,
     RF_OUTPUT_POWER,
-    RF_OUTPUT_REFERENCE_SOURCE,
     TEMPERATURE_READOUT,
     TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
     TEMPERATURE_READOUT_SCAN_CHANNEL,
@@ -204,28 +210,34 @@ def _rf_output_snapshot(*, frequency_ghz: float) -> InstrumentStateSnapshot:
     )
 
 
-def _rf_output_description(
-    *,
-    reference_source_read_only: bool = False,
-) -> InstrumentDescription:
+def _rf_output_description() -> InstrumentDescription:
     return InstrumentDescription(
         instrument_id="drive-source",
         implementation_id="test.rf-output",
         implementation_version="1",
         interfaces=[compile_interface(RFOutputInterface).spec],
+    )
+
+
+def _reference_clock_description(*, source_read_only: bool) -> InstrumentDescription:
+    return InstrumentDescription(
+        instrument_id="drive-source",
+        implementation_id="test.reference-clock",
+        implementation_version="1",
+        interfaces=[compile_interface(ReferenceClockInterface).spec],
         interface_property_implementations=(
             [
                 InterfacePropertyImplementationSpec(
                     property=StatePropertyRef(
-                        interface_id=RF_OUTPUT_REFERENCE_SOURCE.interface_id,
-                        property_id=RF_OUTPUT_REFERENCE_SOURCE.property_id,
+                        interface_id=REFERENCE_CLOCK_REFERENCE_SOURCE.interface_id,
+                        property_id=REFERENCE_CLOCK_REFERENCE_SOURCE.property_id,
                     ),
                     access="read_only",
                     capture=True,
                     restore=False,
                 )
             ]
-            if reference_source_read_only
+            if source_read_only
             else []
         ),
     )
@@ -234,18 +246,26 @@ def _rf_output_description(
 def test_first_party_factories_retain_static_client_types() -> None:
     source = dc_source("flux-source")
     rf = rf_output("drive-source")
+    clock = reference_clock("drive-source")
+    source_with_clock = rf_source("drive-source")
     vna = network_sweep("readout-vna")
     thermometer = temperature_readout("thermometer")
 
     assert_type(source, InstrumentRef[DCSourceClient])
     assert_type(rf, InstrumentRef[RFOutputClient])
+    assert_type(clock, InstrumentRef[ReferenceClockClient])
+    assert_type(source_with_clock, InstrumentRef[RFSourceClient])
     assert_type(vna, InstrumentRef[NetworkSweepClient])
     assert_type(thermometer, InstrumentRef[TemperatureReadoutClient])
     assert source.instrument_id == "flux-source"
     assert rf.instrument_id == "drive-source"
+    assert clock.instrument_id == "drive-source"
+    assert source_with_clock.instrument_id == "drive-source"
     assert vna.instrument_id == "readout-vna"
     assert source.requires == (DC_SOURCE,)
     assert rf.requires == (RF_OUTPUT,)
+    assert clock.requires == (REFERENCE_CLOCK,)
+    assert source_with_clock.requires == (RF_OUTPUT, REFERENCE_CLOCK)
     assert vna.requires == (NETWORK_SWEEP,)
     assert thermometer.requires == (TEMPERATURE_READOUT,)
 
@@ -337,6 +357,25 @@ def test_generated_rf_live_client_lowers_declared_state() -> None:
     }
 
 
+def test_generated_composite_client_applies_members_across_interfaces() -> None:
+    channel = _ApplyChannel()
+    client = RFSourceClient(
+        cast("InstrumentClientChannel", cast("object", channel)),
+        "drive-source",
+    )
+
+    receipt = client.apply(
+        frequency=Quantity(5.0, "GHz"),
+        reference_source="external",
+    )
+
+    assert receipt is channel.receipt
+    assert channel.values == {
+        RF_OUTPUT_FREQUENCY: Quantity(5.0, "GHz"),
+        REFERENCE_CLOCK_REFERENCE_SOURCE: "external",
+    }
+
+
 def test_generated_member_client_reads_and_writes_one_property() -> None:
     state_channel = _StateChannel(
         _rf_output_snapshot(frequency_ghz=5.0),
@@ -372,10 +411,8 @@ def test_generated_member_client_reads_and_writes_one_property() -> None:
 
 
 def test_generated_member_client_reports_concrete_write_support() -> None:
-    apply_channel = _ApplyChannel(
-        _rf_output_description(reference_source_read_only=True)
-    )
-    client = RFOutputClient(
+    apply_channel = _ApplyChannel(_reference_clock_description(source_read_only=True))
+    client = ReferenceClockClient(
         cast("InstrumentClientChannel", cast("object", apply_channel)),
         "drive-source",
     )

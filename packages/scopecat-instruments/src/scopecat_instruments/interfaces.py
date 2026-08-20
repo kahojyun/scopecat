@@ -37,7 +37,7 @@ def temperature_readout_interface() -> InterfaceSpec:
 
 
 _RF_OUTPUT_SPEC_JSON = (
-    '{"id":"scopecat.rf_output/v1","label":"R'
+    '{"id":"scopecat.rf_output/v2","label":"R'
     'F output","description":"Continuous-wave'
     " RF source controls independent of vendo"
     'r syntax.","properties":[{"id":"frequenc'
@@ -55,18 +55,32 @@ _RF_OUTPUT_SPEC_JSON = (
     'd","label":"RF output","description":nul'
     'l,"access":"read_write","capture":true,"'
     'restore":true,"value_type":{"type":"bool'
-    '"}},{"id":"reference_source","label":"Re'
-    'ference source","description":null,"acce'
-    'ss":"read_write","capture":true,"restore'
-    '":true,"value_type":{"type":"string","ch'
-    'oices":["internal","external"]}}],"opera'
-    'tions":[],"acquisitions":[],"components"'
-    ":[]}"
+    '"}}],"operations":[],"acquisitions":[],"'
+    'components":[]}'
 )
 
 
 def rf_output_interface() -> InterfaceSpec:
     return InterfaceSpec.model_validate_json(_RF_OUTPUT_SPEC_JSON)
+
+
+_REFERENCE_CLOCK_SPEC_JSON = (
+    '{"id":"scopecat.reference_clock/v1","lab'
+    'el":"Reference clock selection","descrip'
+    'tion":"Selection of an internal or exter'
+    'nal instrument reference clock.","proper'
+    'ties":[{"id":"reference_source","label":'
+    '"Reference source","description":null,"a'
+    'ccess":"read_write","capture":true,"rest'
+    'ore":true,"value_type":{"type":"string",'
+    '"choices":["internal","external"]}}],"op'
+    'erations":[],"acquisitions":[],"componen'
+    'ts":[]}'
+)
+
+
+def reference_clock_interface() -> InterfaceSpec:
+    return InterfaceSpec.model_validate_json(_REFERENCE_CLOCK_SPEC_JSON)
 
 
 _DC_BIAS_SPEC_JSON = (
@@ -274,6 +288,7 @@ __all__ = [
     "dc_monitor_interface",
     "dc_source_interface",
     "network_sweep_interface",
+    "reference_clock_interface",
     "rf_output_interface",
     "temperature_readout_interface",
 ]

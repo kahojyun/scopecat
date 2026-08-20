@@ -33,6 +33,7 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareCollectBinding,
     RunHardwareInvoke,
 )
+from scopecat_instruments.members import REFERENCE_CLOCK_REFERENCE_SOURCE
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from reference_lab.bench_interfaces import (
@@ -63,8 +64,7 @@ from reference_lab.bench_interfaces import (
     TRIGGER_START_PROGRAM_IDEMPOTENT,
 )
 from reference_lab.interfaces import (
-    CLOCK_REFERENCE_FREQUENCY,
-    CLOCK_REFERENCE_SOURCE,
+    CLOCK_TIMING_FREQUENCY,
 )
 from reference_lab.payloads import (
     AWG_PROGRAM_SCHEMA_ID,
@@ -299,12 +299,12 @@ def _preparation_batch(
             _assignment(awg_program.instrument_id, AWG_RUN_MODE, "once"),
             _assignment(
                 awg_program.instrument_id,
-                CLOCK_REFERENCE_SOURCE,
+                REFERENCE_CLOCK_REFERENCE_SOURCE,
                 clock.source,
             ),
             _assignment(
                 awg_program.instrument_id,
-                CLOCK_REFERENCE_FREQUENCY,
+                CLOCK_TIMING_FREQUENCY,
                 Quantity(clock.frequency_hz, "Hz"),
             ),
         ]

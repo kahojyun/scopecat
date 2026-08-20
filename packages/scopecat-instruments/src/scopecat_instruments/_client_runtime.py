@@ -329,12 +329,46 @@ class ProjectedMemberClientBase[StateT](InstrumentClientBase):
         projected = projection_factory(**fields) if patch is None else patch
         return self._apply_declared(projected)
 
+    def _apply_projected_fields(
+        self,
+        patch: StateT | None,
+        properties: Mapping[str, PropertyRef],
+        fields: Mapping[str, object],
+        /,
+    ) -> ApplyReceipt:
+        if patch is not None and fields:
+            raise TypeError("apply accepts either a patch or keyword fields")
+        if patch is not None:
+            return self._apply_declared(patch)
+        return self._session.apply(
+            _concrete_field_assignments(fields, properties),
+            instrument_id=self.instrument_id,
+        )
+
 
 def _concrete_assignments(state: object) -> dict[PropertyRef, StateLiteral]:
     try:
         return {
             target: StateValue.model_validate(value).root
             for target, value in member_projection_assignments(state).items()
+        }
+    except ValueError as error:
+        raise TypeError(
+            "direct instrument patch must contain concrete values"
+        ) from error
+
+
+def _concrete_field_assignments(
+    fields: Mapping[str, object],
+    properties: Mapping[str, PropertyRef],
+) -> dict[PropertyRef, StateLiteral]:
+    unknown = tuple(name for name in fields if name not in properties)
+    if unknown:
+        raise TypeError(f"unknown instrument state field {unknown[0]!r}")
+    try:
+        return {
+            properties[name]: StateValue.model_validate(value).root
+            for name, value in fields.items()
         }
     except ValueError as error:
         raise TypeError(

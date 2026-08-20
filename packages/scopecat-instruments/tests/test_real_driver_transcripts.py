@@ -55,10 +55,10 @@ from scopecat_instruments.members import (
     NETWORK_SWEEP_SOURCE_POWER,
     NETWORK_SWEEP_START_FREQUENCY,
     NETWORK_SWEEP_STOP_FREQUENCY,
+    REFERENCE_CLOCK_REFERENCE_SOURCE,
     RF_OUTPUT_ENABLED,
     RF_OUTPUT_FREQUENCY,
     RF_OUTPUT_POWER,
-    RF_OUTPUT_REFERENCE_SOURCE,
     TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
     TEMPERATURE_READOUT_RESISTANCE_RESULT,
     TEMPERATURE_READOUT_SAMPLE,
@@ -797,7 +797,7 @@ def test_sgs100a_cw_source_transcript() -> None:
 
     assert state.values[RF_OUTPUT_FREQUENCY] == Quantity(5.0e9, "Hz")
     assert state.values[RF_OUTPUT_POWER] == Quantity(-27.5, "dBm")
-    assert state.values[RF_OUTPUT_REFERENCE_SOURCE] == "external"
+    assert state.values[REFERENCE_CLOCK_REFERENCE_SOURCE] == "external"
     assert state.values[RF_OUTPUT_ENABLED] is True
     transport.assert_complete()
 

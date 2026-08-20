@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import scopecat as sc
 from scopecat.kernel.entity import EntityRef
-from scopecat_instruments import rf_output
+from scopecat_instruments import rf_source
 from scopecat_quantum import authoring as quantum
 from scopecat_quantum.measurement_computes import (
     BinaryIqDiscriminator,
@@ -88,7 +88,7 @@ def prepare_quantum_hardware(
 def _prepare_reviewed_los(
     context: sc.ExperimentContext | sc.ModuleContext,
 ) -> None:
-    drive_los = rf_output(context, for_=QUANTUM_QUBITS, role="drive-lo")
+    drive_los = rf_source(context, for_=QUANTUM_QUBITS, role="drive-lo")
     drive_los.ensure(
         frequency=sc.PerEntity(
             (
@@ -109,7 +109,7 @@ def _prepare_reviewed_los(
         output_enabled=True,
         reference_source="external",
     )
-    readout_lo = rf_output(context, for_=QUANTUM_QUBITS, role="readout-lo")
+    readout_lo = rf_source(context, for_=QUANTUM_QUBITS, role="readout-lo")
     readout_lo.ensure(
         frequency=READOUT_LO[LO_FREQUENCY].ref,
         power=READOUT_LO[LO_POWER].ref,

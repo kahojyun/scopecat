@@ -32,6 +32,7 @@ from scopecat_instruments._support import (
     quantity_value,
 )
 from scopecat_instruments.interface_declarations import (
+    ReferenceClockInterface,
     ReferenceSource,
     RFOutputInterface,
 )
@@ -41,7 +42,7 @@ from scopecat_instruments.package_manifest import ROHDE_SCHWARZ_SGS100A_DRIVER
 @instrument_driver(
     ROHDE_SCHWARZ_SGS100A_DRIVER.id,
     ROHDE_SCHWARZ_SGS100A_DRIVER.implementation_version,
-    interfaces=(RFOutputInterface,),
+    interfaces=(RFOutputInterface, ReferenceClockInterface),
     label="R&S SGS100A",
     description="Minimal continuous-wave RF source driver.",
 )
@@ -69,7 +70,7 @@ class RohdeSchwarzSGS100A(ObjectInstrumentDriver):
         RFOutputInterface.frequency,
         RFOutputInterface.power,
         RFOutputInterface.output_enabled,
-        RFOutputInterface.reference_source,
+        ReferenceClockInterface.reference_source,
     )
     def update_output(
         self,
@@ -137,7 +138,7 @@ class RohdeSchwarzSGS100A(ObjectInstrumentDriver):
     def write_output_enabled(self, value: bool) -> None:
         self.transport.write(f":OUTP {'ON' if value else 'OFF'}")
 
-    @read(RFOutputInterface.reference_source)
+    @read(ReferenceClockInterface.reference_source)
     def read_reference_source(self) -> ReferenceSource:
         response = query_text(self.transport, ":SOUR:ROSC:SOUR?").upper()
         if response.startswith("INT"):

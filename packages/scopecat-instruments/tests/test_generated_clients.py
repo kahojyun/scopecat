@@ -297,6 +297,9 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     assert "DCMonitorVoltageResults" not in completed.stdout
     assert "class DCSourceMonitorClient(" in completed.stdout
     assert "class DCSourceMonitorState:" not in completed.stdout
+    assert "def apply(" in completed.stdout
+    assert "measurement_enabled: bool = ..." in completed.stdout
+    assert "self._apply_projected_fields(" in completed.stdout
     assert "def source_mode(" in completed.stdout
     assert "def measurement_enabled(" in completed.stdout
     assert (
@@ -304,6 +307,7 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
         "\n    ProjectedMemberSymbolicClientBase[_DCSourceMonitorTarget]"
     ) in completed.stdout
     assert "class SymbolicDCSourceMonitorGroup(" in completed.stdout
+    assert "self._ensure_projected_fields(" in completed.stdout
     assert '_DC_SOURCE_REF = InterfaceRef("scopecat.dc_source/v3")' in (
         completed.stdout
     )

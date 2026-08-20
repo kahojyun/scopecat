@@ -174,7 +174,8 @@
         "entity_ids": ["q0", "q1", "q2", "q3"],
         "endpoints": [
           {"interface_id": "reference_lab.awg_sequencer/v1"},
-          {"interface_id": "reference_lab.clock_reference/v1"},
+          {"interface_id": "scopecat.reference_clock/v1"},
+          {"interface_id": "reference_lab.clock_timing/v1"},
           {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q0", "channel_id": "drive.awg0.ch1", "component_path": ["outputs", "ch1"]},
           {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q1", "channel_id": "drive.awg0.ch3", "component_path": ["outputs", "ch3"]},
           {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q2", "channel_id": "drive.awg0.ch5", "component_path": ["outputs", "ch5"]},
@@ -188,7 +189,8 @@
         "entity_ids": ["q0", "q1", "q2", "q3"],
         "endpoints": [
           {"interface_id": "reference_lab.awg_sequencer/v1"},
-          {"interface_id": "reference_lab.clock_reference/v1"},
+          {"interface_id": "scopecat.reference_clock/v1"},
+          {"interface_id": "reference_lab.clock_timing/v1"},
           {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q0", "channel_id": "drive.awg0.ch2", "component_path": ["outputs", "ch2"]},
           {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q1", "channel_id": "drive.awg0.ch4", "component_path": ["outputs", "ch4"]},
           {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q2", "channel_id": "drive.awg0.ch6", "component_path": ["outputs", "ch6"]},
@@ -256,7 +258,8 @@
         "role_id": "drive-lo",
         "entity_ids": ["q0", "q1"],
         "endpoints": [
-          {"interface_id": "scopecat.rf_output/v1"}
+          {"interface_id": "scopecat.rf_output/v2"},
+          {"interface_id": "scopecat.reference_clock/v1"}
         ]
       },
       {
@@ -265,7 +268,8 @@
         "role_id": "drive-lo",
         "entity_ids": ["q2", "q3"],
         "endpoints": [
-          {"interface_id": "scopecat.rf_output/v1"}
+          {"interface_id": "scopecat.rf_output/v2"},
+          {"interface_id": "scopecat.reference_clock/v1"}
         ]
       },
       {
@@ -274,7 +278,8 @@
         "role_id": "readout-lo",
         "entity_ids": ["q0", "q1", "q2", "q3"],
         "endpoints": [
-          {"interface_id": "scopecat.rf_output/v1"}
+          {"interface_id": "scopecat.rf_output/v2"},
+          {"interface_id": "scopecat.reference_clock/v1"}
         ]
       },
       {
@@ -315,7 +320,7 @@
         "id": "pump-source",
         "instrument_id": "pump-source",
         "endpoints": [
-          {"interface_id": "scopecat.rf_output/v1"}
+          {"interface_id": "scopecat.rf_output/v2"}
         ]
       },
       {

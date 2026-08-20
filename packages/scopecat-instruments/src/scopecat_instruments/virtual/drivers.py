@@ -38,6 +38,7 @@ from scopecat_instruments.interface_declarations import (
     DCMonitorInterface,
     DCSourceInterface,
     NetworkSweepInterface,
+    ReferenceClockInterface,
     ReferenceSource,
     RFOutputInterface,
     SParameter,
@@ -71,7 +72,7 @@ class _VirtualDriver(ObjectInstrumentDriver):
 @instrument_driver(
     VIRTUAL_RF_SOURCE_DRIVER.id,
     VIRTUAL_RF_SOURCE_DRIVER.implementation_version,
-    interfaces=(RFOutputInterface,),
+    interfaces=(RFOutputInterface, ReferenceClockInterface),
     label="Virtual RF source",
 )
 class VirtualRfSource(_VirtualDriver):
@@ -114,12 +115,12 @@ class VirtualRfSource(_VirtualDriver):
         with self.world.lock:
             self.world.rf_source(self.instrument_id).output_enabled = value
 
-    @read(RFOutputInterface.reference_source)
+    @read(ReferenceClockInterface.reference_source)
     def read_reference_source(self) -> ReferenceSource:
         with self.world.lock:
             return self.world.rf_source(self.instrument_id).reference_source
 
-    @write(RFOutputInterface.reference_source)
+    @write(ReferenceClockInterface.reference_source)
     def write_reference_source(self, value: ReferenceSource) -> None:
         with self.world.lock:
             self.world.rf_source(self.instrument_id).reference_source = value

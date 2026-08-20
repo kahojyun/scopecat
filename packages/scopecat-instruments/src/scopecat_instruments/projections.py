@@ -28,6 +28,9 @@ from scopecat_instruments.interface_declarations import (
     NetworkSweepInterface as NetworkSweepInterface,
 )
 from scopecat_instruments.interface_declarations import (
+    ReferenceClockInterface as ReferenceClockInterface,
+)
+from scopecat_instruments.interface_declarations import (
     ReferenceSource as ReferenceSource,
 )
 from scopecat_instruments.interface_declarations import (
@@ -55,10 +58,10 @@ from scopecat_instruments.members import (
     NETWORK_SWEEP_SOURCE_POWER,
     NETWORK_SWEEP_START_FREQUENCY,
     NETWORK_SWEEP_STOP_FREQUENCY,
+    REFERENCE_CLOCK_REFERENCE_SOURCE,
     RF_OUTPUT_ENABLED,
     RF_OUTPUT_FREQUENCY,
     RF_OUTPUT_POWER,
-    RF_OUTPUT_REFERENCE_SOURCE,
 )
 
 _RF_OUTPUT_MEMBER_LAYOUT = MemberProjectionLayout(
@@ -66,7 +69,6 @@ _RF_OUTPUT_MEMBER_LAYOUT = MemberProjectionLayout(
         MemberProjectionField("frequency", RF_OUTPUT_FREQUENCY),
         MemberProjectionField("power", RF_OUTPUT_POWER),
         MemberProjectionField("output_enabled", RF_OUTPUT_ENABLED),
-        MemberProjectionField("reference_source", RF_OUTPUT_REFERENCE_SOURCE),
     ),
 )
 
@@ -76,7 +78,6 @@ class RFOutputPatch:
     frequency: Quantity = member_projection_field()
     power: Quantity = member_projection_field()
     output_enabled: bool = member_projection_field()
-    reference_source: Literal["internal", "external"] = member_projection_field()
 
 
 @instrument_member_projection(_RF_OUTPUT_MEMBER_LAYOUT)
@@ -84,9 +85,6 @@ class RFOutputTarget:
     frequency: Symbolic[Quantity] = member_projection_field()
     power: Symbolic[Quantity] = member_projection_field()
     output_enabled: Symbolic[bool] = member_projection_field()
-    reference_source: Symbolic[Literal["internal", "external"]] = (
-        member_projection_field()
-    )
 
 
 @instrument_member_projection(_RF_OUTPUT_MEMBER_LAYOUT)
@@ -100,6 +98,29 @@ class RFOutputGroupTarget:
     output_enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = (
         member_projection_field()
     )
+
+
+_REFERENCE_CLOCK_MEMBER_LAYOUT = MemberProjectionLayout(
+    fields=(
+        MemberProjectionField("reference_source", REFERENCE_CLOCK_REFERENCE_SOURCE),
+    ),
+)
+
+
+@instrument_member_projection(_REFERENCE_CLOCK_MEMBER_LAYOUT)
+class ReferenceClockPatch:
+    reference_source: Literal["internal", "external"] = member_projection_field()
+
+
+@instrument_member_projection(_REFERENCE_CLOCK_MEMBER_LAYOUT)
+class ReferenceClockTarget:
+    reference_source: Symbolic[Literal["internal", "external"]] = (
+        member_projection_field()
+    )
+
+
+@instrument_member_projection(_REFERENCE_CLOCK_MEMBER_LAYOUT)
+class ReferenceClockGroupTarget:
     reference_source: (
         Symbolic[Literal["internal", "external"]]
         | PerEntity[Symbolic[Literal["internal", "external"]]]
@@ -290,6 +311,10 @@ __all__ = [
     "RFOutputInterface",
     "RFOutputPatch",
     "RFOutputTarget",
+    "ReferenceClockGroupTarget",
+    "ReferenceClockInterface",
+    "ReferenceClockPatch",
+    "ReferenceClockTarget",
     "ReferenceSource",
     "SParameter",
     "TemperatureReadoutInterface",

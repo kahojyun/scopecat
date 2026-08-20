@@ -36,6 +36,8 @@ from scopecat.sdk.instruments import (
     interface_mount,
     state_readback,
 )
+from scopecat_instruments.interfaces import reference_clock_interface
+from scopecat_instruments.members import REFERENCE_CLOCK_REFERENCE_SOURCE
 
 from reference_lab.bench_interfaces import (
     ANALOG_WAVEFORM_OUTPUT_AMPLITUDE,
@@ -85,10 +87,9 @@ from reference_lab.bench_interfaces import (
     trigger_coordinator_interface,
 )
 from reference_lab.interfaces import (
-    CLOCK_REFERENCE_FREQUENCY,
-    CLOCK_REFERENCE_LOCKED,
-    CLOCK_REFERENCE_SOURCE,
-    clock_reference_interface,
+    CLOCK_TIMING_FREQUENCY,
+    CLOCK_TIMING_LOCKED,
+    clock_timing_interface,
 )
 from reference_lab.payloads import (
     DecodedAwgEntry,
@@ -452,9 +453,9 @@ class VirtualAwg:
         self._state: dict[PropertyRef, DriverScalar] = {
             AWG_SAMPLE_RATE: sc.Quantity(1.0e9, "Hz"),
             AWG_RUN_MODE: "once",
-            CLOCK_REFERENCE_SOURCE: "external",
-            CLOCK_REFERENCE_FREQUENCY: sc.Quantity(10.0e6, "Hz"),
-            CLOCK_REFERENCE_LOCKED: True,
+            REFERENCE_CLOCK_REFERENCE_SOURCE: "external",
+            CLOCK_TIMING_FREQUENCY: sc.Quantity(10.0e6, "Hz"),
+            CLOCK_TIMING_LOCKED: True,
         }
         for channel_id in self._output_component_ids:
             component_path = ("outputs", channel_id)
@@ -497,7 +498,8 @@ class VirtualAwg:
             ],
             interfaces=[
                 awg_sequencer_interface(),
-                clock_reference_interface(),
+                reference_clock_interface(),
+                clock_timing_interface(),
                 output,
             ],
             interface_mounts=[
@@ -526,11 +528,11 @@ class VirtualAwg:
         request: DriverStatePatch,
     ) -> DriverOutcome[DriverStateReadback | None]:
         clock_changed = any(
-            entry.target in {CLOCK_REFERENCE_SOURCE, CLOCK_REFERENCE_FREQUENCY}
+            entry.target in {REFERENCE_CLOCK_REFERENCE_SOURCE, CLOCK_TIMING_FREQUENCY}
             for entry in request.entries
         )
         if clock_changed:
-            self._state[CLOCK_REFERENCE_LOCKED] = False
+            self._state[CLOCK_TIMING_LOCKED] = False
         for entry in request.entries:
             if not isinstance(entry.target, PropertyRef):
                 raise ValueError("virtual AWG has no model-specific state members")
@@ -541,17 +543,17 @@ class VirtualAwg:
                     if entry.target.property_id
                     in {
                         AWG_SAMPLE_RATE.property_id,
-                        CLOCK_REFERENCE_FREQUENCY.property_id,
+                        CLOCK_TIMING_FREQUENCY.property_id,
                     }
                     else "V"
                 )
                 value = value.to(unit)
             self._state[entry.target] = value
         if clock_changed:
-            self._state[CLOCK_REFERENCE_LOCKED] = True
+            self._state[CLOCK_TIMING_LOCKED] = True
         return DriverSuccess(
             None,
-            metadata={"clock_settled": bool(self._state[CLOCK_REFERENCE_LOCKED])},
+            metadata={"clock_settled": bool(self._state[CLOCK_TIMING_LOCKED])},
         )
 
     def invoke(

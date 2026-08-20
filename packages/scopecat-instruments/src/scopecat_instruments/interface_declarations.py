@@ -154,7 +154,7 @@ class TemperatureReadoutInterface(Protocol):
 
 
 @instrument_interface(
-    "scopecat.rf_output/v1",
+    "scopecat.rf_output/v2",
     label="RF output",
     description="Continuous-wave RF source controls independent of vendor syntax.",
 )
@@ -168,6 +168,14 @@ class RFOutputInterface(Protocol):
     output_enabled: Member[bool] = member(
         access="read_write", restore=True, label="RF output"
     )
+
+
+@instrument_interface(
+    "scopecat.reference_clock/v1",
+    label="Reference clock selection",
+    description="Selection of an internal or external instrument reference clock.",
+)
+class ReferenceClockInterface(Protocol):
     reference_source: Member[ReferenceSource] = member(
         access="read_write", restore=True, label="Reference source"
     )
@@ -225,6 +233,7 @@ __all__ = [
     "NetworkSweepInterface",
     "NetworkSweepResults",
     "RFOutputInterface",
+    "ReferenceClockInterface",
     "ReferenceSource",
     "SParameter",
     "TemperatureReadoutInterface",

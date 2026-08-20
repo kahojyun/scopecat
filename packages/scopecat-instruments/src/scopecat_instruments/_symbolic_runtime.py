@@ -164,6 +164,25 @@ class ProjectedMemberSymbolicClientBase[StateT](SymbolicInstrumentClientBase):
         projected = projection_factory(**fields) if state is None else state
         self._ensure_projected_state(projected)
 
+    def _ensure_projected_fields(
+        self,
+        state: StateT | None,
+        properties: Mapping[str, PropertyRef],
+        fields: Mapping[str, object],
+        /,
+    ) -> None:
+        if state is not None and fields:
+            raise TypeError("ensure accepts either a target or keyword fields")
+        if state is not None:
+            self._ensure_projected_state(state)
+            return
+        self._ensure(
+            cast(
+                "Mapping[PropertyRef, StateBinding]",
+                _symbolic_field_assignments(fields, properties),
+            )
+        )
+
     def _ensure_projected_state(self, state: StateT, /) -> None:
         self._ensure(self._projected_state_assignments(state))
 
@@ -283,6 +302,33 @@ class ProjectedMemberSymbolicGroupBase[
         projected = projection_factory(**fields) if state is None else state
         self._ensure_projected_state(projected)
 
+    def _ensure_projected_fields(
+        self,
+        state: GroupStateT | PerEntity[StateT] | None,
+        properties: Mapping[str, PropertyRef],
+        fields: Mapping[str, object],
+        /,
+    ) -> None:
+        if state is not None and fields:
+            raise TypeError("ensure accepts either a target or keyword fields")
+        if state is not None:
+            self._ensure_projected_state(state)
+            return
+        assignments = _symbolic_field_assignments(fields, properties)
+        aligned = {
+            property_ref: self._align(value)
+            for property_ref, value in assignments.items()
+        }
+        targets: list[StateTarget] = []
+        for entity in self._entities:
+            entity_assignments = {
+                property_ref: values[entity] for property_ref, values in aligned.items()
+            }
+            client = self._state_client(entity)
+            client._state_assignments.update(entity_assignments)
+            targets.append((client._resource, entity_assignments))
+        self._recorder.ensure_many(targets)
+
     def _ensure_projected_state(
         self,
         state: GroupStateT | PerEntity[StateT],
@@ -346,6 +392,19 @@ class ProjectedMemberSymbolicGroupBase[
             "ProjectedMemberSymbolicClientBase[StateT]",
             self._clients[entity],
         )
+
+
+def _symbolic_field_assignments(
+    fields: Mapping[str, object],
+    properties: Mapping[str, PropertyRef],
+) -> Mapping[PropertyRef, StateBinding | PerEntity[StateBinding]]:
+    unknown = tuple(name for name in fields if name not in properties)
+    if unknown:
+        raise TypeError(f"unknown instrument state field {unknown[0]!r}")
+    return cast(
+        "Mapping[PropertyRef, StateBinding | PerEntity[StateBinding]]",
+        {properties[name]: value for name, value in fields.items()},
+    )
 
 
 def _one_entity_value(selection: OneEntity | None) -> ValueRef | None:

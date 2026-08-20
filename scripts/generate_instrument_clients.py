@@ -404,6 +404,7 @@ class _ProjectionKeywordFieldModel:
     concrete_annotation: str
     symbolic_annotation: str
     group_annotation: str
+    ref_expression: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -412,6 +413,7 @@ class _ProjectionKeywordModel:
     target_type_name: str
     group_target_type_name: str
     fields: tuple[_ProjectionKeywordFieldModel, ...]
+    projection_factory: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -594,6 +596,10 @@ def _projection_keyword_model(
                 concrete_annotation=concrete,
                 symbolic_annotation=symbolic,
                 group_annotation=f"{symbolic} | PerEntity[{symbolic}]",
+                ref_expression=(
+                    f"_{_snake_case(interface_stem).upper()}_REF.property("
+                    f"{_string_literal(field.ref.property_id)})"
+                ),
             )
         )
     return _ProjectionKeywordModel(
@@ -601,6 +607,50 @@ def _projection_keyword_model(
         target_type_name=names.target,
         group_target_type_name=names.group_target,
         fields=tuple(fields),
+        projection_factory=True,
+    )
+
+
+def _composite_projection_keyword_model(
+    constituents: tuple[_InterfaceConstituentModel, ...],
+    *,
+    composite_stem: str,
+) -> _ProjectionKeywordModel | None:
+    fields: list[_ProjectionKeywordFieldModel] = []
+    owners: dict[str, str] = {}
+    for constituent in constituents:
+        for member in constituent.members:
+            if not member.writable:
+                continue
+            existing = owners.get(member.python_name)
+            if existing is not None:
+                raise ClientGenerationError(
+                    f"composite {composite_stem} writable member collision "
+                    f"{member.python_name!r}: {existing} vs "
+                    f"{constituent.interface_identity}"
+                )
+            owners[member.python_name] = constituent.interface_identity
+            symbolic = _symbolic_annotation(member.annotation)
+            fields.append(
+                _ProjectionKeywordFieldModel(
+                    python_name=member.python_name,
+                    concrete_annotation=member.annotation,
+                    symbolic_annotation=symbolic,
+                    group_annotation=f"{symbolic} | PerEntity[{symbolic}]",
+                    ref_expression=(
+                        f"{member.ref_name}.property("
+                        f"{_string_literal(member.property_id)})"
+                    ),
+                )
+            )
+    if not fields:
+        return None
+    return _ProjectionKeywordModel(
+        patch_type_name=f"_{composite_stem}Patch",
+        target_type_name=f"_{composite_stem}Target",
+        group_target_type_name=f"_{composite_stem}GroupTarget",
+        fields=tuple(fields),
+        projection_factory=False,
     )
 
 
@@ -1588,7 +1638,10 @@ def _composite_model(
         live_projection_type_names=tuple(live_states),
         symbolic_projection_type_names=tuple(symbolic_states),
         group_projection_type_names=tuple(group_states),
-        keyword_projection=None,
+        keyword_projection=_composite_projection_keyword_model(
+            constituents,
+            composite_stem=stem,
+        ),
         constituents=constituents,
         root=root,
     )
@@ -2271,6 +2324,7 @@ def _render_keyword_projection_method(
     return_annotation: str,
     helper_name: str,
     returns: bool,
+    projection_factory: bool,
 ) -> str:
     positional_parameter = f"        {positional_name}: {positional_annotation},\n"
     if len(positional_parameter.rstrip("\n")) > 88:
@@ -2281,6 +2335,22 @@ def _render_keyword_projection_method(
             f"            | {branch}\n" for branch in branches[1:]
         )
         positional_parameter += "        ),\n"
+
+    implementation_annotation = f"{positional_annotation} | None"
+    implementation_parameter = (
+        f"        {positional_name}: {implementation_annotation} = None,\n"
+    )
+    if len(implementation_parameter.rstrip("\n")) > 88:
+        implementation_parameter = f"        {positional_name}: (\n"
+        if len(f"            {implementation_annotation}") <= 88:
+            implementation_parameter += f"            {implementation_annotation}\n"
+        else:
+            branches = _split_top_level_union(implementation_annotation)
+            implementation_parameter += f"            {branches[0]}\n"
+            implementation_parameter += "".join(
+                f"            | {branch}\n" for branch in branches[1:]
+            )
+        implementation_parameter += "        ) = None,\n"
 
     keyword_parameters = "".join(
         _render_optional_keyword_parameter(
@@ -2303,6 +2373,18 @@ def _render_keyword_projection_method(
             f"    @overload\n    def {method_name}(self) -> {return_annotation}: ...\n"
         )
     return_prefix = "return " if returns else ""
+    if projection_factory:
+        helper_projection = f"            {projection_type_name},\n"
+    else:
+        helper_projection = (
+            "            {\n"
+            + "".join(
+                f"                {_string_literal(field.python_name)}: "
+                f"{field.ref_expression},\n"
+                for field in fields
+            )
+            + "            },\n"
+        )
     return (
         "    @overload\n"
         f"    def {method_name}(\n"
@@ -2315,12 +2397,12 @@ def _render_keyword_projection_method(
         "    @override\n"
         f"    def {method_name}(\n"
         "        self,\n"
-        f"        {positional_name}: {positional_annotation} | None = None,\n"
+        f"{implementation_parameter}"
         "        **fields: object,\n"
         f"    ) -> {return_annotation}:\n"
         f"        {return_prefix}self.{helper_name}(\n"
         f"            {positional_name},\n"
-        f"            {projection_type_name},\n"
+        f"{helper_projection}"
         "            fields,\n"
         "        )\n"
     )
@@ -2397,8 +2479,13 @@ def _render_live_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
                 fields=state.fields,
                 field_annotation="concrete_annotation",
                 return_annotation="ApplyReceipt",
-                helper_name="_apply_projected",
+                helper_name=(
+                    "_apply_projected"
+                    if state.projection_factory
+                    else "_apply_projected_fields"
+                ),
                 returns=True,
+                projection_factory=state.projection_factory,
             )
         )
     for operation in scope.operations:
@@ -2511,8 +2598,13 @@ def _render_symbolic_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
                 fields=state.fields,
                 field_annotation="symbolic_annotation",
                 return_annotation="None",
-                helper_name="_ensure_projected",
+                helper_name=(
+                    "_ensure_projected"
+                    if state.projection_factory
+                    else "_ensure_projected_fields"
+                ),
                 returns=False,
+                projection_factory=state.projection_factory,
             )
         )
     for operation in scope.operations:
@@ -2611,8 +2703,13 @@ def _render_symbolic_group_scope(
                 fields=state.fields,
                 field_annotation="group_annotation",
                 return_annotation="None",
-                helper_name="_ensure_projected",
+                helper_name=(
+                    "_ensure_projected"
+                    if state.projection_factory
+                    else "_ensure_projected_fields"
+                ),
                 returns=False,
+                projection_factory=state.projection_factory,
             )
         )
     for operation in scope.operations:

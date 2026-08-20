@@ -6,6 +6,7 @@ from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import ApplyStateOperation, InvokeOperation
 from scopecat.execution.program import RunCoverageEffect
 from scopecat.planning.compilation import compile_run_program
+from scopecat_instruments.members import REFERENCE_CLOCK, RF_OUTPUT
 from scopecat_testkit.instrument_host import compose_test_instruments
 
 from reference_lab.bench_interfaces import (
@@ -13,7 +14,7 @@ from reference_lab.bench_interfaces import (
     AWG_SEQUENCER,
 )
 from reference_lab.configuration import bootstrap_config
-from reference_lab.interfaces import CLOCK_REFERENCE
+from reference_lab.interfaces import CLOCK_TIMING
 from reference_lab.payloads import reference_lab_payload_codecs
 from reference_lab.provider import ReferenceLabProvider
 from reference_lab.workflows.xy_drive import XY_LO_SWEEP
@@ -34,10 +35,16 @@ def test_xy_drive_declares_physical_i_and_q_resources_per_entity() -> None:
     q_ports = logical.resource_ports[4:]
     assert all(
         port.selector.interfaces
+        == (RF_OUTPUT.interface_id, REFERENCE_CLOCK.interface_id)
+        for port in logical.resource_ports[:2]
+    )
+    assert all(
+        port.selector.interfaces
         == (
             AWG_SEQUENCER.interface_id,
             ANALOG_WAVEFORM_OUTPUT.interface_id,
-            CLOCK_REFERENCE.interface_id,
+            REFERENCE_CLOCK.interface_id,
+            CLOCK_TIMING.interface_id,
         )
         for port in (*i_ports, *q_ports)
     )
@@ -89,7 +96,7 @@ def test_xy_drive_composes_shared_awg_state_and_real_dac_operations() -> None:
     assert {target.property_id for target in shared} == {
         "sample_rate",
         "run_mode",
-        "source",
+        "reference_source",
         "frequency",
     }
     assert all(len(target.origins) == 4 for target in shared)

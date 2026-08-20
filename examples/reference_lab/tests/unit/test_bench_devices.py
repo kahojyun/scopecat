@@ -10,6 +10,7 @@ from scopecat.sdk.instruments import (
     DriverSuccess,
     InstrumentProviderContext,
 )
+from scopecat_instruments.members import REFERENCE_CLOCK
 
 from reference_lab.bench_devices import (
     ArmedAwgWaveform,
@@ -25,7 +26,7 @@ from reference_lab.bench_interfaces import (
     TRIGGER_PROGRAM,
     TRIGGER_START_PROGRAM_IDEMPOTENT,
 )
-from reference_lab.interfaces import CLOCK_REFERENCE
+from reference_lab.interfaces import CLOCK_TIMING
 from reference_lab.payloads import (
     DecodedDigitizerProgram,
     DecodedDigitizerProgramEntry,
@@ -155,7 +156,8 @@ def test_bare_control_devices_expose_physical_channel_interfaces() -> None:
     assert {item.id for item in awg.interfaces} == {
         AWG_SEQUENCER.interface_id,
         ANALOG_WAVEFORM_OUTPUT.interface_id,
-        CLOCK_REFERENCE.interface_id,
+        REFERENCE_CLOCK.interface_id,
+        CLOCK_TIMING.interface_id,
     }
     assert len(awg.interface_mounts) == 8
     assert {item.id for item in digitizer.interfaces} == {

@@ -58,6 +58,9 @@ from scopecat_instruments.projections import (
     NetworkSweepGroupTarget,
     NetworkSweepPatch,
     NetworkSweepTarget,
+    ReferenceClockGroupTarget,
+    ReferenceClockPatch,
+    ReferenceClockTarget,
     RFOutputGroupTarget,
     RFOutputPatch,
     RFOutputTarget,
@@ -65,7 +68,9 @@ from scopecat_instruments.projections import (
 
 _TEMPERATURE_READOUT_REF = InterfaceRef("scopecat.temperature_readout/v1")
 
-_RF_OUTPUT_REF = InterfaceRef("scopecat.rf_output/v1")
+_RF_OUTPUT_REF = InterfaceRef("scopecat.rf_output/v2")
+
+_REFERENCE_CLOCK_REF = InterfaceRef("scopecat.reference_clock/v1")
 
 _DC_BIAS_REF = InterfaceRef("scopecat.dc_bias/v1")
 
@@ -356,21 +361,6 @@ class RFOutputClient(ProjectedMemberClientBase[RFOutputPatch]):
             writable=True,
         )
 
-    @property
-    def reference_source(
-        self,
-    ) -> InstrumentMemberClient[Literal["internal", "external"]]:
-        return self._member(
-            ClientMemberDeclaration(
-                "reference_source",
-                _RF_OUTPUT_REF.property("reference_source"),
-                client_property_value_type(
-                    '{"type":"string","choices":["internal","external"]}'
-                ),
-            ),
-            writable=True,
-        )
-
     @overload
     def apply(
         self,
@@ -384,7 +374,6 @@ class RFOutputClient(ProjectedMemberClientBase[RFOutputPatch]):
         frequency: Quantity = ...,
         power: Quantity = ...,
         output_enabled: bool = ...,
-        reference_source: Literal["internal", "external"] = ...,
     ) -> ApplyReceipt: ...
 
     @override
@@ -434,7 +423,6 @@ class SymbolicRFOutputClient(ProjectedMemberSymbolicClientBase[RFOutputTarget]):
         frequency: Symbolic[Quantity] = ...,
         power: Symbolic[Quantity] = ...,
         output_enabled: Symbolic[bool] = ...,
-        reference_source: Symbolic[Literal["internal", "external"]] = ...,
     ) -> None: ...
 
     @override
@@ -488,10 +476,6 @@ class SymbolicRFOutputGroup(
         frequency: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
         power: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
         output_enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = ...,
-        reference_source: (
-            Symbolic[Literal["internal", "external"]]
-            | PerEntity[Symbolic[Literal["internal", "external"]]]
-        ) = ...,
     ) -> None: ...
 
     @override
@@ -517,6 +501,396 @@ rf_output: InstrumentFamily[
     SymbolicRFOutputGroup,
     name="rf_output",
     requires=(_RF_OUTPUT_REF,),
+)
+
+
+class ReferenceClockClient(ProjectedMemberClientBase[ReferenceClockPatch]):
+    @property
+    def reference_source(
+        self,
+    ) -> InstrumentMemberClient[Literal["internal", "external"]]:
+        return self._member(
+            ClientMemberDeclaration(
+                "reference_source",
+                _REFERENCE_CLOCK_REF.property("reference_source"),
+                client_property_value_type(
+                    '{"type":"string","choices":["internal","external"]}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @overload
+    def apply(
+        self,
+        patch: ReferenceClockPatch,
+    ) -> ApplyReceipt: ...
+
+    @overload
+    def apply(
+        self,
+        *,
+        reference_source: Literal["internal", "external"] = ...,
+    ) -> ApplyReceipt: ...
+
+    @override
+    def apply(
+        self,
+        patch: ReferenceClockPatch | None = None,
+        **fields: object,
+    ) -> ApplyReceipt:
+        return self._apply_projected(
+            patch,
+            ReferenceClockPatch,
+            fields,
+        )
+
+
+class SymbolicReferenceClockClient(
+    ProjectedMemberSymbolicClientBase[ReferenceClockTarget]
+):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        recorder: InstrumentRecorder,
+        resource_id: str,
+        *,
+        namespace_hint: str,
+        for_: OneEntity | None = None,
+        role: ResourceRoleInput = None,
+    ) -> None:
+        super().__init__(
+            recorder,
+            resource_id,
+            namespace_hint=namespace_hint,
+            requires=(_REFERENCE_CLOCK_REF,),
+            for_=for_,
+            role=role,
+        )
+
+    @overload
+    def ensure(
+        self,
+        state: ReferenceClockTarget,
+    ) -> None: ...
+
+    @overload
+    def ensure(
+        self,
+        *,
+        reference_source: Symbolic[Literal["internal", "external"]] = ...,
+    ) -> None: ...
+
+    @override
+    def ensure(
+        self,
+        state: ReferenceClockTarget | None = None,
+        **fields: object,
+    ) -> None:
+        self._ensure_projected(
+            state,
+            ReferenceClockTarget,
+            fields,
+        )
+
+
+class SymbolicReferenceClockGroup(
+    ProjectedMemberSymbolicGroupBase[
+        ReferenceClockTarget, ReferenceClockGroupTarget, SymbolicReferenceClockClient
+    ]
+):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        recorder: InstrumentRecorder,
+        resource_id: str,
+        *,
+        namespace_hint: str,
+        for_: EachEntity,
+        role: ResourceRoleInput = None,
+    ) -> None:
+        super().__init__(
+            recorder,
+            resource_id,
+            namespace_hint=namespace_hint,
+            for_=for_,
+            client_factory=SymbolicReferenceClockClient,
+            role=role,
+        )
+
+    @overload
+    def ensure(
+        self,
+        state: ReferenceClockGroupTarget | PerEntity[ReferenceClockTarget],
+    ) -> None: ...
+
+    @overload
+    def ensure(
+        self,
+        *,
+        reference_source: (
+            Symbolic[Literal["internal", "external"]]
+            | PerEntity[Symbolic[Literal["internal", "external"]]]
+        ) = ...,
+    ) -> None: ...
+
+    @override
+    def ensure(
+        self,
+        state: (
+            ReferenceClockGroupTarget | PerEntity[ReferenceClockTarget] | None
+        ) = None,
+        **fields: object,
+    ) -> None:
+        self._ensure_projected(
+            state,
+            ReferenceClockGroupTarget,
+            fields,
+        )
+
+
+reference_clock: InstrumentFamily[
+    ReferenceClockClient,
+    SymbolicReferenceClockClient,
+    SymbolicReferenceClockGroup,
+] = InstrumentFamily(
+    ReferenceClockClient,
+    SymbolicReferenceClockClient,
+    SymbolicReferenceClockGroup,
+    name="reference_clock",
+    requires=(_REFERENCE_CLOCK_REF,),
+)
+
+
+type _RFSourcePatch = RFOutputPatch | ReferenceClockPatch
+
+
+type _RFSourceTarget = RFOutputTarget | ReferenceClockTarget
+
+
+type _RFSourceGroupTarget = RFOutputGroupTarget | ReferenceClockGroupTarget
+
+
+class RFSourceClient(ProjectedMemberClientBase[_RFSourcePatch]):
+    @property
+    def frequency(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientMemberDeclaration(
+                "frequency",
+                _RF_OUTPUT_REF.property("frequency"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"Hz","minimum":null,"'
+                    'maximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def power(self) -> InstrumentMemberClient[Quantity]:
+        return self._member(
+            ClientMemberDeclaration(
+                "power",
+                _RF_OUTPUT_REF.property("power"),
+                client_property_value_type(
+                    '{"type":"quantity","dimension":n'
+                    'ull,"unit":"dBm","minimum":null,'
+                    '"maximum":null,"finite":true}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @property
+    def output_enabled(self) -> InstrumentMemberClient[bool]:
+        return self._member(
+            ClientMemberDeclaration(
+                "output_enabled",
+                _RF_OUTPUT_REF.property("output_enabled"),
+                client_property_value_type('{"type":"bool"}'),
+            ),
+            writable=True,
+        )
+
+    @property
+    def reference_source(
+        self,
+    ) -> InstrumentMemberClient[Literal["internal", "external"]]:
+        return self._member(
+            ClientMemberDeclaration(
+                "reference_source",
+                _REFERENCE_CLOCK_REF.property("reference_source"),
+                client_property_value_type(
+                    '{"type":"string","choices":["internal","external"]}'
+                ),
+            ),
+            writable=True,
+        )
+
+    @overload
+    def apply(
+        self,
+        patch: _RFSourcePatch,
+    ) -> ApplyReceipt: ...
+
+    @overload
+    def apply(
+        self,
+        *,
+        frequency: Quantity = ...,
+        power: Quantity = ...,
+        output_enabled: bool = ...,
+        reference_source: Literal["internal", "external"] = ...,
+    ) -> ApplyReceipt: ...
+
+    @override
+    def apply(
+        self,
+        patch: _RFSourcePatch | None = None,
+        **fields: object,
+    ) -> ApplyReceipt:
+        return self._apply_projected_fields(
+            patch,
+            {
+                "frequency": _RF_OUTPUT_REF.property("frequency"),
+                "power": _RF_OUTPUT_REF.property("power"),
+                "output_enabled": _RF_OUTPUT_REF.property("output_enabled"),
+                "reference_source": _REFERENCE_CLOCK_REF.property("reference_source"),
+            },
+            fields,
+        )
+
+
+class SymbolicRFSourceClient(ProjectedMemberSymbolicClientBase[_RFSourceTarget]):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        recorder: InstrumentRecorder,
+        resource_id: str,
+        *,
+        namespace_hint: str,
+        for_: OneEntity | None = None,
+        role: ResourceRoleInput = None,
+    ) -> None:
+        super().__init__(
+            recorder,
+            resource_id,
+            namespace_hint=namespace_hint,
+            requires=(_RF_OUTPUT_REF, _REFERENCE_CLOCK_REF),
+            for_=for_,
+            role=role,
+        )
+
+    @overload
+    def ensure(
+        self,
+        state: _RFSourceTarget,
+    ) -> None: ...
+
+    @overload
+    def ensure(
+        self,
+        *,
+        frequency: Symbolic[Quantity] = ...,
+        power: Symbolic[Quantity] = ...,
+        output_enabled: Symbolic[bool] = ...,
+        reference_source: Symbolic[Literal["internal", "external"]] = ...,
+    ) -> None: ...
+
+    @override
+    def ensure(
+        self,
+        state: _RFSourceTarget | None = None,
+        **fields: object,
+    ) -> None:
+        self._ensure_projected_fields(
+            state,
+            {
+                "frequency": _RF_OUTPUT_REF.property("frequency"),
+                "power": _RF_OUTPUT_REF.property("power"),
+                "output_enabled": _RF_OUTPUT_REF.property("output_enabled"),
+                "reference_source": _REFERENCE_CLOCK_REF.property("reference_source"),
+            },
+            fields,
+        )
+
+
+class SymbolicRFSourceGroup(
+    ProjectedMemberSymbolicGroupBase[
+        _RFSourceTarget, _RFSourceGroupTarget, SymbolicRFSourceClient
+    ]
+):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        recorder: InstrumentRecorder,
+        resource_id: str,
+        *,
+        namespace_hint: str,
+        for_: EachEntity,
+        role: ResourceRoleInput = None,
+    ) -> None:
+        super().__init__(
+            recorder,
+            resource_id,
+            namespace_hint=namespace_hint,
+            for_=for_,
+            client_factory=SymbolicRFSourceClient,
+            role=role,
+        )
+
+    @overload
+    def ensure(
+        self,
+        state: _RFSourceGroupTarget | PerEntity[_RFSourceTarget],
+    ) -> None: ...
+
+    @overload
+    def ensure(
+        self,
+        *,
+        frequency: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
+        power: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
+        output_enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = ...,
+        reference_source: (
+            Symbolic[Literal["internal", "external"]]
+            | PerEntity[Symbolic[Literal["internal", "external"]]]
+        ) = ...,
+    ) -> None: ...
+
+    @override
+    def ensure(
+        self,
+        state: _RFSourceGroupTarget | PerEntity[_RFSourceTarget] | None = None,
+        **fields: object,
+    ) -> None:
+        self._ensure_projected_fields(
+            state,
+            {
+                "frequency": _RF_OUTPUT_REF.property("frequency"),
+                "power": _RF_OUTPUT_REF.property("power"),
+                "output_enabled": _RF_OUTPUT_REF.property("output_enabled"),
+                "reference_source": _REFERENCE_CLOCK_REF.property("reference_source"),
+            },
+            fields,
+        )
+
+
+rf_source: InstrumentFamily[
+    RFSourceClient,
+    SymbolicRFSourceClient,
+    SymbolicRFSourceGroup,
+] = InstrumentFamily(
+    RFSourceClient,
+    SymbolicRFSourceClient,
+    SymbolicRFSourceGroup,
+    name="rf_source",
+    requires=(_RF_OUTPUT_REF, _REFERENCE_CLOCK_REF),
 )
 
 
@@ -1430,6 +1804,43 @@ class DCSourceMonitorClient(ProjectedMemberClientBase[_DCSourceMonitorPatch]):
             writable=True,
         )
 
+    @overload
+    def apply(
+        self,
+        patch: _DCSourceMonitorPatch,
+    ) -> ApplyReceipt: ...
+
+    @overload
+    def apply(
+        self,
+        *,
+        voltage_protection: Quantity = ...,
+        current_protection: Quantity = ...,
+        output_enabled: bool = ...,
+        measurement_enabled: bool = ...,
+        integration_cycles: int = ...,
+        measurement_delay: Quantity = ...,
+    ) -> ApplyReceipt: ...
+
+    @override
+    def apply(
+        self,
+        patch: _DCSourceMonitorPatch | None = None,
+        **fields: object,
+    ) -> ApplyReceipt:
+        return self._apply_projected_fields(
+            patch,
+            {
+                "voltage_protection": _DC_SOURCE_REF.property("voltage_protection"),
+                "current_protection": _DC_SOURCE_REF.property("current_protection"),
+                "output_enabled": _DC_SOURCE_REF.property("output_enabled"),
+                "measurement_enabled": _DC_MONITOR_REF.property("measurement_enabled"),
+                "integration_cycles": _DC_MONITOR_REF.property("integration_cycles"),
+                "measurement_delay": _DC_MONITOR_REF.property("measurement_delay"),
+            },
+            fields,
+        )
+
     def source_voltage(
         self,
         *,
@@ -1492,6 +1903,43 @@ class SymbolicDCSourceMonitorClient(
             requires=(_DC_SOURCE_REF, _DC_MONITOR_REF),
             for_=for_,
             role=role,
+        )
+
+    @overload
+    def ensure(
+        self,
+        state: _DCSourceMonitorTarget,
+    ) -> None: ...
+
+    @overload
+    def ensure(
+        self,
+        *,
+        voltage_protection: Symbolic[Quantity] = ...,
+        current_protection: Symbolic[Quantity] = ...,
+        output_enabled: Symbolic[bool] = ...,
+        measurement_enabled: Symbolic[bool] = ...,
+        integration_cycles: Symbolic[int] = ...,
+        measurement_delay: Symbolic[Quantity] = ...,
+    ) -> None: ...
+
+    @override
+    def ensure(
+        self,
+        state: _DCSourceMonitorTarget | None = None,
+        **fields: object,
+    ) -> None:
+        self._ensure_projected_fields(
+            state,
+            {
+                "voltage_protection": _DC_SOURCE_REF.property("voltage_protection"),
+                "current_protection": _DC_SOURCE_REF.property("current_protection"),
+                "output_enabled": _DC_SOURCE_REF.property("output_enabled"),
+                "measurement_enabled": _DC_MONITOR_REF.property("measurement_enabled"),
+                "integration_cycles": _DC_MONITOR_REF.property("integration_cycles"),
+                "measurement_delay": _DC_MONITOR_REF.property("measurement_delay"),
+            },
+            fields,
         )
 
     def source_voltage(
@@ -1574,6 +2022,45 @@ class SymbolicDCSourceMonitorGroup(
             for_=for_,
             client_factory=SymbolicDCSourceMonitorClient,
             role=role,
+        )
+
+    @overload
+    def ensure(
+        self,
+        state: _DCSourceMonitorGroupTarget | PerEntity[_DCSourceMonitorTarget],
+    ) -> None: ...
+
+    @overload
+    def ensure(
+        self,
+        *,
+        voltage_protection: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
+        current_protection: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
+        output_enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = ...,
+        measurement_enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = ...,
+        integration_cycles: Symbolic[int] | PerEntity[Symbolic[int]] = ...,
+        measurement_delay: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
+    ) -> None: ...
+
+    @override
+    def ensure(
+        self,
+        state: (
+            _DCSourceMonitorGroupTarget | PerEntity[_DCSourceMonitorTarget] | None
+        ) = None,
+        **fields: object,
+    ) -> None:
+        self._ensure_projected_fields(
+            state,
+            {
+                "voltage_protection": _DC_SOURCE_REF.property("voltage_protection"),
+                "current_protection": _DC_SOURCE_REF.property("current_protection"),
+                "output_enabled": _DC_SOURCE_REF.property("output_enabled"),
+                "measurement_enabled": _DC_MONITOR_REF.property("measurement_enabled"),
+                "integration_cycles": _DC_MONITOR_REF.property("integration_cycles"),
+                "measurement_delay": _DC_MONITOR_REF.property("measurement_delay"),
+            },
+            fields,
         )
 
     def source_voltage(
@@ -1935,6 +2422,8 @@ __all__ = [
     "NetworkSweepProducts",
     "NetworkSweepReadback",
     "RFOutputClient",
+    "RFSourceClient",
+    "ReferenceClockClient",
     "SymbolicDCBiasClient",
     "SymbolicDCBiasGroup",
     "SymbolicDCMonitorClient",
@@ -1947,6 +2436,10 @@ __all__ = [
     "SymbolicNetworkSweepGroup",
     "SymbolicRFOutputClient",
     "SymbolicRFOutputGroup",
+    "SymbolicRFSourceClient",
+    "SymbolicRFSourceGroup",
+    "SymbolicReferenceClockClient",
+    "SymbolicReferenceClockGroup",
     "SymbolicTemperatureReadoutClient",
     "SymbolicTemperatureReadoutGroup",
     "TemperatureReadback",
@@ -1957,6 +2450,8 @@ __all__ = [
     "dc_source",
     "dc_source_monitor",
     "network_sweep",
+    "reference_clock",
     "rf_output",
+    "rf_source",
     "temperature_readout",
 ]
