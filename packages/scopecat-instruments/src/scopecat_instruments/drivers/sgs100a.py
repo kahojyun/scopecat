@@ -63,10 +63,7 @@ class RohdeSchwarzSGS100A(ObjectInstrumentDriver):
         }
         if self._identity is not None:
             metadata["identity"] = self._identity.raw
-        return DriverStateReadback(
-            observations=readback.observations,
-            metadata=metadata,
-        )
+        return readback.with_observation_metadata(metadata)
 
     @update(
         RFOutputInterface.frequency,

@@ -155,9 +155,8 @@ class YokogawaGS200(ObjectInstrumentDriver):
         if self._identity is not None:
             metadata["identity"] = self._identity.raw
         return DriverStateReadback(
-            observations=tuple(observations),
-            metadata=metadata,
-        )
+            observations=tuple(observations)
+        ).with_observation_metadata(metadata)
 
     @override
     def apply_state(

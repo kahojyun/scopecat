@@ -340,7 +340,6 @@ def _capture_driver(
     return InstrumentStateSnapshot(
         instrument_id=driver.instrument_id,
         observations=[item.model_copy(deep=True) for item in readback.observations],
-        metadata=dict(readback.metadata),
     )
 
 
@@ -361,7 +360,6 @@ def _merge_state(
     return InstrumentStateSnapshot(
         instrument_id=state.instrument_id,
         observations=[observations[key] for key in sorted(observations, key=repr)],
-        metadata={**state.metadata, **readback.metadata},
     )
 
 

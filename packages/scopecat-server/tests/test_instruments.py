@@ -405,7 +405,7 @@ class _VariantDriver(_TrackingDriver):
     def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
         self.read_count += 1
         base = super().read_state(request)
-        return state_readback(
+        readback = state_readback(
             request,
             {
                 **base.values,
@@ -414,8 +414,10 @@ class _VariantDriver(_TrackingDriver):
                 _DC_CURRENT_LEVEL: self.current_level,
                 _DC.property("output_enabled"): False,
             },
-            metadata=base.metadata,
         )
+        if not base.observations:
+            return readback
+        return readback.with_observation_metadata(base.observations[0].metadata)
 
     @override
     def collect(

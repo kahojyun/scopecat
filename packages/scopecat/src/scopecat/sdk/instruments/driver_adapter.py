@@ -53,13 +53,13 @@ def project_state_readback(
                 coherence_id=observation.coherence_id,
                 entity_ids=observation.entity_ids,
                 channel_bindings=observation.channel_bindings,
+                metadata=observation.metadata,
             )
             for observation in sorted(
                 readback.observations,
                 key=lambda item: repr(item.target),
             )
         ],
-        metadata=readback.metadata,
     )
 
 

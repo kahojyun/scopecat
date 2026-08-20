@@ -351,10 +351,7 @@ class MountedInstrumentDriver(ABC):
 
     def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
         readback = self._mounted_router.read_state(request)
-        return DriverStateReadback(
-            observations=readback.observations,
-            metadata={**readback.metadata, **self._state_metadata()},
-        )
+        return readback.with_observation_metadata(self._state_metadata())
 
     def apply_state(
         self,
@@ -505,18 +502,12 @@ def _merge_component(
 def _combine_state_readbacks(
     readbacks: Sequence[tuple[MountPath, DriverStateReadback]],
 ) -> DriverStateReadback:
-    mount_metadata = {
-        _display_path(path): readback.metadata
-        for path, readback in readbacks
-        if readback.metadata
-    }
     return DriverStateReadback(
         observations=tuple(
             observation
             for _, readback in readbacks
             for observation in readback.observations
         ),
-        metadata=_mounted_metadata(mount_metadata),
     )
 
 
@@ -542,10 +533,10 @@ def _mount_state_readback(
                 coherence_id=observation.coherence_id,
                 entity_ids=observation.entity_ids,
                 channel_bindings=observation.channel_bindings,
+                metadata=observation.metadata,
             )
             for observation in readback.observations
         ),
-        metadata=readback.metadata,
     )
 
 

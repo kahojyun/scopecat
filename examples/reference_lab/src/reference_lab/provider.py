@@ -336,7 +336,6 @@ class MultiChannelVirtualDcSource:
             )
             if root_targets:
                 readback = driver.read_state(DriverStateReadRequest(root_targets))
-                metadata.update(readback.metadata)
                 for observation in readback.observations:
                     assert isinstance(observation.target, PropertyRef)
                     observations.append(
@@ -345,6 +344,7 @@ class MultiChannelVirtualDcSource:
                             value=observation.value,
                             source=observation.source,
                             coherence_id=observation.coherence_id,
+                            metadata=observation.metadata,
                             entity_ids=tuple(
                                 dict.fromkeys(binding.entity_id for binding in bindings)
                             ),
@@ -396,9 +396,8 @@ class MultiChannelVirtualDcSource:
                 if _root_property(target) in bias_values
             )
         return DriverStateReadback(
-            observations=tuple(observations),
-            metadata=metadata,
-        )
+            observations=tuple(observations)
+        ).with_observation_metadata(metadata)
 
     def apply_state(
         self,

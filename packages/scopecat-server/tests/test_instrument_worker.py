@@ -192,8 +192,9 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
         ),
     )
     state = endpoint.read_state(connection.handle, _gain_read_request())
-    assert state.metadata["worker_pid"] == endpoint.worker_pid
-    assert state.observations[0].value == StateValue(2.5)
+    [observation] = state.observations
+    assert observation.metadata["worker_pid"] == endpoint.worker_pid
+    assert observation.value == StateValue(2.5)
 
     content = b"\x00\xffprogram\x00"
     invoke = endpoint.invoke(
@@ -825,7 +826,8 @@ def test_blocked_driver_does_not_block_another_device(tmp_path: Path) -> None:
                 release.touch()
             blocked.result(timeout=2)
         assert state.instrument_id == "source-1"
-        assert state.metadata["worker_pid"] == endpoint.worker_pid
+        [observation] = state.observations
+        assert observation.metadata["worker_pid"] == endpoint.worker_pid
     finally:
         release.touch()
         endpoint.shutdown()

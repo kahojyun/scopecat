@@ -104,10 +104,10 @@ class _ChildDriver:
                     values[target],
                     coherence_id="child-query",
                     entity_ids=("entity",),
+                    metadata={"child": self.instrument_id},
                 )
                 for target in request.targets
             ),
-            metadata={"child": self.instrument_id},
         )
 
     def apply_state(
@@ -223,10 +223,13 @@ def test_mounted_router_composes_contracts_and_preserves_observation_provenance(
     first = _ChildDriver("child-1", 1)
     second = _ChildDriver("child-2", 2)
     router = _router(first, second)
+    first_mounted_value = _mounted_property(_VALUE, "1")
     mounted_value = _mounted_property(_VALUE, "2")
 
     description = router.describe()
-    readback = router.read_state(DriverStateReadRequest(frozenset({mounted_value})))
+    readback = router.read_state(
+        DriverStateReadRequest(frozenset({first_mounted_value, mounted_value}))
+    )
 
     assert [component.id for component in description.components] == ["channels"]
     assert [component.id for component in description.components[0].components] == [
@@ -248,11 +251,14 @@ def test_mounted_router_composes_contracts_and_preserves_observation_provenance(
         DevicePropertyRef(_LOCKED.schema_id, ("channels", "1"), "locked"),
         DevicePropertyRef(_LOCKED.schema_id, ("channels", "2"), "locked"),
     }
-    [observation] = readback.observations
-    assert observation.target == mounted_value
-    assert observation.coherence_id == "child-query"
-    assert observation.entity_ids == ("entity",)
-    assert readback.metadata == {"mounts": {"channels/2": {"child": "child-2"}}}
+    observations = {
+        observation.target: observation for observation in readback.observations
+    }
+    assert observations[mounted_value].coherence_id == "child-query"
+    assert observations[mounted_value].entity_ids == ("entity",)
+    assert observations[first_mounted_value].metadata == {"child": "child-1"}
+    assert observations[mounted_value].metadata == {"child": "child-2"}
+    assert first.state_requests == [DriverStateReadRequest(frozenset({_VALUE}))]
     assert second.state_requests == [DriverStateReadRequest(frozenset({_VALUE}))]
 
 
@@ -343,7 +349,8 @@ def test_mounted_driver_declares_mounts_once_and_adds_physical_metadata() -> Non
 
     assert driver.describe().label == "Mounted device"
     assert readback.values == {target: 1}
-    assert readback.metadata == {
-        "mounts": {"channels/1": {"child": "child-1"}},
+    [observation] = readback.observations
+    assert observation.metadata == {
+        "child": "child-1",
         "identified": True,
     }

@@ -88,7 +88,7 @@ class LakeShore372(ObjectInstrumentDriver):
                 TEMPERATURE_READOUT_SCAN_CHANNEL: scan_channel,
                 TEMPERATURE_READOUT_AUTOSCAN_ENABLED: autoscan_enabled,
             },
-            metadata=metadata,
+            evidence=metadata,
         )
 
     def sample(self) -> DriverOutcome[TemperatureSampleDriverResult]:

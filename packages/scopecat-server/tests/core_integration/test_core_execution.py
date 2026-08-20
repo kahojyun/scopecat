@@ -218,10 +218,11 @@ def test_instrument_models_round_trip() -> None:
     )
 
 
-def test_instrument_state_snapshot_rejects_non_durable_metadata() -> None:
+def test_instrument_state_observation_rejects_non_durable_metadata() -> None:
     with pytest.raises(ValueError, match="valid JSON value"):
-        InstrumentStateSnapshot(
-            instrument_id="source-0",
+        state_observation(
+            InterfaceRef("test.source/v1").property("frequency"),
+            StateValue(1.0),
             metadata={"opaque": cast("JsonValue", object())},
         )
 

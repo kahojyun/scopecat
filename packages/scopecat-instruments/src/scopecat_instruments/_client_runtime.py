@@ -19,7 +19,9 @@ from scopecat.program.measurement_types import (
     MeasurementVariableRole,
 )
 from scopecat.records.instrument import (
+    InstrumentStateCacheEntry,
     InstrumentStateCacheReadback,
+    InstrumentStateObservation,
     InstrumentStateReadback,
     InstrumentStateSnapshot,
     InterfaceStateMemberTarget,
@@ -67,18 +69,35 @@ class InstrumentMemberClient[ValueT]:
     writable: bool
 
     def observed(self) -> ValueT:
+        entry = self.observed_entry()
+        if entry.status != "observed" or entry.observation is None:
+            detail = f": {entry.reason}" if entry.reason is not None else ""
+            raise ValueError(
+                f"instrument member {self.declaration.ref!r} cache is "
+                f"{entry.status}{detail}"
+            )
+        return self._decode_observation(entry.observation)
+
+    def observed_entry(self) -> InstrumentStateCacheEntry:
+        """Return cached value evidence or its explicit unavailable status."""
+
         cache = self._session.observed_state_members(
             self.instrument_id,
             self.declaration.ref,
         )
-        return self._decode_cache(cache)
+        return self._cache_entry(cache)
 
     def read(self) -> ValueT:
+        return self._decode_observation(self.read_observation())
+
+    def read_observation(self) -> InstrumentStateObservation:
+        """Query and return the member value with its observation evidence."""
+
         readback = self._session.read_state_members(
             self.instrument_id,
             self.declaration.ref,
         )
-        return self._decode_readback(readback)
+        return self._readback_observation(readback)
 
     def set(self, value: ValueT, /) -> ApplyReceipt:
         if not self.writable:
@@ -88,63 +107,49 @@ class InstrumentMemberClient[ValueT]:
             instrument_id=self.instrument_id,
         )
 
-    def _decode_snapshot(self, snapshot: InstrumentStateSnapshot) -> ValueT:
+    def _readback_observation(
+        self,
+        readback: InstrumentStateReadback,
+    ) -> InstrumentStateObservation:
         observation = next(
-            (
-                item
-                for item in snapshot.observations
-                if isinstance(item.target, InterfaceStateMemberTarget)
-                and PropertyRef(
-                    item.target.interface_id,
-                    item.target.component_path,
-                    item.target.property_id,
-                )
-                == self.declaration.ref
-            ),
+            (item for item in readback.observations if self._matches(item.target)),
             None,
         )
         if observation is None:
             raise ValueError(
                 f"observed state does not contain {self.declaration.ref!r}"
             )
-        return cast("ValueT", self.declaration.decode(observation.value.root))
+        return observation
 
-    def _decode_readback(self, readback: InstrumentStateReadback) -> ValueT:
-        snapshot = InstrumentStateSnapshot(
-            instrument_id=readback.instrument_id,
-            observations=readback.observations,
-            metadata=readback.metadata,
-        )
-        return self._decode_snapshot(snapshot)
-
-    def _decode_cache(self, cache: InstrumentStateCacheReadback) -> ValueT:
+    def _cache_entry(
+        self,
+        cache: InstrumentStateCacheReadback,
+    ) -> InstrumentStateCacheEntry:
         entry = next(
-            (
-                item
-                for item in cache.entries
-                if isinstance(item.target, InterfaceStateMemberTarget)
-                and PropertyRef(
-                    item.target.interface_id,
-                    item.target.component_path,
-                    item.target.property_id,
-                )
-                == self.declaration.ref
-            ),
+            (item for item in cache.entries if self._matches(item.target)),
             None,
         )
         if entry is None:
             raise ValueError(
                 f"instrument cache does not contain {self.declaration.ref!r}"
             )
-        if entry.status != "observed" or entry.observation is None:
-            detail = f": {entry.reason}" if entry.reason is not None else ""
-            raise ValueError(
-                f"instrument member {self.declaration.ref!r} cache is "
-                f"{entry.status}{detail}"
-            )
+        return entry
+
+    def _decode_observation(self, observation: InstrumentStateObservation) -> ValueT:
         return cast(
             "ValueT",
-            self.declaration.decode(entry.observation.value.root),
+            self.declaration.decode(observation.value.root),
+        )
+
+    def _matches(self, target: object) -> bool:
+        return (
+            isinstance(target, InterfaceStateMemberTarget)
+            and PropertyRef(
+                target.interface_id,
+                target.component_path,
+                target.property_id,
+            )
+            == self.declaration.ref
         )
 
 

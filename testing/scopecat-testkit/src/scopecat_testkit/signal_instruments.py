@@ -178,7 +178,7 @@ class TestSignalInstrument:
                 PropertyRef(interface_id, (), property_id): value
                 for (interface_id, property_id), value in self._state.items()
             },
-            metadata={"mode": "test_offline"},
+            evidence={"mode": "test_offline"},
         )
 
     def apply_state(

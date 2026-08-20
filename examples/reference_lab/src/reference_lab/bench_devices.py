@@ -510,7 +510,7 @@ class VirtualAwg:
         return state_readback(
             request,
             self._state,
-            metadata={
+            evidence={
                 "mode": "virtual",
                 "loaded_entry_count": (
                     0
@@ -816,7 +816,7 @@ class VirtualDigitizer:
         return state_readback(
             request,
             self._state,
-            metadata={
+            evidence={
                 "mode": "virtual",
                 "program_armed": self._world.is_digitizer_program_armed(
                     self.instrument_id
@@ -983,15 +983,6 @@ class VirtualTimingController:
         return state_readback(
             request,
             {},
-            metadata={
-                "mode": "virtual",
-                "trigger_count": self._world.trigger_count,
-                "loaded_program_id": (
-                    None
-                    if self._loaded_program is None
-                    else self._loaded_program.program_id
-                ),
-            },
         )
 
     def apply_state(
@@ -1171,7 +1162,7 @@ class VirtualOscilloscope:
         return state_readback(
             request,
             {**self._state, OSCILLOSCOPE_ARMED: self._world.scope_armed},
-            metadata={"mode": "virtual"},
+            evidence={"mode": "virtual"},
         )
 
     def apply_state(

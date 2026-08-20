@@ -122,7 +122,6 @@ class _StateChannel:
                 )
                 for target in targets
             ],
-            metadata=dict(self.cached.metadata),
         )
 
     def read_state(self, instrument_id: str) -> InstrumentStateSnapshot:
@@ -187,6 +186,7 @@ def _rf_output_snapshot(*, frequency_ghz: float) -> InstrumentStateSnapshot:
             state_observation(
                 RF_OUTPUT_FREQUENCY,
                 StateValue(Quantity(frequency_ghz, "GHz")),
+                metadata={"query": f"{frequency_ghz:g}-GHz"},
             )
         ],
     )
@@ -310,8 +310,18 @@ def test_generated_member_client_reads_and_writes_one_property() -> None:
 
     assert client.frequency.observed() == Quantity(5e9, "Hz")
     assert client.frequency.read() == Quantity(6e9, "Hz")
-    assert state_channel.observed_requests == [("drive-source", (RF_OUTPUT_FREQUENCY,))]
-    assert state_channel.member_requests == [("drive-source", (RF_OUTPUT_FREQUENCY,))]
+    cached = client.frequency.observed_entry()
+    assert cached.observation is not None
+    assert cached.observation.metadata == {"query": "5-GHz"}
+    assert client.frequency.read_observation().metadata == {"query": "6-GHz"}
+    assert state_channel.observed_requests == [
+        ("drive-source", (RF_OUTPUT_FREQUENCY,)),
+        ("drive-source", (RF_OUTPUT_FREQUENCY,)),
+    ]
+    assert state_channel.member_requests == [
+        ("drive-source", (RF_OUTPUT_FREQUENCY,)),
+        ("drive-source", (RF_OUTPUT_FREQUENCY,)),
+    ]
 
     apply_channel = _ApplyChannel()
     writable = RFOutputClient(

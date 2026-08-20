@@ -110,7 +110,7 @@ class _Driver:
                 for target in request.targets
                 if isinstance(target, PropertyRef)
             },
-            metadata={"worker_pid": os.getpid()},
+            evidence={"worker_pid": os.getpid()},
         )
 
     def apply_state(

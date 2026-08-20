@@ -45,6 +45,7 @@ class DriverStateObservation:
     coherence_id: str | None = None
     entity_ids: tuple[str, ...] = ()
     channel_bindings: tuple[CommandChannelBinding, ...] = ()
+    metadata: dict[str, JsonValue] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,7 +56,6 @@ class DriverStateReadRequest:
 @dataclass(frozen=True, slots=True)
 class DriverStateReadback:
     observations: tuple[DriverStateObservation, ...]
-    metadata: dict[str, JsonValue] = field(default_factory=dict)
 
     @property
     def values(self) -> dict[StateMemberRef, DriverScalar]:
@@ -63,17 +63,39 @@ class DriverStateReadback:
             observation.target: observation.value for observation in self.observations
         }
 
+    def with_observation_metadata(
+        self,
+        metadata: Mapping[str, JsonValue],
+        /,
+    ) -> DriverStateReadback:
+        """Merge common evidence into each member observation."""
+
+        return DriverStateReadback(
+            observations=tuple(
+                DriverStateObservation(
+                    target=observation.target,
+                    value=observation.value,
+                    source=observation.source,
+                    coherence_id=observation.coherence_id,
+                    entity_ids=observation.entity_ids,
+                    channel_bindings=observation.channel_bindings,
+                    metadata={**observation.metadata, **metadata},
+                )
+                for observation in self.observations
+            )
+        )
+
 
 def state_readback[MemberT: StateMemberRef](
     request: DriverStateReadRequest,
     values: Mapping[MemberT, DriverScalar],
     /,
     *,
-    metadata: dict[str, JsonValue] | None = None,
+    evidence: dict[str, JsonValue] | None = None,
     source: ObservationSource = "hardware_query",
     coherence_id: str | None = None,
 ) -> DriverStateReadback:
-    """Build a readback for exactly the requested members present in ``values``."""
+    """Build exact member observations with optional common evidence metadata."""
 
     return DriverStateReadback(
         observations=tuple(
@@ -82,11 +104,11 @@ def state_readback[MemberT: StateMemberRef](
                 value=value,
                 source=source,
                 coherence_id=coherence_id,
+                metadata={} if evidence is None else dict(evidence),
             )
             for target, value in values.items()
             if target in request.targets
         ),
-        metadata={} if metadata is None else metadata,
     )
 
 

@@ -20,7 +20,6 @@ from scopecat.records.instrument import (
     state_member_identity,
     state_member_target,
 )
-from scopecat.records.metadata import JsonMetadata
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
     BackendCollectRequest,
@@ -96,7 +95,6 @@ class _InstrumentStateCache:
     entries: dict[StateMemberIdentity, InstrumentStateCacheEntry] = field(
         default_factory=dict
     )
-    metadata: JsonMetadata = field(default_factory=dict)
 
     def snapshot(self) -> InstrumentStateSnapshot | None:
         if not self.has_baseline:
@@ -109,7 +107,6 @@ class _InstrumentStateCache:
         return InstrumentStateSnapshot(
             instrument_id=self.instrument_id,
             observations=observations,
-            metadata=dict(self.metadata),
         )
 
     def read(
@@ -133,7 +130,6 @@ class _InstrumentStateCache:
             instrument_id=self.instrument_id,
             generation=self.generation,
             entries=entries,
-            metadata=dict(self.metadata),
         )
 
     def replace(self, state: InstrumentStateSnapshot) -> None:
@@ -152,7 +148,6 @@ class _InstrumentStateCache:
             )
             for observation in state.observations
         }
-        self.metadata = dict(state.metadata)
 
     def merge(self, readback: InstrumentStateReadback) -> None:
         self.instrument_id = readback.instrument_id
@@ -167,7 +162,6 @@ class _InstrumentStateCache:
                     observation=observation.model_copy(deep=True),
                 )
             )
-        self.metadata.update(readback.metadata)
 
     def mark(
         self,
@@ -203,7 +197,6 @@ class _InstrumentStateCache:
         self.default_status = "unknown"
         self.default_generation = self.generation
         self.default_reason = reason
-        self.metadata.clear()
 
 
 class OwnedInstrument:

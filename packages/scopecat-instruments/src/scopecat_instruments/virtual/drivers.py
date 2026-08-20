@@ -63,9 +63,8 @@ class _VirtualDriver(ObjectInstrumentDriver):
     @override
     def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
         readback = super().read_state(request)
-        return DriverStateReadback(
-            observations=readback.observations,
-            metadata={"mode": "virtual", "world_seed": self.world.seed},
+        return readback.with_observation_metadata(
+            {"mode": "virtual", "world_seed": self.world.seed}
         )
 
 

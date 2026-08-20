@@ -212,8 +212,14 @@ def test_gs200_source_and_monitor_transcript() -> None:
 
     assert identity.model == "GS210"
     assert isinstance(transitioned, DriverSuccess)
-    assert state.metadata["identity"] == identity.raw
-    assert set(state.metadata) == {"manufacturer", "model", "identity"}
+    assert state.observations
+    assert all(
+        observation.metadata["identity"] == identity.raw
+        for observation in state.observations
+    )
+    assert {frozenset(observation.metadata) for observation in state.observations} == {
+        frozenset({"manufacturer", "model", "identity"})
+    }
     assert state.values[DC_MONITOR_MEASUREMENT_ENABLED] is True
     assert state.values[DC_MONITOR_INTEGRATION_CYCLES] == 5
     assert state.values[DC_MONITOR_MEASUREMENT_DELAY] == Quantity(

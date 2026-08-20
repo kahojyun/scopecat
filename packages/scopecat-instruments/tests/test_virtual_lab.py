@@ -243,7 +243,12 @@ def test_virtual_temperature_adapter_preserves_readback_metadata() -> None:
         "autoscan_enabled": False,
         "reading_status": 0,
     }
-    assert _capture(driver).metadata == {"mode": "virtual", "world_seed": 19}
+    state = _capture(driver)
+    assert state.observations
+    assert all(
+        observation.metadata == {"mode": "virtual", "world_seed": 19}
+        for observation in state.observations
+    )
 
 
 def test_virtual_network_noise_is_deterministic_for_seed() -> None:

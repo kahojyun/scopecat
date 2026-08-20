@@ -198,6 +198,7 @@ class InstrumentStateObservation(BaseModel):
     coherence_id: str | None = None
     entity_ids: tuple[_NonEmptyId, ...] = ()
     channel_bindings: tuple[CommandChannelBinding, ...] = ()
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_target(self) -> InstrumentStateObservation:
@@ -223,6 +224,7 @@ def state_observation(
     coherence_id: str | None = None,
     entity_ids: tuple[str, ...] = (),
     channel_bindings: tuple[CommandChannelBinding, ...] = (),
+    metadata: JsonMetadata | None = None,
 ) -> InstrumentStateObservation:
     """Build one durable observation from a driver-facing member reference."""
 
@@ -234,6 +236,7 @@ def state_observation(
         coherence_id=coherence_id,
         entity_ids=entity_ids,
         channel_bindings=channel_bindings,
+        metadata={} if metadata is None else metadata,
     )
 
 
@@ -249,7 +252,6 @@ class InstrumentStateSnapshot(BaseModel):
 
     instrument_id: str
     observations: list[InstrumentStateObservation] = Field(default_factory=list)
-    metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_unique_targets(self) -> InstrumentStateSnapshot:
@@ -270,7 +272,6 @@ class InstrumentStateReadback(BaseModel):
 
     instrument_id: str
     observations: list[InstrumentStateObservation] = Field(default_factory=list)
-    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class InstrumentStateCacheEntry(BaseModel):
@@ -315,7 +316,6 @@ class InstrumentStateCacheReadback(BaseModel):
     instrument_id: str
     generation: Annotated[int, Field(ge=0)]
     entries: list[InstrumentStateCacheEntry] = Field(default_factory=list)
-    metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_unique_targets(self) -> InstrumentStateCacheReadback:

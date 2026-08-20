@@ -435,10 +435,14 @@ def test_instrument_driver_generates_description_and_applies_state() -> None:
         instrument.instrument_id,
         instrument.read_state(state_capture_request(description)),
     )
+    assert readback.observations
+    assert all(
+        observation.metadata == {"mode": "test_offline"}
+        for observation in readback.observations
+    )
     current = InstrumentStateSnapshot(
         instrument_id=readback.instrument_id,
         observations=readback.observations,
-        metadata=readback.metadata,
     )
     request = lower_backend_apply_request(command)
     patch = lower_state_patch(request)

@@ -195,7 +195,6 @@ def observe_members(
     snapshot = InstrumentStateSnapshot(
         instrument_id=readback.instrument_id,
         observations=[item.model_copy(deep=True) for item in readback.observations],
-        metadata=dict(readback.metadata),
     )
     problems = validate_state_capture(
         snapshot=snapshot,
@@ -224,7 +223,6 @@ def adopt_instrument_readback(
     snapshot = InstrumentStateSnapshot(
         instrument_id=readback.instrument_id,
         observations=[item.model_copy(deep=True) for item in readback.observations],
-        metadata=dict(readback.metadata),
     )
     problems = validate_state_snapshot(
         snapshot=snapshot,
