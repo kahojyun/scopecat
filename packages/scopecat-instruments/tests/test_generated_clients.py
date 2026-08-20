@@ -5,6 +5,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+from scopecat_testkit.instrument_codegen_fixtures.declarations import (
+    CompositeMethodLeftInterface,
+    DriverSourceInterface,
+)
+
+from scopecat_instruments.package_manifest import CompositeSurfaceRegistration
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 GENERATOR = REPOSITORY_ROOT / "scripts" / "generate_instrument_clients.py"
 FIXTURE_DECLARATIONS_MODULE = (
@@ -41,12 +48,20 @@ else:
         )
         for interface_name, member_name, public_name in json.loads(sys.argv[7])
     )
+    method_name_overrides = tuple(
+        (
+            getattr(getattr(declarations, interface_name), method_name),
+            public_name,
+        )
+        for interface_name, method_name, public_name in json.loads(sys.argv[8])
+    )
     surfaces = (
         clients_for_composite(
             sys.argv[4],
             *interface_types,
             driver_optional_flag=None if sys.argv[5] == "-" else sys.argv[5],
             member_name_overrides=member_name_overrides,
+            method_name_overrides=method_name_overrides,
         ),
     )
 print(
@@ -99,6 +114,7 @@ def _render_surface(
     composite_name: str | None = None,
     driver_optional_flag: str | None = None,
     member_name_overrides: tuple[tuple[str, str, str], ...] = (),
+    method_name_overrides: tuple[tuple[str, str, str], ...] = (),
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - fixed interpreter and repository code
         [
@@ -112,6 +128,7 @@ def _render_surface(
             "-" if driver_optional_flag is None else driver_optional_flag,
             member_projection_module,
             json.dumps(member_name_overrides),
+            json.dumps(method_name_overrides),
         ],
         cwd=REPOSITORY_ROOT,
         check=False,
@@ -130,6 +147,22 @@ def test_generated_catalog_imports_without_runtime_declaration_compilation() -> 
     )
 
     assert completed.returncode == 0, completed.stderr
+
+
+def test_composite_registration_uses_oo_declaration_objects_for_public_names() -> None:
+    registration = CompositeSurfaceRegistration(
+        name="SourceMethod",
+        interface_types=(DriverSourceInterface, CompositeMethodLeftInterface),
+        member_name_overrides=((DriverSourceInterface.enabled, "source_enabled"),),
+        method_name_overrides=((CompositeMethodLeftInterface.fire, "fire_source"),),
+    )
+
+    assert registration.member_name_overrides == (
+        (DriverSourceInterface.enabled, "source_enabled"),
+    )
+    assert registration.method_name_overrides == (
+        (CompositeMethodLeftInterface.fire, "fire_source"),
+    )
 
 
 def test_codegen_imports_member_projections_from_the_configured_module() -> None:
@@ -361,10 +394,76 @@ def test_codegen_rejects_composite_method_collisions() -> None:
     )
 
     assert completed.returncode != 0
-    assert "generated composite method collisions" in completed.stderr
+    assert "composite MethodCollisionComposite client name collisions" in (
+        completed.stderr
+    )
     assert "fire:" in completed.stderr
     assert "CompositeMethodLeftInterface" in completed.stderr
     assert "CompositeMethodRightInterface" in completed.stderr
+    assert "method_name_overrides" in completed.stderr
+
+
+def test_codegen_aliases_colliding_operations_across_all_client_time_models() -> None:
+    completed = _render_surface(
+        "CompositeMethodLeftInterface",
+        "CompositeMethodRightInterface",
+        composite_name="MethodComposite",
+        method_name_overrides=(
+            ("CompositeMethodLeftInterface", "fire", "fire_left"),
+            ("CompositeMethodRightInterface", "fire", "fire_right"),
+        ),
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-aliased-operation-composite>", "exec")
+    assert completed.stdout.count("    def fire_left(") == 3
+    assert completed.stdout.count("    def fire_right(") == 3
+    assert completed.stdout.count("self._clients[entity].fire_left(") == 1
+    assert completed.stdout.count("self._clients[entity].fire_right(") == 1
+    assert '_COMPOSITE_METHOD_LEFT_REF.operation("left_fire")' in completed.stdout
+    assert '_COMPOSITE_METHOD_RIGHT_REF.operation("right_fire")' in completed.stdout
+
+
+def test_codegen_aliases_colliding_acquisitions_across_all_client_time_models() -> None:
+    completed = _render_surface(
+        "CompositeAcquisitionLeftInterface",
+        "CompositeAcquisitionRightInterface",
+        composite_name="AcquisitionComposite",
+        method_name_overrides=(
+            ("CompositeAcquisitionLeftInterface", "sample", "sample_left"),
+            ("CompositeAcquisitionRightInterface", "sample", "sample_right"),
+        ),
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-aliased-acquisition-composite>", "exec")
+    assert completed.stdout.count("    def sample_left(") == 3
+    assert completed.stdout.count("    def sample_right(") == 3
+    assert "client.sample_left(id=id)" in completed.stdout
+    assert "client.sample_right(id=id)" in completed.stdout
+    assert (
+        '_COMPOSITE_ACQUISITION_LEFT_REF.acquisition("left_sample")' in completed.stdout
+    )
+    assert (
+        '_COMPOSITE_ACQUISITION_RIGHT_REF.acquisition("right_sample")'
+        in completed.stdout
+    )
+
+
+def test_codegen_rejects_member_and_method_names_that_share_a_client_slot() -> None:
+    completed = _render_surface(
+        "DriverSourceInterface",
+        "CompositeEnabledMethodInterface",
+        composite_name="SourceEnabledComposite",
+    )
+
+    assert completed.returncode != 0
+    assert "composite SourceEnabledComposite client name collisions" in (
+        completed.stderr
+    )
+    assert "property enabled" in completed.stderr
+    assert "operation enabled" in completed.stderr
+    assert "member_name_overrides or method_name_overrides" in completed.stderr
 
 
 def test_codegen_requires_explicit_names_for_composite_member_collisions() -> None:

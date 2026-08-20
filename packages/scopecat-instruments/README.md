@@ -73,7 +73,22 @@ CompositeSurfaceRegistration(
 
 These names apply consistently to member accessors and generated patch/target
 fields; recording, restoration, routing, and driver dispatch continue to use
-the original interface and property identities.
+the original interface and property identities. Operation and acquisition
+collisions use the parallel `method_name_overrides` surface:
+
+```python
+method_name_overrides = (
+    (TriggerInterface.fire, "fire_trigger"),
+    (GateInterface.fire, "fire_gate"),
+)
+```
+
+An override changes live, symbolic, and group client method names together but
+not their operation or acquisition refs. Use aliases only when the methods are
+genuinely different concepts. If they are the same portable capability, model
+that capability once in a shared interface. Interface authors should also avoid
+framework-owned client verbs such as `apply` and `ensure`; those names are a
+normal authoring convention rather than a second runtime validation system.
 
 The generator currently requires schema-specific client carriers before
 exposing payload-bearing operations. The declaration compiler and driver

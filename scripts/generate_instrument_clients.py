@@ -14,6 +14,7 @@ import re
 import sys
 import types
 import typing
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
@@ -98,6 +99,7 @@ class CompositeClientSurface:
     interface_types: tuple[type[object], ...]
     driver_optional_flag: str | None = None
     member_name_overrides: tuple[tuple[Member[object], str], ...] = ()
+    method_name_overrides: tuple[tuple[Callable[..., object], str], ...] = ()
 
 
 type GenerationSurface = ClientSurface | CompositeClientSurface
@@ -122,6 +124,7 @@ def clients_for_composite(
     *interface_types: type[object],
     driver_optional_flag: str | None = None,
     member_name_overrides: tuple[tuple[Member[object], str], ...] = (),
+    method_name_overrides: tuple[tuple[Callable[..., object], str], ...] = (),
 ) -> CompositeClientSurface:
     """Select one explicit package-local interface composition."""
 
@@ -136,6 +139,7 @@ def clients_for_composite(
         interface_types=interface_types,
         driver_optional_flag=driver_optional_flag,
         member_name_overrides=member_name_overrides,
+        method_name_overrides=method_name_overrides,
     )
 
 
@@ -243,6 +247,7 @@ def _manifest_surface(registration: SurfaceRegistration, /) -> GenerationSurface
             *registration.interface_types,
             driver_optional_flag=registration.driver_optional_flag,
             member_name_overrides=registration.member_name_overrides,
+            method_name_overrides=registration.method_name_overrides,
         )
     return clients_for(
         registration.interface_type,
@@ -1695,27 +1700,7 @@ def _composite_model(
         renderer=renderer,
         declaration_cache=declaration_cache,
     )
-    owners_by_method: dict[str, list[str]] = {}
-    for constituent in constituents:
-        for operation in constituent.layout.root.operations:
-            owners_by_method.setdefault(operation.method_name, []).append(
-                f"{constituent.interface_identity} operation"
-            )
-        for acquisition in constituent.layout.root.acquisitions:
-            owners_by_method.setdefault(acquisition.method_name, []).append(
-                f"{constituent.interface_identity} acquisition"
-            )
-    method_collisions = {
-        name: owners for name, owners in owners_by_method.items() if len(owners) > 1
-    }
-    if method_collisions:
-        details = "; ".join(
-            f"{name}: {' vs '.join(owners)}"
-            for name, owners in sorted(method_collisions.items())
-        )
-        raise ClientGenerationError(
-            f"generated composite method collisions for {composite_identity}: {details}"
-        )
+    method_name_overrides = _composite_method_name_overrides(surface, constituents)
 
     stem = surface.name.removesuffix("Interface")
     scopes = tuple(
@@ -1724,10 +1709,20 @@ def _composite_model(
             interface_stem=stem,
             constant_prefix=constituent.constant_prefix,
             overrides={},
+            method_name_overrides={
+                method_name: public_name
+                for (owner, method_name), public_name in method_name_overrides.items()
+                if owner is interface_type
+            },
             renderer=renderer,
         )
-        for constituent in constituents
+        for interface_type, constituent in zip(
+            surface.interface_types,
+            constituents,
+            strict=True,
+        )
     )
+    _validate_composite_client_names(surface, constituents, scopes)
     root = _ScopeModel(
         class_stem=stem,
         operations=tuple(
@@ -1886,6 +1881,94 @@ def _composite_constituents(
     return constituents
 
 
+def _composite_method_name_overrides(
+    surface: CompositeClientSurface,
+    constituents: tuple[_InterfaceConstituentModel, ...],
+) -> dict[tuple[type[object], str], str]:
+    targets: dict[Callable[..., object], list[tuple[type[object], str]]] = {}
+    for interface_type, constituent in zip(
+        surface.interface_types,
+        constituents,
+        strict=True,
+    ):
+        declared_method_names = tuple(
+            operation.method_name for operation in constituent.layout.root.operations
+        ) + tuple(
+            acquisition.method_name
+            for acquisition in constituent.layout.root.acquisitions
+        )
+        for method_name in declared_method_names:
+            method = cast(
+                "Callable[..., object]",
+                getattr(interface_type, method_name),
+            )
+            targets.setdefault(method, []).append((interface_type, method_name))
+
+    overrides: dict[tuple[type[object], str], str] = {}
+    for method, public_name in surface.method_name_overrides:
+        matches = targets.get(method, [])
+        if len(matches) != 1:
+            raise ClientGenerationError(
+                f"composite {surface.name} method name override must reference "
+                "one operation or acquisition declared by a constituent interface"
+            )
+        if not public_name.isidentifier() or keyword.iskeyword(public_name):
+            raise ClientGenerationError(
+                f"composite {surface.name} method name override must be a Python "
+                f"identifier: {public_name!r}"
+            )
+        [target] = matches
+        if target in overrides:
+            owner, method_name = target
+            raise ClientGenerationError(
+                f"composite {surface.name} repeats a method name override for "
+                f"{owner.__qualname__}.{method_name}"
+            )
+        overrides[target] = public_name
+    return overrides
+
+
+def _validate_composite_client_names(
+    surface: CompositeClientSurface,
+    constituents: tuple[_InterfaceConstituentModel, ...],
+    scopes: tuple[_ScopeModel, ...],
+) -> None:
+    owners_by_name: dict[str, list[str]] = {}
+    for constituent, scope in zip(constituents, scopes, strict=True):
+        for member in constituent.members:
+            owners_by_name.setdefault(member.python_name, []).append(
+                f"{constituent.interface_identity} property {member.property_id}"
+            )
+        for declared, operation in zip(
+            constituent.layout.root.operations,
+            scope.operations,
+            strict=True,
+        ):
+            owners_by_name.setdefault(operation.method_name, []).append(
+                f"{constituent.interface_identity} operation {declared.method_name}"
+            )
+        for declared, acquisition in zip(
+            constituent.layout.root.acquisitions,
+            scope.acquisitions,
+            strict=True,
+        ):
+            owners_by_name.setdefault(acquisition.method_name, []).append(
+                f"{constituent.interface_identity} acquisition {declared.method_name}"
+            )
+    collisions = {
+        name: owners for name, owners in owners_by_name.items() if len(owners) > 1
+    }
+    if not collisions:
+        return
+    details = "; ".join(
+        f"{name}: {' vs '.join(owners)}" for name, owners in sorted(collisions.items())
+    )
+    raise ClientGenerationError(
+        f"composite {surface.name} client name collisions: {details}; assign "
+        "distinct public names with member_name_overrides or method_name_overrides"
+    )
+
+
 def _validate_generated_symbols(
     models: tuple[_InterfaceModel, ...],
 ) -> None:
@@ -1972,12 +2055,18 @@ def _scope_model(
     constant_prefix: str,
     overrides: dict[str, str],
     renderer: _AnnotationRenderer,
+    method_name_overrides: dict[str, str] | None = None,
 ) -> _ScopeModel:
     operations = tuple(
         _operation_model(
             operation,
             constant_prefix=constant_prefix,
             renderer=renderer,
+            public_name=(
+                None
+                if method_name_overrides is None
+                else method_name_overrides.get(operation.method_name)
+            ),
         )
         for operation in scope.operations
     )
@@ -1986,6 +2075,11 @@ def _scope_model(
             acquisition,
             constant_prefix=constant_prefix,
             overrides=overrides,
+            public_name=(
+                None
+                if method_name_overrides is None
+                else method_name_overrides.get(acquisition.method_name)
+            ),
         )
         for acquisition in scope.acquisitions
     )
@@ -2001,6 +2095,7 @@ def _operation_model(
     *,
     constant_prefix: str,
     renderer: _AnnotationRenderer,
+    public_name: str | None,
 ) -> _OperationModel:
     arguments: list[_OperationArgumentModel] = []
     for argument in operation.arguments:
@@ -2025,7 +2120,7 @@ def _operation_model(
             )
         )
     return _OperationModel(
-        method_name=operation.method_name,
+        method_name=operation.method_name if public_name is None else public_name,
         descriptor_name=_descriptor_name(
             constant_prefix,
             operation.method_name,
@@ -2039,18 +2134,20 @@ def _acquisition_model(
     *,
     constant_prefix: str,
     overrides: dict[str, str],
+    public_name: str | None,
 ) -> _AcquisitionModel:
     result_alias = acquisition.result.result_type
     result_type = cast("type[object]", get_origin(result_alias) or result_alias)
     result_type_name = result_type.__name__
     result_stem = result_type_name.removesuffix("Results")
-    method_name = acquisition.method_name
-    override_prefix = method_name
+    declared_method_name = acquisition.method_name
+    method_name = declared_method_name if public_name is None else public_name
+    override_prefix = declared_method_name
     return _AcquisitionModel(
         method_name=method_name,
         descriptor_name=_descriptor_name(
             constant_prefix,
-            method_name,
+            declared_method_name,
         ),
         result_type_name=result_type_name,
         result_fields=tuple(

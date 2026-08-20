@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
 from typing import Literal, cast
@@ -48,6 +49,7 @@ class InterfaceSurfaceRegistration:
 
 
 type CompositeMemberNameOverride = tuple[Member[object], str]
+type CompositeMethodNameOverride = tuple[Callable[..., object], str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +58,7 @@ class CompositeSurfaceRegistration:
     interface_types: tuple[type[object], ...]
     driver_optional_flag: str | None = None
     member_name_overrides: tuple[CompositeMemberNameOverride, ...] = ()
+    method_name_overrides: tuple[CompositeMethodNameOverride, ...] = ()
 
 
 type SurfaceRegistration = InterfaceSurfaceRegistration | CompositeSurfaceRegistration
@@ -243,6 +246,7 @@ __all__ = [
     "YOKOGAWA_GS200",
     "YOKOGAWA_GS200_DRIVER",
     "CompositeMemberNameOverride",
+    "CompositeMethodNameOverride",
     "CompositeSurfaceRegistration",
     "DriverRegistration",
     "InstrumentPackageManifest",

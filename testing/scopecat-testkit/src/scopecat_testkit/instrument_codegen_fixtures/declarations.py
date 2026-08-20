@@ -72,6 +72,34 @@ class CompositeMethodPeerInterface(Protocol):
     def arm(self) -> None: ...
 
 
+@instrument_interface("test.generated_composite_enabled_method/v1")
+class CompositeEnabledMethodInterface(Protocol):
+    @operation()
+    def enabled(self) -> None: ...
+
+
+@instrument_result
+class CompositeAcquisitionLeftResults:
+    left: float = result_field(dtype="float64")
+
+
+@instrument_interface("test.generated_composite_acquisition_left/v1")
+class CompositeAcquisitionLeftInterface(Protocol):
+    @acquisition(id="left_sample")
+    def sample(self) -> CompositeAcquisitionLeftResults: ...
+
+
+@instrument_result
+class CompositeAcquisitionRightResults:
+    right: float = result_field(dtype="float64")
+
+
+@instrument_interface("test.generated_composite_acquisition_right/v1")
+class CompositeAcquisitionRightInterface(Protocol):
+    @acquisition(id="right_sample")
+    def sample(self) -> CompositeAcquisitionRightResults: ...
+
+
 @instrument_interface("test.generated_payload_operation/v1")
 class PayloadOperationInterface(Protocol):
     @operation()
@@ -160,6 +188,11 @@ class EffectIdCollisionInterface(Protocol):
 
 __all__ = [
     "CatalogProjectionInterface",
+    "CompositeAcquisitionLeftInterface",
+    "CompositeAcquisitionLeftResults",
+    "CompositeAcquisitionRightInterface",
+    "CompositeAcquisitionRightResults",
+    "CompositeEnabledMethodInterface",
     "CompositeMethodLeftInterface",
     "CompositeMethodPeerInterface",
     "CompositeMethodRightInterface",
