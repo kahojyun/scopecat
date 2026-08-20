@@ -90,6 +90,24 @@ that capability once in a shared interface. Interface authors should also avoid
 framework-owned client verbs such as `apply` and `ensure`; those names are a
 normal authoring convention rather than a second runtime validation system.
 
+Generated acquisition carrier names use the acquisition declaration as their
+key on both individual and composite surfaces:
+
+```python
+acquisition_names = (
+    AcquisitionPublicNames(
+        SensorInterface.sample,
+        readback="SensorSampleReadback",
+        products="SensorSampleProducts",
+    ),
+)
+```
+
+Either carrier name may be omitted when its declaration-derived default is
+already unambiguous. This is also the explicit escape hatch when different
+composite acquisitions happen to reuse the same result-class name; it does not
+change acquisition or result refs.
+
 The generator currently requires schema-specific client carriers before
 exposing payload-bearing operations. The declaration compiler and driver
 adapter already accept decoded payloads. Reusable instrument components compile

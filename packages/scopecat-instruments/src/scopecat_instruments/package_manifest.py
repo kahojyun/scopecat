@@ -43,9 +43,16 @@ class PythonSymbol:
 
 
 @dataclass(frozen=True, slots=True)
+class AcquisitionPublicNames:
+    acquisition: Callable[..., object]
+    readback: str | None = None
+    products: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class InterfaceSurfaceRegistration:
     interface_type: type[object]
-    public_name_overrides: tuple[tuple[str, str], ...] = ()
+    acquisition_names: tuple[AcquisitionPublicNames, ...] = ()
 
 
 type CompositeMemberNameOverride = tuple[Member[object], str]
@@ -59,6 +66,7 @@ class CompositeSurfaceRegistration:
     driver_optional_flag: str | None = None
     member_name_overrides: tuple[CompositeMemberNameOverride, ...] = ()
     method_name_overrides: tuple[CompositeMethodNameOverride, ...] = ()
+    acquisition_names: tuple[AcquisitionPublicNames, ...] = ()
 
 
 type SurfaceRegistration = InterfaceSurfaceRegistration | CompositeSurfaceRegistration
@@ -195,7 +203,12 @@ PACKAGE_MANIFEST = InstrumentPackageManifest(
     surfaces=(
         InterfaceSurfaceRegistration(
             TemperatureReadoutInterface,
-            public_name_overrides=(("sample.readback", "TemperatureReadback"),),
+            acquisition_names=(
+                AcquisitionPublicNames(
+                    TemperatureReadoutInterface.sample,
+                    readback="TemperatureReadback",
+                ),
+            ),
         ),
         InterfaceSurfaceRegistration(RFOutputInterface),
         InterfaceSurfaceRegistration(ReferenceClockInterface),
@@ -245,6 +258,7 @@ __all__ = [
     "VIRTUAL_VNA_DRIVER",
     "YOKOGAWA_GS200",
     "YOKOGAWA_GS200_DRIVER",
+    "AcquisitionPublicNames",
     "CompositeMemberNameOverride",
     "CompositeMethodNameOverride",
     "CompositeSurfaceRegistration",

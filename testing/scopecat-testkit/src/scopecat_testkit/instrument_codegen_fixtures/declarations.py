@@ -79,25 +79,20 @@ class CompositeEnabledMethodInterface(Protocol):
 
 
 @instrument_result
-class CompositeAcquisitionLeftResults:
-    left: float = result_field(dtype="float64")
+class CompositeSampleResults:
+    value: float = result_field(dtype="float64")
 
 
 @instrument_interface("test.generated_composite_acquisition_left/v1")
 class CompositeAcquisitionLeftInterface(Protocol):
     @acquisition(id="left_sample")
-    def sample(self) -> CompositeAcquisitionLeftResults: ...
-
-
-@instrument_result
-class CompositeAcquisitionRightResults:
-    right: float = result_field(dtype="float64")
+    def sample(self) -> CompositeSampleResults: ...
 
 
 @instrument_interface("test.generated_composite_acquisition_right/v1")
 class CompositeAcquisitionRightInterface(Protocol):
     @acquisition(id="right_sample")
-    def sample(self) -> CompositeAcquisitionRightResults: ...
+    def sample(self) -> CompositeSampleResults: ...
 
 
 @instrument_interface("test.generated_payload_operation/v1")
@@ -189,14 +184,13 @@ class EffectIdCollisionInterface(Protocol):
 __all__ = [
     "CatalogProjectionInterface",
     "CompositeAcquisitionLeftInterface",
-    "CompositeAcquisitionLeftResults",
     "CompositeAcquisitionRightInterface",
-    "CompositeAcquisitionRightResults",
     "CompositeEnabledMethodInterface",
     "CompositeMethodLeftInterface",
     "CompositeMethodPeerInterface",
     "CompositeMethodRightInterface",
     "CompositePeerInterface",
+    "CompositeSampleResults",
     "DriverFixedAcquisitionInterface",
     "DriverFixedResults",
     "DriverMonitorInterface",

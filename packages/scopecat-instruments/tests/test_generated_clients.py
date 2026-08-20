@@ -6,11 +6,15 @@ import sys
 from pathlib import Path
 
 from scopecat_testkit.instrument_codegen_fixtures.declarations import (
+    CompositeAcquisitionLeftInterface,
     CompositeMethodLeftInterface,
     DriverSourceInterface,
 )
 
-from scopecat_instruments.package_manifest import CompositeSurfaceRegistration
+from scopecat_instruments.package_manifest import (
+    AcquisitionPublicNames,
+    CompositeSurfaceRegistration,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 GENERATOR = REPOSITORY_ROOT / "scripts" / "generate_instrument_clients.py"
@@ -29,6 +33,7 @@ from runpy import run_path
 import sys
 
 generator = run_path(sys.argv[1])
+AcquisitionPublicNames = generator["AcquisitionPublicNames"]
 clients_for = generator["clients_for"]
 clients_for_composite = generator["clients_for_composite"]
 render_client_module = generator["render_client_module"]
@@ -38,8 +43,18 @@ interface_types = tuple(
     getattr(declarations, name)
     for name in sys.argv[3].split(",")
 )
+acquisition_names = tuple(
+    AcquisitionPublicNames(
+        getattr(getattr(declarations, interface_name), method_name),
+        readback=readback,
+        products=products,
+    )
+    for interface_name, method_name, readback, products in json.loads(sys.argv[9])
+)
 if sys.argv[4] == "-":
-    surfaces = (clients_for(interface_types[0]),)
+    surfaces = (
+        clients_for(interface_types[0], acquisition_names=acquisition_names),
+    )
 else:
     member_name_overrides = tuple(
         (
@@ -62,6 +77,7 @@ else:
             driver_optional_flag=None if sys.argv[5] == "-" else sys.argv[5],
             member_name_overrides=member_name_overrides,
             method_name_overrides=method_name_overrides,
+            acquisition_names=acquisition_names,
         ),
     )
 print(
@@ -115,6 +131,7 @@ def _render_surface(
     driver_optional_flag: str | None = None,
     member_name_overrides: tuple[tuple[str, str, str], ...] = (),
     method_name_overrides: tuple[tuple[str, str, str], ...] = (),
+    acquisition_names: tuple[tuple[str, str, str | None, str | None], ...] = (),
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - fixed interpreter and repository code
         [
@@ -129,6 +146,7 @@ def _render_surface(
             member_projection_module,
             json.dumps(member_name_overrides),
             json.dumps(method_name_overrides),
+            json.dumps(acquisition_names),
         ],
         cwd=REPOSITORY_ROOT,
         check=False,
@@ -152,9 +170,19 @@ def test_generated_catalog_imports_without_runtime_declaration_compilation() -> 
 def test_composite_registration_uses_oo_declaration_objects_for_public_names() -> None:
     registration = CompositeSurfaceRegistration(
         name="SourceMethod",
-        interface_types=(DriverSourceInterface, CompositeMethodLeftInterface),
+        interface_types=(
+            DriverSourceInterface,
+            CompositeMethodLeftInterface,
+            CompositeAcquisitionLeftInterface,
+        ),
         member_name_overrides=((DriverSourceInterface.enabled, "source_enabled"),),
         method_name_overrides=((CompositeMethodLeftInterface.fire, "fire_source"),),
+        acquisition_names=(
+            AcquisitionPublicNames(
+                CompositeAcquisitionLeftInterface.sample,
+                products="SourceSampleProducts",
+            ),
+        ),
     )
 
     assert registration.member_name_overrides == (
@@ -162,6 +190,12 @@ def test_composite_registration_uses_oo_declaration_objects_for_public_names() -
     )
     assert registration.method_name_overrides == (
         (CompositeMethodLeftInterface.fire, "fire_source"),
+    )
+    assert registration.acquisition_names == (
+        AcquisitionPublicNames(
+            CompositeAcquisitionLeftInterface.sample,
+            products="SourceSampleProducts",
+        ),
     )
 
 
@@ -309,6 +343,27 @@ def test_codegen_types_products_by_native_point_value() -> None:
     assert "RecordRef" not in array.stdout
 
 
+def test_codegen_names_single_acquisition_carriers_by_declaration() -> None:
+    completed = _render_surface(
+        "NativeScalarInterface",
+        acquisition_names=(
+            (
+                "NativeScalarInterface",
+                "sample",
+                "ScalarSampleReadback",
+                "ScalarSampleProducts",
+            ),
+        ),
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-named-acquisition>", "exec")
+    assert "class ScalarSampleReadback:" in completed.stdout
+    assert "class ScalarSampleProducts(ProductBundle):" in completed.stdout
+    assert "def sample(self) -> ScalarSampleReadback:" in completed.stdout
+    assert ") -> ScalarSampleProducts:" in completed.stdout
+
+
 def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     completed = _render_surface(
         "DCSourceInterface",
@@ -424,7 +479,7 @@ def test_codegen_aliases_colliding_operations_across_all_client_time_models() ->
     assert '_COMPOSITE_METHOD_RIGHT_REF.operation("right_fire")' in completed.stdout
 
 
-def test_codegen_aliases_colliding_acquisitions_across_all_client_time_models() -> None:
+def test_codegen_requires_explicit_names_for_colliding_acquisition_carriers() -> None:
     completed = _render_surface(
         "CompositeAcquisitionLeftInterface",
         "CompositeAcquisitionRightInterface",
@@ -435,12 +490,47 @@ def test_codegen_aliases_colliding_acquisitions_across_all_client_time_models() 
         ),
     )
 
+    assert completed.returncode != 0
+    assert "generated symbol collisions" in completed.stderr
+    assert "CompositeSampleReadback" in completed.stderr
+    assert "CompositeSampleProducts" in completed.stderr
+
+
+def test_codegen_names_colliding_acquisition_carriers_by_declaration() -> None:
+    completed = _render_surface(
+        "CompositeAcquisitionLeftInterface",
+        "CompositeAcquisitionRightInterface",
+        composite_name="AcquisitionComposite",
+        method_name_overrides=(
+            ("CompositeAcquisitionLeftInterface", "sample", "sample_left"),
+            ("CompositeAcquisitionRightInterface", "sample", "sample_right"),
+        ),
+        acquisition_names=(
+            (
+                "CompositeAcquisitionLeftInterface",
+                "sample",
+                "LeftSampleReadback",
+                "LeftSampleProducts",
+            ),
+            (
+                "CompositeAcquisitionRightInterface",
+                "sample",
+                "RightSampleReadback",
+                "RightSampleProducts",
+            ),
+        ),
+    )
+
     assert completed.returncode == 0, completed.stderr
     compile(completed.stdout, "<generated-aliased-acquisition-composite>", "exec")
     assert completed.stdout.count("    def sample_left(") == 3
     assert completed.stdout.count("    def sample_right(") == 3
     assert "client.sample_left(id=id)" in completed.stdout
     assert "client.sample_right(id=id)" in completed.stdout
+    assert "class LeftSampleReadback:" in completed.stdout
+    assert "class LeftSampleProducts(ProductBundle):" in completed.stdout
+    assert "class RightSampleReadback:" in completed.stdout
+    assert "class RightSampleProducts(ProductBundle):" in completed.stdout
     assert (
         '_COMPOSITE_ACQUISITION_LEFT_REF.acquisition("left_sample")' in completed.stdout
     )
