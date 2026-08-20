@@ -90,6 +90,7 @@ class InstrumentPackageManifest:
     surfaces: tuple[SurfaceRegistration, ...]
     public_types: tuple[object, ...]
     drivers: tuple[DriverRegistration, ...]
+    static_exports: tuple[tuple[str, str], ...] = ()
 
 
 YOKOGAWA_GS200_DRIVER = DriverRegistration(
@@ -237,6 +238,7 @@ PACKAGE_MANIFEST = InstrumentPackageManifest(
         VIRTUAL_TEMPERATURE_MONITOR_DRIVER,
         VIRTUAL_VNA_DRIVER,
     ),
+    static_exports=(("ConfiguredInstrumentProvider", "scopecat_instruments.provider"),),
 )
 
 

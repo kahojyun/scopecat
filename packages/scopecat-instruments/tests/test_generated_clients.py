@@ -164,6 +164,52 @@ def _render_surface(
     )
 
 
+def test_codegen_parameterizes_manifest_package_and_output(
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "generated" / "lab_instruments"
+    command = [
+        sys.executable,
+        str(GENERATOR),
+        "--manifest",
+        "scopecat_instruments.package_manifest:PACKAGE_MANIFEST",
+        "--package-module",
+        "generated.lab_instruments",
+        "--output-root",
+        str(output_root),
+        "--no-fixtures",
+    ]
+
+    completed = subprocess.run(  # noqa: S603 - fixed interpreter and repository code
+        command,
+        cwd=REPOSITORY_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert {path.name for path in output_root.iterdir()} == {
+        "__init__.py",
+        "clients.py",
+        "driver_observations.py",
+        "interfaces.py",
+        "members.py",
+        "projections.py",
+    }
+    assert "from generated.lab_instruments.projections import (" in (
+        output_root / "clients.py"
+    ).read_text(encoding="utf-8")
+    checked = subprocess.run(  # noqa: S603 - fixed interpreter and repository code
+        [*command, "--check"],
+        cwd=REPOSITORY_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert checked.returncode == 0, checked.stderr
+
+
 def test_generated_catalog_imports_without_runtime_declaration_compilation() -> None:
     completed = subprocess.run(  # noqa: S603 - fixed interpreter and package code
         [sys.executable, "-c", _IMPORT_STATIC_CATALOG],

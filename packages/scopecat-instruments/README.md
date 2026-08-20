@@ -45,6 +45,18 @@ uv run --locked python scripts/generate_instrument_clients.py
 uv run --locked python scripts/generate_instrument_clients.py --check
 ```
 
+External packages invoke the same generator with their own manifest, import
+prefix, and source directory; `--no-fixtures` omits Scopecat's internal test
+catalog:
+
+```console
+uv run python ../scopecat/scripts/generate_instrument_clients.py \
+  --manifest example_lab.instruments.package_manifest:PACKAGE_MANIFEST \
+  --package-module example_lab.instrument_clients \
+  --output-root src/example_lab/instrument_clients \
+  --no-fixtures
+```
+
 Generated modules and the package facade are committed build outputs; edit the
 declarations or manifest and regenerate them. Static descriptors make imports
 independent of declaration compilation. Writable interfaces receive sparse

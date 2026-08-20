@@ -47,27 +47,12 @@ from scopecat_instruments.package_manifest import (
     PACKAGE_MANIFEST,
     AcquisitionPublicNames,
     CompositeSurfaceRegistration,
+    InstrumentPackageManifest,
     SurfaceRegistration,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 INSTRUMENTS_PACKAGE_ROOT = REPOSITORY_ROOT / "packages" / "scopecat-instruments"
-OUTPUT = INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "clients.py"
-MEMBERS_OUTPUT = (
-    INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "members.py"
-)
-INTERFACES_OUTPUT = (
-    INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "interfaces.py"
-)
-PROJECTIONS_OUTPUT = (
-    INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "projections.py"
-)
-DRIVER_OBSERVATIONS_OUTPUT = (
-    INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "driver_observations.py"
-)
-PACKAGE_EXPORTS_OUTPUT = (
-    INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "__init__.py"
-)
 FIXTURE_MODULE = "scopecat_testkit.instrument_codegen_fixtures"
 FIXTURE_PACKAGE_ROOT = (
     REPOSITORY_ROOT
@@ -80,7 +65,6 @@ FIXTURE_PACKAGE_ROOT = (
 FIXTURE_MEMBERS_OUTPUT = FIXTURE_PACKAGE_ROOT / "generated_members.py"
 FIXTURE_INTERFACES_OUTPUT = FIXTURE_PACKAGE_ROOT / "generated_interfaces.py"
 FIXTURE_PROJECTIONS_OUTPUT = FIXTURE_PACKAGE_ROOT / "generated_projections.py"
-PRODUCTION_MEMBER_PROJECTION_MODULE = "scopecat_instruments.projections"
 _TYPING_UNION_ORIGIN: object = typing.Union  # pyright: ignore[reportDeprecated]
 
 
@@ -239,6 +223,10 @@ class _DeclarationCache:
 
 class _Options(argparse.Namespace):
     check: bool = False
+    fixtures: bool = True
+    manifest: str = "scopecat_instruments.package_manifest:PACKAGE_MANIFEST"
+    output_root: Path = INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments"
+    package_module: str = "scopecat_instruments"
 
 
 class _FixtureDeclarations(Protocol):
@@ -269,35 +257,63 @@ def _manifest_surface(registration: SurfaceRegistration, /) -> GenerationSurface
     )
 
 
-_PRODUCTION_SURFACES = tuple(
-    _manifest_surface(registration) for registration in PACKAGE_MANIFEST.surfaces
-)
+@dataclass(frozen=True, slots=True)
+class PackageGenerationTargets:
+    client: GenerationTarget
+    catalog: CatalogTarget
+    exports: PackageExportsTarget
 
-PRODUCTION_TARGET = GenerationTarget(
-    output=OUTPUT,
-    surfaces=_PRODUCTION_SURFACES,
-    member_projection_module=PRODUCTION_MEMBER_PROJECTION_MODULE,
-)
 
-PRODUCTION_CATALOG_TARGET = CatalogTarget(
-    members_output=MEMBERS_OUTPUT,
-    interfaces_output=INTERFACES_OUTPUT,
-    projections_output=PROJECTIONS_OUTPUT,
-    members_module="scopecat_instruments.members",
-    interface_types=_surface_interface_types(_PRODUCTION_SURFACES),
-    driver_observations_output=DRIVER_OBSERVATIONS_OUTPUT,
-    composite_surfaces=_composite_surfaces(_PRODUCTION_SURFACES),
-    public_types=PACKAGE_MANIFEST.public_types,
-)
+def package_generation_targets(
+    manifest: InstrumentPackageManifest,
+    /,
+    *,
+    package_module: str,
+    output_root: Path,
+) -> PackageGenerationTargets:
+    """Build generated module targets for one instrument package manifest."""
 
-PRODUCTION_PACKAGE_EXPORTS_TARGET = PackageExportsTarget(
-    output=PACKAGE_EXPORTS_OUTPUT,
-    client_target=PRODUCTION_TARGET,
-    catalog_target=PRODUCTION_CATALOG_TARGET,
-    client_module="scopecat_instruments.clients",
-    projections_module="scopecat_instruments.projections",
-    static_exports=(("ConfiguredInstrumentProvider", "scopecat_instruments.provider"),),
+    if not package_module or any(
+        not segment.isidentifier() for segment in package_module.split(".")
+    ):
+        raise ValueError(f"invalid generated package module {package_module!r}")
+    surfaces = tuple(
+        _manifest_surface(registration) for registration in manifest.surfaces
+    )
+    client = GenerationTarget(
+        output=output_root / "clients.py",
+        surfaces=surfaces,
+        member_projection_module=f"{package_module}.projections",
+    )
+    catalog = CatalogTarget(
+        members_output=output_root / "members.py",
+        interfaces_output=output_root / "interfaces.py",
+        projections_output=output_root / "projections.py",
+        members_module=f"{package_module}.members",
+        interface_types=_surface_interface_types(surfaces),
+        driver_observations_output=output_root / "driver_observations.py",
+        composite_surfaces=_composite_surfaces(surfaces),
+        public_types=manifest.public_types,
+    )
+    exports = PackageExportsTarget(
+        output=output_root / "__init__.py",
+        client_target=client,
+        catalog_target=catalog,
+        client_module=f"{package_module}.clients",
+        projections_module=f"{package_module}.projections",
+        static_exports=manifest.static_exports,
+    )
+    return PackageGenerationTargets(client=client, catalog=catalog, exports=exports)
+
+
+_PRODUCTION_TARGETS = package_generation_targets(
+    PACKAGE_MANIFEST,
+    package_module="scopecat_instruments",
+    output_root=INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments",
 )
+PRODUCTION_TARGET = _PRODUCTION_TARGETS.client
+PRODUCTION_CATALOG_TARGET = _PRODUCTION_TARGETS.catalog
+PRODUCTION_PACKAGE_EXPORTS_TARGET = _PRODUCTION_TARGETS.exports
 
 
 def _fixture_catalog_target() -> CatalogTarget:
@@ -357,16 +373,26 @@ def _fixture_declarations() -> _FixtureDeclarations:
     )
 
 
-def _generation_targets() -> tuple[GenerationTarget, ...]:
-    return (PRODUCTION_TARGET,)
+def _generation_targets(
+    targets: PackageGenerationTargets = _PRODUCTION_TARGETS,
+) -> tuple[GenerationTarget, ...]:
+    return (targets.client,)
 
 
-def _catalog_targets() -> tuple[CatalogTarget, ...]:
-    return (PRODUCTION_CATALOG_TARGET, _fixture_catalog_target())
+def _catalog_targets(
+    targets: PackageGenerationTargets = _PRODUCTION_TARGETS,
+    *,
+    fixtures: bool = True,
+) -> tuple[CatalogTarget, ...]:
+    if fixtures:
+        return (targets.catalog, _fixture_catalog_target())
+    return (targets.catalog,)
 
 
-def _package_exports_targets() -> tuple[PackageExportsTarget, ...]:
-    return (PRODUCTION_PACKAGE_EXPORTS_TARGET,)
+def _package_exports_targets(
+    targets: PackageGenerationTargets = _PRODUCTION_TARGETS,
+) -> tuple[PackageExportsTarget, ...]:
+    return (targets.exports,)
 
 
 @dataclass(frozen=True, slots=True)
@@ -768,9 +794,16 @@ def render_catalog_target(
 
     cache = declaration_cache or _DeclarationCache()
     models = _catalog_models(target.interface_types, declaration_cache=cache)
+    local_package = target.members_module.partition(".")[0]
     rendered: list[tuple[Path, str]] = [
-        (target.members_output, _render_members_module(models)),
-        (target.interfaces_output, _render_interfaces_module(models)),
+        (
+            target.members_output,
+            _render_members_module(models, local_package=local_package),
+        ),
+        (
+            target.interfaces_output,
+            _render_interfaces_module(models, local_package=local_package),
+        ),
         (
             target.projections_output,
             _render_projections_module(
@@ -779,6 +812,7 @@ def render_catalog_target(
                 declaration_cache=cache,
                 public_types=target.public_types,
                 members_module=target.members_module,
+                local_package=local_package,
             ),
         ),
     ]
@@ -786,7 +820,10 @@ def render_catalog_target(
         rendered.append(
             (
                 target.driver_observations_output,
-                _render_driver_observations_module(models),
+                _render_driver_observations_module(
+                    models,
+                    local_package=local_package,
+                ),
             )
         )
     return tuple(rendered)
@@ -826,7 +863,11 @@ def _catalog_models(
     return tuple(models)
 
 
-def _render_members_module(models: tuple[_CatalogInterfaceModel, ...]) -> str:
+def _render_members_module(
+    models: tuple[_CatalogInterfaceModel, ...],
+    *,
+    local_package: str,
+) -> str:
     projections = tuple(
         projection
         for model in models
@@ -843,7 +884,7 @@ def _render_members_module(models: tuple[_CatalogInterfaceModel, ...]) -> str:
         _generated_module_header(
             "Typed identities generated from the declared instrument interfaces."
         )
-        + _render_import_block(imports)
+        + _render_import_block(imports, local_package=local_package)
         + "\n"
         + declarations
         + _render_all(tuple(projection.name for projection in projections))
@@ -852,6 +893,8 @@ def _render_members_module(models: tuple[_CatalogInterfaceModel, ...]) -> str:
 
 def _render_driver_observations_module(
     models: tuple[_CatalogInterfaceModel, ...],
+    *,
+    local_package: str,
 ) -> str:
     """Render measurement-valued carriers implemented by concrete drivers."""
 
@@ -889,16 +932,30 @@ def _render_driver_observations_module(
                 f"{fields_source}"
                 "    evidence: dict[str, JsonValue] = field(default_factory=dict)\n"
             )
+    imports = (
+        {
+            "dataclasses": {"dataclass", "field"},
+            "pydantic": {"JsonValue"},
+            "scopecat.records.measurement": {"MeasurementAcquisitionValue"},
+        }
+        if declarations
+        else {}
+    )
+    if not declarations:
+        return (
+            _generated_module_header(
+                "Measurement-valued observations generated for instrument drivers."
+            ).rstrip()
+            + "\n"
+            + _render_all(())
+        )
     return (
         _generated_module_header(
             "Measurement-valued observations generated for instrument drivers."
         )
         + _render_import_block(
-            {
-                "dataclasses": {"dataclass", "field"},
-                "pydantic": {"JsonValue"},
-                "scopecat.records.measurement": {"MeasurementAcquisitionValue"},
-            }
+            imports,
+            local_package=local_package,
         )
         + "".join(sections)
         + "\n"
@@ -1058,7 +1115,11 @@ def _render_member_identity(projection: _MemberIdentity) -> str:
     )
 
 
-def _render_interfaces_module(models: tuple[_CatalogInterfaceModel, ...]) -> str:
+def _render_interfaces_module(
+    models: tuple[_CatalogInterfaceModel, ...],
+    *,
+    local_package: str,
+) -> str:
     owners_by_name: dict[str, list[str]] = {}
     imports: dict[str, set[str]] = {
         "scopecat.sdk.instruments": {"InterfaceSpec"},
@@ -1092,7 +1153,7 @@ def _render_interfaces_module(models: tuple[_CatalogInterfaceModel, ...]) -> str
         _generated_module_header(
             "Vendor-neutral interface factories generated from Python declarations."
         )
-        + _render_import_block(imports)
+        + _render_import_block(imports, local_package=local_package)
         + "\n"
         + "\n\n".join(declarations)
         + "\n"
@@ -1197,6 +1258,7 @@ def _render_projections_module(
     declaration_cache: _DeclarationCache,
     public_types: tuple[object, ...],
     members_module: str,
+    local_package: str,
 ) -> str:
     renderer = _AnnotationRenderer()
     imports: dict[str, set[str]] = {}
@@ -1315,7 +1377,9 @@ def _render_projections_module(
         imports.setdefault(module, set()).update(names)
     if member_imports:
         imports[members_module] = member_imports
-    import_block = _render_import_block(imports) if imports else ""
+    import_block = (
+        _render_import_block(imports, local_package=local_package) if imports else ""
+    )
     declaration_block = "".join(declarations)
     if import_block:
         declaration_block = declaration_block.removeprefix("\n")
@@ -1534,9 +1598,14 @@ def render_client_module(
         member_projection_module=member_projection_module,
         declaration_cache=cache,
     )
+    local_package = member_projection_module.partition(".")[0]
 
     sections = [
-        _render_header(models, renderer=renderer),
+        _render_header(
+            models,
+            renderer=renderer,
+            local_package=local_package,
+        ),
         _render_interface_refs(models),
         _render_descriptors(models),
     ]
@@ -2318,6 +2387,7 @@ def _render_header(
     models: tuple[_InterfaceModel, ...],
     *,
     renderer: _AnnotationRenderer,
+    local_package: str,
 ) -> str:
     scopes = tuple(model.root for model in models)
     has_operations = any(scope.operations for scope in scopes)
@@ -2392,12 +2462,19 @@ def _render_header(
         ):
             imports["scopecat.program.measurement_types"] = {"MeasurementArrayData"}
         imports["scopecat.sdk.instruments"].add("CollectReceipt")
+        acquisition_runtime_imports = {
+            "ClientAcquisition",
+            "ClientAcquisitionResult",
+        }
+        if any(
+            field.spec.axes
+            for model in models
+            for acquisition in model.root.acquisitions
+            for field in acquisition.result_fields
+        ):
+            acquisition_runtime_imports.add("ClientAcquisitionAxis")
         imports.setdefault("scopecat_instruments._client_runtime", set()).update(
-            {
-                "ClientAcquisition",
-                "ClientAcquisitionAxis",
-                "ClientAcquisitionResult",
-            }
+            acquisition_runtime_imports
         )
     if has_operations:
         imports.setdefault("scopecat.sdk.instruments", set()).add("InvokeReceipt")
@@ -2407,12 +2484,13 @@ def _render_header(
     return (
         "# This file was auto-generated by scripts/generate_instrument_clients.py.\n"
         "# Do not make direct changes to the file.\n"
-        "# pyright: reportPrivateUsage=false\n"
+        "# pyright: reportPrivateUsage=false, reportImplicitStringConcatenation=false\n"
+        "# pyright: reportUnannotatedClassAttribute=false\n"
         '"""Typed live and symbolic clients generated from interface declarations."""\n'
         "\n"
         "from __future__ import annotations\n"
         "\n"
-        f"{_render_import_block(imports)}"
+        f"{_render_import_block(imports, local_package=local_package)}"
     )
 
 
@@ -2441,14 +2519,18 @@ def _render_bare_from_import(module: str, names: set[str]) -> str:
     )
 
 
-def _render_import_block(imports: dict[str, set[str]]) -> str:
+def _render_import_block(
+    imports: dict[str, set[str]],
+    *,
+    local_package: str,
+) -> str:
     standard_modules = {"dataclasses", "typing"}
-    external_modules = {
+    local_modules = {
         module
         for module in imports
-        if module == "pydantic" or module.startswith("scopecat.")
+        if module == local_package or module.startswith(f"{local_package}.")
     }
-    local_modules = imports.keys() - standard_modules - external_modules
+    external_modules = imports.keys() - standard_modules - local_modules
     standard_imports = "".join(
         _render_from_import(module, imports[module])
         for module in sorted(standard_modules & imports.keys())
@@ -3447,6 +3529,16 @@ def _snake_case(name: str) -> str:
     return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", words).lower()
 
 
+def _load_manifest(symbol: str, /) -> InstrumentPackageManifest:
+    module_name, separator, attribute = symbol.partition(":")
+    if not separator or not module_name or not attribute:
+        raise ValueError("manifest must use the form 'module:attribute'")
+    manifest = cast("object", getattr(import_module(module_name), attribute))
+    if not isinstance(manifest, InstrumentPackageManifest):
+        raise TypeError(f"{symbol!r} is not an InstrumentPackageManifest")
+    return manifest
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -3454,8 +3546,35 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="fail when any committed generated source is stale",
     )
+    parser.add_argument(
+        "--manifest",
+        default="scopecat_instruments.package_manifest:PACKAGE_MANIFEST",
+        help="instrument package manifest as module:attribute",
+    )
+    parser.add_argument(
+        "--package-module",
+        default="scopecat_instruments",
+        help="import path for the generated package",
+    )
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments",
+        help="directory that receives the generated package modules",
+    )
+    parser.add_argument(
+        "--fixtures",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="also generate Scopecat's internal codegen fixtures",
+    )
     options = _Options()
     parser.parse_args(argv, namespace=options)
+    package_targets = package_generation_targets(
+        _load_manifest(options.manifest),
+        package_module=options.package_module,
+        output_root=options.output_root.resolve(),
+    )
     declaration_cache = _DeclarationCache()
     rendered = (
         *(
@@ -3466,11 +3585,11 @@ def main(argv: list[str] | None = None) -> None:
                     declaration_cache=declaration_cache,
                 ),
             )
-            for target in _generation_targets()
+            for target in _generation_targets(package_targets)
         ),
         *(
             rendered_source
-            for target in _catalog_targets()
+            for target in _catalog_targets(package_targets, fixtures=options.fixtures)
             for rendered_source in render_catalog_target(
                 target,
                 declaration_cache=declaration_cache,
@@ -3484,7 +3603,7 @@ def main(argv: list[str] | None = None) -> None:
                     declaration_cache=declaration_cache,
                 ),
             )
-            for target in _package_exports_targets()
+            for target in _package_exports_targets(package_targets)
         ),
     )
     if options.check:
@@ -3495,18 +3614,17 @@ def main(argv: list[str] | None = None) -> None:
             != source
         )
         if stale:
-            rendered_paths = ", ".join(
-                str(path.relative_to(REPOSITORY_ROOT)) for path in stale
-            )
+            rendered_paths = ", ".join(str(path) for path in stale)
             print(
                 "generated instrument sources are stale "
                 f"({rendered_paths}); run "
-                "`uv run python scripts/generate_instrument_clients.py`",
+                "the instrument client generator without `--check`",
                 file=sys.stderr,
             )
             raise SystemExit(1)
         return
     for output, source in rendered:
+        output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(source, encoding="utf-8")
 
 
