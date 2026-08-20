@@ -20,6 +20,7 @@ from scopecat.sdk.instruments import (
     DriverSuccess,
     ObjectInstrumentDriver,
     instrument_driver,
+    query,
     state_readback,
 )
 from scopecat.sdk.instruments.scpi import (
@@ -89,14 +90,6 @@ class LakeShore372(ObjectInstrumentDriver):
             },
             metadata=metadata,
         )
-
-    @property
-    def scan_channel(self) -> int:
-        return self._scan_state()[0]
-
-    @property
-    def autoscan_enabled(self) -> bool:
-        return self._scan_state()[1]
 
     def sample(self) -> DriverOutcome[TemperatureSampleDriverResult]:
         try:
@@ -203,6 +196,10 @@ class LakeShore372(ObjectInstrumentDriver):
                 curve_number=curve_number,
             )
 
+    @query(
+        TemperatureReadoutInterface.scan_channel,
+        TemperatureReadoutInterface.autoscan_enabled,
+    )
     def _scan_state(self) -> tuple[int, bool]:
         scan_response = query_text(self.transport, "SCAN?").split(",")
         if len(scan_response) != 2:

@@ -68,55 +68,94 @@ physical `component_path`.
 
 The shortest driver workflow is:
 
-1. Declare properties, results, and a `Protocol` or ABC with the decorators in
+1. Declare members, results, and a `Protocol` or ABC with the helpers in
    `interface_declarations.py`.
 2. Register any new surface and the lazy driver implementation in
    `PACKAGE_MANIFEST`.
 3. Run `uv run --locked python scripts/generate_instrument_clients.py`.
-4. Subclass `ObjectInstrumentDriver` and implement ordinary Python properties
-   and methods.
+4. Subclass `ObjectInstrumentDriver` and bind explicit read/write/query/update
+   methods to the declared members.
 
 For example, an RF implementation does not handle member refs or generic
 requests:
 
 ```python
+from typing import Protocol
+
+from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments import (
+    Change,
+    DeviceMember,
+    Member,
     ObjectInstrumentDriver,
     device_member,
     instrument_driver,
+    read,
+    update,
 )
-from scopecat_instruments.interface_declarations import RFOutputInterface
+from scopecat.sdk.instruments.declarations import instrument_interface, member
+
+
+@instrument_interface("example.rf_output/v1")
+class RFOutput(Protocol):
+    frequency: Member[Quantity] = member(
+        access="read_write",
+        unit="Hz",
+    )
+    output_enabled: Member[bool] = member(access="read_write")
 
 
 @instrument_driver(
     "example.rf_source",
     "1",
-    interfaces=(RFOutputInterface,),
+    interfaces=(RFOutput,),
     device_schema_id="example.rf_source/v1",
 )
 class MyRfSource(ObjectInstrumentDriver):
+    reference_locked: DeviceMember[bool] = device_member(
+        access="read_only",
+        capture=True,
+        restore=False,
+    )
+
     def __init__(self, instrument_id: str) -> None:
         self.instrument_id = instrument_id
 
-    @property
-    def frequency(self) -> Quantity:
+    @read(RFOutput.frequency)
+    def read_frequency(self) -> Quantity:
         return self._query_frequency()
 
-    @frequency.setter
-    def frequency(self, value: Quantity) -> None:
-        self._set_frequency(value)
+    @update(
+        RFOutput.frequency,
+        RFOutput.output_enabled,
+    )
+    def update_output(
+        self,
+        *,
+        frequency: Change[Quantity],
+        output_enabled: Change[bool],
+    ) -> None:
+        if frequency.requested:
+            self._set_frequency(frequency.value)
+        if output_enabled.requested:
+            self._set_output(output_enabled.value)
 
-    @property
-    @device_member(capture=True, restore=False)
-    def reference_locked(self) -> bool:
+    @read(RFOutput.output_enabled)
+    def read_output_enabled(self) -> bool:
+        return self._query_output()
+
+    @read(reference_locked)
+    def read_reference_locked(self) -> bool:
         return self._query_reference_lock()
 ```
 
 The base class supplies `describe`, `read_state`, `apply_state`, `invoke`, and
-`collect` at the worker boundary. A driver overrides one only when the hardware
-needs batching or sequencing. `@device_member` records model-specific
+`collect` at the worker boundary. `@read`/`@write` expose independent I/O;
+`@query`/`@update` preserve hardware batching and sequencing without creating
+aggregate state. A driver overrides a worker method only for routing or a
+failure model that these bindings cannot express. `device_member(...)` records model-specific
 background information without inventing a one-device interface; its
-`capture`/`restore` policy is independent for every property. All four real and
+`capture`/`restore` policy is independent for every member. All four real and
 four virtual first-party drivers use this pattern.
 
 ## Configuration

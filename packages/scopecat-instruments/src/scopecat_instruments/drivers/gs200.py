@@ -12,6 +12,7 @@ from scopecat.records.measurement import (
     MeasurementUnavailable,
 )
 from scopecat.sdk.instruments import (
+    DeviceMember,
     DriverOutcome,
     DriverRejected,
     DriverStateObservation,
@@ -22,7 +23,9 @@ from scopecat.sdk.instruments import (
     ObjectInstrumentDriver,
     device_member,
     instrument_driver,
+    read,
     state_capture_request,
+    write,
 )
 from scopecat.sdk.instruments.scpi import (
     ScpiIdentity,
@@ -85,6 +88,19 @@ _CONDITION_NO_TRIGGER_SAMPLING_ERROR = 1 << 4
 class YokogawaGS200(ObjectInstrumentDriver):
     """GS200 source controls plus optional /MON single-value measurement."""
 
+    monitor_option: DeviceMember[bool] = device_member(
+        access="read_only",
+        description="Whether the instrument is expected to have the /MON option.",
+    )
+    remote_sense: DeviceMember[bool] = device_member(
+        access="read_only",
+        description="Expected remote-sense wiring mode.",
+    )
+    guard_enabled: DeviceMember[bool] = device_member(
+        access="read_only",
+        description="Expected driven-guard wiring mode.",
+    )
+
     def __init__(
         self,
         instrument_id: str,
@@ -101,35 +117,30 @@ class YokogawaGS200(ObjectInstrumentDriver):
         self._guard_enabled = guard_enabled
         self._identity: ScpiIdentity | None = None
 
-    @property
-    @device_member(
-        description="Whether the instrument is expected to have the /MON option.",
-    )
-    def monitor_option(self) -> bool:
+    @read(monitor_option)
+    def read_monitor_option(self) -> bool:
         return self._monitor_option
 
-    @property
-    @device_member(description="Expected remote-sense wiring mode.")
-    def remote_sense(self) -> bool:
+    @read(remote_sense)
+    def read_remote_sense(self) -> bool:
         return self._remote_sense
 
-    @property
-    @device_member(description="Expected driven-guard wiring mode.")
-    def guard_enabled(self) -> bool:
+    @read(guard_enabled)
+    def read_guard_enabled(self) -> bool:
         return self._guard_enabled
 
     @override
     def declared_interfaces(self) -> tuple[type[object], ...]:
         return (
             DCSourceInterface,
-            *((DCMonitorInterface,) if self.monitor_option else ()),
+            *((DCMonitorInterface,) if self._monitor_option else ()),
         )
 
     @override
     def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
         self._validate_connection_profile()
-        mode = self.source_mode
-        if self.remote_sense and mode == "voltage":
+        mode = self.read_source_mode()
+        if self._remote_sense and mode == "voltage":
             self._validate_source_profile(mode, self.source_range())
         readback = super().read_state(
             DriverStateReadRequest(request.targets - {DC_SOURCE_MODE})
@@ -180,34 +191,34 @@ class YokogawaGS200(ObjectInstrumentDriver):
                 or DC_MONITOR_MEASUREMENT_DELAY in values
             )
             if DC_SOURCE_VOLTAGE_PROTECTION in values:
-                self.voltage_protection = cast(
-                    "Quantity", values[DC_SOURCE_VOLTAGE_PROTECTION]
+                self.write_voltage_protection(
+                    cast("Quantity", values[DC_SOURCE_VOLTAGE_PROTECTION])
                 )
             if DC_SOURCE_CURRENT_PROTECTION in values:
-                self.current_protection = cast(
-                    "Quantity", values[DC_SOURCE_CURRENT_PROTECTION]
+                self.write_current_protection(
+                    cast("Quantity", values[DC_SOURCE_CURRENT_PROTECTION])
                 )
-            if self.monitor_option:
+            if self._monitor_option:
                 measurement_disabled_for_update = (
                     current_measurement and changes_measurement_settings
                 )
                 if measurement_disabled_for_update:
-                    self.measurement_enabled = False
+                    self.write_measurement_enabled(False)
                 if DC_MONITOR_INTEGRATION_CYCLES in values:
-                    self.integration_cycles = cast(
-                        "int", values[DC_MONITOR_INTEGRATION_CYCLES]
+                    self.write_integration_cycles(
+                        cast("int", values[DC_MONITOR_INTEGRATION_CYCLES])
                     )
                 if DC_MONITOR_MEASUREMENT_DELAY in values:
-                    self.measurement_delay = cast(
-                        "Quantity", values[DC_MONITOR_MEASUREMENT_DELAY]
+                    self.write_measurement_delay(
+                        cast("Quantity", values[DC_MONITOR_MEASUREMENT_DELAY])
                     )
                 effective_measurement = (
                     False if measurement_disabled_for_update else current_measurement
                 )
                 if target_measurement != effective_measurement:
-                    self.measurement_enabled = target_measurement
+                    self.write_measurement_enabled(target_measurement)
             if target_output != current_output:
-                self.output_enabled = target_output
+                self.write_output_enabled(target_output)
             return DriverSuccess(None)
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
@@ -257,7 +268,7 @@ class YokogawaGS200(ObjectInstrumentDriver):
         level_value: float,
     ) -> DriverOutcome[None]:
         try:
-            output_enabled = self.output_enabled
+            output_enabled = self.read_output_enabled()
             if output_enabled:
                 self.set_output(False)
             self.set_source_mode(mode)
@@ -312,7 +323,7 @@ class YokogawaGS200(ObjectInstrumentDriver):
         unit: Literal["A", "V"],
     ) -> DriverOutcome[MeasurementAcquisitionValue]:
         try:
-            mode = self.source_mode
+            mode = self.read_source_mode()
             if mode != expected_mode:
                 return DriverRejected(
                     problems=(
@@ -326,7 +337,7 @@ class YokogawaGS200(ObjectInstrumentDriver):
                         ),
                     )
                 )
-            if not self.output_enabled:
+            if not self.read_output_enabled():
                 return DriverRejected(
                     problems=(
                         state_property_problem(
@@ -336,7 +347,7 @@ class YokogawaGS200(ObjectInstrumentDriver):
                         ),
                     )
                 )
-            if not self.measurement_enabled:
+            if not self.read_measurement_enabled():
                 return DriverRejected(
                     problems=(
                         state_property_problem(
@@ -416,8 +427,8 @@ class YokogawaGS200(ObjectInstrumentDriver):
             raise ValueError("GS200 source mode must be voltage or current")
         self.transport.write(f":SOUR:FUNC {command}")
 
-    @property
-    def source_mode(self) -> Literal["voltage", "current"]:
+    @read(DCSourceInterface.source_mode)
+    def read_source_mode(self) -> Literal["voltage", "current"]:
         response = query_text(self.transport, ":SOUR:FUNC?").upper()
         if response.startswith("VOLT"):
             return "voltage"
@@ -440,45 +451,45 @@ class YokogawaGS200(ObjectInstrumentDriver):
     def set_voltage_protection(self, value_v: float) -> None:
         self.transport.write(f":SOUR:PROT:VOLT {format_number(value_v)}")
 
-    @property
-    def voltage_protection(self) -> Quantity:
+    @read(DCSourceInterface.voltage_protection)
+    def read_voltage_protection(self) -> Quantity:
         return Quantity(query_float(self.transport, ":SOUR:PROT:VOLT?"), "V")
 
-    @voltage_protection.setter
-    def voltage_protection(self, value: Quantity) -> None:
+    @write(DCSourceInterface.voltage_protection)
+    def write_voltage_protection(self, value: Quantity) -> None:
         self.set_voltage_protection(quantity_value(value, "V"))
 
     def set_current_protection(self, value_a: float) -> None:
         self.transport.write(f":SOUR:PROT:CURR {format_number(value_a)}")
 
-    @property
-    def current_protection(self) -> Quantity:
+    @read(DCSourceInterface.current_protection)
+    def read_current_protection(self) -> Quantity:
         return Quantity(query_float(self.transport, ":SOUR:PROT:CURR?"), "A")
 
-    @current_protection.setter
-    def current_protection(self, value: Quantity) -> None:
+    @write(DCSourceInterface.current_protection)
+    def write_current_protection(self, value: Quantity) -> None:
         self.set_current_protection(quantity_value(value, "A"))
 
     def set_output(self, enabled: bool) -> None:
         self.transport.write(f":OUTP {'ON' if enabled else 'OFF'}")
 
-    @property
-    def output_enabled(self) -> bool:
+    @read(DCSourceInterface.output_enabled)
+    def read_output_enabled(self) -> bool:
         return query_bool(self.transport, ":OUTP?")
 
-    @output_enabled.setter
-    def output_enabled(self, value: bool) -> None:
+    @write(DCSourceInterface.output_enabled)
+    def write_output_enabled(self, value: bool) -> None:
         self.set_output(value)
 
     def set_measurement_enabled(self, enabled: bool) -> None:
         self.transport.write(f":SENS {'ON' if enabled else 'OFF'}")
 
-    @property
-    def measurement_enabled(self) -> bool:
+    @read(DCMonitorInterface.measurement_enabled)
+    def read_measurement_enabled(self) -> bool:
         return query_bool(self.transport, ":SENS?")
 
-    @measurement_enabled.setter
-    def measurement_enabled(self, value: bool) -> None:
+    @write(DCMonitorInterface.measurement_enabled)
+    def write_measurement_enabled(self, value: bool) -> None:
         self.set_measurement_enabled(value)
 
     def set_integration_cycles(self, cycles: int) -> None:
@@ -486,16 +497,16 @@ class YokogawaGS200(ObjectInstrumentDriver):
             raise ValueError("GS200 integration cycles must be between 1 and 25")
         self.transport.write(f":SENS:NPLC {cycles}")
 
-    @property
-    def integration_cycles(self) -> int:
+    @read(DCMonitorInterface.integration_cycles)
+    def read_integration_cycles(self) -> int:
         value = query_float(self.transport, ":SENS:NPLC?")
         cycles = int(value)
         if value != cycles or not 1 <= cycles <= 25:
             raise ValueError(f"GS200 returned invalid integration cycles {value!r}")
         return cycles
 
-    @integration_cycles.setter
-    def integration_cycles(self, value: int) -> None:
+    @write(DCMonitorInterface.integration_cycles)
+    def write_integration_cycles(self, value: int) -> None:
         self.set_integration_cycles(value)
 
     def set_measurement_delay(self, delay_s: float) -> None:
@@ -505,15 +516,15 @@ class YokogawaGS200(ObjectInstrumentDriver):
             )
         self.transport.write(f":SENS:DEL {format_number(delay_s)}")
 
-    @property
-    def measurement_delay(self) -> Quantity:
+    @read(DCMonitorInterface.measurement_delay)
+    def read_measurement_delay(self) -> Quantity:
         delay_s = query_float(self.transport, ":SENS:DEL?")
         if not 0.0 <= delay_s <= 999.999:
             raise ValueError(f"GS200 returned invalid measurement delay {delay_s!r}")
         return Quantity(delay_s, "s")
 
-    @measurement_delay.setter
-    def measurement_delay(self, value: Quantity) -> None:
+    @write(DCMonitorInterface.measurement_delay)
+    def write_measurement_delay(self, value: Quantity) -> None:
         self.set_measurement_delay(quantity_value(value, "s"))
 
     def measurement_null_enabled(self) -> bool:
@@ -531,11 +542,11 @@ class YokogawaGS200(ObjectInstrumentDriver):
     def _validate_connection_profile(self) -> None:
         remote_sense = query_bool(self.transport, ":SENS:REM?")
         guard_enabled = query_bool(self.transport, ":SENS:GUAR?")
-        if remote_sense != self.remote_sense:
+        if remote_sense != self._remote_sense:
             raise ValueError(
                 "GS200 remote-sense state differs from the connection profile"
             )
-        if guard_enabled != self.guard_enabled:
+        if guard_enabled != self._guard_enabled:
             raise ValueError("GS200 guard state differs from the connection profile")
 
     def _validate_source_profile(self, mode: str, source_range: float) -> None:
@@ -545,7 +556,7 @@ class YokogawaGS200(ObjectInstrumentDriver):
             )
 
     def _source_profile_is_valid(self, mode: str, source_range: float) -> bool:
-        return not (self.remote_sense and mode == "voltage" and source_range < 1.0)
+        return not (self._remote_sense and mode == "voltage" and source_range < 1.0)
 
     def identify(self) -> ScpiIdentity:
         identity = query_identity(self.transport)
@@ -555,7 +566,7 @@ class YokogawaGS200(ObjectInstrumentDriver):
             raise ValueError(
                 f"expected a Yokogawa GS200 family device, got {identity.raw!r}"
             )
-        if self.monitor_option:
+        if self._monitor_option:
             option_response = query_text(self.transport, "*OPT?")
             if "/MON" not in option_response.upper():
                 raise ValueError("GS200 connection profile requires the /MON option")

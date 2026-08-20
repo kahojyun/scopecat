@@ -9,6 +9,7 @@ from scopecat.kernel.value_types import Int, Payload, Scalar, String
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.sdk.instruments.contracts import StatePropertyRef
 from scopecat.sdk.instruments.declarations import (
+    Member,
     MemberProjectionField,
     MemberProjectionLayout,
     acquisition,
@@ -28,7 +29,6 @@ from scopecat.sdk.instruments.declarations import (
     member,
     member_projection_assignments,
     member_projection_field,
-    member_ref,
     operation,
     precondition,
     result_field,
@@ -53,27 +53,13 @@ class SweepResults:
 
 @instrument_interface("test.source/v1")
 class Source(Protocol):
-    @property
-    @member(unit="Hz", minimum=1.0)
-    def frequency(self) -> Quantity: ...
-
-    @frequency.setter
-    def frequency(self, value: Quantity) -> None: ...
-
-    @property
-    @member(id="point_count", minimum=2)
-    def points(self) -> int: ...
-
-    @points.setter
-    def points(self, value: int) -> None: ...
-
-    @property
-    @member(capture=False)
-    def identity(self) -> str: ...
+    frequency: Member[Quantity] = member(access="read_write", unit="Hz", minimum=1.0)
+    points: Member[int] = member(access="read_write", id="point_count", minimum=2)
+    identity: Member[str] = member(access="read_only", capture=False)
 
     @operation(
         id="set_level",
-        invalidates=(member_ref("frequency"),),
+        invalidates=(frequency,),
     )
     def set_output(
         self,
@@ -85,7 +71,7 @@ class Source(Protocol):
         axes={"frequency": axis(size="point_count", kind="frequency", unit="Hz")},
         preconditions=(
             precondition(
-                member_ref("frequency"),
+                frequency,
                 value=Quantity(5.0, "GHz"),
                 unavailable_reason="frequency mismatch",
             ),
@@ -94,7 +80,7 @@ class Source(Protocol):
     def sweep(self) -> SweepResults: ...
 
 
-def test_properties_compile_from_getters_and_setters() -> None:
+def test_members_compile_from_explicit_attribute_declarations() -> None:
     spec = compile_interface(Source).spec
 
     assert [
@@ -170,12 +156,7 @@ def test_declared_layout_keeps_interface_as_member_source() -> None:
 
 @instrument_component(label="Channel")
 class Channel(Protocol):
-    @property
-    @member()
-    def enabled(self) -> bool: ...
-
-    @enabled.setter
-    def enabled(self, value: bool) -> None: ...
+    enabled: Member[bool] = member(access="read_write")
 
 
 @instrument_interface("test.rack/v1", components={"left": Channel, "right": Channel})
@@ -193,15 +174,13 @@ def test_components_compile_property_members_without_state_carriers() -> None:
 def test_explicit_cross_interface_member_refs_resolve() -> None:
     @instrument_interface("test.monitor/v1")
     class Monitor(Protocol):
-        @property
-        @member()
-        def ready(self) -> bool: ...
+        ready: Member[bool] = member(access="read_only")
 
         @acquisition(
             axes={"frequency": axis(size=2, kind="frequency")},
             preconditions=(
                 precondition(
-                    member_ref("identity", interface_type=Source),
+                    Source.identity,
                     value="SN-1",
                     unavailable_reason="wrong source",
                 ),
@@ -229,14 +208,14 @@ def test_projection_tracks_presence_without_optional_domain_values() -> None:
     }
 
 
-def test_property_access_must_match_python_setter_shape() -> None:
+def test_member_annotation_must_match_declaration_kind() -> None:
+    invalid_member: Member[str] = member(access="read_write")
+
     @instrument_interface("test.invalid_access/v1")
     class Invalid(Protocol):
-        @property
-        @member(access="read_write")
-        def status(self) -> str: ...
+        status: str = invalid_member  # pyright: ignore[reportAssignmentType]
 
-    with pytest.raises(TypeError, match="does not match"):
+    with pytest.raises(TypeError, match=r"requires a Member\[T\]"):
         compile_interface(Invalid)
 
 
@@ -256,9 +235,7 @@ def test_payload_operation_arguments_compile_without_python_wrappers() -> None:
 def test_literal_properties_compile_choices() -> None:
     @instrument_interface("test.mode/v1")
     class Mode(Protocol):
-        @property
-        @member()
-        def mode(self) -> Literal["voltage", "current"]: ...
+        mode: Member[Literal["voltage", "current"]] = member(access="read_only")
 
     assert compile_interface(Mode).spec.properties[0].value_type == Scalar(
         String(choices=("voltage", "current"))

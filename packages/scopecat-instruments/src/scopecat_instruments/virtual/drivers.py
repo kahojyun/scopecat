@@ -16,6 +16,9 @@ from scopecat.sdk.instruments import (
     DriverSuccess,
     ObjectInstrumentDriver,
     instrument_driver,
+    query,
+    read,
+    write,
 )
 
 from scopecat_instruments._support import (
@@ -78,61 +81,61 @@ class VirtualRfSource(_VirtualDriver):
         self.world = world
         self.world.rf_source(instrument_id)
 
-    @property
-    def frequency(self) -> Quantity:
+    @read(RFOutputInterface.frequency)
+    def read_frequency(self) -> Quantity:
         with self.world.lock:
             return Quantity(self.world.rf_source(self.instrument_id).frequency_hz, "Hz")
 
-    @frequency.setter
-    def frequency(self, value: Quantity) -> None:
+    @write(RFOutputInterface.frequency)
+    def write_frequency(self, value: Quantity) -> None:
         with self.world.lock:
             self.world.rf_source(self.instrument_id).frequency_hz = quantity_value(
                 value, "Hz"
             )
 
-    @property
-    def power(self) -> Quantity:
+    @read(RFOutputInterface.power)
+    def read_power(self) -> Quantity:
         with self.world.lock:
             return Quantity(self.world.rf_source(self.instrument_id).power_dbm, "dBm")
 
-    @power.setter
-    def power(self, value: Quantity) -> None:
+    @write(RFOutputInterface.power)
+    def write_power(self, value: Quantity) -> None:
         with self.world.lock:
             self.world.rf_source(self.instrument_id).power_dbm = quantity_value(
                 value, "dBm"
             )
 
-    @property
-    def output_enabled(self) -> bool:
+    @read(RFOutputInterface.output_enabled)
+    def read_output_enabled(self) -> bool:
         with self.world.lock:
             return self.world.rf_source(self.instrument_id).output_enabled
 
-    @output_enabled.setter
-    def output_enabled(self, value: bool) -> None:
+    @write(RFOutputInterface.output_enabled)
+    def write_output_enabled(self, value: bool) -> None:
         with self.world.lock:
             self.world.rf_source(self.instrument_id).output_enabled = value
 
-    @property
-    def reference_source(self) -> ReferenceSource:
+    @read(RFOutputInterface.reference_source)
+    def read_reference_source(self) -> ReferenceSource:
         with self.world.lock:
             return self.world.rf_source(self.instrument_id).reference_source
 
-    @reference_source.setter
-    def reference_source(self, value: ReferenceSource) -> None:
+    @write(RFOutputInterface.reference_source)
+    def write_reference_source(self, value: ReferenceSource) -> None:
         with self.world.lock:
             self.world.rf_source(self.instrument_id).reference_source = value
 
     def set_frequency(self, frequency_hz: float) -> None:
-        self.frequency = Quantity(frequency_hz, "Hz")
+        self.write_frequency(Quantity(frequency_hz, "Hz"))
 
     def set_power(self, power_dbm: float) -> None:
-        self.power = Quantity(power_dbm, "dBm")
+        self.write_power(Quantity(power_dbm, "dBm"))
 
     def set_output(self, enabled: bool) -> None:
-        self.output_enabled = enabled
+        self.write_output_enabled(enabled)
 
     def set_reference_source(self, source: ReferenceSource) -> None:
-        self.reference_source = source
+        self.write_reference_source(source)
 
 
 @instrument_driver(
@@ -147,78 +150,78 @@ class VirtualDcSource(_VirtualDriver):
         self.world = world
         self.world.dc_source(instrument_id)
 
-    @property
-    def source_mode(self) -> Literal["voltage", "current"]:
+    @read(DCSourceInterface.source_mode)
+    def read_source_mode(self) -> Literal["voltage", "current"]:
         with self.world.lock:
             return self.world.dc_source(self.instrument_id).source_mode
 
-    @property
-    def voltage_protection(self) -> Quantity:
+    @read(DCSourceInterface.voltage_protection)
+    def read_voltage_protection(self) -> Quantity:
         with self.world.lock:
             return Quantity(
                 self.world.dc_source(self.instrument_id).voltage_protection_v, "V"
             )
 
-    @voltage_protection.setter
-    def voltage_protection(self, value: Quantity) -> None:
+    @write(DCSourceInterface.voltage_protection)
+    def write_voltage_protection(self, value: Quantity) -> None:
         with self.world.lock:
             self.world.dc_source(
                 self.instrument_id
             ).voltage_protection_v = quantity_value(value, "V")
 
-    @property
-    def current_protection(self) -> Quantity:
+    @read(DCSourceInterface.current_protection)
+    def read_current_protection(self) -> Quantity:
         with self.world.lock:
             return Quantity(
                 self.world.dc_source(self.instrument_id).current_protection_a, "A"
             )
 
-    @current_protection.setter
-    def current_protection(self, value: Quantity) -> None:
+    @write(DCSourceInterface.current_protection)
+    def write_current_protection(self, value: Quantity) -> None:
         with self.world.lock:
             self.world.dc_source(
                 self.instrument_id
             ).current_protection_a = quantity_value(value, "A")
 
-    @property
-    def output_enabled(self) -> bool:
+    @read(DCSourceInterface.output_enabled)
+    def read_output_enabled(self) -> bool:
         with self.world.lock:
             return self.world.dc_source(self.instrument_id).output_enabled
 
-    @output_enabled.setter
-    def output_enabled(self, value: bool) -> None:
+    @write(DCSourceInterface.output_enabled)
+    def write_output_enabled(self, value: bool) -> None:
         with self.world.lock:
             self.world.dc_source(self.instrument_id).output_enabled = value
 
-    @property
-    def measurement_enabled(self) -> bool:
+    @read(DCMonitorInterface.measurement_enabled)
+    def read_measurement_enabled(self) -> bool:
         with self.world.lock:
             return self.world.dc_source(self.instrument_id).measurement_enabled
 
-    @measurement_enabled.setter
-    def measurement_enabled(self, value: bool) -> None:
+    @write(DCMonitorInterface.measurement_enabled)
+    def write_measurement_enabled(self, value: bool) -> None:
         with self.world.lock:
             self.world.dc_source(self.instrument_id).measurement_enabled = value
 
-    @property
-    def integration_cycles(self) -> int:
+    @read(DCMonitorInterface.integration_cycles)
+    def read_integration_cycles(self) -> int:
         with self.world.lock:
             return self.world.dc_source(self.instrument_id).integration_cycles
 
-    @integration_cycles.setter
-    def integration_cycles(self, value: int) -> None:
+    @write(DCMonitorInterface.integration_cycles)
+    def write_integration_cycles(self, value: int) -> None:
         with self.world.lock:
             self.world.dc_source(self.instrument_id).integration_cycles = value
 
-    @property
-    def measurement_delay(self) -> Quantity:
+    @read(DCMonitorInterface.measurement_delay)
+    def read_measurement_delay(self) -> Quantity:
         with self.world.lock:
             return Quantity(
                 self.world.dc_source(self.instrument_id).measurement_delay_s, "s"
             )
 
-    @measurement_delay.setter
-    def measurement_delay(self, value: Quantity) -> None:
+    @write(DCMonitorInterface.measurement_delay)
+    def write_measurement_delay(self, value: Quantity) -> None:
         with self.world.lock:
             self.world.dc_source(
                 self.instrument_id
@@ -327,22 +330,22 @@ class VirtualDcSource(_VirtualDriver):
             self.world.dc_source(self.instrument_id).current_level_a = value_a
 
     def set_voltage_protection(self, value_v: float) -> None:
-        self.voltage_protection = Quantity(value_v, "V")
+        self.write_voltage_protection(Quantity(value_v, "V"))
 
     def set_current_protection(self, value_a: float) -> None:
-        self.current_protection = Quantity(value_a, "A")
+        self.write_current_protection(Quantity(value_a, "A"))
 
     def set_output(self, enabled: bool) -> None:
-        self.output_enabled = enabled
+        self.write_output_enabled(enabled)
 
     def set_measurement_enabled(self, enabled: bool) -> None:
-        self.measurement_enabled = enabled
+        self.write_measurement_enabled(enabled)
 
     def set_integration_cycles(self, cycles: int) -> None:
-        self.integration_cycles = cycles
+        self.write_integration_cycles(cycles)
 
     def set_measurement_delay(self, delay_s: float) -> None:
-        self.measurement_delay = Quantity(delay_s, "s")
+        self.write_measurement_delay(Quantity(delay_s, "s"))
 
 
 @dataclass(frozen=True)
@@ -365,13 +368,13 @@ class VirtualTemperatureMonitor(_VirtualDriver):
         self.world = world
         self.world.temperature_monitor(instrument_id)
 
-    @property
-    def scan_channel(self) -> int:
+    @read(TemperatureReadoutInterface.scan_channel)
+    def read_scan_channel(self) -> int:
         with self.world.lock:
             return self.world.temperature_monitor(self.instrument_id).scan_channel
 
-    @property
-    def autoscan_enabled(self) -> bool:
+    @read(TemperatureReadoutInterface.autoscan_enabled)
+    def read_autoscan_enabled(self) -> bool:
         with self.world.lock:
             return self.world.temperature_monitor(self.instrument_id).autoscan_enabled
 
@@ -418,65 +421,62 @@ class VirtualNetworkAnalyzer(_VirtualDriver):
         self.world = world
         self.world.vna(instrument_id)
 
-    @property
-    def start_frequency(self) -> Quantity:
-        return Quantity(self.sweep_settings().start_frequency_hz, "Hz")
+    @query(
+        NetworkSweepInterface.start_frequency,
+        NetworkSweepInterface.stop_frequency,
+        NetworkSweepInterface.points,
+        NetworkSweepInterface.if_bandwidth,
+        NetworkSweepInterface.source_power,
+        NetworkSweepInterface.s_parameter,
+    )
+    def query_sweep_settings(
+        self,
+    ) -> tuple[Quantity, Quantity, int, Quantity, Quantity, SParameter]:
+        settings = self.sweep_settings()
+        return (
+            Quantity(settings.start_frequency_hz, "Hz"),
+            Quantity(settings.stop_frequency_hz, "Hz"),
+            settings.points,
+            Quantity(settings.if_bandwidth_hz, "Hz"),
+            Quantity(settings.source_power_dbm, "dBm"),
+            settings.s_parameter,
+        )
 
-    @start_frequency.setter
-    def start_frequency(self, value: Quantity) -> None:
+    @write(NetworkSweepInterface.start_frequency)
+    def write_start_frequency(self, value: Quantity) -> None:
         with self.world.lock:
             self.world.vna(self.instrument_id).start_frequency_hz = quantity_value(
                 value, "Hz"
             )
 
-    @property
-    def stop_frequency(self) -> Quantity:
-        return Quantity(self.sweep_settings().stop_frequency_hz, "Hz")
-
-    @stop_frequency.setter
-    def stop_frequency(self, value: Quantity) -> None:
+    @write(NetworkSweepInterface.stop_frequency)
+    def write_stop_frequency(self, value: Quantity) -> None:
         with self.world.lock:
             self.world.vna(self.instrument_id).stop_frequency_hz = quantity_value(
                 value, "Hz"
             )
 
-    @property
-    def points(self) -> int:
-        return self.sweep_settings().points
-
-    @points.setter
-    def points(self, value: int) -> None:
+    @write(NetworkSweepInterface.points)
+    def write_points(self, value: int) -> None:
         with self.world.lock:
             self.world.vna(self.instrument_id).points = value
 
-    @property
-    def if_bandwidth(self) -> Quantity:
-        return Quantity(self.sweep_settings().if_bandwidth_hz, "Hz")
-
-    @if_bandwidth.setter
-    def if_bandwidth(self, value: Quantity) -> None:
+    @write(NetworkSweepInterface.if_bandwidth)
+    def write_if_bandwidth(self, value: Quantity) -> None:
         with self.world.lock:
             self.world.vna(self.instrument_id).if_bandwidth_hz = quantity_value(
                 value, "Hz"
             )
 
-    @property
-    def source_power(self) -> Quantity:
-        return Quantity(self.sweep_settings().source_power_dbm, "dBm")
-
-    @source_power.setter
-    def source_power(self, value: Quantity) -> None:
+    @write(NetworkSweepInterface.source_power)
+    def write_source_power(self, value: Quantity) -> None:
         with self.world.lock:
             self.world.vna(self.instrument_id).source_power_dbm = quantity_value(
                 value, "dBm"
             )
 
-    @property
-    def s_parameter(self) -> SParameter:
-        return self.sweep_settings().s_parameter
-
-    @s_parameter.setter
-    def s_parameter(self, value: SParameter) -> None:
+    @write(NetworkSweepInterface.s_parameter)
+    def write_s_parameter(self, value: SParameter) -> None:
         with self.world.lock:
             self.world.vna(self.instrument_id).s_parameter = value
 

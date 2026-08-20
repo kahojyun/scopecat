@@ -2,15 +2,24 @@ from __future__ import annotations
 
 from typing import Protocol
 
+import pytest
+
 from scopecat.sdk.instruments import (
+    Change,
+    DeviceMember,
     DevicePropertyRef,
     DriverOperation,
     DriverStatePatch,
     DriverStateReadRequest,
     DriverSuccess,
+    Member,
     ObjectInstrumentDriver,
     device_member,
     instrument_driver,
+    query,
+    read,
+    update,
+    write,
 )
 from scopecat.sdk.instruments.declarations import (
     compile_interface,
@@ -23,16 +32,9 @@ from scopecat.sdk.instruments.declarations import (
 
 @instrument_interface("test.oo_source/v1")
 class OOSource(Protocol):
-    @property
-    @member(minimum=0, maximum=10)
-    def level(self) -> int: ...
-
-    @level.setter
-    def level(self, value: int) -> None: ...
-
-    @property
-    @member(capture=False)
-    def serial_number(self) -> str: ...
+    level: Member[int] = member(access="read_write", minimum=0, maximum=10)
+    limit: Member[int] = member(access="read_write", minimum=0, maximum=10)
+    serial_number: Member[str] = member(access="read_only", capture=False)
 
     @operation()
     def zero(self) -> None: ...
@@ -47,31 +49,40 @@ class OOSource(Protocol):
     device_label="OO source implementation state",
 )
 class OOSourceDriver(ObjectInstrumentDriver):
+    front_panel_locked: DeviceMember[bool] = device_member(
+        access="read_write",
+        description="Local front-panel lock state",
+    )
+
     def __init__(self) -> None:
         self.instrument_id = "source"
         self._level = 3
+        self._limit = 8
         self._front_panel_locked = False
         self.zero_count = 0
 
-    @property
-    def level(self) -> int:
-        return self._level
+    @query(OOSource.level, OOSource.limit, OOSource.serial_number)
+    def query_state(self) -> tuple[int, int, str]:
+        return self._level, self._limit, "SN-1"
 
-    @level.setter
-    def level(self, value: int) -> None:
-        self._level = value
+    @update(OOSource.level, OOSource.limit)
+    def update_state(
+        self,
+        *,
+        level: Change[int],
+        limit: Change[int],
+    ) -> None:
+        if level.requested:
+            self._level = level.value
+        if limit.requested:
+            self._limit = limit.value
 
-    @property
-    def serial_number(self) -> str:
-        return "SN-1"
-
-    @property
-    @device_member(description="Local front-panel lock state")
-    def front_panel_locked(self) -> bool:
+    @read(front_panel_locked)
+    def read_front_panel_locked(self) -> bool:
         return self._front_panel_locked
 
-    @front_panel_locked.setter
-    def front_panel_locked(self, value: bool) -> None:
+    @write(front_panel_locked)
+    def write_front_panel_locked(self, value: bool) -> None:
         self._front_panel_locked = value
 
     def zero(self) -> None:
@@ -79,13 +90,14 @@ class OOSourceDriver(ObjectInstrumentDriver):
         self.zero_count += 1
 
 
-def test_property_members_compile_from_normal_python_properties() -> None:
+def test_member_attributes_compile_without_property_inference() -> None:
     spec = compile_interface(OOSource).spec
 
     assert [
         (item.id, item.access, item.capture, item.restore) for item in spec.properties
     ] == [
         ("level", "read_write", True, True),
+        ("limit", "read_write", True, True),
         ("serial_number", "read_only", False, False),
     ]
 
@@ -98,16 +110,20 @@ def test_object_driver_adapts_properties_and_methods() -> None:
     assert driver.read_state(DriverStateReadRequest(frozenset({level}))).values == {
         level: 3
     }
+    [observation] = driver.read_state(
+        DriverStateReadRequest(frozenset({level}))
+    ).observations
+    assert observation.coherence_id is not None
 
     applied = driver.apply_state(DriverStatePatch(values={level: 7}))
     assert applied == DriverSuccess(None)
-    assert driver.level == 7
+    assert driver._level == 7
 
     invoked = driver.invoke(
         DriverOperation(target=compile_interface(OOSource).ref.operation("zero"))
     )
     assert invoked == DriverSuccess(None)
-    assert driver.level == 0
+    assert driver._level == 0
     assert driver.zero_count == 1
 
 
@@ -130,4 +146,22 @@ def test_object_driver_captures_and_restores_device_owned_properties() -> None:
     assert driver.apply_state(DriverStatePatch(values={target: True})) == DriverSuccess(
         None
     )
-    assert driver.front_panel_locked is True
+    assert driver._front_panel_locked is True
+
+
+def test_driver_declaration_requires_complete_member_io_bindings() -> None:
+    @instrument_interface("test.missing_bindings/v1")
+    class MissingBindings(Protocol):
+        value: Member[int] = member(access="read_write")
+
+    with pytest.raises(TypeError, match="no reader"):
+
+        @instrument_driver(
+            "test.missing_bindings",
+            "1",
+            interfaces=(MissingBindings,),
+        )
+        class MissingBindingsDriver(  # pyright: ignore[reportUnusedClass]
+            ObjectInstrumentDriver
+        ):
+            pass

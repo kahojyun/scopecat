@@ -6,6 +6,7 @@ from typing import Annotated, Literal, Protocol
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments.declarations import (
+    Member,
     acquisition,
     argument,
     axis,
@@ -32,34 +33,19 @@ class DCBiasReadbackResults:
     description="Settled voltage transitions applied as one coherent batch.",
 )
 class DCBiasInterface(Protocol):
-    @property
-    @member(unit="V", label="Target voltage")
-    def target_voltage(self) -> Quantity: ...
-
-    @target_voltage.setter
-    def target_voltage(self, value: Quantity) -> None: ...
-
-    @property
-    @member(unit="s", minimum=0.0, label="Ramp duration")
-    def ramp_duration(self) -> Quantity: ...
-
-    @ramp_duration.setter
-    def ramp_duration(self, value: Quantity) -> None: ...
-
-    @property
-    @member(unit="V", minimum=0.0, label="Settle tolerance")
-    def settle_tolerance(self) -> Quantity: ...
-
-    @settle_tolerance.setter
-    def settle_tolerance(self, value: Quantity) -> None: ...
-
-    @property
-    @member(unit="V", label="Actual voltage")
-    def actual_voltage(self) -> Quantity: ...
-
-    @property
-    @member(label="Settled")
-    def settled(self) -> bool: ...
+    target_voltage: Member[Quantity] = member(
+        access="read_write", unit="V", label="Target voltage"
+    )
+    ramp_duration: Member[Quantity] = member(
+        access="read_write", unit="s", minimum=0.0, label="Ramp duration"
+    )
+    settle_tolerance: Member[Quantity] = member(
+        access="read_write", unit="V", minimum=0.0, label="Settle tolerance"
+    )
+    actual_voltage: Member[Quantity] = member(
+        access="read_only", unit="V", label="Actual voltage"
+    )
+    settled: Member[bool] = member(access="read_only", label="Settled")
 
     @acquisition(label="Read back bias")
     def readback(self) -> DCBiasReadbackResults: ...
@@ -71,30 +57,16 @@ class DCBiasInterface(Protocol):
     description="DC source transitions, protection, and output control.",
 )
 class DCSourceInterface(Protocol):
-    @property
-    @member(unit="V", label="Voltage protection")
-    def voltage_protection(self) -> Quantity: ...
-
-    @voltage_protection.setter
-    def voltage_protection(self, value: Quantity) -> None: ...
-
-    @property
-    @member(unit="A", label="Current protection")
-    def current_protection(self) -> Quantity: ...
-
-    @current_protection.setter
-    def current_protection(self, value: Quantity) -> None: ...
-
-    @property
-    @member(label="DC output")
-    def output_enabled(self) -> bool: ...
-
-    @output_enabled.setter
-    def output_enabled(self, value: bool) -> None: ...
-
-    @property
-    @member(label="Source mode")
-    def source_mode(self) -> Literal["voltage", "current"]: ...
+    voltage_protection: Member[Quantity] = member(
+        access="read_write", unit="V", label="Voltage protection"
+    )
+    current_protection: Member[Quantity] = member(
+        access="read_write", unit="A", label="Current protection"
+    )
+    output_enabled: Member[bool] = member(access="read_write", label="DC output")
+    source_mode: Member[Literal["voltage", "current"]] = member(
+        access="read_only", label="Source mode"
+    )
 
     @operation(label="Source voltage")
     def source_voltage(
@@ -129,26 +101,16 @@ class DCMonitorVoltageResults:
     description="Independent current and voltage measurements for a DC source.",
 )
 class DCMonitorInterface(Protocol):
-    @property
-    @member(label="Measurement")
-    def measurement_enabled(self) -> bool: ...
-
-    @measurement_enabled.setter
-    def measurement_enabled(self, value: bool) -> None: ...
-
-    @property
-    @member(minimum=1, label="Integration cycles")
-    def integration_cycles(self) -> int: ...
-
-    @integration_cycles.setter
-    def integration_cycles(self, value: int) -> None: ...
-
-    @property
-    @member(unit="s", minimum=0.0, label="Measurement delay")
-    def measurement_delay(self) -> Quantity: ...
-
-    @measurement_delay.setter
-    def measurement_delay(self, value: Quantity) -> None: ...
+    measurement_enabled: Member[bool] = member(access="read_write", label="Measurement")
+    integration_cycles: Member[int] = member(
+        access="read_write", minimum=1, label="Integration cycles"
+    )
+    measurement_delay: Member[Quantity] = member(
+        access="read_write",
+        unit="s",
+        minimum=0.0,
+        label="Measurement delay",
+    )
 
     @acquisition(label="Measure current")
     def measure_current(self) -> DCMonitorCurrentResults: ...
@@ -169,13 +131,10 @@ class TemperatureSampleResults:
     description="Read-only scanner state and settled sensor acquisition.",
 )
 class TemperatureReadoutInterface(Protocol):
-    @property
-    @member(minimum=1, label="Scan channel")
-    def scan_channel(self) -> int: ...
-
-    @property
-    @member(label="Autoscan")
-    def autoscan_enabled(self) -> bool: ...
+    scan_channel: Member[int] = member(
+        access="read_only", minimum=1, label="Scan channel"
+    )
+    autoscan_enabled: Member[bool] = member(access="read_only", label="Autoscan")
 
     @acquisition(label="Sample sensor")
     def sample(self) -> TemperatureSampleResults: ...
@@ -187,33 +146,16 @@ class TemperatureReadoutInterface(Protocol):
     description="Continuous-wave RF source controls independent of vendor syntax.",
 )
 class RFOutputInterface(Protocol):
-    @property
-    @member(unit="Hz", label="CW frequency")
-    def frequency(self) -> Quantity: ...
-
-    @frequency.setter
-    def frequency(self, value: Quantity) -> None: ...
-
-    @property
-    @member(unit="dBm", label="Output power")
-    def power(self) -> Quantity: ...
-
-    @power.setter
-    def power(self, value: Quantity) -> None: ...
-
-    @property
-    @member(label="RF output")
-    def output_enabled(self) -> bool: ...
-
-    @output_enabled.setter
-    def output_enabled(self, value: bool) -> None: ...
-
-    @property
-    @member(label="Reference source")
-    def reference_source(self) -> ReferenceSource: ...
-
-    @reference_source.setter
-    def reference_source(self, value: ReferenceSource) -> None: ...
+    frequency: Member[Quantity] = member(
+        access="read_write", unit="Hz", label="CW frequency"
+    )
+    power: Member[Quantity] = member(
+        access="read_write", unit="dBm", label="Output power"
+    )
+    output_enabled: Member[bool] = member(access="read_write", label="RF output")
+    reference_source: Member[ReferenceSource] = member(
+        access="read_write", label="Reference source"
+    )
 
 
 @instrument_result
@@ -232,51 +174,24 @@ class NetworkSweepResults:
     description="Linear, single-trigger complex S-parameter sweep.",
 )
 class NetworkSweepInterface(Protocol):
-    @property
-    @member(unit="Hz", label="Start frequency")
-    def start_frequency(self) -> Quantity: ...
-
-    @start_frequency.setter
-    def start_frequency(self, value: Quantity) -> None: ...
-
-    @property
-    @member(unit="Hz", label="Stop frequency")
-    def stop_frequency(self) -> Quantity: ...
-
-    @stop_frequency.setter
-    def stop_frequency(self, value: Quantity) -> None: ...
-
-    @property
-    @member(minimum=2, label="Sweep points")
-    def points(self) -> int: ...
-
-    @points.setter
-    def points(self, value: int) -> None: ...
-
-    @property
-    @member(unit="Hz", label="IF bandwidth")
-    def if_bandwidth(self) -> Quantity: ...
-
-    @if_bandwidth.setter
-    def if_bandwidth(self, value: Quantity) -> None: ...
-
-    @property
-    @member(unit="dBm", label="Source power")
-    def source_power(self) -> Quantity: ...
-
-    @source_power.setter
-    def source_power(self, value: Quantity) -> None: ...
-
-    @property
-    @member(label="S-parameter")
-    def s_parameter(self) -> SParameter: ...
-
-    @s_parameter.setter
-    def s_parameter(self, value: SParameter) -> None: ...
+    start_frequency: Member[Quantity] = member(
+        access="read_write", unit="Hz", label="Start frequency"
+    )
+    stop_frequency: Member[Quantity] = member(
+        access="read_write", unit="Hz", label="Stop frequency"
+    )
+    points: Member[int] = member(access="read_write", minimum=2, label="Sweep points")
+    if_bandwidth: Member[Quantity] = member(
+        access="read_write", unit="Hz", label="IF bandwidth"
+    )
+    source_power: Member[Quantity] = member(
+        access="read_write", unit="dBm", label="Source power"
+    )
+    s_parameter: Member[SParameter] = member(access="read_write", label="S-parameter")
 
     @acquisition(
         label="Acquire sweep",
-        axes={"frequency": axis(size="points", kind="frequency", unit="Hz")},
+        axes={"frequency": axis(size=points, kind="frequency", unit="Hz")},
     )
     def sweep(self) -> NetworkSweepResults: ...
 

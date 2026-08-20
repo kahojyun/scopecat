@@ -93,7 +93,11 @@ if TYPE_CHECKING:
         state_capture_request,
         string_property,
     )
-    from scopecat.sdk.instruments.declarations import device_member
+    from scopecat.sdk.instruments.declarations import (
+        DeviceMember,
+        Member,
+        device_member,
+    )
     from scopecat.sdk.instruments.errors import InstrumentCollectFailure
     from scopecat.sdk.instruments.members import (
         AcquisitionRef,
@@ -107,9 +111,14 @@ if TYPE_CHECKING:
         StateMemberRef,
     )
     from scopecat.sdk.instruments.object_driver import (
+        Change,
         InstrumentDriverMetadata,
         ObjectInstrumentDriver,
         instrument_driver,
+        query,
+        read,
+        update,
+        write,
     )
     from scopecat.sdk.instruments.provider import (
         DriverFault,
@@ -140,6 +149,7 @@ if TYPE_CHECKING:
 
 
 _EXPORTS: dict[str, tuple[str, str]] = {
+    "Change": ("scopecat.sdk.instruments.object_driver", "Change"),
     "AcquisitionAxisSize": (
         "scopecat.sdk.instruments.contracts",
         "AcquisitionAxisSize",
@@ -178,6 +188,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.contracts",
         "DeviceStateSpec",
     ),
+    "DeviceMember": ("scopecat.sdk.instruments.declarations", "DeviceMember"),
     "DriverAcquisition": (
         "scopecat.sdk.instruments.authoring",
         "DriverAcquisition",
@@ -296,6 +307,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "state_setting",
     ),
     "InterfaceRef": ("scopecat.sdk.instruments.members", "InterfaceRef"),
+    "Member": ("scopecat.sdk.instruments.declarations", "Member"),
     "DevicePropertyRef": (
         "scopecat.sdk.instruments.members",
         "DevicePropertyRef",
@@ -376,6 +388,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.object_driver",
         "instrument_driver",
     ),
+    "query": ("scopecat.sdk.instruments.object_driver", "query"),
+    "read": ("scopecat.sdk.instruments.object_driver", "read"),
+    "update": ("scopecat.sdk.instruments.object_driver", "update"),
+    "write": ("scopecat.sdk.instruments.object_driver", "write"),
     "operation": ("scopecat.sdk.instruments.contracts", "operation"),
     "operation_argument": (
         "scopecat.sdk.instruments.contracts",

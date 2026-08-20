@@ -6,6 +6,7 @@ from typing import Annotated, Literal, Protocol
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments.declarations import (
+    Member,
     acquisition,
     argument,
     axis,
@@ -35,36 +36,18 @@ class ScalarOperationInterface(Protocol):
 
 @instrument_interface("test.generated_catalog_projection/v1")
 class CatalogProjectionInterface(Protocol):
-    @property
-    @member()
-    def enabled(self) -> bool: ...
-
-    @enabled.setter
-    def enabled(self, value: bool) -> None: ...
-
-    @property
-    @member()
-    def status(self) -> str: ...
+    enabled: Member[bool] = member(access="read_write")
+    status: Member[str] = member(access="read_only")
 
 
 @instrument_interface("test.generated_shared_property_first/v1")
 class SharedPropertyFirstInterface(Protocol):
-    @property
-    @member()
-    def enabled(self) -> bool: ...
-
-    @enabled.setter
-    def enabled(self, value: bool) -> None: ...
+    enabled: Member[bool] = member(access="read_write")
 
 
 @instrument_interface("test.generated_shared_property_second/v1")
 class SharedPropertySecondInterface(Protocol):
-    @property
-    @member()
-    def enabled(self) -> bool: ...
-
-    @enabled.setter
-    def enabled(self, value: bool) -> None: ...
+    enabled: Member[bool] = member(access="read_write")
 
 
 @instrument_interface("test.generated_composite_peer/v1")
@@ -121,19 +104,8 @@ class DriverFixedAcquisitionInterface(Protocol):
 
 @instrument_interface("test.generated_driver_source/v1")
 class DriverSourceInterface(Protocol):
-    @property
-    @member()
-    def enabled(self) -> bool: ...
-
-    @enabled.setter
-    def enabled(self, value: bool) -> None: ...
-
-    @property
-    @member()
-    def level(self) -> int: ...
-
-    @level.setter
-    def level(self, value: int) -> None: ...
+    enabled: Member[bool] = member(access="read_write")
+    level: Member[int] = member(access="read_write")
 
 
 @instrument_result
@@ -144,12 +116,7 @@ class DriverMonitorResults:
 
 @instrument_interface("test.generated_driver_monitor/v1")
 class DriverMonitorInterface(Protocol):
-    @property
-    @member()
-    def enabled(self) -> bool: ...
-
-    @enabled.setter
-    def enabled(self, value: bool) -> None: ...
+    enabled: Member[bool] = member(access="read_write")
 
     @acquisition()
     def monitor(self) -> DriverMonitorResults: ...

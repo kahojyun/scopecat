@@ -1,11 +1,12 @@
-"""OO-first glue from declared Python interfaces to the driver protocol."""
+"""Glue from explicit Python declarations to the driver protocol."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from inspect import Parameter
+from inspect import Parameter, signature
 from typing import cast
+from uuid import uuid4
 
 from pydantic import JsonValue
 
@@ -17,6 +18,7 @@ from scopecat.sdk.instruments.authoring import (
     DriverReadback,
     DriverRejected,
     DriverScalar,
+    DriverStateObservation,
     DriverStatePatch,
     DriverStateReadback,
     DriverStateReadRequest,
@@ -35,6 +37,8 @@ from scopecat.sdk.instruments.declarations import (
     DeclaredInterfaceLayout,
     DeclaredOperation,
     DeclaredProperty,
+    DeviceMember,
+    Member,
     compile_interface,
     declared_device_properties,
     declared_interface_layout,
@@ -50,6 +54,96 @@ from scopecat.sdk.instruments.members import (
 from scopecat.sdk.problems import ProblemPhase, model_location, problem
 
 _DRIVER_METADATA = "__scopecat_instrument_driver__"
+_DRIVER_READ_METADATA = "__scopecat_instrument_read__"
+_DRIVER_WRITE_METADATA = "__scopecat_instrument_write__"
+
+type DriverMember = Member[object] | DeviceMember[object]
+
+
+@dataclass(frozen=True, slots=True)
+class DriverMemberBinding:
+    """One method binding that may cover one member or a coherent group."""
+
+    members: tuple[DriverMember, ...]
+
+
+class _NoChange:
+    __slots__ = ()
+
+
+_NO_CHANGE = _NoChange()
+
+
+@dataclass(frozen=True, slots=True)
+class Change[ValueT]:
+    """One optional member assignment supplied to a grouped update method."""
+
+    _value: ValueT | _NoChange = _NO_CHANGE
+
+    @property
+    def requested(self) -> bool:
+        return self._value is not _NO_CHANGE
+
+    @property
+    def value(self) -> ValueT:
+        if isinstance(self._value, _NoChange):
+            raise ValueError("unchanged member has no requested value")
+        return self._value
+
+
+def read[MethodT: Callable[..., object]](
+    member: DriverMember,
+    /,
+) -> Callable[[MethodT], MethodT]:
+    """Bind one no-argument driver method as a member reader."""
+
+    return _bind_driver_members(_DRIVER_READ_METADATA, (member,))
+
+
+def query[MethodT: Callable[..., object]](
+    *members: DriverMember,
+) -> Callable[[MethodT], MethodT]:
+    """Bind one method that returns a tuple for a coherent member group."""
+
+    if len(members) < 2:
+        raise ValueError("@query requires at least two members; use @read for one")
+    return _bind_driver_members(_DRIVER_READ_METADATA, members)
+
+
+def write[MethodT: Callable[..., object]](
+    member: DriverMember,
+    /,
+) -> Callable[[MethodT], MethodT]:
+    """Bind one single-value driver method as a member writer."""
+
+    return _bind_driver_members(_DRIVER_WRITE_METADATA, (member,))
+
+
+def update[MethodT: Callable[..., object]](
+    *members: DriverMember,
+) -> Callable[[MethodT], MethodT]:
+    """Bind a grouped update receiving one ``Change`` keyword per member."""
+
+    if len(members) < 2:
+        raise ValueError("@update requires at least two members; use @write for one")
+    return _bind_driver_members(_DRIVER_WRITE_METADATA, members)
+
+
+def _bind_driver_members[MethodT: Callable[..., object]](
+    attribute: str,
+    members: Sequence[DriverMember],
+) -> Callable[[MethodT], MethodT]:
+    if len({id(member) for member in members}) != len(members):
+        raise ValueError("a driver I/O binding cannot repeat a member")
+    declaration = DriverMemberBinding(tuple(members))
+
+    def decorate(method: MethodT) -> MethodT:
+        if getattr(method, attribute, None) is not None:
+            raise TypeError("a driver method cannot repeat the same I/O binding kind")
+        setattr(method, attribute, declaration)
+        return method
+
+    return decorate
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,17 +186,18 @@ def instrument_driver[DriverT: type[object]](
         setattr(cls, _DRIVER_METADATA, metadata)
         setattr(cls, "implementation_id", implementation_id)  # noqa: B010
         setattr(cls, "implementation_version", implementation_version)  # noqa: B010
+        _validate_driver_io_bindings(cls)
         return cls
 
     return decorate
 
 
 class ObjectInstrumentDriver:
-    """Generic driver-protocol adapter for ordinary properties and methods.
+    """Generic protocol adapter for explicitly bound driver methods.
 
-    Concrete drivers implement the decorated interface as normal Python OO.
-    Override a protocol method only when hardware requires batching, routing,
-    or richer failure handling; declaration glue is deliberately not generated.
+    ``@read``/``@write`` bind independent I/O. ``@query``/``@update`` expose
+    coherent hardware transactions without turning them into aggregate state.
+    Protocol methods remain overridable for unusual routing or failure models.
     """
 
     instrument_id: str  # pyright: ignore[reportUninitializedInstanceVariable]
@@ -147,41 +242,102 @@ class ObjectInstrumentDriver:
         )
 
     def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
-        properties = self._property_bindings()
-        values: dict[StateMemberRef, DriverScalar] = {}
-        for target, binding in properties.items():
-            if target not in request.targets:
+        observations: list[DriverStateObservation] = []
+        for binding in _driver_io_bindings(
+            type(self),
+            self.declared_interfaces(),
+            _DRIVER_READ_METADATA,
+        ):
+            selected = tuple(
+                target for target in binding.targets if target in request.targets
+            )
+            if not selected:
                 continue
-            values[target] = cast("DriverScalar", getattr(self, binding.python_name))
-        return state_readback(request, values)
+            outcome = cast("object", getattr(self, binding.method_name)())
+            if len(binding.targets) == 1:
+                returned = (outcome,)
+            else:
+                if not isinstance(outcome, tuple):
+                    raise TypeError(
+                        f"grouped query {binding.method_name!r} must return "
+                        f"{len(binding.targets)} values"
+                    )
+                returned = cast("tuple[object, ...]", outcome)
+                if len(returned) != len(binding.targets):
+                    raise TypeError(
+                        f"grouped query {binding.method_name!r} must return "
+                        f"{len(binding.targets)} values"
+                    )
+            values = {
+                target: cast("DriverScalar", value)
+                for target, value in zip(binding.targets, returned, strict=True)
+            }
+            coherence_id = uuid4().hex if len(binding.targets) > 1 else None
+            observations.extend(
+                state_readback(
+                    request,
+                    values,
+                    coherence_id=coherence_id,
+                ).observations
+            )
+        return DriverStateReadback(observations=tuple(observations))
 
     def apply_state(
         self,
         request: DriverStatePatch,
     ) -> DriverOutcome[DriverStateReadback | None]:
-        properties = self._property_bindings()
         assignments = {assignment.target: assignment for assignment in request.entries}
-        for target, binding in properties.items():
-            assignment = assignments.get(target)
-            if assignment is None:
+        handled: set[StateMemberRef] = set()
+        metadata: dict[str, JsonValue] = {}
+        for binding in _driver_io_bindings(
+            type(self),
+            self.declared_interfaces(),
+            _DRIVER_WRITE_METADATA,
+        ):
+            selected = assignments.keys() & binding.targets
+            if not selected:
                 continue
-            if binding.spec.access != "read_write":
-                return _unsupported(
-                    self.instrument_id,
-                    "state_member",
-                    target.property_id,
+            method = cast("Callable[..., object]", getattr(self, binding.method_name))
+            if len(binding.targets) == 1:
+                target = binding.targets[0]
+                outcome = method(assignments[target].value)
+            else:
+                outcome = method(
+                    **{
+                        name: Change(
+                            assignments[target].value
+                            if target in selected
+                            else _NO_CHANGE
+                        )
+                        for name, target in zip(
+                            binding.parameter_names,
+                            binding.targets,
+                            strict=True,
+                        )
+                    }
                 )
-            setattr(self, binding.python_name, assignment.value)
-        return DriverSuccess(None)
-
-    def _property_bindings(
-        self,
-    ) -> dict[StateMemberRef, DeclaredProperty | DeclaredDeviceProperty]:
-        metadata = _driver_metadata(type(self))
-        return {
+            if isinstance(outcome, (DriverRejected, DriverUnknown)):
+                return outcome
+            if isinstance(outcome, DriverSuccess):
+                metadata.update(outcome.metadata)
+            handled.update(selected)
+        unsupported = assignments.keys() - handled
+        declared_targets = {
             **_interface_property_bindings(self.declared_interfaces()),
-            **_device_property_bindings(type(self), metadata.device_schema_id),
+            **_device_property_bindings(
+                type(self),
+                _driver_metadata(type(self)).device_schema_id,
+            ),
         }
+        unsupported_declared = unsupported & declared_targets.keys()
+        if unsupported_declared:
+            target = next(iter(unsupported_declared))
+            return _unsupported(
+                self.instrument_id,
+                "state_member",
+                target.property_id,
+            )
+        return DriverSuccess(None, metadata=metadata)
 
     def invoke(
         self,
@@ -251,6 +407,181 @@ def _layouts(
         declared_interface_layout(compile_interface(interface_type))
         for interface_type in interfaces
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedDriverBinding:
+    method_name: str
+    targets: tuple[StateMemberRef, ...]
+    parameter_names: tuple[str, ...]
+
+
+def _driver_io_bindings(
+    driver_type: type[object],
+    interfaces: Sequence[type[object]],
+    attribute: str,
+) -> tuple[_ResolvedDriverBinding, ...]:
+    metadata = _driver_metadata(driver_type)
+    active_fields = {
+        **_interface_property_bindings(interfaces),
+        **_device_property_bindings(driver_type, metadata.device_schema_id),
+    }
+    declared = {
+        id(field.declaration): (field.ref, field)
+        for field in (
+            *_interface_property_bindings(metadata.interfaces).values(),
+            *_device_property_bindings(
+                driver_type,
+                metadata.device_schema_id,
+            ).values(),
+        )
+    }
+    resolved: list[_ResolvedDriverBinding] = []
+    claimed: dict[StateMemberRef, str] = {}
+    for method_name, method in _driver_methods(driver_type).items():
+        binding = getattr(method, attribute, None)
+        if not isinstance(binding, DriverMemberBinding):
+            continue
+        targets: list[StateMemberRef] = []
+        parameter_names: list[str] = []
+        for member in binding.members:
+            item = declared.get(id(member))
+            if item is None:
+                raise TypeError(
+                    f"driver binding {method_name!r} targets a member not declared "
+                    "by this driver"
+                )
+            target, field = item
+            previous = claimed.get(target)
+            if previous is not None:
+                raise TypeError(
+                    f"driver methods {previous!r} and {method_name!r} both bind "
+                    f"{target.property_id!r}"
+                )
+            if (
+                attribute == _DRIVER_WRITE_METADATA
+                and field.spec.access != "read_write"
+            ):
+                raise TypeError(
+                    f"driver writer {method_name!r} targets read-only member "
+                    f"{target.property_id!r}"
+                )
+            claimed[target] = method_name
+            targets.append(target)
+            parameter_names.append(field.python_name)
+        _validate_driver_binding_method(
+            attribute,
+            method_name,
+            method,
+            tuple(parameter_names),
+        )
+        if not all(target in active_fields for target in targets):
+            if any(target in active_fields for target in targets):
+                raise TypeError(
+                    f"driver binding {method_name!r} mixes active and inactive "
+                    "interface members"
+                )
+            continue
+        resolved.append(
+            _ResolvedDriverBinding(
+                method_name=method_name,
+                targets=tuple(targets),
+                parameter_names=tuple(parameter_names),
+            )
+        )
+    return tuple(resolved)
+
+
+def _validate_driver_binding_method(
+    attribute: str,
+    method_name: str,
+    method: object,
+    parameter_names: tuple[str, ...],
+) -> None:
+    if not callable(method):
+        raise TypeError(f"driver binding {method_name!r} must decorate a method")
+    parameters = tuple(signature(method).parameters.values())
+    if not parameters or parameters[0].name != "self":
+        raise TypeError(f"driver binding {method_name!r} must be an instance method")
+    if attribute == _DRIVER_READ_METADATA:
+        if len(parameters) != 1:
+            raise TypeError(f"driver reader {method_name!r} must accept only self")
+        return
+    if len(parameter_names) == 1:
+        if len(parameters) != 2 or parameters[1].kind not in (
+            Parameter.POSITIONAL_ONLY,
+            Parameter.POSITIONAL_OR_KEYWORD,
+        ):
+            raise TypeError(
+                f"driver writer {method_name!r} must accept self and one value"
+            )
+        return
+    if len(set(parameter_names)) != len(parameter_names):
+        raise TypeError(
+            f"grouped update {method_name!r} has duplicate Python member names"
+        )
+    update_parameters = parameters[1:]
+    if tuple(
+        parameter.name for parameter in update_parameters
+    ) != parameter_names or any(
+        parameter.kind is not Parameter.KEYWORD_ONLY for parameter in update_parameters
+    ):
+        expected = ", ".join(parameter_names)
+        raise TypeError(
+            f"grouped update {method_name!r} requires keyword-only Change "
+            f"parameters in member order: {expected}"
+        )
+
+
+def _validate_driver_io_bindings(driver_type: type[object]) -> None:
+    metadata = _driver_metadata(driver_type)
+    fields = {
+        **_interface_property_bindings(metadata.interfaces),
+        **_device_property_bindings(driver_type, metadata.device_schema_id),
+    }
+    readers = {
+        target
+        for binding in _driver_io_bindings(
+            driver_type,
+            metadata.interfaces,
+            _DRIVER_READ_METADATA,
+        )
+        for target in binding.targets
+    }
+    writers = {
+        target
+        for binding in _driver_io_bindings(
+            driver_type,
+            metadata.interfaces,
+            _DRIVER_WRITE_METADATA,
+        )
+        for target in binding.targets
+    }
+    missing_readers = fields.keys() - readers
+    if missing_readers:
+        target = next(iter(missing_readers))
+        raise TypeError(
+            f"driver has no reader for declared member {target.property_id!r}"
+        )
+    missing_writers = {
+        target
+        for target, field in fields.items()
+        if field.spec.access == "read_write" and target not in writers
+    }
+    if missing_writers:
+        target = next(iter(missing_writers))
+        raise TypeError(
+            f"driver has no writer for declared member {target.property_id!r}"
+        )
+
+
+def _driver_methods(driver_type: type[object]) -> dict[str, object]:
+    methods: dict[str, object] = {}
+    for base in reversed(driver_type.__mro__):
+        if base is object:
+            continue
+        methods.update(vars(base))
+    return methods
 
 
 def _interface_property_bindings(
@@ -335,7 +666,13 @@ def _unsupported(
 
 
 __all__ = [
+    "Change",
+    "DriverMemberBinding",
     "InstrumentDriverMetadata",
     "ObjectInstrumentDriver",
     "instrument_driver",
+    "query",
+    "read",
+    "update",
+    "write",
 ]

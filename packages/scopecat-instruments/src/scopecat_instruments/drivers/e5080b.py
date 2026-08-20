@@ -16,6 +16,8 @@ from scopecat.sdk.instruments import (
     DriverSuccess,
     ObjectInstrumentDriver,
     instrument_driver,
+    read,
+    write,
 )
 from scopecat.sdk.instruments.scpi import (
     ScpiIdentity,
@@ -160,59 +162,59 @@ class KeysightE5080B(ObjectInstrumentDriver):
                 self.transport,
                 f"SOUR{self.channel}:POW?",
             ),
-            s_parameter=self.s_parameter,
+            s_parameter=self.read_s_parameter(),
         )
 
-    @property
-    def start_frequency(self) -> Quantity:
+    @read(NetworkSweepInterface.start_frequency)
+    def read_start_frequency(self) -> Quantity:
         return Quantity(
             query_float(self.transport, f"SENS{self.channel}:FREQ:STAR?"), "Hz"
         )
 
-    @start_frequency.setter
-    def start_frequency(self, value: Quantity) -> None:
+    @write(NetworkSweepInterface.start_frequency)
+    def write_start_frequency(self, value: Quantity) -> None:
         self.set_start_frequency(quantity_value(value, "Hz"))
 
-    @property
-    def stop_frequency(self) -> Quantity:
+    @read(NetworkSweepInterface.stop_frequency)
+    def read_stop_frequency(self) -> Quantity:
         return Quantity(
             query_float(self.transport, f"SENS{self.channel}:FREQ:STOP?"), "Hz"
         )
 
-    @stop_frequency.setter
-    def stop_frequency(self, value: Quantity) -> None:
+    @write(NetworkSweepInterface.stop_frequency)
+    def write_stop_frequency(self, value: Quantity) -> None:
         self.set_stop_frequency(quantity_value(value, "Hz"))
 
-    @property
-    def points(self) -> int:
+    @read(NetworkSweepInterface.points)
+    def read_points(self) -> int:
         return query_int(self.transport, f"SENS{self.channel}:SWE:POIN?")
 
-    @points.setter
-    def points(self, value: int) -> None:
+    @write(NetworkSweepInterface.points)
+    def write_points(self, value: int) -> None:
         self.set_points(value)
 
-    @property
-    def if_bandwidth(self) -> Quantity:
+    @read(NetworkSweepInterface.if_bandwidth)
+    def read_if_bandwidth(self) -> Quantity:
         return Quantity(query_float(self.transport, f"SENS{self.channel}:BWID?"), "Hz")
 
-    @if_bandwidth.setter
-    def if_bandwidth(self, value: Quantity) -> None:
+    @write(NetworkSweepInterface.if_bandwidth)
+    def write_if_bandwidth(self, value: Quantity) -> None:
         self.set_if_bandwidth(quantity_value(value, "Hz"))
 
-    @property
-    def source_power(self) -> Quantity:
+    @read(NetworkSweepInterface.source_power)
+    def read_source_power(self) -> Quantity:
         return Quantity(query_float(self.transport, f"SOUR{self.channel}:POW?"), "dBm")
 
-    @source_power.setter
-    def source_power(self, value: Quantity) -> None:
+    @write(NetworkSweepInterface.source_power)
+    def write_source_power(self, value: Quantity) -> None:
         self.set_source_power(quantity_value(value, "dBm"))
 
-    @property
-    def s_parameter(self) -> SParameter:
+    @read(NetworkSweepInterface.s_parameter)
+    def read_s_parameter(self) -> SParameter:
         return self._read_s_parameter()
 
-    @s_parameter.setter
-    def s_parameter(self, value: SParameter) -> None:
+    @write(NetworkSweepInterface.s_parameter)
+    def write_s_parameter(self, value: SParameter) -> None:
         self.set_s_parameter(value)
 
     def set_start_frequency(self, frequency_hz: float) -> None:

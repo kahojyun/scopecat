@@ -1,15 +1,15 @@
 """Typed Python declarations for instrument interface contracts.
 
-Result decorators turn ordinary annotated classes into immutable dataclasses;
-interface members remain normal Python properties and methods.
-:func:`compile_interface` is the explicit boundary that lowers those
-declarations to the existing :class:`InterfaceSpec` contract.
+State members are explicit class attributes: they carry stable identity and
+schema metadata, but they do not pretend that hardware I/O is normal Python
+attribute access. :func:`compile_interface` lowers those declarations and the
+decorated operation/acquisition methods to :class:`InterfaceSpec`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import Field, dataclass, field, fields, is_dataclass, replace
+from dataclasses import Field, dataclass, field, fields, is_dataclass
 from enum import Enum, auto
 from inspect import Parameter, signature
 from types import GenericAlias, NoneType, UnionType
@@ -89,7 +89,6 @@ _INTERFACE_METADATA = "__scopecat_instrument_interface__"
 _COMPONENT_METADATA = "__scopecat_instrument_component__"
 _ACQUISITION_METADATA = "__scopecat_instrument_acquisition__"
 _OPERATION_METADATA = "__scopecat_instrument_operation__"
-_MEMBER_METADATA = "__scopecat_instrument_member__"
 _MEMBER_PROJECTION_METADATA = "__scopecat_instrument_member_projection__"
 _FIELD_DECLARATION_METADATA = "scopecat.instrument.declaration"
 
@@ -126,12 +125,12 @@ def _member_projection_repr(self: object) -> str:
 
 @dataclass(frozen=True, slots=True)
 class MemberMetadata:
-    """Metadata that cannot be inferred from a property declaration."""
+    """Schema metadata carried by one explicit member declaration."""
 
+    access: PropertyAccess
     id: str | None = None
     label: str | None = None
     description: str | None = None
-    access: PropertyAccess | None = None
     capture: bool = True
     restore: bool | None = None
     unit: str | None = None
@@ -139,18 +138,45 @@ class MemberMetadata:
     maximum: float | None = None
     choices: tuple[str, ...] | None = None
 
-    def __call__[GetterT: Callable[..., object]](self, getter: GetterT, /) -> GetterT:
-        """Attach this declaration to a normal property getter."""
-
-        setattr(getter, _MEMBER_METADATA, self)
-        return getter
-
 
 @dataclass(frozen=True, slots=True)
 class DeviceMemberMetadata(MemberMetadata):
     """Metadata for a model-specific property outside portable interfaces."""
 
     component_path: tuple[str, ...] = ()
+
+
+class Member[ValueT]:
+    """A portable state-member declaration and driver-binding target.
+
+    The object intentionally has no value-style descriptor behavior. Accessing
+    ``SomeInterface.frequency`` returns this declaration object, making I/O
+    available only through explicit client or driver operations.
+    """
+
+    __slots__ = ("metadata", "owner", "python_name")
+
+    def __init__(self, metadata: MemberMetadata) -> None:
+        self.metadata = metadata
+        self.owner: type[object] | None = None
+        self.python_name: str | None = None
+
+    def __set_name__(self, owner: type[object], name: str) -> None:
+        if self.owner is not None and (
+            self.owner is not owner or self.python_name != name
+        ):
+            raise TypeError("instrument member declarations cannot be reused")
+        self.owner = owner
+        self.python_name = name
+
+
+class DeviceMember[ValueT](Member[ValueT]):
+    """A model-specific state-member declaration owned by a concrete driver."""
+
+    metadata: DeviceMemberMetadata
+
+    def __init__(self, metadata: DeviceMemberMetadata) -> None:
+        super().__init__(metadata)
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,16 +206,8 @@ class ArgumentMetadata:
     payload_schema_id: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class MemberReference:
-    """A deferred property reference resolved with its declaring scope."""
-
-    property_name: str
-    interface_type: type[object] | None = None
-
-
-type DeclaredPropertyTarget = PropertyRef | MemberReference
-type AxisSize = int | str | MemberReference | None
+type DeclaredPropertyTarget = PropertyRef | Member[object]
+type AxisSize = int | str | Member[object] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,6 +286,7 @@ class DeclaredProperty(MemberProjectionField):
 
     spec: PropertySpec
     annotation: object
+    declaration: Member[object]
 
     @property
     def property_id(self) -> str:
@@ -282,6 +301,7 @@ class DeclaredDeviceProperty:
     ref: DevicePropertyRef
     spec: PropertySpec
     annotation: object
+    declaration: DeviceMember[object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,71 +402,71 @@ class DeclaredInterfaceLayout[InterfaceT]:
     properties: DeclaredPropertyLayout | None
 
 
-def member(
+def member[ValueT](
     *,
+    access: PropertyAccess,
     id: str | None = None,
     label: str | None = None,
     description: str | None = None,
-    access: PropertyAccess | None = None,
     capture: bool = True,
     restore: bool | None = None,
     unit: str | None = None,
     minimum: float | None = None,
     maximum: float | None = None,
     choices: Sequence[str] | None = None,
-) -> MemberMetadata:
-    """Declare one property getter and its instrument metadata.
+) -> Member[ValueT]:
+    """Declare one portable member without prescribing its I/O strategy."""
 
-    Use this below :class:`property`; a corresponding setter makes the member
-    read-write unless ``access`` is specified explicitly.
-    """
-
-    return MemberMetadata(
-        id=id,
-        label=label,
-        description=description,
-        access=access,
-        capture=capture,
-        restore=restore,
-        unit=unit,
-        minimum=minimum,
-        maximum=maximum,
-        choices=None if choices is None else tuple(choices),
+    return Member(
+        MemberMetadata(
+            id=id,
+            label=label,
+            description=description,
+            access=access,
+            capture=capture,
+            restore=restore,
+            unit=unit,
+            minimum=minimum,
+            maximum=maximum,
+            choices=None if choices is None else tuple(choices),
+        )
     )
 
 
-def device_member(
+def device_member[ValueT](
     *,
+    access: PropertyAccess,
     id: str | None = None,
     component_path: Sequence[str] = (),
     label: str | None = None,
     description: str | None = None,
-    access: PropertyAccess | None = None,
     capture: bool = True,
     restore: bool | None = None,
     unit: str | None = None,
     minimum: float | None = None,
     maximum: float | None = None,
     choices: Sequence[str] | None = None,
-) -> DeviceMemberMetadata:
+) -> DeviceMember[ValueT]:
     """Declare model-specific background state on a concrete driver class.
 
     Device members participate in capture and restore without claiming a
-    portable interface. They use normal Python property getters and setters.
+    portable interface. Driver methods bind their I/O explicitly.
     """
 
-    return DeviceMemberMetadata(
-        id=id,
-        component_path=tuple(component_path),
-        label=label,
-        description=description,
-        access=access,
-        capture=capture,
-        restore=restore,
-        unit=unit,
-        minimum=minimum,
-        maximum=maximum,
-        choices=None if choices is None else tuple(choices),
+    return DeviceMember(
+        DeviceMemberMetadata(
+            id=id,
+            component_path=tuple(component_path),
+            label=label,
+            description=description,
+            access=access,
+            capture=capture,
+            restore=restore,
+            unit=unit,
+            minimum=minimum,
+            maximum=maximum,
+            choices=None if choices is None else tuple(choices),
+        )
     )
 
 
@@ -479,17 +499,6 @@ def argument(
         choices=None if choices is None else tuple(choices),
         payload_schema_id=payload_schema_id,
     )
-
-
-def member_ref(
-    property_name: str,
-    /,
-    *,
-    interface_type: type[object] | None = None,
-) -> MemberReference:
-    """Defer a cross-property reference until all declarations are defined."""
-
-    return MemberReference(property_name=property_name, interface_type=interface_type)
 
 
 def precondition(
@@ -629,7 +638,7 @@ def instrument_interface[ClassT: type[object]](
     description: str | None = None,
     components: Mapping[str, type[object]] | None = None,
 ) -> Callable[[ClassT], ClassT]:
-    """Attach instrument identity to an authored ``Protocol`` or ABC.
+    """Attach instrument identity to an authored class, ``Protocol``, or ABC.
 
     The decorator preserves the Python class. Decorated methods define typed
     operation and acquisition members; ``compile_interface`` is the explicit
@@ -853,7 +862,7 @@ def declared_property_ref(
     declared_property = _declared_properties(interface_type).get(property_name)
     if declared_property is None:
         raise ValueError(f"declared scope has no property {property_name!r}")
-    metadata = _property_member_metadata(declared_property, property_name)
+    metadata = declared_property.metadata
     property_id = metadata.id or property_name
     return declared_interface_ref(interface_type).property(property_id)
 
@@ -866,19 +875,19 @@ def declared_device_properties(
     """Compile device-owned properties declared directly on a driver hierarchy."""
 
     fields: list[DeclaredDeviceProperty] = []
-    for property_name, declared_property in _declared_properties(driver_type).items():
-        metadata = _property_member_metadata(declared_property, property_name)
-        if not isinstance(metadata, DeviceMemberMetadata):
+    for property_name, declaration in _declared_properties(driver_type).items():
+        if not isinstance(declaration, DeviceMember):
             continue
+        metadata = declaration.metadata
         if schema_id is None:
             raise TypeError(
                 f"device property {property_name!r} requires "
                 "instrument_driver(device_schema_id=...)"
             )
         annotation, spec = _compile_declared_property(
+            driver_type,
             property_name,
-            declared_property,
-            metadata,
+            declaration,
         )
         fields.append(
             DeclaredDeviceProperty(
@@ -890,6 +899,7 @@ def declared_device_properties(
                 ),
                 spec=spec,
                 annotation=annotation,
+                declaration=declaration,
             )
         )
     return tuple(fields)
@@ -1012,22 +1022,15 @@ def _declared_property_fields[InterfaceT](
 ) -> tuple[DeclaredProperty, ...]:
     specs_by_id = {item.id: item for item in compiled.spec.properties}
     declared_fields: list[DeclaredProperty] = []
-    for property_name, declared_property in _declared_properties(
+    for property_name, declaration in _declared_properties(
         compiled.interface_type
     ).items():
-        getter = declared_property.fget
-        if getter is None:
-            raise TypeError(f"declared property {property_name!r} requires a getter")
-        hints = cast(
-            "Mapping[str, object]",
-            get_type_hints(getter, include_extras=True),
+        annotation = _declared_member_annotation(
+            compiled.interface_type,
+            property_name,
+            declaration,
         )
-        annotation = hints.get("return")
-        if annotation is None:
-            raise TypeError(
-                f"declared property {property_name!r} requires a return annotation"
-            )
-        metadata = _property_member_metadata(declared_property, property_name)
+        metadata = declaration.metadata
         property_id = metadata.id or property_name
         declared_fields.append(
             DeclaredProperty(
@@ -1035,6 +1038,7 @@ def _declared_property_fields[InterfaceT](
                 ref=compiled.ref.property(property_id),
                 spec=specs_by_id[property_id],
                 annotation=_expand_concrete_alias(annotation),
+                declaration=declaration,
             )
         )
     return tuple(declared_fields)
@@ -1295,51 +1299,35 @@ def _declared_result_layout(
 
 def _compile_properties(scope_type: type[object]) -> list[PropertySpec]:
     properties: list[PropertySpec] = []
-    for property_name, declared_property in _declared_properties(scope_type).items():
-        metadata = _property_member_metadata(declared_property, property_name)
-        if isinstance(metadata, DeviceMemberMetadata):
+    for property_name, declaration in _declared_properties(scope_type).items():
+        if isinstance(declaration, DeviceMember):
             raise TypeError(
                 f"interface property {property_name!r} cannot use @device_member"
             )
         _, spec = _compile_declared_property(
+            scope_type,
             property_name,
-            declared_property,
-            metadata,
+            declaration,
         )
         properties.append(spec)
     return properties
 
 
 def _compile_declared_property(
+    scope_type: type[object],
     property_name: str,
-    declared_property: property,
-    metadata: MemberMetadata,
+    declaration: Member[object],
 ) -> tuple[object, PropertySpec]:
-    getter = declared_property.fget
-    if getter is None:
-        raise TypeError(f"declared property {property_name!r} requires a getter")
-    hints = cast(
-        "Mapping[str, object]",
-        get_type_hints(getter, include_extras=True),
+    annotation = _declared_member_annotation(
+        scope_type,
+        property_name,
+        declaration,
     )
-    annotation = hints.get("return")
-    if annotation is None:
-        raise TypeError(
-            f"declared property {property_name!r} requires a return annotation"
-        )
-    inferred_access: PropertyAccess = (
-        "read_write" if declared_property.fset is not None else "read_only"
-    )
-    if metadata.access is not None and metadata.access != inferred_access:
-        raise TypeError(
-            f"declared property {property_name!r} access {metadata.access!r} "
-            f"does not match its {'setter' if declared_property.fset else 'getter'}"
-        )
     expanded_annotation = _expand_concrete_alias(annotation)
     return expanded_annotation, _compile_property(
         property_name,
         expanded_annotation,
-        replace(metadata, access=inferred_access),
+        declaration.metadata,
     )
 
 
@@ -1348,8 +1336,6 @@ def _compile_property(
     annotation: object,
     metadata: MemberMetadata,
 ) -> PropertySpec:
-    if metadata.access is None:
-        raise TypeError(f"property {field_name!r} requires an access mode")
     annotation = _expand_concrete_alias(annotation)
     property_id = metadata.id or field_name
     origin = get_origin(annotation)
@@ -1598,7 +1584,7 @@ def _compile_acquisition(
                 else (
                     scope.property(axis_metadata.size)
                     if isinstance(axis_metadata.size, str)
-                    else _resolve_member_reference(
+                    else _resolve_member_declaration(
                         axis_metadata.size,
                         scope=scope,
                     )
@@ -1649,20 +1635,22 @@ def _resolve_property_target(
 ) -> PropertyRef:
     if isinstance(target, PropertyRef):
         return target
-    return _resolve_member_reference(target, scope=scope)
+    return _resolve_member_declaration(target, scope=scope)
 
 
-def _resolve_member_reference(
-    target: MemberReference,
+def _resolve_member_declaration(
+    target: Member[object],
     *,
     scope: _DeclaredScopeRef,
 ) -> PropertyRef:
-    if target.interface_type is not None:
+    if target.owner is None or target.python_name is None:
+        raise TypeError("instrument member declaration is not bound to a class")
+    if isinstance(getattr(target.owner, _INTERFACE_METADATA, None), InterfaceMetadata):
         return declared_property_ref(
-            target.interface_type,
-            target.property_name,
+            target.owner,
+            target.python_name,
         )
-    return scope.property(target.property_name)
+    return scope.property(target.metadata.id or target.python_name)
 
 
 def _compile_results(
@@ -1890,29 +1878,38 @@ def _declared_members(interface_type: type[object]) -> Mapping[str, object]:
     return members
 
 
-def _declared_properties(scope_type: type[object]) -> Mapping[str, property]:
+def _declared_properties(
+    scope_type: type[object],
+) -> Mapping[str, Member[object]]:
     return {
         name: member
         for name, member in _declared_members(scope_type).items()
-        if isinstance(member, property)
-        and member.fget is not None
-        and isinstance(getattr(member.fget, _MEMBER_METADATA, None), MemberMetadata)
+        if isinstance(member, Member)
     }
 
 
-def _property_member_metadata(
-    declared_property: property,
+def _declared_member_annotation(
+    scope_type: type[object],
     property_name: str,
-) -> MemberMetadata:
-    getter = declared_property.fget
-    if getter is None:
-        raise TypeError(f"declared property {property_name!r} requires a getter")
-    return _required_metadata(
-        getter,
-        _MEMBER_METADATA,
-        MemberMetadata,
-        f"declared property {property_name!r}",
+    declaration: Member[object],
+) -> object:
+    hints = cast(
+        "Mapping[str, object]",
+        get_type_hints(scope_type, include_extras=True),
     )
+    annotation = hints.get(property_name)
+    origin = get_origin(annotation)
+    arguments = get_args(annotation)
+    if origin not in (Member, DeviceMember) or len(arguments) != 1:
+        raise TypeError(
+            f"declared member {property_name!r} requires a Member[T] or "
+            "DeviceMember[T] annotation"
+        )
+    if isinstance(declaration, DeviceMember) != (origin is DeviceMember):
+        raise TypeError(
+            f"declared member {property_name!r} annotation does not match its value"
+        )
+    return cast("tuple[object, ...]", arguments)[0]
 
 
 def _integer_bound(
@@ -2080,12 +2077,13 @@ __all__ = [
     "DeclaredResultField",
     "DeclaredResultLayout",
     "DeclaredScopeLayout",
+    "DeviceMember",
     "DeviceMemberMetadata",
     "InterfaceMetadata",
+    "Member",
     "MemberMetadata",
     "MemberProjectionField",
     "MemberProjectionLayout",
-    "MemberReference",
     "OperationMetadata",
     "PreconditionMetadata",
     "PreconditionValue",
@@ -2113,7 +2111,6 @@ __all__ = [
     "member",
     "member_projection_assignments",
     "member_projection_field",
-    "member_ref",
     "operation",
     "precondition",
     "result",
