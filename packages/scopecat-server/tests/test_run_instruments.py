@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -43,6 +44,11 @@ from scopecat.records.config import (
     config_content_hash,
 )
 from scopecat.records.content import CommandPayload, command_payload_from_bytes
+from scopecat.records.instrument import (
+    InstrumentStateSetting,
+    state_member_target,
+    state_setting,
+)
 from scopecat.records.measurement import (
     MeasurementAcquisitionValue,
     MeasurementArray,
@@ -63,17 +69,18 @@ from scopecat.sdk.instruments import (
     DriverPayload,
     DriverReadback,
     DriverRejected,
-    DriverState,
     DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     DriverSuccess,
     DriverUnknown,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentDescription,
-    InstrumentPropertyState,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InterfaceRef,
+    PropertyRef,
     acquisition,
     acquisition_axis,
     acquisition_precondition,
@@ -83,6 +90,7 @@ from scopecat.sdk.instruments import (
     float_property,
     int_property,
     interface,
+    state_readback,
     string_property,
 )
 from scopecat.sdk.instruments.commands import (
@@ -118,7 +126,22 @@ type _FailAction = (
     | None
 )
 
-_DC_MODE = InterfaceRef("test.dc/v1").property("mode")
+
+def _setting(
+    *,
+    interface_id: str,
+    property_id: str,
+    value: StateValue,
+    component_path: Sequence[str] = (),
+) -> InstrumentStateSetting:
+    return state_setting(
+        PropertyRef(interface_id, tuple(component_path), property_id),
+        value,
+    )
+
+
+_DC = InterfaceRef("test.dc/v1")
+_DC_MODE = _DC.property("mode")
 _DC_OUTPUT_ENABLED = InterfaceRef("test.dc/v1").property("output_enabled")
 _DC_VOLTAGE_LEVEL = InterfaceRef("test.dc/v1").property("voltage_level")
 _DC_CURRENT_LEVEL = InterfaceRef("test.dc/v1").property("current_level")
@@ -141,9 +164,9 @@ class _Driver(SignalInstrumentDriver):
         self.disconnect_count = 0
 
     @override
-    def read_state(self):  # type: ignore[no-untyped-def]
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
         self.read_count += 1
-        return super().read_state()
+        return super().read_state(request)
 
     @override
     def apply_state(self, request: DriverStatePatch):  # type: ignore[no-untyped-def]
@@ -167,7 +190,7 @@ class _Driver(SignalInstrumentDriver):
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         self.invoked.append(request)
         if self.fail_action == "invoke":
             raise RuntimeError("invoke outcome lost")
@@ -274,10 +297,11 @@ class _VariantDriver(_Driver):
         )
 
     @override
-    def read_state(self) -> DriverState:
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
         self.read_count += 1
-        return DriverState(
-            values={
+        return state_readback(
+            request,
+            {
                 _DC_MODE: self.mode,
                 _DC_VOLTAGE_LEVEL: self.voltage_level,
                 _DC_CURRENT_LEVEL: self.current_level,
@@ -289,7 +313,7 @@ class _VariantDriver(_Driver):
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         self.applied.append(request)
         for entry in request.entries:
             target = entry.target
@@ -437,7 +461,7 @@ class _NonConvergingDriver(_Driver):
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         self.applied.append(request)
         return DriverSuccess(None)
 
@@ -465,7 +489,7 @@ class _RejectNextApplyDriver(_Driver):
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         reject = self.fail_action == "reject_apply"
         outcome = super().apply_state(request)
         if reject:
@@ -631,7 +655,7 @@ def test_run_start_applies_default_state_after_fresh_observation(
 ) -> None:
     provider = _Provider()
     config = _config_with_default_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=5.1, unit="GHz")),
@@ -648,8 +672,9 @@ def test_run_start_applies_default_state_after_fresh_observation(
         [observed] = provision.observed_state
         [reconciled] = provision.baseline_state
         assert {
-            (item.interface_id, item.property_id): item.value.root
-            for item in observed.properties
+            (item.target.interface_id, item.target.property_id): item.value.root
+            for item in observed.observations
+            if item.target.kind == "interface"
         } == {
             ("test.set_frequency/v1", "frequency"): Quantity(
                 value=4.0,
@@ -658,8 +683,9 @@ def test_run_start_applies_default_state_after_fresh_observation(
             ("test.set_gain/v1", "gain"): 0.0,
         }
         assert {
-            (item.interface_id, item.property_id): item.value.root
-            for item in reconciled.properties
+            (item.target.interface_id, item.target.property_id): item.value.root
+            for item in reconciled.observations
+            if item.target.kind == "interface"
         } == {
             ("test.set_frequency/v1", "frequency"): Quantity(
                 value=5.1,
@@ -678,7 +704,7 @@ def test_run_start_preserves_observed_state_when_default_state_exists(
 ) -> None:
     provider = _Provider()
     config = _config_with_default_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=5.0, unit="GHz")),
@@ -703,7 +729,7 @@ def test_unknown_default_state_reconciliation_quarantines_the_run(
 ) -> None:
     provider = _Provider(fail_action="apply")
     config = _config_with_default_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=5.0, unit="GHz")),
@@ -735,7 +761,7 @@ def test_unknown_default_state_reconciliation_quarantines_the_run(
 def test_run_start_requires_default_state_to_converge(tmp_path: Path) -> None:
     provider = _Provider(driver_type=_NonConvergingDriver)
     config = _config_with_default_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=5.0, unit="GHz")),
@@ -773,7 +799,7 @@ def test_rejected_default_state_reconciliation_releases_without_quarantine(
 ) -> None:
     provider = _Provider(fail_action="reject_apply")
     config = _config_with_default_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=5.0, unit="GHz")),
@@ -801,7 +827,7 @@ def test_partial_default_state_reconciliation_releases_confirmed_state(
 ) -> None:
     provider = _SecondRejectingProvider()
     config = _two_instrument_config_with_default_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=5.0, unit="GHz")),
@@ -855,8 +881,9 @@ def test_partial_default_state_reconciliation_releases_confirmed_state(
         assert reacquired.status == "ready"
         [observed] = reacquired.observed_state
         assert {
-            (item.interface_id, item.property_id): item.value.root
-            for item in observed.properties
+            (item.target.interface_id, item.target.property_id): item.value.root
+            for item in observed.observations
+            if item.target.kind == "interface"
         }[("test.set_frequency/v1", "frequency")] == Quantity(
             value=5.0,
             unit="GHz",
@@ -871,17 +898,17 @@ def test_run_start_skips_default_state_matching_observed_state(
 ) -> None:
     provider = _Provider(driver_type=_VariantDriver)
     config = _config_with_default_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.dc/v1",
             property_id="mode",
             value=StateValue("voltage"),
         ),
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.dc/v1",
             property_id="voltage_level",
             value=StateValue(0.1),
         ),
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.dc/v1",
             property_id="output_enabled",
             value=StateValue(False),
@@ -908,7 +935,7 @@ def test_run_start_skips_default_state_matching_observed_state(
 def test_run_start_skips_unit_equivalent_default_state(tmp_path: Path) -> None:
     provider = _Provider(driver_type=_EquivalentQuantityDriver)
     config = _config_with_default_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=1000.0, unit="MHz")),
@@ -1186,7 +1213,7 @@ def test_live_collect_rejection_preserves_problem_context_and_replays(
         assert len(driver.collect_requests) == 2
 
 
-def test_run_invoke_reads_back_state_before_later_actions(
+def test_run_invoke_without_invalidations_reuses_cached_state(
     tmp_path: Path,
 ) -> None:
     provider = _Provider()
@@ -1220,7 +1247,7 @@ def test_run_invoke_reads_back_state_before_later_actions(
 
         assert receipt.problems == ()
         assert len(driver.invoked) == 1
-        assert driver.read_count == reads_before_invoke + 1
+        assert driver.read_count == reads_before_invoke
         [argument] = driver.invoked[0].arguments.values()
         assert isinstance(argument, DriverPayload)
         assert argument.schema_id == payload.schema_id
@@ -1507,7 +1534,7 @@ def test_failed_finish_abort_failure_is_unknown(tmp_path: Path) -> None:
 
 def test_failed_finish_applies_configured_safe_state(tmp_path: Path) -> None:
     provider = _Provider()
-    safe_frequency = InstrumentPropertyState(
+    safe_frequency = _setting(
         interface_id="test.set_frequency/v1",
         property_id="frequency",
         value=StateValue(Quantity(value=4.25, unit="GHz")),
@@ -1534,8 +1561,9 @@ def test_failed_finish_applies_configured_safe_state(tmp_path: Path) -> None:
         assert target.property_id == "frequency"
         [final_state] = receipt.final_state
         values = {
-            (item.interface_id, item.property_id): item.value.root
-            for item in final_state.properties
+            (item.target.interface_id, item.target.property_id): item.value.root
+            for item in final_state.observations
+            if item.target.kind == "interface"
         }
         assert values[("test.set_frequency/v1", "frequency")] == Quantity(
             value=4.25,
@@ -1547,7 +1575,7 @@ def test_failed_finish_applies_configured_safe_state(tmp_path: Path) -> None:
 def test_successful_finish_does_not_apply_failure_safe_state(tmp_path: Path) -> None:
     provider = _Provider()
     config = _config_with_safe_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=4.25, unit="GHz")),
@@ -1608,7 +1636,9 @@ def test_successful_finish_restores_the_preserved_baseline(
 
         [baseline] = provision.baseline_state
         [final] = receipt.final_state
-        assert final.properties == baseline.properties
+        assert [(item.target, item.value) for item in final.observations] == [
+            (item.target, item.value) for item in baseline.observations
+        ]
         [driver] = provider.drivers
         assert driver.abort_count == 0
         assert len(driver.applied) == 2
@@ -1616,6 +1646,7 @@ def test_successful_finish_restores_the_preserved_baseline(
         assert {
             (target.interface_id, target.property_id): value
             for target, value in restored.values.items()
+            if isinstance(target, PropertyRef)
         } == {
             ("test.set_frequency/v1", "frequency"): Quantity(
                 value=4.0,
@@ -1628,7 +1659,7 @@ def test_successful_finish_restores_the_default_baseline(tmp_path: Path) -> None
     provider = _Provider()
     config = _config_with_success_action(
         _config_with_default_state(
-            InstrumentPropertyState(
+            _setting(
                 interface_id="test.set_frequency/v1",
                 property_id="frequency",
                 value=StateValue(Quantity(value=5.1, unit="GHz")),
@@ -1661,8 +1692,8 @@ def test_successful_finish_restores_the_default_baseline(tmp_path: Path) -> None
         [final] = receipt.final_state
         frequency = next(
             item.value.root
-            for item in final.properties
-            if item.property_id == "frequency"
+            for item in final.observations
+            if item.target.property_id == "frequency"
         )
         assert frequency == Quantity(value=5.1, unit="GHz")
         [driver] = provider.drivers
@@ -1709,7 +1740,7 @@ def test_rejected_baseline_restore_enters_configured_safe_state(
     provider = _Provider(driver_type=_RejectNextApplyDriver)
     config = _config_with_success_action(
         _config_with_safe_state(
-            InstrumentPropertyState(
+            _setting(
                 interface_id="test.set_frequency/v1",
                 property_id="frequency",
                 value=StateValue(Quantity(value=4.25, unit="GHz")),
@@ -1750,8 +1781,8 @@ def test_rejected_baseline_restore_enters_configured_safe_state(
         [final] = receipt.final_state
         frequency = next(
             item.value.root
-            for item in final.properties
-            if item.property_id == "frequency"
+            for item in final.observations
+            if item.target.property_id == "frequency"
         )
         assert frequency == Quantity(value=4.25, unit="GHz")
 
@@ -1799,7 +1830,7 @@ def test_rejected_failure_safe_state_is_reported_and_released(
 ) -> None:
     provider = _Provider(fail_action="reject_apply")
     config = _config_with_safe_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=4.25, unit="GHz")),
@@ -1830,7 +1861,7 @@ def test_rejected_failure_safe_state_is_reported_and_released(
 def test_unknown_failure_safe_state_quarantines_the_run(tmp_path: Path) -> None:
     provider = _Provider(fail_action="apply")
     config = _config_with_safe_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=4.25, unit="GHz")),
@@ -2082,7 +2113,7 @@ def test_run_without_claims_does_not_build_provider(tmp_path: Path) -> None:
 
 
 def _config_with_default_state(
-    *properties: InstrumentPropertyState,
+    *properties: InstrumentStateSetting,
     run_start: InstrumentRunStartPolicy = "apply_default_state",
 ) -> ConfigProfileSnapshot:
     config = load_config()
@@ -2104,7 +2135,7 @@ def _config_with_default_state(
 
 
 def _config_with_safe_state(
-    *properties: InstrumentPropertyState,
+    *properties: InstrumentStateSetting,
 ) -> ConfigProfileSnapshot:
     config = load_config()
     [instrument] = config.instrument_registry.instruments
@@ -2142,7 +2173,7 @@ def _config_with_success_action(
 
 
 def _two_instrument_config_with_default_state(
-    *properties: InstrumentPropertyState,
+    *properties: InstrumentStateSetting,
 ) -> ConfigProfileSnapshot:
     config = _two_instrument_config()
     instruments = [
@@ -2291,8 +2322,9 @@ def _apply_action(
         assignments=(
             InstrumentStateAssignment(
                 resource_id=instrument_id,
-                interface_id="test.set_frequency/v1",
-                property_id="frequency",
+                target=state_member_target(
+                    InterfaceRef("test.set_frequency/v1").property("frequency")
+                ),
                 value=StateValue(Quantity(value=5.0, unit="GHz")),
             ),
         ),
@@ -2320,8 +2352,7 @@ def _variant_apply_action(
         assignments=tuple(
             InstrumentStateAssignment(
                 resource_id="source-0",
-                interface_id="test.dc/v1",
-                property_id=property_id,
+                target=state_member_target(_DC.property(property_id)),
                 value=StateValue(value),
             )
             for property_id, value in values.items()
@@ -2342,8 +2373,7 @@ def _state_sized_axis_apply_action(
         assignments=(
             InstrumentStateAssignment(
                 resource_id="source-0",
-                interface_id="test.sweep/v1",
-                property_id="points",
+                target=state_member_target(_SWEEP_POINTS),
                 value=StateValue(points),
             ),
         ),

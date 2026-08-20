@@ -11,6 +11,7 @@ from scopecat.kernel.errors import OperationFailure
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.content import command_payload_from_bytes
+from scopecat.records.instrument import state_member_ref, state_member_target
 from scopecat.records.measurement import MeasurementArray, MeasurementUnavailable
 from scopecat.sdk.domain import (
     DomainInstrumentExecutor,
@@ -214,13 +215,14 @@ def list_mode_realtime_write_footprint(
             {
                 DomainStateAddress(
                     instrument_id=action.instrument_id,
-                    interface_id=assignment.interface_id,
-                    component_path=tuple(assignment.component_path),
-                    property_id=assignment.property_id,
+                    interface_id=target.interface_id,
+                    component_path=target.component_path,
+                    property_id=target.property_id,
                 )
                 for action in batch.actions
                 if isinstance(action, RunHardwareApply)
                 for assignment in action.assignments
+                for target in (_interface_assignment_target(assignment),)
             }
         )
     )
@@ -746,11 +748,20 @@ def _assignment(
 ) -> InstrumentStateAssignment:
     return InstrumentStateAssignment(
         resource_id=instrument_id,
-        interface_id=target.interface_id,
-        component_path=list(component_path),
-        property_id=target.property_id,
+        target=state_member_target(
+            PropertyRef(target.interface_id, component_path, target.property_id)
+        ),
         value=StateValue(value),
     )
+
+
+def _interface_assignment_target(
+    assignment: InstrumentStateAssignment,
+) -> PropertyRef:
+    target = state_member_ref(assignment.target)
+    if not isinstance(target, PropertyRef):
+        raise ValueError("list-mode state footprint requires interface members")
+    return target
 
 
 def _execute_batch(

@@ -131,6 +131,8 @@ class MemberMetadata:
     label: str | None = None
     description: str | None = None
     access: PropertyAccess = "read_write"
+    capture: bool = True
+    restore: bool | None = None
     unit: str | None = None
     minimum: float | None = None
     maximum: float | None = None
@@ -366,6 +368,8 @@ def member(
     label: str | None = None,
     description: str | None = None,
     access: PropertyAccess = "read_write",
+    capture: bool = True,
+    restore: bool | None = None,
     unit: str | None = None,
     minimum: float | None = None,
     maximum: float | None = None,
@@ -378,6 +382,8 @@ def member(
         label=label,
         description=description,
         access=access,
+        capture=capture,
+        restore=restore,
         unit=unit,
         minimum=minimum,
         maximum=maximum,
@@ -391,6 +397,8 @@ def member_field[ValueT](
     label: str | None = None,
     description: str | None = None,
     access: PropertyAccess = "read_write",
+    capture: bool = True,
+    restore: bool | None = None,
     unit: str | None = None,
     minimum: float | None = None,
     maximum: float | None = None,
@@ -409,6 +417,8 @@ def member_field[ValueT](
             label=label,
             description=description,
             access=access,
+            capture=capture,
+            restore=restore,
             unit=unit,
             minimum=minimum,
             maximum=maximum,
@@ -1397,6 +1407,12 @@ def _compile_property(
         label=metadata.label,
         description=metadata.description,
         access=metadata.access,
+        capture=metadata.capture,
+        restore=(
+            metadata.access == "read_write"
+            if metadata.restore is None
+            else metadata.restore
+        ),
         value_type=Scalar(atom),
     )
 

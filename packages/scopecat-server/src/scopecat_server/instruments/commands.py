@@ -5,12 +5,19 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Literal
 
+from scopecat.kernel.instrument_members import StateMemberRef
 from scopecat.kernel.problems import Problem
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import (
+    InstrumentStateReadback,
+    InstrumentStateSnapshot,
+    state_member_ref,
+    state_member_target,
+)
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
     BackendCollectRequest,
     BackendInvokeRequest,
+    BackendReadRequest,
 )
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
@@ -20,8 +27,11 @@ from scopecat.sdk.instruments.commands import (
     InvokeReceipt,
 )
 from scopecat.sdk.instruments.contracts import (
+    capture_state_members,
+    operation_invalidated_state_members,
     state_assignment_satisfied,
     validate_collect_receipt,
+    validate_state_capture,
     validate_state_snapshot,
 )
 
@@ -69,14 +79,13 @@ def execute_instrument_apply(
     if receipt.status != "applied":
         return receipt
     try:
-        state = _confirmed_applied_state(instrument, receipt, assignments)
+        _confirm_applied_state(instrument, receipt, assignments)
     except BackendConflict as error:
         raise InstrumentCommandExecutionError(
             "instrument_apply_state_unknown",
             f"instrument apply completed but {error}",
         ) from error
-    instrument.adopt_state(state)
-    return receipt.model_copy(update={"state": state})
+    return receipt
 
 
 def execute_instrument_invoke(
@@ -92,28 +101,24 @@ def execute_instrument_invoke(
         ) from error
     if receipt.status != "invoked":
         return receipt
-    if receipt.state is None:
-        try:
-            state = observe_instrument(instrument)
-        except BackendConflict as error:
-            raise InstrumentCommandExecutionError(
-                "instrument_invoke_state_unknown",
-                "instrument invoke completed but state synchronization failed",
-            ) from error
-    else:
-        state = receipt.state
-        problems = validate_state_snapshot(
-            snapshot=state,
-            description=instrument.description,
-        )
-        if problems:
-            raise InstrumentCommandExecutionError(
-                "instrument_invoke_state_mismatch",
-                "; ".join(item.message for item in problems),
-                problems=problems,
+    try:
+        if receipt.readback is not None:
+            adopt_instrument_readback(instrument, receipt.readback)
+        else:
+            invalidated = operation_invalidated_state_members(
+                instrument.description,
+                interface_id=request.interface_id,
+                component_path=request.component_path,
+                operation_id=request.operation_id,
             )
-    instrument.adopt_state(state)
-    return receipt.model_copy(update={"state": state})
+            if invalidated:
+                observe_members(instrument, invalidated)
+    except BackendConflict as error:
+        raise InstrumentCommandExecutionError(
+            "instrument_invoke_state_unknown",
+            "instrument invoke completed but state synchronization failed",
+        ) from error
+    return receipt
 
 
 def execute_instrument_collect(
@@ -153,36 +158,89 @@ def execute_instrument_collect(
 def observe_instrument(
     instrument: OwnedInstrument,
 ) -> InstrumentStateSnapshot:
-    try:
-        state = instrument.read_state()
-    except Exception as error:
-        raise BackendConflict("instrument state read failed") from error
-    problems = validate_state_snapshot(
+    """Refresh the explicit lifecycle capture plan and return its projection."""
+
+    targets = capture_state_members(instrument.description)
+    observe_members(instrument, targets)
+    state = instrument.assumed_state
+    assert state is not None
+    problems = validate_state_capture(
         snapshot=state,
         description=instrument.description,
+        required=targets,
     )
     if problems:
         raise BackendConflict("; ".join(item.message for item in problems))
     return state
 
 
-def _confirmed_applied_state(
+def observe_members(
+    instrument: OwnedInstrument,
+    targets: Sequence[StateMemberRef],
+) -> InstrumentStateReadback:
+    selected = tuple(targets)
+    if not selected:
+        readback = InstrumentStateReadback(instrument_id=instrument.instrument_id)
+        instrument.adopt_readback(readback)
+        return readback
+    try:
+        request = BackendReadRequest(
+            targets=tuple(state_member_target(target) for target in selected)
+        )
+        readback = instrument.read_state(request)
+    except Exception as error:
+        raise BackendConflict("instrument state read failed") from error
+    requested = {state_member_ref(target) for target in request.targets}
+    snapshot = InstrumentStateSnapshot(
+        instrument_id=readback.instrument_id,
+        observations=[item.model_copy(deep=True) for item in readback.observations],
+        metadata=dict(readback.metadata),
+    )
+    problems = validate_state_capture(
+        snapshot=snapshot,
+        description=instrument.description,
+        required=tuple(requested),
+    )
+    if problems:
+        raise BackendConflict("; ".join(item.message for item in problems))
+    instrument.adopt_readback(readback)
+    return readback
+
+
+def adopt_instrument_readback(
+    instrument: OwnedInstrument,
+    readback: InstrumentStateReadback,
+) -> None:
+    snapshot = InstrumentStateSnapshot(
+        instrument_id=readback.instrument_id,
+        observations=[item.model_copy(deep=True) for item in readback.observations],
+        metadata=dict(readback.metadata),
+    )
+    problems = validate_state_snapshot(
+        snapshot=snapshot,
+        description=instrument.description,
+    )
+    if problems:
+        raise BackendConflict("; ".join(item.message for item in problems))
+    instrument.adopt_readback(readback)
+
+
+def _confirm_applied_state(
     instrument: OwnedInstrument,
     receipt: ApplyReceipt,
     assignments: Sequence[InstrumentStateAssignment],
-) -> InstrumentStateSnapshot:
-    state = receipt.state
-    if state is None:
-        state = observe_instrument(instrument)
-    else:
-        problems = validate_state_snapshot(
-            snapshot=state,
-            description=instrument.description,
+) -> None:
+    if receipt.readback is None:
+        observe_members(
+            instrument,
+            tuple(state_member_ref(assignment.target) for assignment in assignments),
         )
-        if problems:
-            raise BackendConflict("; ".join(item.message for item in problems))
+    else:
+        adopt_instrument_readback(instrument, receipt.readback)
+    state = instrument.assumed_state
+    if state is None:
+        raise BackendConflict("instrument apply produced no synchronized state")
     if not all(
         state_assignment_satisfied(state, assignment) for assignment in assignments
     ):
         raise BackendConflict("instrument apply readback did not match requested state")
-    return state

@@ -17,7 +17,12 @@ from pydantic import (
 
 import scopecat.sdk.instruments.commands as _commands
 from scopecat.kernel.content_identity import model_wire_content_hash
-from scopecat.kernel.instrument_members import PropertyRef
+from scopecat.kernel.instrument_members import (
+    DevicePropertyRef,
+    DeviceSchemaId,
+    PropertyRef,
+    StateMemberRef,
+)
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
@@ -48,23 +53,27 @@ from scopecat.program.measurement_types import (
     MeasurementVariableRole,
 )
 from scopecat.records.instrument import (
-    InstrumentPropertyState as _InstrumentPropertyState,
+    InstrumentStateObservation as _InstrumentStateObservation,
 )
 from scopecat.records.instrument import (
     InstrumentStateSnapshot as _InstrumentStateSnapshot,
 )
 from scopecat.records.instrument import (
-    StateTargetScopeIdentity as _StateTargetScopeIdentity,
+    InterfaceStateMemberTarget as _InterfaceStateMemberTarget,
 )
 from scopecat.records.instrument import (
-    property_target_identity as _property_target_identity,
+    StateMemberTarget as _StateMemberTarget,
 )
 from scopecat.records.instrument import (
-    property_target_sort_key as _property_target_sort_key,
+    state_member_identity as _state_member_identity,
 )
 from scopecat.records.instrument import (
-    state_target_scope_identity as _state_target_scope_identity,
+    state_member_sort_key as _state_member_sort_key,
 )
+from scopecat.records.instrument import (
+    state_member_target as _state_member_target,
+)
+from scopecat.sdk.instruments.authoring import DriverStateReadRequest
 from scopecat.sdk.instruments.projection import (
     ProjectedInstrumentState as _ProjectedInstrumentState,
 )
@@ -88,12 +97,24 @@ class PropertySpec(BaseModel):
     label: str | None = None
     description: str | None = None
     access: Literal["read_only", "write_only", "read_write"] = "read_write"
+    capture: bool = True
+    restore: bool = False
     value_type: InstrumentPropertyScalarWire
 
     @field_validator("value_type")
     @classmethod
     def validate_value_type(cls, value: Scalar) -> Scalar:
         return _validate_instrument_scalar(value, allow_payload=False)
+
+    @model_validator(mode="after")
+    def validate_lifecycle_policy(self) -> PropertySpec:
+        if self.capture and self.access == "write_only":
+            raise ValueError("write-only properties cannot be captured")
+        if self.restore and self.access != "read_write":
+            raise ValueError("restorable properties must be readable and writable")
+        if self.restore and not self.capture:
+            raise ValueError("restorable properties must be captured")
+        return self
 
 
 class StatePropertyRef(BaseModel):
@@ -312,6 +333,37 @@ class InstrumentComponentSpec(BaseModel):
         return self
 
 
+class DeviceStateMemberSpec(BaseModel):
+    """One concrete-model state member at a physical component path."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    component_path: list[_NonEmptyId] = Field(default_factory=list)
+    property: PropertySpec
+
+
+class DeviceStateSpec(BaseModel):
+    """Versioned model-specific state that is not a portable capability."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: DeviceSchemaId
+    label: str | None = None
+    description: str | None = None
+    members: list[DeviceStateMemberSpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_unique_members(self) -> DeviceStateSpec:
+        _require_unique(
+            (
+                f"{'/'.join(member.component_path)}:{member.property.id}"
+                for member in self.members
+            ),
+            "device state member targets",
+        )
+        return self
+
+
 class InstrumentDescription(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -321,6 +373,7 @@ class InstrumentDescription(BaseModel):
     label: str | None = None
     description: str | None = None
     components: list[InstrumentComponentSpec] = Field(default_factory=list)
+    device_state: DeviceStateSpec | None = None
     interfaces: list[InterfaceSpec] = Field(default_factory=list)
     interface_mounts: list[InterfaceMountSpec] = Field(default_factory=list)
 
@@ -364,6 +417,18 @@ class InstrumentDescription(BaseModel):
                     f"interface {mount.interface_id!r} mount references unknown "
                     f"instrument component {'/'.join(mount.component_path)!r}"
                 )
+        if self.device_state is not None:
+            for member in self.device_state.members:
+                if (
+                    member.component_path
+                    and _resolve_instrument_component(self, member.component_path)
+                    is None
+                ):
+                    raise ValueError(
+                        f"device state member {member.property.id!r} references "
+                        "unknown instrument component "
+                        f"{'/'.join(member.component_path)!r}"
+                    )
         for interface_id, mounts in _interface_mounts_by_id(self).items():
             for index, left in enumerate(mounts):
                 for right in mounts[index + 1 :]:
@@ -734,21 +799,18 @@ def _state_value_for_reference(
     state: _InstrumentStateSnapshot | _ProjectedInstrumentState,
     reference: StatePropertyRef,
 ) -> StateValue | None:
-    identity = _property_target_identity(
-        reference.interface_id,
-        reference.component_path,
-        reference.property_id,
+    identity = _state_member_identity(
+        PropertyRef(
+            reference.interface_id,
+            tuple(reference.component_path),
+            reference.property_id,
+        )
     )
     return next(
         (
-            property_state.value
-            for property_state in state.properties
-            if _property_target_identity(
-                property_state.interface_id,
-                property_state.component_path,
-                property_state.property_id,
-            )
-            == identity
+            observation.value
+            for observation in state.observations
+            if _state_member_identity(observation.target) == identity
         ),
         None,
     )
@@ -760,21 +822,12 @@ def state_assignment_satisfied(
 ) -> bool:
     """Return whether observed state semantically satisfies one assignment."""
 
-    identity = _property_target_identity(
-        assignment.interface_id,
-        assignment.component_path,
-        assignment.property_id,
-    )
+    identity = _state_member_identity(assignment.target)
     actual = next(
         (
             item.value
-            for item in state.properties
-            if _property_target_identity(
-                item.interface_id,
-                item.component_path,
-                item.property_id,
-            )
-            == identity
+            for item in state.observations
+            if _state_member_identity(item.target) == identity
         ),
         None,
     )
@@ -835,6 +888,13 @@ def operation(
     )
 
 
+def _capture_default(
+    access: Literal["read_only", "write_only", "read_write"],
+    capture: bool | None,
+) -> bool:
+    return access != "write_only" if capture is None else capture
+
+
 def quantity_property(
     id: str,
     *,
@@ -844,12 +904,16 @@ def quantity_property(
     label: str | None = None,
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
+    capture: bool | None = None,
+    restore: bool | None = None,
 ) -> PropertySpec:
     return PropertySpec(
         id=id,
         label=label,
         description=description,
         access=access,
+        capture=_capture_default(access, capture),
+        restore=access == "read_write" if restore is None else restore,
         value_type=Scalar(
             QuantityType(
                 unit=unit,
@@ -866,12 +930,16 @@ def bool_property(
     label: str | None = None,
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
+    capture: bool | None = None,
+    restore: bool | None = None,
 ) -> PropertySpec:
     return PropertySpec(
         id=id,
         label=label,
         description=description,
         access=access,
+        capture=_capture_default(access, capture),
+        restore=access == "read_write" if restore is None else restore,
         value_type=Scalar(BoolType()),
     )
 
@@ -884,12 +952,16 @@ def int_property(
     label: str | None = None,
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
+    capture: bool | None = None,
+    restore: bool | None = None,
 ) -> PropertySpec:
     return PropertySpec(
         id=id,
         label=label,
         description=description,
         access=access,
+        capture=_capture_default(access, capture),
+        restore=access == "read_write" if restore is None else restore,
         value_type=Scalar(IntType(minimum=minimum, maximum=maximum)),
     )
 
@@ -900,12 +972,16 @@ def float_property(
     label: str | None = None,
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
+    capture: bool | None = None,
+    restore: bool | None = None,
 ) -> PropertySpec:
     return PropertySpec(
         id=id,
         label=label,
         description=description,
         access=access,
+        capture=_capture_default(access, capture),
+        restore=access == "read_write" if restore is None else restore,
         value_type=Scalar(FloatType()),
     )
 
@@ -917,12 +993,16 @@ def string_property(
     label: str | None = None,
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
+    capture: bool | None = None,
+    restore: bool | None = None,
 ) -> PropertySpec:
     return PropertySpec(
         id=id,
         label=label,
         description=description,
         access=access,
+        capture=_capture_default(access, capture),
+        restore=access == "read_write" if restore is None else restore,
         value_type=Scalar(StringType(choices=choices)),
     )
 
@@ -934,6 +1014,8 @@ def enum_property(
     label: str | None = None,
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
+    capture: bool | None = None,
+    restore: bool | None = None,
 ) -> PropertySpec:
     return string_property(
         id,
@@ -941,6 +1023,8 @@ def enum_property(
         label=label,
         description=description,
         access=access,
+        capture=capture,
+        restore=restore,
     )
 
 
@@ -1031,7 +1115,6 @@ def _validate_state_assignments(
         )
         if baseline_problems:
             return baseline_problems
-    interfaces = {interface.id: interface for interface in description.interfaces}
     for assignment_index, assignment in enumerate(assignments):
         assignment_path: tuple[LocationPathItem, ...] = (
             "assignments",
@@ -1047,49 +1130,15 @@ def _validate_state_assignments(
                 )
             )
             continue
-        interface_spec = interfaces.get(assignment.interface_id)
-        if interface_spec is None:
-            problems.append(
-                _problem(
-                    "instrument_driver_unsupported_interface",
-                    f"{instrument_id} does not support {assignment.interface_id}",
-                    *assignment_path,
-                    "interface_id",
-                )
-            )
-            continue
-        component_spec = resolve_implementation_component(
-            description,
-            interface_spec,
-            assignment.component_path,
-        )
-        if component_spec is None:
-            problems.append(
-                _problem(
-                    "instrument_driver_unsupported_component",
-                    f"{instrument_id} does not support component "
-                    f"{'/'.join(assignment.component_path)!r} under "
-                    f"{assignment.interface_id}",
-                    *assignment_path,
-                    "component_path",
-                )
-            )
-            continue
-        property_spec = next(
-            (
-                item
-                for item in component_spec.properties
-                if item.id == assignment.property_id
-            ),
-            None,
-        )
+        property_spec = resolve_state_member_spec(description, assignment.target)
         if property_spec is None:
             problems.append(
                 _problem(
-                    "instrument_driver_unsupported_property",
-                    f"{instrument_id} does not support {assignment.property_id}",
+                    "instrument_driver_unsupported_member",
+                    f"{instrument_id} does not support "
+                    f"{_state_member_identity(assignment.target)!r}",
                     *assignment_path,
-                    "property_id",
+                    "target",
                 )
             )
             continue
@@ -1097,9 +1146,9 @@ def _validate_state_assignments(
             problems.append(
                 _problem(
                     "instrument_driver_read_only_property",
-                    f"{instrument_id} property {assignment.property_id} is read-only",
+                    f"{instrument_id} property {property_spec.id} is read-only",
                     *assignment_path,
-                    "property_id",
+                    "target",
                 )
             )
             continue
@@ -1107,16 +1156,16 @@ def _validate_state_assignments(
             problems.append(
                 _problem(
                     "instrument_driver_write_only_property",
-                    f"{instrument_id} property {assignment.property_id} "
+                    f"{instrument_id} property {property_spec.id} "
                     "is write-only and cannot be reconciled",
                     *assignment_path,
-                    "property_id",
+                    "target",
                 )
             )
             continue
         problems.extend(
             _validate_state_value(
-                property_id=assignment.property_id,
+                property_id=property_spec.id,
                 value=assignment.value,
                 spec=property_spec,
                 assignment_path=assignment_path,
@@ -1130,7 +1179,7 @@ def validate_state_snapshot(
     snapshot: _InstrumentStateSnapshot,
     description: InstrumentDescription,
 ) -> list[Problem]:
-    """Validate observed persistent state against its advertised interface."""
+    """Validate every observation without imposing capture completeness."""
 
     if snapshot.instrument_id != description.instrument_id:
         return [
@@ -1141,102 +1190,53 @@ def validate_state_snapshot(
                 "instrument_id",
             )
         ]
-    interfaces = {interface.id: interface for interface in description.interfaces}
-    grouped: dict[
-        _StateTargetScopeIdentity,
-        tuple[InterfaceSpec | ComponentSpec, list[_InstrumentPropertyState]],
-    ] = {
-        scope: (component_spec, [])
-        for scope, component_spec in _static_observable_state_scopes(description)
-    }
     problems: list[Problem] = []
-    for property_index, property_state in enumerate(snapshot.properties):
-        interface_spec = interfaces.get(property_state.interface_id)
-        if interface_spec is None:
-            problems.append(
-                _snapshot_problem(
-                    "instrument_driver_snapshot_unsupported_interface",
-                    f"{snapshot.instrument_id} returned unsupported interface "
-                    f"{property_state.interface_id}",
-                    "properties",
-                    property_index,
-                    "interface_id",
-                )
-            )
-            continue
-        component_spec = resolve_implementation_component(
-            description,
-            interface_spec,
-            property_state.component_path,
-        )
-        if component_spec is None:
-            problems.append(
-                _snapshot_problem(
-                    "instrument_driver_snapshot_unsupported_component",
-                    f"{snapshot.instrument_id} returned unsupported component "
-                    f"{'/'.join(property_state.component_path)!r}",
-                    "properties",
-                    property_index,
-                    "component_path",
-                )
-            )
-            continue
-        property_spec = next(
-            (
-                item
-                for item in component_spec.properties
-                if item.id == property_state.property_id
-            ),
-            None,
-        )
+    for observation_index, observation in enumerate(snapshot.observations):
+        property_spec = resolve_state_member_spec(description, observation.target)
         if property_spec is None:
+            identity = _state_member_identity(observation.target)
             problems.append(
                 _snapshot_problem(
-                    "instrument_driver_snapshot_unsupported_property",
-                    f"{snapshot.instrument_id} returned unsupported property "
-                    f"{property_state.property_id}",
-                    "properties",
-                    property_index,
-                    "property_id",
+                    "instrument_driver_snapshot_unsupported_member",
+                    f"{snapshot.instrument_id} returned unsupported member "
+                    f"{identity!r}",
+                    "observations",
+                    observation_index,
+                    "target",
                 )
             )
             continue
-        scope = _state_target_scope_identity(
-            property_state.interface_id,
-            property_state.component_path,
-        )
-        grouped.setdefault(scope, (component_spec, []))[1].append(property_state)
         if property_spec.access == "write_only":
             problems.append(
                 _snapshot_problem(
                     "instrument_driver_snapshot_write_only_property",
                     f"{snapshot.instrument_id} returned write-only property "
-                    f"{property_state.property_id}",
-                    "properties",
-                    property_index,
-                    "property_id",
+                    f"{property_spec.id}",
+                    "observations",
+                    observation_index,
+                    "target",
                 )
             )
             continue
         try:
             validate_literal(
                 property_spec.value_type,
-                property_state.value.root,
+                observation.value.root,
                 path=("value",),
             )
         except ValueValidationError as error:
             problems.append(
                 _snapshot_problem(
                     "instrument_driver_snapshot_property_value_mismatch",
-                    f"{property_state.property_id}: {error.reason}",
-                    "properties",
-                    property_index,
+                    f"{property_spec.id}: {error.reason}",
+                    "observations",
+                    observation_index,
                     *error.path,
                 )
             )
         else:
             atom = property_spec.value_type.atom
-            literal = property_state.value.root
+            literal = observation.value.root
             # Canonical snapshot units keep browser and worker comparisons identical.
             if (
                 isinstance(atom, QuantityType)
@@ -1247,20 +1247,46 @@ def validate_state_snapshot(
                 problems.append(
                     _snapshot_problem(
                         "instrument_driver_snapshot_property_value_mismatch",
-                        f"{property_state.property_id}: observed quantity must use "
+                        f"{property_spec.id}: observed quantity must use "
                         f"canonical unit {atom.unit!r}",
-                        "properties",
-                        property_index,
+                        "observations",
+                        observation_index,
                         "value",
                         "unit",
                     )
                 )
-    for scope, (component_spec, scoped_properties) in grouped.items():
-        problems.extend(
-            _validate_snapshot_scope(
-                scoped_properties,
-                component_spec,
-                scope=scope,
+    return problems
+
+
+def validate_state_capture(
+    *,
+    snapshot: _InstrumentStateSnapshot,
+    description: InstrumentDescription,
+    required: Sequence[StateMemberRef] | None = None,
+) -> list[Problem]:
+    """Validate one lifecycle capture against an explicit member plan."""
+
+    problems = validate_state_snapshot(snapshot=snapshot, description=description)
+    expected = tuple(
+        capture_state_members(description) if required is None else required
+    )
+    observed = {
+        _state_member_identity(observation.target)
+        for observation in snapshot.observations
+    }
+    missing = tuple(
+        target for target in expected if _state_member_identity(target) not in observed
+    )
+    if missing:
+        problems.append(
+            _snapshot_problem(
+                "instrument_driver_snapshot_missing_members",
+                f"{snapshot.instrument_id} capture is missing members "
+                f"{[repr(target) for target in missing]!r}",
+                "observations",
+                details={
+                    "member_targets": [repr(target) for target in missing],
+                },
             )
         )
     return problems
@@ -1969,58 +1995,28 @@ def project_instrument_state(
 ) -> _ProjectedInstrumentState:
     """Project preflight knowledge without claiming a hardware observation."""
 
-    properties = {
-        _property_target_identity(
-            item.interface_id,
-            item.component_path,
-            item.property_id,
-        ): item.model_copy(deep=True)
-        for item in state.properties
+    observations = {
+        _state_member_identity(item.target): item.model_copy(deep=True)
+        for item in state.observations
     }
-    interfaces = {interface.id: interface for interface in description.interfaces}
     for assignment in command.assignments:
-        interface_spec = interfaces.get(assignment.interface_id)
-        component_spec = (
-            resolve_implementation_component(
-                description,
-                interface_spec,
-                assignment.component_path,
-            )
-            if interface_spec is not None
-            else None
-        )
-        property_spec = (
-            next(
-                (
-                    item
-                    for item in component_spec.properties
-                    if item.id == assignment.property_id
-                ),
-                None,
-            )
-            if component_spec is not None
-            else None
-        )
+        property_spec = resolve_state_member_spec(description, assignment.target)
         if property_spec is not None and property_spec.access == "write_only":
             continue
-        properties[
-            _property_target_identity(
-                assignment.interface_id,
-                assignment.component_path,
-                assignment.property_id,
+        observations[_state_member_identity(assignment.target)] = (
+            _InstrumentStateObservation(
+                target=assignment.target,
+                value=assignment.value,
+                source="command_confirmed",
+                entity_ids=tuple(assignment.entity_ids),
+                channel_bindings=tuple(assignment.channel_bindings),
             )
-        ] = _InstrumentPropertyState(
-            interface_id=assignment.interface_id,
-            component_path=list(assignment.component_path),
-            property_id=assignment.property_id,
-            value=assignment.value,
-            entity_ids=list(assignment.entity_ids),
-            channel_bindings=list(assignment.channel_bindings),
         )
     return _ProjectedInstrumentState(
         instrument_id=state.instrument_id,
-        properties=tuple(
-            properties[key] for key in sorted(properties, key=_property_target_sort_key)
+        observations=tuple(
+            observations[key]
+            for key in sorted(observations, key=_state_member_sort_key)
         ),
     )
 
@@ -2056,54 +2052,91 @@ def project_instrument_invoke_state(
     )
     assert all(reference is not None for reference in resolved_invalidations)
     invalidated = {
-        _property_target_identity(
-            reference.interface_id,
-            reference.component_path,
-            reference.property_id,
+        _state_member_identity(
+            PropertyRef(
+                reference.interface_id,
+                tuple(reference.component_path),
+                reference.property_id,
+            )
         )
         for reference in resolved_invalidations
         if reference is not None
     }
-    properties = {
-        _property_target_identity(
-            item.interface_id,
-            item.component_path,
-            item.property_id,
-        ): item.model_copy(deep=True)
-        for item in state.properties
-        if _property_target_identity(
-            item.interface_id,
-            item.component_path,
-            item.property_id,
-        )
-        not in invalidated
+    observations = {
+        _state_member_identity(item.target): item.model_copy(deep=True)
+        for item in state.observations
+        if _state_member_identity(item.target) not in invalidated
     }
     return _ProjectedInstrumentState(
         instrument_id=state.instrument_id,
-        properties=tuple(
-            properties[key] for key in sorted(properties, key=_property_target_sort_key)
+        observations=tuple(
+            observations[key]
+            for key in sorted(observations, key=_state_member_sort_key)
         ),
     )
 
 
-def _static_observable_state_scopes(
+def operation_invalidated_state_members(
     description: InstrumentDescription,
-) -> Iterable[tuple[_StateTargetScopeIdentity, InterfaceSpec | ComponentSpec]]:
+    *,
+    interface_id: InterfaceId,
+    component_path: Sequence[str],
+    operation_id: str,
+) -> tuple[PropertyRef, ...]:
+    """Resolve one operation's invalidation declarations to physical targets."""
+
+    interface_spec = next(
+        item for item in description.interfaces if item.id == interface_id
+    )
+    component_spec = resolve_implementation_component(
+        description,
+        interface_spec,
+        component_path,
+    )
+    assert component_spec is not None
+    operation_spec = next(
+        item for item in component_spec.operations if item.id == operation_id
+    )
+    resolved = tuple(
+        resolve_implementation_state_reference(
+            description,
+            declared,
+            context_interface_id=interface_id,
+            context_component_path=component_path,
+        )
+        for declared in operation_spec.invalidates
+    )
+    assert all(reference is not None for reference in resolved)
+    return tuple(
+        PropertyRef(
+            reference.interface_id,
+            tuple(reference.component_path),
+            reference.property_id,
+        )
+        for reference in resolved
+        if reference is not None
+    )
+
+
+def capture_state_members(
+    description: InstrumentDescription,
+) -> tuple[StateMemberRef, ...]:
+    """Return the exact members required at lifecycle capture boundaries."""
+
+    members: list[StateMemberRef] = []
+
     def walk(
         interface_id: str,
         component_path: tuple[str, ...],
         component_spec: InterfaceSpec | ComponentSpec,
-    ) -> Iterable[tuple[_StateTargetScopeIdentity, InterfaceSpec | ComponentSpec]]:
-        if any(
-            property_spec.access != "write_only"
+    ) -> None:
+        members.extend(
+            PropertyRef(interface_id, component_path, property_spec.id)
             for property_spec in component_spec.properties
-        ):
-            yield (
-                _state_target_scope_identity(interface_id, component_path),
-                component_spec,
-            )
+            if property_spec.capture
+        )
         for child in component_spec.components:
-            yield from walk(
+            walk(
                 interface_id,
                 (*component_path, child.id),
                 child,
@@ -2113,57 +2146,93 @@ def _static_observable_state_scopes(
     for interface_spec in description.interfaces:
         mounts = mounts_by_interface.get(interface_spec.id)
         if mounts is None:
-            yield from walk(interface_spec.id, (), interface_spec)
+            walk(interface_spec.id, (), interface_spec)
             continue
         for mount in mounts:
-            yield from walk(interface_spec.id, mount, interface_spec)
-
-
-def _validate_snapshot_scope(
-    properties: Sequence[_InstrumentPropertyState],
-    component_spec: InterfaceSpec | ComponentSpec,
-    *,
-    scope: _StateTargetScopeIdentity,
-) -> list[Problem]:
-    required = {
-        property_spec.id
-        for property_spec in component_spec.properties
-        if property_spec.access != "write_only"
-    }
-    observed = {property_state.property_id for property_state in properties}
-    return _snapshot_missing_properties(scope, required - observed)
-
-
-def _snapshot_missing_properties(
-    scope: _StateTargetScopeIdentity,
-    missing: set[str],
-) -> list[Problem]:
-    if not missing:
-        return []
-    interface_id, component_path = scope
-    component = "/".join(component_path) or "<root>"
-    selected = sorted(missing)
-    return [
-        _snapshot_problem(
-            "instrument_driver_snapshot_missing_properties",
-            f"observed {interface_id} {component} state is missing "
-            f"properties {selected!r}",
-            "properties",
-            related_locations=tuple(
-                _state_property_location(
-                    interface_id,
-                    component_path,
-                    property_id,
-                )
-                for property_id in selected
-            ),
-            details={
-                "interface_id": interface_id,
-                "component_path": list(component_path),
-                "property_ids": selected,
-            },
+            walk(interface_spec.id, mount, interface_spec)
+    device_state = description.device_state
+    if device_state is not None:
+        members.extend(
+            DevicePropertyRef(
+                device_state.id,
+                tuple(member.component_path),
+                member.property.id,
+            )
+            for member in device_state.members
+            if member.property.capture
         )
-    ]
+    return tuple(sorted(members, key=repr))
+
+
+def state_capture_request(
+    description: InstrumentDescription,
+) -> DriverStateReadRequest:
+    """Build the driver request for one lifecycle capture plan."""
+
+    return DriverStateReadRequest(frozenset(capture_state_members(description)))
+
+
+def restorable_state_members(
+    description: InstrumentDescription,
+) -> frozenset[StateMemberRef]:
+    """Return members explicitly declared safe for baseline restoration."""
+
+    return frozenset(
+        target
+        for target in capture_state_members(description)
+        if (
+            spec := resolve_state_member_spec(
+                description,
+                _state_member_target(target),
+            )
+        )
+        is not None
+        and spec.restore
+    )
+
+
+def resolve_state_member_spec(
+    description: InstrumentDescription,
+    target: _StateMemberTarget,
+) -> PropertySpec | None:
+    if isinstance(target, _InterfaceStateMemberTarget):
+        interface_spec = next(
+            (
+                interface
+                for interface in description.interfaces
+                if interface.id == target.interface_id
+            ),
+            None,
+        )
+        if interface_spec is None:
+            return None
+        component_spec = resolve_implementation_component(
+            description,
+            interface_spec,
+            target.component_path,
+        )
+        if component_spec is None:
+            return None
+        return next(
+            (
+                property_spec
+                for property_spec in component_spec.properties
+                if property_spec.id == target.property_id
+            ),
+            None,
+        )
+    device_state = description.device_state
+    if device_state is None or device_state.id != target.schema_id:
+        return None
+    return next(
+        (
+            member.property
+            for member in device_state.members
+            if tuple(member.component_path) == target.component_path
+            and member.property.id == target.property_id
+        ),
+        None,
+    )
 
 
 def _validate_state_value(

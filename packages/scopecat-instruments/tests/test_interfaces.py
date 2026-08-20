@@ -138,31 +138,31 @@ def test_network_sweep_axis_size_tracks_the_points_state() -> None:
 
 def test_declared_network_sweep_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(network_sweep_interface()) == (
-        "3855d931051bae10b1a7112b85e819a4ce6160d1e2ebc67a828b3f251ca8407f"
+        "4c89c55e6307ac459a5d48c381893104b93f0358f9c8e4406e164ff5393b9c61"
     )
 
 
 def test_declared_rf_output_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(rf_output_interface()) == (
-        "2bda603a084e8dbb487b6dea5cecb8be4037e2753eb9a6bd0fcbfabfcbff2dbc"
+        "ab47c29a20affedd1201098590e3938d0933eb723c9091a86b51759320535a05"
     )
 
 
 def test_declared_dc_source_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(dc_source_interface()) == (
-        "52efb27fbbedfcb1ee65a546eea2234488d304ff598c38c1b96a29459b8b5e28"
+        "9f90f3cf23e715f65fd2fb8b9b0ea81d01d131f097d06c0b396f18158b017446"
     )
 
 
 def test_declared_dc_monitor_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(dc_monitor_interface()) == (
-        "7d5c7a32e96daf82162371174645c75ecdeb6c97e4ded87ab719e0749dad85e0"
+        "38f4707ea95e4545994d151fc6252c970b019f2cde63f3e9a9b684cb91de8fe4"
     )
 
 
 def test_declared_temperature_readout_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(temperature_readout_interface()) == (
-        "45e177997076748215dda389754748144ceaedebf1594473a00643ad51568c71"
+        "92d8129ae0c2aba91700a7db85ec59e3591920b621e35173b8fd0b61421ec608"
     )
 
 

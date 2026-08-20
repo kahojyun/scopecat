@@ -277,9 +277,7 @@ def _validate_configured_state(
     assignments = [
         InstrumentStateAssignment(
             resource_id=instrument.id,
-            interface_id=item.interface_id,
-            component_path=list(item.component_path),
-            property_id=item.property_id,
+            target=item.target,
             value=item.value,
         )
         for item in configured_state

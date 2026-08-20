@@ -846,8 +846,8 @@ class InstrumentRuntime:
                 raise DefaultStateReconciliationRejected(
                     problems=receipt.problems,
                 )
-            assert receipt.state is not None
-            state = receipt.state
+            state = instrument.assumed_state
+            assert state is not None
             reconciled[instrument_id] = state.model_copy(deep=True)
         return tuple(reconciled[instrument_id] for instrument_id in instrument_ids)
 
@@ -2227,8 +2227,8 @@ class InstrumentRuntime:
                         problems=driver_receipt.problems,
                     ),
                 )
-            assert driver_receipt.state is not None
-            state = driver_receipt.state
+            state = instrument.assumed_state
+            assert state is not None
             return self._finish_configured_defaults(
                 session=session,
                 runtime=runtime,

@@ -15,7 +15,7 @@ from scopecat.records.execution import (
     InstrumentStateEvidence,
     summarize_instrument_state_evidence,
 )
-from scopecat.records.instrument import InstrumentPropertyState, InstrumentStateSnapshot
+from scopecat.records.instrument import InstrumentStateSnapshot, state_observation
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
@@ -26,6 +26,7 @@ from scopecat.runs.repository import (
     RunContentPublication,
     TerminalRunCommit,
 )
+from scopecat.sdk.instruments import PropertyRef
 from scopecat_testkit.server.runtime import sqlite_run_repository
 
 _CONFIG_HASH = "sha256:" + "0" * 64
@@ -217,17 +218,14 @@ def _instrument_state(
 ) -> InstrumentStateSnapshot:
     return InstrumentStateSnapshot(
         instrument_id=instrument_id,
-        properties=[
-            InstrumentPropertyState(
-                interface_id="test.output/v1",
-                property_id="enabled",
-                value=StateValue(output),
+        observations=[
+            state_observation(
+                PropertyRef("test.output/v1", (), "enabled"),
+                StateValue(output),
             ),
-            InstrumentPropertyState(
-                interface_id="test.vertical/v1",
-                component_path=["channel-1"],
-                property_id="scale",
-                value=StateValue(scale),
+            state_observation(
+                PropertyRef("test.vertical/v1", ("channel-1",), "scale"),
+                StateValue(scale),
             ),
         ],
     )

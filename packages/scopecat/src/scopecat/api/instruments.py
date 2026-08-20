@@ -30,7 +30,7 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateLiteral, StateValue
 from scopecat.records.config import InstrumentBindingSpec, InstrumentConnection
 from scopecat.records.content import CommandPayload
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import InstrumentStateSnapshot, state_member_target
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectReceipt,
@@ -396,9 +396,7 @@ class InstrumentSessionHandle:
             assignments=[
                 InstrumentStateAssignment(
                     resource_id=selected,
-                    interface_id=target.interface_id,
-                    component_path=list(target.component_path),
-                    property_id=target.property_id,
+                    target=state_member_target(target),
                     value=(
                         value if isinstance(value, StateValue) else StateValue(value)
                     ),

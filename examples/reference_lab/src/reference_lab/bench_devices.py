@@ -26,13 +26,15 @@ from scopecat.sdk.instruments import (
     DriverReadback,
     DriverScalar,
     DriverSpec,
-    DriverState,
     DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     DriverSuccess,
     InstrumentDescription,
     PropertyRef,
     instrument_component,
     interface_mount,
+    state_readback,
 )
 
 from reference_lab.bench_interfaces import (
@@ -504,9 +506,10 @@ class VirtualAwg:
             ],
         )
 
-    def read_state(self) -> DriverState:
-        return DriverState(
-            values=self._state,
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
+        return state_readback(
+            request,
+            self._state,
             metadata={
                 "mode": "virtual",
                 "loaded_entry_count": (
@@ -521,7 +524,7 @@ class VirtualAwg:
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         clock_changed = any(
             entry.target in {CLOCK_REFERENCE_SOURCE, CLOCK_REFERENCE_FREQUENCY}
             for entry in request.entries
@@ -529,6 +532,8 @@ class VirtualAwg:
         if clock_changed:
             self._state[CLOCK_REFERENCE_LOCKED] = False
         for entry in request.entries:
+            if not isinstance(entry.target, PropertyRef):
+                raise ValueError("virtual AWG has no model-specific state members")
             value = entry.value
             if isinstance(value, sc.Quantity):
                 unit = (
@@ -545,14 +550,14 @@ class VirtualAwg:
         if clock_changed:
             self._state[CLOCK_REFERENCE_LOCKED] = True
         return DriverSuccess(
-            self.read_state(),
+            None,
             metadata={"clock_settled": bool(self._state[CLOCK_REFERENCE_LOCKED])},
         )
 
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         if request.target.operation_id == AWG_LOAD_PROGRAM.operation_id:
             decoded = cast(
                 "DecodedAwgProgram",
@@ -567,7 +572,7 @@ class VirtualAwg:
                     )
                 ] = sc.Quantity(0.0, "V")
             return DriverSuccess(
-                self.read_state(),
+                None,
                 metadata={
                     "operation_id": AWG_LOAD_PROGRAM.operation_id,
                     "entry_count": len(self._loaded_program.entries),
@@ -585,7 +590,7 @@ class VirtualAwg:
                 ),
             )
             return DriverSuccess(
-                self.read_state(),
+                None,
                 metadata={
                     "operation_id": AWG_ARM_PROGRAM.operation_id,
                     "entry_count": len(self._loaded_program.entries),
@@ -611,7 +616,7 @@ class VirtualAwg:
                 }
             )
             return DriverSuccess(
-                self.read_state(),
+                None,
                 metadata={"operation_id": ANALOG_WAVEFORM_OUTPUT_RESET.operation_id},
             )
         waveform = cast(
@@ -807,9 +812,10 @@ class VirtualDigitizer:
             ],
         )
 
-    def read_state(self) -> DriverState:
-        return DriverState(
-            values=self._state,
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
+        return state_readback(
+            request,
+            self._state,
             metadata={
                 "mode": "virtual",
                 "program_armed": self._world.is_digitizer_program_armed(
@@ -826,8 +832,10 @@ class VirtualDigitizer:
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         for entry in request.entries:
+            if not isinstance(entry.target, PropertyRef):
+                raise ValueError("digitizer has no model-specific state members")
             value = entry.value
             if isinstance(value, sc.Quantity):
                 unit = (
@@ -837,12 +845,12 @@ class VirtualDigitizer:
                 )
                 value = value.to(unit)
             self._state[entry.target] = value
-        return DriverSuccess(self.read_state())
+        return DriverSuccess(None)
 
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         if request.target.operation_id == DIGITIZER_LOAD_PROGRAM.operation_id:
             self._loaded_program = cast(
                 "DecodedDigitizerProgram",
@@ -852,7 +860,7 @@ class VirtualDigitizer:
                 ).value,
             )
             return DriverSuccess(
-                self.read_state(),
+                None,
                 metadata={"entry_count": len(self._loaded_program.entries)},
             )
         if request.target.operation_id == DIGITIZER_ARM_PROGRAM.operation_id:
@@ -863,7 +871,7 @@ class VirtualDigitizer:
                 self._loaded_program,
             )
             return DriverSuccess(
-                self.read_state(),
+                None,
                 metadata={
                     "program_armed": True,
                     "entry_count": len(self._loaded_program.entries),
@@ -971,9 +979,10 @@ class VirtualTimingController:
             ],
         )
 
-    def read_state(self) -> DriverState:
-        return DriverState(
-            values={},
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
+        return state_readback(
+            request,
+            {},
             metadata={
                 "mode": "virtual",
                 "trigger_count": self._world.trigger_count,
@@ -988,14 +997,14 @@ class VirtualTimingController:
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         del request
-        return DriverSuccess(self.read_state())
+        return DriverSuccess(None)
 
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         if request.target.operation_id == VIRTUAL_CAPTURE_LOAD.operation_id:
             queue = cast(
                 "DecodedVirtualCaptureQueue",
@@ -1006,7 +1015,7 @@ class VirtualTimingController:
             )
             self._world.load_capture_queue(queue)
             return DriverSuccess(
-                self.read_state(),
+                None,
                 metadata={"capture_count": len(queue.captures)},
             )
         if request.target.operation_id == TRIGGER_LOAD_PROGRAM.operation_id:
@@ -1018,7 +1027,7 @@ class VirtualTimingController:
                 ).value,
             )
             return DriverSuccess(
-                self.read_state(),
+                None,
                 metadata={
                     "program_id": self._loaded_program.program_id,
                     "entry_count": len(self._loaded_program.entries),
@@ -1052,7 +1061,7 @@ class VirtualTimingController:
                         self._loaded_program
                     )
             return DriverSuccess(
-                self.read_state(),
+                None,
                 metadata={
                     "armed_awg_count": awg_count,
                     "armed_digitizer_count": digitizer_count,
@@ -1158,17 +1167,20 @@ class VirtualOscilloscope:
             ],
         )
 
-    def read_state(self) -> DriverState:
-        return DriverState(
-            values={**self._state, OSCILLOSCOPE_ARMED: self._world.scope_armed},
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
+        return state_readback(
+            request,
+            {**self._state, OSCILLOSCOPE_ARMED: self._world.scope_armed},
             metadata={"mode": "virtual"},
         )
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         for entry in request.entries:
+            if not isinstance(entry.target, PropertyRef):
+                raise ValueError("oscilloscope has no model-specific state members")
             value = entry.value
             if isinstance(value, sc.Quantity):
                 unit = (
@@ -1182,12 +1194,12 @@ class VirtualOscilloscope:
                 )
                 value = value.to(unit)
             self._state[entry.target] = value
-        return DriverSuccess(self.read_state())
+        return DriverSuccess(None)
 
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         del request
         sample_rate = _quantity_value(self._state[OSCILLOSCOPE_SAMPLE_RATE], "Hz")
         record_length = cast("int", self._state[OSCILLOSCOPE_RECORD_LENGTH])
@@ -1196,7 +1208,7 @@ class VirtualOscilloscope:
             record_length=record_length,
         )
         return DriverSuccess(
-            self.read_state(),
+            None,
             metadata={
                 "operation_id": OSCILLOSCOPE_ARM.operation_id,
                 "armed": True,

@@ -14,10 +14,7 @@ from scopecat.authoring import QuantityType, coordinate
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateLiteral, StateValue
 from scopecat.kernel.value_types import Bool, Int, Scalar
-from scopecat.records.instrument import (
-    InstrumentPropertyState,
-    InstrumentStateSnapshot,
-)
+from scopecat.records.instrument import InstrumentStateSnapshot, state_observation
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     InvokeReceipt,
@@ -165,27 +162,15 @@ class _ApplyChannel:
 def _dc_source_snapshot(*, source_mode: str) -> InstrumentStateSnapshot:
     return InstrumentStateSnapshot(
         instrument_id="flux-source",
-        properties=[
-            InstrumentPropertyState(
-                interface_id=DC_SOURCE.interface_id,
-                property_id=DC_SOURCE_VOLTAGE_PROTECTION.property_id,
-                value=StateValue(Quantity(2.0, "V")),
+        observations=[
+            state_observation(
+                DC_SOURCE_VOLTAGE_PROTECTION, StateValue(Quantity(2.0, "V"))
             ),
-            InstrumentPropertyState(
-                interface_id=DC_SOURCE.interface_id,
-                property_id=DC_SOURCE_CURRENT_PROTECTION.property_id,
-                value=StateValue(Quantity(10.0, "mA")),
+            state_observation(
+                DC_SOURCE_CURRENT_PROTECTION, StateValue(Quantity(10.0, "mA"))
             ),
-            InstrumentPropertyState(
-                interface_id=DC_SOURCE.interface_id,
-                property_id=DC_SOURCE_OUTPUT_ENABLED.property_id,
-                value=StateValue(True),
-            ),
-            InstrumentPropertyState(
-                interface_id=DC_SOURCE.interface_id,
-                property_id=DC_SOURCE_MODE.property_id,
-                value=StateValue(source_mode),
-            ),
+            state_observation(DC_SOURCE_OUTPUT_ENABLED, StateValue(True)),
+            state_observation(DC_SOURCE_MODE, StateValue(source_mode)),
         ],
     )
 
@@ -197,16 +182,13 @@ def _temperature_snapshot(
 ) -> InstrumentStateSnapshot:
     return InstrumentStateSnapshot(
         instrument_id="thermometer",
-        properties=[
-            InstrumentPropertyState(
-                interface_id=TEMPERATURE_READOUT.interface_id,
-                property_id=TEMPERATURE_READOUT_SCAN_CHANNEL.property_id,
-                value=StateValue(scan_channel),
+        observations=[
+            state_observation(
+                TEMPERATURE_READOUT_SCAN_CHANNEL, StateValue(scan_channel)
             ),
-            InstrumentPropertyState(
-                interface_id=TEMPERATURE_READOUT.interface_id,
-                property_id=TEMPERATURE_READOUT_AUTOSCAN_ENABLED.property_id,
-                value=StateValue(autoscan_enabled),
+            state_observation(
+                TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
+                StateValue(autoscan_enabled),
             ),
         ],
     )
@@ -216,22 +198,12 @@ def _dc_source_monitor_snapshot(*, source_mode: str) -> InstrumentStateSnapshot:
     source = _dc_source_snapshot(source_mode=source_mode)
     return InstrumentStateSnapshot(
         instrument_id=source.instrument_id,
-        properties=[
-            *source.properties,
-            InstrumentPropertyState(
-                interface_id=DC_MONITOR.interface_id,
-                property_id=DC_MONITOR_MEASUREMENT_ENABLED.property_id,
-                value=StateValue(True),
-            ),
-            InstrumentPropertyState(
-                interface_id=DC_MONITOR.interface_id,
-                property_id=DC_MONITOR_INTEGRATION_CYCLES.property_id,
-                value=StateValue(2),
-            ),
-            InstrumentPropertyState(
-                interface_id=DC_MONITOR.interface_id,
-                property_id=DC_MONITOR_MEASUREMENT_DELAY.property_id,
-                value=StateValue(Quantity(0.1, "s")),
+        observations=[
+            *source.observations,
+            state_observation(DC_MONITOR_MEASUREMENT_ENABLED, StateValue(True)),
+            state_observation(DC_MONITOR_INTEGRATION_CYCLES, StateValue(2)),
+            state_observation(
+                DC_MONITOR_MEASUREMENT_DELAY, StateValue(Quantity(0.1, "s"))
             ),
         ],
     )
@@ -240,17 +212,9 @@ def _dc_source_monitor_snapshot(*, source_mode: str) -> InstrumentStateSnapshot:
 def test_client_state_schema_decodes_a_complete_readable_snapshot() -> None:
     snapshot = InstrumentStateSnapshot(
         instrument_id="readable",
-        properties=[
-            InstrumentPropertyState(
-                interface_id=_READABLE_ENABLED.interface_id,
-                property_id=_READABLE_ENABLED.property_id,
-                value=StateValue(True),
-            ),
-            InstrumentPropertyState(
-                interface_id=_READABLE_CHANNEL.interface_id,
-                property_id=_READABLE_CHANNEL.property_id,
-                value=StateValue(3),
-            ),
+        observations=[
+            state_observation(_READABLE_ENABLED, StateValue(True)),
+            state_observation(_READABLE_CHANNEL, StateValue(3)),
         ],
     )
 
@@ -263,13 +227,7 @@ def test_client_state_schema_decodes_a_complete_readable_snapshot() -> None:
 def test_client_state_schema_rejects_an_incomplete_readable_snapshot() -> None:
     snapshot = InstrumentStateSnapshot(
         instrument_id="readable",
-        properties=[
-            InstrumentPropertyState(
-                interface_id=_READABLE_ENABLED.interface_id,
-                property_id=_READABLE_ENABLED.property_id,
-                value=StateValue(True),
-            )
-        ],
+        observations=[state_observation(_READABLE_ENABLED, StateValue(True))],
     )
 
     with pytest.raises(

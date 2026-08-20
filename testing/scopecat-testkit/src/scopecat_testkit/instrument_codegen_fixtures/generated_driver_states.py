@@ -10,8 +10,10 @@ from typing import TypedDict, cast
 from pydantic import JsonValue
 from scopecat.sdk.instruments import (
     DriverScalar,
-    DriverState,
+    DriverStateObservation,
     DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     PropertyRef,
 )
 
@@ -163,15 +165,20 @@ def encode_driver_monitor_state(
     }
 
 
-def encode_driver_state(
+def encode_driver_readback(
+    request: DriverStateReadRequest,
     *states: Mapping[PropertyRef, DriverScalar],
     metadata: dict[str, JsonValue] | None = None,
-) -> DriverState:
+) -> DriverStateReadback:
     values: dict[PropertyRef, DriverScalar] = {}
     for state in states:
         values.update(state)
-    return DriverState(
-        values=values,
+    return DriverStateReadback(
+        observations=tuple(
+            DriverStateObservation(target=target, value=value)
+            for target, value in values.items()
+            if target in request.targets
+        ),
         metadata={} if metadata is None else metadata,
     )
 
@@ -189,8 +196,8 @@ __all__ = [
     "decode_shared_state_second_patch",
     "encode_catalog_projection_state",
     "encode_driver_monitor_state",
+    "encode_driver_readback",
     "encode_driver_source_state",
-    "encode_driver_state",
     "encode_shared_state_first_state",
     "encode_shared_state_second_state",
 ]

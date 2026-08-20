@@ -11,8 +11,9 @@ from scopecat.sdk.instruments.authoring import (
     DriverOperation,
     DriverOutcome,
     DriverReadback,
-    DriverState,
     DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
 )
 from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
@@ -38,17 +39,17 @@ class InstrumentDriver(Protocol):
 
     def describe(self) -> InstrumentDescription: ...
 
-    def read_state(self) -> DriverState: ...
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback: ...
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]: ...
+    ) -> DriverOutcome[DriverStateReadback | None]: ...
 
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]: ...
+    ) -> DriverOutcome[DriverStateReadback | None]: ...
 
     def collect(
         self,

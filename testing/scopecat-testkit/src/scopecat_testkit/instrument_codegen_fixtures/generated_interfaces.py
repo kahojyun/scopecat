@@ -11,11 +11,13 @@ _CATALOG_PROJECTION_SPEC_JSON = (
     '/v1","label":null,"description":null,"pr'
     'operties":[{"id":"enabled","label":null,'
     '"description":null,"access":"read_write"'
-    ',"value_type":{"type":"bool"}},{"id":"st'
-    'atus","label":null,"description":null,"a'
-    'ccess":"read_only","value_type":{"type":'
-    '"string","choices":null}}],"operations":'
-    '[],"acquisitions":[],"components":[]}'
+    ',"capture":true,"restore":true,"value_ty'
+    'pe":{"type":"bool"}},{"id":"status","lab'
+    'el":null,"description":null,"access":"re'
+    'ad_only","capture":true,"restore":false,'
+    '"value_type":{"type":"string","choices":'
+    'null}}],"operations":[],"acquisitions":['
+    '],"components":[]}'
 )
 
 
@@ -28,9 +30,9 @@ _SHARED_STATE_FIRST_SPEC_JSON = (
     '/v1","label":null,"description":null,"pr'
     'operties":[{"id":"enabled","label":null,'
     '"description":null,"access":"read_write"'
-    ',"value_type":{"type":"bool"}}],"operati'
-    'ons":[],"acquisitions":[],"components":['
-    "]}"
+    ',"capture":true,"restore":true,"value_ty'
+    'pe":{"type":"bool"}}],"operations":[],"a'
+    'cquisitions":[],"components":[]}'
 )
 
 
@@ -43,9 +45,9 @@ _SHARED_STATE_SECOND_SPEC_JSON = (
     'd/v1","label":null,"description":null,"p'
     'roperties":[{"id":"enabled","label":null'
     ',"description":null,"access":"read_write'
-    '","value_type":{"type":"bool"}}],"operat'
-    'ions":[],"acquisitions":[],"components":'
-    "[]}"
+    '","capture":true,"restore":true,"value_t'
+    'ype":{"type":"bool"}}],"operations":[],"'
+    'acquisitions":[],"components":[]}'
 )
 
 
@@ -134,13 +136,15 @@ _DRIVER_SOURCE_SPEC_JSON = (
     '{"id":"test.generated_driver_source/v1",'
     '"label":null,"description":null,"propert'
     'ies":[{"id":"enabled","label":null,"desc'
-    'ription":null,"access":"read_write","val'
-    'ue_type":{"type":"bool"}},{"id":"level",'
-    '"label":null,"description":null,"access"'
-    ':"read_write","value_type":{"type":"int"'
-    ',"minimum":-9007199254740991,"maximum":9'
-    '007199254740991}}],"operations":[],"acqu'
-    'isitions":[],"components":[]}'
+    'ription":null,"access":"read_write","cap'
+    'ture":true,"restore":true,"value_type":{'
+    '"type":"bool"}},{"id":"level","label":nu'
+    'll,"description":null,"access":"read_wri'
+    'te","capture":true,"restore":true,"value'
+    '_type":{"type":"int","minimum":-90071992'
+    '54740991,"maximum":9007199254740991}}],"'
+    'operations":[],"acquisitions":[],"compon'
+    'ents":[]}'
 )
 
 
@@ -152,17 +156,18 @@ _DRIVER_MONITOR_SPEC_JSON = (
     '{"id":"test.generated_driver_monitor/v1"'
     ',"label":null,"description":null,"proper'
     'ties":[{"id":"enabled","label":null,"des'
-    'cription":null,"access":"read_write","va'
-    'lue_type":{"type":"bool"}}],"operations"'
-    ':[],"acquisitions":[{"id":"monitor","lab'
-    'el":null,"description":null,"preconditio'
-    'ns":[],"results":[{"id":"left_value","la'
-    'bel":null,"description":null,"role":"obs'
-    'ervable","dtype":"float64","unit":null,"'
-    'axes":[]},{"id":"right_value","label":nu'
-    'll,"description":null,"role":"observable'
-    '","dtype":"float64","unit":null,"axes":['
-    ']}]}],"components":[]}'
+    'cription":null,"access":"read_write","ca'
+    'pture":true,"restore":true,"value_type":'
+    '{"type":"bool"}}],"operations":[],"acqui'
+    'sitions":[{"id":"monitor","label":null,"'
+    'description":null,"preconditions":[],"re'
+    'sults":[{"id":"left_value","label":null,'
+    '"description":null,"role":"observable","'
+    'dtype":"float64","unit":null,"axes":[]},'
+    '{"id":"right_value","label":null,"descri'
+    'ption":null,"role":"observable","dtype":'
+    '"float64","unit":null,"axes":[]}]}],"com'
+    'ponents":[]}'
 )
 
 

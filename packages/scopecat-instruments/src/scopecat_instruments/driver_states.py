@@ -11,8 +11,10 @@ from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments import (
     DriverScalar,
-    DriverState,
+    DriverStateObservation,
     DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     PropertyRef,
 )
 
@@ -271,15 +273,20 @@ def encode_network_sweep_state(
     }
 
 
-def encode_driver_state(
+def encode_driver_readback(
+    request: DriverStateReadRequest,
     *states: Mapping[PropertyRef, DriverScalar],
     metadata: dict[str, JsonValue] | None = None,
-) -> DriverState:
+) -> DriverStateReadback:
     values: dict[PropertyRef, DriverScalar] = {}
     for state in states:
         values.update(state)
-    return DriverState(
-        values=values,
+    return DriverStateReadback(
+        observations=tuple(
+            DriverStateObservation(target=target, value=value)
+            for target, value in values.items()
+            if target in request.targets
+        ),
         metadata={} if metadata is None else metadata,
     )
 
@@ -298,7 +305,7 @@ __all__ = [
     "encode_dc_bias_state",
     "encode_dc_monitor_state",
     "encode_dc_source_state",
-    "encode_driver_state",
+    "encode_driver_readback",
     "encode_network_sweep_state",
     "encode_rf_output_state",
     "encode_temperature_readout_state",

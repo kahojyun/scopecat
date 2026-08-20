@@ -81,8 +81,9 @@ from scopecat.sdk.instruments import (
     DriverOutcome,
     DriverPayload,
     DriverReadback,
-    DriverState,
     DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentDriver,
@@ -900,19 +901,19 @@ class TimedInstrumentDriver:
     def describe(self) -> InstrumentDescription:
         return self._delegate.describe()
 
-    def read_state(self) -> DriverState:
-        return self._delegate.read_state()
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
+        return self._delegate.read_state(request)
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         return self._delegate.apply_state(request)
 
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         if (
             request.target.interface_id == AWG_LOAD_PROGRAM.interface_id
             and request.target.operation_id == AWG_LOAD_PROGRAM.operation_id

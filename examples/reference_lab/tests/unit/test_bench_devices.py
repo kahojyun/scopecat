@@ -6,7 +6,7 @@ from scopecat.records.config import InstrumentBindingSpec, VirtualInstrumentConn
 from scopecat.sdk.instruments import (
     DriverOperation,
     DriverPayload,
-    DriverState,
+    DriverStateReadback,
     DriverSuccess,
     InstrumentProviderContext,
 )
@@ -99,7 +99,7 @@ def test_virtual_trigger_idempotency_is_scoped_to_driver_session() -> None:
     def load_and_start(
         controller: VirtualTimingController,
         loaded: DecodedTriggerProgram,
-    ) -> DriverSuccess[DriverState | None]:
+    ) -> DriverSuccess[DriverStateReadback | None]:
         controller.invoke(
             DriverOperation(
                 target=TRIGGER_LOAD_PROGRAM,

@@ -8,7 +8,10 @@ from uuid import uuid4
 import pytest
 from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.records.config import InstrumentBindingSpec
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import (
+    InstrumentStateReadback,
+    state_member_target,
+)
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectReceipt,
@@ -16,26 +19,32 @@ from scopecat.sdk.instruments import (
     DriverOutcome,
     DriverReadback,
     DriverRejected,
+    DriverStateReadback,
+    DriverStateReadRequest,
     InstrumentDescription,
     InstrumentProviderDescription,
+    InterfaceRef,
     InvokeReceipt,
+    capture_state_members,
 )
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
     BackendCollectRequest,
     BackendCollectResult,
     BackendInvokeRequest,
-    BackendPropertyWrite,
+    BackendReadRequest,
+    BackendStateMemberWrite,
     decode_driver_operation,
 )
 from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.driver_adapter import (
     lower_acquisition,
     lower_state_patch,
+    lower_state_read_request,
     project_apply_outcome,
     project_collect_outcome,
     project_invoke_outcome,
-    project_state,
+    project_state_readback,
 )
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecCatalog
 from scopecat_testkit.instrument_drivers import (
@@ -113,7 +122,7 @@ class _BlockingReadDriver(_TrackingDriver):
         self.max_active = 0
 
     @override
-    def read_state(self):
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
         with self._counter_lock:
             self._call_count += 1
             call_number = self._call_count
@@ -123,7 +132,7 @@ class _BlockingReadDriver(_TrackingDriver):
             if call_number == 1:
                 self.first_entered.set()
                 assert self.release_first.wait(timeout=2)
-            return super().read_state()
+            return super().read_state(request)
         finally:
             with self._counter_lock:
                 self._active -= 1
@@ -202,9 +211,16 @@ class _DriverEndpoint(InstrumentBackendEndpoint):
         return ConnectedInstrument(handle=handle, description=driver.describe())
 
     @override
-    def read_state(self, handle: InstrumentHandle) -> InstrumentStateSnapshot:
+    def read_state(
+        self,
+        handle: InstrumentHandle,
+        request: BackendReadRequest,
+    ) -> InstrumentStateReadback:
         driver = self._driver(handle)
-        return project_state(driver.instrument_id, driver.read_state())
+        return project_state_readback(
+            driver.instrument_id,
+            driver.read_state(lower_state_read_request(request)),
+        )
 
     @override
     def apply_state(
@@ -309,6 +325,18 @@ def _endpoint(
     )
 
 
+def _capture_request(description: InstrumentDescription) -> BackendReadRequest:
+    return BackendReadRequest(
+        targets=tuple(
+            state_member_target(target) for target in capture_state_members(description)
+        )
+    )
+
+
+def _read_capture(owned: OwnedInstrument) -> InstrumentStateReadback:
+    return owned.read_state(_capture_request(owned.description))
+
+
 def test_release_reuses_connection_but_requires_fresh_observation() -> None:
     registry = InstrumentActorRegistry()
     drivers: list[_TrackingDriver] = []
@@ -323,9 +351,9 @@ def test_release_reuses_connection_but_requires_fresh_observation() -> None:
         connect=endpoint,
     )
     assert not first.reused_connection
-    observed = first.read_state()
+    observed = _read_capture(first)
     assert first.assumed_state is None
-    first.adopt_state(observed)
+    first.adopt_readback(observed)
     first.release()
 
     assert first.assumed_state is None
@@ -342,13 +370,13 @@ def test_release_reuses_connection_but_requires_fresh_observation() -> None:
     )
     assert second.reused_connection
     assert len(drivers) == 1
-    refreshed = second.read_state()
+    refreshed = _read_capture(second)
     gain = next(
-        item for item in refreshed.properties if item.interface_id == "test.set_gain/v1"
+        item for item in refreshed.observations if item.target.property_id == "gain"
     )
     assert gain.value == number_state(7.0)
     assert second.assumed_state is None
-    second.adopt_state(refreshed)
+    second.adopt_readback(refreshed)
     second.release()
     registry.shutdown()
 
@@ -512,13 +540,13 @@ def test_owner_epoch_rejects_stale_handles_and_fault_discards_connection() -> No
         endpoint=endpoint,
         connect=endpoint,
     )
-    first.adopt_state(first.read_state())
+    first.adopt_readback(_read_capture(first))
     first.fault()
 
     assert drivers[0].disconnect_count == 1
     assert first.assumed_state is None
     with pytest.raises(InstrumentActorConflict, match="stale"):
-        first.read_state()
+        _read_capture(first)
 
     second = registry.acquire(
         _exclusivity_key("source-0"),
@@ -561,14 +589,14 @@ def test_handle_serializes_driver_calls_and_never_exposes_the_driver() -> None:
 
     def first_read() -> None:
         try:
-            owned.read_state()
+            _read_capture(owned)
         except BaseException as error:
             errors.append(error)
 
     def second_read() -> None:
         second_attempted.set()
         try:
-            owned.read_state()
+            _read_capture(owned)
         except BaseException as error:
             errors.append(error)
 
@@ -664,21 +692,25 @@ def test_handle_routes_driver_calls_through_one_owner_epoch() -> None:
         endpoint=endpoint,
         connect=endpoint,
     )
-    observed = owned.read_state()
-    owned.adopt_state(observed)
+    observed = _read_capture(owned)
+    owned.adopt_readback(observed)
 
     apply_request = BackendApplyRequest(
         assignments=(
-            BackendPropertyWrite(
-                interface_id="test.set_gain/v1",
-                property_id="gain",
+            BackendStateMemberWrite(
+                target=state_member_target(
+                    InterfaceRef("test.set_gain/v1").property("gain")
+                ),
                 value=number_state(1.0),
             ),
         )
     )
     assert owned.apply_state(apply_request).status == "applied"
-    assert owned.assumed_state is None
-    owned.adopt_state(observed)
+    assert owned.assumed_state is not None
+    assert {item.target.property_id for item in owned.assumed_state.observations} == {
+        "frequency"
+    }
+    owned.adopt_readback(_read_capture(owned))
 
     invoke_request = BackendInvokeRequest(
         interface_id="test.play_program/v1",
@@ -690,9 +722,8 @@ def test_handle_routes_driver_calls_through_one_owner_epoch() -> None:
     )
     invoke_receipt = owned.invoke(invoke_request)
     assert invoke_receipt.status == "invoked"
-    assert owned.assumed_state is None
-    assert invoke_receipt.state is not None
-    owned.adopt_state(invoke_receipt.state)
+    assert owned.assumed_state is not None
+    assert invoke_receipt.readback is None
 
     collect_request = BackendCollectRequest(
         interface_id="test.scalar_signal/v1",
@@ -721,7 +752,7 @@ def test_rejected_collection_invalidates_the_assumed_state() -> None:
         endpoint=endpoint,
         connect=endpoint,
     )
-    owned.adopt_state(owned.read_state())
+    owned.adopt_readback(_read_capture(owned))
 
     receipt = owned.collect(
         BackendCollectRequest(
@@ -799,7 +830,7 @@ def test_retirement_rejects_an_owned_actor_without_aborting_it() -> None:
     with pytest.raises(InstrumentActorConflict, match="owned instrument"):
         retirement.retire_idle()
 
-    assert owned.read_state().instrument_id == "source-0"
+    assert _read_capture(owned).instrument_id == "source-0"
     assert drivers[0].abort_count == 0
     assert drivers[0].disconnect_count == 0
     owned.release()
@@ -910,7 +941,7 @@ def test_stop_accepting_fences_new_owners_without_interrupting_the_drain() -> No
     )
     registry.stop_accepting()
 
-    owned.adopt_state(owned.read_state())
+    owned.adopt_readback(_read_capture(owned))
     owned.release()
     assert drivers[0].disconnect_count == 0
     with pytest.raises(InstrumentActorShutdown, match="registry"):
@@ -943,7 +974,7 @@ def test_shutdown_invalidates_owned_handles_closes_every_actor_and_gates_acquire
         endpoint=first_endpoint,
         connect=first_endpoint,
     )
-    first.adopt_state(first.read_state())
+    first.adopt_readback(_read_capture(first))
     second = registry.acquire(
         _exclusivity_key("source-1"),
         "source-1",
@@ -961,7 +992,7 @@ def test_shutdown_invalidates_owned_handles_closes_every_actor_and_gates_acquire
     assert first_drivers[0].disconnect_count == 1
     assert second_drivers[0].disconnect_count == 1
     with pytest.raises(InstrumentActorConflict, match="stale"):
-        first.read_state()
+        _read_capture(first)
     with pytest.raises(InstrumentActorShutdown, match="registry"):
         third_endpoint = _endpoint([])
         registry.acquire(

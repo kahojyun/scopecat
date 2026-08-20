@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, override
+from typing import Literal, Protocol, override
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import MeasurementScalar
@@ -11,10 +11,13 @@ from scopecat.sdk.instruments import (
     DriverPayload,
     DriverRejected,
     DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     DriverSuccess,
     DriverUnknown,
     InstrumentDescription,
     InstrumentDriver,
+    StateMemberRef,
 )
 from scopecat_testkit.instrument_codegen_fixtures.declarations import (
     DriverMonitorState,
@@ -48,6 +51,17 @@ from scopecat_testkit.instrument_codegen_fixtures.generated_members import (
     PAYLOAD_OPERATION_UPLOAD,
     SCALAR_OPERATION_EMIT_PULSE,
 )
+
+
+class _StateReader(Protocol):
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback: ...
+
+
+def _read(
+    driver: _StateReader,
+    *targets: StateMemberRef,
+) -> DriverStateReadback:
+    return driver.read_state(DriverStateReadRequest(frozenset(targets)))
 
 
 class _ScalarDriver(ScalarOperationDriverAdapter):
@@ -303,7 +317,7 @@ def test_fixed_acquisition_maps_name_and_preserves_both_metadata_layers() -> Non
 def test_single_interface_state_snapshot_and_patch_are_typed() -> None:
     driver = _SourceDriver()
 
-    state = driver.read_state()
+    state = _read(driver, DRIVER_SOURCE_ENABLED, DRIVER_SOURCE_LEVEL)
     assert state.values == {
         DRIVER_SOURCE_ENABLED: True,
         DRIVER_SOURCE_LEVEL: 4,
@@ -345,10 +359,10 @@ def test_composite_apply_calls_one_typed_hook_and_dynamic_gate_owns_monitor() ->
     assert len(enabled.apply_calls) == 1
     assert enabled.apply_calls[0].driver_source == {"enabled": False}
     assert enabled.apply_calls[0].driver_monitor == {"enabled": True}
-    assert DRIVER_MONITOR_ENABLED in enabled.read_state().values
+    assert DRIVER_MONITOR_ENABLED in _read(enabled, DRIVER_MONITOR_ENABLED).values
 
     disabled = _CompositeDriver(monitor=False)
-    assert DRIVER_MONITOR_ENABLED not in disabled.read_state().values
+    assert DRIVER_MONITOR_ENABLED not in _read(disabled, DRIVER_MONITOR_ENABLED).values
     rejected = disabled.apply_state(
         DriverStatePatch(values={DRIVER_MONITOR_ENABLED: True})
     )

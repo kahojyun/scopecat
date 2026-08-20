@@ -18,7 +18,10 @@ from scopecat.program.measurement_types import (
     MeasurementDType,
     MeasurementVariableRole,
 )
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import (
+    InstrumentStateSnapshot,
+    InterfaceStateMemberTarget,
+)
 from scopecat.sdk.instruments import (
     AcquisitionRef,
     AcquisitionResultRef,
@@ -53,11 +56,12 @@ class ClientStateSchema[StateT]:
     def decode(self, snapshot: InstrumentStateSnapshot, /) -> StateT:
         properties = {
             PropertyRef(
-                item.interface_id,
-                tuple(item.component_path),
-                item.property_id,
+                item.target.interface_id,
+                item.target.component_path,
+                item.target.property_id,
             ): item
-            for item in snapshot.properties
+            for item in snapshot.observations
+            if isinstance(item.target, InterfaceStateMemberTarget)
         }
         missing = tuple(field for field in self.fields if field.ref not in properties)
         if missing:

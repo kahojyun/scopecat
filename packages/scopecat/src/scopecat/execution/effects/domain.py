@@ -10,6 +10,7 @@ from scopecat.kernel.errors import (
     MeasurementRecordingError,
     OperationFailure,
 )
+from scopecat.kernel.instrument_members import PropertyRef
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
@@ -17,6 +18,7 @@ from scopecat.kernel.problems import (
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
 )
+from scopecat.records.instrument import state_member_target
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.runtime import (
     DomainExecutionReceipt,
@@ -104,9 +106,13 @@ def _reconcile_domain_state_requirements(
         grouped.setdefault(address.instrument_id, []).append(
             InstrumentStateAssignment(
                 resource_id=address.instrument_id,
-                interface_id=address.interface_id,
-                component_path=list(address.component_path),
-                property_id=address.property_id,
+                target=state_member_target(
+                    PropertyRef(
+                        address.interface_id,
+                        tuple(address.component_path),
+                        address.property_id,
+                    )
+                ),
                 value=requirement.value,
             )
         )

@@ -6,8 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.records.instrument import (
     InstrumentStateSnapshot,
-    PropertyTargetIdentity,
-    property_target_identity,
+    StateMemberIdentity,
+    state_member_identity,
 )
 
 
@@ -122,12 +122,7 @@ def _changed_property_count(
 
 def _state_property_values(
     state: InstrumentStateSnapshot,
-) -> dict[PropertyTargetIdentity, object]:
+) -> dict[StateMemberIdentity, object]:
     return {
-        property_target_identity(
-            item.interface_id,
-            item.component_path,
-            item.property_id,
-        ): item.value
-        for item in state.properties
+        state_member_identity(item.target): item.value for item in state.observations
     }

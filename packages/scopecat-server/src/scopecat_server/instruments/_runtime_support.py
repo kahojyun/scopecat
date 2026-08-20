@@ -23,7 +23,11 @@ from scopecat.records.config import (
     VirtualInstrumentConnection,
 )
 from scopecat.records.content import CommandPayload
-from scopecat.records.instrument import InstrumentPropertyState, InstrumentStateSnapshot
+from scopecat.records.instrument import (
+    InstrumentStateSetting,
+    InstrumentStateSnapshot,
+    state_member_identity,
+)
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
     BackendCollectRequest,
@@ -40,6 +44,7 @@ from scopecat.sdk.instruments.commands import (
     InvokeCommand,
 )
 from scopecat.sdk.instruments.contracts import (
+    restorable_state_members,
     state_assignment_satisfied,
     validate_reconciled_state_assignments,
 )
@@ -239,15 +244,13 @@ def payload_codec_problems(
 def configured_state_assignments(
     *,
     instrument_id: str,
-    configured_state: Sequence[InstrumentPropertyState],
+    configured_state: Sequence[InstrumentStateSetting],
     instrument: OwnedInstrument,
 ) -> tuple[InstrumentStateAssignment, ...]:
     assignments = tuple(
         InstrumentStateAssignment(
             resource_id=instrument_id,
-            interface_id=item.interface_id,
-            component_path=list(item.component_path),
-            property_id=item.property_id,
+            target=item.target,
             value=item.value,
         )
         for item in configured_state
@@ -270,29 +273,19 @@ def restorable_state_assignments(
     baseline_state: InstrumentStateSnapshot,
     instrument: OwnedInstrument,
 ) -> tuple[InstrumentStateAssignment, ...]:
-    assignments: list[InstrumentStateAssignment] = []
-    for item in baseline_state.properties:
-        assignment = InstrumentStateAssignment(
+    restorable = {
+        state_member_identity(target)
+        for target in restorable_state_members(instrument.description)
+    }
+    return tuple(
+        InstrumentStateAssignment(
             resource_id=instrument_id,
-            interface_id=item.interface_id,
-            component_path=list(item.component_path),
-            property_id=item.property_id,
+            target=item.target,
             value=item.value,
         )
-        problems = validate_reconciled_state_assignments(
-            instrument_id=instrument_id,
-            assignments=(assignment,),
-            description=instrument.description,
-        )
-        if not problems:
-            assignments.append(assignment)
-            continue
-        if len(problems) == 1 and problems[0].code == (
-            "instrument_driver_read_only_property"
-        ):
-            continue
-        raise DefaultStateReconciliationRejected(problems=tuple(problems))
-    return tuple(assignments)
+        for item in baseline_state.observations
+        if state_member_identity(item.target) in restorable
+    )
 
 
 def pending_configured_state_command(

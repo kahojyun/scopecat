@@ -5,9 +5,11 @@ from pydantic import BaseModel, ValidationError
 
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.content import command_payload_from_bytes
+from scopecat.records.instrument import state_member_target
 from scopecat.sdk.instruments import (
     DriverPayload,
     InterfaceRef,
+    PropertyRef,
 )
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
@@ -16,7 +18,7 @@ from scopecat.sdk.instruments.backend import (
     BackendInvokeRequest,
     BackendOperationArgument,
     BackendPayload,
-    BackendPropertyWrite,
+    BackendStateMemberWrite,
     decode_driver_operation,
     lower_backend_apply_request,
     lower_backend_collect_request,
@@ -41,9 +43,13 @@ def test_apply_command_lowers_to_backend_property_writes() -> None:
         assignments=[
             InstrumentStateAssignment(
                 resource_id="source-1",
-                interface_id="test.dc_source/v1",
-                component_path=["channel-a"],
-                property_id="level",
+                target=state_member_target(
+                    PropertyRef(
+                        "test.dc_source/v1",
+                        ("channel-a",),
+                        "level",
+                    )
+                ),
                 value=StateValue(1.25),
                 entity_ids=["logical-source"],
             )
@@ -55,19 +61,22 @@ def test_apply_command_lowers_to_backend_property_writes() -> None:
     assert request.model_dump(mode="json") == {
         "assignments": [
             {
-                "interface_id": "test.dc_source/v1",
-                "component_path": ["channel-a"],
-                "property_id": "level",
+                "target": {
+                    "kind": "interface",
+                    "interface_id": "test.dc_source/v1",
+                    "component_path": ["channel-a"],
+                    "property_id": "level",
+                },
                 "value": 1.25,
                 "entity_ids": ["logical-source"],
                 "channel_bindings": [],
             }
         ]
     }
-    assert request.assignments[0].target == InterfaceRef("test.dc_source/v1").component(
+    assert request.assignments[0].member == InterfaceRef("test.dc_source/v1").component(
         "channel-a"
     ).property("level")
-    assert "target" not in request.assignments[0].model_dump()
+    assert "member" not in request.assignments[0].model_dump()
     assert BackendApplyRequest.model_validate_json(request.model_dump_json()) == request
 
 
@@ -330,16 +339,16 @@ def test_collect_command_lowers_to_one_acquisition_request() -> None:
 @pytest.mark.parametrize(
     "request_model",
     [
-        BackendPropertyWrite(
-            interface_id="test.dc_source/v1",
-            property_id="level",
+        BackendStateMemberWrite(
+            target=state_member_target(PropertyRef("test.dc_source/v1", (), "level")),
             value=StateValue(1.0),
         ),
         BackendApplyRequest(
             assignments=(
-                BackendPropertyWrite(
-                    interface_id="test.dc_source/v1",
-                    property_id="level",
+                BackendStateMemberWrite(
+                    target=state_member_target(
+                        PropertyRef("test.dc_source/v1", (), "level")
+                    ),
                     value=StateValue(1.0),
                 ),
             )

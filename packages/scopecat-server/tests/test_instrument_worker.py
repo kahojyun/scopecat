@@ -35,6 +35,7 @@ from scopecat.daemon.wire import InstrumentSessionOpenCommand
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.program.products import product_axis
 from scopecat.records.config import ConfigProfileSnapshot, instrument_bindings
+from scopecat.records.instrument import state_member_target
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementArray,
@@ -50,7 +51,8 @@ from scopecat.sdk.instruments.backend import (
     BackendInvokeRequest,
     BackendOperationArgument,
     BackendPayload,
-    BackendPropertyWrite,
+    BackendReadRequest,
+    BackendStateMemberWrite,
 )
 from scopecat.sdk.instruments.commands import InvokeCommand
 from scopecat_testkit.instrument_drivers import load_config
@@ -62,15 +64,20 @@ from scopecat_server.instruments.backend import (
     InstrumentBackendUnavailable,
     InstrumentHandleInvalid,
 )
-from scopecat_server.instruments.worker import (
-    SubprocessInstrumentBackendEndpoint,
-)
+from scopecat_server.instruments.worker import SubprocessInstrumentBackendEndpoint
 from scopecat_server.runtime import LocalDaemonRuntime
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "instrument_worker_project"
 _BACKEND = "worker_fixture.backend:create_backend"
+
+_GAIN = InterfaceRef("tests.control/v1").property("gain")
+
+
+def _gain_read_request() -> BackendReadRequest:
+    return BackendReadRequest(targets=(state_member_target(_GAIN),))
+
 
 _RAGGED_CONTROL = InterfaceRef("tests.control/v1")
 _RAGGED_GAIN_PROPERTY = _RAGGED_CONTROL.property("gain")
@@ -177,17 +184,16 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
         connection.handle,
         BackendApplyRequest(
             assignments=(
-                BackendPropertyWrite(
-                    interface_id="tests.control/v1",
-                    property_id="gain",
+                BackendStateMemberWrite(
+                    target=state_member_target(_GAIN),
                     value=StateValue(2.5),
                 ),
             )
         ),
     )
-    state = endpoint.read_state(connection.handle)
+    state = endpoint.read_state(connection.handle, _gain_read_request())
     assert state.metadata["worker_pid"] == endpoint.worker_pid
-    assert state.properties[0].value == StateValue(2.5)
+    assert state.observations[0].value == StateValue(2.5)
 
     content = b"\x00\xffprogram\x00"
     invoke = endpoint.invoke(
@@ -240,7 +246,7 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
         "disconnect:source-0\ndisconnect:source-0\n"
     )
     with pytest.raises(InstrumentHandleInvalid, match="stale"):
-        endpoint.read_state(connection.handle)
+        endpoint.read_state(connection.handle, _gain_read_request())
 
     replacement = endpoint.connect(
         binding=binding,
@@ -357,7 +363,7 @@ def test_worker_rejects_changed_contract_and_foreign_generation(
     )
 
     with pytest.raises(InstrumentHandleInvalid, match="generation"):
-        second.read_state(connection.handle)
+        second.read_state(connection.handle, _gain_read_request())
     with pytest.raises(InstrumentBackendRejected) as rejected:
         first.connect(
             binding=binding,
@@ -492,7 +498,10 @@ def test_worker_rejects_invalid_collect_array_without_poisoning_protocol(
             ),
         )
     assert endpoint.healthy
-    assert endpoint.read_state(connection.handle).instrument_id == "source-0"
+    assert (
+        endpoint.read_state(connection.handle, _gain_read_request()).instrument_id
+        == "source-0"
+    )
     endpoint.shutdown()
 
 
@@ -805,7 +814,11 @@ def test_blocked_driver_does_not_block_another_device(tmp_path: Path) -> None:
                 ),
             )
             _wait_for_marker(project / "driver-blocked-source-0")
-            independent = calls.submit(endpoint.read_state, second.handle)
+            independent = calls.submit(
+                endpoint.read_state,
+                second.handle,
+                _gain_read_request(),
+            )
             try:
                 state = independent.result(timeout=1)
             finally:

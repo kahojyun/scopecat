@@ -42,6 +42,11 @@ from scopecat.records.config import (
     instrument_bindings,
 )
 from scopecat.records.content import command_payload_from_bytes
+from scopecat.records.instrument import (
+    InstrumentStateSetting,
+    state_member_target,
+    state_setting,
+)
 from scopecat.records.measurement import (
     MeasurementAcquisitionValue,
     MeasurementScalar,
@@ -60,25 +65,27 @@ from scopecat.sdk.instruments import (
     DriverRejected,
     DriverScalar,
     DriverSpec,
-    DriverState,
     DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     DriverSuccess,
     DriverUnknown,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentDriver,
-    InstrumentPropertyState,
     InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InterfaceRef,
+    PropertyRef,
     acquisition,
     acquisition_result,
     bool_property,
     enum_property,
     float_property,
     interface,
+    state_readback,
 )
 from scopecat.sdk.instruments.commands import (
     InstrumentStateAssignment,
@@ -102,6 +109,19 @@ _DC_MODE = _DC.property("mode")
 _DC_VOLTAGE_LEVEL = _DC.property("voltage_level")
 _DC_CURRENT_LEVEL = _DC.property("current_level")
 _SESSION_LEASE_TTL = timedelta(seconds=90)
+
+
+def _setting(
+    *,
+    interface_id: str,
+    property_id: str,
+    value: StateValue,
+    component_path: Sequence[str] = (),
+) -> InstrumentStateSetting:
+    return state_setting(
+        PropertyRef(interface_id, tuple(component_path), property_id),
+        value,
+    )
 
 
 class _TrackingDriver(SignalInstrumentDriver):
@@ -199,7 +219,8 @@ class _RejectedProvider(_TrackingProvider):
 
 class _ReadFailDriver(_TrackingDriver):
     @override
-    def read_state(self) -> Never:
+    def read_state(self, request: DriverStateReadRequest) -> Never:
+        del request
         raise RuntimeError("read transport failed")
 
 
@@ -224,15 +245,15 @@ class _ResyncDriver(_TrackingDriver):
         )
 
     @override
-    def read_state(self) -> DriverState:
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
         self.read_count += 1
         if self.fail_next_read:
             self.fail_next_read = False
             raise RuntimeError("stale connection")
         if self.return_invalid_next_read:
             self.return_invalid_next_read = False
-            return DriverState(values={_SET_FREQUENCY: float("nan")})
-        return super().read_state()
+            return state_readback(request, {_SET_FREQUENCY: float("nan")})
+        return super().read_state(request)
 
 
 class _InvalidCollectDriver(_TrackingDriver):
@@ -262,15 +283,15 @@ class _InvokeReadbackDriver(_TrackingDriver):
         self.read_count = 0
 
     @override
-    def read_state(self) -> DriverState:
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
         self.read_count += 1
-        return super().read_state()
+        return super().read_state(request)
 
     @override
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         self.invoked.append(request)
         return DriverSuccess(None)
 
@@ -280,7 +301,7 @@ class _NonConvergingApplyDriver(_ResyncDriver):
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         self.applied.append(request)
         return DriverSuccess(None)
 
@@ -290,7 +311,7 @@ class _NotAppliedDriver(_ResyncDriver):
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         self.applied.append(request)
         return DriverRejected(
             problems=(
@@ -308,7 +329,7 @@ class _UnknownApplyDriver(_ResyncDriver):
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         self.applied.append(request)
         return DriverUnknown(
             problems=(
@@ -380,11 +401,12 @@ class _VariantDriver(_TrackingDriver):
         )
 
     @override
-    def read_state(self) -> DriverState:
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
         self.read_count += 1
-        base = super().read_state()
-        return DriverState(
-            values={
+        base = super().read_state(request)
+        return state_readback(
+            request,
+            {
                 **base.values,
                 _DC_MODE: self.mode,
                 _DC_VOLTAGE_LEVEL: self.voltage_level,
@@ -435,7 +457,7 @@ class _VariantDriver(_TrackingDriver):
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         self.applied.append(request)
         for entry in request.entries:
             target = entry.target
@@ -494,11 +516,11 @@ class _ShutdownRaceDriver(_TrackingDriver):
         self._release_abort = release_abort
 
     @override
-    def read_state(self) -> DriverState:
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
         if self.instrument_id == "source-1":
             self._read_entered.set()
             assert self._release_read.wait(timeout=3)
-        return super().read_state()
+        return super().read_state(request)
 
     @override
     def abort(self) -> None:
@@ -721,7 +743,7 @@ def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
                 assert description.instrument_id == "source-0"
                 assert state_receipt.status == "applied"
                 assert invoke_receipt.status == "invoked"
-                assert invoke_receipt.state is not None
+                assert invoke_receipt.readback is None
                 assert collect_receipt.status == "collected"
                 assert owned.availability == "active"
                 assert owned.owner_kind == "instrument_session"
@@ -796,7 +818,7 @@ def test_notebook_can_attach_a_session_only_instrument(tmp_path: Path) -> None:
     assert driver.disconnect_count == 1
 
 
-def test_invoke_without_reported_state_reads_back_before_returning(
+def test_invoke_without_invalidations_does_not_force_state_readback(
     tmp_path: Path,
 ) -> None:
     provider = _TrackingProvider(_InvokeReadbackDriver)
@@ -825,9 +847,8 @@ def test_invoke_without_reported_state_reads_back_before_returning(
             handle.close()
 
             assert receipt.status == "invoked"
-            assert receipt.state is not None
-            assert receipt.state.instrument_id == "source-0"
-            assert driver.read_count == reads_before_invoke + 1
+            assert receipt.readback is None
+            assert driver.read_count == reads_before_invoke
 
 
 def test_apply_without_reported_state_reads_back_before_returning(
@@ -850,7 +871,7 @@ def test_apply_without_reported_state_reads_back_before_returning(
             handle.close()
 
             assert receipt.status == "applied"
-            assert receipt.state is not None
+            assert receipt.readback is None
             assert driver.read_count == reads_before_apply + 2
 
 
@@ -904,7 +925,7 @@ def test_interactive_apply_validates_against_fresh_device_state(
             handle.close()
 
             assert receipt.status == "applied"
-            assert receipt.state is not None
+            assert receipt.readback is None
             assert driver.current_level == 0.03
             assert driver.read_count == 3
 
@@ -1262,8 +1283,8 @@ def test_expired_session_releases_owner_and_reuses_fresh_connection(
         assert driver.read_count == 2
         frequency = next(
             property_.value.root
-            for property_ in second.observed_state[0].properties
-            if property_.property_id == "frequency"
+            for property_ in second.observed_state[0].observations
+            if property_.target.property_id == "frequency"
         )
         assert frequency == Quantity(value=5.1, unit="GHz")
         daemon.close_instrument_session(second.session_id)
@@ -1325,7 +1346,7 @@ def test_config_activation_reuses_matching_connection_with_fresh_state(
             assert isinstance(driver, _ResyncDriver)
             assert driver.read_count == 1
             updated = _config_with_default_state(
-                InstrumentPropertyState(
+                _setting(
                     interface_id="test.set_frequency/v1",
                     property_id="frequency",
                     value=StateValue(Quantity(value=5.0, unit="GHz")),
@@ -1951,7 +1972,7 @@ def test_configured_defaults_replay_after_response_loss_avoids_hardware_io(
 ) -> None:
     provider = _TrackingProvider(_ResyncDriver)
     config = _config_with_default_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=5.1, unit="GHz")),
@@ -2156,7 +2177,7 @@ def test_direct_session_observes_without_applying_default_state(
 ) -> None:
     provider = _TrackingProvider()
     config = _config_with_default_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=5.0, unit="GHz")),
@@ -2225,12 +2246,12 @@ def test_configured_defaults_read_fresh_state_and_write_only_pending_values(
 ) -> None:
     provider = _TrackingProvider(_ResyncDriver)
     config = _config_with_default_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=5.1, unit="GHz")),
         ),
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_gain/v1",
             property_id="gain",
             value=StateValue(1.0),
@@ -2254,6 +2275,7 @@ def test_configured_defaults_read_fresh_state_and_write_only_pending_values(
             assert [
                 (target.interface_id, target.property_id, value)
                 for target, value in request.values.items()
+                if isinstance(target, PropertyRef)
             ] == [("test.set_gain/v1", "gain", 1.0)]
             handle.close()
 
@@ -2263,12 +2285,12 @@ def test_configured_defaults_skip_write_when_fresh_state_already_matches(
 ) -> None:
     provider = _TrackingProvider(_ResyncDriver)
     config = _config_with_default_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=5.1, unit="GHz")),
         ),
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_gain/v1",
             property_id="gain",
             value=StateValue(0.0),
@@ -2297,7 +2319,7 @@ def test_explicit_defaults_use_session_pinned_preserve_config(
 ) -> None:
     provider = _TrackingProvider(_ResyncDriver)
     pinned_config = _config_with_default_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=5.0, unit="GHz")),
@@ -2312,7 +2334,7 @@ def test_explicit_defaults_use_session_pinned_preserve_config(
             )
             handle._observed_state()
             later_config = _config_with_default_state(
-                InstrumentPropertyState(
+                _setting(
                     interface_id="test.set_frequency/v1",
                     property_id="frequency",
                     value=StateValue(Quantity(value=6.0, unit="GHz")),
@@ -2346,7 +2368,7 @@ def test_rejected_configured_defaults_remain_active_and_replayable(
 ) -> None:
     provider = _TrackingProvider(_NotAppliedDriver)
     config = _config_with_default_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=5.0, unit="GHz")),
@@ -2416,7 +2438,7 @@ def test_indeterminate_configured_defaults_quarantine_the_session(
 ) -> None:
     provider = _TrackingProvider(driver_type)
     config = _config_with_default_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=5.0, unit="GHz")),
@@ -2454,7 +2476,7 @@ def test_configured_defaults_read_failure_cleanly_closes_the_session(
 ) -> None:
     provider = _TrackingProvider(_ResyncDriver)
     config = _config_with_default_state(
-        InstrumentPropertyState(
+        _setting(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
             value=StateValue(Quantity(value=5.0, unit="GHz")),
@@ -2586,8 +2608,9 @@ def test_provider_instance_and_virtual_state_survive_across_sessions(
 
     property_state = next(
         item
-        for item in state.properties
-        if item.interface_id == "test.set_frequency/v1"
+        for item in state.observations
+        if item.target.kind == "interface"
+        and item.target.interface_id == "test.set_frequency/v1"
     )
     assert property_state.value == StateValue(Quantity(value=5.1, unit="GHz"))
 
@@ -2829,8 +2852,7 @@ def _apply_command(*, value: float) -> InstrumentStateCommand:
         assignments=[
             InstrumentStateAssignment(
                 resource_id="source-0",
-                interface_id="test.set_frequency/v1",
-                property_id="frequency",
+                target=state_member_target(_SET_FREQUENCY),
                 value=StateValue(Quantity(value=value, unit="GHz")),
             )
         ],
@@ -2875,7 +2897,7 @@ def _two_instrument_config() -> ConfigProfileSnapshot:
 
 
 def _config_with_default_state(
-    *properties: InstrumentPropertyState,
+    *properties: InstrumentStateSetting,
     run_start: InstrumentRunStartPolicy = "apply_default_state",
 ) -> ConfigProfileSnapshot:
     config = load_config()
@@ -2908,7 +2930,7 @@ def _config_with_private_instrument_settings() -> ConfigProfileSnapshot:
                 options={"api_token": "private-token"},
             ),
             "default_state": [
-                InstrumentPropertyState(
+                _setting(
                     interface_id="test.set_frequency/v1",
                     property_id="frequency",
                     value=StateValue(Quantity(value=5.0, unit="GHz")),

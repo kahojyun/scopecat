@@ -51,7 +51,7 @@ from scopecat.kernel.state import StateValue
 from scopecat.measurements.recording_arrow import decode_measurement_append
 from scopecat.optimization import DomainProposalDecision, DomainProposalSummary
 from scopecat.records.config import config_content_hash
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import InstrumentStateSnapshot, state_member_target
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
@@ -77,6 +77,7 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareBatchReceipt,
     RunHardwareFinalizationReceipt,
 )
+from scopecat.sdk.instruments.members import PropertyRef
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 
@@ -299,8 +300,13 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                 assignments=(
                     InstrumentStateAssignment(
                         resource_id="source-0",
-                        interface_id="test.set_frequency/v1",
-                        property_id="frequency",
+                        target=state_member_target(
+                            PropertyRef(
+                                "test.set_frequency/v1",
+                                (),
+                                "frequency",
+                            )
+                        ),
                         value=StateValue(Quantity(5.0, "GHz")),
                     ),
                 ),

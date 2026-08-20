@@ -390,9 +390,10 @@ def test_quantum_target_executes_through_reserved_bare_instruments(
         if state.instrument_id == "drive-awg"
     )
     guard_offset = next(
-        state.value.root
-        for state in drive_awg.properties
-        if state.component_path == ["outputs", "ch9"] and state.property_id == "offset"
+        observation.value.root
+        for observation in drive_awg.observations
+        if observation.target.component_path == ("outputs", "ch9")
+        and observation.target.property_id == "offset"
     )
     assert guard_offset == sc.Quantity(0.007, "V")
 

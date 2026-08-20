@@ -15,11 +15,12 @@ from scopecat.planning.provider_validation import (
     validate_instruments,
 )
 from scopecat.records.config import InstrumentBindingSpec
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import InstrumentStateReadback
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
     BackendCollectRequest,
     BackendInvokeRequest,
+    BackendReadRequest,
     InstrumentBackend,
     decode_driver_operation,
 )
@@ -33,10 +34,11 @@ from scopecat.sdk.instruments.contracts import InstrumentDescription
 from scopecat.sdk.instruments.driver_adapter import (
     lower_acquisition,
     lower_state_patch,
+    lower_state_read_request,
     project_apply_outcome,
     project_collect_outcome,
     project_invoke_outcome,
-    project_state,
+    project_state_readback,
 )
 from scopecat.sdk.instruments.provider import (
     DriverFault,
@@ -105,7 +107,11 @@ class InstrumentBackendEndpoint(Protocol):
         expected: InstrumentDescription,
     ) -> ConnectedInstrument: ...
 
-    def read_state(self, handle: InstrumentHandle) -> InstrumentStateSnapshot: ...
+    def read_state(
+        self,
+        handle: InstrumentHandle,
+        request: BackendReadRequest,
+    ) -> InstrumentStateReadback: ...
 
     def apply_state(
         self,
@@ -275,11 +281,15 @@ class LocalInstrumentBackendEndpoint:
                 "instrument connection could not be established"
             ) from error
 
-    def read_state(self, handle: InstrumentHandle) -> InstrumentStateSnapshot:
+    def read_state(
+        self,
+        handle: InstrumentHandle,
+        request: BackendReadRequest,
+    ) -> InstrumentStateReadback:
         with self._locked_connection(handle) as connection:
-            return project_state(
+            return project_state_readback(
                 connection.driver.instrument_id,
-                connection.driver.read_state(),
+                connection.driver.read_state(lower_state_read_request(request)),
             )
 
     def apply_state(

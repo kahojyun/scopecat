@@ -20,10 +20,12 @@ from scopecat.sdk.instruments import (
     DriverOperation,
     DriverOutcome,
     DriverReadback,
+    DriverScalar,
     DriverSpec,
-    DriverState,
-    DriverStateEntry,
+    DriverStateObservation,
     DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     DriverSuccess,
     InstrumentConnectionContext,
     InstrumentDescription,
@@ -303,98 +305,122 @@ class MultiChannelVirtualDcSource:
             ],
         )
 
-    def read_state(self) -> DriverState:
-        entries: list[DriverStateEntry] = []
-        baseline = self._unrouted.read_state()
-        for component_id in FLUX_CHANNEL_COMPONENT_IDS:
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
+        requested_by_component: dict[str, list[PropertyRef]] = {}
+        for target in request.targets:
+            if not isinstance(target, PropertyRef):
+                raise ValueError("virtual DC source has no model-specific members")
+            component_id = self._component_id(target, ())
+            requested_by_component.setdefault(component_id, []).append(target)
+
+        observations: list[DriverStateObservation] = []
+        metadata: dict[str, JsonValue] = {
+            "mode": "virtual",
+            "channel_count": len(FLUX_CHANNEL_COMPONENT_IDS),
+        }
+        bias_targets = {
+            DC_BIAS_TARGET_VOLTAGE,
+            DC_BIAS_RAMP_DURATION,
+            DC_BIAS_SETTLE_TOLERANCE,
+            DC_BIAS_ACTUAL_VOLTAGE,
+            DC_BIAS_SETTLED,
+        }
+        for component_id, requested in requested_by_component.items():
             component_path = ("channels", component_id)
-            driver = self._drivers.get(component_id)
-            route_id = self._route_ids.get(component_id)
+            driver = self._drivers.get(component_id, self._unrouted)
             bindings = tuple(self._bindings.get(component_id, {}).values())
+            root_targets = frozenset(
+                _root_property(target)
+                for target in requested
+                if _root_property(target) not in bias_targets
+            )
+            if root_targets:
+                readback = driver.read_state(DriverStateReadRequest(root_targets))
+                metadata.update(readback.metadata)
+                for observation in readback.observations:
+                    assert isinstance(observation.target, PropertyRef)
+                    observations.append(
+                        DriverStateObservation(
+                            target=_mount_property(observation.target, component_path),
+                            value=observation.value,
+                            source=observation.source,
+                            coherence_id=observation.coherence_id,
+                            entity_ids=tuple(
+                                dict.fromkeys(binding.entity_id for binding in bindings)
+                            ),
+                            channel_bindings=tuple(
+                                binding.model_copy(
+                                    update={
+                                        "interface_id": observation.target.interface_id
+                                    }
+                                )
+                                for binding in bindings
+                            ),
+                        )
+                    )
+
+            route_id = self._route_ids.get(component_id)
             source = (
                 self._world.dc_source(f"{self.instrument_id}:{route_id}")
                 if route_id is not None
                 else None
             )
-            channel_entries = (
-                *(
-                    driver.read_state().entries
-                    if driver is not None
-                    else baseline.entries
+            bias_values = {
+                DC_BIAS_TARGET_VOLTAGE: sc.Quantity(
+                    source.voltage_level_v if source is not None else 0.0, "V"
                 ),
-                DriverStateEntry(
-                    target=DC_BIAS_TARGET_VOLTAGE,
-                    value=sc.Quantity(
-                        source.voltage_level_v if source is not None else 0.0,
-                        "V",
+                DC_BIAS_RAMP_DURATION: sc.Quantity(
+                    self._ramp_duration_s.get(component_id, 0.0), "s"
+                ),
+                DC_BIAS_SETTLE_TOLERANCE: sc.Quantity(
+                    self._settle_tolerance_v.get(component_id, 0.0001), "V"
+                ),
+                DC_BIAS_ACTUAL_VOLTAGE: sc.Quantity(
+                    source.voltage_level_v if source is not None else 0.0, "V"
+                ),
+                DC_BIAS_SETTLED: True,
+            }
+            observations.extend(
+                DriverStateObservation(
+                    target=target,
+                    value=bias_values[_root_property(target)],
+                    entity_ids=tuple(
+                        dict.fromkeys(binding.entity_id for binding in bindings)
                     ),
-                ),
-                DriverStateEntry(
-                    target=DC_BIAS_RAMP_DURATION,
-                    value=sc.Quantity(
-                        self._ramp_duration_s.get(component_id, 0.0),
-                        "s",
+                    channel_bindings=tuple(
+                        binding.model_copy(update={"interface_id": target.interface_id})
+                        for binding in bindings
                     ),
-                ),
-                DriverStateEntry(
-                    target=DC_BIAS_SETTLE_TOLERANCE,
-                    value=sc.Quantity(
-                        self._settle_tolerance_v.get(component_id, 0.0001),
-                        "V",
-                    ),
-                ),
-                DriverStateEntry(
-                    target=DC_BIAS_ACTUAL_VOLTAGE,
-                    value=sc.Quantity(
-                        source.voltage_level_v if source is not None else 0.0,
-                        "V",
-                    ),
-                ),
-                DriverStateEntry(target=DC_BIAS_SETTLED, value=True),
-            )
-            for entry in channel_entries:
-                entries.append(
-                    DriverStateEntry(
-                        target=_mount_property(entry.target, component_path),
-                        value=entry.value,
-                        entity_ids=tuple(
-                            dict.fromkeys(binding.entity_id for binding in bindings)
-                        ),
-                        channel_bindings=tuple(
-                            binding.model_copy(
-                                update={"interface_id": entry.target.interface_id}
-                            )
-                            for binding in bindings
-                        ),
-                    )
                 )
-        return DriverState(
-            scoped_values=tuple(entries),
-            metadata={
-                **baseline.metadata,
-                "channel_count": len(FLUX_CHANNEL_COMPONENT_IDS),
-            },
+                for target in requested
+                if _root_property(target) in bias_values
+            )
+        return DriverStateReadback(
+            observations=tuple(observations),
+            metadata=metadata,
         )
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
-        grouped: dict[str, list[DriverStateEntry]] = {}
+    ) -> DriverOutcome[DriverStateReadback | None]:
+        grouped: dict[str, list[tuple[PropertyRef, DriverScalar]]] = {}
         for entry in request.entries:
+            if not isinstance(entry.target, PropertyRef):
+                raise ValueError("virtual DC source has no model-specific members")
             component_id = self._component_id(
                 entry.target,
                 entry.channel_bindings,
             )
             grouped.setdefault(component_id, []).append(
-                DriverStateEntry(target=_root_property(entry.target), value=entry.value)
+                (_root_property(entry.target), entry.value)
             )
         component_results: dict[str, JsonValue] = {}
         for component_id, entries in grouped.items():
             bias_values = {
-                entry.target: entry.value
-                for entry in entries
-                if entry.target.interface_id == "scopecat.dc_bias/v1"
+                target: value
+                for target, value in entries
+                if target.interface_id == "scopecat.dc_bias/v1"
             }
             if bias_values:
                 duration = bias_values.get(DC_BIAS_RAMP_DURATION)
@@ -418,35 +444,28 @@ class MultiChannelVirtualDcSource:
                     "actual_voltage_v": source.voltage_level_v,
                 }
             source_entries = tuple(
-                entry
-                for entry in entries
-                if entry.target.interface_id != "scopecat.dc_bias/v1"
+                (target, value)
+                for target, value in entries
+                if target.interface_id != "scopecat.dc_bias/v1"
             )
             if not source_entries:
                 continue
             outcome = self._drivers[component_id].apply_state(
-                DriverStatePatch(
-                    values={entry.target: entry.value for entry in source_entries}
-                )
+                DriverStatePatch(values=dict(source_entries))
             )
             if not isinstance(outcome, DriverSuccess):
                 return outcome
-        return cast(
-            "DriverOutcome[DriverState | None]",
-            DriverSuccess(
-                self.read_state(),
-                metadata=(
-                    {"component_results": component_results}
-                    if component_results
-                    else {}
-                ),
+        return DriverSuccess(
+            None,
+            metadata=(
+                {"component_results": component_results} if component_results else {}
             ),
         )
 
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         component_id = self._component_id(
             request.target,
             request.channel_bindings,
@@ -458,7 +477,7 @@ class MultiChannelVirtualDcSource:
             )
         )
         if isinstance(outcome, DriverSuccess):
-            return DriverSuccess(self.read_state(), metadata=outcome.metadata)
+            return DriverSuccess(None, metadata=outcome.metadata)
         return outcome
 
     def collect(self, request: DriverAcquisition) -> DriverOutcome[DriverReadback]:

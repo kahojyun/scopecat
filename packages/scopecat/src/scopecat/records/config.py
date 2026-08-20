@@ -18,8 +18,8 @@ from pydantic import (
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.records.instrument import (
-    InstrumentPropertyState,
-    property_target_identity,
+    InstrumentStateSetting,
+    state_member_identity,
 )
 from scopecat.records.parameter import (
     ParameterCatalog,
@@ -165,26 +165,19 @@ class InstrumentSpec(BaseModel):
     exclusivity_key: Annotated[str, Field(min_length=1)]
     driver_id: Annotated[str, Field(min_length=1)]
     connection: InstrumentConnection
-    default_state: list[InstrumentPropertyState] = Field(default_factory=list)
+    default_state: list[InstrumentStateSetting] = Field(default_factory=list)
     run_start: InstrumentRunStartPolicy
     success_action: InstrumentSuccessAction
-    safe_state: list[InstrumentPropertyState] = Field(default_factory=list)
+    safe_state: list[InstrumentStateSetting] = Field(default_factory=list)
     failure_action: InstrumentFailureAction
 
     @field_validator("default_state", "safe_state")
     @classmethod
     def validate_unique_state_targets(
         cls,
-        value: list[InstrumentPropertyState],
-    ) -> list[InstrumentPropertyState]:
-        identities = [
-            property_target_identity(
-                item.interface_id,
-                item.component_path,
-                item.property_id,
-            )
-            for item in value
-        ]
+        value: list[InstrumentStateSetting],
+    ) -> list[InstrumentStateSetting]:
+        identities = [state_member_identity(item.target) for item in value]
         if len(identities) != len(set(identities)):
             raise ValueError("configured state property targets must be unique")
         return value

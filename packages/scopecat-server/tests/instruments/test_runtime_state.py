@@ -1,4 +1,5 @@
 from scopecat.kernel.state import StateValue
+from scopecat.records.instrument import state_member_target
 from scopecat.sdk.instruments import InterfaceRef
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
@@ -24,9 +25,7 @@ def test_interactive_replay_ledger_keeps_only_the_recent_window() -> None:
             assignments=[
                 InstrumentStateAssignment(
                     resource_id="source-0",
-                    interface_id=_SET_FREQUENCY.interface_id,
-                    component_path=[],
-                    property_id=_SET_FREQUENCY.property_id,
+                    target=state_member_target(_SET_FREQUENCY),
                     value=StateValue(1.0),
                 )
             ],

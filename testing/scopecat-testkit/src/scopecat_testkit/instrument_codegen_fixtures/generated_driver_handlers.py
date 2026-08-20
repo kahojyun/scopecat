@@ -21,8 +21,9 @@ from scopecat.sdk.instruments import (
     DriverReadback,
     DriverRejected,
     DriverScalar,
-    DriverState,
     DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     DriverSuccess,
     PropertyRef,
 )
@@ -38,8 +39,8 @@ from scopecat_testkit.instrument_codegen_fixtures.generated_driver_states import
     decode_driver_monitor_patch,
     decode_driver_source_patch,
     encode_driver_monitor_state,
+    encode_driver_readback,
     encode_driver_source_state,
-    encode_driver_state,
 )
 from scopecat_testkit.instrument_codegen_fixtures.generated_members import (
     DRIVER_FIXED_ACQUISITION_ACQUIRE,
@@ -96,20 +97,23 @@ class ScalarOperationDriverAdapter(ABC):
         label: str,
     ) -> DriverOutcome[None]: ...
 
-    def read_state(self) -> DriverState:
-        return encode_driver_state()
+    def read_state(
+        self,
+        request: DriverStateReadRequest,
+    ) -> DriverStateReadback:
+        return encode_driver_readback(request)
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         del request
         return _unsupported_driver_request(self.instrument_id, "state", "state")
 
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         if request.target == SCALAR_OPERATION_EMIT_PULSE:
             arguments = request.arguments
             outcome = self.handle_emit(
@@ -146,20 +150,23 @@ class LiteralOperationDriverAdapter(ABC):
         mode: Literal["left", "right"],
     ) -> DriverOutcome[None]: ...
 
-    def read_state(self) -> DriverState:
-        return encode_driver_state()
+    def read_state(
+        self,
+        request: DriverStateReadRequest,
+    ) -> DriverStateReadback:
+        return encode_driver_readback(request)
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         del request
         return _unsupported_driver_request(self.instrument_id, "state", "state")
 
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         if request.target == LITERAL_OPERATION_SELECT:
             arguments = request.arguments
             outcome = self.handle_select(
@@ -194,20 +201,23 @@ class PayloadOperationDriverAdapter(ABC):
         payload: bytes,
     ) -> DriverOutcome[None]: ...
 
-    def read_state(self) -> DriverState:
-        return encode_driver_state()
+    def read_state(
+        self,
+        request: DriverStateReadRequest,
+    ) -> DriverStateReadback:
+        return encode_driver_readback(request)
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         del request
         return _unsupported_driver_request(self.instrument_id, "state", "state")
 
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         if request.target == PAYLOAD_OPERATION_UPLOAD:
             arguments = request.arguments
             outcome = self.handle_upload(
@@ -241,20 +251,23 @@ class DriverFixedAcquisitionDriverAdapter(ABC):
         self,
     ) -> DriverOutcome[DriverFixedAcquisitionAcquireDriverReadback]: ...
 
-    def read_state(self) -> DriverState:
-        return encode_driver_state()
+    def read_state(
+        self,
+        request: DriverStateReadRequest,
+    ) -> DriverStateReadback:
+        return encode_driver_readback(request)
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         del request
         return _unsupported_driver_request(self.instrument_id, "state", "state")
 
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         return _unsupported_driver_request(
             self.instrument_id,
             "operation",
@@ -315,16 +328,19 @@ class DriverSourceDriverAdapter(ABC):
         /,
     ) -> DriverOutcome[None]: ...
 
-    def read_state(self) -> DriverState:
+    def read_state(
+        self,
+        request: DriverStateReadRequest,
+    ) -> DriverStateReadback:
         snapshot = self.read_driver_source_state()
         encoded: list[Mapping[PropertyRef, DriverScalar]] = []
         encoded.append(encode_driver_source_state(snapshot.state))
-        return encode_driver_state(*encoded, metadata=snapshot.metadata)
+        return encode_driver_readback(request, *encoded, metadata=snapshot.metadata)
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         driver_source_patch = decode_driver_source_patch(request)
         outcome = self.apply_driver_source_state(driver_source_patch)
         if isinstance(outcome, DriverSuccess):
@@ -334,7 +350,7 @@ class DriverSourceDriverAdapter(ABC):
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         return _unsupported_driver_request(
             self.instrument_id,
             "operation",
@@ -386,18 +402,21 @@ class MonitorCompositeDriverAdapter(ABC):
         self,
     ) -> DriverOutcome[DriverMonitorMonitorDriverReadback]: ...
 
-    def read_state(self) -> DriverState:
+    def read_state(
+        self,
+        request: DriverStateReadRequest,
+    ) -> DriverStateReadback:
         snapshot = self.read_monitor_composite_state()
         encoded: list[Mapping[PropertyRef, DriverScalar]] = []
         encoded.append(encode_driver_source_state(snapshot.driver_source))
         if self._driver_monitor_enabled and snapshot.driver_monitor is not None:
             encoded.append(encode_driver_monitor_state(snapshot.driver_monitor))
-        return encode_driver_state(*encoded, metadata=snapshot.metadata)
+        return encode_driver_readback(request, *encoded, metadata=snapshot.metadata)
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         driver_source_patch = decode_driver_source_patch(request)
         driver_monitor_patch = decode_driver_monitor_patch(request)
         if driver_monitor_patch and not self._driver_monitor_enabled:
@@ -417,7 +436,7 @@ class MonitorCompositeDriverAdapter(ABC):
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         return _unsupported_driver_request(
             self.instrument_id,
             "operation",

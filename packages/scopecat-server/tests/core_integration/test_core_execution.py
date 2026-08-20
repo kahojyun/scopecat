@@ -57,14 +57,15 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.instrument import (
     CommandChannelBinding,
-    InstrumentPropertyState,
     InstrumentStateSnapshot,
+    state_member_target,
+    state_observation,
 )
 from scopecat.records.measurement import MeasurementScalar
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.sdk.instruments import DriverPayload, InterfaceRef
+from scopecat.sdk.instruments import DriverPayload, InterfaceRef, PropertyRef
 from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,
     InstrumentStateAssignment,
@@ -177,11 +178,10 @@ def test_instrument_models_round_trip() -> None:
     state_value = StateValue(Quantity(value=5.0, unit="GHz"))
     state = InstrumentStateSnapshot(
         instrument_id="source-0",
-        properties=[
-            InstrumentPropertyState(
-                interface_id="test.set_frequency/v1",
-                property_id="frequency",
-                value=state_value,
+        observations=[
+            state_observation(
+                PropertyRef("test.set_frequency/v1", (), "frequency"),
+                state_value,
             )
         ],
     )
@@ -191,8 +191,9 @@ def test_instrument_models_round_trip() -> None:
         assignments=[
             InstrumentStateAssignment(
                 resource_id="source-0",
-                interface_id="test.set_frequency/v1",
-                property_id="frequency",
+                target=state_member_target(
+                    PropertyRef("test.set_frequency/v1", (), "frequency")
+                ),
                 value=state_value,
                 entity_ids=["q0"],
                 channel_bindings=[
@@ -270,10 +271,10 @@ def test_run_persists_measurements_and_run_files(
         ]
     } == {"source-0"}
     assert state_evidence.observed_state == state_evidence.baseline_state
-    final_state_value = state_evidence.final_state[0].properties[0].value.root
+    final_state_value = state_evidence.final_state[0].observations[0].value.root
     assert final_state_value == Quantity(value=5.1, unit="GHz")
     persisted_state_evidence = state_evidence.model_dump(mode="json")
-    assert persisted_state_evidence["final_state"][0]["properties"][0]["value"] == {
+    assert persisted_state_evidence["final_state"][0]["observations"][0]["value"] == {
         "value": 5.1,
         "unit": "GHz",
     }

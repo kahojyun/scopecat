@@ -77,7 +77,7 @@ from scopecat.records.analysis import (
     ProjectAnalysisDecisionReference,
 )
 from scopecat.records.config import config_content_hash
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import InstrumentStateSnapshot, state_member_target
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
@@ -86,6 +86,7 @@ from scopecat.sdk.instruments import (
 )
 from scopecat.sdk.instruments.commands import InstrumentStateAssignment
 from scopecat.sdk.instruments.execution import RunHardwareApply, RunHardwareBatch
+from scopecat.sdk.instruments.members import PropertyRef
 
 
 def _request() -> RunRequest:
@@ -675,8 +676,13 @@ def test_run_hardware_commands_bind_fence_and_batch_identity() -> None:
                 assignments=(
                     InstrumentStateAssignment(
                         resource_id="source-0",
-                        interface_id="test.set_frequency/v1",
-                        property_id="frequency",
+                        target=state_member_target(
+                            PropertyRef(
+                                "test.set_frequency/v1",
+                                (),
+                                "frequency",
+                            )
+                        ),
                         value=StateValue(Quantity(5.0, "GHz")),
                     ),
                 ),
@@ -740,8 +746,9 @@ def test_run_coverage_wire_models_require_a_nonempty_prefix() -> None:
 def test_run_hardware_apply_rejects_duplicate_physical_targets() -> None:
     assignment = InstrumentStateAssignment(
         resource_id="source-0",
-        interface_id="test.set_frequency/v1",
-        property_id="frequency",
+        target=state_member_target(
+            PropertyRef("test.set_frequency/v1", (), "frequency")
+        ),
         value=StateValue(Quantity(5.0, "GHz")),
         entity_ids=["q0"],
     )

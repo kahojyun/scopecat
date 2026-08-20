@@ -8,18 +8,28 @@ from dataclasses import dataclass
 from threading import Condition, RLock
 from typing import Literal, Self
 
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import (
+    InstrumentStateReadback,
+    InstrumentStateSnapshot,
+    StateMemberTarget,
+    state_member_identity,
+    state_member_target,
+)
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
     BackendCollectRequest,
     BackendInvokeRequest,
+    BackendReadRequest,
 )
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectReceipt,
     InvokeReceipt,
 )
-from scopecat.sdk.instruments.contracts import InstrumentDescription
+from scopecat.sdk.instruments.contracts import (
+    InstrumentDescription,
+    operation_invalidated_state_members,
+)
 
 from .backend import (
     ConnectedInstrument,
@@ -60,6 +70,54 @@ class InstrumentOwnerKey:
 
 type InstrumentConnector = Callable[[], ConnectedInstrument]
 type InstrumentConnection = tuple[InstrumentBackendEndpoint, InstrumentHandle]
+
+
+def _without_targets(
+    state: InstrumentStateSnapshot | None,
+    targets: Iterable[StateMemberTarget],
+) -> InstrumentStateSnapshot | None:
+    if state is None:
+        return None
+    invalidated = {state_member_identity(target) for target in targets}
+    if not invalidated:
+        return state
+    return state.model_copy(
+        update={
+            "observations": [
+                observation.model_copy(deep=True)
+                for observation in state.observations
+                if state_member_identity(observation.target) not in invalidated
+            ]
+        }
+    )
+
+
+def _merge_readback(
+    state: InstrumentStateSnapshot | None,
+    readback: InstrumentStateReadback,
+) -> InstrumentStateSnapshot:
+    observations = (
+        {}
+        if state is None
+        else {
+            state_member_identity(observation.target): observation.model_copy(deep=True)
+            for observation in state.observations
+        }
+    )
+    observations.update(
+        {
+            state_member_identity(observation.target): observation.model_copy(deep=True)
+            for observation in readback.observations
+        }
+    )
+    return InstrumentStateSnapshot(
+        instrument_id=readback.instrument_id,
+        observations=[observations[key] for key in sorted(observations, key=repr)],
+        metadata={
+            **({} if state is None else state.metadata),
+            **readback.metadata,
+        },
+    )
 
 
 class OwnedInstrument:
@@ -122,10 +180,15 @@ class OwnedInstrument:
     def assumed_state(self) -> InstrumentStateSnapshot | None:
         return self._actor.assumed_state(self)
 
-    def read_state(self) -> InstrumentStateSnapshot:
+    def read_state(self, request: BackendReadRequest) -> InstrumentStateReadback:
         """Read hardware under the actor lock without trusting it before validation."""
 
-        return self._actor.read_state(self)
+        return self._actor.read_state(self, request)
+
+    def adopt_readback(self, readback: InstrumentStateReadback) -> None:
+        """Merge a caller-validated member readback into the working cache."""
+
+        self._actor.adopt_readback(self, readback)
 
     def adopt_state(self, state: InstrumentStateSnapshot) -> None:
         """Publish a caller-validated snapshot as this owner's working baseline."""
@@ -223,12 +286,18 @@ class _InstrumentActor:
             self._owned = owned
             return owned
 
-    def read_state(self, owned: OwnedInstrument) -> InstrumentStateSnapshot:
+    def read_state(
+        self,
+        owned: OwnedInstrument,
+        request: BackendReadRequest,
+    ) -> InstrumentStateReadback:
         with self._lock:
             endpoint, handle = self._require_owned(owned)
-            # A failed refresh must not leave a previously observed baseline usable.
-            self._assumed_state = None
-            return endpoint.read_state(handle)
+            self._assumed_state = _without_targets(
+                self._assumed_state,
+                request.targets,
+            )
+            return endpoint.read_state(handle, request)
 
     def assumed_state(
         self,
@@ -249,6 +318,15 @@ class _InstrumentActor:
             self._require_owned(owned)
             self._assumed_state = state.model_copy(deep=True)
 
+    def adopt_readback(
+        self,
+        owned: OwnedInstrument,
+        readback: InstrumentStateReadback,
+    ) -> None:
+        with self._lock:
+            self._require_owned(owned)
+            self._assumed_state = _merge_readback(self._assumed_state, readback)
+
     def invalidate_state(self, owned: OwnedInstrument) -> None:
         with self._lock:
             self._require_owned(owned)
@@ -262,7 +340,10 @@ class _InstrumentActor:
         with self._lock:
             endpoint, handle = self._require_owned(owned)
             previous = self._assumed_state
-            self._assumed_state = None
+            self._assumed_state = _without_targets(
+                self._assumed_state,
+                tuple(assignment.target for assignment in request.assignments),
+            )
             receipt = endpoint.apply_state(handle, request)
             if receipt.status == "not_applied":
                 self._assumed_state = previous
@@ -276,7 +357,16 @@ class _InstrumentActor:
         with self._lock:
             endpoint, handle = self._require_owned(owned)
             previous = self._assumed_state
-            self._assumed_state = None
+            invalidated = operation_invalidated_state_members(
+                owned.description,
+                interface_id=request.interface_id,
+                component_path=request.component_path,
+                operation_id=request.operation_id,
+            )
+            self._assumed_state = _without_targets(
+                self._assumed_state,
+                tuple(state_member_target(target) for target in invalidated),
+            )
             receipt = endpoint.invoke(handle, request)
             if receipt.status == "not_invoked":
                 self._assumed_state = previous

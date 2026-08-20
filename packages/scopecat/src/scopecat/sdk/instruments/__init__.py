@@ -17,9 +17,13 @@ if TYPE_CHECKING:
     )
     from scopecat.records.instrument import (
         CommandChannelBinding,
-        InstrumentPropertyState,
         InstrumentReadback,
+        InstrumentStateObservation,
+        InstrumentStateReadback,
+        InstrumentStateSetting,
         InstrumentStateSnapshot,
+        state_observation,
+        state_setting,
     )
     from scopecat.sdk.instruments.authoring import (
         DriverAcquisition,
@@ -31,11 +35,14 @@ if TYPE_CHECKING:
         DriverReadback,
         DriverRejected,
         DriverScalar,
-        DriverState,
-        DriverStateEntry,
+        DriverStateAssignment,
+        DriverStateObservation,
         DriverStatePatch,
+        DriverStateReadback,
+        DriverStateReadRequest,
         DriverSuccess,
         DriverUnknown,
+        state_readback,
     )
     from scopecat.sdk.instruments.backend import InstrumentBackend
     from scopecat.sdk.instruments.catalog import (
@@ -57,6 +64,8 @@ if TYPE_CHECKING:
         AcquisitionResultSpec,
         AcquisitionSpec,
         ComponentSpec,
+        DeviceStateMemberSpec,
+        DeviceStateSpec,
         InstrumentComponentSpec,
         InstrumentDescription,
         InterfaceMountSpec,
@@ -70,6 +79,7 @@ if TYPE_CHECKING:
         acquisition_precondition,
         acquisition_result,
         bool_property,
+        capture_state_members,
         component,
         enum_property,
         float_property,
@@ -80,6 +90,7 @@ if TYPE_CHECKING:
         operation,
         operation_argument,
         quantity_property,
+        state_capture_request,
         string_property,
     )
     from scopecat.sdk.instruments.errors import InstrumentCollectFailure
@@ -87,10 +98,12 @@ if TYPE_CHECKING:
         AcquisitionRef,
         AcquisitionResultRef,
         ComponentRef,
+        DevicePropertyRef,
         InterfaceRef,
         OperationArgumentRef,
         OperationRef,
         PropertyRef,
+        StateMemberRef,
     )
     from scopecat.sdk.instruments.provider import (
         DriverFault,
@@ -151,6 +164,14 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "ComponentRef": ("scopecat.sdk.instruments.members", "ComponentRef"),
     "ComponentSpec": ("scopecat.sdk.instruments.contracts", "ComponentSpec"),
+    "DeviceStateMemberSpec": (
+        "scopecat.sdk.instruments.contracts",
+        "DeviceStateMemberSpec",
+    ),
+    "DeviceStateSpec": (
+        "scopecat.sdk.instruments.contracts",
+        "DeviceStateSpec",
+    ),
     "DriverAcquisition": (
         "scopecat.sdk.instruments.authoring",
         "DriverAcquisition",
@@ -172,14 +193,25 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "DriverReadback": ("scopecat.sdk.instruments.authoring", "DriverReadback"),
     "DriverRejected": ("scopecat.sdk.instruments.authoring", "DriverRejected"),
     "DriverScalar": ("scopecat.sdk.instruments.authoring", "DriverScalar"),
-    "DriverState": ("scopecat.sdk.instruments.authoring", "DriverState"),
-    "DriverStateEntry": (
+    "DriverStateAssignment": (
         "scopecat.sdk.instruments.authoring",
-        "DriverStateEntry",
+        "DriverStateAssignment",
+    ),
+    "DriverStateObservation": (
+        "scopecat.sdk.instruments.authoring",
+        "DriverStateObservation",
     ),
     "DriverStatePatch": (
         "scopecat.sdk.instruments.authoring",
         "DriverStatePatch",
+    ),
+    "DriverStateReadRequest": (
+        "scopecat.sdk.instruments.authoring",
+        "DriverStateReadRequest",
+    ),
+    "DriverStateReadback": (
+        "scopecat.sdk.instruments.authoring",
+        "DriverStateReadback",
     ),
     "DriverSpec": ("scopecat.sdk.instruments.catalog", "DriverSpec"),
     "DriverSuccess": ("scopecat.sdk.instruments.authoring", "DriverSuccess"),
@@ -215,9 +247,17 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "InstrumentDescription",
     ),
     "InstrumentDriver": ("scopecat.sdk.instruments.provider", "InstrumentDriver"),
-    "InstrumentPropertyState": (
+    "InstrumentStateObservation": (
         "scopecat.records.instrument",
-        "InstrumentPropertyState",
+        "InstrumentStateObservation",
+    ),
+    "InstrumentStateReadback": (
+        "scopecat.records.instrument",
+        "InstrumentStateReadback",
+    ),
+    "InstrumentStateSetting": (
+        "scopecat.records.instrument",
+        "InstrumentStateSetting",
     ),
     "InstrumentProvider": ("scopecat.sdk.instruments.provider", "InstrumentProvider"),
     "InstrumentProviderContext": (
@@ -233,7 +273,19 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.records.instrument",
         "InstrumentStateSnapshot",
     ),
+    "state_observation": (
+        "scopecat.records.instrument",
+        "state_observation",
+    ),
+    "state_setting": (
+        "scopecat.records.instrument",
+        "state_setting",
+    ),
     "InterfaceRef": ("scopecat.sdk.instruments.members", "InterfaceRef"),
+    "DevicePropertyRef": (
+        "scopecat.sdk.instruments.members",
+        "DevicePropertyRef",
+    ),
     "InterfaceMountSpec": (
         "scopecat.sdk.instruments.contracts",
         "InterfaceMountSpec",
@@ -251,6 +303,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "OperationRef": ("scopecat.sdk.instruments.members", "OperationRef"),
     "OperationSpec": ("scopecat.sdk.instruments.contracts", "OperationSpec"),
     "PropertyRef": ("scopecat.sdk.instruments.members", "PropertyRef"),
+    "StateMemberRef": ("scopecat.sdk.instruments.members", "StateMemberRef"),
     "PropertySpec": ("scopecat.sdk.instruments.contracts", "PropertySpec"),
     "ScpiIdentity": ("scopecat.sdk.instruments.scpi", "ScpiIdentity"),
     "ScpiProtocolError": ("scopecat.sdk.instruments.scpi", "ScpiProtocolError"),
@@ -283,6 +336,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "acquisition_result",
     ),
     "bool_property": ("scopecat.sdk.instruments.contracts", "bool_property"),
+    "capture_state_members": (
+        "scopecat.sdk.instruments.contracts",
+        "capture_state_members",
+    ),
     "component": ("scopecat.sdk.instruments.contracts", "component"),
     "enum_property": ("scopecat.sdk.instruments.contracts", "enum_property"),
     "float_property": ("scopecat.sdk.instruments.contracts", "float_property"),
@@ -321,6 +378,14 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "query_string": ("scopecat.sdk.instruments.scpi", "query_string"),
     "query_text": ("scopecat.sdk.instruments.scpi", "query_text"),
     "string_property": ("scopecat.sdk.instruments.contracts", "string_property"),
+    "state_readback": (
+        "scopecat.sdk.instruments.authoring",
+        "state_readback",
+    ),
+    "state_capture_request": (
+        "scopecat.sdk.instruments.contracts",
+        "state_capture_request",
+    ),
 }
 
 

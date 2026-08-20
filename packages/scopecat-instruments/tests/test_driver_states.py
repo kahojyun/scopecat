@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import assert_type
 
 from scopecat.kernel.quantity import Quantity
-from scopecat.sdk.instruments import DriverStatePatch
+from scopecat.sdk.instruments import DriverStatePatch, DriverStateReadRequest
 
 from scopecat_instruments.driver_states import (
     DCSourceDriverPatch,
@@ -11,7 +11,7 @@ from scopecat_instruments.driver_states import (
     decode_dc_source_patch,
     decode_rf_output_patch,
     encode_dc_source_state,
-    encode_driver_state,
+    encode_driver_readback,
     encode_rf_output_state,
     encode_temperature_readout_state,
 )
@@ -98,7 +98,17 @@ def test_flat_dc_source_codec_filters_read_only_patch_and_encodes_full_state() -
 
     assert_type(patch, DCSourceDriverPatch)
     assert patch == {"output_enabled": False}
-    encoded = encode_driver_state(
+    encoded = encode_driver_readback(
+        DriverStateReadRequest(
+            frozenset(
+                {
+                    DC_SOURCE_MODE,
+                    DC_SOURCE_VOLTAGE_PROTECTION,
+                    DC_SOURCE_CURRENT_PROTECTION,
+                    DC_SOURCE_OUTPUT_ENABLED,
+                }
+            )
+        ),
         encode_dc_source_state(state),
         metadata={"source": "test"},
     )

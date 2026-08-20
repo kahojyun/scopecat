@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import cast
 
 from scopecat.kernel.state import StateValue
 from scopecat.records.instrument import (
-    InstrumentPropertyState,
     InstrumentReadback,
-    InstrumentStateSnapshot,
+    InstrumentStateObservation,
+    InstrumentStateReadback,
+    state_member_target,
 )
 from scopecat.sdk.instruments.authoring import (
     DriverAcquisition,
@@ -17,14 +19,16 @@ from scopecat.sdk.instruments.authoring import (
     DriverReadback,
     DriverRejected,
     DriverScalar,
-    DriverState,
-    DriverStateEntry,
+    DriverStateAssignment,
     DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     DriverSuccess,
 )
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
     BackendCollectRequest,
+    BackendReadRequest,
 )
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
@@ -33,47 +37,50 @@ from scopecat.sdk.instruments.commands import (
 )
 
 
-def project_state(
+def project_state_readback(
     instrument_id: str,
-    state: DriverState,
-) -> InstrumentStateSnapshot:
-    return InstrumentStateSnapshot(
+    readback: DriverStateReadback,
+) -> InstrumentStateReadback:
+    observed_at = datetime.now(UTC)
+    return InstrumentStateReadback(
         instrument_id=instrument_id,
-        properties=[
-            InstrumentPropertyState(
-                interface_id=target.interface_id,
-                component_path=list(target.component_path),
-                property_id=target.property_id,
-                value=StateValue(value),
-                entity_ids=list(entry.entity_ids),
-                channel_bindings=list(entry.channel_bindings),
+        observations=[
+            InstrumentStateObservation(
+                target=state_member_target(observation.target),
+                value=StateValue(observation.value),
+                source=observation.source,
+                observed_at=observed_at,
+                coherence_id=observation.coherence_id,
+                entity_ids=observation.entity_ids,
+                channel_bindings=observation.channel_bindings,
             )
-            for entry in sorted(
-                state.entries,
-                key=lambda item: (
-                    item.target.interface_id,
-                    item.target.component_path,
-                    item.target.property_id,
-                    item.entity_ids,
-                    tuple(binding.channel_id for binding in item.channel_bindings),
-                ),
+            for observation in sorted(
+                readback.observations,
+                key=lambda item: repr(item.target),
             )
-            for target, value in ((entry.target, entry.value),)
         ],
-        metadata=state.metadata,
+        metadata=readback.metadata,
+    )
+
+
+def lower_state_read_request(request: BackendReadRequest) -> DriverStateReadRequest:
+    from scopecat.records.instrument import state_member_ref
+
+    return DriverStateReadRequest(
+        targets=frozenset(state_member_ref(target) for target in request.targets)
     )
 
 
 def lower_state_patch(request: BackendApplyRequest) -> DriverStatePatch:
     return DriverStatePatch(
         values={
-            assignment.target: cast("DriverScalar", assignment.value.root)
+            assignment.member: cast("DriverScalar", assignment.value.root)
             for assignment in request.assignments
             if not assignment.channel_bindings
         },
         scoped_values=tuple(
-            DriverStateEntry(
-                target=assignment.target,
+            DriverStateAssignment(
+                target=assignment.member,
                 value=cast("DriverScalar", assignment.value.root),
                 entity_ids=assignment.entity_ids,
                 channel_bindings=assignment.channel_bindings,
@@ -86,12 +93,12 @@ def lower_state_patch(request: BackendApplyRequest) -> DriverStatePatch:
 
 def project_apply_outcome(
     instrument_id: str,
-    outcome: DriverOutcome[DriverState | None],
+    outcome: DriverOutcome[DriverStateReadback | None],
 ) -> ApplyReceipt:
     if isinstance(outcome, DriverSuccess):
         return ApplyReceipt(
-            state=(
-                project_state(instrument_id, outcome.value)
+            readback=(
+                project_state_readback(instrument_id, outcome.value)
                 if outcome.value is not None
                 else None
             ),
@@ -112,12 +119,12 @@ def project_apply_outcome(
 
 def project_invoke_outcome(
     instrument_id: str,
-    outcome: DriverOutcome[DriverState | None],
+    outcome: DriverOutcome[DriverStateReadback | None],
 ) -> InvokeReceipt:
     if isinstance(outcome, DriverSuccess):
         return InvokeReceipt(
-            state=(
-                project_state(instrument_id, outcome.value)
+            readback=(
+                project_state_readback(instrument_id, outcome.value)
                 if outcome.value is not None
                 else None
             ),
@@ -202,8 +209,9 @@ def project_collect_outcome(
 __all__ = [
     "lower_acquisition",
     "lower_state_patch",
+    "lower_state_read_request",
     "project_apply_outcome",
     "project_collect_outcome",
     "project_invoke_outcome",
-    "project_state",
+    "project_state_readback",
 ]

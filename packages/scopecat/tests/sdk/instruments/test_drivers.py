@@ -23,10 +23,12 @@ from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.config import instrument_bindings
 from scopecat.records.content import command_payload_from_bytes
 from scopecat.records.instrument import (
-    InstrumentPropertyState as RecordInstrumentPropertyState,
+    InstrumentReadback as RecordInstrumentReadback,
 )
 from scopecat.records.instrument import (
-    InstrumentReadback as RecordInstrumentReadback,
+    InstrumentStateObservation,
+    state_member_target,
+    state_observation,
 )
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -62,6 +64,7 @@ from scopecat.sdk.instruments import (
     operation,
     operation_argument,
     quantity_property,
+    state_capture_request,
     string_property,
 )
 from scopecat.sdk.instruments.backend import lower_backend_apply_request
@@ -78,6 +81,7 @@ from scopecat.sdk.instruments.commands import (
     ResolvedInteractiveCollect,
 )
 from scopecat.sdk.instruments.contracts import (
+    capture_state_members,
     evaluate_acquisition_readiness,
     project_instrument_invoke_state,
     project_instrument_state,
@@ -88,14 +92,28 @@ from scopecat.sdk.instruments.contracts import (
     validate_collect_receipt,
     validate_instrument_description_collection,
     validate_invoke_command,
+    validate_state_capture,
     validate_state_command,
     validate_state_snapshot,
 )
 from scopecat.sdk.instruments.driver_adapter import (
     lower_state_patch,
-    project_state,
+    project_state_readback,
 )
 from scopecat.sdk.instruments.projection import ProjectedInstrumentState
+
+
+def _observation(
+    *,
+    interface_id: str,
+    property_id: str,
+    value: StateValue,
+    component_path: list[str] | tuple[str, ...] = (),
+) -> InstrumentStateObservation:
+    return state_observation(
+        PropertyRef(interface_id, tuple(component_path), property_id),
+        value,
+    )
 
 
 @pytest.mark.parametrize("dtype", ["bool", "string"])
@@ -174,6 +192,7 @@ def test_property_spec_has_stable_scalar_wire_format(
     property_spec: PropertySpec,
     expected: dict[str, object],
 ) -> None:
+    expected = {"restore": True, **expected}
     compact = property_spec.model_dump(mode="json", exclude_defaults=True)
     restored = PropertySpec.model_validate(compact)
     restored_from_json = PropertySpec.model_validate_json(
@@ -232,13 +251,13 @@ def test_invoke_state_projection_forgets_only_declared_invalidations() -> None:
     )
     baseline = InstrumentStateSnapshot(
         instrument_id="source",
-        properties=[
-            RecordInstrumentPropertyState(
+        observations=[
+            _observation(
                 interface_id=output.interface_id,
                 property_id=offset.property_id,
                 value=StateValue(Quantity(0.1, "V")),
             ),
-            RecordInstrumentPropertyState(
+            _observation(
                 interface_id=output.interface_id,
                 property_id=enabled.property_id,
                 value=StateValue(True),
@@ -258,7 +277,7 @@ def test_invoke_state_projection_forgets_only_declared_invalidations() -> None:
         description=description,
     )
 
-    assert [item.property_id for item in projected.properties] == ["enabled"]
+    assert [item.target.property_id for item in projected.observations] == ["enabled"]
 
 
 def test_operation_invalidation_must_reference_declared_state() -> None:
@@ -412,7 +431,15 @@ def test_instrument_driver_generates_description_and_applies_state() -> None:
     )
 
     description = instrument.describe()
-    current = project_state(instrument.instrument_id, instrument.read_state())
+    readback = project_state_readback(
+        instrument.instrument_id,
+        instrument.read_state(state_capture_request(description)),
+    )
+    current = InstrumentStateSnapshot(
+        instrument_id=readback.instrument_id,
+        observations=readback.observations,
+        metadata=readback.metadata,
+    )
     request = lower_backend_apply_request(command)
     patch = lower_state_patch(request)
     result = instrument.apply_state(patch)
@@ -429,10 +456,10 @@ def test_instrument_driver_generates_description_and_applies_state() -> None:
     )
     assert isinstance(result, DriverSuccess)
     assert instrument.applied[0] == patch
-    assert updated.properties[0].value == quantity_state(5.0, "GHz")
+    assert updated.observations[0].value == quantity_state(5.0, "GHz")
     with pytest.raises(ValidationError):
-        updated.properties[0].value.root = 1.0
-    updated_quantity = updated.properties[0].value.root
+        updated.observations[0].value.root = 1.0
+    updated_quantity = updated.observations[0].value.root
     assert isinstance(updated_quantity, Quantity)
     with pytest.raises(ValidationError):
         updated_quantity.value = 6.0
@@ -466,7 +493,7 @@ def test_instrument_driver_validator_checks_declared_property_shapes() -> None:
         description=description,
     )
 
-    assert unsupported[0].code == "instrument_driver_unsupported_property"
+    assert unsupported[0].code == "instrument_driver_unsupported_member"
     assert unit_mismatch[0].code == "instrument_driver_property_value_mismatch"
     assert type_mismatch[0].code == "instrument_driver_property_value_mismatch"
 
@@ -1042,8 +1069,8 @@ def test_known_precondition_blocks_with_projected_state() -> None:
     )
     partial = ProjectedInstrumentState(
         instrument_id="source-0",
-        properties=(
-            RecordInstrumentPropertyState(
+        observations=(
+            _observation(
                 interface_id="test.source/v1",
                 component_path=["output"],
                 property_id="output_enabled",
@@ -1181,8 +1208,8 @@ def test_quantity_preconditions_compare_projected_compatible_units() -> None:
     )
     baseline = InstrumentStateSnapshot(
         instrument_id="source-0",
-        properties=[
-            RecordInstrumentPropertyState(
+        observations=[
+            _observation(
                 interface_id="test.level/v1",
                 property_id="level",
                 value=StateValue(Quantity(0.0, "V")),
@@ -1197,8 +1224,7 @@ def test_quantity_preconditions_compare_projected_compatible_units() -> None:
             assignments=[
                 InstrumentStateAssignment(
                     resource_id="source-0",
-                    interface_id="test.level/v1",
-                    property_id="level",
+                    target=state_member_target(level),
                     value=StateValue(Quantity(1_000.0, "mV")),
                 )
             ],
@@ -1435,15 +1461,17 @@ def test_state_command_rejects_duplicate_physical_targets() -> None:
             assignments=[
                 InstrumentStateAssignment(
                     resource_id="source-0",
-                    interface_id="test.dc/v1",
-                    property_id="output_enabled",
+                    target=state_member_target(
+                        PropertyRef("test.dc/v1", (), "output_enabled")
+                    ),
                     value=StateValue(False),
                     entity_ids=["channel-a"],
                 ),
                 InstrumentStateAssignment(
                     resource_id="source-0",
-                    interface_id="test.dc/v1",
-                    property_id="output_enabled",
+                    target=state_member_target(
+                        PropertyRef("test.dc/v1", (), "output_enabled")
+                    ),
                     value=StateValue(False),
                     entity_ids=["channel-b"],
                 ),
@@ -1459,9 +1487,12 @@ def test_state_command_accepts_same_property_on_distinct_routed_channels() -> No
             "assignments": [
                 {
                     "resource_id": "source-0",
-                    "interface_id": "test.dc/v1",
-                    "component_path": ["channels", channel_id],
-                    "property_id": "output_enabled",
+                    "target": {
+                        "kind": "interface",
+                        "interface_id": "test.dc/v1",
+                        "component_path": ["channels", channel_id],
+                        "property_id": "output_enabled",
+                    },
                     "value": False,
                     "entity_ids": [entity_id],
                     "channel_bindings": [
@@ -1491,11 +1522,15 @@ def test_state_command_accepts_same_property_on_distinct_routed_channels() -> No
     ]
 
 
-def test_instrument_property_state_accepts_a_routed_channel_scope() -> None:
-    state = RecordInstrumentPropertyState.model_validate(
+def test_instrument_state_observation_accepts_a_routed_channel_scope() -> None:
+    state = InstrumentStateObservation.model_validate(
         {
-            "interface_id": "test.control/v1",
-            "property_id": "gain",
+            "target": {
+                "kind": "interface",
+                "interface_id": "test.control/v1",
+                "component_path": [],
+                "property_id": "gain",
+            },
             "value": 1.0,
             "entity_ids": ["logical-channel"],
             "channel_bindings": [
@@ -1511,7 +1546,7 @@ def test_instrument_property_state_accepts_a_routed_channel_scope() -> None:
     assert state.channel_bindings[0].channel_id == "output.ch1"
 
 
-def test_state_snapshot_requires_every_static_observable_scope() -> None:
+def test_state_capture_requires_every_configured_capture_member() -> None:
     description = InstrumentDescription(
         instrument_id="source-0",
         implementation_id="tests.static_state",
@@ -1536,26 +1571,25 @@ def test_state_snapshot_requires_every_static_observable_scope() -> None:
     )
     empty = InstrumentStateSnapshot(instrument_id="source-0")
 
+    assert validate_state_snapshot(snapshot=empty, description=description) == []
     assert [
         item.code
-        for item in validate_state_snapshot(
+        for item in validate_state_capture(
             snapshot=empty,
             description=description,
+            required=capture_state_members(description),
         )
-    ] == [
-        "instrument_driver_snapshot_missing_properties",
-        "instrument_driver_snapshot_missing_properties",
-    ]
+    ] == ["instrument_driver_snapshot_missing_members"]
 
     complete = InstrumentStateSnapshot(
         instrument_id="source-0",
-        properties=[
-            RecordInstrumentPropertyState(
+        observations=[
+            _observation(
                 interface_id="test.control/v1",
                 property_id="gain",
                 value=StateValue(1.0),
             ),
-            RecordInstrumentPropertyState(
+            _observation(
                 interface_id="test.control/v1",
                 component_path=["channel-a"],
                 property_id="enabled",
@@ -1573,9 +1607,9 @@ def test_state_snapshot_requires_every_static_observable_scope() -> None:
 
     with_write_only = complete.model_copy(
         update={
-            "properties": [
-                *complete.properties,
-                RecordInstrumentPropertyState(
+            "observations": [
+                *complete.observations,
+                _observation(
                     interface_id="test.control/v1",
                     property_id="secret",
                     value=StateValue("returned-secret"),
@@ -1623,29 +1657,37 @@ def test_interface_mounts_separate_capability_contract_from_physical_paths() -> 
         assignments=[
             InstrumentStateAssignment(
                 resource_id="source-0",
-                interface_id="test.control/v1",
-                component_path=["channels", "ch1"],
-                property_id="gain",
+                target=state_member_target(
+                    PropertyRef(
+                        "test.control/v1",
+                        ("channels", "ch1"),
+                        "gain",
+                    )
+                ),
                 value=StateValue(1.0),
             )
         ],
     )
 
     assert validate_state_command(command=command, description=description) == []
-    root_command = command.model_copy(deep=True)
-    root_command.assignments[0].component_path = []
+    root_assignment = command.assignments[0].model_copy(
+        update={
+            "target": state_member_target(PropertyRef("test.control/v1", (), "gain"))
+        }
+    )
+    root_command = command.model_copy(update={"assignments": [root_assignment]})
     assert [
         problem.code
         for problem in validate_state_command(
             command=root_command,
             description=description,
         )
-    ] == ["instrument_driver_unsupported_component"]
+    ] == ["instrument_driver_unsupported_member"]
 
     complete = InstrumentStateSnapshot(
         instrument_id="source-0",
-        properties=[
-            RecordInstrumentPropertyState(
+        observations=[
+            _observation(
                 interface_id="test.control/v1",
                 component_path=["channels", channel_id],
                 property_id="gain",
@@ -1763,8 +1805,8 @@ def test_mounted_acquisition_references_state_on_the_same_physical_component() -
     )
     state = InstrumentStateSnapshot(
         instrument_id="source-0",
-        properties=[
-            RecordInstrumentPropertyState(
+        observations=[
+            _observation(
                 interface_id="test.control/v1",
                 component_path=["channels", channel_id],
                 property_id=property_id,
@@ -1834,8 +1876,8 @@ def test_state_snapshot_requires_declared_quantity_units() -> None:
     )
     snapshot = InstrumentStateSnapshot(
         instrument_id="source-0",
-        properties=[
-            RecordInstrumentPropertyState(
+        observations=[
+            _observation(
                 interface_id="test.source/v1",
                 property_id="frequency",
                 value=StateValue(Quantity(5_000.0, "MHz")),
@@ -1849,7 +1891,7 @@ def test_state_snapshot_requires_declared_quantity_units() -> None:
     )
     assert problem.code == "instrument_driver_snapshot_property_value_mismatch"
     assert isinstance(problem.location, ModelLocation)
-    assert problem.location.path == ("properties", 0, "value", "unit")
+    assert problem.location.path == ("observations", 0, "value", "unit")
 
 
 def test_state_projection_overlays_flat_observable_properties() -> None:
@@ -1869,8 +1911,8 @@ def test_state_projection_overlays_flat_observable_properties() -> None:
     )
     observed = InstrumentStateSnapshot(
         instrument_id="source-0",
-        properties=[
-            RecordInstrumentPropertyState(
+        observations=[
+            _observation(
                 interface_id="test.control/v1",
                 property_id="gain",
                 value=StateValue(1.0),
@@ -1883,14 +1925,14 @@ def test_state_projection_overlays_flat_observable_properties() -> None:
         assignments=[
             InstrumentStateAssignment(
                 resource_id="source-0",
-                interface_id="test.control/v1",
-                property_id="gain",
+                target=state_member_target(PropertyRef("test.control/v1", (), "gain")),
                 value=StateValue(2.0),
             ),
             InstrumentStateAssignment(
                 resource_id="source-0",
-                interface_id="test.control/v1",
-                property_id="secret",
+                target=state_member_target(
+                    PropertyRef("test.control/v1", (), "secret")
+                ),
                 value=StateValue("updated"),
             ),
         ],
@@ -1901,12 +1943,12 @@ def test_state_projection_overlays_flat_observable_properties() -> None:
         command,
         description=description,
     )
-    assert [(item.property_id, item.value.root) for item in projected.properties] == [
-        ("gain", 2.0)
-    ]
+    assert [
+        (item.target.property_id, item.value.root) for item in projected.observations
+    ] == [("gain", 2.0)]
     observed = InstrumentStateSnapshot(
         instrument_id=projected.instrument_id,
-        properties=list(projected.properties),
+        observations=list(projected.observations),
     )
     assert validate_state_snapshot(snapshot=observed, description=description) == []
 
@@ -2512,8 +2554,7 @@ def _state_command(
         assignments=[
             InstrumentStateAssignment(
                 resource_id="source-0",
-                interface_id=interface_id,
-                property_id=property_id,
+                target=state_member_target(PropertyRef(interface_id, (), property_id)),
                 value=value,
             )
         ],
@@ -2603,8 +2644,8 @@ def _state_sized_collect_description(
 def _state_sized_collect_snapshot(points: int) -> InstrumentStateSnapshot:
     return InstrumentStateSnapshot(
         instrument_id="source-0",
-        properties=[
-            RecordInstrumentPropertyState(
+        observations=[
+            _observation(
                 interface_id="test.sweep/v1",
                 property_id="points",
                 value=StateValue(points),
@@ -2673,8 +2714,8 @@ def _monitor_collect_snapshot(
 ) -> InstrumentStateSnapshot:
     return InstrumentStateSnapshot(
         instrument_id="source-0",
-        properties=[
-            RecordInstrumentPropertyState(
+        observations=[
+            _observation(
                 interface_id="test.source/v1",
                 component_path=["output"],
                 property_id="output_enabled",

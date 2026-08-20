@@ -20,8 +20,9 @@ from scopecat.sdk.instruments import (
     DriverReadback,
     DriverRejected,
     DriverScalar,
-    DriverState,
     DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     DriverSuccess,
     PropertyRef,
 )
@@ -41,7 +42,7 @@ from scopecat_instruments.driver_states import (
     encode_dc_bias_state,
     encode_dc_monitor_state,
     encode_dc_source_state,
-    encode_driver_state,
+    encode_driver_readback,
     encode_network_sweep_state,
     encode_rf_output_state,
     encode_temperature_readout_state,
@@ -140,23 +141,26 @@ class TemperatureReadoutDriverAdapter(ABC):
         self,
     ) -> DriverOutcome[TemperatureReadoutSampleDriverReadback]: ...
 
-    def read_state(self) -> DriverState:
+    def read_state(
+        self,
+        request: DriverStateReadRequest,
+    ) -> DriverStateReadback:
         snapshot = self.read_temperature_readout_state()
         encoded: list[Mapping[PropertyRef, DriverScalar]] = []
         encoded.append(encode_temperature_readout_state(snapshot.state))
-        return encode_driver_state(*encoded, metadata=snapshot.metadata)
+        return encode_driver_readback(request, *encoded, metadata=snapshot.metadata)
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         del request
         return _unsupported_driver_request(self.instrument_id, "state", "state")
 
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         return _unsupported_driver_request(
             self.instrument_id,
             "operation",
@@ -224,16 +228,19 @@ class RFOutputDriverAdapter(ABC):
         /,
     ) -> DriverOutcome[None]: ...
 
-    def read_state(self) -> DriverState:
+    def read_state(
+        self,
+        request: DriverStateReadRequest,
+    ) -> DriverStateReadback:
         snapshot = self.read_rf_output_state()
         encoded: list[Mapping[PropertyRef, DriverScalar]] = []
         encoded.append(encode_rf_output_state(snapshot.state))
-        return encode_driver_state(*encoded, metadata=snapshot.metadata)
+        return encode_driver_readback(request, *encoded, metadata=snapshot.metadata)
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         rf_output_patch = decode_rf_output_patch(request)
         outcome = self.apply_rf_output_state(rf_output_patch)
         if isinstance(outcome, DriverSuccess):
@@ -243,7 +250,7 @@ class RFOutputDriverAdapter(ABC):
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         return _unsupported_driver_request(
             self.instrument_id,
             "operation",
@@ -285,16 +292,19 @@ class DCBiasDriverAdapter(ABC):
         self,
     ) -> DriverOutcome[DCBiasReadbackDriverReadback]: ...
 
-    def read_state(self) -> DriverState:
+    def read_state(
+        self,
+        request: DriverStateReadRequest,
+    ) -> DriverStateReadback:
         snapshot = self.read_dc_bias_state()
         encoded: list[Mapping[PropertyRef, DriverScalar]] = []
         encoded.append(encode_dc_bias_state(snapshot.state))
-        return encode_driver_state(*encoded, metadata=snapshot.metadata)
+        return encode_driver_readback(request, *encoded, metadata=snapshot.metadata)
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         dc_bias_patch = decode_dc_bias_patch(request)
         outcome = self.apply_dc_bias_state(dc_bias_patch)
         if isinstance(outcome, DriverSuccess):
@@ -304,7 +314,7 @@ class DCBiasDriverAdapter(ABC):
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         return _unsupported_driver_request(
             self.instrument_id,
             "operation",
@@ -388,16 +398,19 @@ class DCSourceDriverAdapter(ABC):
         level: Quantity,
     ) -> DriverOutcome[None]: ...
 
-    def read_state(self) -> DriverState:
+    def read_state(
+        self,
+        request: DriverStateReadRequest,
+    ) -> DriverStateReadback:
         snapshot = self.read_dc_source_state()
         encoded: list[Mapping[PropertyRef, DriverScalar]] = []
         encoded.append(encode_dc_source_state(snapshot.state))
-        return encode_driver_state(*encoded, metadata=snapshot.metadata)
+        return encode_driver_readback(request, *encoded, metadata=snapshot.metadata)
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         dc_source_patch = decode_dc_source_patch(request)
         outcome = self.apply_dc_source_state(dc_source_patch)
         if isinstance(outcome, DriverSuccess):
@@ -407,7 +420,7 @@ class DCSourceDriverAdapter(ABC):
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         if request.target == DC_SOURCE_VOLTAGE:
             arguments = request.arguments
             outcome = self.handle_source_voltage(
@@ -472,16 +485,19 @@ class DCMonitorDriverAdapter(ABC):
         self,
     ) -> DriverOutcome[DCMonitorMeasureVoltageDriverReadback]: ...
 
-    def read_state(self) -> DriverState:
+    def read_state(
+        self,
+        request: DriverStateReadRequest,
+    ) -> DriverStateReadback:
         snapshot = self.read_dc_monitor_state()
         encoded: list[Mapping[PropertyRef, DriverScalar]] = []
         encoded.append(encode_dc_monitor_state(snapshot.state))
-        return encode_driver_state(*encoded, metadata=snapshot.metadata)
+        return encode_driver_readback(request, *encoded, metadata=snapshot.metadata)
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         dc_monitor_patch = decode_dc_monitor_patch(request)
         outcome = self.apply_dc_monitor_state(dc_monitor_patch)
         if isinstance(outcome, DriverSuccess):
@@ -491,7 +507,7 @@ class DCMonitorDriverAdapter(ABC):
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         return _unsupported_driver_request(
             self.instrument_id,
             "operation",
@@ -616,18 +632,21 @@ class DCSourceMonitorDriverAdapter(ABC):
         self,
     ) -> DriverOutcome[DCMonitorMeasureVoltageDriverReadback]: ...
 
-    def read_state(self) -> DriverState:
+    def read_state(
+        self,
+        request: DriverStateReadRequest,
+    ) -> DriverStateReadback:
         snapshot = self.read_dc_source_monitor_state()
         encoded: list[Mapping[PropertyRef, DriverScalar]] = []
         encoded.append(encode_dc_source_state(snapshot.dc_source))
         if self._driver_monitor_enabled and snapshot.dc_monitor is not None:
             encoded.append(encode_dc_monitor_state(snapshot.dc_monitor))
-        return encode_driver_state(*encoded, metadata=snapshot.metadata)
+        return encode_driver_readback(request, *encoded, metadata=snapshot.metadata)
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         dc_source_patch = decode_dc_source_patch(request)
         dc_monitor_patch = decode_dc_monitor_patch(request)
         if dc_monitor_patch and not self._driver_monitor_enabled:
@@ -647,7 +666,7 @@ class DCSourceMonitorDriverAdapter(ABC):
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         if request.target == DC_SOURCE_VOLTAGE:
             arguments = request.arguments
             outcome = self.handle_source_voltage(
@@ -759,16 +778,19 @@ class NetworkSweepDriverAdapter(ABC):
         self,
     ) -> DriverOutcome[NetworkSweepSweepDriverReadback]: ...
 
-    def read_state(self) -> DriverState:
+    def read_state(
+        self,
+        request: DriverStateReadRequest,
+    ) -> DriverStateReadback:
         snapshot = self.read_network_sweep_state()
         encoded: list[Mapping[PropertyRef, DriverScalar]] = []
         encoded.append(encode_network_sweep_state(snapshot.state))
-        return encode_driver_state(*encoded, metadata=snapshot.metadata)
+        return encode_driver_readback(request, *encoded, metadata=snapshot.metadata)
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         network_sweep_patch = decode_network_sweep_patch(request)
         outcome = self.apply_network_sweep_state(network_sweep_patch)
         if isinstance(outcome, DriverSuccess):
@@ -778,7 +800,7 @@ class NetworkSweepDriverAdapter(ABC):
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         return _unsupported_driver_request(
             self.instrument_id,
             "operation",

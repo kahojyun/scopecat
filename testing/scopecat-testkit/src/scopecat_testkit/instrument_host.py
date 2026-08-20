@@ -11,10 +11,20 @@ from scopecat.planning.provider_binding import resolve_instrument_contract_catal
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.content import CommandPayload
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import (
+    InstrumentStateReadback,
+    InstrumentStateSnapshot,
+    state_member_identity,
+    state_member_ref,
+)
 from scopecat.records.measurement import InstrumentAcquisitionEvidence
 from scopecat.sdk.domain.compiler import DomainCompiler
-from scopecat.sdk.instruments import InstrumentBackend
+from scopecat.sdk.instruments import (
+    DriverStateReadRequest,
+    InstrumentBackend,
+    InstrumentDescription,
+    StateMemberRef,
+)
 from scopecat.sdk.instruments.backend import (
     BackendPayload,
     decode_driver_operation,
@@ -28,14 +38,17 @@ from scopecat.sdk.instruments.commands import (
     InstrumentStateCommand,
     InvokeCommand,
 )
-from scopecat.sdk.instruments.contracts import state_assignment_satisfied
+from scopecat.sdk.instruments.contracts import (
+    capture_state_members,
+    state_assignment_satisfied,
+)
 from scopecat.sdk.instruments.driver_adapter import (
     lower_acquisition,
     lower_state_patch,
     project_apply_outcome,
     project_collect_outcome,
     project_invoke_outcome,
-    project_state,
+    project_state_readback,
 )
 from scopecat.sdk.instruments.execution import (
     RunHardwareApply,
@@ -112,7 +125,7 @@ class TestRunInstrumentHost:
         self._setup_problems = setup_problems
         self._payload_codecs = payload_codecs
         self._observed_state = tuple(
-            project_state(driver.instrument_id, driver.read_state())
+            _capture_driver(driver, self._descriptions[driver.instrument_id])
             for driver in selected
         )
         self._baseline_state = self._observed_state
@@ -166,9 +179,14 @@ class TestRunInstrumentHost:
                 if receipt.status != "applied":
                     indeterminate = receipt.status == "unknown"
                     break
-                observed = receipt.state or project_state(
-                    driver.instrument_id, driver.read_state()
+                readback = receipt.readback or _read_driver_members(
+                    driver,
+                    tuple(
+                        state_member_ref(assignment.target)
+                        for assignment in assignments
+                    ),
                 )
+                observed = _merge_state(current, readback)
                 if not all(
                     state_assignment_satisfied(observed, assignment)
                     for assignment in assignments
@@ -214,9 +232,9 @@ class TestRunInstrumentHost:
                 if receipt.status != "invoked":
                     indeterminate = receipt.status == "unknown"
                     break
-                self._assumed_states[action.instrument_id] = (
-                    receipt.state
-                    or project_state(driver.instrument_id, driver.read_state())
+                self._assumed_states[action.instrument_id] = _capture_driver(
+                    driver,
+                    self._descriptions[action.instrument_id],
                 )
                 continue
             assert isinstance(action, RunHardwareCollect)
@@ -290,7 +308,7 @@ class TestRunInstrumentHost:
                 for driver in reversed(tuple(self._drivers.values())):
                     driver.abort()
             final_state = tuple(
-                project_state(driver.instrument_id, driver.read_state())
+                _capture_driver(driver, self._descriptions[driver.instrument_id])
                 for driver in self._drivers.values()
             )
         finally:
@@ -301,6 +319,50 @@ class TestRunInstrumentHost:
             final_state=final_state,
         )
         return self._finished
+
+
+def _read_driver_members(
+    driver: InstrumentDriver,
+    targets: Sequence[StateMemberRef],
+) -> InstrumentStateReadback:
+    return project_state_readback(
+        driver.instrument_id,
+        driver.read_state(DriverStateReadRequest(frozenset(targets))),
+    )
+
+
+def _capture_driver(
+    driver: InstrumentDriver,
+    description: InstrumentDescription,
+) -> InstrumentStateSnapshot:
+    selected = capture_state_members(description)
+    readback = _read_driver_members(driver, selected)
+    return InstrumentStateSnapshot(
+        instrument_id=driver.instrument_id,
+        observations=[item.model_copy(deep=True) for item in readback.observations],
+        metadata=dict(readback.metadata),
+    )
+
+
+def _merge_state(
+    state: InstrumentStateSnapshot,
+    readback: InstrumentStateReadback,
+) -> InstrumentStateSnapshot:
+    observations = {
+        state_member_identity(item.target): item.model_copy(deep=True)
+        for item in state.observations
+    }
+    observations.update(
+        {
+            state_member_identity(item.target): item.model_copy(deep=True)
+            for item in readback.observations
+        }
+    )
+    return InstrumentStateSnapshot(
+        instrument_id=state.instrument_id,
+        observations=[observations[key] for key in sorted(observations, key=repr)],
+        metadata={**state.metadata, **readback.metadata},
+    )
 
 
 def _materialize_backend_payloads(

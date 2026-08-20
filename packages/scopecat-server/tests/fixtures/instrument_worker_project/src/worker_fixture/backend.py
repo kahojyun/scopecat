@@ -24,8 +24,9 @@ from scopecat.sdk.instruments import (
     DriverPayload,
     DriverReadback,
     DriverScalar,
-    DriverState,
     DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     DriverSuccess,
     InstrumentBackend,
     InstrumentConnectionContext,
@@ -40,6 +41,7 @@ from scopecat.sdk.instruments import (
     interface,
     operation,
     operation_argument,
+    state_readback,
 )
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 
@@ -100,11 +102,13 @@ class _Driver:
             ],
         )
 
-    def read_state(self) -> DriverState:
-        return DriverState(
-            values={
-                PropertyRef(interface_id, (), property_id): value
-                for (interface_id, property_id), value in self._state.items()
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
+        return state_readback(
+            request,
+            {
+                target: self._state[(target.interface_id, target.property_id)]
+                for target in request.targets
+                if isinstance(target, PropertyRef)
             },
             metadata={"worker_pid": os.getpid()},
         )
@@ -112,8 +116,9 @@ class _Driver:
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         for entry in request.entries:
+            assert isinstance(entry.target, PropertyRef)
             self._state[(entry.target.interface_id, entry.target.property_id)] = (
                 entry.value
             )
@@ -122,7 +127,7 @@ class _Driver:
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         if request.target.operation_id == "block":
             entered = self._project_root / f"driver-blocked-{self.instrument_id}"
             release = self._project_root / f"driver-release-{self.instrument_id}"

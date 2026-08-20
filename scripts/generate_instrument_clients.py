@@ -1247,15 +1247,17 @@ def _render_driver_states_module(
         "pydantic": {"JsonValue"},
         "scopecat.sdk.instruments": {
             "DriverScalar",
-            "DriverState",
+            "DriverStateObservation",
             "DriverStatePatch",
+            "DriverStateReadRequest",
+            "DriverStateReadback",
             "PropertyRef",
         },
         "typing": {"TypedDict", "cast"},
     }
     member_imports: set[str] = set()
     declarations: list[str] = []
-    exports: list[str] = ["encode_driver_state"]
+    exports: list[str] = ["encode_driver_readback"]
     encoder_owners: dict[str, str] = {}
 
     for model in models:
@@ -1316,7 +1318,7 @@ def _render_driver_states_module(
         )
         + _render_driver_import_block(imports)
         + "".join(declarations)
-        + _render_encode_driver_state()
+        + _render_encode_driver_readback()
         + "\n"
         + _render_all(tuple(exports))
     )
@@ -1411,7 +1413,8 @@ def _render_driver_handlers_module(
             "DriverReadback",
             "DriverRejected",
             "DriverScalar",
-            "DriverState",
+            "DriverStateReadRequest",
+            "DriverStateReadback",
             "DriverStatePatch",
             "DriverSuccess",
             "PropertyRef",
@@ -1423,7 +1426,7 @@ def _render_driver_handlers_module(
     if has_payload_arguments:
         imports["scopecat.sdk.instruments"].add("DriverPayload")
     member_imports: set[str] = set()
-    driver_state_imports: set[str] = {"encode_driver_state"}
+    driver_state_imports: set[str] = {"encode_driver_readback"}
     declarations: list[str] = []
     exports: list[str] = []
 
@@ -1754,9 +1757,15 @@ def _render_adapter_read_state(
     *,
     snapshot_fields: tuple[tuple[str, str, _DriverHandlerConstituent], ...],
 ) -> str:
-    lines = ["\n", "    def read_state(self) -> DriverState:\n"]
+    lines = [
+        "\n",
+        "    def read_state(\n",
+        "        self,\n",
+        "        request: DriverStateReadRequest,\n",
+        "    ) -> DriverStateReadback:\n",
+    ]
     if not snapshot_fields:
-        lines.append("        return encode_driver_state()\n")
+        lines.append("        return encode_driver_readback(request)\n")
         return "".join(lines)
 
     read_hook = f"read_{_snake_case(surface.stem)}_state"
@@ -1780,7 +1789,8 @@ def _render_adapter_read_state(
             f"{_state_encoder_name(constituent.stem)}({value}))\n"
         )
     lines.append(
-        "        return encode_driver_state(*encoded, metadata=snapshot.metadata)\n"
+        "        return encode_driver_readback("
+        "request, *encoded, metadata=snapshot.metadata)\n"
     )
     return "".join(lines)
 
@@ -1796,7 +1806,7 @@ def _render_adapter_apply_state(
         "    def apply_state(\n",
         "        self,\n",
         "        request: DriverStatePatch,\n",
-        "    ) -> DriverOutcome[DriverState | None]:\n",
+        "    ) -> DriverOutcome[DriverStateReadback | None]:\n",
     ]
     if not state_constituents:
         lines.extend(
@@ -1875,7 +1885,7 @@ def _render_adapter_invoke(
         "    def invoke(\n",
         "        self,\n",
         "        request: DriverOperation,\n",
-        "    ) -> DriverOutcome[DriverState | None]:\n",
+        "    ) -> DriverOutcome[DriverStateReadback | None]:\n",
     ]
     for model in models:
         condition = f"request.target == {model.member_name}"
@@ -2232,18 +2242,23 @@ def _render_driver_import_block(imports: dict[str, set[str]]) -> str:
     return "\n".join(section for section in sections if section)
 
 
-def _render_encode_driver_state() -> str:
+def _render_encode_driver_readback() -> str:
     return (
         "\n\n"
-        "def encode_driver_state(\n"
+        "def encode_driver_readback(\n"
+        "    request: DriverStateReadRequest,\n"
         "    *states: Mapping[PropertyRef, DriverScalar],\n"
         "    metadata: dict[str, JsonValue] | None = None,\n"
-        ") -> DriverState:\n"
+        ") -> DriverStateReadback:\n"
         "    values: dict[PropertyRef, DriverScalar] = {}\n"
         "    for state in states:\n"
         "        values.update(state)\n"
-        "    return DriverState(\n"
-        "        values=values,\n"
+        "    return DriverStateReadback(\n"
+        "        observations=tuple(\n"
+        "            DriverStateObservation(target=target, value=value)\n"
+        "            for target, value in values.items()\n"
+        "            if target in request.targets\n"
+        "        ),\n"
         "        metadata={} if metadata is None else metadata,\n"
         "    )\n"
     )

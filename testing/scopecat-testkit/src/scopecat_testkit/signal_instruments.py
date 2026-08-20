@@ -22,8 +22,9 @@ from scopecat.sdk.instruments import (
     DriverOutcome,
     DriverReadback,
     DriverScalar,
-    DriverState,
     DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     DriverSuccess,
     InstrumentBindingSpec,
     InstrumentConnectionContext,
@@ -35,6 +36,7 @@ from scopecat.sdk.instruments import (
     acquisition_result,
     interface,
     quantity_property,
+    state_readback,
 )
 
 
@@ -169,9 +171,10 @@ class TestSignalInstrument:
             ],
         )
 
-    def read_state(self) -> DriverState:
-        return DriverState(
-            values={
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
+        return state_readback(
+            request,
+            {
                 PropertyRef(interface_id, (), property_id): value
                 for (interface_id, property_id), value in self._state.items()
             },
@@ -181,9 +184,11 @@ class TestSignalInstrument:
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         self.applied_requests.append(request)
         for entry in request.entries:
+            if not isinstance(entry.target, PropertyRef):
+                raise ValueError("test driver does not expose device state members")
             self._state[(entry.target.interface_id, entry.target.property_id)] = (
                 entry.value
             )
@@ -192,9 +197,9 @@ class TestSignalInstrument:
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         self.invoked_requests.append(request)
-        return DriverSuccess(self.read_state())
+        return DriverSuccess(None)
 
     def collect(
         self,
