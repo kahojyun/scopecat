@@ -73,6 +73,7 @@ if TYPE_CHECKING:
         InstrumentComponentSpec,
         InstrumentDescription,
         InterfaceMountSpec,
+        InterfacePropertyImplementationSpec,
         InterfaceSpec,
         OperationArgumentSpec,
         OperationSpec,
@@ -275,6 +276,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "InstrumentDescription": (
         "scopecat.sdk.instruments.contracts",
         "InstrumentDescription",
+    ),
+    "InterfacePropertyImplementationSpec": (
+        "scopecat.sdk.instruments.contracts",
+        "InterfacePropertyImplementationSpec",
     ),
     "InstrumentDriver": ("scopecat.sdk.instruments.provider", "InstrumentDriver"),
     "ObjectInstrumentDriver": (

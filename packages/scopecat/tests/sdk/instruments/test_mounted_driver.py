@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import override
 
+from scopecat.records.instrument import state_member_target
 from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     AcquisitionRef,
@@ -20,10 +21,12 @@ from scopecat.sdk.instruments import (
     DriverSuccess,
     DriverUnknown,
     InstrumentDescription,
+    InterfacePropertyImplementationSpec,
     InterfaceRef,
     MountedInstrumentDriver,
     MountedInstrumentRouter,
     PropertyRef,
+    StatePropertyRef,
     acquisition,
     acquisition_result,
     bool_property,
@@ -32,6 +35,7 @@ from scopecat.sdk.instruments import (
     operation,
     state_capture_request,
 )
+from scopecat.sdk.instruments.contracts import resolve_state_member_spec
 from scopecat.sdk.problems import ProblemPhase, problem
 
 _INTERFACE = InterfaceRef("test.mounted_child/v1")
@@ -53,12 +57,14 @@ class _ChildDriver:
         *,
         reject_apply: bool = False,
         device_schema_id: str = "test.mounted_child.device/v1",
+        read_only: bool = False,
     ):
         self.instrument_id = instrument_id
         self.value = value
         self.locked = False
         self.locked_ref = DevicePropertyRef(device_schema_id, (), "locked")
         self.reject_apply = reject_apply
+        self.read_only = read_only
         self.state_requests: list[DriverStateReadRequest] = []
         self.state_patches: list[DriverStatePatch] = []
         self.operations: list[DriverOperation] = []
@@ -92,6 +98,21 @@ class _ChildDriver:
                     ],
                 )
             ],
+            interface_property_implementations=(
+                [
+                    InterfacePropertyImplementationSpec(
+                        property=StatePropertyRef(
+                            interface_id=_INTERFACE.interface_id,
+                            property_id="value",
+                        ),
+                        access="read_only",
+                        capture=True,
+                        restore=False,
+                    )
+                ]
+                if self.read_only
+                else []
+            ),
         )
 
     def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
@@ -314,6 +335,24 @@ def test_mounted_router_routes_commands_and_marks_partial_apply_unknown() -> Non
     assert set(collected.value.values) == {mounted_result}
     assert first.acquisitions[0].target == _SAMPLE
     assert first.acquisitions[0].results == {_RESULT}
+
+
+def test_mounted_router_preserves_per_endpoint_property_implementations() -> None:
+    router = _router(
+        _ChildDriver("child-1", 1),
+        _ChildDriver("child-2", 2, read_only=True),
+    )
+
+    description = router.describe()
+    first = _mounted_property(_VALUE, "1")
+    second = _mounted_property(_VALUE, "2")
+    first_spec = resolve_state_member_spec(description, state_member_target(first))
+    second_spec = resolve_state_member_spec(description, state_member_target(second))
+
+    [implementation] = description.interface_property_implementations
+    assert implementation.property.component_path == ["channels", "2"]
+    assert first_spec is not None and first_spec.access == "read_write"
+    assert second_spec is not None and second_spec.access == "read_only"
 
 
 def test_mounted_router_keeps_multiple_device_schemas_distinct() -> None:

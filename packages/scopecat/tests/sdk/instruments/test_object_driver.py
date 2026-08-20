@@ -4,6 +4,7 @@ from typing import Protocol
 
 import pytest
 
+from scopecat.records.instrument import state_member_target
 from scopecat.sdk.instruments import (
     Change,
     DeviceMember,
@@ -20,6 +21,11 @@ from scopecat.sdk.instruments import (
     read,
     update,
     write,
+)
+from scopecat.sdk.instruments.contracts import (
+    capture_state_members,
+    resolve_state_member_spec,
+    restorable_state_members,
 )
 from scopecat.sdk.instruments.declarations import (
     compile_interface,
@@ -171,3 +177,40 @@ def test_driver_declaration_requires_complete_member_io_bindings() -> None:
             ObjectInstrumentDriver
         ):
             pass
+
+
+def test_object_driver_infers_narrower_interface_property_capabilities() -> None:
+    @instrument_interface("test.fixed_setting/v1")
+    class FixedSetting(Protocol):
+        source: Member[str] = member(access="read_write", restore=True)
+
+    @instrument_driver(
+        "test.fixed_setting",
+        "1",
+        interfaces=(FixedSetting,),
+    )
+    class FixedSettingDriver(ObjectInstrumentDriver):
+        instrument_id = "fixed"
+
+        @read(FixedSetting.source)
+        def read_source(self) -> str:
+            return "external"
+
+    driver = FixedSettingDriver()
+    description = driver.describe()
+    target = declared_property_ref(FixedSetting, "source")
+    [implementation] = description.interface_property_implementations
+    resolved = resolve_state_member_spec(
+        description,
+        state_member_target(target),
+    )
+
+    assert implementation.property.interface_id == target.interface_id
+    assert implementation.property.property_id == target.property_id
+    assert implementation.access == "read_only"
+    assert implementation.capture is True
+    assert implementation.restore is False
+    assert resolved is not None
+    assert resolved.access == "read_only"
+    assert capture_state_members(description) == (target,)
+    assert restorable_state_members(description) == frozenset()

@@ -153,10 +153,20 @@ The base class supplies `describe`, `read_state`, `apply_state`, `invoke`, and
 `collect` at the worker boundary. `@read`/`@write` expose independent I/O;
 `@query`/`@update` preserve hardware batching and sequencing without creating
 aggregate state. A driver overrides a worker method only for routing or a
-failure model that these bindings cannot express. `device_member(...)` records model-specific
-background information without inventing a one-device interface; its
-`capture`/`restore` policy is independent for every member. All four real and
-four virtual first-party drivers use this pattern.
+failure model that these bindings cannot express.
+
+An interface declares the maximum portable member surface. The concrete
+driver's I/O bindings declare what one model actually implements. If a model can
+report an interface member but cannot change it, bind only `@read`; the emitted
+instrument description narrows that physical member to `read_only` and disables
+restoration automatically. Do not add a writer whose only behavior is rejecting
+changes. Mounted drivers preserve these implementation semantics independently
+at every physical component path.
+
+`device_member(...)` records model-specific background information without
+inventing a one-device interface; its `capture`/`restore` policy is independent
+for every member. All four real and four virtual first-party drivers use this
+pattern.
 
 ## Configuration
 

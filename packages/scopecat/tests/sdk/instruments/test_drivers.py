@@ -44,6 +44,7 @@ from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentStateSnapshot,
+    InterfacePropertyImplementationSpec,
     InterfaceRef,
     OperationArgumentSpec,
     PropertyRef,
@@ -211,6 +212,49 @@ def test_property_restoration_is_an_explicit_safe_lifecycle_policy() -> None:
         bool_property("trigger", access="write_only", restore=True)
     with pytest.raises(ValidationError, match="must be captured"):
         bool_property("output_enabled", capture=False, restore=True)
+
+
+def test_interface_property_implementations_may_only_narrow_contract_policy() -> None:
+    reference = StatePropertyRef(
+        interface_id="test.fixed/v1",
+        property_id="identity",
+    )
+    description = InstrumentDescription(
+        instrument_id="fixed",
+        implementation_id="test.fixed",
+        implementation_version="1",
+        interfaces=[
+            interface(
+                reference.interface_id,
+                properties=[string_property(reference.property_id, access="read_only")],
+            )
+        ],
+        interface_property_implementations=[
+            InterfacePropertyImplementationSpec(
+                property=reference,
+                access="read_only",
+                capture=False,
+                restore=False,
+            )
+        ],
+    )
+
+    assert capture_state_members(description) == ()
+    with pytest.raises(ValidationError, match="cannot widen access"):
+        InstrumentDescription(
+            instrument_id="fixed",
+            implementation_id="test.fixed",
+            implementation_version="1",
+            interfaces=description.interfaces,
+            interface_property_implementations=[
+                InterfacePropertyImplementationSpec(
+                    property=reference,
+                    access="read_write",
+                    capture=True,
+                    restore=False,
+                )
+            ],
+        )
 
 
 def test_operation_contract_declares_state_knowledge_invalidations() -> None:

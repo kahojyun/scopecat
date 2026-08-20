@@ -29,7 +29,9 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentComponentSpec,
     InstrumentDescription,
     InterfaceMountSpec,
+    InterfacePropertyImplementationSpec,
     InterfaceSpec,
+    StatePropertyRef,
 )
 from scopecat.sdk.instruments.members import (
     AcquisitionRef,
@@ -397,6 +399,7 @@ def _compose_description(
     root = _ComponentNode()
     interfaces: dict[str, InterfaceSpec] = {}
     interface_mounts: list[InterfaceMountSpec] = []
+    interface_property_implementations: list[InterfacePropertyImplementationSpec] = []
     device_specs: dict[DeviceSchemaId, list[tuple[MountPath, DeviceStateSpec]]] = {}
 
     for mount in mounts:
@@ -428,6 +431,22 @@ def _compose_description(
             device_specs.setdefault(device_schema.id, []).append(
                 (mount.path, device_schema)
             )
+        interface_property_implementations.extend(
+            InterfacePropertyImplementationSpec(
+                property=StatePropertyRef(
+                    interface_id=implementation.property.interface_id,
+                    component_path=[
+                        *mount.path,
+                        *implementation.property.component_path,
+                    ],
+                    property_id=implementation.property.property_id,
+                ),
+                access=implementation.access,
+                capture=implementation.capture,
+                restore=implementation.restore,
+            )
+            for implementation in mount.description.interface_property_implementations
+        )
 
     known_schema_ids = set(device_specs)
     unknown_overrides = (set(device_labels) | set(device_descriptions)) - (
@@ -468,6 +487,7 @@ def _compose_description(
         device_schemas=device_schemas,
         interfaces=list(interfaces.values()),
         interface_mounts=interface_mounts,
+        interface_property_implementations=interface_property_implementations,
     )
 
 

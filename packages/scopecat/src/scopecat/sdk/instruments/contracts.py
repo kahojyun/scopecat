@@ -87,7 +87,22 @@ from scopecat.sdk.problems import (
 )
 
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
+type PropertyAccess = Literal["read_only", "write_only", "read_write"]
 _JSON_SAFE_INTEGER = (1 << 53) - 1
+
+
+def _validate_property_lifecycle(
+    access: PropertyAccess,
+    *,
+    capture: bool,
+    restore: bool,
+) -> None:
+    if capture and access == "write_only":
+        raise ValueError("write-only properties cannot be captured")
+    if restore and access != "read_write":
+        raise ValueError("restorable properties must be readable and writable")
+    if restore and not capture:
+        raise ValueError("restorable properties must be captured")
 
 
 class PropertySpec(BaseModel):
@@ -96,7 +111,7 @@ class PropertySpec(BaseModel):
     id: _NonEmptyId
     label: str | None = None
     description: str | None = None
-    access: Literal["read_only", "write_only", "read_write"] = "read_write"
+    access: PropertyAccess = "read_write"
     capture: bool = True
     restore: bool = False
     value_type: InstrumentPropertyScalarWire
@@ -108,12 +123,11 @@ class PropertySpec(BaseModel):
 
     @model_validator(mode="after")
     def validate_lifecycle_policy(self) -> PropertySpec:
-        if self.capture and self.access == "write_only":
-            raise ValueError("write-only properties cannot be captured")
-        if self.restore and self.access != "read_write":
-            raise ValueError("restorable properties must be readable and writable")
-        if self.restore and not self.capture:
-            raise ValueError("restorable properties must be captured")
+        _validate_property_lifecycle(
+            self.access,
+            capture=self.capture,
+            restore=self.restore,
+        )
         return self
 
 
@@ -125,6 +139,31 @@ class StatePropertyRef(BaseModel):
     interface_id: InterfaceId
     component_path: list[_NonEmptyId] = Field(default_factory=list)
     property_id: _NonEmptyId
+
+
+class InterfacePropertyImplementationSpec(BaseModel):
+    """Concrete semantics for one portable property at a physical endpoint.
+
+    Omitted properties retain their interface contract semantics. Implementations
+    may narrow access or lifecycle participation, but never widen the portable
+    contract.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    property: StatePropertyRef
+    access: PropertyAccess
+    capture: bool
+    restore: bool
+
+    @model_validator(mode="after")
+    def validate_lifecycle_policy(self) -> InterfacePropertyImplementationSpec:
+        _validate_property_lifecycle(
+            self.access,
+            capture=self.capture,
+            restore=self.restore,
+        )
+        return self
 
 
 type AcquisitionAxisSize = (
@@ -376,6 +415,9 @@ class InstrumentDescription(BaseModel):
     device_schemas: list[DeviceStateSpec] = Field(default_factory=list)
     interfaces: list[InterfaceSpec] = Field(default_factory=list)
     interface_mounts: list[InterfaceMountSpec] = Field(default_factory=list)
+    interface_property_implementations: list[InterfacePropertyImplementationSpec] = (
+        Field(default_factory=list)
+    )
 
     @model_validator(mode="after")
     def validate_description(self) -> InstrumentDescription:
@@ -385,6 +427,10 @@ class InstrumentDescription(BaseModel):
         ]
         self.device_schemas = [
             device_schema.model_copy(deep=True) for device_schema in self.device_schemas
+        ]
+        self.interface_property_implementations = [
+            implementation.model_copy(deep=True)
+            for implementation in self.interface_property_implementations
         ]
         _require_unique(
             (interface.id for interface in self.interfaces),
@@ -444,6 +490,41 @@ class InstrumentDescription(BaseModel):
                             f"interface {interface_id!r} mounts must not overlap: "
                             f"{'/'.join(left)!r} and {'/'.join(right)!r}"
                         )
+        _require_unique(
+            (
+                f"{implementation.property.interface_id}:"
+                f"{'/'.join(implementation.property.component_path)}:"
+                f"{implementation.property.property_id}"
+                for implementation in self.interface_property_implementations
+            ),
+            "instrument interface property implementations",
+        )
+        for implementation in self.interface_property_implementations:
+            declared = _resolve_interface_property_spec(self, implementation.property)
+            if declared is None:
+                raise ValueError(
+                    "interface property implementation references unknown target "
+                    f"{implementation.property.interface_id!r}:"
+                    f"{'/'.join(implementation.property.component_path)}:"
+                    f"{implementation.property.property_id!r}"
+                )
+            declared_access = _property_access_permissions(declared.access)
+            implemented_access = _property_access_permissions(implementation.access)
+            if not implemented_access <= declared_access:
+                raise ValueError(
+                    "interface property implementation cannot widen access for "
+                    f"{implementation.property.property_id!r}"
+                )
+            if implementation.capture and not declared.capture:
+                raise ValueError(
+                    "interface property implementation cannot enable capture for "
+                    f"{implementation.property.property_id!r}"
+                )
+            if implementation.restore and not declared.restore:
+                raise ValueError(
+                    "interface property implementation cannot enable restoration for "
+                    f"{implementation.property.property_id!r}"
+                )
         _validate_contract_state_references(self)
         return self
 
@@ -2140,7 +2221,16 @@ def capture_state_members(
         members.extend(
             PropertyRef(interface_id, component_path, property_spec.id)
             for property_spec in component_spec.properties
-            if property_spec.capture
+            if (
+                effective := resolve_state_member_spec(
+                    description,
+                    _state_member_target(
+                        PropertyRef(interface_id, component_path, property_spec.id)
+                    ),
+                )
+            )
+            is not None
+            and effective.capture
         )
         for child in component_spec.components:
             walk(
@@ -2202,30 +2292,30 @@ def resolve_state_member_spec(
     target: _StateMemberTarget,
 ) -> PropertySpec | None:
     if isinstance(target, _InterfaceStateMemberTarget):
-        interface_spec = next(
+        reference = StatePropertyRef(
+            interface_id=target.interface_id,
+            component_path=list(target.component_path),
+            property_id=target.property_id,
+        )
+        declared = _resolve_interface_property_spec(description, reference)
+        if declared is None:
+            return None
+        implementation = next(
             (
-                interface
-                for interface in description.interfaces
-                if interface.id == target.interface_id
+                item
+                for item in description.interface_property_implementations
+                if item.property == reference
             ),
             None,
         )
-        if interface_spec is None:
-            return None
-        component_spec = resolve_implementation_component(
-            description,
-            interface_spec,
-            target.component_path,
-        )
-        if component_spec is None:
-            return None
-        return next(
-            (
-                property_spec
-                for property_spec in component_spec.properties
-                if property_spec.id == target.property_id
-            ),
-            None,
+        if implementation is None:
+            return declared
+        return declared.model_copy(
+            update={
+                "access": implementation.access,
+                "capture": implementation.capture,
+                "restore": implementation.restore,
+            }
         )
     device_schema = next(
         (
@@ -2246,6 +2336,45 @@ def resolve_state_member_spec(
         ),
         None,
     )
+
+
+def _resolve_interface_property_spec(
+    description: InstrumentDescription,
+    reference: StatePropertyRef,
+) -> PropertySpec | None:
+    interface_spec = next(
+        (
+            interface
+            for interface in description.interfaces
+            if interface.id == reference.interface_id
+        ),
+        None,
+    )
+    if interface_spec is None:
+        return None
+    component_spec = resolve_implementation_component(
+        description,
+        interface_spec,
+        reference.component_path,
+    )
+    if component_spec is None:
+        return None
+    return next(
+        (
+            property_spec
+            for property_spec in component_spec.properties
+            if property_spec.id == reference.property_id
+        ),
+        None,
+    )
+
+
+def _property_access_permissions(access: PropertyAccess) -> frozenset[str]:
+    if access == "read_only":
+        return frozenset({"read"})
+    if access == "write_only":
+        return frozenset({"write"})
+    return frozenset({"read", "write"})
 
 
 def _validate_state_value(

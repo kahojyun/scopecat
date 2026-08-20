@@ -30,6 +30,8 @@ from scopecat.sdk.instruments.contracts import (
     DeviceStateMemberSpec,
     DeviceStateSpec,
     InstrumentDescription,
+    InterfacePropertyImplementationSpec,
+    StatePropertyRef,
 )
 from scopecat.sdk.instruments.declarations import (
     DeclaredAcquisition,
@@ -213,6 +215,10 @@ class ObjectInstrumentDriver:
             type(self),
             metadata.device_schema_id,
         )
+        interfaces = [
+            compile_interface(interface_type).spec
+            for interface_type in self.declared_interfaces()
+        ]
         return InstrumentDescription(
             instrument_id=self.instrument_id,
             implementation_id=metadata.implementation_id,
@@ -237,10 +243,13 @@ class ObjectInstrumentDriver:
                     )
                 ]
             ),
-            interfaces=[
-                compile_interface(interface_type).spec
-                for interface_type in self.declared_interfaces()
-            ],
+            interfaces=interfaces,
+            interface_property_implementations=(
+                _interface_property_implementations(
+                    type(self),
+                    self.declared_interfaces(),
+                )
+            ),
         )
 
     def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
@@ -542,10 +551,12 @@ def _validate_driver_binding_method(
 
 def _validate_driver_io_bindings(driver_type: type[object]) -> None:
     metadata = _driver_metadata(driver_type)
-    fields = {
-        **_interface_property_bindings(metadata.interfaces),
-        **_device_property_bindings(driver_type, metadata.device_schema_id),
-    }
+    interface_fields = _interface_property_bindings(metadata.interfaces)
+    device_fields = _device_property_bindings(
+        driver_type,
+        metadata.device_schema_id,
+    )
+    fields = {**interface_fields, **device_fields}
     readers = {
         target
         for binding in _driver_io_bindings(
@@ -572,7 +583,7 @@ def _validate_driver_io_bindings(driver_type: type[object]) -> None:
         )
     missing_writers = {
         target
-        for target, field in fields.items()
+        for target, field in device_fields.items()
         if field.spec.access == "read_write" and target not in writers
     }
     if missing_writers:
@@ -580,6 +591,64 @@ def _validate_driver_io_bindings(driver_type: type[object]) -> None:
         raise TypeError(
             f"driver has no writer for declared member {target.property_id!r}"
         )
+
+
+def _interface_property_implementations(
+    driver_type: type[object],
+    interfaces: Sequence[type[object]],
+) -> list[InterfacePropertyImplementationSpec]:
+    fields = _interface_property_bindings(interfaces)
+    readers = {
+        target
+        for binding in _driver_io_bindings(
+            driver_type,
+            interfaces,
+            _DRIVER_READ_METADATA,
+        )
+        for target in binding.targets
+    }
+    writers = {
+        target
+        for binding in _driver_io_bindings(
+            driver_type,
+            interfaces,
+            _DRIVER_WRITE_METADATA,
+        )
+        for target in binding.targets
+    }
+    implementations: list[InterfacePropertyImplementationSpec] = []
+    for target, field in fields.items():
+        readable = target in readers
+        writable = target in writers
+        if readable and writable:
+            access = "read_write"
+        elif readable:
+            access = "read_only"
+        elif writable:
+            access = "write_only"
+        else:
+            continue
+        capture = field.spec.capture and readable
+        restore = field.spec.restore and readable and writable
+        if (
+            access == field.spec.access
+            and capture == field.spec.capture
+            and restore == field.spec.restore
+        ):
+            continue
+        implementations.append(
+            InterfacePropertyImplementationSpec(
+                property=StatePropertyRef(
+                    interface_id=target.interface_id,
+                    component_path=list(target.component_path),
+                    property_id=target.property_id,
+                ),
+                access=access,
+                capture=capture,
+                restore=restore,
+            )
+        )
+    return implementations
 
 
 def _driver_methods(driver_type: type[object]) -> dict[str, object]:
