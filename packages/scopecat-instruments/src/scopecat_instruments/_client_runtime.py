@@ -39,6 +39,7 @@ from scopecat.sdk.instruments import (
     PropertyRef,
     PropertySpec,
 )
+from scopecat.sdk.instruments.contracts import resolve_state_member_spec
 from scopecat.sdk.instruments.declarations import (
     member_projection_assignments,
 )
@@ -66,7 +67,31 @@ class InstrumentMemberClient[ValueT]:
     _session: InstrumentClientChannel = field(repr=False)
     instrument_id: str
     declaration: ClientMemberDeclaration
-    writable: bool
+    _portable_writable: bool
+
+    def implementation(self) -> PropertySpec:
+        """Return this physical member's effective access and lifecycle policy."""
+
+        target = self.declaration.ref
+        resolved = resolve_state_member_spec(
+            self._session.describe(self.instrument_id),
+            InterfaceStateMemberTarget(
+                interface_id=target.interface_id,
+                component_path=target.component_path,
+                property_id=target.property_id,
+            ),
+        )
+        if resolved is None:
+            raise ValueError(
+                f"instrument {self.instrument_id!r} does not implement "
+                f"{self.declaration.ref!r}"
+            )
+        return resolved
+
+    def is_writable(self) -> bool:
+        """Return whether this concrete instrument endpoint accepts assignments."""
+
+        return self._portable_writable and self.implementation().access == "read_write"
 
     def observed(self) -> ValueT:
         entry = self.observed_entry()
@@ -100,7 +125,7 @@ class InstrumentMemberClient[ValueT]:
         return self._readback_observation(readback)
 
     def set(self, value: ValueT, /) -> ApplyReceipt:
-        if not self.writable:
+        if not self.is_writable():
             raise TypeError(f"instrument member {self.declaration.ref!r} is read-only")
         return self._session.apply(
             {self.declaration.ref: StateValue.model_validate(value).root},

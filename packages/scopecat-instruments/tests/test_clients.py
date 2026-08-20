@@ -23,11 +23,14 @@ from scopecat.records.instrument import (
 )
 from scopecat.sdk.instruments import (
     ApplyReceipt,
+    InstrumentDescription,
+    InterfacePropertyImplementationSpec,
     InvokeReceipt,
     OperationArgumentRef,
     OperationRef,
     PropertyRef,
     StateMemberRef,
+    StatePropertyRef,
 )
 from scopecat.sdk.instruments.declarations import (
     compile_interface,
@@ -52,6 +55,7 @@ from scopecat_instruments import (
     temperature_readout,
 )
 from scopecat_instruments.interface_declarations import (
+    RFOutputInterface,
     TemperatureReadoutInterface,
 )
 from scopecat_instruments.members import (
@@ -75,6 +79,7 @@ from scopecat_instruments.members import (
     RF_OUTPUT_ENABLED,
     RF_OUTPUT_FREQUENCY,
     RF_OUTPUT_POWER,
+    RF_OUTPUT_REFERENCE_SOURCE,
     TEMPERATURE_READOUT,
     TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
     TEMPERATURE_READOUT_SCAN_CHANNEL,
@@ -146,7 +151,8 @@ class _StateChannel:
 
 
 class _ApplyChannel:
-    def __init__(self) -> None:
+    def __init__(self, description: InstrumentDescription | None = None) -> None:
+        self.description = description
         self.receipt = ApplyReceipt(metadata={"generated": "state-client"})
         self.invoke_receipt = InvokeReceipt(metadata={"generated": "operation-client"})
         self.values: Mapping[PropertyRef, StateLiteral | StateValue] | None = None
@@ -155,6 +161,12 @@ class _ApplyChannel:
             None
         )
         self.instrument_id: str | None = None
+
+    def describe(self, instrument_id: str) -> InstrumentDescription:
+        if self.description is None:
+            raise AssertionError("this test channel has no instrument description")
+        assert self.description.instrument_id == instrument_id
+        return self.description
 
     def apply(
         self,
@@ -189,6 +201,33 @@ def _rf_output_snapshot(*, frequency_ghz: float) -> InstrumentStateSnapshot:
                 metadata={"query": f"{frequency_ghz:g}-GHz"},
             )
         ],
+    )
+
+
+def _rf_output_description(
+    *,
+    reference_source_read_only: bool = False,
+) -> InstrumentDescription:
+    return InstrumentDescription(
+        instrument_id="drive-source",
+        implementation_id="test.rf-output",
+        implementation_version="1",
+        interfaces=[compile_interface(RFOutputInterface).spec],
+        interface_property_implementations=(
+            [
+                InterfacePropertyImplementationSpec(
+                    property=StatePropertyRef(
+                        interface_id=RF_OUTPUT_REFERENCE_SOURCE.interface_id,
+                        property_id=RF_OUTPUT_REFERENCE_SOURCE.property_id,
+                    ),
+                    access="read_only",
+                    capture=True,
+                    restore=False,
+                )
+            ]
+            if reference_source_read_only
+            else []
+        ),
     )
 
 
@@ -323,13 +362,33 @@ def test_generated_member_client_reads_and_writes_one_property() -> None:
         ("drive-source", (RF_OUTPUT_FREQUENCY,)),
     ]
 
-    apply_channel = _ApplyChannel()
+    apply_channel = _ApplyChannel(_rf_output_description())
     writable = RFOutputClient(
         cast("InstrumentClientChannel", cast("object", apply_channel)),
         "drive-source",
     )
     assert writable.frequency.set(Quantity(7.0, "GHz")) is apply_channel.receipt
     assert apply_channel.values == {RF_OUTPUT_FREQUENCY: Quantity(7.0, "GHz")}
+
+
+def test_generated_member_client_reports_concrete_write_support() -> None:
+    apply_channel = _ApplyChannel(
+        _rf_output_description(reference_source_read_only=True)
+    )
+    client = RFOutputClient(
+        cast("InstrumentClientChannel", cast("object", apply_channel)),
+        "drive-source",
+    )
+
+    implementation = client.reference_source.implementation()
+
+    assert implementation.access == "read_only"
+    assert implementation.capture is True
+    assert implementation.restore is False
+    assert client.reference_source.is_writable() is False
+    with pytest.raises(TypeError, match="is read-only"):
+        client.reference_source.set("internal")
+    assert apply_channel.values is None
 
 
 def test_generated_member_client_reports_unobserved_cache_status() -> None:

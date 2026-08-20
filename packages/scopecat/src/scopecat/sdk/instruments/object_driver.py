@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from inspect import Parameter, signature
-from typing import cast
+from typing import Literal, cast
 from uuid import uuid4
 
 from pydantic import JsonValue
@@ -67,6 +67,41 @@ class DriverMemberBinding:
     """One method binding that may cover one member or a coherent group."""
 
     members: tuple[DriverMember, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DriverMemberPolicy:
+    """Exception-only lifecycle narrowing for one portable member."""
+
+    member: Member[object]
+    capture: Literal[False] | None = None
+    restore: Literal[False] | None = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.member, DeviceMember):
+            raise TypeError("device member lifecycle belongs in device_member(...)")
+        if (self.capture is not None and self.capture is not False) or (
+            self.restore is not None and self.restore is not False
+        ):
+            raise ValueError("driver member policy can only disable lifecycle behavior")
+        if self.capture is None and self.restore is None:
+            raise ValueError("driver member policy must disable capture or restoration")
+        if self.capture is False and self.restore is False:
+            raise ValueError(
+                "disabling capture already disables restoration for the member"
+            )
+
+
+def member_policy(
+    member: Member[object],
+    /,
+    *,
+    capture: Literal[False] | None = None,
+    restore: Literal[False] | None = None,
+) -> DriverMemberPolicy:
+    """Narrow capture or restoration for one concrete driver implementation."""
+
+    return DriverMemberPolicy(member, capture=capture, restore=restore)
 
 
 class _NoChange:
@@ -153,6 +188,7 @@ class InstrumentDriverMetadata:
     implementation_id: str
     implementation_version: str
     interfaces: tuple[type[object], ...]
+    member_policies: tuple[DriverMemberPolicy, ...]
     label: str | None
     description: str | None
     device_schema_id: DeviceSchemaId | None
@@ -165,6 +201,7 @@ def instrument_driver[DriverT: type[object]](
     implementation_version: str,
     *,
     interfaces: Sequence[type[object]],
+    member_policies: Sequence[DriverMemberPolicy] = (),
     label: str | None = None,
     description: str | None = None,
     device_schema_id: DeviceSchemaId | None = None,
@@ -177,6 +214,7 @@ def instrument_driver[DriverT: type[object]](
         implementation_id=implementation_id,
         implementation_version=implementation_version,
         interfaces=tuple(interfaces),
+        member_policies=tuple(member_policies),
         label=label,
         description=description,
         device_schema_id=device_schema_id,
@@ -188,6 +226,7 @@ def instrument_driver[DriverT: type[object]](
         setattr(cls, _DRIVER_METADATA, metadata)
         setattr(cls, "implementation_id", implementation_id)  # noqa: B010
         setattr(cls, "implementation_version", implementation_version)  # noqa: B010
+        _driver_member_policies(metadata)
         _validate_driver_io_bindings(cls)
         return cls
 
@@ -591,6 +630,17 @@ def _validate_driver_io_bindings(driver_type: type[object]) -> None:
         raise TypeError(
             f"driver has no writer for declared member {target.property_id!r}"
         )
+    redundant_restore_policies = {
+        target
+        for target, policy in _driver_member_policies(metadata).items()
+        if policy.restore is False and target not in writers
+    }
+    if redundant_restore_policies:
+        target = next(iter(redundant_restore_policies))
+        raise TypeError(
+            f"driver member policy for {target.property_id!r} need not disable "
+            "restoration because the implementation is already read-only"
+        )
 
 
 def _interface_property_implementations(
@@ -598,6 +648,7 @@ def _interface_property_implementations(
     interfaces: Sequence[type[object]],
 ) -> list[InterfacePropertyImplementationSpec]:
     fields = _interface_property_bindings(interfaces)
+    policies = _driver_member_policies(_driver_metadata(driver_type))
     readers = {
         target
         for binding in _driver_io_bindings(
@@ -628,8 +679,19 @@ def _interface_property_implementations(
             access = "write_only"
         else:
             continue
-        capture = field.spec.capture and readable
-        restore = field.spec.restore and readable and writable
+        policy = policies.get(target)
+        capture = (
+            field.spec.capture
+            and readable
+            and (policy is None or policy.capture is not False)
+        )
+        restore = (
+            field.spec.restore
+            and readable
+            and writable
+            and capture
+            and (policy is None or policy.restore is not False)
+        )
         if (
             access == field.spec.access
             and capture == field.spec.capture
@@ -649,6 +711,37 @@ def _interface_property_implementations(
             )
         )
     return implementations
+
+
+def _driver_member_policies(
+    metadata: InstrumentDriverMetadata,
+) -> dict[PropertyRef, DriverMemberPolicy]:
+    declared = {
+        id(field.declaration): (target, field)
+        for target, field in _interface_property_bindings(metadata.interfaces).items()
+    }
+    policies: dict[PropertyRef, DriverMemberPolicy] = {}
+    for policy in metadata.member_policies:
+        resolved = declared.get(id(policy.member))
+        if resolved is None:
+            raise TypeError(
+                "driver member policy targets an undeclared interface member"
+            )
+        target, field = resolved
+        if target in policies:
+            raise TypeError(f"driver member policy repeats {field.ref.property_id!r}")
+        if policy.capture is False and not field.spec.capture:
+            raise TypeError(
+                f"driver member policy for {field.ref.property_id!r} cannot disable "
+                "capture because the interface already disables it"
+            )
+        if policy.restore is False and not field.spec.restore:
+            raise TypeError(
+                f"driver member policy for {field.ref.property_id!r} cannot disable "
+                "restoration because the interface already disables it"
+            )
+        policies[target] = policy
+    return policies
 
 
 def _driver_methods(driver_type: type[object]) -> dict[str, object]:
@@ -744,9 +837,11 @@ def _unsupported(
 __all__ = [
     "Change",
     "DriverMemberBinding",
+    "DriverMemberPolicy",
     "InstrumentDriverMetadata",
     "ObjectInstrumentDriver",
     "instrument_driver",
+    "member_policy",
     "query",
     "read",
     "update",

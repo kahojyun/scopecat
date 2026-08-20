@@ -122,9 +122,11 @@ if TYPE_CHECKING:
     )
     from scopecat.sdk.instruments.object_driver import (
         Change,
+        DriverMemberPolicy,
         InstrumentDriverMetadata,
         ObjectInstrumentDriver,
         instrument_driver,
+        member_policy,
         query,
         read,
         update,
@@ -214,6 +216,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "DriverArgument": ("scopecat.sdk.instruments.authoring", "DriverArgument"),
     "DriverFault": ("scopecat.sdk.instruments.provider", "DriverFault"),
+    "DriverMemberPolicy": (
+        "scopecat.sdk.instruments.object_driver",
+        "DriverMemberPolicy",
+    ),
     "DriverOperation": ("scopecat.sdk.instruments.authoring", "DriverOperation"),
     "DriverOutcome": ("scopecat.sdk.instruments.authoring", "DriverOutcome"),
     "DriverPayload": ("scopecat.sdk.instruments.authoring", "DriverPayload"),
@@ -426,6 +432,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "instrument_driver": (
         "scopecat.sdk.instruments.object_driver",
         "instrument_driver",
+    ),
+    "member_policy": (
+        "scopecat.sdk.instruments.object_driver",
+        "member_policy",
     ),
     "query": ("scopecat.sdk.instruments.object_driver", "query"),
     "read": ("scopecat.sdk.instruments.object_driver", "read"),

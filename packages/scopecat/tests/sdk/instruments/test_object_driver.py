@@ -17,6 +17,7 @@ from scopecat.sdk.instruments import (
     ObjectInstrumentDriver,
     device_member,
     instrument_driver,
+    member_policy,
     query,
     read,
     update,
@@ -214,3 +215,87 @@ def test_object_driver_infers_narrower_interface_property_capabilities() -> None
     assert resolved.access == "read_only"
     assert capture_state_members(description) == (target,)
     assert restorable_state_members(description) == frozenset()
+
+
+def test_object_driver_applies_exception_only_member_lifecycle_policies() -> None:
+    @instrument_interface("test.lifecycle_policy/v1")
+    class LifecyclePolicy(Protocol):
+        record_only: Member[int] = member(access="read_write", restore=True)
+        on_demand: Member[int] = member(access="read_write", restore=True)
+
+    @instrument_driver(
+        "test.lifecycle_policy",
+        "1",
+        interfaces=(LifecyclePolicy,),
+        member_policies=(
+            member_policy(LifecyclePolicy.record_only, restore=False),
+            member_policy(LifecyclePolicy.on_demand, capture=False),
+        ),
+    )
+    class LifecyclePolicyDriver(ObjectInstrumentDriver):
+        instrument_id = "lifecycle"
+
+        @query(LifecyclePolicy.record_only, LifecyclePolicy.on_demand)
+        def query_values(self) -> tuple[int, int]:
+            return 1, 2
+
+        @update(LifecyclePolicy.record_only, LifecyclePolicy.on_demand)
+        def update_values(
+            self,
+            *,
+            record_only: Change[int],
+            on_demand: Change[int],
+        ) -> None:
+            del record_only, on_demand
+
+    description = LifecyclePolicyDriver().describe()
+    record_only = declared_property_ref(LifecyclePolicy, "record_only")
+    on_demand = declared_property_ref(LifecyclePolicy, "on_demand")
+    record_only_spec = resolve_state_member_spec(
+        description,
+        state_member_target(record_only),
+    )
+    on_demand_spec = resolve_state_member_spec(
+        description,
+        state_member_target(on_demand),
+    )
+
+    assert record_only_spec is not None
+    assert (
+        record_only_spec.access,
+        record_only_spec.capture,
+        record_only_spec.restore,
+    ) == (
+        "read_write",
+        True,
+        False,
+    )
+    assert on_demand_spec is not None
+    assert (on_demand_spec.access, on_demand_spec.capture, on_demand_spec.restore) == (
+        "read_write",
+        False,
+        False,
+    )
+    assert capture_state_members(description) == (record_only,)
+    assert restorable_state_members(description) == frozenset()
+
+
+def test_object_driver_rejects_policy_made_redundant_by_io_bindings() -> None:
+    @instrument_interface("test.redundant_policy/v1")
+    class RedundantPolicy(Protocol):
+        fixed: Member[int] = member(access="read_write", restore=True)
+
+    with pytest.raises(TypeError, match="implementation is already read-only"):
+
+        @instrument_driver(
+            "test.redundant_policy",
+            "1",
+            interfaces=(RedundantPolicy,),
+            member_policies=(member_policy(RedundantPolicy.fixed, restore=False),),
+        )
+        class RedundantPolicyDriver(  # pyright: ignore[reportUnusedClass]
+            ObjectInstrumentDriver
+        ):
+            @read(RedundantPolicy.fixed)
+            def read_fixed(self) -> int:
+                return 1

@@ -90,6 +90,7 @@ from scopecat.sdk.instruments import (
     ObjectInstrumentDriver,
     device_member,
     instrument_driver,
+    member_policy,
     read,
     update,
 )
@@ -100,6 +101,7 @@ from scopecat.sdk.instruments.declarations import instrument_interface, member
 class RFOutput(Protocol):
     frequency: Member[Quantity] = member(
         access="read_write",
+        restore=True,
         unit="Hz",
     )
     output_enabled: Member[bool] = member(access="read_write")
@@ -109,6 +111,7 @@ class RFOutput(Protocol):
     "example.rf_source",
     "1",
     interfaces=(RFOutput,),
+    member_policies=(member_policy(RFOutput.frequency, restore=False),),
     device_schema_id="example.rf_source/v1",
 )
 class MyRfSource(ObjectInstrumentDriver):
@@ -162,6 +165,15 @@ instrument description narrows that physical member to `read_only` and disables
 restoration automatically. Do not add a writer whose only behavior is rejecting
 changes. Mounted drivers preserve these implementation semantics independently
 at every physical component path.
+
+For the less common case where a member remains readable and writable but one
+model must not participate in an interface lifecycle policy, add an
+exception-only `member_policy(..., capture=False)` or
+`member_policy(..., restore=False)` to `@instrument_driver`. The policy cannot
+widen the interface and does not repeat its identity, type, units, or bounds.
+Generated member clients expose the resolved result through
+`member.implementation()` and `member.is_writable()`; `member.set(...)` checks
+the concrete endpoint rather than only the portable interface.
 
 `device_member(...)` records model-specific background information without
 inventing a one-device interface; its `capture`/`restore` policy is independent
