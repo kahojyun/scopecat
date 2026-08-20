@@ -25,6 +25,7 @@ type ObservationSource = Literal[
     "hardware_query",
     "command_confirmed",
     "configured_fixed",
+    "derived",
 ]
 type InstrumentStateCacheStatus = Literal[
     "unobserved",

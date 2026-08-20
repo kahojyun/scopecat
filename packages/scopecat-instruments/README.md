@@ -141,9 +141,11 @@ from scopecat.sdk.instruments import (
     DeviceMember,
     Member,
     ObjectInstrumentDriver,
+    Observed,
     device_member,
     instrument_driver,
     member_policy,
+    observed,
     read,
     update,
 )
@@ -177,9 +179,11 @@ class MyRfSource(ObjectInstrumentDriver):
         capture=True,
         restore=False,
     )
+    reference_source: DeviceMember[str] = device_member(access="read_only")
 
     def __init__(self, instrument_id: str) -> None:
         self.instrument_id = instrument_id
+        self._reference_source = "external"
 
     @read(RFOutput.frequency)
     def read_frequency(self) -> Quantity:
@@ -207,6 +211,14 @@ class MyRfSource(ObjectInstrumentDriver):
     @read(reference_locked)
     def read_reference_locked(self) -> bool:
         return self._query_reference_lock()
+
+    @read(reference_source)
+    def read_reference_source(self) -> Observed[str]:
+        return observed(
+            self._reference_source,
+            source="configured_fixed",
+            evidence={"configured_by": "connection_profile"},
+        )
 ```
 
 The base class supplies `describe`, `read_state`, `apply_state`, `invoke`, and
@@ -282,7 +294,11 @@ the concrete endpoint rather than only the portable interface.
 
 `device_member(...)` records model-specific background information without
 inventing a one-device interface; its `capture`/`restore` policy is independent
-for every member. All four real and four virtual first-party drivers use this
+for every member. Return `observed(...)` when the value is configured rather
+than queried, or derived from other facts, so snapshots and observations retain
+that distinction without copying background metadata onto unrelated members.
+`device_member_ref(Driver.member)` provides its stable reference when routing or
+tests need one. All four real and four virtual first-party drivers use this
 pattern.
 
 ## Configuration

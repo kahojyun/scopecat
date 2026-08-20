@@ -278,9 +278,9 @@ def test_provider_connects_gs200_with_verified_monitor_profile() -> None:
     )
 
     assert isinstance(driver, YokogawaGS200)
-    assert driver.read_monitor_option() is True
-    assert driver.read_remote_sense() is True
-    assert driver.read_guard_enabled() is False
+    assert driver.read_monitor_option().value is True
+    assert driver.read_remote_sense().value is True
+    assert driver.read_guard_enabled().value is False
     assert server.commands == [
         "*IDN?",
         "*OPT?",

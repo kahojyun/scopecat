@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from inspect import Parameter, signature
 from typing import Literal, cast
 from uuid import uuid4
@@ -11,6 +12,7 @@ from uuid import uuid4
 from pydantic import JsonValue
 
 from scopecat.kernel.quantity import Quantity
+from scopecat.records.instrument import ObservationSource
 from scopecat.records.measurement import (
     MeasurementAcquisitionValue,
     MeasurementScalar,
@@ -28,7 +30,6 @@ from scopecat.sdk.instruments.authoring import (
     DriverStateReadRequest,
     DriverSuccess,
     DriverUnknown,
-    state_readback,
 )
 from scopecat.sdk.instruments.contracts import (
     DeviceStateMemberSpec,
@@ -139,6 +140,31 @@ class Change[ValueT]:
         if isinstance(self._value, _NoChange):
             raise ValueError("unchanged member has no requested value")
         return self._value
+
+
+@dataclass(frozen=True, slots=True)
+class Observed[ValueT]:
+    """One driver value with explicit observation provenance."""
+
+    value: ValueT
+    source: ObservationSource = "hardware_query"
+    evidence: dict[str, JsonValue] = dataclass_field(default_factory=dict)
+
+
+def observed[ValueT](
+    value: ValueT,
+    /,
+    *,
+    source: ObservationSource = "hardware_query",
+    evidence: Mapping[str, JsonValue] | None = None,
+) -> Observed[ValueT]:
+    """Attach source and evidence to one value returned by a driver reader."""
+
+    return Observed(
+        value,
+        source=source,
+        evidence={} if evidence is None else dict(evidence),
+    )
 
 
 def read[MethodT: Callable[..., object]](
@@ -348,23 +374,29 @@ class ObjectInstrumentDriver:
                         f"grouped query {binding.method_name!r} must return "
                         f"{len(binding.targets)} values"
                     )
-            values = {
-                target: cast("DriverScalar", value)
-                for target, value in zip(binding.targets, returned, strict=True)
-            }
             coherence_id = uuid4().hex if len(binding.targets) > 1 else None
             observed_request = (
                 DriverStateReadRequest(frozenset(binding.targets))
                 if coherence_id is not None
                 else request
             )
-            observations.extend(
-                state_readback(
-                    observed_request,
-                    values,
-                    coherence_id=coherence_id,
-                ).observations
-            )
+            for target, returned_value in zip(
+                binding.targets,
+                returned,
+                strict=True,
+            ):
+                if target not in observed_request.targets:
+                    continue
+                item = _as_observed(returned_value)
+                observations.append(
+                    DriverStateObservation(
+                        target=target,
+                        value=item.value,
+                        source=item.source,
+                        coherence_id=coherence_id,
+                        metadata=item.evidence,
+                    )
+                )
         return DriverStateReadback(observations=tuple(observations))
 
     def apply_state(
@@ -538,6 +570,32 @@ def _layouts(
         declared_interface_layout(compile_interface(interface_type))
         for interface_type in interfaces
     )
+
+
+def _as_observed(value: object) -> Observed[DriverScalar]:
+    if isinstance(value, Observed):
+        return cast("Observed[DriverScalar]", value)
+    return Observed(cast("DriverScalar", value))
+
+
+def device_member_ref(member: DeviceMember[object], /) -> DevicePropertyRef:
+    """Resolve one driver-owned member declaration to its stable identity."""
+
+    owner = member.owner
+    if owner is None:
+        raise TypeError("device member declaration is not bound to a driver class")
+    metadata = _driver_metadata(owner)
+    resolved = next(
+        (
+            field.ref
+            for field in declared_device_properties(owner, metadata.device_schema_id)
+            if field.declaration is member
+        ),
+        None,
+    )
+    if resolved is None:
+        raise TypeError("device member is not declared by its owner")
+    return resolved
 
 
 @dataclass(frozen=True, slots=True)
@@ -1051,9 +1109,12 @@ __all__ = [
     "DriverMemberPolicy",
     "InstrumentDriverMetadata",
     "ObjectInstrumentDriver",
+    "Observed",
+    "device_member_ref",
     "implements",
     "instrument_driver",
     "member_policy",
+    "observed",
     "query",
     "read",
     "update",

@@ -8,7 +8,6 @@ from scopecat.records.measurement import MeasurementScalar, MeasurementUnavailab
 from scopecat.sdk.instruments import (
     AcquisitionRef,
     AcquisitionResultRef,
-    DevicePropertyRef,
     DriverAcquisition,
     DriverOperation,
     DriverOutcome,
@@ -21,6 +20,7 @@ from scopecat.sdk.instruments import (
     DriverUnknown,
     InstrumentDriver,
     PropertyRef,
+    device_member_ref,
     state_capture_request,
 )
 from scopecat.sdk.instruments.scpi import TransportError
@@ -67,9 +67,9 @@ from scopecat_instruments.members import (
 )
 from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
 
-_GS200_MONITOR_OPTION = DevicePropertyRef("yokogawa.gs200/v1", (), "monitor_option")
-_GS200_REMOTE_SENSE = DevicePropertyRef("yokogawa.gs200/v1", (), "remote_sense")
-_GS200_GUARD_ENABLED = DevicePropertyRef("yokogawa.gs200/v1", (), "guard_enabled")
+_GS200_MONITOR_OPTION = device_member_ref(YokogawaGS200.monitor_option)
+_GS200_REMOTE_SENSE = device_member_ref(YokogawaGS200.remote_sense)
+_GS200_GUARD_ENABLED = device_member_ref(YokogawaGS200.guard_enabled)
 
 
 def _apply_request(
@@ -290,6 +290,13 @@ def test_gs200_source_operation_restores_output_after_safe_transition(
     assert state.values[_GS200_MONITOR_OPTION] is False
     assert state.values[_GS200_REMOTE_SENSE] is False
     assert state.values[_GS200_GUARD_ENABLED] is False
+    for target in (
+        _GS200_MONITOR_OPTION,
+        _GS200_REMOTE_SENSE,
+        _GS200_GUARD_ENABLED,
+    ):
+        observation = next(item for item in state.observations if item.target == target)
+        assert observation.source == "configured_fixed"
     transport.assert_complete()
 
 

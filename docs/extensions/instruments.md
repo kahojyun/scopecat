@@ -72,9 +72,12 @@ or acquisition-specific failure and evidence.
 
 Model-specific background state belongs on the concrete driver as a
 `device_member(...)`; it can be captured or restored without inventing a
-single-device portable interface. An operation that disturbs persistent state
-lists the affected members in `invalidates`; a later `ensure` establishes a new
-guarantee.
+single-device portable interface. A reader may return `observed(value,
+source="configured_fixed")` or `source="derived"` to retain how that member was
+known; plain values mean a hardware query. Keep such provenance on the member
+it describes instead of duplicating it in every other observation. An operation
+that disturbs persistent state lists the affected members in `invalidates`; a
+later `ensure` establishes a new guarantee.
 
 Use the package's source-adjacent guides for the exact extension workflow:
 

@@ -9,7 +9,6 @@ from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     Change,
     DeviceMember,
-    DevicePropertyRef,
     DriverAcquisition,
     DriverOperation,
     DriverStatePatch,
@@ -17,10 +16,13 @@ from scopecat.sdk.instruments import (
     DriverSuccess,
     Member,
     ObjectInstrumentDriver,
+    Observed,
     device_member,
+    device_member_ref,
     implements,
     instrument_driver,
     member_policy,
+    observed,
     query,
     read,
     update,
@@ -78,8 +80,16 @@ class OOSourceDriver(ObjectInstrumentDriver):
         self.zero_count = 0
 
     @query(OOSource.level, OOSource.limit, OOSource.serial_number)
-    def query_state(self) -> tuple[int, int, str]:
-        return self._level, self._limit, "SN-1"
+    def query_state(self) -> tuple[int, int, Observed[str]]:
+        return (
+            self._level,
+            self._limit,
+            observed(
+                "SN-1",
+                source="configured_fixed",
+                evidence={"origin": "fixture"},
+            ),
+        )
 
     @update(OOSource.level, OOSource.limit)
     def update_state(
@@ -135,6 +145,13 @@ def test_object_driver_adapts_properties_and_methods() -> None:
     coherence_ids = {observation.coherence_id for observation in readback.observations}
     assert len(coherence_ids) == 1
     assert coherence_ids != {None}
+    serial_observation = next(
+        observation
+        for observation in readback.observations
+        if observation.target == serial_number
+    )
+    assert serial_observation.source == "configured_fixed"
+    assert serial_observation.metadata == {"origin": "fixture"}
 
     applied = driver.apply_state(DriverStatePatch(values={level: 7}))
     assert applied == DriverSuccess(None)
@@ -163,7 +180,11 @@ def test_object_driver_projects_member_observations_as_measurements() -> None:
     assert isinstance(outcome, DriverSuccess)
     assert outcome.value.values == {
         level: MeasurementScalar.create(value=3, dtype="int64"),
-        serial_number: MeasurementScalar.create(value="SN-1", dtype="string"),
+        serial_number: MeasurementScalar.create(
+            value="SN-1",
+            dtype="string",
+            metadata={"origin": "fixture"},
+        ),
     }
     state_observations = outcome.value.metadata["state_observations"]
     assert isinstance(state_observations, dict)
@@ -175,11 +196,7 @@ def test_object_driver_projects_member_observations_as_measurements() -> None:
 
 def test_object_driver_captures_and_restores_device_owned_properties() -> None:
     driver = OOSourceDriver()
-    target = DevicePropertyRef(
-        "test.oo_source.device/v1",
-        (),
-        "front_panel_locked",
-    )
+    target = device_member_ref(OOSourceDriver.front_panel_locked)
 
     description = driver.describe()
     [device_schema] = description.device_schemas

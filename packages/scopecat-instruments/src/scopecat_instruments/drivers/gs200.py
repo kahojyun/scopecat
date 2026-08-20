@@ -21,9 +21,11 @@ from scopecat.sdk.instruments import (
     DriverStateReadRequest,
     DriverSuccess,
     ObjectInstrumentDriver,
+    Observed,
     device_member,
     implements,
     instrument_driver,
+    observed,
     read,
     state_capture_request,
     write,
@@ -119,16 +121,16 @@ class YokogawaGS200(ObjectInstrumentDriver):
         self._identity: ScpiIdentity | None = None
 
     @read(monitor_option)
-    def read_monitor_option(self) -> bool:
-        return self._monitor_option
+    def read_monitor_option(self) -> Observed[bool]:
+        return observed(self._monitor_option, source="configured_fixed")
 
     @read(remote_sense)
-    def read_remote_sense(self) -> bool:
-        return self._remote_sense
+    def read_remote_sense(self) -> Observed[bool]:
+        return observed(self._remote_sense, source="configured_fixed")
 
     @read(guard_enabled)
-    def read_guard_enabled(self) -> bool:
-        return self._guard_enabled
+    def read_guard_enabled(self) -> Observed[bool]:
+        return observed(self._guard_enabled, source="configured_fixed")
 
     @override
     def declared_interfaces(self) -> tuple[type[object], ...]:
