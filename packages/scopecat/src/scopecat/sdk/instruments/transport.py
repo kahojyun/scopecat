@@ -6,7 +6,9 @@ from typing import Protocol
 
 
 class BinaryTransport(Protocol):
-    """Synchronous request/response bytes owned by one driver generation."""
+    """Synchronous binary I/O owned by one driver generation."""
+
+    def send(self, request: bytes, /) -> None: ...
 
     def exchange(self, request: bytes, response_size: int, /) -> bytes: ...
 

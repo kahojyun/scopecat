@@ -174,6 +174,9 @@ class _DescriptionOnlyTransport:
     def query(self, command: str) -> str:
         raise RuntimeError(f"description-only transport cannot query {command!r}")
 
+    def send(self, request: bytes, /) -> None:
+        raise RuntimeError(f"description-only transport cannot send {request!r}")
+
     def exchange(self, request: bytes, response_size: int, /) -> bytes:
         del response_size
         raise RuntimeError(f"description-only transport cannot exchange {request!r}")

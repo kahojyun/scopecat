@@ -208,7 +208,7 @@ class TcpScpiTransport:
 
 
 class SerialByteTransport:
-    """One-generation binary serial transport with exact-size responses."""
+    """One-generation binary serial transport with explicit response framing."""
 
     def __init__(
         self,
@@ -278,6 +278,21 @@ class SerialByteTransport:
             self._serial = connection
             self._state = "connected"
 
+    def send(self, request: bytes, /) -> None:
+        if not request:
+            raise ValueError("serial request must be non-empty")
+        with self._lock:
+            connection = self._connection()
+            try:
+                self._write_request(connection, request)
+            except (OSError, SerialException) as error:
+                self._break_connection()
+                raise TransportError(
+                    "serial write outcome is unknown",
+                    operation="write",
+                    command_may_have_reached_device=True,
+                ) from error
+
     def exchange(self, request: bytes, response_size: int, /) -> bytes:
         if not request:
             raise ValueError("serial request must be non-empty")
@@ -286,10 +301,7 @@ class SerialByteTransport:
         with self._lock:
             connection = self._connection()
             try:
-                written = connection.write(request)
-                connection.flush()
-                if written != len(request):
-                    raise SerialTimeoutException("partial serial write")
+                self._write_request(connection, request)
                 response = connection.read(response_size)
                 if len(response) != response_size:
                     raise SerialTimeoutException("serial response timed out")
@@ -301,6 +313,13 @@ class SerialByteTransport:
                     operation="exchange",
                     command_may_have_reached_device=True,
                 ) from error
+
+    @staticmethod
+    def _write_request(connection: Serial, request: bytes) -> None:
+        written = connection.write(request)
+        connection.flush()
+        if written != len(request):
+            raise SerialTimeoutException("partial serial write")
 
     def close(self) -> None:
         with self._lock:

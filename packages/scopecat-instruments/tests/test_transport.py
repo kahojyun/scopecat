@@ -9,6 +9,7 @@ from serial import SerialTimeoutException
 
 import scopecat_instruments.transport as transport_module
 from scopecat_instruments.testing import (
+    BinaryTranscriptEntry,
     ScriptedBinaryExchange,
     ScriptedBinaryTransport,
 )
@@ -64,6 +65,22 @@ def test_serial_transport_exchanges_one_exact_binary_frame(
     assert connection.closed is True
 
 
+def test_serial_transport_sends_one_frame_without_fabricating_an_acknowledgement(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    connection = _FakeSerial(b"")
+
+    def open_serial(**_options: object) -> _FakeSerial:
+        return connection
+
+    monkeypatch.setattr(transport_module, "Serial", open_serial)
+
+    SerialByteTransport("/dev/tty-test").send(b"request")
+
+    assert connection.writes == [b"request"]
+    assert connection.flushed is True
+
+
 def test_serial_transport_breaks_generation_when_ack_is_missing(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -114,4 +131,13 @@ def test_scripted_binary_transport_checks_exact_frames() -> None:
     )
 
     assert transport.exchange(b"request", 8) == b"response"
+    transport.assert_complete()
+
+
+def test_scripted_binary_transport_distinguishes_send_from_exchange() -> None:
+    transport = ScriptedBinaryTransport([ScriptedBinaryExchange.send(b"request")])
+
+    transport.send(b"request")
+
+    assert transport.transcript == [BinaryTranscriptEntry(b"request")]
     transport.assert_complete()

@@ -307,6 +307,15 @@ restoration automatically. Do not add a writer whose only behavior is rejecting
 changes. Mounted drivers preserve these implementation semantics independently
 at every physical component path.
 
+The default mounted router dispatches one patch to each child. If a physical
+protocol instead commits several mounted channels in one device-wide frame,
+keep the ordinary interface mounted at each channel and override the containing
+driver's `apply_state`. Authors combine the channel clients with
+`ensure_state_targets(...)`; planning retains one coherent patch for every
+physical instrument. The driver may then require a complete bank and encode it
+once. This physical commit rule is driver behavior, not a new composite
+interface or a framework transaction declaration.
+
 Use `write_only_member(...)` when hardware acknowledges a setting
 but cannot query it. This remains state—sparse applies, routing, validation, and
 audit records still use the member identity—but it cannot enter a baseline or
@@ -464,7 +473,10 @@ SCPI drivers depend on the transport protocol and typed query helpers in
 `scopecat.sdk.instruments.scpi`; this package supplies the concrete TCP
 transport. Parsing failures therefore retain the command that produced the
 invalid response. Binary drivers depend on `BinaryTransport`; the serial
-implementation owns one port generation and exact-size exchanges.
+implementation owns one port generation. Use `send(...)` for protocols that
+define no response and `exchange(...)` only when the device specifies an exact
+response size; a successful send confirms transport completion, not hardware
+readback.
 
 ## Application composition
 

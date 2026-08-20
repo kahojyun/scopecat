@@ -39,13 +39,21 @@ class TranscriptEntry:
 @dataclass(frozen=True)
 class ScriptedBinaryExchange:
     request: bytes
-    response: bytes
+    response: bytes | None = None
+
+    @classmethod
+    def send(cls, request: bytes) -> ScriptedBinaryExchange:
+        return cls(request)
+
+    @classmethod
+    def exchange(cls, request: bytes, response: bytes) -> ScriptedBinaryExchange:
+        return cls(request, response)
 
 
 @dataclass(frozen=True)
 class BinaryTranscriptEntry:
     request: bytes
-    response: bytes
+    response: bytes | None = None
 
 
 class ScriptedTransport:
@@ -114,7 +122,26 @@ class ScriptedBinaryTransport:
     def remaining(self) -> int:
         return len(self._exchanges) - self._index
 
+    def send(self, request: bytes, /) -> None:
+        exchange = self._next(request)
+        if exchange.response is not None:
+            raise AssertionError("scripted binary send unexpectedly has a response")
+        self.transcript.append(BinaryTranscriptEntry(request))
+
     def exchange(self, request: bytes, response_size: int, /) -> bytes:
+        exchange = self._next(request)
+        response = exchange.response
+        if response is None:
+            raise AssertionError("scripted binary exchange has no response")
+        if response_size != len(response):
+            raise AssertionError(
+                f"binary response size {response_size} does not match scripted "
+                f"size {len(response)}"
+            )
+        self.transcript.append(BinaryTranscriptEntry(request, response))
+        return response
+
+    def _next(self, request: bytes) -> ScriptedBinaryExchange:
         if self._index >= len(self._exchanges):
             raise AssertionError("unexpected binary request after transcript end")
         exchange = self._exchanges[self._index]
@@ -124,13 +151,7 @@ class ScriptedBinaryTransport:
                 f"unexpected binary request {request.hex()}; "
                 f"expected {exchange.request.hex()}"
             )
-        if response_size != len(exchange.response):
-            raise AssertionError(
-                f"binary response size {response_size} does not match scripted "
-                f"size {len(exchange.response)}"
-            )
-        self.transcript.append(BinaryTranscriptEntry(request, exchange.response))
-        return exchange.response
+        return exchange
 
     def close(self) -> None:
         self.closed = True
