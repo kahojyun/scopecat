@@ -32,7 +32,9 @@ from scopecat.sdk.instruments.declarations import (
 
 @instrument_interface("test.oo_source/v1")
 class OOSource(Protocol):
-    level: Member[int] = member(access="read_write", minimum=0, maximum=10)
+    level: Member[int] = member(
+        access="read_write", restore=True, minimum=0, maximum=10
+    )
     limit: Member[int] = member(access="read_write", minimum=0, maximum=10)
     serial_number: Member[str] = member(access="read_only", capture=False)
 
@@ -97,7 +99,7 @@ def test_member_attributes_compile_without_property_inference() -> None:
         (item.id, item.access, item.capture, item.restore) for item in spec.properties
     ] == [
         ("level", "read_write", True, True),
-        ("limit", "read_write", True, True),
+        ("limit", "read_write", True, False),
         ("serial_number", "read_only", False, False),
     ]
 
@@ -142,7 +144,7 @@ def test_object_driver_captures_and_restores_device_owned_properties() -> None:
     description = driver.describe()
     [device_schema] = description.device_schemas
     assert device_schema.id == "test.oo_source.device/v1"
-    assert device_schema.members[0].property.restore is True
+    assert device_schema.members[0].property.restore is False
     assert driver.read_state(DriverStateReadRequest(frozenset({target}))).values == {
         target: False
     }

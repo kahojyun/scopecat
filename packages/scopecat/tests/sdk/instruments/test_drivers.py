@@ -192,7 +192,6 @@ def test_property_spec_has_stable_scalar_wire_format(
     property_spec: PropertySpec,
     expected: dict[str, object],
 ) -> None:
-    expected = {"restore": True, **expected}
     compact = property_spec.model_dump(mode="json", exclude_defaults=True)
     restored = PropertySpec.model_validate(compact)
     restored_from_json = PropertySpec.model_validate_json(
@@ -202,6 +201,16 @@ def test_property_spec_has_stable_scalar_wire_format(
     assert compact == expected
     assert restored == property_spec
     assert restored_from_json == property_spec
+
+
+def test_property_restoration_is_an_explicit_safe_lifecycle_policy() -> None:
+    assert bool_property("output_enabled").restore is False
+    assert bool_property("output_enabled", restore=True).restore is True
+
+    with pytest.raises(ValidationError, match="readable and writable"):
+        bool_property("trigger", access="write_only", restore=True)
+    with pytest.raises(ValidationError, match="must be captured"):
+        bool_property("output_enabled", capture=False, restore=True)
 
 
 def test_operation_contract_declares_state_knowledge_invalidations() -> None:

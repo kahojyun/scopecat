@@ -34,13 +34,21 @@ class DCBiasReadbackResults:
 )
 class DCBiasInterface(Protocol):
     target_voltage: Member[Quantity] = member(
-        access="read_write", unit="V", label="Target voltage"
+        access="read_write", restore=True, unit="V", label="Target voltage"
     )
     ramp_duration: Member[Quantity] = member(
-        access="read_write", unit="s", minimum=0.0, label="Ramp duration"
+        access="read_write",
+        restore=True,
+        unit="s",
+        minimum=0.0,
+        label="Ramp duration",
     )
     settle_tolerance: Member[Quantity] = member(
-        access="read_write", unit="V", minimum=0.0, label="Settle tolerance"
+        access="read_write",
+        restore=True,
+        unit="V",
+        minimum=0.0,
+        label="Settle tolerance",
     )
     actual_voltage: Member[Quantity] = member(
         access="read_only", unit="V", label="Actual voltage"
@@ -58,12 +66,14 @@ class DCBiasInterface(Protocol):
 )
 class DCSourceInterface(Protocol):
     voltage_protection: Member[Quantity] = member(
-        access="read_write", unit="V", label="Voltage protection"
+        access="read_write", restore=True, unit="V", label="Voltage protection"
     )
     current_protection: Member[Quantity] = member(
-        access="read_write", unit="A", label="Current protection"
+        access="read_write", restore=True, unit="A", label="Current protection"
     )
-    output_enabled: Member[bool] = member(access="read_write", label="DC output")
+    output_enabled: Member[bool] = member(
+        access="read_write", restore=True, label="DC output"
+    )
     source_mode: Member[Literal["voltage", "current"]] = member(
         access="read_only", label="Source mode"
     )
@@ -101,12 +111,15 @@ class DCMonitorVoltageResults:
     description="Independent current and voltage measurements for a DC source.",
 )
 class DCMonitorInterface(Protocol):
-    measurement_enabled: Member[bool] = member(access="read_write", label="Measurement")
+    measurement_enabled: Member[bool] = member(
+        access="read_write", restore=True, label="Measurement"
+    )
     integration_cycles: Member[int] = member(
-        access="read_write", minimum=1, label="Integration cycles"
+        access="read_write", restore=True, minimum=1, label="Integration cycles"
     )
     measurement_delay: Member[Quantity] = member(
         access="read_write",
+        restore=True,
         unit="s",
         minimum=0.0,
         label="Measurement delay",
@@ -147,14 +160,16 @@ class TemperatureReadoutInterface(Protocol):
 )
 class RFOutputInterface(Protocol):
     frequency: Member[Quantity] = member(
-        access="read_write", unit="Hz", label="CW frequency"
+        access="read_write", restore=True, unit="Hz", label="CW frequency"
     )
     power: Member[Quantity] = member(
-        access="read_write", unit="dBm", label="Output power"
+        access="read_write", restore=True, unit="dBm", label="Output power"
     )
-    output_enabled: Member[bool] = member(access="read_write", label="RF output")
+    output_enabled: Member[bool] = member(
+        access="read_write", restore=True, label="RF output"
+    )
     reference_source: Member[ReferenceSource] = member(
-        access="read_write", label="Reference source"
+        access="read_write", restore=True, label="Reference source"
     )
 
 
@@ -175,19 +190,23 @@ class NetworkSweepResults:
 )
 class NetworkSweepInterface(Protocol):
     start_frequency: Member[Quantity] = member(
-        access="read_write", unit="Hz", label="Start frequency"
+        access="read_write", restore=True, unit="Hz", label="Start frequency"
     )
     stop_frequency: Member[Quantity] = member(
-        access="read_write", unit="Hz", label="Stop frequency"
+        access="read_write", restore=True, unit="Hz", label="Stop frequency"
     )
-    points: Member[int] = member(access="read_write", minimum=2, label="Sweep points")
+    points: Member[int] = member(
+        access="read_write", restore=True, minimum=2, label="Sweep points"
+    )
     if_bandwidth: Member[Quantity] = member(
-        access="read_write", unit="Hz", label="IF bandwidth"
+        access="read_write", restore=True, unit="Hz", label="IF bandwidth"
     )
     source_power: Member[Quantity] = member(
-        access="read_write", unit="dBm", label="Source power"
+        access="read_write", restore=True, unit="dBm", label="Source power"
     )
-    s_parameter: Member[SParameter] = member(access="read_write", label="S-parameter")
+    s_parameter: Member[SParameter] = member(
+        access="read_write", restore=True, label="S-parameter"
+    )
 
     @acquisition(
         label="Acquire sweep",

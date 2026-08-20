@@ -53,7 +53,9 @@ class SweepResults:
 
 @instrument_interface("test.source/v1")
 class Source(Protocol):
-    frequency: Member[Quantity] = member(access="read_write", unit="Hz", minimum=1.0)
+    frequency: Member[Quantity] = member(
+        access="read_write", restore=True, unit="Hz", minimum=1.0
+    )
     points: Member[int] = member(access="read_write", id="point_count", minimum=2)
     identity: Member[str] = member(access="read_only", capture=False)
 
@@ -87,7 +89,7 @@ def test_members_compile_from_explicit_attribute_declarations() -> None:
         (item.id, item.access, item.capture, item.restore) for item in spec.properties
     ] == [
         ("frequency", "read_write", True, True),
-        ("point_count", "read_write", True, True),
+        ("point_count", "read_write", True, False),
         ("identity", "read_only", False, False),
     ]
     assert spec.properties[0].value_type == Scalar(QuantityType(unit="Hz", minimum=1.0))

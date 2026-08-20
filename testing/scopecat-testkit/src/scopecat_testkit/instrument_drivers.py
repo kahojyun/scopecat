@@ -61,7 +61,9 @@ class SignalInstrumentDriver:
             interfaces=[
                 interface(
                     "test.set_frequency/v1",
-                    properties=[quantity_property("frequency", unit="GHz")],
+                    properties=[
+                        quantity_property("frequency", unit="GHz", restore=True)
+                    ],
                 ),
                 interface(
                     "test.set_gain/v1",

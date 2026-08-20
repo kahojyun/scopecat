@@ -125,14 +125,18 @@ def _member_projection_repr(self: object) -> str:
 
 @dataclass(frozen=True, slots=True)
 class MemberMetadata:
-    """Schema metadata carried by one explicit member declaration."""
+    """Schema metadata carried by one explicit member declaration.
+
+    Read/write access permits commands; baseline restoration remains an
+    independent, opt-in lifecycle policy.
+    """
 
     access: PropertyAccess
     id: str | None = None
     label: str | None = None
     description: str | None = None
     capture: bool = True
-    restore: bool | None = None
+    restore: bool = False
     unit: str | None = None
     minimum: float | None = None
     maximum: float | None = None
@@ -409,7 +413,7 @@ def member[ValueT](
     label: str | None = None,
     description: str | None = None,
     capture: bool = True,
-    restore: bool | None = None,
+    restore: bool = False,
     unit: str | None = None,
     minimum: float | None = None,
     maximum: float | None = None,
@@ -441,7 +445,7 @@ def device_member[ValueT](
     label: str | None = None,
     description: str | None = None,
     capture: bool = True,
-    restore: bool | None = None,
+    restore: bool = False,
     unit: str | None = None,
     minimum: float | None = None,
     maximum: float | None = None,
@@ -449,8 +453,8 @@ def device_member[ValueT](
 ) -> DeviceMember[ValueT]:
     """Declare model-specific background state on a concrete driver class.
 
-    Device members participate in capture and restore without claiming a
-    portable interface. Driver methods bind their I/O explicitly.
+    Device members can be captured and explicitly marked restorable without
+    claiming a portable interface. Driver methods bind their I/O explicitly.
     """
 
     return DeviceMember(
@@ -1398,11 +1402,7 @@ def _compile_property(
         description=metadata.description,
         access=metadata.access,
         capture=metadata.capture,
-        restore=(
-            metadata.access == "read_write"
-            if metadata.restore is None
-            else metadata.restore
-        ),
+        restore=metadata.restore,
         value_type=Scalar(atom),
     )
 

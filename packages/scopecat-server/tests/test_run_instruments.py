@@ -1655,6 +1655,47 @@ def test_successful_finish_restores_the_preserved_baseline(
         }
 
 
+def test_successful_finish_records_but_does_not_restore_unmarked_state(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider()
+    config = _config_with_success_action(
+        load_config(),
+        success_action="restore_baseline",
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:
+        run_id, lease_id = _start_run(runtime, config)
+        instruments = runtime.application.instruments
+        provision = instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+        driver._state[("test.set_gain/v1", "gain")] = 7.0
+
+        receipt = instruments.finish_run_hardware(
+            run_id,
+            RunHardwareFinishCommand(
+                lease_id=lease_id,
+                operation_id="hardware.finish",
+                failed=False,
+            ),
+        )
+
+        [baseline] = provision.baseline_state
+        [final] = receipt.final_state
+        baseline_gain = next(
+            observation.value.root
+            for observation in baseline.observations
+            if observation.target.property_id == "gain"
+        )
+        final_gain = next(
+            observation.value.root
+            for observation in final.observations
+            if observation.target.property_id == "gain"
+        )
+        assert baseline_gain == 0.0
+        assert final_gain == 7.0
+        assert driver.applied == []
+
+
 def test_successful_finish_restores_the_default_baseline(tmp_path: Path) -> None:
     provider = _Provider()
     config = _config_with_success_action(

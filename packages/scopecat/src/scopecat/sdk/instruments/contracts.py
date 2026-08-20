@@ -912,7 +912,7 @@ def quantity_property(
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
     capture: bool | None = None,
-    restore: bool | None = None,
+    restore: bool = False,
 ) -> PropertySpec:
     return PropertySpec(
         id=id,
@@ -920,7 +920,7 @@ def quantity_property(
         description=description,
         access=access,
         capture=_capture_default(access, capture),
-        restore=access == "read_write" if restore is None else restore,
+        restore=restore,
         value_type=Scalar(
             QuantityType(
                 unit=unit,
@@ -938,7 +938,7 @@ def bool_property(
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
     capture: bool | None = None,
-    restore: bool | None = None,
+    restore: bool = False,
 ) -> PropertySpec:
     return PropertySpec(
         id=id,
@@ -946,7 +946,7 @@ def bool_property(
         description=description,
         access=access,
         capture=_capture_default(access, capture),
-        restore=access == "read_write" if restore is None else restore,
+        restore=restore,
         value_type=Scalar(BoolType()),
     )
 
@@ -960,7 +960,7 @@ def int_property(
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
     capture: bool | None = None,
-    restore: bool | None = None,
+    restore: bool = False,
 ) -> PropertySpec:
     return PropertySpec(
         id=id,
@@ -968,7 +968,7 @@ def int_property(
         description=description,
         access=access,
         capture=_capture_default(access, capture),
-        restore=access == "read_write" if restore is None else restore,
+        restore=restore,
         value_type=Scalar(IntType(minimum=minimum, maximum=maximum)),
     )
 
@@ -980,7 +980,7 @@ def float_property(
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
     capture: bool | None = None,
-    restore: bool | None = None,
+    restore: bool = False,
 ) -> PropertySpec:
     return PropertySpec(
         id=id,
@@ -988,7 +988,7 @@ def float_property(
         description=description,
         access=access,
         capture=_capture_default(access, capture),
-        restore=access == "read_write" if restore is None else restore,
+        restore=restore,
         value_type=Scalar(FloatType()),
     )
 
@@ -1001,7 +1001,7 @@ def string_property(
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
     capture: bool | None = None,
-    restore: bool | None = None,
+    restore: bool = False,
 ) -> PropertySpec:
     return PropertySpec(
         id=id,
@@ -1009,7 +1009,7 @@ def string_property(
         description=description,
         access=access,
         capture=_capture_default(access, capture),
-        restore=access == "read_write" if restore is None else restore,
+        restore=restore,
         value_type=Scalar(StringType(choices=choices)),
     )
 
@@ -1022,7 +1022,7 @@ def enum_property(
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
     capture: bool | None = None,
-    restore: bool | None = None,
+    restore: bool = False,
 ) -> PropertySpec:
     return string_property(
         id,

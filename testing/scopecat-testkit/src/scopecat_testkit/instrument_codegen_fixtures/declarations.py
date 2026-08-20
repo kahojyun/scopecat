@@ -36,18 +36,18 @@ class ScalarOperationInterface(Protocol):
 
 @instrument_interface("test.generated_catalog_projection/v1")
 class CatalogProjectionInterface(Protocol):
-    enabled: Member[bool] = member(access="read_write")
+    enabled: Member[bool] = member(access="read_write", restore=True)
     status: Member[str] = member(access="read_only")
 
 
 @instrument_interface("test.generated_shared_property_first/v1")
 class SharedPropertyFirstInterface(Protocol):
-    enabled: Member[bool] = member(access="read_write")
+    enabled: Member[bool] = member(access="read_write", restore=True)
 
 
 @instrument_interface("test.generated_shared_property_second/v1")
 class SharedPropertySecondInterface(Protocol):
-    enabled: Member[bool] = member(access="read_write")
+    enabled: Member[bool] = member(access="read_write", restore=True)
 
 
 @instrument_interface("test.generated_composite_peer/v1")
@@ -104,8 +104,8 @@ class DriverFixedAcquisitionInterface(Protocol):
 
 @instrument_interface("test.generated_driver_source/v1")
 class DriverSourceInterface(Protocol):
-    enabled: Member[bool] = member(access="read_write")
-    level: Member[int] = member(access="read_write")
+    enabled: Member[bool] = member(access="read_write", restore=True)
+    level: Member[int] = member(access="read_write", restore=True)
 
 
 @instrument_result
@@ -116,7 +116,7 @@ class DriverMonitorResults:
 
 @instrument_interface("test.generated_driver_monitor/v1")
 class DriverMonitorInterface(Protocol):
-    enabled: Member[bool] = member(access="read_write")
+    enabled: Member[bool] = member(access="read_write", restore=True)
 
     @acquisition()
     def monitor(self) -> DriverMonitorResults: ...
