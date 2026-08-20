@@ -90,6 +90,7 @@ from scopecat.sdk.instruments import (
 from scopecat.sdk.instruments.commands import (
     InstrumentStateAssignment,
     InstrumentStateCommand,
+    InstrumentStateReadCommand,
     InteractiveCollectIntent,
 )
 from scopecat_testkit.instrument_drivers import SignalInstrumentDriver, load_config
@@ -765,6 +766,62 @@ def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
             assert [result.result_id for result in collect_request.results] == [
                 "signal"
             ]
+
+
+def test_exact_observed_member_reads_the_current_actor_cache_without_hardware_io(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_ResyncDriver)
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            session = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-exact-observed-member",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+            command = InstrumentStateReadCommand(
+                targets=[state_member_target(_SET_FREQUENCY)]
+            )
+            [driver] = provider.drivers
+            assert isinstance(driver, _ResyncDriver)
+            assert driver.read_count == 1
+
+            [initial] = daemon.read_observed_instrument_state_members(
+                session.session_id,
+                "source-0",
+                command,
+            ).observations
+            assert initial.value.root == Quantity(value=4.0, unit="GHz")
+            assert driver.read_count == 1
+
+            driver.change_from_front_panel(5.1)
+            [cached] = daemon.read_observed_instrument_state_members(
+                session.session_id,
+                "source-0",
+                command,
+            ).observations
+            assert cached.value.root == Quantity(value=4.0, unit="GHz")
+            assert driver.read_count == 1
+
+            [fresh] = daemon.read_instrument_state_members(
+                session.session_id,
+                "source-0",
+                command,
+            ).observations
+            assert fresh.value.root == Quantity(value=5.1, unit="GHz")
+            assert driver.read_count == 2
+
+            [observed] = daemon.read_observed_instrument_state_members(
+                session.session_id,
+                "source-0",
+                command,
+            ).observations
+            assert observed.value.root == Quantity(value=5.1, unit="GHz")
+            assert driver.read_count == 2
+            daemon.close_instrument_session(session.session_id)
 
 
 def test_notebook_can_attach_a_session_only_instrument(tmp_path: Path) -> None:

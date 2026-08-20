@@ -66,8 +66,11 @@ class InstrumentMemberClient[ValueT]:
     writable: bool
 
     def observed(self) -> ValueT:
-        snapshot = self._session.observed_state(self.instrument_id)
-        return self._decode_snapshot(snapshot)
+        readback = self._session.observed_state_members(
+            self.instrument_id,
+            self.declaration.ref,
+        )
+        return self._decode_readback(readback)
 
     def read(self) -> ValueT:
         readback = self._session.read_state_members(

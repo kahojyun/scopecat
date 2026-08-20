@@ -385,6 +385,23 @@ class InstrumentSessionHandle:
             ),
         )
 
+    def _observed_state_members(
+        self,
+        targets: Sequence[StateMemberRef],
+        /,
+        *,
+        instrument_id: str | None = None,
+    ) -> InstrumentStateReadback:
+        selected = self._selected_instrument_id(instrument_id)
+        session = self._require_session()
+        return self._client.read_observed_instrument_state_members(
+            session.session_id,
+            selected,
+            InstrumentStateReadCommand(
+                targets=[state_member_target(target) for target in targets]
+            ),
+        )
+
     def _apply_configured_defaults(
         self,
         *,
@@ -623,6 +640,16 @@ class InstrumentClientChannel:
         *targets: StateMemberRef,
     ) -> InstrumentStateReadback:
         return self._session._read_state_members(  # pyright: ignore[reportPrivateUsage]
+            targets,
+            instrument_id=instrument_id,
+        )
+
+    def observed_state_members(
+        self,
+        instrument_id: str,
+        *targets: StateMemberRef,
+    ) -> InstrumentStateReadback:
+        return self._session._observed_state_members(  # pyright: ignore[reportPrivateUsage]
             targets,
             instrument_id=instrument_id,
         )

@@ -86,13 +86,25 @@ class _StateChannel:
     ) -> None:
         self.cached = cached
         self.fresh = fresh
-        self.observed_requests: list[str] = []
+        self.observed_requests: list[tuple[str, tuple[StateMemberRef, ...]]] = []
         self.refresh_requests: list[str] = []
         self.member_requests: list[tuple[str, tuple[StateMemberRef, ...]]] = []
 
-    def observed_state(self, instrument_id: str) -> InstrumentStateSnapshot:
-        self.observed_requests.append(instrument_id)
-        return self.cached
+    def observed_state_members(
+        self,
+        instrument_id: str,
+        *targets: StateMemberRef,
+    ) -> InstrumentStateReadback:
+        self.observed_requests.append((instrument_id, targets))
+        selected = set(targets)
+        return InstrumentStateReadback(
+            instrument_id=instrument_id,
+            observations=[
+                observation
+                for observation in self.cached.observations
+                if state_member_ref(observation.target) in selected
+            ],
+        )
 
     def read_state(self, instrument_id: str) -> InstrumentStateSnapshot:
         self.refresh_requests.append(instrument_id)
@@ -279,6 +291,7 @@ def test_generated_member_client_reads_and_writes_one_property() -> None:
 
     assert client.frequency.observed() == Quantity(5e9, "Hz")
     assert client.frequency.read() == Quantity(6e9, "Hz")
+    assert state_channel.observed_requests == [("drive-source", (RF_OUTPUT_FREQUENCY,))]
     assert state_channel.member_requests == [("drive-source", (RF_OUTPUT_FREQUENCY,))]
 
     apply_channel = _ApplyChannel()

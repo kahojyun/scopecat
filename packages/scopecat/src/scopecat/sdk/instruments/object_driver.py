@@ -273,9 +273,14 @@ class ObjectInstrumentDriver:
                 for target, value in zip(binding.targets, returned, strict=True)
             }
             coherence_id = uuid4().hex if len(binding.targets) > 1 else None
+            observed_request = (
+                DriverStateReadRequest(frozenset(binding.targets))
+                if coherence_id is not None
+                else request
+            )
             observations.extend(
                 state_readback(
-                    request,
+                    observed_request,
                     values,
                     coherence_id=coherence_id,
                 ).observations

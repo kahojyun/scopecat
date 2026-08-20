@@ -907,6 +907,22 @@ class DaemonClient:
             InstrumentStateReadback,
         )
 
+    def read_observed_instrument_state_members(
+        self,
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentStateReadCommand,
+    ) -> InstrumentStateReadback:
+        return self._post_model(
+            self._instrument_session_path(
+                session_id,
+                instrument_id,
+                "state/observed",
+            ),
+            command,
+            InstrumentStateReadback,
+        )
+
     def apply_instrument_state(
         self,
         session_id: str,

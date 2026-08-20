@@ -10,6 +10,7 @@ from scopecat.kernel.problems import Problem
 from scopecat.records.instrument import (
     InstrumentStateReadback,
     InstrumentStateSnapshot,
+    state_member_identity,
     state_member_ref,
     state_member_target,
 )
@@ -205,6 +206,29 @@ def observe_members(
         raise BackendConflict("; ".join(item.message for item in problems))
     instrument.adopt_readback(readback)
     return readback
+
+
+def observed_members(
+    instrument: OwnedInstrument,
+    targets: Sequence[StateMemberRef],
+) -> InstrumentStateReadback:
+    """Project exact members from the current actor cache without hardware I/O."""
+
+    state = instrument.assumed_state
+    if state is None:
+        raise BackendConflict("instrument state has not been observed")
+    selected = {
+        state_member_identity(state_member_target(target)) for target in targets
+    }
+    return InstrumentStateReadback(
+        instrument_id=state.instrument_id,
+        observations=[
+            observation.model_copy(deep=True)
+            for observation in state.observations
+            if state_member_identity(observation.target) in selected
+        ],
+        metadata=dict(state.metadata),
+    )
 
 
 def adopt_instrument_readback(

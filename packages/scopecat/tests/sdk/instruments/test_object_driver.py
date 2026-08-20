@@ -105,15 +105,19 @@ def test_member_attributes_compile_without_property_inference() -> None:
 def test_object_driver_adapts_properties_and_methods() -> None:
     driver = OOSourceDriver()
     level = declared_property_ref(OOSource, "level")
+    limit = declared_property_ref(OOSource, "limit")
+    serial_number = declared_property_ref(OOSource, "serial_number")
 
     assert driver.describe().interfaces == [compile_interface(OOSource).spec]
-    assert driver.read_state(DriverStateReadRequest(frozenset({level}))).values == {
-        level: 3
+    readback = driver.read_state(DriverStateReadRequest(frozenset({level})))
+    assert readback.values == {
+        level: 3,
+        limit: 8,
+        serial_number: "SN-1",
     }
-    [observation] = driver.read_state(
-        DriverStateReadRequest(frozenset({level}))
-    ).observations
-    assert observation.coherence_id is not None
+    coherence_ids = {observation.coherence_id for observation in readback.observations}
+    assert len(coherence_ids) == 1
+    assert coherence_ids != {None}
 
     applied = driver.apply_state(DriverStatePatch(values={level: 7}))
     assert applied == DriverSuccess(None)

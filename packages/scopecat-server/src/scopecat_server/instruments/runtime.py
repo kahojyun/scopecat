@@ -163,6 +163,7 @@ from .commands import (
     execute_instrument_invoke,
     observe_instrument,
     observe_members,
+    observed_members,
 )
 
 if TYPE_CHECKING:
@@ -1994,6 +1995,23 @@ class InstrumentRuntime:
                 instrument_id,
             )
             return observe_members(
+                instrument,
+                tuple(state_member_ref(target) for target in command.targets),
+            )
+
+    def observed_state_members(
+        self,
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentStateReadCommand,
+    ) -> InstrumentStateReadback:
+        runtime = self._live_runtime(session_id)
+        with runtime.lock:
+            _session, _runtime, instrument = self._session_instrument(
+                session_id,
+                instrument_id,
+            )
+            return observed_members(
                 instrument,
                 tuple(state_member_ref(target) for target in command.targets),
             )

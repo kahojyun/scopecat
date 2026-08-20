@@ -449,6 +449,21 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
 
     @app.post(
         f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"
+        "{instrument_id}/state/observed"
+    )
+    def read_observed_instrument_state_members(
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentStateReadCommand,
+    ) -> InstrumentStateReadback:
+        return application.instruments.observed_state_members(
+            session_id,
+            instrument_id,
+            command,
+        )
+
+    @app.post(
+        f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"
         "{instrument_id}/state/apply"
     )
     def apply_instrument_state(
