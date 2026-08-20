@@ -26,6 +26,40 @@ type ObservationSource = Literal[
     "command_confirmed",
     "configured_fixed",
 ]
+type InstrumentStateCacheStatus = Literal[
+    "unobserved",
+    "observed",
+    "invalidated",
+    "unknown",
+]
+type InstrumentStateCacheReason = Literal[
+    "not_observed",
+    "state_read_unconfirmed",
+    "state_read_failed",
+    "state_applied",
+    "operation_invalidated",
+    "apply_outcome_unknown",
+    "invoke_outcome_unknown",
+    "collect_outcome_unknown",
+    "explicit_invalidation",
+    "aborted",
+]
+
+_CACHE_REASON_STATUS: dict[
+    InstrumentStateCacheReason,
+    InstrumentStateCacheStatus,
+] = {
+    "not_observed": "unobserved",
+    "state_read_unconfirmed": "unknown",
+    "state_read_failed": "unknown",
+    "state_applied": "invalidated",
+    "operation_invalidated": "invalidated",
+    "apply_outcome_unknown": "unknown",
+    "invoke_outcome_unknown": "unknown",
+    "collect_outcome_unknown": "unknown",
+    "explicit_invalidation": "unknown",
+    "aborted": "unknown",
+}
 
 
 class CommandChannelBinding(BaseModel):
@@ -239,6 +273,58 @@ class InstrumentStateReadback(BaseModel):
     metadata: JsonMetadata = Field(default_factory=dict)
 
 
+class InstrumentStateCacheEntry(BaseModel):
+    """Current actor knowledge for one exact member in an ownership epoch."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target: StateMemberTarget
+    status: InstrumentStateCacheStatus
+    generation: Annotated[int, Field(ge=0)]
+    reason: InstrumentStateCacheReason | None = None
+    observation: InstrumentStateObservation | None = None
+
+    @model_validator(mode="after")
+    def validate_status(self) -> InstrumentStateCacheEntry:
+        if self.status == "observed":
+            if self.observation is None:
+                raise ValueError("observed cache entries require an observation")
+            if self.reason is not None:
+                raise ValueError("observed cache entries cannot have a reason")
+            if state_member_identity(self.observation.target) != state_member_identity(
+                self.target
+            ):
+                raise ValueError("cache entry observation target does not match")
+            return self
+        if self.observation is not None:
+            raise ValueError("non-observed cache entries cannot carry an observation")
+        if self.reason is None:
+            raise ValueError("non-observed cache entries require a reason")
+        if _CACHE_REASON_STATUS[self.reason] != self.status:
+            raise ValueError(
+                f"cache reason {self.reason!r} is invalid for status {self.status!r}"
+            )
+        return self
+
+
+class InstrumentStateCacheReadback(BaseModel):
+    """Exact member cache statuses from one live instrument actor."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    instrument_id: str
+    generation: Annotated[int, Field(ge=0)]
+    entries: list[InstrumentStateCacheEntry] = Field(default_factory=list)
+    metadata: JsonMetadata = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_unique_targets(self) -> InstrumentStateCacheReadback:
+        identities = [state_member_identity(entry.target) for entry in self.entries]
+        if len(identities) != len(set(identities)):
+            raise ValueError("instrument state cache entry targets must be unique")
+        return self
+
+
 class InstrumentReadback(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -250,6 +336,10 @@ __all__ = [
     "CommandChannelBinding",
     "DeviceStateMemberTarget",
     "InstrumentReadback",
+    "InstrumentStateCacheEntry",
+    "InstrumentStateCacheReadback",
+    "InstrumentStateCacheReason",
+    "InstrumentStateCacheStatus",
     "InstrumentStateObservation",
     "InstrumentStateReadback",
     "InstrumentStateSetting",

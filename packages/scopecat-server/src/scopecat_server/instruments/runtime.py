@@ -46,6 +46,7 @@ from scopecat.records.config import (
     instrument_bindings,
 )
 from scopecat.records.instrument import (
+    InstrumentStateCacheReadback,
     InstrumentStateReadback,
     InstrumentStateSnapshot,
     state_member_ref,
@@ -2004,7 +2005,7 @@ class InstrumentRuntime:
         session_id: str,
         instrument_id: str,
         command: InstrumentStateReadCommand,
-    ) -> InstrumentStateReadback:
+    ) -> InstrumentStateCacheReadback:
         runtime = self._live_runtime(session_id)
         with runtime.lock:
             _session, _runtime, instrument = self._session_instrument(

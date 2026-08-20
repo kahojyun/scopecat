@@ -13,9 +13,12 @@ from scopecat.authoring import QuantityType, coordinate
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateLiteral, StateValue
 from scopecat.records.instrument import (
+    InstrumentStateCacheEntry,
+    InstrumentStateCacheReadback,
     InstrumentStateReadback,
     InstrumentStateSnapshot,
     state_member_ref,
+    state_member_target,
     state_observation,
 )
 from scopecat.sdk.instruments import (
@@ -94,16 +97,32 @@ class _StateChannel:
         self,
         instrument_id: str,
         *targets: StateMemberRef,
-    ) -> InstrumentStateReadback:
+    ) -> InstrumentStateCacheReadback:
         self.observed_requests.append((instrument_id, targets))
-        selected = set(targets)
-        return InstrumentStateReadback(
+        observations = {
+            state_member_ref(observation.target): observation
+            for observation in self.cached.observations
+        }
+        return InstrumentStateCacheReadback(
             instrument_id=instrument_id,
-            observations=[
-                observation
-                for observation in self.cached.observations
-                if state_member_ref(observation.target) in selected
+            generation=1,
+            entries=[
+                InstrumentStateCacheEntry(
+                    target=state_member_target(target),
+                    status="unobserved",
+                    generation=0,
+                    reason="not_observed",
+                )
+                if (observation := observations.get(target)) is None
+                else InstrumentStateCacheEntry(
+                    target=observation.target,
+                    status="observed",
+                    generation=1,
+                    observation=observation,
+                )
+                for target in targets
             ],
+            metadata=dict(self.cached.metadata),
         )
 
     def read_state(self, instrument_id: str) -> InstrumentStateSnapshot:
@@ -301,6 +320,20 @@ def test_generated_member_client_reads_and_writes_one_property() -> None:
     )
     assert writable.frequency.set(Quantity(7.0, "GHz")) is apply_channel.receipt
     assert apply_channel.values == {RF_OUTPUT_FREQUENCY: Quantity(7.0, "GHz")}
+
+
+def test_generated_member_client_reports_unobserved_cache_status() -> None:
+    state_channel = _StateChannel(
+        InstrumentStateSnapshot(instrument_id="drive-source"),
+        _rf_output_snapshot(frequency_ghz=6.0),
+    )
+    client = RFOutputClient(
+        cast("InstrumentClientChannel", cast("object", state_channel)),
+        "drive-source",
+    )
+
+    with pytest.raises(ValueError, match="cache is unobserved: not_observed"):
+        client.frequency.observed()
 
 
 def test_generated_rf_live_client_rejects_symbolic_state_before_io() -> None:

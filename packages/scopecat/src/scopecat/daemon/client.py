@@ -182,7 +182,11 @@ from scopecat.records.content import (
     ContentEntry,
     InlinePayloadBody,
 )
-from scopecat.records.instrument import InstrumentStateReadback, InstrumentStateSnapshot
+from scopecat.records.instrument import (
+    InstrumentStateCacheReadback,
+    InstrumentStateReadback,
+    InstrumentStateSnapshot,
+)
 from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
@@ -912,7 +916,7 @@ class DaemonClient:
         session_id: str,
         instrument_id: str,
         command: InstrumentStateReadCommand,
-    ) -> InstrumentStateReadback:
+    ) -> InstrumentStateCacheReadback:
         return self._post_model(
             self._instrument_session_path(
                 session_id,
@@ -920,7 +924,7 @@ class DaemonClient:
                 "state/observed",
             ),
             command,
-            InstrumentStateReadback,
+            InstrumentStateCacheReadback,
         )
 
     def apply_instrument_state(

@@ -10,6 +10,7 @@ from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.records.config import InstrumentBindingSpec
 from scopecat.records.instrument import (
     InstrumentStateReadback,
+    InstrumentStateSnapshot,
     state_member_target,
 )
 from scopecat.sdk.instruments import (
@@ -25,7 +26,9 @@ from scopecat.sdk.instruments import (
     InstrumentProviderDescription,
     InterfaceRef,
     InvokeReceipt,
+    PropertyRef,
     capture_state_members,
+    operation,
 )
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
@@ -108,6 +111,37 @@ class _RejectCollectDriver(_TrackingDriver):
                     message="collection rejected",
                 ),
             ),
+        )
+
+
+class _InvalidatingInvokeDriver(_TrackingDriver):
+    @override
+    def describe(self) -> InstrumentDescription:
+        description = super().describe()
+        return description.model_copy(
+            update={
+                "interfaces": [
+                    mounted
+                    if mounted.id != "test.play_program/v1"
+                    else mounted.model_copy(
+                        update={
+                            "operations": [
+                                operation(
+                                    "play",
+                                    invalidates=[
+                                        PropertyRef(
+                                            "test.set_frequency/v1",
+                                            (),
+                                            "frequency",
+                                        )
+                                    ],
+                                )
+                            ]
+                        }
+                    )
+                    for mounted in description.interfaces
+                ]
+            }
         )
 
 
@@ -351,9 +385,24 @@ def test_release_reuses_connection_but_requires_fresh_observation() -> None:
         connect=endpoint,
     )
     assert not first.reused_connection
+    targets = _capture_request(first.description).targets
+    empty_cache = first.state_cache(targets)
+    assert empty_cache.generation == 0
+    assert {entry.status for entry in empty_cache.entries} == {"unobserved"}
+    assert {entry.reason for entry in empty_cache.entries} == {"not_observed"}
     observed = _read_capture(first)
     assert first.assumed_state is None
+    unconfirmed_cache = first.state_cache(targets)
+    assert unconfirmed_cache.generation == 1
+    assert {entry.status for entry in unconfirmed_cache.entries} == {"unknown"}
+    assert {entry.reason for entry in unconfirmed_cache.entries} == {
+        "state_read_unconfirmed"
+    }
     first.adopt_readback(observed)
+    confirmed_cache = first.state_cache(targets)
+    assert confirmed_cache.generation == 2
+    assert {entry.status for entry in confirmed_cache.entries} == {"observed"}
+    assert all(entry.observation is not None for entry in confirmed_cache.entries)
     first.release()
 
     assert first.assumed_state is None
@@ -381,6 +430,25 @@ def test_release_reuses_connection_but_requires_fresh_observation() -> None:
     registry.shutdown()
 
     assert drivers[0].disconnect_count == 1
+
+
+def test_validated_empty_readback_establishes_an_empty_baseline() -> None:
+    registry = InstrumentActorRegistry()
+    endpoint = _endpoint([])
+    owned = registry.acquire(
+        _exclusivity_key("source-0"),
+        "source-0",
+        binding=_binding(),
+        owner=_owner("session-1"),
+        endpoint=endpoint,
+        connect=endpoint,
+    )
+
+    owned.adopt_readback(InstrumentStateReadback(instrument_id="source-0"))
+
+    assert owned.assumed_state == InstrumentStateSnapshot(instrument_id="source-0")
+    owned.release()
+    registry.shutdown()
 
 
 def test_logical_rename_reuses_the_actor_for_the_same_exclusive_resource() -> None:
@@ -706,6 +774,12 @@ def test_handle_routes_driver_calls_through_one_owner_epoch() -> None:
         )
     )
     assert owned.apply_state(apply_request).status == "applied"
+    [gain_cache] = owned.state_cache(
+        (state_member_target(InterfaceRef("test.set_gain/v1").property("gain")),)
+    ).entries
+    assert gain_cache.status == "invalidated"
+    assert gain_cache.reason == "state_applied"
+    assert gain_cache.observation is None
     assert owned.assumed_state is not None
     assert {item.target.property_id for item in owned.assumed_state.observations} == {
         "frequency"
@@ -764,6 +838,46 @@ def test_rejected_collection_invalidates_the_assumed_state() -> None:
 
     assert receipt.status == "not_collected"
     assert owned.assumed_state is None
+    cache = owned.state_cache(_capture_request(owned.description).targets)
+    assert {entry.status for entry in cache.entries} == {"unknown"}
+    assert {entry.reason for entry in cache.entries} == {"collect_outcome_unknown"}
+    [uncached] = owned.state_cache(
+        (state_member_target(InterfaceRef("test.set_gain/v1").property("other")),)
+    ).entries
+    assert uncached.status == "unknown"
+    assert uncached.reason == "collect_outcome_unknown"
+    assert uncached.generation == cache.generation
+    owned.release()
+    registry.shutdown()
+
+
+def test_invoke_invalidates_only_declared_member_cache_entries() -> None:
+    registry = InstrumentActorRegistry()
+    drivers: list[_TrackingDriver] = []
+    endpoint = _endpoint(drivers, driver_type=_InvalidatingInvokeDriver)
+    owned = registry.acquire(
+        _exclusivity_key("source-0"),
+        "source-0",
+        binding=_binding(),
+        owner=_owner("session-1"),
+        endpoint=endpoint,
+        connect=endpoint,
+    )
+    owned.adopt_readback(_read_capture(owned))
+
+    receipt = owned.invoke(
+        BackendInvokeRequest(
+            interface_id="test.play_program/v1",
+            operation_id="play",
+        )
+    )
+
+    assert receipt.status == "invoked"
+    cache = owned.state_cache(_capture_request(owned.description).targets)
+    by_property = {entry.target.property_id: entry for entry in cache.entries}
+    assert by_property["frequency"].status == "invalidated"
+    assert by_property["frequency"].reason == "operation_invalidated"
+    assert by_property["gain"].status == "observed"
     owned.release()
     registry.shutdown()
 

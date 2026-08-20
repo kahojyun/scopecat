@@ -19,6 +19,7 @@ from scopecat.program.measurement_types import (
     MeasurementVariableRole,
 )
 from scopecat.records.instrument import (
+    InstrumentStateCacheReadback,
     InstrumentStateReadback,
     InstrumentStateSnapshot,
     InterfaceStateMemberTarget,
@@ -66,11 +67,11 @@ class InstrumentMemberClient[ValueT]:
     writable: bool
 
     def observed(self) -> ValueT:
-        readback = self._session.observed_state_members(
+        cache = self._session.observed_state_members(
             self.instrument_id,
             self.declaration.ref,
         )
-        return self._decode_readback(readback)
+        return self._decode_cache(cache)
 
     def read(self) -> ValueT:
         readback = self._session.read_state_members(
@@ -115,6 +116,36 @@ class InstrumentMemberClient[ValueT]:
             metadata=readback.metadata,
         )
         return self._decode_snapshot(snapshot)
+
+    def _decode_cache(self, cache: InstrumentStateCacheReadback) -> ValueT:
+        entry = next(
+            (
+                item
+                for item in cache.entries
+                if isinstance(item.target, InterfaceStateMemberTarget)
+                and PropertyRef(
+                    item.target.interface_id,
+                    item.target.component_path,
+                    item.target.property_id,
+                )
+                == self.declaration.ref
+            ),
+            None,
+        )
+        if entry is None:
+            raise ValueError(
+                f"instrument cache does not contain {self.declaration.ref!r}"
+            )
+        if entry.status != "observed" or entry.observation is None:
+            detail = f": {entry.reason}" if entry.reason is not None else ""
+            raise ValueError(
+                f"instrument member {self.declaration.ref!r} cache is "
+                f"{entry.status}{detail}"
+            )
+        return cast(
+            "ValueT",
+            self.declaration.decode(entry.observation.value.root),
+        )
 
 
 @dataclass(frozen=True, slots=True)

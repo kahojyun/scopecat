@@ -31,6 +31,7 @@ from scopecat.kernel.state import PayloadRef, StateLiteral, StateValue
 from scopecat.records.config import InstrumentBindingSpec, InstrumentConnection
 from scopecat.records.content import CommandPayload
 from scopecat.records.instrument import (
+    InstrumentStateCacheReadback,
     InstrumentStateReadback,
     InstrumentStateSnapshot,
     state_member_target,
@@ -391,7 +392,7 @@ class InstrumentSessionHandle:
         /,
         *,
         instrument_id: str | None = None,
-    ) -> InstrumentStateReadback:
+    ) -> InstrumentStateCacheReadback:
         selected = self._selected_instrument_id(instrument_id)
         session = self._require_session()
         return self._client.read_observed_instrument_state_members(
@@ -648,7 +649,7 @@ class InstrumentClientChannel:
         self,
         instrument_id: str,
         *targets: StateMemberRef,
-    ) -> InstrumentStateReadback:
+    ) -> InstrumentStateCacheReadback:
         return self._session._observed_state_members(  # pyright: ignore[reportPrivateUsage]
             targets,
             instrument_id=instrument_id,

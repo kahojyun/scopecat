@@ -18,6 +18,10 @@ if TYPE_CHECKING:
     from scopecat.records.instrument import (
         CommandChannelBinding,
         InstrumentReadback,
+        InstrumentStateCacheEntry,
+        InstrumentStateCacheReadback,
+        InstrumentStateCacheReason,
+        InstrumentStateCacheStatus,
         InstrumentStateObservation,
         InstrumentStateReadback,
         InstrumentStateSetting,
@@ -280,6 +284,22 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "InstrumentStateObservation": (
         "scopecat.records.instrument",
         "InstrumentStateObservation",
+    ),
+    "InstrumentStateCacheEntry": (
+        "scopecat.records.instrument",
+        "InstrumentStateCacheEntry",
+    ),
+    "InstrumentStateCacheReadback": (
+        "scopecat.records.instrument",
+        "InstrumentStateCacheReadback",
+    ),
+    "InstrumentStateCacheReason": (
+        "scopecat.records.instrument",
+        "InstrumentStateCacheReason",
+    ),
+    "InstrumentStateCacheStatus": (
+        "scopecat.records.instrument",
+        "InstrumentStateCacheStatus",
     ),
     "InstrumentStateReadback": (
         "scopecat.records.instrument",

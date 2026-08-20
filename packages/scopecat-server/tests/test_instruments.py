@@ -789,21 +789,28 @@ def test_exact_observed_member_reads_the_current_actor_cache_without_hardware_io
             assert isinstance(driver, _ResyncDriver)
             assert driver.read_count == 1
 
-            [initial] = daemon.read_observed_instrument_state_members(
+            initial_cache = daemon.read_observed_instrument_state_members(
                 session.session_id,
                 "source-0",
                 command,
-            ).observations
-            assert initial.value.root == Quantity(value=4.0, unit="GHz")
+            )
+            [initial] = initial_cache.entries
+            assert initial.status == "observed"
+            assert initial.observation is not None
+            assert initial.observation.value.root == Quantity(value=4.0, unit="GHz")
             assert driver.read_count == 1
 
             driver.change_from_front_panel(5.1)
-            [cached] = daemon.read_observed_instrument_state_members(
+            cached_cache = daemon.read_observed_instrument_state_members(
                 session.session_id,
                 "source-0",
                 command,
-            ).observations
-            assert cached.value.root == Quantity(value=4.0, unit="GHz")
+            )
+            [cached] = cached_cache.entries
+            assert cached.status == "observed"
+            assert cached.observation is not None
+            assert cached.observation.value.root == Quantity(value=4.0, unit="GHz")
+            assert cached_cache.generation == initial_cache.generation
             assert driver.read_count == 1
 
             [fresh] = daemon.read_instrument_state_members(
@@ -814,12 +821,19 @@ def test_exact_observed_member_reads_the_current_actor_cache_without_hardware_io
             assert fresh.value.root == Quantity(value=5.1, unit="GHz")
             assert driver.read_count == 2
 
-            [observed] = daemon.read_observed_instrument_state_members(
+            observed_cache = daemon.read_observed_instrument_state_members(
                 session.session_id,
                 "source-0",
                 command,
-            ).observations
-            assert observed.value.root == Quantity(value=5.1, unit="GHz")
+            )
+            [observed] = observed_cache.entries
+            assert observed.status == "observed"
+            assert observed.observation is not None
+            assert observed.observation.value.root == Quantity(
+                value=5.1,
+                unit="GHz",
+            )
+            assert observed_cache.generation > cached_cache.generation
             assert driver.read_count == 2
             daemon.close_instrument_session(session.session_id)
 
