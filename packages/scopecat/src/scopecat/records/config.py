@@ -124,8 +124,35 @@ class TcpipSocketInstrumentConnection(_InstrumentConnection):
     timeout_seconds: float = Field(default=5.0, gt=0)
 
 
+class SerialInstrumentConnection(_InstrumentConnection):
+    """One locally attached serial port with explicit framing settings."""
+
+    kind: Literal["serial"] = "serial"
+    port: Annotated[str, Field(min_length=1)]
+    baud_rate: int = Field(default=9600, ge=1)
+    timeout_seconds: float = Field(default=1.0, gt=0)
+    write_timeout_seconds: float = Field(default=1.0, gt=0)
+    data_bits: Literal[5, 6, 7, 8] = 8
+    parity: Literal["none", "even", "odd", "mark", "space"] = "none"
+    stop_bits: float = 1.0
+    xonxoff: bool = False
+    rtscts: bool = False
+    dsrdtr: bool = False
+
+    @field_validator("stop_bits")
+    @classmethod
+    def validate_stop_bits(cls, value: float) -> float:
+        if value not in {1.0, 1.5, 2.0}:
+            raise ValueError("serial stop_bits must be 1, 1.5, or 2")
+        return value
+
+
 type InstrumentConnection = Annotated[
-    VirtualInstrumentConnection | TcpipSocketInstrumentConnection,
+    (
+        VirtualInstrumentConnection
+        | TcpipSocketInstrumentConnection
+        | SerialInstrumentConnection
+    ),
     Field(discriminator="kind"),
 ]
 

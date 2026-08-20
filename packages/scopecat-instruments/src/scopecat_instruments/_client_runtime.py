@@ -68,6 +68,7 @@ class InstrumentMemberClient[ValueT]:
     instrument_id: str
     declaration: ClientMemberDeclaration
     _portable_writable: bool
+    _portable_readable: bool = True
 
     def implementation(self) -> PropertySpec:
         """Return this physical member's effective access and lifecycle policy."""
@@ -94,7 +95,12 @@ class InstrumentMemberClient[ValueT]:
     def is_writable(self) -> bool:
         """Return whether this concrete instrument endpoint accepts assignments."""
 
-        return self._portable_writable and self.implementation().access == "read_write"
+        return self._portable_writable and self.implementation().access != "read_only"
+
+    def is_readable(self) -> bool:
+        """Return whether this concrete instrument endpoint supports observation."""
+
+        return self._portable_readable
 
     def observed(self) -> ValueT:
         entry = self.observed_entry()
@@ -109,6 +115,8 @@ class InstrumentMemberClient[ValueT]:
     def observed_entry(self) -> InstrumentStateCacheEntry:
         """Return cached value evidence or its explicit unavailable status."""
 
+        if not self.is_readable():
+            raise TypeError(f"instrument member {self.declaration.ref!r} is write-only")
         cache = self._session.observed_state_members(
             self.instrument_id,
             self.declaration.ref,
@@ -121,6 +129,8 @@ class InstrumentMemberClient[ValueT]:
     def read_observation(self) -> InstrumentStateObservation:
         """Query and return the member value with its observation evidence."""
 
+        if not self.is_readable():
+            raise TypeError(f"instrument member {self.declaration.ref!r} is write-only")
         readback = self._session.read_state_members(
             self.instrument_id,
             self.declaration.ref,
@@ -242,12 +252,14 @@ class InstrumentClientBase:
         /,
         *,
         writable: bool,
+        readable: bool = True,
     ) -> InstrumentMemberClient[ValueT]:
         return InstrumentMemberClient(
             self._session,
             self.instrument_id,
             declaration,
             writable,
+            readable,
         )
 
     def _invoke(

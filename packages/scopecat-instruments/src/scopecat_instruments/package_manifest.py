@@ -77,11 +77,12 @@ class DriverRegistration:
     id: str
     implementation_version: str
     implementation: PythonSymbol
-    connection_kind: Literal["tcpip_socket", "virtual"]
+    connection_kind: Literal["tcpip_socket", "serial", "virtual"]
     options_type: type[BaseModel]
     label: str
     manufacturer: str | None = None
     model: str | None = None
+    probe: Literal["identify", "connect"] = "identify"
 
 
 @dataclass(frozen=True, slots=True)

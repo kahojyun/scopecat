@@ -4,7 +4,8 @@ Generated adapters own the generic driver envelopes and ref mapping; concrete
 drivers receive typed patches and operation/acquisition arguments. These helpers
 therefore exercise device policy at the transport boundary: ``ScriptedTransport``
 checks every command and response in order and ``assert_complete()`` verifies
-that the driver consumed the complete expected exchange.
+that the driver consumed the complete expected exchange. Binary serial drivers
+use the parallel ``ScriptedBinaryTransport``.
 """
 
 from __future__ import annotations
@@ -33,6 +34,18 @@ class TranscriptEntry:
     operation: Literal["write", "query"]
     command: str
     response: str | None = None
+
+
+@dataclass(frozen=True)
+class ScriptedBinaryExchange:
+    request: bytes
+    response: bytes
+
+
+@dataclass(frozen=True)
+class BinaryTranscriptEntry:
+    request: bytes
+    response: bytes
 
 
 class ScriptedTransport:
@@ -86,3 +99,56 @@ class ScriptedTransport:
         exchange = self._exchanges[self._index]
         self._index += 1
         return exchange
+
+
+class ScriptedBinaryTransport:
+    """Transport that validates exact ordered binary request/response frames."""
+
+    def __init__(self, exchanges: list[ScriptedBinaryExchange]) -> None:
+        self._exchanges = tuple(exchanges)
+        self._index = 0
+        self.transcript: list[BinaryTranscriptEntry] = []
+        self.closed = False
+
+    @property
+    def remaining(self) -> int:
+        return len(self._exchanges) - self._index
+
+    def exchange(self, request: bytes, response_size: int, /) -> bytes:
+        if self._index >= len(self._exchanges):
+            raise AssertionError("unexpected binary request after transcript end")
+        exchange = self._exchanges[self._index]
+        self._index += 1
+        if request != exchange.request:
+            raise AssertionError(
+                f"unexpected binary request {request.hex()}; "
+                f"expected {exchange.request.hex()}"
+            )
+        if response_size != len(exchange.response):
+            raise AssertionError(
+                f"binary response size {response_size} does not match scripted "
+                f"size {len(exchange.response)}"
+            )
+        self.transcript.append(BinaryTranscriptEntry(request, exchange.response))
+        return exchange.response
+
+    def close(self) -> None:
+        self.closed = True
+
+    def assert_complete(self) -> None:
+        if self.remaining:
+            next_exchange = self._exchanges[self._index]
+            raise AssertionError(
+                f"{self.remaining} scripted binary exchange(s) remain; next is "
+                f"{next_exchange.request.hex()}"
+            )
+
+
+__all__ = [
+    "BinaryTranscriptEntry",
+    "ScriptedBinaryExchange",
+    "ScriptedBinaryTransport",
+    "ScriptedExchange",
+    "ScriptedTransport",
+    "TranscriptEntry",
+]

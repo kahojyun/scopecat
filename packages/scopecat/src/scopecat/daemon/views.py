@@ -120,8 +120,18 @@ class TcpipSocketInstrumentConnectionSummary(_ViewModel):
     port: int
 
 
+class SerialInstrumentConnectionSummary(_ViewModel):
+    kind: Literal["serial"] = "serial"
+    port: str
+    baud_rate: int
+
+
 type InstrumentConnectionSummary = Annotated[
-    VirtualInstrumentConnectionSummary | TcpipSocketInstrumentConnectionSummary,
+    (
+        VirtualInstrumentConnectionSummary
+        | TcpipSocketInstrumentConnectionSummary
+        | SerialInstrumentConnectionSummary
+    ),
     Field(discriminator="kind"),
 ]
 
@@ -746,6 +756,7 @@ __all__ = [
     "RunResourceView",
     "RunSummary",
     "RunSummaryPage",
+    "SerialInstrumentConnectionSummary",
     "TcpipSocketInstrumentConnectionSummary",
     "VirtualInstrumentConnectionSummary",
 ]

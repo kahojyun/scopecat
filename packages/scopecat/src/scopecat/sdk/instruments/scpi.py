@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 
 class ScpiTransport(Protocol):
@@ -18,7 +18,19 @@ class ScpiTransport(Protocol):
 
 
 class TransportError(ConnectionError):
-    """A transport failure whose command may already have reached the device."""
+    """A failed transport generation with explicit command certainty."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: Literal["connect", "write", "read", "query", "exchange", "close"],
+        command_may_have_reached_device: bool,
+    ) -> None:
+        self.operation = operation
+        self.command_may_have_reached_device = command_may_have_reached_device
+        self.requires_replacement = True
+        super().__init__(message)
 
 
 class ScpiProtocolError(ValueError):

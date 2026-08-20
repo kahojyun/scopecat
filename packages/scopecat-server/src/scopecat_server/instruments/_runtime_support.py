@@ -7,6 +7,7 @@ from contextlib import suppress
 
 from scopecat.daemon.views import (
     InstrumentConnectionSummary,
+    SerialInstrumentConnectionSummary,
     TcpipSocketInstrumentConnectionSummary,
     VirtualInstrumentConnectionSummary,
 )
@@ -20,6 +21,7 @@ from scopecat.kernel.problems import (
 from scopecat.records.config import (
     InstrumentConnection,
     InstrumentSpec,
+    SerialInstrumentConnection,
     VirtualInstrumentConnection,
 )
 from scopecat.records.content import CommandPayload
@@ -69,6 +71,11 @@ def instrument_connection_summary(
 ) -> InstrumentConnectionSummary:
     if isinstance(connection, VirtualInstrumentConnection):
         return VirtualInstrumentConnectionSummary()
+    if isinstance(connection, SerialInstrumentConnection):
+        return SerialInstrumentConnectionSummary(
+            port=connection.port,
+            baud_rate=connection.baud_rate,
+        )
     return TcpipSocketInstrumentConnectionSummary(
         host=connection.host,
         port=connection.port,

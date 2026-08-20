@@ -502,6 +502,7 @@ class _MemberClientModel:
     property_id: str
     value_type_json: str
     writable: bool
+    readable: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -1958,7 +1959,8 @@ def _constituent_model(
                 field.spec.model_dump_json(),
                 "value_type",
             ),
-            writable=field.spec.access == "read_write",
+            writable=field.spec.access != "read_only",
+            readable=field.spec.access != "write_only",
         )
         for field in (() if layout.properties is None else layout.properties.fields)
     )
@@ -2563,6 +2565,8 @@ def _generated_module_header(description: str) -> str:
 
 
 def _render_all(exports: tuple[str, ...]) -> str:
+    if not exports:
+        return "\n__all__ = []\n"
     return (
         "\n__all__ = [\n"
         + "".join(f'    "{name}",\n' for name in sorted(exports))
@@ -3013,6 +3017,7 @@ def _render_live_member(member: _MemberClientModel) -> str:
             f"    ) -> {return_annotation}:\n"
         )
     )
+    readable_argument = "" if member.readable else "            readable=False,\n"
     return (
         "    @property\n"
         f"{signature}"
@@ -3024,6 +3029,7 @@ def _render_live_member(member: _MemberClientModel) -> str:
         f"{_render_client_value_type_argument(member.value_type_json, indent=16)}"
         "            ),\n"
         f"            writable={member.writable!r},\n"
+        f"{readable_argument}"
         "        )\n"
     )
 

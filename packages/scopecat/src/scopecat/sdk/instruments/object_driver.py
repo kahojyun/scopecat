@@ -699,10 +699,12 @@ def _driver_io_bindings(
                     f"driver methods {previous!r} and {method_name!r} both bind "
                     f"{target.property_id!r}"
                 )
-            if (
-                attribute == _DRIVER_WRITE_METADATA
-                and field.spec.access != "read_write"
-            ):
+            if attribute == _DRIVER_READ_METADATA and field.spec.access == "write_only":
+                raise TypeError(
+                    f"driver reader {method_name!r} targets write-only member "
+                    f"{target.property_id!r}"
+                )
+            if attribute == _DRIVER_WRITE_METADATA and field.spec.access == "read_only":
                 raise TypeError(
                     f"driver writer {method_name!r} targets read-only member "
                     f"{target.property_id!r}"
@@ -802,7 +804,11 @@ def _validate_driver_bindings(driver_type: type[object]) -> None:
         )
         for target in binding.targets
     }
-    missing_readers = fields.keys() - readers
+    missing_readers = {
+        target
+        for target, field in fields.items()
+        if field.spec.access != "write_only" and target not in readers
+    }
     if missing_readers:
         target = next(iter(missing_readers))
         raise TypeError(
@@ -810,8 +816,12 @@ def _validate_driver_bindings(driver_type: type[object]) -> None:
         )
     missing_writers = {
         target
-        for target, field in device_fields.items()
-        if field.spec.access == "read_write" and target not in writers
+        for target, field in fields.items()
+        if (
+            field.spec.access == "write_only"
+            or (target in device_fields and field.spec.access == "read_write")
+        )
+        and target not in writers
     }
     if missing_writers:
         target = next(iter(missing_writers))

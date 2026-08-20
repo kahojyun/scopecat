@@ -81,7 +81,7 @@ from scopecat.sdk.instruments.contracts import (
     operation_argument as build_operation_argument,
 )
 
-type PropertyAccess = Literal["read_only", "read_write"]
+type PropertyAccess = Literal["read_only", "write_only", "read_write"]
 type PreconditionValue = bool | int | float | str | Quantity
 
 _RESULT_METADATA = "__scopecat_instrument_result__"
@@ -461,6 +461,32 @@ def member[ValueT](
             maximum=maximum,
             choices=None if choices is None else tuple(choices),
         )
+    )
+
+
+def write_only_member[ValueT](
+    *,
+    id: str | None = None,
+    label: str | None = None,
+    description: str | None = None,
+    unit: str | None = None,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    choices: Sequence[str] | None = None,
+) -> Member[ValueT]:
+    """Declare acknowledged state that cannot be queried or restored."""
+
+    return member(
+        access="write_only",
+        id=id,
+        label=label,
+        description=description,
+        capture=False,
+        restore=False,
+        unit=unit,
+        minimum=minimum,
+        maximum=maximum,
+        choices=choices,
     )
 
 
@@ -2311,4 +2337,5 @@ __all__ = [
     "precondition",
     "result",
     "result_field",
+    "write_only_member",
 ]

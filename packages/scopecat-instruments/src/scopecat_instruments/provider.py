@@ -18,10 +18,11 @@ from scopecat.sdk.instruments import (
     InstrumentDriver,
     InstrumentProviderContext,
     InstrumentProviderDescription,
+    SerialInstrumentConnection,
     TcpipSocketInstrumentConnection,
     VirtualInstrumentConnection,
 )
-from scopecat.sdk.instruments.scpi import ScpiIdentity, ScpiTransport
+from scopecat.sdk.instruments.scpi import ScpiIdentity
 from scopecat.sdk.problems import Problem
 
 from scopecat_instruments._support import provider_problem
@@ -38,7 +39,7 @@ from scopecat_instruments.package_manifest import (
     DriverRegistration,
     PythonSymbol,
 )
-from scopecat_instruments.transport import TcpScpiTransport
+from scopecat_instruments.transport import SerialByteTransport, TcpScpiTransport
 
 if TYPE_CHECKING:
     from scopecat_instruments.virtual.world import VirtualLabWorld
@@ -100,7 +101,8 @@ def compose_driver_registrations(
 class ConfiguredInstrumentProvider:
     """Instantiate exactly the drivers declared by configured bindings.
 
-    Every new real connection is probed with ``*IDN?`` before it is returned.
+    Real registrations explicitly choose identity probing or connection-only
+    probing before a driver is returned.
     Virtual driver instances share the provider's world, so device state survives
     connection retirement and recreation.
     """
@@ -172,6 +174,10 @@ class _DescriptionOnlyTransport:
     def query(self, command: str) -> str:
         raise RuntimeError(f"description-only transport cannot query {command!r}")
 
+    def exchange(self, request: bytes, response_size: int, /) -> bytes:
+        del response_size
+        raise RuntimeError(f"description-only transport cannot exchange {request!r}")
+
     def close(self) -> None:
         pass
 
@@ -196,8 +202,8 @@ def _describe_driver(
         if world is None:
             raise RuntimeError("virtual driver registration requires a virtual world")
         return _create_virtual_driver(registration, binding, world).describe()
-    connection = _require_tcp_connection(registration, binding)
-    return _create_tcp_driver(
+    connection = _require_real_connection(registration, binding)
+    return _create_real_driver(
         registration,
         binding.id,
         _DescriptionOnlyTransport(),
@@ -215,19 +221,38 @@ def _connect_driver(
         if world is None:
             raise RuntimeError("virtual driver registration requires a virtual world")
         return _create_virtual_driver(registration, binding, world)
-    connection = _require_tcp_connection(registration, binding)
-    driver = _create_tcp_driver(
-        registration,
-        binding.id,
+    connection = _require_real_connection(registration, binding)
+    transport = (
         TcpScpiTransport(
             connection.host,
             connection.port,
             timeout_seconds=connection.timeout_seconds,
-        ),
+        )
+        if isinstance(connection, TcpipSocketInstrumentConnection)
+        else SerialByteTransport(
+            connection.port,
+            baud_rate=connection.baud_rate,
+            timeout_seconds=connection.timeout_seconds,
+            write_timeout_seconds=connection.write_timeout_seconds,
+            data_bits=connection.data_bits,
+            parity=connection.parity,
+            stop_bits=connection.stop_bits,
+            xonxoff=connection.xonxoff,
+            rtscts=connection.rtscts,
+            dsrdtr=connection.dsrdtr,
+        )
+    )
+    driver = _create_real_driver(
+        registration,
+        binding.id,
+        transport,
         connection.options,
     )
     try:
-        driver.identify()
+        if registration.probe == "identify":
+            cast("_IdentifiableDriver", driver).identify()
+        else:
+            transport.connect()
     except Exception:
         with suppress(Exception):
             driver.disconnect()
@@ -235,15 +260,15 @@ def _connect_driver(
     return driver
 
 
-def _create_tcp_driver(
+def _create_real_driver(
     registration: DriverRegistration,
     instrument_id: str,
-    transport: ScpiTransport,
+    transport: object,
     raw_options: dict[str, JsonValue],
     /,
-) -> _IdentifiableDriver:
+) -> InstrumentDriver:
     constructor = cast(
-        "Callable[..., _IdentifiableDriver]",
+        "Callable[..., InstrumentDriver]",
         registration.implementation.resolve(),
     )
     options = registration.options_type.model_validate(raw_options)
@@ -278,14 +303,24 @@ def _create_virtual_world(*, seed: int) -> VirtualLabWorld:
     return constructor(seed=seed)
 
 
-def _require_tcp_connection(
+def _require_real_connection(
     registration: DriverRegistration,
     binding: InstrumentBindingSpec,
-) -> TcpipSocketInstrumentConnection:
+) -> TcpipSocketInstrumentConnection | SerialInstrumentConnection:
     connection = binding.connection
-    if not isinstance(connection, TcpipSocketInstrumentConnection):
-        raise ValueError(f"{registration.id} supports only tcpip_socket connections")
-    return connection
+    if registration.connection_kind == "tcpip_socket" and isinstance(
+        connection,
+        TcpipSocketInstrumentConnection,
+    ):
+        return connection
+    if registration.connection_kind == "serial" and isinstance(
+        connection,
+        SerialInstrumentConnection,
+    ):
+        return connection
+    raise ValueError(
+        f"{registration.id} supports only {registration.connection_kind} connections"
+    )
 
 
 def _configuration_problem(

@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from scopecat.records.config import (
         InstrumentBindingSpec,
         InstrumentConnection,
+        SerialInstrumentConnection,
         TcpipSocketInstrumentConnection,
         VirtualInstrumentConnection,
     )
@@ -104,6 +105,7 @@ if TYPE_CHECKING:
         MemberObservation,
         device_member,
         observation,
+        write_only_member,
     )
     from scopecat.sdk.instruments.errors import InstrumentCollectFailure
     from scopecat.sdk.instruments.members import (
@@ -167,6 +169,7 @@ if TYPE_CHECKING:
         query_string,
         query_text,
     )
+    from scopecat.sdk.instruments.transport import BinaryTransport
 
 
 _EXPORTS: dict[str, tuple[str, str]] = {
@@ -194,6 +197,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "AcquisitionSpec": ("scopecat.sdk.instruments.contracts", "AcquisitionSpec"),
     "ApplyReceipt": ("scopecat.sdk.instruments.commands", "ApplyReceipt"),
+    "BinaryTransport": ("scopecat.sdk.instruments.transport", "BinaryTransport"),
     "CollectReceipt": ("scopecat.sdk.instruments.commands", "CollectReceipt"),
     "CommandChannelBinding": (
         "scopecat.records.instrument",
@@ -400,6 +404,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "ScpiIdentity": ("scopecat.sdk.instruments.scpi", "ScpiIdentity"),
     "ScpiProtocolError": ("scopecat.sdk.instruments.scpi", "ScpiProtocolError"),
     "ScpiTransport": ("scopecat.sdk.instruments.scpi", "ScpiTransport"),
+    "SerialInstrumentConnection": (
+        "scopecat.records.config",
+        "SerialInstrumentConnection",
+    ),
     "StatePropertyRef": (
         "scopecat.sdk.instruments.contracts",
         "StatePropertyRef",
@@ -474,6 +482,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "read": ("scopecat.sdk.instruments.object_driver", "read"),
     "update": ("scopecat.sdk.instruments.object_driver", "update"),
     "write": ("scopecat.sdk.instruments.object_driver", "write"),
+    "write_only_member": (
+        "scopecat.sdk.instruments.declarations",
+        "write_only_member",
+    ),
     "operation": ("scopecat.sdk.instruments.contracts", "operation"),
     "operation_argument": (
         "scopecat.sdk.instruments.contracts",

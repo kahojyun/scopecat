@@ -55,6 +55,12 @@ measurement roles and axes. Generation produces the wire contract, typed
 clients, member references, state projections, and measurement-valued driver
 observation carriers.
 
+An acknowledged setting that the device cannot query is the narrow exception:
+declare it with `write_only_member(...)`. It remains an independently
+addressed sparse state command, but it cannot participate in observation,
+baseline capture, or restoration. This is more honest than claiming a richer
+read/write interface or fabricating cached readback.
+
 A driver subclasses `ObjectInstrumentDriver` and binds typed methods to member
 declarations with `@read`, `@write`, `@query`, or `@update`. The base class
 handles dispatch and wire conversion; the driver owns command ordering, device
@@ -84,6 +90,13 @@ with `member_constraint(...)`. This is an endpoint refinement, not a new
 interface declaration. Relational constraints such as “remote sense requires a
 voltage range of at least 1 V” remain explicit driver behavior because they
 depend on several independently queryable members.
+
+Configured providers distinguish physical connection from device protocol.
+`tcpip_socket` supplies a line-oriented SCPI transport; `serial` supplies a
+binary request/response transport with explicit framing. A registration also
+chooses identity or connection-only probing. Transport failures retire that
+generation: never retry an unconfirmed write in a driver, because the command
+may already have reached hardware.
 
 Use the package's source-adjacent guides for the exact extension workflow:
 

@@ -31,10 +31,18 @@ from scopecat_instruments.testing import ScriptedTransport
 
 class _FailingTransport:
     def write(self, command: str) -> None:
-        raise TransportError(f"failed write: {command}")
+        raise TransportError(
+            f"failed write: {command}",
+            operation="write",
+            command_may_have_reached_device=True,
+        )
 
     def query(self, command: str) -> str:
-        raise TransportError(f"failed query: {command}")
+        raise TransportError(
+            f"failed query: {command}",
+            operation="query",
+            command_may_have_reached_device=True,
+        )
 
     def close(self) -> None:
         pass

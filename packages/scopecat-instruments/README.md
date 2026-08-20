@@ -8,7 +8,9 @@ exclusive claims, interface validation, operation receipts, and audit trail.
 The configured connection kinds are:
 
 - `virtual`, for a deterministic simulated device selected by `driver_id`;
-- `tcpip_socket`, for a configured host, port, and timeout.
+- `tcpip_socket`, for a configured host, port, and timeout;
+- `serial`, for a named port with explicit baud rate, timeout, framing, and flow
+  control.
 
 ## Using the package
 
@@ -305,6 +307,14 @@ restoration automatically. Do not add a writer whose only behavior is rejecting
 changes. Mounted drivers preserve these implementation semantics independently
 at every physical component path.
 
+Use `write_only_member(...)` when hardware acknowledges a setting
+but cannot query it. This remains state—sparse applies, routing, validation, and
+audit records still use the member identity—but it cannot enter a baseline or
+restoration snapshot. Generated clients expose `set(...)`/`apply(...)`, report
+`is_readable() == False`, and reject `read()` locally. Do not fabricate a
+readback or promote the command to a full read/write interface merely to fit a
+better instrument's contract.
+
 For the less common case where a member remains readable and writable but one
 model must not participate in an interface lifecycle policy, add an
 exception-only `member_policy(..., capture=False)` or
@@ -380,6 +390,29 @@ TCP/IP instrument:
 }
 ```
 
+Binary serial instrument:
+
+```json
+{
+  "id": "jpa-bias",
+  "exclusivity_key": "jpa-bias",
+  "driver_id": "example.dpower",
+  "connection": {
+    "kind": "serial",
+    "port": "/dev/ttyUSB0",
+    "baud_rate": 9600,
+    "timeout_seconds": 1,
+    "write_timeout_seconds": 1,
+    "data_bits": 8,
+    "parity": "none",
+    "stop_bits": 1
+  },
+  "run_start": "preserve",
+  "success_action": "release",
+  "failure_action": "abort_and_release"
+}
+```
+
 Every run first synchronizes the device. `preserve` retains that observed
 state; `apply_default_state` then applies the saved partial public state.
 Unspecified and private driver settings remain untouched. After authored
@@ -430,7 +463,8 @@ before enabling hardware outputs.
 SCPI drivers depend on the transport protocol and typed query helpers in
 `scopecat.sdk.instruments.scpi`; this package supplies the concrete TCP
 transport. Parsing failures therefore retain the command that produced the
-invalid response.
+invalid response. Binary drivers depend on `BinaryTransport`; the serial
+implementation owns one port generation and exact-size exchanges.
 
 ## Application composition
 
@@ -468,16 +502,30 @@ provider = ConfiguredInstrumentProvider(
 Each `DriverRegistration` supplies one lazy `PythonSymbol`, implementation
 version, connection kind, strict Pydantic options model, and catalog metadata.
 The shared provider derives schemas, creates description-only drivers, opens
-TCP transports, identifies hardware, closes failed connections, and maps
-provider problems. A project registration's constructor receives
-`instrument_id`, the SCPI transport, and its validated option fields.
+TCP or serial transports, probes hardware, closes failed connections, and maps
+provider problems. Identity-capable drivers use the default `probe="identify"`;
+devices with no safe identity query may declare `probe="connect"`, which proves
+only that the configured port can open. A project registration's constructor
+receives `instrument_id`, its transport, and validated option fields.
+
+Transport generations are never reopened or retried inside a driver. A
+`TransportError` records the failed operation, whether the command may have
+reached hardware, and that the owner must replace the driver/transport pair.
+After a write or binary exchange loses confirmation, return an `unknown`
+outcome; automatic retry could duplicate an effect. A later ownership epoch may
+connect a fresh driver and reconcile queryable state.
 
 ## Testing
 
-The explicit testing module provides strict SCPI transcript helpers:
+The explicit testing module provides strict text and binary transcript helpers:
 
 ```python
-from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
+from scopecat_instruments.testing import (
+    ScriptedBinaryExchange,
+    ScriptedBinaryTransport,
+    ScriptedExchange,
+    ScriptedTransport,
+)
 ```
 
 Their docstrings define the transport contract; driver tests keep exact device

@@ -44,6 +44,7 @@ from scopecat.sdk.instruments.declarations import (
     member,
     observation,
     operation,
+    write_only_member,
 )
 
 
@@ -119,6 +120,26 @@ class OOSourceDriver(ObjectInstrumentDriver):
         self.zero_count += 1
 
 
+@instrument_interface("test.write_only_setpoint/v1")
+class WriteOnlySetpoint(Protocol):
+    target: Member[int] = write_only_member()
+
+
+@instrument_driver(
+    "test.write_only_setpoint",
+    "1",
+    interfaces=(WriteOnlySetpoint,),
+)
+class WriteOnlySetpointDriver(ObjectInstrumentDriver):
+    def __init__(self) -> None:
+        self.instrument_id = "write-only-source"
+        self.written: list[int] = []
+
+    @write(WriteOnlySetpoint.target)
+    def write_target(self, value: int) -> None:
+        self.written.append(value)
+
+
 def test_member_attributes_compile_without_property_inference() -> None:
     spec = compile_interface(OOSource).spec
 
@@ -129,6 +150,19 @@ def test_member_attributes_compile_without_property_inference() -> None:
         ("limit", "read_write", True, False),
         ("serial_number", "read_only", False, False),
     ]
+
+
+def test_object_driver_supports_declared_write_only_state() -> None:
+    driver = WriteOnlySetpointDriver()
+    target = declared_property_ref(WriteOnlySetpoint, "target")
+    [spec] = driver.describe().interfaces
+
+    assert spec.properties[0].access == "write_only"
+    assert capture_state_members(driver.describe()) == ()
+    assert driver.apply_state(DriverStatePatch(values={target: 7})) == DriverSuccess(
+        None
+    )
+    assert driver.written == [7]
 
 
 def test_object_driver_adapts_properties_and_methods() -> None:

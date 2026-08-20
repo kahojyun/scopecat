@@ -750,7 +750,11 @@ class _RestoreFailingTransport(ScriptedTransport):
     @override
     def write(self, command: str) -> None:
         if command == ":SENS:TRIG IMM":
-            raise TransportError("trigger restore failed")
+            raise TransportError(
+                "trigger restore failed",
+                operation="write",
+                command_may_have_reached_device=True,
+            )
         super().write(command)
 
 
