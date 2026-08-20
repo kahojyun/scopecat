@@ -290,12 +290,12 @@ def _create_virtual_driver(
     connection = binding.connection
     if not isinstance(connection, VirtualInstrumentConnection):
         raise ValueError(f"{registration.id} requires a virtual connection")
-    registration.options_type.model_validate(connection.options)
+    options = registration.options_type.model_validate(connection.options)
     factory = cast(
-        "Callable[[str, VirtualLabWorld], InstrumentDriver]",
+        "Callable[..., InstrumentDriver]",
         registration.implementation.resolve(),
     )
-    return factory(binding.id, world)
+    return factory(binding.id, world, **options.model_dump())
 
 
 def _create_virtual_world(*, seed: int) -> VirtualLabWorld:

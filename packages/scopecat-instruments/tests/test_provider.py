@@ -7,6 +7,7 @@ from threading import Thread
 from typing import cast
 
 import pytest
+from pydantic import BaseModel, ConfigDict
 from scopecat.kernel.entity import EntityRef
 from scopecat.records.config import (
     ConfigProfileSnapshot,
@@ -29,7 +30,11 @@ from scopecat.sdk.instruments import (
 )
 
 from scopecat_instruments.drivers import YokogawaGS200
-from scopecat_instruments.package_manifest import YOKOGAWA_GS200_DRIVER
+from scopecat_instruments.package_manifest import (
+    YOKOGAWA_GS200_DRIVER,
+    DriverRegistration,
+    PythonSymbol,
+)
 from scopecat_instruments.provider import (
     KEYSIGHT_E5080B,
     LAKESHORE_372,
@@ -44,6 +49,13 @@ from scopecat_instruments.provider import (
     compose_driver_registrations,
 )
 from scopecat_instruments.virtual import VirtualDcSource
+from scopecat_instruments.virtual.world import VirtualLabWorld
+
+
+class _ConfiguredVirtualOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    channel_count: int
 
 
 def test_package_manifest_does_not_import_driver_implementations() -> None:
@@ -133,6 +145,55 @@ def test_provider_composes_an_external_registration_set() -> None:
     ]
     with pytest.raises(ValueError, match="unique ids"):
         compose_driver_registrations(registrations, registrations)
+
+
+def test_provider_passes_validated_options_to_virtual_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    received: list[int] = []
+
+    def factory(
+        instrument_id: str,
+        world: VirtualLabWorld,
+        *,
+        channel_count: int,
+    ) -> VirtualDcSource:
+        received.append(channel_count)
+        return VirtualDcSource(instrument_id, world)
+
+    registration = DriverRegistration(
+        id="test.configured_virtual",
+        implementation_version="v1",
+        implementation=PythonSymbol("unused", "factory"),
+        connection_kind="virtual",
+        options_type=_ConfiguredVirtualOptions,
+        label="Configured virtual driver",
+    )
+    original_resolve = PythonSymbol.resolve
+
+    def resolve(symbol: PythonSymbol) -> object:
+        return factory if symbol.module == "unused" else original_resolve(symbol)
+
+    monkeypatch.setattr(PythonSymbol, "resolve", resolve)
+    provider = ConfiguredInstrumentProvider(registrations=(registration,))
+    config = _config(
+        InstrumentSpec(
+            id="configured",
+            exclusivity_key="configured",
+            driver_id=registration.id,
+            connection=VirtualInstrumentConnection(options={"channel_count": 4}),
+            run_start="preserve",
+            success_action="release",
+            failure_action="abort_and_release",
+        )
+    )
+
+    driver = provider.connect(
+        InstrumentConnectionContext(binding=instrument_bindings(config)[0])
+    )
+
+    assert isinstance(driver, VirtualDcSource)
+    assert received == [4]
 
 
 class _IdnServer:
