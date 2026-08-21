@@ -69,6 +69,36 @@ class DomainStateRequirement:
     value: StateValue
 
 
+@dataclass(frozen=True, slots=True, order=True)
+class DomainResidencyAddress:
+    """One connection-owned opaque target setup slot.
+
+    Residency is runtime knowledge such as the content currently loaded in an
+    AWG or FPGA program bank. It is deliberately separate from public
+    instrument interface state: experiment authors do not select it, drivers
+    need not make it queryable, and losing the connection loses the knowledge.
+    """
+
+    instrument_id: str
+    slot_id: str
+
+    def __post_init__(self) -> None:
+        if not self.instrument_id or not self.slot_id:
+            raise ValueError("domain residency identity fields must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class DomainResidencyRequirement:
+    """Content that target setup leaves resident in one opaque slot."""
+
+    address: DomainResidencyAddress
+    content_fingerprint: str
+
+    def __post_init__(self) -> None:
+        if not self.content_fingerprint:
+            raise ValueError("domain residency fingerprint must be non-empty")
+
+
 @dataclass(frozen=True, slots=True)
 class PreparedDomainExecution:
     """A pure proof that one bound program is ready for domain effects.
@@ -108,6 +138,9 @@ class PreparedDomainExecution:
         repr=False,
         compare=False,
     )
+    setup_residency_requirements: tuple[DomainResidencyRequirement, ...] = ()
+    setup_residency_invalidations: tuple[DomainResidencyAddress, ...] = ()
+    realtime_residency_invalidations: tuple[DomainResidencyAddress, ...] = ()
 
     def __post_init__(self) -> None:
         if self.next_batch_max_points <= 0:
@@ -124,9 +157,32 @@ class PreparedDomainExecution:
                 "prepared domain write footprints must belong to its instrument "
                 "footprint"
             )
+        residency_addresses = tuple(
+            requirement.address for requirement in self.setup_residency_requirements
+        )
+        if len(residency_addresses) != len(set(residency_addresses)):
+            raise ValueError("prepared domain residency slots must be unique")
+        if self.setup is None and (
+            self.setup_residency_requirements or self.setup_residency_invalidations
+        ):
+            raise ValueError("domain setup residency contract requires target setup")
+        if any(
+            address.instrument_id not in self.instrument_ids
+            for address in (
+                *residency_addresses,
+                *self.setup_residency_invalidations,
+                *self.realtime_residency_invalidations,
+            )
+        ):
+            raise ValueError(
+                "prepared domain residency slots must belong to its instrument "
+                "footprint"
+            )
 
 
 __all__ = [
+    "DomainResidencyAddress",
+    "DomainResidencyRequirement",
     "DomainStateAddress",
     "DomainStateRequirement",
     "PreparedDomainExecution",

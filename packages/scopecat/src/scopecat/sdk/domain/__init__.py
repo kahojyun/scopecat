@@ -30,6 +30,8 @@ if TYPE_CHECKING:
         DomainExecutionEvidence,
     )
     from scopecat.sdk.domain.execution import (
+        DomainResidencyAddress,
+        DomainResidencyRequirement,
         DomainStateAddress,
         DomainStateRequirement,
         PreparedDomainExecution,
@@ -72,6 +74,8 @@ _BATCH_EXPORTS = (
     "DomainBatchRequest",
 )
 _EXECUTION_EXPORTS = (
+    "DomainResidencyAddress",
+    "DomainResidencyRequirement",
     "DomainStateAddress",
     "DomainStateRequirement",
     "PreparedDomainExecution",
@@ -192,6 +196,8 @@ __all__ = [
     "DomainProductContractView",
     "DomainProductUseRef",
     "DomainProgramView",
+    "DomainResidencyAddress",
+    "DomainResidencyRequirement",
     "DomainResultBinding",
     "DomainResultBindingView",
     "DomainResultMapping",

@@ -11,6 +11,7 @@ from scopecat.execution.effect_interpreter import (
     _CancellationAwareDomainInstruments,
 )
 from scopecat.execution.effects.domain import (
+    DomainResidencyCache,
     _PreparedDomainJobRuntime,
     execute_domain_job_values,
 )
@@ -23,6 +24,8 @@ from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.sdk.domain.execution import (
+    DomainResidencyAddress,
+    DomainResidencyRequirement,
     DomainStateAddress,
     DomainStateRequirement,
     ErasedDomainInvocation,
@@ -91,6 +94,30 @@ class _Realtime:
 
 
 @dataclass
+class _CompletingRealtime:
+    calls: int = 0
+
+    def start(
+        self,
+        execution_key: str,
+        payload: object,
+        *,
+        instruments: object,
+    ) -> DomainExecutionResult[object]:
+        del payload, instruments
+        self.calls += 1
+        return DomainExecutionResult(
+            DomainExecutionReceipt(
+                execution_key=execution_key,
+                status="completed",
+                result_fingerprint=f"result-{self.calls}",
+                result_count=0,
+            ),
+            object(),
+        )
+
+
+@dataclass
 class _Executor:
     receipt: RunHardwareBatchReceipt
     batches: list[RunHardwareBatch] = field(default_factory=list)
@@ -103,8 +130,11 @@ class _Executor:
 def _prepared(
     *,
     setup: _Setup,
-    realtime: _Realtime,
+    realtime: _Realtime | _CompletingRealtime,
     requirements: tuple[DomainStateRequirement, ...] = (),
+    residency: tuple[DomainResidencyRequirement, ...] = (),
+    setup_residency_invalidations: tuple[DomainResidencyAddress, ...] = (),
+    realtime_residency_invalidations: tuple[DomainResidencyAddress, ...] = (),
 ) -> PreparedDomainExecution:
     def realize_into(
         _result: DomainExecutionResult[object],
@@ -124,19 +154,155 @@ def _prepared(
         setup=cast("ErasedDomainSetup", setup),
         job_runtime=cast("ErasedDomainJobRuntime", realtime),
         realize_into=cast("ErasedDomainRealizer", realize_into),
+        setup_residency_requirements=residency,
+        setup_residency_invalidations=setup_residency_invalidations,
+        realtime_residency_invalidations=realtime_residency_invalidations,
     )
 
 
-def _requirement() -> DomainStateRequirement:
+def _requirement(*, instrument_id: str = "awg") -> DomainStateRequirement:
     return DomainStateRequirement(
         address=DomainStateAddress(
-            instrument_id="awg",
+            instrument_id=instrument_id,
             interface_id="test.output/v1",
             component_path=("outputs", "ch1"),
             property_id="offset",
         ),
         value=StateValue(Quantity(0.0, "V")),
     )
+
+
+def _residency(
+    fingerprint: str,
+    *,
+    instrument_id: str = "awg",
+    slot_id: str = "program",
+) -> DomainResidencyRequirement:
+    return DomainResidencyRequirement(
+        address=DomainResidencyAddress(
+            instrument_id=instrument_id,
+            slot_id=slot_id,
+        ),
+        content_fingerprint=fingerprint,
+    )
+
+
+def test_matching_residency_skips_repeated_setup() -> None:
+    setup = _Setup()
+    realtime = _CompletingRealtime()
+    cache = DomainResidencyCache()
+    prepared = _prepared(
+        setup=setup,
+        realtime=realtime,
+        residency=(_residency("program-a"),),
+    )
+    runtime = _PreparedDomainJobRuntime(prepared, cache)
+    instruments = _Executor(RunHardwareBatchReceipt(operation_id="unused"))
+
+    first = runtime.start("first", object(), instruments=instruments)
+    second = runtime.start("second", object(), instruments=instruments)
+
+    assert isinstance(first, DomainExecutionResult)
+    assert isinstance(second, DomainExecutionResult)
+    assert setup.calls == 1
+    assert realtime.calls == 2
+    assert cache.contents == {DomainResidencyAddress("awg", "program"): "program-a"}
+
+
+def test_changed_or_invalidated_residency_runs_setup_again() -> None:
+    setup = _Setup()
+    realtime = _CompletingRealtime()
+    cache = DomainResidencyCache()
+    instruments = _Executor(RunHardwareBatchReceipt(operation_id="unused"))
+
+    _ = _PreparedDomainJobRuntime(
+        _prepared(
+            setup=setup,
+            realtime=realtime,
+            residency=(_residency("program-a"),),
+        ),
+        cache,
+    ).start("first", object(), instruments=instruments)
+    _ = _PreparedDomainJobRuntime(
+        _prepared(
+            setup=setup,
+            realtime=realtime,
+            residency=(_residency("program-b"),),
+        ),
+        cache,
+    ).start("second", object(), instruments=instruments)
+    cache.invalidate_instruments({"lo"})
+    _ = _PreparedDomainJobRuntime(
+        _prepared(
+            setup=setup,
+            realtime=realtime,
+            residency=(_residency("program-b"),),
+        ),
+        cache,
+    ).start("third", object(), instruments=instruments)
+    cache.invalidate_instruments({"awg"})
+    _ = _PreparedDomainJobRuntime(
+        _prepared(
+            setup=setup,
+            realtime=realtime,
+            residency=(_residency("program-b"),),
+        ),
+        cache,
+    ).start("fourth", object(), instruments=instruments)
+
+    assert setup.calls == 3
+    assert realtime.calls == 4
+
+
+def test_realtime_residency_invalidation_withdraws_setup_knowledge() -> None:
+    setup = _Setup()
+    realtime = _CompletingRealtime()
+    cache = DomainResidencyCache()
+    residency = _residency("program-a")
+    prepared = _prepared(
+        setup=setup,
+        realtime=realtime,
+        residency=(residency,),
+        realtime_residency_invalidations=(residency.address,),
+    )
+    runtime = _PreparedDomainJobRuntime(prepared, cache)
+    instruments = _Executor(RunHardwareBatchReceipt(operation_id="unused"))
+
+    _ = runtime.start("first", object(), instruments=instruments)
+    _ = runtime.start("second", object(), instruments=instruments)
+
+    assert setup.calls == 2
+    assert realtime.calls == 2
+    assert cache.contents == {}
+
+
+def test_external_host_requirement_preserves_target_residency() -> None:
+    setup = _Setup()
+    realtime = _CompletingRealtime()
+    residency = _residency("program-a")
+    cache = DomainResidencyCache(
+        contents={residency.address: residency.content_fingerprint}
+    )
+    runtime = _PreparedDomainJobRuntime(
+        _prepared(
+            setup=setup,
+            realtime=realtime,
+            requirements=(_requirement(instrument_id="lo-source"),),
+            residency=(residency,),
+        ),
+        cache,
+    )
+    operation_id = "domain:execution-key:reconcile-requirements"
+
+    result = runtime.start(
+        "execution-key",
+        object(),
+        instruments=_Executor(RunHardwareBatchReceipt(operation_id=operation_id)),
+    )
+
+    assert isinstance(result, DomainExecutionResult)
+    assert setup.calls == 0
+    assert cache.contents == {residency.address: residency.content_fingerprint}
 
 
 def test_known_setup_rejection_returns_not_executed() -> None:

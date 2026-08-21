@@ -49,6 +49,7 @@ from scopecat.records.instrument import (
     state_member_identity,
 )
 from scopecat.records.measurement import MeasurementScalar
+from scopecat.sdk.domain.execution import DomainResidencyAddress
 from scopecat.sdk.instruments import (
     DriverAcquisition,
     DriverOutcome,
@@ -152,6 +153,32 @@ def test_normal_completion_applies_success_state_after_point_coverage() -> None:
         and item.target.interface_id == "test.set_gain/v1"
         and item.target.property_id == "gain"
     ) == StateValue(0.0)
+
+
+def test_host_effect_invalidates_only_same_instrument_domain_residency() -> None:
+    driver = SignalInstrumentDriver(instrument_id="lo-source")
+    program = LocalEffectInspection.at_point(
+        AcceptedRunPoint(_logical_point_id("host-residency-point"), {}),
+        (_gain_operation("lo-source", 1.0),),
+        resource_order=("lo-source",),
+        resource_requirements=_requirements("lo-source"),
+    )
+    engine = RunEffectInterpreter(
+        run_id="host-residency-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost((driver,)),
+    )
+    lo_residency = DomainResidencyAddress("lo-source", "program")
+    mmcs_residency = DomainResidencyAddress("mmcs-controller", "program")
+    engine._domain_residency.contents = {
+        lo_residency: "lo-program",
+        mmcs_residency: "mmcs-program",
+    }
+
+    result = engine.run(complete_coverage_operations(program), points=program.points)
+
+    assert not result.problems
+    assert engine._domain_residency.contents == {mmcs_residency: "mmcs-program"}
 
 
 def test_cancellation_waits_for_hardware_batch_then_skips_success_state() -> None:

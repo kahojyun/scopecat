@@ -7,7 +7,10 @@ from collections.abc import Callable, Iterable, Sequence
 import scopecat.execution.effect_result as effect_result
 from scopecat.execution.effects.boundary import EffectBoundary
 from scopecat.execution.effects.compute import ComputeEffectExecutor, PointEffectState
-from scopecat.execution.effects.domain import execute_domain_job_values
+from scopecat.execution.effects.domain import (
+    DomainResidencyCache,
+    execute_domain_job_values,
+)
 from scopecat.execution.effects.hardware import HardwareEffectExecutor
 from scopecat.execution.local.program import (
     ApplyStateOperation,
@@ -123,6 +126,7 @@ class RunEffectInterpreter:
         self._instruments = instruments
         self._cancellation_requested = cancellation_requested
         self._domain_job_transitions = domain_job_transitions
+        self._domain_residency = DomainResidencyCache()
         self._domain_instruments = _CancellationAwareDomainInstruments(
             instruments,
             cancellation_requested,
@@ -225,10 +229,7 @@ class RunEffectInterpreter:
                 continue
             if hardware:
                 self._check_cancellation()
-                if not self._hardware.execute(
-                    hardware,
-                    frame_for=self._point_state,
-                ):
+                if not self._execute_hardware_block(hardware):
                     return
                 hardware.clear()
                 self._check_cancellation()
@@ -241,10 +242,7 @@ class RunEffectInterpreter:
             self._check_cancellation()
         if hardware:
             self._check_cancellation()
-            if not self._hardware.execute(
-                hardware,
-                frame_for=self._point_state,
-            ):
+            if not self._execute_hardware_block(hardware):
                 return
             self._check_cancellation()
         remaining = tuple(
@@ -255,6 +253,27 @@ class RunEffectInterpreter:
         if remaining:
             self._commit_coverage(remaining)
             self._check_cancellation()
+
+    def _execute_hardware_block(
+        self,
+        hardware: Sequence[RunCoverageEffect],
+    ) -> bool:
+        succeeded = self._hardware.execute(
+            hardware,
+            frame_for=self._point_state,
+        )
+        if succeeded:
+            self._domain_residency.invalidate_instruments(
+                {
+                    effect.operation.instrument_id
+                    for effect in hardware
+                    if isinstance(
+                        effect.operation,
+                        ApplyStateOperation | InvokeOperation | CollectOperation,
+                    )
+                }
+            )
+        return succeeded
 
     def _commit_coverage_checkpoint(
         self,
@@ -350,6 +369,7 @@ class RunEffectInterpreter:
                 commit_terminal=lambda _execution_id, receipt: (
                     self._commit_domain_job_terminal(job, receipt)
                 ),
+                residency=self._domain_residency,
             )
         except DomainExecutionCancellationRequested:
             self._check_cancellation()

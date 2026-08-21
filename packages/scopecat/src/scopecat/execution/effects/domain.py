@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, cast
 
 from scopecat.kernel.errors import (
@@ -20,7 +20,11 @@ from scopecat.measurements.values import (
     MeasurementValueCandidate,
 )
 from scopecat.records.instrument import state_member_target
-from scopecat.sdk.domain.execution import PreparedDomainExecution
+from scopecat.sdk.domain.execution import (
+    DomainResidencyAddress,
+    DomainResidencyRequirement,
+    PreparedDomainExecution,
+)
 from scopecat.sdk.domain.runtime import (
     DomainExecutionCancellationRequested,
     DomainExecutionId,
@@ -60,6 +64,7 @@ def execute_domain_job_values(
     | None = None,
     commit_terminal: Callable[[DomainExecutionId, DomainExecutionReceipt], None]
     | None = None,
+    residency: DomainResidencyCache | None = None,
 ) -> None:
     """Execute one closed domain job into the execution-owned coverage sink.
 
@@ -70,7 +75,7 @@ def execute_domain_job_values(
     """
 
     invocation = prepared.invocation
-    runtime = _PreparedDomainJobRuntime(prepared)
+    runtime = _PreparedDomainJobRuntime(prepared, residency)
     execution_id = plan_domain_execution(
         invocation,
         run_id=run_id,
@@ -216,6 +221,7 @@ def execute_domain_job_values(
 @dataclass(frozen=True, slots=True)
 class _PreparedDomainJobRuntime:
     prepared: PreparedDomainExecution
+    residency: DomainResidencyCache | None = field(default=None, compare=False)
 
     def start(
         self,
@@ -227,19 +233,35 @@ class _PreparedDomainJobRuntime:
     ) -> DomainJobCheckpoint | DomainExecutionReceipt | DomainExecutionResult[object]:
         try:
             setup = self.prepared.setup
-            if setup is not None:
+            if setup is not None and (
+                self.residency is None
+                or self.residency.requires_setup(
+                    self.prepared.setup_residency_requirements
+                )
+            ):
                 setup.prepare(execution_key, payload, instruments=instruments)
+                if self.residency is not None:
+                    self.residency.commit_setup(self.prepared)
             _reconcile_domain_state_requirements(
                 self.prepared,
                 execution_key=execution_key,
                 instruments=instruments,
             )
+            if self.residency is not None:
+                self.residency.invalidate_instruments(
+                    {
+                        requirement.address.instrument_id
+                        for requirement in self.prepared.state_requirements
+                    }
+                )
         except OperationFailure as error:
             return DomainExecutionReceipt(
                 execution_key=execution_key,
                 status="not_executed",
                 problems=error.problems,
             )
+        if self.residency is not None:
+            self.residency.invalidate(self.prepared.realtime_residency_invalidations)
         return self.prepared.job_runtime.start(
             execution_key,
             payload,
@@ -263,6 +285,44 @@ class _PreparedDomainJobRuntime:
             cast("object", self.prepared.job_runtime),
         )
         return resumable.resume(checkpoint, instruments=instruments)
+
+
+@dataclass(slots=True)
+class DomainResidencyCache:
+    """Run-local knowledge of opaque content resident beside live connections."""
+
+    contents: dict[DomainResidencyAddress, str] = field(default_factory=dict)
+
+    def requires_setup(
+        self,
+        requirements: tuple[DomainResidencyRequirement, ...],
+    ) -> bool:
+        if not requirements:
+            return True
+        return any(
+            self.contents.get(requirement.address) != requirement.content_fingerprint
+            for requirement in requirements
+        )
+
+    def commit_setup(self, prepared: PreparedDomainExecution) -> None:
+        self.invalidate(prepared.setup_residency_invalidations)
+        self.contents.update(
+            {
+                requirement.address: requirement.content_fingerprint
+                for requirement in prepared.setup_residency_requirements
+            }
+        )
+
+    def invalidate(self, addresses: tuple[DomainResidencyAddress, ...]) -> None:
+        for address in addresses:
+            self.contents.pop(address, None)
+
+    def invalidate_instruments(self, instrument_ids: set[str]) -> None:
+        self.contents = {
+            address: fingerprint
+            for address, fingerprint in self.contents.items()
+            if address.instrument_id not in instrument_ids
+        }
 
 
 def _reconcile_domain_state_requirements(
