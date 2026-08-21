@@ -258,6 +258,15 @@ transition proves the provider outcome was known to the executor. These facts
 survive loss before the run-level terminal commit, but none alone grants replay
 authority.
 
+The daemon folds those facts into one bounded current-state row per observed
+execution: `invocation_unknown`, `pending`, or `terminal`. This is a diagnostic
+projection rather than a recovery policy, so it has no `recoverable` flag and no
+resume command. An empty projection means that no invocation became durable; it
+does not prove that the client-owned program contains no domain job. Safe
+continuation still requires an exact program position, an owned instrument
+session, a reconstructed measurement sink, and any result payload needed after
+a terminal receipt.
+
 These durable transitions make interrupted provider state inspectable after
 executor or daemon loss, but do not by themselves authorize continuing the run.
 Daemon restart fences the instrument session, process-local measurement writer,

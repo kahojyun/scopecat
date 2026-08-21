@@ -35,6 +35,7 @@ from scopecat.daemon.wire import (
     RunCancellationReceipt,
     RunCoverageAdvanceCommand,
     RunCoverageState,
+    RunDomainJobStatePage,
     RunDomainJobTransitionCommand,
     RunDomainJobTransitionPage,
     RunDomainJobTransitionView,
@@ -176,6 +177,19 @@ class ExecutorService:
     ) -> RunDomainJobTransitionPage:
         self._control_run(run_id)
         return SQLiteDomainJobTransitions(self._runs, run_id=run_id).read(
+            limit=limit,
+            before=before,
+        )
+
+    def domain_jobs(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunDomainJobStatePage:
+        self._control_run(run_id)
+        return SQLiteDomainJobTransitions(self._runs, run_id=run_id).read_current(
             limit=limit,
             before=before,
         )

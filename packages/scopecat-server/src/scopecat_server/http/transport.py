@@ -179,6 +179,7 @@ from scopecat.daemon.wire import (
     RunCancellationReceipt,
     RunCoverageAdvanceCommand,
     RunCoverageState,
+    RunDomainJobStatePage,
     RunDomainJobTransitionCommand,
     RunDomainJobTransitionPage,
     RunDomainJobTransitionView,
@@ -1279,6 +1280,18 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         before: Annotated[int | None, Query(ge=1)] = None,
     ) -> RunDomainJobTransitionPage:
         return application.executor.domain_job_transitions(
+            run_id,
+            limit=limit,
+            before=before,
+        )
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/domain-jobs")
+    def get_run_domain_jobs(
+        run_id: str,
+        limit: Annotated[int, Query(ge=1, le=100)] = 64,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> RunDomainJobStatePage:
+        return application.executor.domain_jobs(
             run_id,
             limit=limit,
             before=before,

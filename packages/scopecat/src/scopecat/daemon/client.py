@@ -165,6 +165,7 @@ from scopecat.daemon.wire import (
     RunCancellationReceipt,
     RunCoverageAdvanceCommand,
     RunCoverageState,
+    RunDomainJobStatePage,
     RunDomainJobTransitionCommand,
     RunDomainJobTransitionPage,
     RunDomainJobTransitionView,
@@ -1475,6 +1476,22 @@ class DaemonClient:
         return self._get_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/domain-jobs/transitions",
             RunDomainJobTransitionPage,
+            params=params,
+        )
+
+    def get_run_domain_jobs(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunDomainJobStatePage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/domain-jobs",
+            RunDomainJobStatePage,
             params=params,
         )
 

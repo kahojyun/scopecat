@@ -61,7 +61,7 @@ from scopecat.records.config import (
     InstrumentBindingSpec,
 )
 from scopecat.records.content import ContentEntry, Sha256ContentHash
-from scopecat.records.execution import DomainJobTransitionRecord
+from scopecat.records.execution import DomainExecutionId, DomainJobTransitionRecord
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
@@ -800,6 +800,48 @@ class RunDomainJobTransitionPage(_WireModel):
     next_cursor: int | None = Field(default=None, ge=1)
 
 
+class RunDomainJobStateView(_WireModel):
+    """Current durable fact for one observed domain-job execution.
+
+    This projection is diagnostic evidence, not authority to replay an
+    invocation or resume a provider job.
+    """
+
+    run_id: NonEmptyText
+    execution_id: DomainExecutionId
+    point_ordinals: tuple[int, ...] = Field(min_length=1)
+    state: Literal["invocation_unknown", "pending", "terminal"]
+    invocation_sequence: int = Field(ge=1)
+    latest_sequence: int = Field(ge=1)
+    transition_count: int = Field(ge=1)
+    latest_transition: DomainJobTransitionRecord
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> RunDomainJobStateView:
+        if self.execution_id.run_id != self.run_id:
+            raise ValueError("domain job state execution belongs to another run")
+        if self.latest_transition.execution_key != self.execution_id.execution_key:
+            raise ValueError("domain job state transition belongs to another execution")
+        if self.latest_sequence < self.invocation_sequence:
+            raise ValueError("domain job latest transition predates its invocation")
+        expected_state = {
+            "invocation": "invocation_unknown",
+            "checkpoint": "pending",
+            "terminal": "terminal",
+        }[self.latest_transition.kind]
+        if self.state != expected_state:
+            raise ValueError("domain job state does not match its latest transition")
+        return self
+
+
+class RunDomainJobStatePage(_WireModel):
+    """A bounded invocation-ordered slice of observed domain-job states."""
+
+    run_id: NonEmptyText
+    items: tuple[RunDomainJobStateView, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+
 class _FencedOperationCommand(_FencedCommand):
     operation_id: NonEmptyText
 
@@ -1149,6 +1191,8 @@ __all__ = [
     "RunCancellationReceipt",
     "RunCoverageAdvanceCommand",
     "RunCoverageState",
+    "RunDomainJobStatePage",
+    "RunDomainJobStateView",
     "RunDomainJobTransitionCommand",
     "RunDomainJobTransitionPage",
     "RunDomainJobTransitionView",

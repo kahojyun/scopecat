@@ -172,8 +172,11 @@ release boundaries for it.
 
 The daemon serves the bundled GUI and a versioned typed HTTP API. Run detail,
 resource state, configuration history, measurements, and domain-job transitions
-are exposed through bounded queries. Measurement control commands remain small
-JSON documents;
+are exposed through bounded queries. The domain-job collection projects one
+current `invocation_unknown`, `pending`, or `terminal` state for each observed
+execution, while its transition subresource retains the ordered evidence. The
+projection is explicitly diagnostic and exposes no replay operation.
+Measurement control commands remain small JSON documents;
 measurement ingest and the live latest-point response use schema-driven Arrow
 IPC, while direct and run-scoped hardware receipts use typed JSON headers with
 binary measurement-array attachments. Numeric acquisition results therefore do

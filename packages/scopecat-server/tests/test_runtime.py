@@ -2838,6 +2838,10 @@ def test_domain_job_transitions_are_fenced_retryable_and_survive_restart(
         terminal_transition = page.items[-1].transition
         assert isinstance(terminal_transition, DomainJobTerminalTransition)
         assert terminal_transition.receipt.status == "completed"
+        [state] = restarted.application.executor.domain_jobs(run_id).items
+        assert state.state == "terminal"
+        assert state.transition_count == 4
+        assert state.latest_transition == terminal_transition
 
 
 def test_domain_job_invocation_without_outcome_survives_restart(
@@ -2876,6 +2880,10 @@ def test_domain_job_invocation_without_outcome_survives_restart(
         [persisted] = page.items
         assert isinstance(persisted.transition, DomainJobInvocationTransition)
         assert persisted.transition.execution_id == execution_id
+        [state] = restarted.application.executor.domain_jobs(run_id).items
+        assert state.state == "invocation_unknown"
+        assert state.transition_count == 1
+        assert state.latest_transition == persisted.transition
 
 
 def test_open_point_plan_can_succeed_below_its_limit_and_exposes_coverage(

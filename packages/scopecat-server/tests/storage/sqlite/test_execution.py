@@ -274,6 +274,16 @@ def test_domain_job_transitions_commit_monotonic_state_through_terminal(
             connection,
             invocation_command,
         )
+        [invocation_state] = ledger.read_current_in_transaction(
+            connection,
+            limit=10,
+        ).items
+        assert invocation_state.state == "invocation_unknown"
+        assert invocation_state.transition_count == 1
+        assert isinstance(
+            invocation_state.latest_transition,
+            DomainJobInvocationTransition,
+        )
         first, inserted = ledger.commit_in_transaction(connection, first_command)
         retried, retry_inserted = ledger.commit_in_transaction(
             connection,
@@ -283,6 +293,13 @@ def test_domain_job_transitions_commit_monotonic_state_through_terminal(
             connection,
             second_command,
         )
+        [pending_state] = ledger.read_current_in_transaction(
+            connection,
+            limit=10,
+        ).items
+        assert pending_state.state == "pending"
+        assert pending_state.transition_count == 3
+        assert pending_state.latest_transition == second_command.transition
         with pytest.raises(ExecutionStateConflict, match="conflicts"):
             ledger.commit_in_transaction(
                 connection,
@@ -317,6 +334,13 @@ def test_domain_job_transitions_commit_monotonic_state_through_terminal(
             connection,
             terminal_command,
         )
+        [terminal_state] = ledger.read_current_in_transaction(
+            connection,
+            limit=10,
+        ).items
+        assert terminal_state.state == "terminal"
+        assert terminal_state.transition_count == 4
+        assert terminal_state.latest_transition == terminal_command.transition
         with pytest.raises(ExecutionStateConflict, match="follows its terminal"):
             ledger.commit_in_transaction(
                 connection,
@@ -351,6 +375,52 @@ def test_domain_job_transitions_commit_monotonic_state_through_terminal(
     assert isinstance(previous_item.transition, DomainJobCheckpointTransition)
     assert previous_item.transition.checkpoint.revision == 2
     assert previous.next_cursor == second.sequence
+
+
+def test_domain_job_current_states_page_by_latest_transition(
+    tmp_path: Path,
+) -> None:
+    runs = _runs(tmp_path)
+    run_id = "domain-job-state-page-run"
+    ledger = SQLiteDomainJobTransitions(runs, run_id=run_id)
+    with _sqlite_transaction(runs) as connection:
+        connection.execute(
+            """
+            INSERT INTO scheduler_runs(
+                submission_id, run_id, state, updated_at, admission_json
+            )
+            VALUES (?, ?, 'leased', ?, '{}')
+            """,
+            ("domain-job-state-page", run_id, datetime.now(UTC).isoformat()),
+        )
+        for index in range(3):
+            execution_id = DomainExecutionId(
+                run_id=run_id,
+                logical_compute_node_id=f"domain.batch-{index}",
+                invocation_id=f"invocation-{index}",
+                intent_fingerprint=f"intent-{index}",
+            )
+            ledger.commit_in_transaction(
+                connection,
+                RunDomainJobTransitionCommand(
+                    lease_id="lease-1",
+                    logical_compute_node_id=execution_id.logical_compute_node_id,
+                    point_ordinals=(index,),
+                    transition=DomainJobInvocationTransition(execution_id=execution_id),
+                ),
+            )
+
+    latest = ledger.read_current(limit=2)
+    assert [item.execution_id.invocation_id for item in latest.items] == [
+        "invocation-1",
+        "invocation-2",
+    ]
+    assert latest.next_cursor == latest.items[0].invocation_sequence
+    previous = ledger.read_current(limit=2, before=latest.next_cursor)
+    assert [item.execution_id.invocation_id for item in previous.items] == [
+        "invocation-0"
+    ]
+    assert previous.next_cursor is None
 
 
 def _domain_decision_command(

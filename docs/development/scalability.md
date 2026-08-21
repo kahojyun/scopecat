@@ -68,8 +68,8 @@ Every applicable profile should verify that:
   sizes;
 - compiler requests respect backend-declared capacity;
 - completed measurement prefixes are readable before terminal completion;
-- SQLite events and control records grow at batch, checkpoint, or durable state
-  transition granularity;
+- SQLite events and control records grow at batch or domain-job transition
+  granularity;
 - binary objects carry large values while control responses remain bounded
   descriptors;
 - notebook reads keep memory proportional to the requested measurement batch;
@@ -516,8 +516,8 @@ acceptance gates:
   to total wall time, whichever allowance is larger;
 - peak memory is bounded by physical batch and current-point payload size, not
   total scan waveform volume;
-- durable file and control-record counts grow with batches or checkpoints, not
-  one object per logical point.
+- durable file and control-record counts grow with batches or domain-job
+  transitions, not one object per logical point.
 
 The absolute one-second limits are UX budgets, not ratios against a nearly
 zero-duration direct loop. Change them only with a recorded lab workflow and

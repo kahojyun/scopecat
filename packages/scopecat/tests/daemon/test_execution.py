@@ -36,6 +36,8 @@ from scopecat.daemon.wire import (
     RunAdmission,
     RunCoverageAdvanceCommand,
     RunCoverageState,
+    RunDomainJobStatePage,
+    RunDomainJobStateView,
     RunDomainJobTransitionCommand,
     RunDomainJobTransitionView,
     RunHardwareBatchCommand,
@@ -142,6 +144,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     hardware_sequences: list[int] = []
     coverage_ranges: list[tuple[int, int]] = []
     domain_job_transitions: list[str] = []
+    domain_job_transition_views: list[RunDomainJobTransitionView] = []
     measurement_ingest_ranges: list[tuple[int, int]] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -196,13 +199,34 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                 domain_job_transitions.append("invocation")
             else:
                 domain_job_transitions.append(f"terminal:{transition.receipt.status}")
+            view = RunDomainJobTransitionView(
+                sequence=len(domain_job_transition_views) + 1,
+                run_id="run-1",
+                logical_compute_node_id=command.logical_compute_node_id,
+                point_ordinals=command.point_ordinals,
+                transition=transition,
+            )
+            domain_job_transition_views.append(view)
+            return _model(view)
+        if path.endswith("/domain-jobs") and request.method == "GET":
+            invocation = domain_job_transition_views[0].transition
+            assert isinstance(invocation, DomainJobInvocationTransition)
+            latest = domain_job_transition_views[-1]
             return _model(
-                RunDomainJobTransitionView(
-                    sequence=1,
+                RunDomainJobStatePage(
                     run_id="run-1",
-                    logical_compute_node_id=command.logical_compute_node_id,
-                    point_ordinals=command.point_ordinals,
-                    transition=transition,
+                    items=(
+                        RunDomainJobStateView(
+                            run_id="run-1",
+                            execution_id=invocation.execution_id,
+                            point_ordinals=latest.point_ordinals,
+                            state="terminal",
+                            invocation_sequence=domain_job_transition_views[0].sequence,
+                            latest_sequence=latest.sequence,
+                            transition_count=len(domain_job_transition_views),
+                            latest_transition=latest.transition,
+                        ),
+                    ),
                 )
             )
         if path.endswith("/point-plan/queue/next") and request.method == "GET":
@@ -381,6 +405,9 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
             result_count=2,
         ),
     )
+    [domain_job_state] = client.get_run_domain_jobs("run-1").items
+    assert domain_job_state.state == "terminal"
+    assert domain_job_state.transition_count == 3
     proposal = DomainProposalAttempt(
         ResolvedDomainFragment.points(({"frequency": Quantity(5.2, "GHz")},)),
         region_ids=("region-0",),

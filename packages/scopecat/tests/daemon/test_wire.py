@@ -53,6 +53,8 @@ from scopecat.daemon.wire import (
     InstrumentSessionOpenReceipt,
     RunCoverageAdvanceCommand,
     RunCoverageState,
+    RunDomainJobStatePage,
+    RunDomainJobStateView,
     RunDomainJobTransitionCommand,
     RunDomainJobTransitionPage,
     RunDomainJobTransitionView,
@@ -807,6 +809,17 @@ def test_domain_job_transition_wire_models_retain_provider_state() -> None:
         run_id="run-1",
         items=(invocation_view, checkpoint_view, terminal_view),
     )
+    state_view = RunDomainJobStateView(
+        run_id="run-1",
+        execution_id=execution_id,
+        point_ordinals=command.point_ordinals,
+        state="terminal",
+        invocation_sequence=invocation_view.sequence,
+        latest_sequence=terminal_view.sequence,
+        transition_count=3,
+        latest_transition=terminal_view.transition,
+    )
+    state_page = RunDomainJobStatePage(run_id="run-1", items=(state_view,))
 
     assert (
         RunDomainJobTransitionCommand.model_validate_json(command.model_dump_json())
@@ -815,6 +828,14 @@ def test_domain_job_transition_wire_models_retain_provider_state() -> None:
     assert (
         RunDomainJobTransitionPage.model_validate_json(page.model_dump_json()) == page
     )
+    assert (
+        RunDomainJobStatePage.model_validate_json(state_page.model_dump_json())
+        == state_page
+    )
+    with pytest.raises(ValidationError, match="latest transition"):
+        RunDomainJobStateView.model_validate(
+            {**state_view.model_dump(), "state": "pending"}
+        )
     reordered = RunDomainJobTransitionCommand(
         lease_id="lease-1",
         logical_compute_node_id="domain.batch-0",
