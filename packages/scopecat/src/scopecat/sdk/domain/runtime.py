@@ -77,7 +77,7 @@ class DomainExecutionId(BaseModel):
 
 
 class DomainExecutionReceipt(BaseModel):
-    """Provider evidence for one complete synchronous target call.
+    """Provider outcome evidence for one synchronous target call.
 
     ``completed`` supplies correlated result evidence and proves that the
     realtime call completed. ``not_executed`` proves that realtime execution
@@ -236,6 +236,7 @@ def execute_domain_invocation[
             invocation_id=intent.invocation_id,
             execution_key=execution_id.execution_key,
             certainty="indeterminate",
+            receipt=None,
         ) from error
     try:
         receipt = (
@@ -256,6 +257,7 @@ def execute_domain_invocation[
             invocation_id=intent.invocation_id,
             execution_key=execution_id.execution_key,
             certainty="indeterminate",
+            receipt=None,
         ) from error
 
     problems = contextualize_problems(
@@ -276,6 +278,7 @@ def execute_domain_invocation[
         invocation_id=intent.invocation_id,
         execution_key=execution_id.execution_key,
         certainty=certainty,
+        receipt=receipt,
     )
 
 

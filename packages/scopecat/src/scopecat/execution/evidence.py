@@ -102,12 +102,12 @@ def build_terminal_contents(
         )
     if domain_execution is not None:
         target_ids = list[JsonValue](
-            sorted(
-                {
-                    execution.intent.target_id
-                    for execution in domain_execution.executions
-                }
-            )
+            sorted({attempt.intent.target_id for attempt in domain_execution.attempts})
+        )
+        receipts = tuple(
+            attempt.receipt
+            for attempt in domain_execution.attempts
+            if attempt.receipt is not None
         )
         records.append(
             ContentEntry(
@@ -117,7 +117,11 @@ def build_terminal_contents(
                 media_type="application/json",
                 content_hash=model_wire_content_hash(domain_execution),
                 metadata={
-                    "execution_count": len(domain_execution.executions),
+                    "attempt_count": len(domain_execution.attempts),
+                    "receipt_count": len(receipts),
+                    "completed_count": sum(
+                        receipt.status == "completed" for receipt in receipts
+                    ),
                     "target_ids": target_ids,
                 },
             )
@@ -141,9 +145,9 @@ def build_domain_execution_evidence(
     run_id: str,
     result: RunEffectResult,
 ) -> DomainExecutionEvidence | None:
-    if not result.completed_domain_executions:
+    if not result.domain_execution_attempts:
         return None
     return DomainExecutionEvidence(
         run_id=run_id,
-        executions=list(result.completed_domain_executions),
+        attempts=list(result.domain_execution_attempts),
     )

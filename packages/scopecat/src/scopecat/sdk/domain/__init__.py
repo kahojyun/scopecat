@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     )
     from scopecat.sdk.domain.compiler import DomainCompiler
     from scopecat.sdk.domain.evidence import (
-        CompletedDomainExecutionEvidence,
+        DomainExecutionAttemptEvidence,
         DomainExecutionEvidence,
     )
     from scopecat.sdk.domain.execution import (
@@ -74,7 +74,7 @@ _EXECUTION_EXPORTS = (
     "PreparedDomainExecution",
 )
 _EVIDENCE_EXPORTS = (
-    "CompletedDomainExecutionEvidence",
+    "DomainExecutionAttemptEvidence",
     "DomainExecutionEvidence",
 )
 _JOB_EXPORTS = (
@@ -164,11 +164,11 @@ __all__ = [
     "CompiledProgramInspectionPage",
     "CompiledProgramInspectionQuery",
     "CompiledWaveformInspection",
-    "CompletedDomainExecutionEvidence",
     "DomainBatchInputs",
     "DomainBatchRequest",
     "DomainCallView",
     "DomainCompiler",
+    "DomainExecutionAttemptEvidence",
     "DomainExecutionEvidence",
     "DomainExecutionId",
     "DomainExecutionReceipt",

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import cast
 
 from scopecat.kernel.errors import (
+    DomainExecutionFailed,
     DomainRuntimeFailure,
     MeasurementRecordingError,
     OperationFailure,
@@ -21,6 +23,7 @@ from scopecat.measurements.values import (
 from scopecat.records.instrument import state_member_target
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.runtime import (
+    DomainExecutionId,
     DomainExecutionReceipt,
     DomainExecutionResult,
     DomainInstrumentExecutor,
@@ -41,12 +44,15 @@ def execute_domain_job_values(
     run_id: str,
     instruments: DomainInstrumentExecutor,
     accept: Callable[[MeasurementValueCandidate], None],
-    observe_completion: Callable[[DomainExecutionReceipt], None],
+    observe_attempt: Callable[
+        [DomainExecutionId, DomainExecutionReceipt | None],
+        None,
+    ],
 ) -> None:
     """Execute one closed domain job into the execution-owned coverage sink.
 
-    The completed receipt is observed before adapter-owned result realization,
-    so a realization failure cannot erase the target call outcome.
+    The attempt is observed before adapter-owned result realization. A valid
+    negative receipt or a missing receipt is retained before failure escapes.
     """
 
     invocation = prepared.invocation
@@ -56,13 +62,23 @@ def execute_domain_job_values(
         run_id=run_id,
         logical_compute_node_id=logical_compute_node_id,
     )
-    result = execute_domain_invocation(
-        runtime,
-        invocation,
-        execution_id,
-        instruments=instruments,
-    )
-    observe_completion(result.receipt)
+    try:
+        result = execute_domain_invocation(
+            runtime,
+            invocation,
+            execution_id,
+            instruments=instruments,
+        )
+    except DomainExecutionFailed as error:
+        observe_attempt(
+            execution_id,
+            cast("DomainExecutionReceipt | None", error.receipt),
+        )
+        raise
+    except BaseException:
+        observe_attempt(execution_id, None)
+        raise
+    observe_attempt(execution_id, result.receipt)
     prepared.realize_into(result, accept)
 
 

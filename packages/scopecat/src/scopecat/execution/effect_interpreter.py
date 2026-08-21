@@ -26,9 +26,10 @@ from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.sdk.domain.evidence import CompletedDomainExecutionEvidence
+from scopecat.sdk.domain.evidence import DomainExecutionAttemptEvidence
 from scopecat.sdk.domain.runtime import (
     DomainExecutionCancellationRequested,
+    DomainExecutionId,
     DomainExecutionReceipt,
 )
 from scopecat.sdk.instruments.execution import (
@@ -97,7 +98,7 @@ class RunEffectInterpreter:
         self.observed_state = list(instruments.observed_state)
         self.baseline_state = list(instruments.baseline_state)
         self.final_state: list[InstrumentStateSnapshot] = []
-        self.completed_domain_executions: list[CompletedDomainExecutionEvidence] = []
+        self.domain_execution_attempts: list[DomainExecutionAttemptEvidence] = []
         self.domain_failure: tuple[RunDomainJob, BaseException] | None = None
         self.coverage_failure: BaseException | None = None
         self.cancelled = False
@@ -325,8 +326,8 @@ class RunEffectInterpreter:
                 run_id=self.run_id,
                 instruments=self._domain_instruments,
                 accept=self._hardware.values.append,
-                observe_completion=lambda receipt: self._record_domain_completion(
-                    job, receipt
+                observe_attempt=lambda execution_id, receipt: (
+                    self._record_domain_attempt(job, execution_id, receipt)
                 ),
             )
         except DomainExecutionCancellationRequested:
@@ -341,15 +342,17 @@ class RunEffectInterpreter:
                 self._complete_coverage(pending)
             raise _CapturedDomainEffectFailure(job.id) from error
 
-    def _record_domain_completion(
+    def _record_domain_attempt(
         self,
         job: RunDomainJob,
-        receipt: DomainExecutionReceipt,
+        execution_id: DomainExecutionId,
+        receipt: DomainExecutionReceipt | None,
     ) -> None:
-        self.completed_domain_executions.append(
-            CompletedDomainExecutionEvidence(
+        self.domain_execution_attempts.append(
+            DomainExecutionAttemptEvidence(
                 logical_compute_node_id=job.id,
                 point_ordinals=job.point_ordinals,
+                execution_key=execution_id.execution_key,
                 intent=job.execution.invocation.intent,
                 receipt=receipt,
             )
@@ -418,7 +421,7 @@ class RunEffectInterpreter:
             observed_state=tuple(self.observed_state),
             baseline_state=tuple(self.baseline_state),
             final_state=tuple(self.final_state),
-            completed_domain_executions=tuple(self.completed_domain_executions),
+            domain_execution_attempts=tuple(self.domain_execution_attempts),
             indeterminate=self._boundary.indeterminate,
             cancelled=self.cancelled,
             domain_failure=self.domain_failure,

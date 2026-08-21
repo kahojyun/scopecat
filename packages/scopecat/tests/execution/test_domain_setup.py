@@ -1,18 +1,24 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import cast
 
 import pytest
+from scopecat_testkit.instrument_host import TestRunInstrumentHost
 
 from scopecat.execution.effect_interpreter import (
+    RunEffectInterpreter,
     _CancellationAwareDomainInstruments,
 )
 from scopecat.execution.effects.domain import (
     _RequirementReconciledRuntime,
     execute_domain_job_values,
 )
-from scopecat.kernel.errors import OperationFailure
+from scopecat.execution.evidence import build_domain_execution_evidence
+from scopecat.execution.program import RunDomainJob
+from scopecat.kernel.errors import DomainExecutionFailed, OperationFailure
+from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
@@ -29,6 +35,7 @@ from scopecat.sdk.domain.invocation import close_domain_invocation
 from scopecat.sdk.domain.result_mapping import DomainResultMapping
 from scopecat.sdk.domain.runtime import (
     DomainExecutionCancellationRequested,
+    DomainExecutionId,
     DomainExecutionReceipt,
     DomainExecutionResult,
 )
@@ -149,7 +156,7 @@ def test_known_setup_rejection_returns_not_executed() -> None:
     assert realtime.calls == 0
 
 
-def test_completion_is_observed_before_result_realization() -> None:
+def test_attempt_is_observed_before_result_realization_or_failure() -> None:
     @dataclass(frozen=True, slots=True)
     class ResultContract:
         contract_fingerprint: str = "test-result-contract"
@@ -173,6 +180,33 @@ def test_completion_is_observed_before_result_realization() -> None:
                 ),
                 object(),
             )
+
+    class NegativeRuntime:
+        def execute(
+            self,
+            execution_key: str,
+            payload: object,
+            *,
+            instruments: object,
+        ) -> DomainExecutionReceipt:
+            del payload, instruments
+            return DomainExecutionReceipt(
+                execution_key=execution_key,
+                status="unknown",
+                execution_evidence={"completed_entries": ["entry-0"]},
+                problems=(_failure(),),
+            )
+
+    class RaisingRuntime:
+        def execute(
+            self,
+            execution_key: str,
+            payload: object,
+            *,
+            instruments: object,
+        ) -> DomainExecutionReceipt:
+            del execution_key, payload, instruments
+            raise RuntimeError("runtime lost its receipt")
 
     invocation = close_domain_invocation(
         cast(
@@ -209,7 +243,7 @@ def test_completion_is_observed_before_result_realization() -> None:
         runtime=cast("ErasedDomainRuntime", Runtime()),
         realize_into=cast("ErasedDomainRealizer", fail_realization),
     )
-    observed: list[DomainExecutionReceipt] = []
+    observed: list[tuple[DomainExecutionId, DomainExecutionReceipt | None]] = []
 
     with pytest.raises(RuntimeError, match="result realization failed"):
         execute_domain_job_values(
@@ -218,11 +252,83 @@ def test_completion_is_observed_before_result_realization() -> None:
             run_id="test-run",
             instruments=_Executor(RunHardwareBatchReceipt(operation_id="unused")),
             accept=lambda _candidate: None,
-            observe_completion=observed.append,
+            observe_attempt=lambda execution_id, receipt: observed.append(
+                (execution_id, receipt)
+            ),
         )
 
     assert len(observed) == 1
-    assert observed[0].execution_evidence == {"selected_channel": "a"}
+    execution_id, receipt = observed[0]
+    assert execution_id.logical_compute_node_id == "test-node"
+    assert receipt is not None
+    assert receipt.execution_evidence == {"selected_channel": "a"}
+
+    negative_observed: list[
+        tuple[DomainExecutionId, DomainExecutionReceipt | None]
+    ] = []
+    with pytest.raises(DomainExecutionFailed):
+        execute_domain_job_values(
+            replace(
+                prepared,
+                runtime=cast("ErasedDomainRuntime", NegativeRuntime()),
+            ),
+            logical_compute_node_id="test-node",
+            run_id="test-run",
+            instruments=_Executor(RunHardwareBatchReceipt(operation_id="unused")),
+            accept=lambda _candidate: None,
+            observe_attempt=lambda execution_id, attempt_receipt: (
+                negative_observed.append((execution_id, attempt_receipt))
+            ),
+        )
+    [(_execution_id, negative_receipt)] = negative_observed
+    assert negative_receipt is not None
+    assert negative_receipt.status == "unknown"
+
+    point = AcceptedRunPoint(
+        LogicalPointId(PointDomainId("test-domain", "root"), 0),
+        {},
+    )
+    effect_result = RunEffectInterpreter(
+        run_id="test-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost(),
+    ).run(
+        (
+            RunDomainJob(
+                "test-node",
+                (0,),
+                replace(
+                    prepared,
+                    runtime=cast("ErasedDomainRuntime", NegativeRuntime()),
+                ),
+            ),
+        ),
+        points=(point,),
+    )
+    evidence = build_domain_execution_evidence("test-run", effect_result)
+    assert evidence is not None
+    [attempt] = evidence.attempts
+    assert attempt.receipt is not None
+    assert attempt.receipt.status == "unknown"
+    assert attempt.execution_key == attempt.receipt.execution_key
+
+    missing_observed: list[tuple[DomainExecutionId, DomainExecutionReceipt | None]] = []
+    with pytest.raises(DomainExecutionFailed):
+        execute_domain_job_values(
+            replace(
+                prepared,
+                runtime=cast("ErasedDomainRuntime", RaisingRuntime()),
+            ),
+            logical_compute_node_id="test-node",
+            run_id="test-run",
+            instruments=_Executor(RunHardwareBatchReceipt(operation_id="unused")),
+            accept=lambda _candidate: None,
+            observe_attempt=lambda execution_id, attempt_receipt: (
+                missing_observed.append((execution_id, attempt_receipt))
+            ),
+        )
+    [(_execution_id, missing_receipt)] = missing_observed
+    assert missing_receipt is None
 
 
 def test_domain_instrument_batches_stop_at_the_next_cancellation_boundary() -> None:

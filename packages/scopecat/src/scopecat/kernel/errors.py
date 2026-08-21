@@ -126,6 +126,13 @@ class MeasurementDatasetReceiptEvidence(Protocol):
     def dataset_ref(self) -> str: ...
 
 
+class DomainExecutionReceiptEvidence(Protocol):
+    """Receipt identity retained without coupling kernel errors to domain SDK."""
+
+    @property
+    def execution_key(self) -> str: ...
+
+
 class MeasurementRecordingError(StorageError):
     """A projected record write or its ledger evidence did not complete cleanly."""
 
@@ -197,7 +204,9 @@ class DomainExecutionFailed(DomainRuntimeFailure):
         invocation_id: str,
         execution_key: str,
         certainty: RunCertainty,
+        receipt: DomainExecutionReceiptEvidence | None,
     ) -> None:
+        self.receipt = receipt
         super().__init__(
             problems,
             run_id=run_id,
