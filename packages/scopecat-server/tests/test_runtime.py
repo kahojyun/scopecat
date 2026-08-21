@@ -92,6 +92,7 @@ from scopecat.daemon.wire import (
     RunAttachmentCommand,
     RunCancellationReceipt,
     RunCoverageAdvanceCommand,
+    RunDomainJobCheckpointCommand,
     RunSubmission,
     TerminalRunCommitCommand,
 )
@@ -143,6 +144,7 @@ from scopecat.records.parameter_change import (
 from scopecat.records.run import ConfigRegistryRunConfigSource, RunSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.refs import dataset_content_ref, record_content_ref
+from scopecat.sdk.domain.runtime import DomainJobCheckpoint
 from scopecat_testkit.server.runtime import list_test_runs
 
 import scopecat_server.services.leases as lease_supervisor_services
@@ -2693,6 +2695,74 @@ def test_run_coverage_is_contiguous_durable_and_retryable(tmp_path: Path) -> Non
         assert retry == first
         assert completed.completed_point_count == 3
         assert historical_retry == completed
+
+
+def test_domain_job_checkpoints_are_fenced_retryable_and_survive_restart(
+    tmp_path: Path,
+) -> None:
+    run_id: str
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(
+            _submission("domain-job-checkpoints", point_count=3)
+        )
+        run_id = admission.run_id
+        lease = runtime.application.executor.start_executor(
+            run_id,
+            ExecutorStartRequest(executor_id="notebook-1"),
+        )
+        executor = runtime.application.executor
+        first_checkpoint = DomainJobCheckpoint(
+            execution_key="execution-key",
+            job_id="provider-job",
+            revision=1,
+            resume_token={"cursor": "poll-1"},
+            progress={"status": "submitted"},
+        )
+        first_command = RunDomainJobCheckpointCommand(
+            lease_id=lease.lease_id,
+            logical_compute_node_id="domain.batch-0",
+            point_ordinals=(0, 1),
+            checkpoint=first_checkpoint,
+        )
+        first = executor.commit_domain_job_checkpoint(run_id, first_command)
+        retry = executor.commit_domain_job_checkpoint(run_id, first_command)
+        second = executor.commit_domain_job_checkpoint(
+            run_id,
+            first_command.model_copy(
+                update={
+                    "checkpoint": first_checkpoint.model_copy(
+                        update={
+                            "revision": 2,
+                            "resume_token": {"cursor": "poll-2"},
+                            "progress": {"status": "results_ready"},
+                        }
+                    )
+                }
+            ),
+        )
+
+        assert retry == first
+        assert second.sequence > first.sequence
+        assert [
+            item.checkpoint.revision
+            for item in executor.domain_job_checkpoints(run_id).items
+        ] == [1, 2]
+        with pytest.raises(BackendConflict, match="durable run state"):
+            executor.commit_domain_job_checkpoint(
+                run_id,
+                first_command.model_copy(
+                    update={
+                        "checkpoint": second.checkpoint.model_copy(
+                            update={"revision": 3, "job_id": "another-job"}
+                        )
+                    }
+                ),
+            )
+
+    with LocalDaemonRuntime(tmp_path) as restarted:
+        page = restarted.application.executor.domain_job_checkpoints(run_id)
+        assert [item.checkpoint.revision for item in page.items] == [1, 2]
+        assert page.items[-1].checkpoint.resume_token == {"cursor": "poll-2"}
 
 
 def test_open_point_plan_can_succeed_below_its_limit_and_exposes_coverage(

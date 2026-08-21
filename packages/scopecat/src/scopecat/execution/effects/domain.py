@@ -22,6 +22,7 @@ from scopecat.measurements.values import (
 from scopecat.records.instrument import state_member_target
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.runtime import (
+    DomainExecutionCancellationRequested,
     DomainExecutionId,
     DomainExecutionReceipt,
     DomainExecutionResult,
@@ -34,6 +35,7 @@ from scopecat.sdk.domain.runtime import (
 from scopecat.sdk.instruments.commands import InstrumentStateAssignment
 from scopecat.sdk.instruments.execution import RunHardwareApply, RunHardwareBatch
 from scopecat.sdk.runtime_problems import (
+    problem_from_exception,
     runtime_problem,
 )
 
@@ -53,6 +55,8 @@ def execute_domain_job_values(
         ],
         None,
     ],
+    commit_checkpoint: Callable[[DomainExecutionId, DomainJobCheckpoint], None]
+    | None = None,
 ) -> None:
     """Execute one closed domain job into the execution-owned coverage sink.
 
@@ -68,13 +72,45 @@ def execute_domain_job_values(
         logical_compute_node_id=logical_compute_node_id,
     )
     checkpoints: list[DomainJobCheckpoint] = []
+
+    def observe_checkpoint(checkpoint: DomainJobCheckpoint) -> None:
+        checkpoints.append(checkpoint)
+        if commit_checkpoint is None:
+            return
+        try:
+            commit_checkpoint(execution_id, checkpoint)
+        except DomainExecutionCancellationRequested:
+            raise
+        except Exception as error:
+            operation_id = (
+                f"{execution_id.operation_id}:checkpoint:{checkpoint.revision}"
+            )
+            raise DomainExecutionFailed(
+                (
+                    problem_from_exception(
+                        "domain_job_checkpoint_commit_failed",
+                        "domain job checkpoint could not be committed before resume",
+                        run_id=run_id,
+                        operation_id=operation_id,
+                        phase=ProblemPhase.PERSISTENCE,
+                        error=error,
+                    ),
+                ),
+                run_id=run_id,
+                operation_id=operation_id,
+                invocation_id=invocation.intent.invocation_id,
+                execution_key=execution_id.execution_key,
+                certainty="indeterminate",
+                receipt=None,
+            ) from error
+
     try:
         result = run_domain_invocation(
             runtime,
             invocation,
             execution_id,
             instruments=instruments,
-            observe_checkpoint=checkpoints.append,
+            observe_checkpoint=observe_checkpoint,
         )
     except DomainExecutionFailed as error:
         observe_attempt(

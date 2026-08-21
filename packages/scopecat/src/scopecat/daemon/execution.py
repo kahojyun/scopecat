@@ -27,6 +27,7 @@ from scopecat.daemon.wire import (
     MeasurementSealCommand,
     RunAdmission,
     RunCoverageAdvanceCommand,
+    RunDomainJobCheckpointCommand,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -41,6 +42,7 @@ from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import Problem
 from scopecat.optimization import DomainProposalDecision
 from scopecat.records.config import config_content_hash
+from scopecat.records.execution import DomainJobCheckpoint
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -110,6 +112,7 @@ def daemon_execution_session(
     )
     instruments = _DaemonRunInstrumentHost(authority)
     coverage = _DaemonRunCoverage(authority)
+    domain_job_checkpoints = _DaemonRunDomainJobCheckpoints(authority)
     domain_proposals = _DaemonRunDomainProposals(authority)
 
     def begin() -> None:
@@ -123,6 +126,7 @@ def daemon_execution_session(
         commit_terminal=authority.commit_terminal,
         measurements=_DaemonMeasurementRepository(authority),
         instruments=instruments,
+        domain_job_checkpoints=domain_job_checkpoints,
         coverage=coverage,
         domain_proposals=domain_proposals,
         cancellation_requested=authority.cancellation_requested,
@@ -273,6 +277,37 @@ class _DaemonRunCoverage:
         self._pending_start = None
         self._pending_count = 0
         self._last_send_at = monotonic() if now is None else now
+
+
+class _DaemonRunDomainJobCheckpoints:
+    """Synchronously fence and persist each checkpoint before resumption."""
+
+    def __init__(self, authority: _LeaseAuthority) -> None:
+        self._authority = authority
+
+    def commit(
+        self,
+        *,
+        logical_compute_node_id: str,
+        point_ordinals: tuple[int, ...],
+        checkpoint: DomainJobCheckpoint,
+    ) -> None:
+        committed = self._authority.client.commit_run_domain_job_checkpoint(
+            self._authority.run_id,
+            RunDomainJobCheckpointCommand(
+                lease_id=self._authority.fence(),
+                logical_compute_node_id=logical_compute_node_id,
+                point_ordinals=point_ordinals,
+                checkpoint=checkpoint,
+            ),
+        )
+        if (
+            committed.run_id != self._authority.run_id
+            or committed.logical_compute_node_id != logical_compute_node_id
+            or committed.point_ordinals != point_ordinals
+            or committed.checkpoint != checkpoint
+        ):
+            raise ValueError("domain job checkpoint receipt does not match its request")
 
 
 class _DaemonRunDomainProposals:

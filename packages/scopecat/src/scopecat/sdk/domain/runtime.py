@@ -19,6 +19,7 @@ from scopecat.kernel.errors import (
     DomainExecutionFailed,
 )
 from scopecat.kernel.json_types import JsonValue
+from scopecat.records.execution import DomainJobCheckpoint
 from scopecat.sdk.domain.invocation import (
     ClosedDomainInvocation,
     DomainInvocationIntent,
@@ -137,31 +138,6 @@ class DomainExecutionResult[ResultT]:
     def __post_init__(self) -> None:
         if self.receipt.status != "completed":
             raise ValueError("domain results require completed receipt evidence")
-
-
-class DomainJobCheckpoint(BaseModel):
-    """One serializable pending transition for a submitted target job.
-
-    ``resume_token`` contains the target-owned JSON state needed to advance the
-    same job after this boundary. ``progress`` is inspectable evidence only and
-    must not be required for resumption. Revisions are strictly monotonic within
-    one job and let core reject stale or replayed transitions.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    execution_key: str
-    job_id: str
-    revision: int = Field(ge=1)
-    resume_token: dict[str, JsonValue]
-    progress: dict[str, JsonValue] = Field(default_factory=dict)
-
-    @field_validator("execution_key", "job_id")
-    @classmethod
-    def validate_identity(cls, value: str) -> str:
-        if not value:
-            raise ValueError("domain job checkpoint identities must be non-empty")
-        return value
 
 
 type DomainJobTransition[ResultT] = (
@@ -285,6 +261,8 @@ def run_domain_invocation[
             previous = outcome
             outcome = resumable.resume(outcome, instruments=instruments)
     except DomainExecutionCancellationRequested:
+        raise
+    except DomainExecutionFailed:
         raise
     except Exception as error:
         execution_problem = problem_from_exception(

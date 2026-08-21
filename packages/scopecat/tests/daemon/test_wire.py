@@ -53,6 +53,9 @@ from scopecat.daemon.wire import (
     InstrumentSessionOpenReceipt,
     RunCoverageAdvanceCommand,
     RunCoverageState,
+    RunDomainJobCheckpointCommand,
+    RunDomainJobCheckpointPage,
+    RunDomainJobCheckpointView,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -80,6 +83,7 @@ from scopecat.records.config import config_content_hash
 from scopecat.records.instrument import InstrumentStateSnapshot, state_member_target
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
+from scopecat.sdk.domain.runtime import DomainJobCheckpoint
 from scopecat.sdk.instruments import (
     InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentDescription,
@@ -740,6 +744,45 @@ def test_run_coverage_wire_models_require_a_nonempty_prefix() -> None:
             lease_id="lease-1",
             start_index=0,
             point_count=0,
+        )
+
+
+def test_domain_job_checkpoint_wire_models_retain_resume_state() -> None:
+    checkpoint = DomainJobCheckpoint(
+        execution_key="execution-key",
+        job_id="provider-job",
+        revision=2,
+        resume_token={"cursor": "result-page-2"},
+        progress={"completed_shots": 128},
+    )
+    command = RunDomainJobCheckpointCommand(
+        lease_id="lease-1",
+        logical_compute_node_id="domain.batch-0",
+        point_ordinals=(2, 3),
+        checkpoint=checkpoint,
+    )
+    view = RunDomainJobCheckpointView(
+        sequence=1,
+        run_id="run-1",
+        logical_compute_node_id=command.logical_compute_node_id,
+        point_ordinals=command.point_ordinals,
+        checkpoint=checkpoint,
+    )
+    page = RunDomainJobCheckpointPage(run_id="run-1", items=(view,))
+
+    assert (
+        RunDomainJobCheckpointCommand.model_validate_json(command.model_dump_json())
+        == command
+    )
+    assert (
+        RunDomainJobCheckpointPage.model_validate_json(page.model_dump_json()) == page
+    )
+    with pytest.raises(ValidationError, match="sorted and unique"):
+        RunDomainJobCheckpointCommand(
+            lease_id="lease-1",
+            logical_compute_node_id="domain.batch-0",
+            point_ordinals=(3, 2),
+            checkpoint=checkpoint,
         )
 
 

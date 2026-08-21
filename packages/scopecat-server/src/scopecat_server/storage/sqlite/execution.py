@@ -24,6 +24,12 @@ from scopecat.daemon.points import (
     RunPointPlanCloseCommand,
     RunPointPlanView,
 )
+from scopecat.daemon.wire import (
+    RunDomainJobCheckpointCommand,
+    RunDomainJobCheckpointPage,
+    RunDomainJobCheckpointView,
+)
+from scopecat.records.execution import DomainJobCheckpoint
 from scopecat.records.measurement import MeasurementDatasetSchema, MeasurementRecord
 from scopecat.records.measurement_recording import (
     CANONICAL_MEASUREMENT_DATASET_REF,
@@ -110,6 +116,132 @@ class SQLiteRunCoverage:
             (self._run_id, end_index),
         )
         return end_index, True
+
+
+class SQLiteDomainJobCheckpoints:
+    """Persist every resumable target transition before the next resume."""
+
+    def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
+        self._runs = runs
+        self._run_id = run_id
+
+    def read(
+        self,
+        *,
+        limit: int,
+        before: int | None = None,
+    ) -> RunDomainJobCheckpointPage:
+        with self._runs.sqlite.read_transaction() as connection:
+            rows = _all(
+                connection.execute(
+                    """
+                    SELECT sequence, run_id, logical_compute_node_id,
+                           point_ordinals_json, checkpoint_json
+                    FROM execution_domain_job_checkpoints
+                    WHERE run_id = ? AND (? IS NULL OR sequence < ?)
+                    ORDER BY sequence DESC
+                    LIMIT ?
+                    """,
+                    (self._run_id, before, before, limit + 1),
+                )
+            )
+        selected = rows[:limit]
+        return RunDomainJobCheckpointPage(
+            run_id=self._run_id,
+            items=tuple(_domain_job_checkpoint_view(row) for row in reversed(selected)),
+            next_cursor=(
+                _integer(selected[-1], "sequence") if len(rows) > limit else None
+            ),
+        )
+
+    def commit_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        command: RunDomainJobCheckpointCommand,
+    ) -> tuple[RunDomainJobCheckpointView, bool]:
+        checkpoint = command.checkpoint
+        existing = _one(
+            connection.execute(
+                """
+                SELECT sequence, run_id, logical_compute_node_id,
+                       point_ordinals_json, checkpoint_json
+                FROM execution_domain_job_checkpoints
+                WHERE run_id = ? AND execution_key = ? AND revision = ?
+                """,
+                (self._run_id, checkpoint.execution_key, checkpoint.revision),
+            )
+        )
+        if existing is not None:
+            view = _domain_job_checkpoint_view(existing)
+            if (
+                view.logical_compute_node_id != command.logical_compute_node_id
+                or view.point_ordinals != command.point_ordinals
+                or view.checkpoint != checkpoint
+            ):
+                raise ExecutionStateConflict(
+                    "domain job checkpoint conflicts with durable state"
+                )
+            return view, False
+
+        latest = _one(
+            connection.execute(
+                """
+                SELECT logical_compute_node_id, job_id, revision,
+                       point_ordinals_json
+                FROM execution_domain_job_checkpoints
+                WHERE run_id = ? AND execution_key = ?
+                ORDER BY revision DESC
+                LIMIT 1
+                """,
+                (self._run_id, checkpoint.execution_key),
+            )
+        )
+        if latest is not None:
+            durable_ordinals = tuple(
+                cast("list[int]", json.loads(_text(latest, "point_ordinals_json")))
+            )
+            if (
+                _text(latest, "logical_compute_node_id")
+                != command.logical_compute_node_id
+                or _text(latest, "job_id") != checkpoint.job_id
+                or durable_ordinals != command.point_ordinals
+            ):
+                raise ExecutionStateConflict(
+                    "domain job checkpoint changed its durable identity"
+                )
+            if checkpoint.revision <= _integer(latest, "revision"):
+                raise ExecutionStateConflict(
+                    "domain job checkpoint revision is not the next transition"
+                )
+
+        inserted = connection.execute(
+            """
+            INSERT INTO execution_domain_job_checkpoints(
+                run_id, logical_compute_node_id, execution_key, job_id,
+                revision, point_ordinals_json, checkpoint_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                self._run_id,
+                command.logical_compute_node_id,
+                checkpoint.execution_key,
+                checkpoint.job_id,
+                checkpoint.revision,
+                json.dumps(command.point_ordinals, separators=(",", ":")),
+                checkpoint.model_dump_json(),
+            ),
+        )
+        return (
+            RunDomainJobCheckpointView(
+                sequence=cast("int", inserted.lastrowid),
+                run_id=self._run_id,
+                logical_compute_node_id=command.logical_compute_node_id,
+                point_ordinals=command.point_ordinals,
+                checkpoint=checkpoint,
+            ),
+            True,
+        )
 
 
 class SQLiteRunPointLedger:
@@ -1451,6 +1583,20 @@ def _text(row: sqlite3.Row, column: str) -> str:
 
 def _integer(row: sqlite3.Row, column: str) -> int:
     return cast("int", row[column])
+
+
+def _domain_job_checkpoint_view(row: sqlite3.Row) -> RunDomainJobCheckpointView:
+    return RunDomainJobCheckpointView(
+        sequence=_integer(row, "sequence"),
+        run_id=_text(row, "run_id"),
+        logical_compute_node_id=_text(row, "logical_compute_node_id"),
+        point_ordinals=tuple(
+            cast("list[int]", json.loads(_text(row, "point_ordinals_json")))
+        ),
+        checkpoint=DomainJobCheckpoint.model_validate_json(
+            _text(row, "checkpoint_json")
+        ),
+    )
 
 
 def _accepted_point_start(points: tuple[AcceptedRunPointView, ...]) -> int | None:

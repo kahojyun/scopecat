@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import cast
+from typing import cast, override
 
 import pytest
 from scopecat_testkit.instrument_host import TestRunInstrumentHost
@@ -158,6 +158,8 @@ def test_known_setup_rejection_returns_not_executed() -> None:
 
 
 def test_attempt_is_observed_before_result_realization_or_failure() -> None:
+    transition_events: list[tuple[str, int]] = []
+
     @dataclass(frozen=True, slots=True)
     class ResultContract:
         contract_fingerprint: str = "test-result-contract"
@@ -207,6 +209,7 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
             instruments: object,
         ) -> DomainJobCheckpoint:
             del payload, instruments
+            transition_events.append(("start", 0))
             return DomainJobCheckpoint(
                 execution_key=execution_key,
                 job_id="provider-job",
@@ -222,6 +225,7 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
             instruments: object,
         ) -> DomainJobCheckpoint | DomainExecutionReceipt:
             del instruments
+            transition_events.append(("resume", checkpoint.revision))
             if checkpoint.revision == 1:
                 return checkpoint.model_copy(
                     update={
@@ -234,6 +238,18 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
                 status="unknown",
                 problems=(_failure(),),
             )
+
+    class CheckpointWriter:
+        def commit(
+            self,
+            *,
+            logical_compute_node_id: str,
+            point_ordinals: tuple[int, ...],
+            checkpoint: DomainJobCheckpoint,
+        ) -> None:
+            assert logical_compute_node_id == "test-node"
+            assert point_ordinals == (0,)
+            transition_events.append(("commit", checkpoint.revision))
 
     class RaisingRuntime:
         def start(
@@ -342,6 +358,7 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
         run_id="test-run",
         coordinate_ids=(),
         instruments=TestRunInstrumentHost(),
+        domain_job_checkpoints=CheckpointWriter(),
     ).run(
         (
             RunDomainJob(
@@ -369,6 +386,111 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
         "submitted",
         "hardware_unknown",
     ]
+    assert transition_events == [
+        ("start", 0),
+        ("commit", 1),
+        ("resume", 1),
+        ("commit", 2),
+        ("resume", 2),
+    ]
+
+    transition_events.clear()
+    commit_failure_observed: list[
+        tuple[
+            DomainExecutionId,
+            tuple[DomainJobCheckpoint, ...],
+            DomainExecutionReceipt | None,
+        ]
+    ] = []
+
+    def fail_checkpoint_commit(
+        _execution_id: DomainExecutionId,
+        _checkpoint: DomainJobCheckpoint,
+    ) -> None:
+        raise RuntimeError("checkpoint storage unavailable")
+
+    with pytest.raises(DomainExecutionFailed) as commit_failure:
+        execute_domain_job_values(
+            replace(
+                prepared,
+                job_runtime=cast(
+                    "ErasedDomainJobRuntime",
+                    CheckpointThenNegativeRuntime(),
+                ),
+            ),
+            logical_compute_node_id="test-node",
+            run_id="test-run",
+            instruments=_Executor(RunHardwareBatchReceipt(operation_id="unused")),
+            accept=lambda _candidate: None,
+            observe_attempt=lambda execution_id, checkpoints, attempt_receipt: (
+                commit_failure_observed.append(
+                    (execution_id, checkpoints, attempt_receipt)
+                )
+            ),
+            commit_checkpoint=fail_checkpoint_commit,
+        )
+
+    assert [item.code for item in commit_failure.value.problems] == [
+        "domain_job_checkpoint_commit_failed"
+    ]
+    assert commit_failure.value.certainty == "indeterminate"
+    assert transition_events == [("start", 0)]
+    [(_execution_id, failed_checkpoints, failed_receipt)] = commit_failure_observed
+    assert [checkpoint.revision for checkpoint in failed_checkpoints] == [1]
+    assert failed_receipt is None
+
+    transition_events.clear()
+    cancellation_requested = False
+
+    class CancellingCheckpointWriter(CheckpointWriter):
+        @override
+        def commit(
+            self,
+            *,
+            logical_compute_node_id: str,
+            point_ordinals: tuple[int, ...],
+            checkpoint: DomainJobCheckpoint,
+        ) -> None:
+            nonlocal cancellation_requested
+            super().commit(
+                logical_compute_node_id=logical_compute_node_id,
+                point_ordinals=point_ordinals,
+                checkpoint=checkpoint,
+            )
+            cancellation_requested = True
+
+    cancelled_effect_result = RunEffectInterpreter(
+        run_id="test-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost(),
+        cancellation_requested=lambda: cancellation_requested,
+        domain_job_checkpoints=CancellingCheckpointWriter(),
+    ).run(
+        (
+            RunDomainJob(
+                "test-node",
+                (0,),
+                replace(
+                    prepared,
+                    job_runtime=cast(
+                        "ErasedDomainJobRuntime",
+                        CheckpointThenNegativeRuntime(),
+                    ),
+                ),
+            ),
+        ),
+        points=(point,),
+    )
+    assert cancelled_effect_result.cancelled
+    assert transition_events == [("start", 0), ("commit", 1)]
+    cancelled_evidence = build_domain_execution_evidence(
+        "test-run",
+        cancelled_effect_result,
+    )
+    assert cancelled_evidence is not None
+    [cancelled_attempt] = cancelled_evidence.attempts
+    assert [checkpoint.revision for checkpoint in cancelled_attempt.checkpoints] == [1]
+    assert cancelled_attempt.receipt is None
 
     missing_observed: list[
         tuple[

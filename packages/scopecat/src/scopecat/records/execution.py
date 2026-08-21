@@ -2,13 +2,39 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from scopecat.kernel.json_types import JsonValue
 from scopecat.records.instrument import (
     InstrumentStateSnapshot,
     StateMemberIdentity,
     state_member_identity,
 )
+
+
+class DomainJobCheckpoint(BaseModel):
+    """Serializable pending state for one submitted target job.
+
+    ``resume_token`` contains the target-owned JSON state needed to advance the
+    same job after this boundary. ``progress`` is inspectable evidence only and
+    must not be required for resumption. Revisions are strictly monotonic within
+    one job and let execution reject stale or replayed transitions.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    execution_key: str
+    job_id: str
+    revision: int = Field(ge=1)
+    resume_token: dict[str, JsonValue]
+    progress: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @field_validator("execution_key", "job_id")
+    @classmethod
+    def validate_identity(cls, value: str) -> str:
+        if not value:
+            raise ValueError("domain job checkpoint identities must be non-empty")
+        return value
 
 
 class InstrumentStateEvidenceSummary(BaseModel):

@@ -30,8 +30,9 @@ long run history never materializes every run's content metadata.
 Admission closes the complete instrument claim set before hardware access. It
 also binds the expected provider and instrument-description fingerprints. The
 executor then atomically acquires a renewable lease with a unique fencing
-identity. Every measurement, coverage, point-plan, and terminal command presents
-that identity, so an expired executor cannot continue writing.
+identity. Every measurement, coverage, point-plan, domain-job checkpoint, and
+terminal command presents that identity, so an expired executor cannot continue
+writing.
 
 Lease validation and each coarse checkpoint or terminal commit share one SQLite
 transaction. Heartbeats renew the lease and return durable cancellation state.
@@ -132,14 +133,15 @@ versioned automatic policy.
 
 Cancelling queued work commits a known `cancelled` outcome immediately.
 Cancelling leased work stores an idempotent request. The executor observes it on
-a heartbeat and stops at the next operation, hardware-batch, coverage, or
-normal-completion boundary.
+a heartbeat and stops at the next operation, hardware-batch, domain-job
+transition, coverage, or normal-completion boundary.
 
-An active synchronous driver batch or domain call cannot be interrupted in the
-middle. Provisioned hardware follows normal failure finalization before the
-cancelled outcome is committed. If finalization has an unknown outcome, the run
-is cancelled with indeterminate certainty and affected resources remain
-quarantined.
+An active blocking driver or provider call cannot be interrupted in the middle.
+A resumable domain job first commits its returned checkpoint and then observes
+cancellation before the next `resume`. Provisioned hardware follows normal
+failure finalization before the cancelled outcome is committed. If finalization
+has an unknown outcome, the run is cancelled with indeterminate certainty and
+affected resources remain quarantined.
 
 Cancellation and terminal commit are serialized by the SQLite writer:
 
@@ -154,8 +156,8 @@ closes the run with an indeterminate failed outcome and releases the claims. The
 original program is not resumed because general effect replay is unsafe; another
 attempt is a new run. The daemon discards that executor's pending/live measurement
 state as soon as the lease supervisor fences it. Any already durable measurement
-prefix and coverage watermark remain inspectable, but neither authorizes appending
-to or resuming the failed attempt.
+prefix, coverage watermark, and domain-job checkpoint remain inspectable, but
+none authorizes appending to or resuming the failed attempt.
 
 A daemon restart immediately fences executors from the previous process rather
 than trusting their remaining lease time. Process-local measurement state is not
@@ -165,8 +167,9 @@ release boundaries for it.
 ## API and event stream
 
 The daemon serves the bundled GUI and a versioned typed HTTP API. Run detail,
-resource state, configuration history, and measurements are exposed through
-bounded queries. Measurement control commands remain small JSON documents;
+resource state, configuration history, measurements, and domain-job checkpoints
+are exposed through bounded queries. Measurement control commands remain small
+JSON documents;
 measurement ingest and the live latest-point response use schema-driven Arrow
 IPC, while direct and run-scoped hardware receipts use typed JSON headers with
 binary measurement-array attachments. Numeric acquisition results therefore do

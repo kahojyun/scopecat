@@ -165,6 +165,9 @@ from scopecat.daemon.wire import (
     RunCancellationReceipt,
     RunCoverageAdvanceCommand,
     RunCoverageState,
+    RunDomainJobCheckpointCommand,
+    RunDomainJobCheckpointPage,
+    RunDomainJobCheckpointView,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -1457,6 +1460,33 @@ class DaemonClient:
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/coverage/advance",
             command,
             RunCoverageState,
+        )
+
+    def get_run_domain_job_checkpoints(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunDomainJobCheckpointPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/domain-jobs/checkpoints",
+            RunDomainJobCheckpointPage,
+            params=params,
+        )
+
+    def commit_run_domain_job_checkpoint(
+        self,
+        run_id: str,
+        command: RunDomainJobCheckpointCommand,
+    ) -> RunDomainJobCheckpointView:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/domain-jobs/checkpoints",
+            command,
+            RunDomainJobCheckpointView,
         )
 
     def get_run_point_plan(self, run_id: str) -> RunPointPlanView:

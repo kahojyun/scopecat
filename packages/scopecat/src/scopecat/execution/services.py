@@ -10,6 +10,7 @@ from scopecat.adaptive_domains import DomainProposalAttempt, OperatorDomainReque
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.optimization import DomainProposalDecision
+from scopecat.records.execution import DomainJobCheckpoint
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments.execution import RunInstrumentHost
@@ -29,6 +30,18 @@ class RunCoverageWriter(Protocol):
     def advance(self, *, start_index: int, point_count: int) -> None: ...
 
     def flush(self) -> None: ...
+
+
+class RunDomainJobCheckpointWriter(Protocol):
+    """Commit a correlated pending target job before its next transition."""
+
+    def commit(
+        self,
+        *,
+        logical_compute_node_id: str,
+        point_ordinals: tuple[int, ...],
+        checkpoint: DomainJobCheckpoint,
+    ) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +75,7 @@ class ExecutionSession:
     commit_terminal: Callable[[TerminalRunCommit], RunSnapshot]
     measurements: MeasurementDatasetWriter
     instruments: RunInstrumentHost
+    domain_job_checkpoints: RunDomainJobCheckpointWriter | None = None
     coverage: RunCoverageWriter | None = None
     domain_proposals: RunDomainProposalWriter | None = None
     cancellation_requested: Callable[[], bool] = _never_cancel

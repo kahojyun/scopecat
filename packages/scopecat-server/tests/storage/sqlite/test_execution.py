@@ -20,6 +20,7 @@ from scopecat.daemon.points import (
     RunPointCoordinateValue,
     RunPointPlanCloseCommand,
 )
+from scopecat.daemon.wire import RunDomainJobCheckpointCommand
 from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements import recording_arrow
@@ -38,10 +39,12 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
 )
+from scopecat.sdk.domain.runtime import DomainJobCheckpoint
 
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.execution import (
     ExecutionStateConflict,
+    SQLiteDomainJobCheckpoints,
     SQLiteMeasurementDatasetRepository,
     SQLiteRunPointLedger,
 )
@@ -177,6 +180,92 @@ def test_adaptive_domain_ledger_persists_idempotent_decisions_and_closure(
         ).fetchone()
     assert row is not None
     assert row["point_count"] == 2
+
+
+def test_domain_job_checkpoints_commit_monotonic_resumable_state(
+    tmp_path: Path,
+) -> None:
+    runs = _runs(tmp_path)
+    run_id = "domain-job-checkpoint-run"
+    ledger = SQLiteDomainJobCheckpoints(runs, run_id=run_id)
+    first_checkpoint = DomainJobCheckpoint(
+        execution_key="execution-key",
+        job_id="provider-job",
+        revision=1,
+        resume_token={"cursor": "poll-1"},
+        progress={"status": "submitted"},
+    )
+    first_command = RunDomainJobCheckpointCommand(
+        lease_id="lease-1",
+        logical_compute_node_id="domain.batch-0",
+        point_ordinals=(0, 1),
+        checkpoint=first_checkpoint,
+    )
+    second_command = first_command.model_copy(
+        update={
+            "checkpoint": first_checkpoint.model_copy(
+                update={
+                    "revision": 2,
+                    "resume_token": {"cursor": "poll-2"},
+                    "progress": {"status": "results_ready"},
+                }
+            )
+        }
+    )
+    with _sqlite_transaction(runs) as connection:
+        connection.execute(
+            """
+            INSERT INTO scheduler_runs(
+                submission_id, run_id, state, updated_at, admission_json
+            )
+            VALUES (?, ?, 'leased', ?, '{}')
+            """,
+            ("domain-job-submission", run_id, datetime.now(UTC).isoformat()),
+        )
+        first, inserted = ledger.commit_in_transaction(connection, first_command)
+        retried, retry_inserted = ledger.commit_in_transaction(
+            connection,
+            first_command,
+        )
+        second, second_inserted = ledger.commit_in_transaction(
+            connection,
+            second_command,
+        )
+        with pytest.raises(ExecutionStateConflict, match="conflicts"):
+            ledger.commit_in_transaction(
+                connection,
+                first_command.model_copy(
+                    update={
+                        "checkpoint": first_checkpoint.model_copy(
+                            update={"progress": {"status": "different"}}
+                        )
+                    }
+                ),
+            )
+        with pytest.raises(ExecutionStateConflict, match="durable identity"):
+            ledger.commit_in_transaction(
+                connection,
+                second_command.model_copy(
+                    update={
+                        "checkpoint": second_command.checkpoint.model_copy(
+                            update={"revision": 3, "job_id": "another-job"}
+                        )
+                    }
+                ),
+            )
+
+    assert inserted and second_inserted and not retry_inserted
+    assert retried == first
+    assert second.sequence > first.sequence
+    latest = ledger.read(limit=1)
+    assert [item.checkpoint.revision for item in latest.items] == [2]
+    assert latest.next_cursor == second.sequence
+    previous = SQLiteDomainJobCheckpoints(runs, run_id=run_id).read(
+        limit=1,
+        before=latest.next_cursor,
+    )
+    assert [item.checkpoint.revision for item in previous.items] == [1]
+    assert previous.next_cursor is None
 
 
 def _domain_decision_command(

@@ -231,13 +231,22 @@ resume token, and inspectable progress, then implement `resume` until it returns
 a terminal result or negative receipt. Core rejects transitions that change the
 execution key or job identity, or replay a stale revision.
 
-Observed domain checkpoints are retained with the execution attempt even when
-the attempt later fails. The current interpreter still advances the job in one
-process-local effect call: it does not commit each checkpoint before calling
-`resume`, reload an interrupted job after daemon restart, or stream partial
-target results into point coverage. Those are separate persistence and result
-partitioning changes; the lifecycle ABI now gives them an explicit boundary
-without making every synchronous target emulate an asynchronous provider.
+For a daemon-backed execution, every valid checkpoint is synchronously committed
+under the current executor fence before core calls `resume`. The write is
+idempotent by run, execution key, and revision; it rejects changed job, node, or
+point identity. If the commit is unavailable, the pending provider job is not
+advanced and the run becomes indeterminate. A cancellation observed during the
+write likewise retains the checkpoint and stops before the next transition.
+The complete observed sequence is also retained with normal terminal attempt
+evidence.
+
+These durable checkpoints make interrupted provider state inspectable after
+executor or daemon loss, but do not by themselves authorize continuing the run.
+Daemon restart fences the instrument session, process-local measurement writer,
+and original effect program. Reattaching those three owners safely is separate
+from storing a resume token. Partial target results also remain a later result
+partitioning change; synchronous targets still return terminal evidence without
+emulating an asynchronous provider.
 
 Outside that domain-job sequence, execution does not maintain a durable
 transition ledger for normal per-effect progress. Measurement prefixes,

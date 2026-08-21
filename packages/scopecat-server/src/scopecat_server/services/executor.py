@@ -35,6 +35,9 @@ from scopecat.daemon.wire import (
     RunCancellationReceipt,
     RunCoverageAdvanceCommand,
     RunCoverageState,
+    RunDomainJobCheckpointCommand,
+    RunDomainJobCheckpointPage,
+    RunDomainJobCheckpointView,
     TerminalRunCommitCommand,
 )
 from scopecat.kernel.errors import NotFound
@@ -56,6 +59,7 @@ from scopecat_server.storage.sqlite.control_plane import (
 )
 from scopecat_server.storage.sqlite.execution import (
     ExecutionStateConflict,
+    SQLiteDomainJobCheckpoints,
     SQLiteMeasurementDatasetRepository,
     SQLiteRunCoverage,
 )
@@ -162,6 +166,40 @@ class ExecutorService:
             run_id=run_id,
             completed_point_count=completed,
         )
+
+    def domain_job_checkpoints(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunDomainJobCheckpointPage:
+        self._control_run(run_id)
+        return SQLiteDomainJobCheckpoints(self._runs, run_id=run_id).read(
+            limit=limit,
+            before=before,
+        )
+
+    def commit_domain_job_checkpoint(
+        self,
+        run_id: str,
+        command: RunDomainJobCheckpointCommand,
+    ) -> RunDomainJobCheckpointView:
+        checkpoints = SQLiteDomainJobCheckpoints(self._runs, run_id=run_id)
+        with self.fenced_write(run_id, token=command.lease_id) as connection:
+            run = self._control.get_run_in_transaction(connection, run_id)
+            if any(
+                ordinal >= run.admission.plan.point_limit
+                for ordinal in command.point_ordinals
+            ):
+                raise ExecutionStateConflict(
+                    "domain job checkpoint references a point outside the admitted run"
+                )
+            committed, _inserted = checkpoints.commit_in_transaction(
+                connection,
+                command,
+            )
+        return committed
 
     def append_run_domain_decision(
         self,

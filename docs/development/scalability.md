@@ -631,7 +631,8 @@ The present architecture provides a direct end-to-end baseline:
   then owns bounded pending Arrow chunks until durable ingest acceptance rather
   than retaining a second complete candidate tuple;
 - cancellation fences every hardware batch submitted from a domain job runtime,
-  including each bounded shot chunk. A request arriving during a
+  including each bounded shot chunk, and every durable job transition before
+  its next `resume`. A request arriving during a
   driver call is honored before the next batch; the completed receipt is still
   interpreted first, so cancellation cannot turn known hardware evidence into
   a fabricated indeterminate failure. The maximum cooperative cancellation

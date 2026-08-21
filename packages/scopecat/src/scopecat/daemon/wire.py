@@ -61,6 +61,7 @@ from scopecat.records.config import (
     InstrumentBindingSpec,
 )
 from scopecat.records.content import ContentEntry, Sha256ContentHash
+from scopecat.records.execution import DomainJobCheckpoint
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
@@ -764,6 +765,41 @@ class RunCoverageAdvanceCommand(_FencedCommand):
     point_count: int = Field(gt=0)
 
 
+class RunDomainJobCheckpointCommand(_FencedCommand):
+    """Commit one correlated target-job checkpoint before its next resume."""
+
+    logical_compute_node_id: NonEmptyText
+    point_ordinals: tuple[int, ...] = Field(min_length=1)
+    checkpoint: DomainJobCheckpoint
+
+    @field_validator("point_ordinals")
+    @classmethod
+    def validate_point_ordinals(cls, value: tuple[int, ...]) -> tuple[int, ...]:
+        if any(ordinal < 0 for ordinal in value):
+            raise ValueError("domain job point ordinals must be non-negative")
+        if tuple(sorted(set(value))) != value:
+            raise ValueError("domain job point ordinals must be sorted and unique")
+        return value
+
+
+class RunDomainJobCheckpointView(_WireModel):
+    """One durable checkpoint accepted under a fenced executor lease."""
+
+    sequence: int = Field(ge=1)
+    run_id: NonEmptyText
+    logical_compute_node_id: NonEmptyText
+    point_ordinals: tuple[int, ...] = Field(min_length=1)
+    checkpoint: DomainJobCheckpoint
+
+
+class RunDomainJobCheckpointPage(_WireModel):
+    """A bounded ascending slice of durable target-job checkpoints."""
+
+    run_id: NonEmptyText
+    items: tuple[RunDomainJobCheckpointView, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+
 class _FencedOperationCommand(_FencedCommand):
     operation_id: NonEmptyText
 
@@ -1113,6 +1149,9 @@ __all__ = [
     "RunCancellationReceipt",
     "RunCoverageAdvanceCommand",
     "RunCoverageState",
+    "RunDomainJobCheckpointCommand",
+    "RunDomainJobCheckpointPage",
+    "RunDomainJobCheckpointView",
     "RunInstrumentProvisionCommand",
     "RunInstrumentProvisionReceipt",
     "RunSubmission",

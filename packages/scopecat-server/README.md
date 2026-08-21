@@ -83,7 +83,7 @@ and security boundaries.
 
 ## Project-store compatibility
 
-This early implementation uses project-store schema version 49 and does not
+This early implementation uses project-store schema version 50 and does not
 perform implicit migrations. A daemon built from this revision refuses an
 older `.scopecat/control.sqlite3` instead of partially reading or rewriting it.
 Before switching revisions, stop the daemon and back up the complete

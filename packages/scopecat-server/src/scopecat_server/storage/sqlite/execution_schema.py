@@ -6,6 +6,21 @@ CREATE TABLE IF NOT EXISTS execution_coverage (
     completed_point_count INTEGER NOT NULL CHECK (completed_point_count >= 0)
 );
 
+CREATE TABLE IF NOT EXISTS execution_domain_job_checkpoints (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,
+    logical_compute_node_id TEXT NOT NULL,
+    execution_key TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision >= 1),
+    point_ordinals_json TEXT NOT NULL,
+    checkpoint_json TEXT NOT NULL,
+    UNIQUE (run_id, execution_key, revision)
+);
+
+CREATE INDEX IF NOT EXISTS execution_domain_job_checkpoints_run_sequence
+ON execution_domain_job_checkpoints(run_id, sequence);
+
 CREATE TABLE IF NOT EXISTS execution_point_plans (
     run_id TEXT PRIMARY KEY REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,
     initialize_operation_id TEXT NOT NULL,
