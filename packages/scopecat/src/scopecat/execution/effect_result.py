@@ -11,6 +11,7 @@ from scopecat.kernel.problems import Problem
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.sdk.domain.evidence import CompletedDomainExecutionEvidence
 
 type CoverageMeasurementObserver = Callable[
     [
@@ -30,6 +31,7 @@ class RunEffectResult:
     observed_state: tuple[InstrumentStateSnapshot, ...]
     baseline_state: tuple[InstrumentStateSnapshot, ...]
     final_state: tuple[InstrumentStateSnapshot, ...]
+    completed_domain_executions: tuple[CompletedDomainExecutionEvidence, ...] = ()
     indeterminate: bool = False
     cancelled: bool = False
     domain_failure: tuple[RunDomainJob, BaseException] | None = field(

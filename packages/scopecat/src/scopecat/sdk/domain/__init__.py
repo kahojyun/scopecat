@@ -25,6 +25,10 @@ if TYPE_CHECKING:
         DomainBatchRequest,
     )
     from scopecat.sdk.domain.compiler import DomainCompiler
+    from scopecat.sdk.domain.evidence import (
+        CompletedDomainExecutionEvidence,
+        DomainExecutionEvidence,
+    )
     from scopecat.sdk.domain.execution import (
         DomainStateAddress,
         DomainStateRequirement,
@@ -68,6 +72,10 @@ _EXECUTION_EXPORTS = (
     "DomainStateAddress",
     "DomainStateRequirement",
     "PreparedDomainExecution",
+)
+_EVIDENCE_EXPORTS = (
+    "CompletedDomainExecutionEvidence",
+    "DomainExecutionEvidence",
 )
 _JOB_EXPORTS = (
     "DomainInvocationSpec",
@@ -113,6 +121,7 @@ _VIEW_EXPORTS = (
 _EXPORTS = {
     **{name: ("scopecat.sdk.domain.batch", name) for name in _BATCH_EXPORTS},
     **{name: ("scopecat.sdk.domain.execution", name) for name in _EXECUTION_EXPORTS},
+    **{name: ("scopecat.sdk.domain.evidence", name) for name in _EVIDENCE_EXPORTS},
     **{name: ("scopecat.sdk.domain.job", name) for name in _JOB_EXPORTS},
     **{name: ("scopecat.inspection", name) for name in _INSPECTION_EXPORTS},
     **{
@@ -155,10 +164,12 @@ __all__ = [
     "CompiledProgramInspectionPage",
     "CompiledProgramInspectionQuery",
     "CompiledWaveformInspection",
+    "CompletedDomainExecutionEvidence",
     "DomainBatchInputs",
     "DomainBatchRequest",
     "DomainCallView",
     "DomainCompiler",
+    "DomainExecutionEvidence",
     "DomainExecutionId",
     "DomainExecutionReceipt",
     "DomainExecutionResult",

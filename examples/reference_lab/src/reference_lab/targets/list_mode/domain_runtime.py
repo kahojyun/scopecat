@@ -253,6 +253,13 @@ class ListModeDomainRuntime:
                 status="completed",
                 result_fingerprint=target_run.fingerprint,
                 result_count=target_run.results.result_count,
+                execution_evidence={
+                    "schema": "reference_lab.list_mode_execution_evidence.v1",
+                    "artifact_fingerprint": (
+                        mapped_target.artifact.artifact_fingerprint
+                    ),
+                    "response_fingerprint": WORKER_ADC_DSP_FINGERPRINT,
+                },
             ),
             result=target_run,
         )

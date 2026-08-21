@@ -18,6 +18,7 @@ from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import (
     DomainExecutionFailed,
 )
+from scopecat.kernel.json_types import JsonValue
 from scopecat.sdk.domain.invocation import (
     ClosedDomainInvocation,
     DomainInvocationIntent,
@@ -82,7 +83,10 @@ class DomainExecutionReceipt(BaseModel):
     realtime call completed. ``not_executed`` proves that realtime execution
     did not begin, even if declared setup work changed state. ``unknown`` means
     hardware may have changed without a correlated completion. Both negative
-    statuses carry problems and no result evidence.
+    statuses carry problems and no result evidence. ``execution_evidence`` is
+    target-owned structured context reported with the call outcome. It is not
+    host instrument readback and does not imply that the described state can
+    be restored.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -91,6 +95,7 @@ class DomainExecutionReceipt(BaseModel):
     status: Literal["completed", "not_executed", "unknown"]
     result_fingerprint: str | None = None
     result_count: int | None = Field(default=None, ge=0)
+    execution_evidence: dict[str, JsonValue] = Field(default_factory=dict)
     problems: tuple[Problem, ...] = ()
 
     @field_validator("execution_key")

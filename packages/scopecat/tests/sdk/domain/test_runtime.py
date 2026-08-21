@@ -87,6 +87,10 @@ def test_receipts_encode_success_rejection_and_unknown_only() -> None:
         status="completed",
         result_fingerprint="result",
         result_count=1,
+        execution_evidence={
+            "schema": "test.execution.v1",
+            "selected_channel": "a",
+        },
     )
     rejected = DomainExecutionReceipt(
         execution_key="execution-key",
@@ -100,6 +104,10 @@ def test_receipts_encode_success_rejection_and_unknown_only() -> None:
     )
 
     assert DomainExecutionResult(completed, "payload").result == "payload"
+    assert completed.model_dump(mode="json")["execution_evidence"] == {
+        "schema": "test.execution.v1",
+        "selected_channel": "a",
+    }
     assert rejected.status == "not_executed"
     assert unknown.status == "unknown"
 

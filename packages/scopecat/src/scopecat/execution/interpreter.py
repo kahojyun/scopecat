@@ -19,8 +19,10 @@ from scopecat.execution.effects.domain import (
     measurement_recording_terminal_problem,
 )
 from scopecat.execution.evidence import (
+    build_domain_execution_evidence,
     build_instrument_state_evidence,
     build_terminal_contents,
+    domain_execution_evidence_ref,
     instrument_state_evidence_ref,
 )
 from scopecat.execution.measurement_computes import (
@@ -76,6 +78,7 @@ from scopecat.optimization import (
     OptimizationComplete,
 )
 from scopecat.records.content import ModelWrite
+from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
@@ -83,6 +86,7 @@ from scopecat.records.measurement_recording import (
 )
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
+from scopecat.sdk.domain.evidence import DomainExecutionEvidence
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS
 from scopecat.sdk.runtime_problems import (
     contextualize_problems,
@@ -320,6 +324,7 @@ def _execute_run(
     instrument_state = (
         None if host is None else build_instrument_state_evidence(run_id, effect_result)
     )
+    domain_execution = build_domain_execution_evidence(run_id, effect_result)
     contents = build_terminal_contents(
         outcome=outcome,
         measurement_count=(recorded_measurement_count if seal_receipt else 0),
@@ -331,15 +336,9 @@ def _execute_run(
             len(point_state.points) if projection.has_dataset else None
         ),
         instrument_state=instrument_state,
+        domain_execution=domain_execution,
     )
-    models: list[ModelWrite] = []
-    if instrument_state is not None:
-        models.append(
-            ModelWrite(
-                ref=instrument_state_evidence_ref(),
-                value=instrument_state,
-            )
-        )
+    models = _terminal_evidence_model_writes(instrument_state, domain_execution)
     snapshot = session.commit_terminal(
         TerminalRunCommit(
             run_id=run_id,
@@ -357,6 +356,28 @@ def _execute_run(
     if committed_outcome.result != "succeeded":
         _raise_terminal_run_error(run_id, committed_outcome)
     return snapshot
+
+
+def _terminal_evidence_model_writes(
+    instrument_state: InstrumentStateEvidence | None,
+    domain_execution: DomainExecutionEvidence | None,
+) -> list[ModelWrite]:
+    models: list[ModelWrite] = []
+    if instrument_state is not None:
+        models.append(
+            ModelWrite(
+                ref=instrument_state_evidence_ref(),
+                value=instrument_state,
+            )
+        )
+    if domain_execution is not None:
+        models.append(
+            ModelWrite(
+                ref=domain_execution_evidence_ref(),
+                value=domain_execution,
+            )
+        )
+    return models
 
 
 def _advance_unrecorded_coverage(

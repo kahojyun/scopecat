@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pydantic import JsonValue
+
 from scopecat.execution.effect_result import RunEffectResult
 from scopecat.kernel.content_identity import model_wire_content_hash
 from scopecat.kernel.run_outcome import RunOutcome
@@ -16,15 +18,25 @@ from scopecat.records.execution import (
 )
 from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.runs.refs import record_content_ref
+from scopecat.sdk.domain.evidence import DomainExecutionEvidence
 
 INSTRUMENT_STATE_EVIDENCE_ID = "instrument-state-evidence"
 INSTRUMENT_STATE_EVIDENCE_KIND = "instrument_state_evidence"
+DOMAIN_EXECUTION_EVIDENCE_ID = "domain-execution-evidence"
+DOMAIN_EXECUTION_EVIDENCE_KIND = "domain_execution_evidence"
 
 
 def instrument_state_evidence_ref() -> str:
     return record_content_ref(
         record_id=INSTRUMENT_STATE_EVIDENCE_ID,
         kind=INSTRUMENT_STATE_EVIDENCE_KIND,
+    )
+
+
+def domain_execution_evidence_ref() -> str:
+    return record_content_ref(
+        record_id=DOMAIN_EXECUTION_EVIDENCE_ID,
+        kind=DOMAIN_EXECUTION_EVIDENCE_KIND,
     )
 
 
@@ -36,6 +48,7 @@ def build_terminal_contents(
     dataset_schema: MeasurementDatasetSchema | None,
     expected_record_count: int | None,
     instrument_state: InstrumentStateEvidence | None,
+    domain_execution: DomainExecutionEvidence | None = None,
 ) -> tuple[ContentEntry, ...]:
     incomplete_run = outcome.result != "succeeded"
     partial = incomplete_run and (
@@ -71,10 +84,9 @@ def build_terminal_contents(
         )
     elif measurement_count:
         raise ValueError("recorded measurements require a sealed dataset contract")
-    records = (
-        ()
-        if instrument_state is None
-        else (
+    records: list[ContentEntry] = []
+    if instrument_state is not None:
+        records.append(
             ContentEntry(
                 role="record",
                 id=INSTRUMENT_STATE_EVIDENCE_ID,
@@ -86,9 +98,30 @@ def build_terminal_contents(
                         instrument_state
                     ).model_dump(mode="json")
                 },
-            ),
+            )
         )
-    )
+    if domain_execution is not None:
+        target_ids = list[JsonValue](
+            sorted(
+                {
+                    execution.intent.target_id
+                    for execution in domain_execution.executions
+                }
+            )
+        )
+        records.append(
+            ContentEntry(
+                role="record",
+                id=DOMAIN_EXECUTION_EVIDENCE_ID,
+                kind=DOMAIN_EXECUTION_EVIDENCE_KIND,
+                media_type="application/json",
+                content_hash=model_wire_content_hash(domain_execution),
+                metadata={
+                    "execution_count": len(domain_execution.executions),
+                    "target_ids": target_ids,
+                },
+            )
+        )
     return (*records, *datasets)
 
 
@@ -101,4 +134,16 @@ def build_instrument_state_evidence(
         observed_state=list(result.observed_state),
         baseline_state=list(result.baseline_state),
         final_state=list(result.final_state),
+    )
+
+
+def build_domain_execution_evidence(
+    run_id: str,
+    result: RunEffectResult,
+) -> DomainExecutionEvidence | None:
+    if not result.completed_domain_executions:
+        return None
+    return DomainExecutionEvidence(
+        run_id=run_id,
+        executions=list(result.completed_domain_executions),
     )

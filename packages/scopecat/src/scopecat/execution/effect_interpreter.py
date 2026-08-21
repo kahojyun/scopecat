@@ -26,7 +26,11 @@ from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.sdk.domain.runtime import DomainExecutionCancellationRequested
+from scopecat.sdk.domain.evidence import CompletedDomainExecutionEvidence
+from scopecat.sdk.domain.runtime import (
+    DomainExecutionCancellationRequested,
+    DomainExecutionReceipt,
+)
 from scopecat.sdk.instruments.execution import (
     RunHardwareBatch,
     RunHardwareBatchReceipt,
@@ -93,6 +97,7 @@ class RunEffectInterpreter:
         self.observed_state = list(instruments.observed_state)
         self.baseline_state = list(instruments.baseline_state)
         self.final_state: list[InstrumentStateSnapshot] = []
+        self.completed_domain_executions: list[CompletedDomainExecutionEvidence] = []
         self.domain_failure: tuple[RunDomainJob, BaseException] | None = None
         self.coverage_failure: BaseException | None = None
         self.cancelled = False
@@ -320,6 +325,9 @@ class RunEffectInterpreter:
                 run_id=self.run_id,
                 instruments=self._domain_instruments,
                 accept=self._hardware.values.append,
+                observe_completion=lambda receipt: self._record_domain_completion(
+                    job, receipt
+                ),
             )
         except DomainExecutionCancellationRequested:
             self._check_cancellation()
@@ -332,6 +340,20 @@ class RunEffectInterpreter:
             if pending:
                 self._complete_coverage(pending)
             raise _CapturedDomainEffectFailure(job.id) from error
+
+    def _record_domain_completion(
+        self,
+        job: RunDomainJob,
+        receipt: DomainExecutionReceipt,
+    ) -> None:
+        self.completed_domain_executions.append(
+            CompletedDomainExecutionEvidence(
+                logical_compute_node_id=job.id,
+                point_ordinals=job.point_ordinals,
+                intent=job.execution.invocation.intent,
+                receipt=receipt,
+            )
+        )
 
     def _point_state(self, point_index: int) -> PointEffectState:
         if point_index in self._terminal_point_indices:
@@ -396,6 +418,7 @@ class RunEffectInterpreter:
             observed_state=tuple(self.observed_state),
             baseline_state=tuple(self.baseline_state),
             final_state=tuple(self.final_state),
+            completed_domain_executions=tuple(self.completed_domain_executions),
             indeterminate=self._boundary.indeterminate,
             cancelled=self.cancelled,
             domain_failure=self.domain_failure,

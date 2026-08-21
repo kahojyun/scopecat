@@ -41,8 +41,13 @@ def execute_domain_job_values(
     run_id: str,
     instruments: DomainInstrumentExecutor,
     accept: Callable[[MeasurementValueCandidate], None],
+    observe_completion: Callable[[DomainExecutionReceipt], None],
 ) -> None:
-    """Execute one closed domain job into the execution-owned coverage sink."""
+    """Execute one closed domain job into the execution-owned coverage sink.
+
+    The completed receipt is observed before adapter-owned result realization,
+    so a realization failure cannot erase the target call outcome.
+    """
 
     invocation = prepared.invocation
     runtime = _RequirementReconciledRuntime(prepared)
@@ -57,6 +62,7 @@ def execute_domain_job_values(
         execution_id,
         instruments=instruments,
     )
+    observe_completion(result.receipt)
     prepared.realize_into(result, accept)
 
 
