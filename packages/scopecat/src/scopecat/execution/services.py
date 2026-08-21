@@ -17,7 +17,6 @@ from scopecat.records.execution import (
 )
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.sdk.domain.execution import DomainTransitionDurability
 from scopecat.sdk.domain.invocation import DomainInvocationIntent
 from scopecat.sdk.instruments.execution import RunInstrumentHost
 
@@ -48,7 +47,7 @@ class RunDomainJobTransitionWriter(Protocol):
         point_ordinals: tuple[int, ...],
         execution_id: DomainExecutionId,
         intent: DomainInvocationIntent,
-        durability: DomainTransitionDurability,
+        write_ahead: bool,
     ) -> None: ...
 
     def checkpoint(
@@ -65,7 +64,7 @@ class RunDomainJobTransitionWriter(Protocol):
         logical_compute_node_id: str,
         point_ordinals: tuple[int, ...],
         receipt: DomainExecutionReceipt,
-        durability: DomainTransitionDurability,
+        write_ahead: bool,
     ) -> None: ...
 
     def flush(self) -> None: ...

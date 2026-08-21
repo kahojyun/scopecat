@@ -112,6 +112,7 @@ def build_terminal_contents(
                     "receipt_count": domain_execution.receipt_count,
                     "completed_count": domain_execution.completed_count,
                     "target_ids": list(domain_execution.target_ids),
+                    "transition_policies": list(domain_execution.transition_policies),
                 },
             )
         )

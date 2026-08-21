@@ -54,7 +54,7 @@ resume proof. Losing the connection loses the knowledge. The driver remains the
 authority that performs an idempotent ensure and invalidates any lower-level
 cache when its device session is reset.
 
-## Choose transition durability by recovery value
+## Choose transition evidence by recovery value
 
 Prepared executions use write-ahead transition persistence by default. Their
 invocation is durable before setup or realtime start, and their terminal
@@ -68,7 +68,7 @@ transactions when losing the latest small progress window is inexpensive:
 ```python
 return preparation.build(
     ...,
-    transition_durability="batched",
+    transition_policy="batched",
 )
 ```
 
@@ -83,3 +83,22 @@ summary and whether those details are complete, so a dense synchronous sweep
 does not duplicate every target attempt into one large JSON object. This setting
 changes evidence durability, not hardware ordering, target batching, or
 ownership of an independently routed LO.
+
+A synchronous target whose successful calls are cheap to repeat and already
+represented by measurement coverage may omit its normal lifecycle ledger:
+
+```python
+return preparation.build(
+    ...,
+    transition_policy="abnormal_only",
+)
+```
+
+This policy writes no invocation or terminal row for an ordinary synchronous
+success. A negative receipt is retained together with its complete invocation;
+an interruption without a receipt retains the invocation alone, and a completed
+receipt is retained if host result realization then fails. If the runtime
+does return a checkpoint, Scopecat promotes that execution to the complete
+ledger before `resume` and later closes it with its terminal receipt. The compact
+run evidence lists the policies it observed, so an empty current-job projection
+is distinguishable from missing required details.

@@ -27,7 +27,6 @@ from scopecat.sdk.domain.execution import (
     DomainResidencyRequirement,
     DomainStateAddress,
     DomainStateRequirement,
-    DomainTransitionDurability,
     ErasedDomainInvocation,
     ErasedDomainJobRuntime,
     ErasedDomainRealizer,
@@ -317,14 +316,14 @@ def test_transition_flush_failure_marks_run_indeterminate() -> None:
             point_ordinals: tuple[int, ...],
             execution_id: DomainExecutionId,
             intent: DomainInvocationIntent,
-            durability: DomainTransitionDurability,
+            write_ahead: bool,
         ) -> None:
             del (
                 logical_compute_node_id,
                 point_ordinals,
                 execution_id,
                 intent,
-                durability,
+                write_ahead,
             )
             raise AssertionError("empty run has no invocation")
 
@@ -344,9 +343,9 @@ def test_transition_flush_failure_marks_run_indeterminate() -> None:
             logical_compute_node_id: str,
             point_ordinals: tuple[int, ...],
             receipt: DomainExecutionReceipt,
-            durability: DomainTransitionDurability,
+            write_ahead: bool,
         ) -> None:
-            del logical_compute_node_id, point_ordinals, receipt, durability
+            del logical_compute_node_id, point_ordinals, receipt, write_ahead
             raise AssertionError("empty run has no terminal")
 
         def flush(self) -> None:
@@ -475,14 +474,14 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
             point_ordinals: tuple[int, ...],
             execution_id: DomainExecutionId,
             intent: DomainInvocationIntent,
-            durability: DomainTransitionDurability,
+            write_ahead: bool,
         ) -> None:
             assert logical_compute_node_id == "test-node"
             assert point_ordinals == (0,)
             assert execution_id.logical_compute_node_id == logical_compute_node_id
             assert execution_id.invocation_id == intent.invocation_id
             committed_intents.append(intent)
-            assert durability == "write_ahead"
+            assert write_ahead
             transition_events.append(("invocation", 0))
 
         def checkpoint(
@@ -503,12 +502,12 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
             logical_compute_node_id: str,
             point_ordinals: tuple[int, ...],
             receipt: DomainExecutionReceipt,
-            durability: DomainTransitionDurability,
+            write_ahead: bool,
         ) -> None:
             assert logical_compute_node_id == "test-node"
             assert point_ordinals == (0,)
             assert receipt.status == "unknown"
-            assert durability == "write_ahead"
+            assert write_ahead
             transition_events.append(("terminal", 0))
 
         def flush(self) -> None:
@@ -802,7 +801,7 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
             point_ordinals: tuple[int, ...],
             execution_id: DomainExecutionId,
             intent: DomainInvocationIntent,
-            durability: DomainTransitionDurability,
+            write_ahead: bool,
         ) -> None:
             nonlocal invocation_cancellation_requested
             super().invocation(
@@ -810,7 +809,7 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
                 point_ordinals=point_ordinals,
                 execution_id=execution_id,
                 intent=intent,
-                durability=durability,
+                write_ahead=write_ahead,
             )
             invocation_cancellation_requested = True
 
@@ -943,10 +942,70 @@ def test_dense_domain_sweep_keeps_terminal_evidence_bounded() -> None:
                 object(),
             )
 
+    class DenseNegativeRuntime:
+        def start(
+            self,
+            execution_key: str,
+            payload: object,
+            *,
+            instruments: object,
+        ) -> DomainExecutionReceipt:
+            del payload, instruments
+            return DomainExecutionReceipt(
+                execution_key=execution_key,
+                status="unknown",
+                problems=(_failure(),),
+            )
+
+    class DenseRaisingRuntime:
+        def start(
+            self,
+            execution_key: str,
+            payload: object,
+            *,
+            instruments: object,
+        ) -> DomainExecutionReceipt:
+            del execution_key, payload, instruments
+            raise RuntimeError("provider response was lost")
+
+    class DenseCheckpointRuntime:
+        def start(
+            self,
+            execution_key: str,
+            payload: object,
+            *,
+            instruments: object,
+        ) -> DomainJobCheckpoint:
+            del payload, instruments
+            return DomainJobCheckpoint(
+                execution_key=execution_key,
+                job_id="provider-job",
+                revision=1,
+                resume_token={"cursor": 1},
+            )
+
+        def resume(
+            self,
+            checkpoint: DomainJobCheckpoint,
+            *,
+            instruments: object,
+        ) -> DomainExecutionResult[object]:
+            del instruments
+            return DomainExecutionResult(
+                DomainExecutionReceipt(
+                    execution_key=checkpoint.execution_key,
+                    status="completed",
+                    result_fingerprint="empty-result",
+                    result_count=0,
+                ),
+                object(),
+            )
+
     class CountingTransitionWriter:
         def __init__(self) -> None:
-            self.invocation_count = 0
-            self.terminal_count = 0
+            self.invocation_writes: list[bool] = []
+            self.checkpoint_count = 0
+            self.terminal_writes: list[tuple[str, bool]] = []
 
         def invocation(
             self,
@@ -955,12 +1014,12 @@ def test_dense_domain_sweep_keeps_terminal_evidence_bounded() -> None:
             point_ordinals: tuple[int, ...],
             execution_id: DomainExecutionId,
             intent: DomainInvocationIntent,
-            durability: DomainTransitionDurability,
+            write_ahead: bool,
         ) -> None:
-            del point_ordinals, durability
+            del point_ordinals
             assert execution_id.logical_compute_node_id == logical_compute_node_id
             assert execution_id.intent_fingerprint == intent.intent_fingerprint
-            self.invocation_count += 1
+            self.invocation_writes.append(write_ahead)
 
         def checkpoint(
             self,
@@ -970,7 +1029,7 @@ def test_dense_domain_sweep_keeps_terminal_evidence_bounded() -> None:
             checkpoint: DomainJobCheckpoint,
         ) -> None:
             del logical_compute_node_id, point_ordinals, checkpoint
-            raise AssertionError("synchronous sweep has no checkpoints")
+            self.checkpoint_count += 1
 
         def terminal(
             self,
@@ -978,11 +1037,10 @@ def test_dense_domain_sweep_keeps_terminal_evidence_bounded() -> None:
             logical_compute_node_id: str,
             point_ordinals: tuple[int, ...],
             receipt: DomainExecutionReceipt,
-            durability: DomainTransitionDurability,
+            write_ahead: bool,
         ) -> None:
-            del logical_compute_node_id, point_ordinals, durability
-            assert receipt.status == "completed"
-            self.terminal_count += 1
+            del logical_compute_node_id, point_ordinals
+            self.terminal_writes.append((receipt.status, write_ahead))
 
         def flush(self) -> None:
             return None
@@ -1009,6 +1067,12 @@ def test_dense_domain_sweep_keeps_terminal_evidence_bounded() -> None:
     ) -> None:
         return None
 
+    def reject_result(
+        _result: DomainExecutionResult[object],
+        _accept: object,
+    ) -> None:
+        raise RuntimeError("result could not be realized")
+
     prepared = PreparedDomainExecution(
         instrument_ids=(),
         setup_write_footprint=(),
@@ -1021,7 +1085,7 @@ def test_dense_domain_sweep_keeps_terminal_evidence_bounded() -> None:
         setup=None,
         job_runtime=cast("ErasedDomainJobRuntime", Runtime()),
         realize_into=cast("ErasedDomainRealizer", discard_result),
-        transition_durability="batched",
+        transition_policy="abnormal_only",
     )
     point_count = 512
     points = tuple(
@@ -1050,21 +1114,122 @@ def test_dense_domain_sweep_keeps_terminal_evidence_bounded() -> None:
     assert result.domain_execution.receipt_count == point_count
     assert result.domain_execution.completed_count == point_count
     assert result.domain_execution.target_ids == ("dense-sweep-target",)
+    assert result.domain_execution.transition_policies == ("abnormal_only",)
     assert len(result.domain_execution.model_dump_json()) < 512
-    assert transitions.invocation_count == point_count
-    assert transitions.terminal_count == point_count
+    assert transitions.invocation_writes == []
+    assert transitions.checkpoint_count == 0
+    assert transitions.terminal_writes == []
+
+    negative_transitions = CountingTransitionWriter()
+    negative = RunEffectInterpreter(
+        run_id="negative-domain-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost(),
+        domain_job_transitions=negative_transitions,
+    ).run(
+        (
+            replace(
+                jobs[0],
+                execution=replace(
+                    prepared,
+                    job_runtime=cast("ErasedDomainJobRuntime", DenseNegativeRuntime()),
+                ),
+            ),
+        ),
+        points=points[:1],
+    )
+    assert negative.domain_execution is not None
+    assert negative.domain_execution.unknown_count == 1
+    assert negative_transitions.invocation_writes == [False]
+    assert negative_transitions.terminal_writes == [("unknown", True)]
+
+    interrupted_transitions = CountingTransitionWriter()
+    interrupted = RunEffectInterpreter(
+        run_id="interrupted-domain-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost(),
+        domain_job_transitions=interrupted_transitions,
+    ).run(
+        (
+            replace(
+                jobs[0],
+                execution=replace(
+                    prepared,
+                    job_runtime=cast("ErasedDomainJobRuntime", DenseRaisingRuntime()),
+                ),
+            ),
+        ),
+        points=points[:1],
+    )
+    assert interrupted.domain_execution is not None
+    assert interrupted.domain_execution.receipt_count == 0
+    assert interrupted_transitions.invocation_writes == [True]
+    assert interrupted_transitions.terminal_writes == []
+
+    checkpoint_transitions = CountingTransitionWriter()
+    checkpointed = RunEffectInterpreter(
+        run_id="checkpoint-domain-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost(),
+        domain_job_transitions=checkpoint_transitions,
+    ).run(
+        (
+            replace(
+                jobs[0],
+                execution=replace(
+                    prepared,
+                    job_runtime=cast(
+                        "ErasedDomainJobRuntime", DenseCheckpointRuntime()
+                    ),
+                ),
+            ),
+        ),
+        points=points[:1],
+    )
+    assert checkpointed.domain_execution is not None
+    assert checkpointed.domain_execution.checkpoint_count == 1
+    assert checkpoint_transitions.invocation_writes == [False]
+    assert checkpoint_transitions.checkpoint_count == 1
+    assert checkpoint_transitions.terminal_writes == [("completed", True)]
+
+    realization_transitions = CountingTransitionWriter()
+    realization_failure = RunEffectInterpreter(
+        run_id="realization-domain-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost(),
+        domain_job_transitions=realization_transitions,
+    ).run(
+        (
+            replace(
+                jobs[0],
+                execution=replace(
+                    prepared,
+                    realize_into=cast("ErasedDomainRealizer", reject_result),
+                ),
+            ),
+        ),
+        points=points[:1],
+    )
+    assert realization_failure.domain_execution is not None
+    assert realization_failure.domain_execution.completed_count == 1
+    assert realization_transitions.invocation_writes == [False]
+    assert realization_transitions.terminal_writes == [("completed", True)]
 
     class FailingFlushWriter(CountingTransitionWriter):
         @override
         def flush(self) -> None:
             raise RuntimeError("transition ledger unavailable")
 
+    audited_job = replace(
+        jobs[0],
+        execution=replace(prepared, transition_policy="batched"),
+    )
     incomplete = RunEffectInterpreter(
         run_id="incomplete-detail-run",
         coordinate_ids=(),
         instruments=TestRunInstrumentHost(),
         domain_job_transitions=FailingFlushWriter(),
-    ).run(jobs[:1], points=points[:1])
+    ).run((audited_job,), points=points[:1])
     assert incomplete.indeterminate
     assert incomplete.domain_execution is not None
     assert not incomplete.domain_execution.detail_complete

@@ -24,7 +24,7 @@ from scopecat.sdk.domain.execution import (
     DomainResidencyRequirement,
     DomainStateAddress,
     DomainStateRequirement,
-    DomainTransitionDurability,
+    DomainTransitionPolicy,
     ErasedDomainInvocation,
     ErasedDomainJobRuntime,
     ErasedDomainRealizer,
@@ -115,7 +115,7 @@ class DomainPreparationBuilder:
         realtime_write_footprint: Sequence[DomainStateAddress],
         realtime_state_invalidations: Sequence[DomainStateAddress],
         realtime_residency_invalidations: Sequence[DomainResidencyAddress] = (),
-        transition_durability: DomainTransitionDurability = "write_ahead",
+        transition_policy: DomainTransitionPolicy = "write_ahead",
         next_batch_max_points: int,
         inspection: CompiledArtifactInspection | None = None,
         inspection_projector: (
@@ -144,9 +144,10 @@ class DomainPreparationBuilder:
         content that successful setup makes resident. Matching content may
         skip setup later in the same run; explicit residency invalidations
         withdraw only that runtime knowledge.
-        ``transition_durability`` keeps write-ahead persistence as the default;
-        ``batched`` allows targets for which losing the latest progress is
-        inexpensive to amortize transition transport and storage commits.
+        ``transition_policy`` keeps write-ahead persistence as the default;
+        ``batched`` retains the complete ledger with bounded commit batches,
+        while ``abnormal_only`` omits ordinary synchronous successes and retains
+        only negative, interrupted, or checkpoint-bearing executions.
         ``next_batch_max_points`` bounds the next candidate using information
         learned from this concrete artifact. It may account for bytes, samples,
         shots, channels, device entries, or another domain-owned resource
@@ -216,7 +217,7 @@ class DomainPreparationBuilder:
             realtime_residency_invalidations=tuple(
                 sorted(set(realtime_residency_invalidations))
             ),
-            transition_durability=transition_durability,
+            transition_policy=transition_policy,
         )
 
 

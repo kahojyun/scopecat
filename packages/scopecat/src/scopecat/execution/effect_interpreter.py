@@ -32,6 +32,7 @@ from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.domain.evidence import DomainExecutionEvidence
+from scopecat.sdk.domain.execution import DomainTransitionPolicy
 from scopecat.sdk.domain.runtime import (
     DomainExecutionCancellationRequested,
     DomainExecutionId,
@@ -89,17 +90,20 @@ class _DomainExecutionEvidenceBuilder:
     unknown_count: int = 0
     detail_complete: bool = True
     target_ids: set[str] = field(default_factory=set)
+    transition_policies: set[DomainTransitionPolicy] = field(default_factory=set)
 
     def observe(
         self,
         *,
         target_id: str,
+        transition_policy: DomainTransitionPolicy,
         checkpoints: tuple[DomainJobCheckpoint, ...],
         receipt: DomainExecutionReceipt | None,
     ) -> None:
         self.attempt_count += 1
         self.checkpoint_count += len(checkpoints)
         self.target_ids.add(target_id)
+        self.transition_policies.add(transition_policy)
         if receipt is None:
             return
         self.receipt_count += 1
@@ -124,6 +128,7 @@ class _DomainExecutionEvidenceBuilder:
             not_executed_count=self.not_executed_count,
             unknown_count=self.unknown_count,
             target_ids=tuple(sorted(self.target_ids)),
+            transition_policies=tuple(sorted(self.transition_policies)),
         )
 
 
@@ -175,6 +180,11 @@ class RunEffectInterpreter:
         self._instruments = instruments
         self._cancellation_requested = cancellation_requested
         self._domain_job_transitions = domain_job_transitions
+        self._recorded_domain_invocations: set[str] = set()
+        self._unrecorded_completed_domain_attempts: dict[
+            str,
+            tuple[DomainExecutionId, DomainExecutionReceipt],
+        ] = {}
         self._domain_residency = DomainResidencyCache()
         self._domain_instruments = _CancellationAwareDomainInstruments(
             instruments,
@@ -412,23 +422,26 @@ class RunEffectInterpreter:
                 commit_invocation=lambda execution_id: (
                     self._commit_domain_job_invocation(job, execution_id)
                 ),
-                commit_checkpoint=lambda _execution_id, checkpoint: (
+                commit_checkpoint=lambda execution_id, checkpoint: (
                     self._commit_domain_job_checkpoint(
                         job,
+                        execution_id,
                         checkpoint,
                     )
                 ),
-                commit_terminal=lambda _execution_id, receipt: (
-                    self._commit_domain_job_terminal(job, receipt)
+                commit_terminal=lambda execution_id, receipt: (
+                    self._commit_domain_job_terminal(job, execution_id, receipt)
                 ),
                 residency=self._domain_residency,
             )
+            self._unrecorded_completed_domain_attempts.pop(job.id, None)
         except DomainExecutionCancellationRequested:
             self._check_cancellation()
             raise AssertionError(
                 "domain cancellation marker requires a live request"
             ) from None
         except BaseException as error:
+            self._record_failed_domain_realization(job)
             self.domain_failure = (job, error)
             pending = tuple(sorted(self._active_point_indices))
             if pending:
@@ -440,15 +453,12 @@ class RunEffectInterpreter:
         job: RunDomainJob,
         execution_id: DomainExecutionId,
     ) -> None:
-        writer = self._domain_job_transitions
-        if writer is not None:
+        if job.execution.transition_policy != "abnormal_only":
             try:
-                writer.invocation(
-                    logical_compute_node_id=job.id,
-                    point_ordinals=job.point_ordinals,
-                    execution_id=execution_id,
-                    intent=job.execution.invocation.intent,
-                    durability=job.execution.transition_durability,
+                self._record_domain_job_invocation(
+                    job,
+                    execution_id,
+                    write_ahead=job.execution.transition_policy == "write_ahead",
                 )
             except Exception:
                 self._domain_execution.detail_complete = False
@@ -459,11 +469,18 @@ class RunEffectInterpreter:
     def _commit_domain_job_checkpoint(
         self,
         job: RunDomainJob,
+        execution_id: DomainExecutionId,
         checkpoint: DomainJobCheckpoint,
     ) -> None:
         writer = self._domain_job_transitions
         if writer is not None:
             try:
+                if execution_id.execution_key not in self._recorded_domain_invocations:
+                    self._record_domain_job_invocation(
+                        job,
+                        execution_id,
+                        write_ahead=False,
+                    )
                 writer.checkpoint(
                     logical_compute_node_id=job.id,
                     point_ordinals=job.point_ordinals,
@@ -478,16 +495,33 @@ class RunEffectInterpreter:
     def _commit_domain_job_terminal(
         self,
         job: RunDomainJob,
+        execution_id: DomainExecutionId,
         receipt: DomainExecutionReceipt,
     ) -> None:
+        policy = job.execution.transition_policy
+        invocation_recorded = (
+            execution_id.execution_key in self._recorded_domain_invocations
+        )
+        if (
+            policy == "abnormal_only"
+            and receipt.status == "completed"
+            and not invocation_recorded
+        ):
+            return
         writer = self._domain_job_transitions
         if writer is not None:
             try:
+                if not invocation_recorded:
+                    self._record_domain_job_invocation(
+                        job,
+                        execution_id,
+                        write_ahead=False,
+                    )
                 writer.terminal(
                     logical_compute_node_id=job.id,
                     point_ordinals=job.point_ordinals,
                     receipt=receipt,
-                    durability=job.execution.transition_durability,
+                    write_ahead=(policy == "write_ahead" or policy == "abnormal_only"),
                 )
             except Exception:
                 self._domain_execution.detail_complete = False
@@ -518,12 +552,78 @@ class RunEffectInterpreter:
         checkpoints: tuple[DomainJobCheckpoint, ...],
         receipt: DomainExecutionReceipt | None,
     ) -> None:
-        del execution_id
         self._domain_execution.observe(
             target_id=job.execution.invocation.intent.target_id,
+            transition_policy=job.execution.transition_policy,
             checkpoints=checkpoints,
             receipt=receipt,
         )
+        if (
+            job.execution.transition_policy == "abnormal_only"
+            and receipt is None
+            and execution_id.execution_key not in self._recorded_domain_invocations
+        ):
+            try:
+                self._record_domain_job_invocation(
+                    job,
+                    execution_id,
+                    write_ahead=True,
+                )
+            except Exception:
+                self._domain_execution.detail_complete = False
+        if (
+            job.execution.transition_policy == "abnormal_only"
+            and receipt is not None
+            and receipt.status == "completed"
+            and execution_id.execution_key not in self._recorded_domain_invocations
+        ):
+            self._unrecorded_completed_domain_attempts[job.id] = (
+                execution_id,
+                receipt,
+            )
+        if receipt is not None:
+            self._recorded_domain_invocations.discard(execution_id.execution_key)
+
+    def _record_failed_domain_realization(self, job: RunDomainJob) -> None:
+        deferred = self._unrecorded_completed_domain_attempts.pop(job.id, None)
+        if deferred is None:
+            return
+        execution_id, receipt = deferred
+        try:
+            self._record_domain_job_invocation(
+                job,
+                execution_id,
+                write_ahead=False,
+            )
+            writer = self._domain_job_transitions
+            if writer is not None:
+                writer.terminal(
+                    logical_compute_node_id=job.id,
+                    point_ordinals=job.point_ordinals,
+                    receipt=receipt,
+                    write_ahead=True,
+                )
+        except Exception:
+            self._domain_execution.detail_complete = False
+
+    def _record_domain_job_invocation(
+        self,
+        job: RunDomainJob,
+        execution_id: DomainExecutionId,
+        *,
+        write_ahead: bool,
+    ) -> None:
+        writer = self._domain_job_transitions
+        if writer is None:
+            return
+        writer.invocation(
+            logical_compute_node_id=job.id,
+            point_ordinals=job.point_ordinals,
+            execution_id=execution_id,
+            intent=job.execution.invocation.intent,
+            write_ahead=write_ahead,
+        )
+        self._recorded_domain_invocations.add(execution_id.execution_key)
 
     def _point_state(self, point_index: int) -> PointEffectState:
         if point_index in self._terminal_point_indices:

@@ -67,7 +67,6 @@ from scopecat.records.measurement_recording import (
 )
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.sdk.domain.execution import DomainTransitionDurability
 from scopecat.sdk.domain.invocation import DomainInvocationIntent
 from scopecat.sdk.instruments.execution import (
     RunHardwareBatch,
@@ -305,7 +304,7 @@ class _DaemonRunDomainJobTransitions:
         point_ordinals: tuple[int, ...],
         execution_id: DomainExecutionId,
         intent: DomainInvocationIntent,
-        durability: DomainTransitionDurability,
+        write_ahead: bool,
     ) -> None:
         self._stage(
             logical_compute_node_id=logical_compute_node_id,
@@ -314,7 +313,7 @@ class _DaemonRunDomainJobTransitions:
                 execution_id=execution_id,
                 intent=intent,
             ),
-            write_ahead=durability == "write_ahead",
+            write_ahead=write_ahead,
         )
 
     def checkpoint(
@@ -337,13 +336,13 @@ class _DaemonRunDomainJobTransitions:
         logical_compute_node_id: str,
         point_ordinals: tuple[int, ...],
         receipt: DomainExecutionReceipt,
-        durability: DomainTransitionDurability,
+        write_ahead: bool,
     ) -> None:
         self._stage(
             logical_compute_node_id=logical_compute_node_id,
             point_ordinals=point_ordinals,
             transition=DomainJobTerminalTransition(receipt=receipt),
-            write_ahead=durability == "write_ahead",
+            write_ahead=write_ahead,
         )
 
     def flush(self) -> None:

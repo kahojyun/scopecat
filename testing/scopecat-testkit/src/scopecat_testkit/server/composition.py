@@ -37,7 +37,6 @@ from scopecat.records.run import RunConfigSource, RunSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.admission import RunSkeleton, build_run_admission
 from scopecat.runs.repository import RunRepository
-from scopecat.sdk.domain.execution import DomainTransitionDurability
 from scopecat.sdk.domain.invocation import DomainInvocationIntent
 from scopecat.sdk.instruments.execution import RunInstrumentHost
 from scopecat_server.services.active_measurements import ActiveMeasurementStore
@@ -184,7 +183,7 @@ class SQLiteTestDomainJobTransitionWriter:
         point_ordinals: tuple[int, ...],
         execution_id: DomainExecutionId,
         intent: DomainInvocationIntent,
-        durability: DomainTransitionDurability,
+        write_ahead: bool,
     ) -> None:
         self._stage(
             logical_compute_node_id=logical_compute_node_id,
@@ -193,7 +192,7 @@ class SQLiteTestDomainJobTransitionWriter:
                 execution_id=execution_id,
                 intent=intent,
             ),
-            write_ahead=durability == "write_ahead",
+            write_ahead=write_ahead,
         )
 
     def checkpoint(
@@ -216,13 +215,13 @@ class SQLiteTestDomainJobTransitionWriter:
         logical_compute_node_id: str,
         point_ordinals: tuple[int, ...],
         receipt: DomainExecutionReceipt,
-        durability: DomainTransitionDurability,
+        write_ahead: bool,
     ) -> None:
         self._stage(
             logical_compute_node_id=logical_compute_node_id,
             point_ordinals=point_ordinals,
             transition=DomainJobTerminalTransition(receipt=receipt),
-            write_ahead=durability == "write_ahead",
+            write_ahead=write_ahead,
         )
 
     def flush(self) -> None:

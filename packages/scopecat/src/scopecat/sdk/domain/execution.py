@@ -39,7 +39,11 @@ type CompiledInspectionProjector = Callable[
     [CompiledProgramInspectionQuery | None],
     CompiledArtifactInspection,
 ]
-type DomainTransitionDurability = Literal["write_ahead", "batched"]
+type DomainTransitionPolicy = Literal[
+    "write_ahead",
+    "batched",
+    "abnormal_only",
+]
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -116,10 +120,12 @@ class PreparedDomainExecution:
     continuation maximum is compiler feedback from this concrete artifact; it
     bounds the next candidate after payload shape and device limits are known.
     The compiler still selects the candidate's compatible prefix, without
-    making those resource dimensions part of core semantics. Transition
-    durability controls evidence persistence only: write-ahead retains every
-    semantic boundary before the adjacent target effect, while batched mode
-    accepts a bounded loss window without changing hardware ordering.
+    making those resource dimensions part of core semantics. The transition
+    policy controls evidence persistence only: write-ahead retains every
+    semantic boundary before the adjacent target effect, batched mode accepts a
+    bounded loss window, and abnormal-only omits ordinary synchronous successes
+    while retaining negative, interrupted, or checkpoint-bearing jobs. None
+    changes hardware ordering.
     """
 
     instrument_ids: tuple[str, ...]
@@ -146,7 +152,7 @@ class PreparedDomainExecution:
     setup_residency_requirements: tuple[DomainResidencyRequirement, ...] = ()
     setup_residency_invalidations: tuple[DomainResidencyAddress, ...] = ()
     realtime_residency_invalidations: tuple[DomainResidencyAddress, ...] = ()
-    transition_durability: DomainTransitionDurability = "write_ahead"
+    transition_policy: DomainTransitionPolicy = "write_ahead"
 
     def __post_init__(self) -> None:
         if self.next_batch_max_points <= 0:
@@ -191,6 +197,6 @@ __all__ = [
     "DomainResidencyRequirement",
     "DomainStateAddress",
     "DomainStateRequirement",
-    "DomainTransitionDurability",
+    "DomainTransitionPolicy",
     "PreparedDomainExecution",
 ]

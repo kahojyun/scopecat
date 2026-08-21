@@ -231,8 +231,8 @@ resume token, and inspectable progress, then implement `resume` until it returns
 a terminal result or negative receipt. Core rejects transitions that change the
 execution key or job identity, or replay a stale revision.
 
-For a daemon-backed execution, invocation, checkpoint, and terminal outcomes
-form one durable transition ledger. A write-ahead invocation transition records
+For a daemon-backed execution, selected invocation, checkpoint, and terminal
+outcomes form one durable transition ledger. A write-ahead invocation transition records
 the complete `DomainInvocationIntent` together with its deterministic execution
 identity before domain setup, state reconciliation, or provider `start` can
 perform effects. Target intent, compiler and capability fingerprints, artifact
@@ -244,7 +244,18 @@ result realization or provider failure escapes the domain effect. Invocation
 and terminal writes are each idempotent by run and execution key; checkpoint
 writes also include the revision. The ledger requires invocation to be first
 and rejects changed job, node, or point identity and any transition after
-terminal state.
+terminal state. Batched policy retains the same complete sequence with a bounded
+loss window rather than a transaction at every boundary.
+
+Low-cost synchronous targets may instead select `abnormal_only`. Their ordinary
+completed calls leave no lifecycle rows: measurement coverage and the compact
+terminal counts are the success evidence. A `not_executed` or `unknown` receipt
+persists the complete invocation and terminal outcome together, while an
+interruption without a receipt persists invocation-only state. A completed
+receipt is also retained when host result realization fails afterward. A
+checkpoint is never discarded: observing one first promotes that execution to
+the complete ledger, commits the invocation and checkpoint before `resume`, and later retains
+its terminal receipt.
 
 If invocation persistence is unavailable, no domain setup or provider call
 starts and the failure is known. If checkpoint persistence is unavailable, the
@@ -255,8 +266,9 @@ observed receipt still determines provider certainty and realization does not
 start, but the terminal summary marks its detail ledger incomplete rather than
 claiming that the exact receipt became durable.
 
-An invocation without a later transition means setup or the provider call may
-have been interrupted; it does not prove that `start` reached the provider. A
+Under a policy that retains it, an invocation without a later transition means
+setup or the provider call may have been interrupted; it does not prove that
+`start` reached the provider. A
 checkpoint proves the last observed state was pending, while a terminal
 transition proves the provider outcome was known to the executor. These facts
 survive loss before the run-level terminal commit, but none alone grants replay
@@ -266,18 +278,22 @@ The daemon folds those facts into one bounded current-state row per observed
 execution: `invocation_unknown`, `pending`, or `terminal`. This is a diagnostic
 projection rather than a recovery policy, so it has no `recoverable` flag and no
 resume command. An empty projection means that no invocation became durable; it
-does not prove that the client-owned program contains no domain job. Safe
+may be the intentional result of successful `abnormal_only` jobs and does not
+prove that the client-owned program contains no domain job. Safe
 continuation still requires an exact program position, an owned instrument
 session, a reconstructed measurement sink, and any result payload needed after
 a terminal receipt.
 
 The run-level `DomainExecutionEvidence` is only a compact terminal index: target
-ids and aggregate attempt, checkpoint, receipt, and status counts plus a
-`detail_complete` flag. It does not copy every intent, checkpoint, and receipt
+ids, transition policies, and aggregate attempt, checkpoint, receipt, and status
+counts plus a `detail_complete` flag. The flag means every detail selected by
+those policies became durable; it does not promise one ledger row per successful
+attempt. The terminal model does not copy every intent, checkpoint, and receipt
 into a second terminal JSON document. Detailed diagnosis pages the transition
 ledger, and the current-state projection carries the complete invocation beside
-the latest transition. Consequently a dense sweep grows the ledger by job while
-the run terminal model remains bounded by target diversity.
+the latest retained transition. Consequently a fully audited dense sweep grows
+the ledger by job, while `abnormal_only` grows it by exceptional job and the run
+terminal model remains bounded by target and policy diversity.
 
 These durable transitions make interrupted provider state inspectable after
 executor or daemon loss, but do not by themselves authorize continuing the run.

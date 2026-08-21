@@ -6,13 +6,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from scopecat.sdk.domain.execution import DomainTransitionPolicy
+
 
 class DomainExecutionEvidence(BaseModel):
     """Compact terminal index of the run's target-job transition ledger.
 
-    Per-job intent, checkpoints, and receipts remain in the ordered transition
-    ledger. The terminal record stays bounded by target diversity instead of
-    duplicating every job into one large JSON object.
+    Per-job details selected by each transition policy remain in the ordered
+    ledger. The terminal record stays bounded by target and policy diversity
+    instead of duplicating every job into one large JSON object.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -27,6 +29,7 @@ class DomainExecutionEvidence(BaseModel):
     not_executed_count: int = Field(ge=0)
     unknown_count: int = Field(ge=0)
     target_ids: tuple[str, ...] = Field(min_length=1)
+    transition_policies: tuple[DomainTransitionPolicy, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_summary(self) -> DomainExecutionEvidence:
@@ -39,6 +42,8 @@ class DomainExecutionEvidence(BaseModel):
             raise ValueError("domain receipt status counts must cover every receipt")
         if tuple(sorted(set(self.target_ids))) != self.target_ids:
             raise ValueError("domain target ids must be sorted and unique")
+        if tuple(sorted(set(self.transition_policies))) != self.transition_policies:
+            raise ValueError("domain transition policies must be sorted and unique")
         return self
 
 

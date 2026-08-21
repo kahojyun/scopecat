@@ -401,7 +401,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
         point_ordinals=(0, 1),
         execution_id=execution_id,
         intent=intent,
-        durability="batched",
+        write_ahead=False,
     )
     domain_job_transition_writer.checkpoint(
         logical_compute_node_id="domain.batch-0",
@@ -422,7 +422,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
             result_fingerprint="results-v1",
             result_count=2,
         ),
-        durability="batched",
+        write_ahead=False,
     )
     domain_job_transition_writer.flush()
     [domain_job_state] = client.get_run_domain_jobs("run-1").items
@@ -439,7 +439,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
         point_ordinals=(2,),
         execution_id=strict_execution_id,
         intent=strict_intent,
-        durability="write_ahead",
+        write_ahead=True,
     )
     domain_job_transition_writer.terminal(
         logical_compute_node_id=strict_execution_id.logical_compute_node_id,
@@ -450,7 +450,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
             result_fingerprint="results-v2",
             result_count=1,
         ),
-        durability="write_ahead",
+        write_ahead=True,
     )
     _stage_buffered_domain_jobs(domain_job_transition_writer, count=32)
     proposal = DomainProposalAttempt(
@@ -682,7 +682,7 @@ def _stage_buffered_domain_jobs(
             point_ordinals=(index,),
             execution_id=execution_id,
             intent=intent,
-            durability="batched",
+            write_ahead=False,
         )
         writer.terminal(
             logical_compute_node_id=execution_id.logical_compute_node_id,
@@ -693,7 +693,7 @@ def _stage_buffered_domain_jobs(
                 result_fingerprint=f"buffered-results-{index}",
                 result_count=1,
             ),
-            durability="batched",
+            write_ahead=False,
         )
 
 
