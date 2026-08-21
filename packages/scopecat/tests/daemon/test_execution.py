@@ -36,8 +36,8 @@ from scopecat.daemon.wire import (
     RunAdmission,
     RunCoverageAdvanceCommand,
     RunCoverageState,
-    RunDomainJobCheckpointCommand,
-    RunDomainJobCheckpointView,
+    RunDomainJobTransitionCommand,
+    RunDomainJobTransitionView,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -53,6 +53,11 @@ from scopecat.kernel.state import StateValue
 from scopecat.measurements.recording_arrow import decode_measurement_append
 from scopecat.optimization import DomainProposalDecision, DomainProposalSummary
 from scopecat.records.config import config_content_hash
+from scopecat.records.execution import (
+    DomainExecutionReceipt,
+    DomainJobCheckpoint,
+    DomainJobCheckpointTransition,
+)
 from scopecat.records.instrument import InstrumentStateSnapshot, state_member_target
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
@@ -72,7 +77,6 @@ from scopecat.records.measurement_recording import (
 from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.sdk.domain.runtime import DomainJobCheckpoint
 from scopecat.sdk.instruments.commands import InstrumentStateAssignment
 from scopecat.sdk.instruments.execution import (
     RunHardwareApply,
@@ -135,7 +139,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     hardware_operation_ids: list[str] = []
     hardware_sequences: list[int] = []
     coverage_ranges: list[tuple[int, int]] = []
-    domain_job_checkpoint_revisions: list[int] = []
+    domain_job_transitions: list[str] = []
     measurement_ingest_ranges: list[tuple[int, int]] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -178,17 +182,23 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                     completed_point_count=command.start_index + command.point_count,
                 )
             )
-        if path.endswith("/domain-jobs/checkpoints"):
-            command = RunDomainJobCheckpointCommand.model_validate_json(request.content)
+        if path.endswith("/domain-jobs/transitions"):
+            command = RunDomainJobTransitionCommand.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
-            domain_job_checkpoint_revisions.append(command.checkpoint.revision)
+            transition = command.transition
+            if isinstance(transition, DomainJobCheckpointTransition):
+                domain_job_transitions.append(
+                    f"checkpoint:{transition.checkpoint.revision}"
+                )
+            else:
+                domain_job_transitions.append(f"terminal:{transition.receipt.status}")
             return _model(
-                RunDomainJobCheckpointView(
+                RunDomainJobTransitionView(
                     sequence=1,
                     run_id="run-1",
                     logical_compute_node_id=command.logical_compute_node_id,
                     point_ordinals=command.point_ordinals,
-                    checkpoint=command.checkpoint,
+                    transition=transition,
                 )
             )
         if path.endswith("/point-plan/queue/next") and request.method == "GET":
@@ -297,10 +307,10 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     instruments = session.instruments
     coverage = session.coverage
     domain_proposals = session.domain_proposals
-    domain_job_checkpoints = session.domain_job_checkpoints
+    domain_job_transition_writer = session.domain_job_transitions
     assert coverage is not None
     assert domain_proposals is not None
-    assert domain_job_checkpoints is not None
+    assert domain_job_transition_writer is not None
     assert instruments.observed_state == (
         InstrumentStateSnapshot(instrument_id="source-0"),
     )
@@ -336,7 +346,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     coverage.advance(start_index=0, point_count=1)
     coverage.advance(start_index=1, point_count=2)
     coverage.flush()
-    domain_job_checkpoints.commit(
+    domain_job_transition_writer.checkpoint(
         logical_compute_node_id="domain.batch-0",
         point_ordinals=(0, 1),
         checkpoint=DomainJobCheckpoint(
@@ -344,6 +354,16 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
             job_id="provider-job",
             revision=1,
             resume_token={"cursor": "poll-1"},
+        ),
+    )
+    domain_job_transition_writer.terminal(
+        logical_compute_node_id="domain.batch-0",
+        point_ordinals=(0, 1),
+        receipt=DomainExecutionReceipt(
+            execution_key="domain-execution",
+            status="completed",
+            result_fingerprint="results-v1",
+            result_count=2,
         ),
     )
     proposal = DomainProposalAttempt(
@@ -434,7 +454,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     ]
     assert hardware_sequences == [0]
     assert coverage_ranges == [(0, 1), (1, 2)]
-    assert domain_job_checkpoint_revisions == [1]
+    assert domain_job_transitions == ["checkpoint:1", "terminal:completed"]
 
 
 def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> None:

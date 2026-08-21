@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import cast
+from typing import Literal, cast
 
 from scopecat.kernel.errors import (
     DomainExecutionFailed,
@@ -57,11 +57,14 @@ def execute_domain_job_values(
     ],
     commit_checkpoint: Callable[[DomainExecutionId, DomainJobCheckpoint], None]
     | None = None,
+    commit_terminal: Callable[[DomainExecutionId, DomainExecutionReceipt], None]
+    | None = None,
 ) -> None:
     """Execute one closed domain job into the execution-owned coverage sink.
 
-    The attempt is observed before adapter-owned result realization. A valid
-    negative receipt or a missing receipt is retained before failure escapes.
+    Every terminal provider receipt is committed before adapter-owned result
+    realization or failure propagation. The attempt retains the same receipt
+    even when that durable commit fails.
     """
 
     invocation = prepared.invocation
@@ -104,6 +107,36 @@ def execute_domain_job_values(
                 receipt=None,
             ) from error
 
+    def commit_terminal_receipt(
+        receipt: DomainExecutionReceipt,
+        *,
+        certainty: Literal["known", "indeterminate"],
+        prior_problems: tuple[Problem, ...] = (),
+    ) -> None:
+        if commit_terminal is None:
+            return
+        try:
+            commit_terminal(execution_id, receipt)
+        except Exception as error:
+            operation_id = f"{execution_id.operation_id}:terminal"
+            persistence_problem = problem_from_exception(
+                "domain_job_terminal_commit_failed",
+                "domain job terminal receipt could not be committed",
+                run_id=run_id,
+                operation_id=operation_id,
+                phase=ProblemPhase.PERSISTENCE,
+                error=error,
+            )
+            raise DomainExecutionFailed(
+                (*prior_problems, persistence_problem),
+                run_id=run_id,
+                operation_id=operation_id,
+                invocation_id=invocation.intent.invocation_id,
+                execution_key=execution_id.execution_key,
+                certainty=certainty,
+                receipt=receipt,
+            ) from error
+
     try:
         result = run_domain_invocation(
             runtime,
@@ -113,14 +146,32 @@ def execute_domain_job_values(
             observe_checkpoint=observe_checkpoint,
         )
     except DomainExecutionFailed as error:
+        receipt = (
+            error.receipt if isinstance(error.receipt, DomainExecutionReceipt) else None
+        )
+        if receipt is not None:
+            try:
+                commit_terminal_receipt(
+                    receipt,
+                    certainty=error.certainty,
+                    prior_problems=tuple(error.problems),
+                )
+            except DomainExecutionFailed:
+                observe_attempt(execution_id, tuple(checkpoints), receipt)
+                raise
         observe_attempt(
             execution_id,
             tuple(checkpoints),
-            cast("DomainExecutionReceipt | None", error.receipt),
+            receipt,
         )
         raise
     except BaseException:
         observe_attempt(execution_id, tuple(checkpoints), None)
+        raise
+    try:
+        commit_terminal_receipt(result.receipt, certainty="known")
+    except DomainExecutionFailed:
+        observe_attempt(execution_id, tuple(checkpoints), result.receipt)
         raise
     observe_attempt(execution_id, tuple(checkpoints), result.receipt)
     prepared.realize_into(result, accept)

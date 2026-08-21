@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Annotated, Literal
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from scopecat.kernel.json_types import JsonValue
+from scopecat.kernel.problems import Problem
 from scopecat.records.instrument import (
     InstrumentStateSnapshot,
     StateMemberIdentity,
@@ -35,6 +38,89 @@ class DomainJobCheckpoint(BaseModel):
         if not value:
             raise ValueError("domain job checkpoint identities must be non-empty")
         return value
+
+
+class DomainExecutionReceipt(BaseModel):
+    """Provider outcome evidence for one terminal target job.
+
+    ``completed`` supplies correlated result evidence and proves that the
+    realtime call completed. ``not_executed`` proves that realtime execution
+    did not begin, even if declared setup work changed state. ``unknown`` means
+    hardware may have changed without a correlated completion. Both negative
+    statuses carry problems and no result evidence. ``execution_evidence`` is
+    target-owned structured context reported with the call outcome. It is not
+    host instrument readback and does not imply that the described state can
+    be restored.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    execution_key: str
+    status: Literal["completed", "not_executed", "unknown"]
+    result_fingerprint: str | None = None
+    result_count: int | None = Field(default=None, ge=0)
+    execution_evidence: dict[str, JsonValue] = Field(default_factory=dict)
+    problems: tuple[Problem, ...] = ()
+
+    @field_validator("execution_key")
+    @classmethod
+    def validate_execution_key(cls, value: str) -> str:
+        if not value:
+            raise ValueError("domain execution receipts require an execution key")
+        return value
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> DomainExecutionReceipt:
+        has_result = (
+            self.result_fingerprint is not None and self.result_count is not None
+        )
+        if self.status == "completed":
+            if not has_result or not self.result_fingerprint or self.problems:
+                raise ValueError(
+                    "completed domain receipts require result evidence and no problems"
+                )
+        elif (
+            has_result
+            or self.result_fingerprint is not None
+            or self.result_count is not None
+            or not self.problems
+        ):
+            raise ValueError(
+                "negative domain receipts require problems and no result evidence"
+            )
+        return self
+
+
+class DomainJobCheckpointTransition(BaseModel):
+    """One pending job boundary that is durable before the next resume."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["checkpoint"] = "checkpoint"
+    checkpoint: DomainJobCheckpoint
+
+    @property
+    def execution_key(self) -> str:
+        return self.checkpoint.execution_key
+
+
+class DomainJobTerminalTransition(BaseModel):
+    """One terminal provider outcome durable before result realization."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["terminal"] = "terminal"
+    receipt: DomainExecutionReceipt
+
+    @property
+    def execution_key(self) -> str:
+        return self.receipt.execution_key
+
+
+type DomainJobTransitionRecord = Annotated[
+    DomainJobCheckpointTransition | DomainJobTerminalTransition,
+    Field(discriminator="kind"),
+]
 
 
 class InstrumentStateEvidenceSummary(BaseModel):

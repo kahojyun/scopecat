@@ -631,12 +631,13 @@ The present architecture provides a direct end-to-end baseline:
   then owns bounded pending Arrow chunks until durable ingest acceptance rather
   than retaining a second complete candidate tuple;
 - cancellation fences every hardware batch submitted from a domain job runtime,
-  including each bounded shot chunk, and every durable job transition before
-  its next `resume`. A request arriving during a
-  driver call is honored before the next batch; the completed receipt is still
-  interpreted first, so cancellation cannot turn known hardware evidence into
-  a fabricated indeterminate failure. The maximum cooperative cancellation
-  delay is therefore one active driver call or one configured result chunk;
+  including each bounded shot chunk. Each checkpoint is durable before its next
+  `resume`, and the terminal receipt is durable before result realization. A
+  request arriving during a driver call is honored before the next batch; the
+  completed receipt is still interpreted first, so cancellation cannot turn
+  known hardware evidence into a fabricated indeterminate failure. The maximum
+  cooperative cancellation delay is therefore one active driver call or one
+  configured result chunk;
 - admission uses the domain compiler's static instrument footprint and all
   structurally compatible local route candidates. Point-local routing narrows
   the operations actually emitted, so a run may conservatively reserve an

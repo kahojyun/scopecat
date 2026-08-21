@@ -53,9 +53,9 @@ from scopecat.daemon.wire import (
     InstrumentSessionOpenReceipt,
     RunCoverageAdvanceCommand,
     RunCoverageState,
-    RunDomainJobCheckpointCommand,
-    RunDomainJobCheckpointPage,
-    RunDomainJobCheckpointView,
+    RunDomainJobTransitionCommand,
+    RunDomainJobTransitionPage,
+    RunDomainJobTransitionView,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -80,10 +80,15 @@ from scopecat.records.analysis import (
     ProjectAnalysisDecisionReference,
 )
 from scopecat.records.config import config_content_hash
+from scopecat.records.execution import (
+    DomainExecutionReceipt,
+    DomainJobCheckpoint,
+    DomainJobCheckpointTransition,
+    DomainJobTerminalTransition,
+)
 from scopecat.records.instrument import InstrumentStateSnapshot, state_member_target
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
-from scopecat.sdk.domain.runtime import DomainJobCheckpoint
 from scopecat.sdk.instruments import (
     InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentDescription,
@@ -747,7 +752,7 @@ def test_run_coverage_wire_models_require_a_nonempty_prefix() -> None:
         )
 
 
-def test_domain_job_checkpoint_wire_models_retain_resume_state() -> None:
+def test_domain_job_transition_wire_models_retain_provider_state() -> None:
     checkpoint = DomainJobCheckpoint(
         execution_key="execution-key",
         job_id="provider-job",
@@ -755,34 +760,59 @@ def test_domain_job_checkpoint_wire_models_retain_resume_state() -> None:
         resume_token={"cursor": "result-page-2"},
         progress={"completed_shots": 128},
     )
-    command = RunDomainJobCheckpointCommand(
+    checkpoint_transition = DomainJobCheckpointTransition(checkpoint=checkpoint)
+    command = RunDomainJobTransitionCommand(
         lease_id="lease-1",
         logical_compute_node_id="domain.batch-0",
         point_ordinals=(2, 3),
-        checkpoint=checkpoint,
+        transition=checkpoint_transition,
     )
-    view = RunDomainJobCheckpointView(
+    checkpoint_view = RunDomainJobTransitionView(
         sequence=1,
         run_id="run-1",
         logical_compute_node_id=command.logical_compute_node_id,
         point_ordinals=command.point_ordinals,
-        checkpoint=checkpoint,
+        transition=checkpoint_transition,
     )
-    page = RunDomainJobCheckpointPage(run_id="run-1", items=(view,))
+    terminal_view = RunDomainJobTransitionView(
+        sequence=2,
+        run_id="run-1",
+        logical_compute_node_id=command.logical_compute_node_id,
+        point_ordinals=command.point_ordinals,
+        transition=DomainJobTerminalTransition(
+            receipt=DomainExecutionReceipt(
+                execution_key=checkpoint.execution_key,
+                status="completed",
+                result_fingerprint="results-v1",
+                result_count=2,
+            )
+        ),
+    )
+    page = RunDomainJobTransitionPage(
+        run_id="run-1",
+        items=(checkpoint_view, terminal_view),
+    )
 
     assert (
-        RunDomainJobCheckpointCommand.model_validate_json(command.model_dump_json())
+        RunDomainJobTransitionCommand.model_validate_json(command.model_dump_json())
         == command
     )
     assert (
-        RunDomainJobCheckpointPage.model_validate_json(page.model_dump_json()) == page
+        RunDomainJobTransitionPage.model_validate_json(page.model_dump_json()) == page
     )
-    with pytest.raises(ValidationError, match="sorted and unique"):
-        RunDomainJobCheckpointCommand(
+    reordered = RunDomainJobTransitionCommand(
+        lease_id="lease-1",
+        logical_compute_node_id="domain.batch-0",
+        point_ordinals=(3, 2),
+        transition=checkpoint_transition,
+    )
+    assert reordered.point_ordinals == (3, 2)
+    with pytest.raises(ValidationError, match="unique"):
+        RunDomainJobTransitionCommand(
             lease_id="lease-1",
             logical_compute_node_id="domain.batch-0",
-            point_ordinals=(3, 2),
-            checkpoint=checkpoint,
+            point_ordinals=(3, 2, 3),
+            transition=checkpoint_transition,
         )
 
 

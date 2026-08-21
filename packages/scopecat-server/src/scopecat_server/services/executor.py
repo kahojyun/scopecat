@@ -35,9 +35,9 @@ from scopecat.daemon.wire import (
     RunCancellationReceipt,
     RunCoverageAdvanceCommand,
     RunCoverageState,
-    RunDomainJobCheckpointCommand,
-    RunDomainJobCheckpointPage,
-    RunDomainJobCheckpointView,
+    RunDomainJobTransitionCommand,
+    RunDomainJobTransitionPage,
+    RunDomainJobTransitionView,
     TerminalRunCommitCommand,
 )
 from scopecat.kernel.errors import NotFound
@@ -59,7 +59,7 @@ from scopecat_server.storage.sqlite.control_plane import (
 )
 from scopecat_server.storage.sqlite.execution import (
     ExecutionStateConflict,
-    SQLiteDomainJobCheckpoints,
+    SQLiteDomainJobTransitions,
     SQLiteMeasurementDatasetRepository,
     SQLiteRunCoverage,
 )
@@ -167,25 +167,25 @@ class ExecutorService:
             completed_point_count=completed,
         )
 
-    def domain_job_checkpoints(
+    def domain_job_transitions(
         self,
         run_id: str,
         *,
         limit: int = 64,
         before: int | None = None,
-    ) -> RunDomainJobCheckpointPage:
+    ) -> RunDomainJobTransitionPage:
         self._control_run(run_id)
-        return SQLiteDomainJobCheckpoints(self._runs, run_id=run_id).read(
+        return SQLiteDomainJobTransitions(self._runs, run_id=run_id).read(
             limit=limit,
             before=before,
         )
 
-    def commit_domain_job_checkpoint(
+    def commit_domain_job_transition(
         self,
         run_id: str,
-        command: RunDomainJobCheckpointCommand,
-    ) -> RunDomainJobCheckpointView:
-        checkpoints = SQLiteDomainJobCheckpoints(self._runs, run_id=run_id)
+        command: RunDomainJobTransitionCommand,
+    ) -> RunDomainJobTransitionView:
+        transitions = SQLiteDomainJobTransitions(self._runs, run_id=run_id)
         with self.fenced_write(run_id, token=command.lease_id) as connection:
             run = self._control.get_run_in_transaction(connection, run_id)
             if any(
@@ -193,9 +193,9 @@ class ExecutorService:
                 for ordinal in command.point_ordinals
             ):
                 raise ExecutionStateConflict(
-                    "domain job checkpoint references a point outside the admitted run"
+                    "domain job transition references a point outside the admitted run"
                 )
-            committed, _inserted = checkpoints.commit_in_transaction(
+            committed, _inserted = transitions.commit_in_transaction(
                 connection,
                 command,
             )

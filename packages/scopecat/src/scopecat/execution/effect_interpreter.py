@@ -21,7 +21,7 @@ from scopecat.execution.program import (
     RunCoveredOperation,
     RunDomainJob,
 )
-from scopecat.execution.services import RunDomainJobCheckpointWriter
+from scopecat.execution.services import RunDomainJobTransitionWriter
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.points import AcceptedRunPoint
@@ -93,7 +93,7 @@ class RunEffectInterpreter:
         recorded_value_ids: Sequence[ValueId] = (),
         payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
         cancellation_requested: Callable[[], bool] = _never_cancel,
-        domain_job_checkpoints: RunDomainJobCheckpointWriter | None = None,
+        domain_job_transitions: RunDomainJobTransitionWriter | None = None,
     ) -> None:
         self.run_id = run_id
         self.coordinate_ids = frozenset(coordinate_ids)
@@ -122,7 +122,7 @@ class RunEffectInterpreter:
         self._recorded_value_ids = tuple(recorded_value_ids)
         self._instruments = instruments
         self._cancellation_requested = cancellation_requested
-        self._domain_job_checkpoints = domain_job_checkpoints
+        self._domain_job_transitions = domain_job_transitions
         self._domain_instruments = _CancellationAwareDomainInstruments(
             instruments,
             cancellation_requested,
@@ -344,6 +344,9 @@ class RunEffectInterpreter:
                         checkpoint,
                     )
                 ),
+                commit_terminal=lambda _execution_id, receipt: (
+                    self._commit_domain_job_terminal(job, receipt)
+                ),
             )
         except DomainExecutionCancellationRequested:
             self._check_cancellation()
@@ -362,15 +365,28 @@ class RunEffectInterpreter:
         job: RunDomainJob,
         checkpoint: DomainJobCheckpoint,
     ) -> None:
-        writer = self._domain_job_checkpoints
+        writer = self._domain_job_transitions
         if writer is not None:
-            writer.commit(
+            writer.checkpoint(
                 logical_compute_node_id=job.id,
                 point_ordinals=job.point_ordinals,
                 checkpoint=checkpoint,
             )
         if self._cancellation_requested():
             raise DomainExecutionCancellationRequested
+
+    def _commit_domain_job_terminal(
+        self,
+        job: RunDomainJob,
+        receipt: DomainExecutionReceipt,
+    ) -> None:
+        writer = self._domain_job_transitions
+        if writer is not None:
+            writer.terminal(
+                logical_compute_node_id=job.id,
+                point_ordinals=job.point_ordinals,
+                receipt=receipt,
+            )
 
     def _record_domain_attempt(
         self,

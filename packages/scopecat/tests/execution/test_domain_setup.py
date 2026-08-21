@@ -240,7 +240,7 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
             )
 
     class CheckpointWriter:
-        def commit(
+        def checkpoint(
             self,
             *,
             logical_compute_node_id: str,
@@ -249,7 +249,19 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
         ) -> None:
             assert logical_compute_node_id == "test-node"
             assert point_ordinals == (0,)
-            transition_events.append(("commit", checkpoint.revision))
+            transition_events.append(("checkpoint", checkpoint.revision))
+
+        def terminal(
+            self,
+            *,
+            logical_compute_node_id: str,
+            point_ordinals: tuple[int, ...],
+            receipt: DomainExecutionReceipt,
+        ) -> None:
+            assert logical_compute_node_id == "test-node"
+            assert point_ordinals == (0,)
+            assert receipt.status == "unknown"
+            transition_events.append(("terminal", 0))
 
     class RaisingRuntime:
         def start(
@@ -358,7 +370,7 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
         run_id="test-run",
         coordinate_ids=(),
         instruments=TestRunInstrumentHost(),
-        domain_job_checkpoints=CheckpointWriter(),
+        domain_job_transitions=CheckpointWriter(),
     ).run(
         (
             RunDomainJob(
@@ -388,10 +400,11 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
     ]
     assert transition_events == [
         ("start", 0),
-        ("commit", 1),
+        ("checkpoint", 1),
         ("resume", 1),
-        ("commit", 2),
+        ("checkpoint", 2),
         ("resume", 2),
+        ("terminal", 0),
     ]
 
     transition_events.clear()
@@ -439,12 +452,52 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
     assert [checkpoint.revision for checkpoint in failed_checkpoints] == [1]
     assert failed_receipt is None
 
+    terminal_failure_observed: list[
+        tuple[
+            DomainExecutionId,
+            tuple[DomainJobCheckpoint, ...],
+            DomainExecutionReceipt | None,
+        ]
+    ] = []
+
+    def fail_terminal_commit(
+        _execution_id: DomainExecutionId,
+        _receipt: DomainExecutionReceipt,
+    ) -> None:
+        raise RuntimeError("terminal storage unavailable")
+
+    with pytest.raises(DomainExecutionFailed) as terminal_failure:
+        execute_domain_job_values(
+            prepared,
+            logical_compute_node_id="test-node",
+            run_id="test-run",
+            instruments=_Executor(RunHardwareBatchReceipt(operation_id="unused")),
+            accept=lambda _candidate: None,
+            observe_attempt=lambda execution_id, checkpoints, attempt_receipt: (
+                terminal_failure_observed.append(
+                    (execution_id, checkpoints, attempt_receipt)
+                )
+            ),
+            commit_terminal=fail_terminal_commit,
+        )
+
+    assert [item.code for item in terminal_failure.value.problems] == [
+        "domain_job_terminal_commit_failed"
+    ]
+    assert terminal_failure.value.certainty == "known"
+    [(_execution_id, terminal_checkpoints, terminal_receipt)] = (
+        terminal_failure_observed
+    )
+    assert terminal_checkpoints == ()
+    assert terminal_receipt is not None
+    assert terminal_receipt.status == "completed"
+
     transition_events.clear()
     cancellation_requested = False
 
     class CancellingCheckpointWriter(CheckpointWriter):
         @override
-        def commit(
+        def checkpoint(
             self,
             *,
             logical_compute_node_id: str,
@@ -452,7 +505,7 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
             checkpoint: DomainJobCheckpoint,
         ) -> None:
             nonlocal cancellation_requested
-            super().commit(
+            super().checkpoint(
                 logical_compute_node_id=logical_compute_node_id,
                 point_ordinals=point_ordinals,
                 checkpoint=checkpoint,
@@ -464,7 +517,7 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
         coordinate_ids=(),
         instruments=TestRunInstrumentHost(),
         cancellation_requested=lambda: cancellation_requested,
-        domain_job_checkpoints=CancellingCheckpointWriter(),
+        domain_job_transitions=CancellingCheckpointWriter(),
     ).run(
         (
             RunDomainJob(
@@ -482,7 +535,7 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
         points=(point,),
     )
     assert cancelled_effect_result.cancelled
-    assert transition_events == [("start", 0), ("commit", 1)]
+    assert transition_events == [("start", 0), ("checkpoint", 1)]
     cancelled_evidence = build_domain_execution_evidence(
         "test-run",
         cancelled_effect_result,

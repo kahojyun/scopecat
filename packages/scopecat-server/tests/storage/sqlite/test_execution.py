@@ -20,10 +20,16 @@ from scopecat.daemon.points import (
     RunPointCoordinateValue,
     RunPointPlanCloseCommand,
 )
-from scopecat.daemon.wire import RunDomainJobCheckpointCommand
+from scopecat.daemon.wire import RunDomainJobTransitionCommand
 from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements import recording_arrow
+from scopecat.records.execution import (
+    DomainExecutionReceipt,
+    DomainJobCheckpoint,
+    DomainJobCheckpointTransition,
+    DomainJobTerminalTransition,
+)
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
@@ -39,12 +45,11 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
 )
-from scopecat.sdk.domain.runtime import DomainJobCheckpoint
 
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.execution import (
     ExecutionStateConflict,
-    SQLiteDomainJobCheckpoints,
+    SQLiteDomainJobTransitions,
     SQLiteMeasurementDatasetRepository,
     SQLiteRunPointLedger,
 )
@@ -182,12 +187,12 @@ def test_adaptive_domain_ledger_persists_idempotent_decisions_and_closure(
     assert row["point_count"] == 2
 
 
-def test_domain_job_checkpoints_commit_monotonic_resumable_state(
+def test_domain_job_transitions_commit_monotonic_state_through_terminal(
     tmp_path: Path,
 ) -> None:
     runs = _runs(tmp_path)
-    run_id = "domain-job-checkpoint-run"
-    ledger = SQLiteDomainJobCheckpoints(runs, run_id=run_id)
+    run_id = "domain-job-transition-run"
+    ledger = SQLiteDomainJobTransitions(runs, run_id=run_id)
     first_checkpoint = DomainJobCheckpoint(
         execution_key="execution-key",
         job_id="provider-job",
@@ -195,20 +200,33 @@ def test_domain_job_checkpoints_commit_monotonic_resumable_state(
         resume_token={"cursor": "poll-1"},
         progress={"status": "submitted"},
     )
-    first_command = RunDomainJobCheckpointCommand(
+    first_command = RunDomainJobTransitionCommand(
         lease_id="lease-1",
         logical_compute_node_id="domain.batch-0",
         point_ordinals=(0, 1),
-        checkpoint=first_checkpoint,
+        transition=DomainJobCheckpointTransition(checkpoint=first_checkpoint),
+    )
+    second_checkpoint = first_checkpoint.model_copy(
+        update={
+            "revision": 2,
+            "resume_token": {"cursor": "poll-2"},
+            "progress": {"status": "results_ready"},
+        }
     )
     second_command = first_command.model_copy(
         update={
-            "checkpoint": first_checkpoint.model_copy(
-                update={
-                    "revision": 2,
-                    "resume_token": {"cursor": "poll-2"},
-                    "progress": {"status": "results_ready"},
-                }
+            "transition": DomainJobCheckpointTransition(checkpoint=second_checkpoint)
+        }
+    )
+    terminal_command = first_command.model_copy(
+        update={
+            "transition": DomainJobTerminalTransition(
+                receipt=DomainExecutionReceipt(
+                    execution_key=first_checkpoint.execution_key,
+                    status="completed",
+                    result_fingerprint="results-v1",
+                    result_count=2,
+                )
             )
         }
     )
@@ -236,36 +254,66 @@ def test_domain_job_checkpoints_commit_monotonic_resumable_state(
                 connection,
                 first_command.model_copy(
                     update={
-                        "checkpoint": first_checkpoint.model_copy(
-                            update={"progress": {"status": "different"}}
+                        "transition": DomainJobCheckpointTransition(
+                            checkpoint=first_checkpoint.model_copy(
+                                update={"progress": {"status": "different"}}
+                            )
                         )
                     }
                 ),
             )
-        with pytest.raises(ExecutionStateConflict, match="durable identity"):
+        with pytest.raises(ExecutionStateConflict, match="job identity"):
             ledger.commit_in_transaction(
                 connection,
                 second_command.model_copy(
                     update={
-                        "checkpoint": second_command.checkpoint.model_copy(
-                            update={"revision": 3, "job_id": "another-job"}
+                        "transition": DomainJobCheckpointTransition(
+                            checkpoint=second_checkpoint.model_copy(
+                                update={"revision": 3, "job_id": "another-job"}
+                            )
+                        )
+                    }
+                ),
+            )
+        terminal, terminal_inserted = ledger.commit_in_transaction(
+            connection,
+            terminal_command,
+        )
+        terminal_retry, terminal_retry_inserted = ledger.commit_in_transaction(
+            connection,
+            terminal_command,
+        )
+        with pytest.raises(ExecutionStateConflict, match="follows its terminal"):
+            ledger.commit_in_transaction(
+                connection,
+                second_command.model_copy(
+                    update={
+                        "transition": DomainJobCheckpointTransition(
+                            checkpoint=second_checkpoint.model_copy(
+                                update={"revision": 3}
+                            )
                         )
                     }
                 ),
             )
 
-    assert inserted and second_inserted and not retry_inserted
+    assert inserted and second_inserted and terminal_inserted
+    assert not retry_inserted and not terminal_retry_inserted
     assert retried == first
+    assert terminal_retry == terminal
     assert second.sequence > first.sequence
+    assert terminal.sequence > second.sequence
     latest = ledger.read(limit=1)
-    assert [item.checkpoint.revision for item in latest.items] == [2]
-    assert latest.next_cursor == second.sequence
-    previous = SQLiteDomainJobCheckpoints(runs, run_id=run_id).read(
+    assert [item.transition.kind for item in latest.items] == ["terminal"]
+    assert latest.next_cursor == terminal.sequence
+    previous = SQLiteDomainJobTransitions(runs, run_id=run_id).read(
         limit=1,
         before=latest.next_cursor,
     )
-    assert [item.checkpoint.revision for item in previous.items] == [1]
-    assert previous.next_cursor is None
+    [previous_item] = previous.items
+    assert isinstance(previous_item.transition, DomainJobCheckpointTransition)
+    assert previous_item.transition.checkpoint.revision == 2
+    assert previous.next_cursor == second.sequence
 
 
 def _domain_decision_command(

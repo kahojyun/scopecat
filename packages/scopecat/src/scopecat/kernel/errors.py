@@ -189,6 +189,6 @@ class DomainExecutionFailed(OperationFailure):
         self.invocation_id = invocation_id
         self.execution_key = execution_key
         self.phase: Literal["execute"] = "execute"
-        self.certainty = certainty
+        self.certainty: RunCertainty = certainty
         self.receipt = receipt
         super().__init__(problems)

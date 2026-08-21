@@ -179,9 +179,9 @@ from scopecat.daemon.wire import (
     RunCancellationReceipt,
     RunCoverageAdvanceCommand,
     RunCoverageState,
-    RunDomainJobCheckpointCommand,
-    RunDomainJobCheckpointPage,
-    RunDomainJobCheckpointView,
+    RunDomainJobTransitionCommand,
+    RunDomainJobTransitionPage,
+    RunDomainJobTransitionView,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -1272,24 +1272,24 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> RunCoverageState:
         return application.executor.advance_run_coverage(run_id, command)
 
-    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/domain-jobs/checkpoints")
-    def get_run_domain_job_checkpoints(
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/domain-jobs/transitions")
+    def get_run_domain_job_transitions(
         run_id: str,
         limit: Annotated[int, Query(ge=1, le=100)] = 64,
         before: Annotated[int | None, Query(ge=1)] = None,
-    ) -> RunDomainJobCheckpointPage:
-        return application.executor.domain_job_checkpoints(
+    ) -> RunDomainJobTransitionPage:
+        return application.executor.domain_job_transitions(
             run_id,
             limit=limit,
             before=before,
         )
 
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/domain-jobs/checkpoints")
-    def commit_run_domain_job_checkpoint(
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/domain-jobs/transitions")
+    def commit_run_domain_job_transition(
         run_id: str,
-        command: RunDomainJobCheckpointCommand,
-    ) -> RunDomainJobCheckpointView:
-        return application.executor.commit_domain_job_checkpoint(run_id, command)
+        command: RunDomainJobTransitionCommand,
+    ) -> RunDomainJobTransitionView:
+        return application.executor.commit_domain_job_transition(run_id, command)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan")
     def get_run_point_plan(run_id: str) -> RunPointPlanView:

@@ -30,15 +30,15 @@ long run history never materializes every run's content metadata.
 Admission closes the complete instrument claim set before hardware access. It
 also binds the expected provider and instrument-description fingerprints. The
 executor then atomically acquires a renewable lease with a unique fencing
-identity. Every measurement, coverage, point-plan, domain-job checkpoint, and
+identity. Every measurement, coverage, point-plan, domain-job transition, and
 terminal command presents that identity, so an expired executor cannot continue
 writing.
 
-Lease validation and each coarse checkpoint or terminal commit share one SQLite
-transaction. Heartbeats renew the lease and return durable cancellation state.
-Routine renewals stay out of the project timeline; lease grant or loss,
-cancellation, quarantine, and attention resolution remain visible state
-changes.
+Lease validation and each coarse domain-job transition or run-terminal commit
+share one SQLite transaction. Heartbeats renew the lease and return durable
+cancellation state. Routine renewals stay out of the project timeline; lease
+grant or loss, cancellation, quarantine, and attention resolution remain
+visible state changes.
 
 Each run claims a flat set of registered instruments. Planning derives it from
 residual host effects and the exact footprints of prepared domain executions.
@@ -156,8 +156,10 @@ closes the run with an indeterminate failed outcome and releases the claims. The
 original program is not resumed because general effect replay is unsafe; another
 attempt is a new run. The daemon discards that executor's pending/live measurement
 state as soon as the lease supervisor fences it. Any already durable measurement
-prefix, coverage watermark, and domain-job checkpoint remain inspectable, but
-none authorizes appending to or resuming the failed attempt.
+prefix, coverage watermark, and domain-job transition ledger remain inspectable,
+but none authorizes appending to or resuming the failed attempt. A terminal
+domain transition does let diagnosis distinguish a finished provider job from
+the last pending checkpoint without treating either as replay authority.
 
 A daemon restart immediately fences executors from the previous process rather
 than trusting their remaining lease time. Process-local measurement state is not
@@ -167,7 +169,7 @@ release boundaries for it.
 ## API and event stream
 
 The daemon serves the bundled GUI and a versioned typed HTTP API. Run detail,
-resource state, configuration history, measurements, and domain-job checkpoints
+resource state, configuration history, measurements, and domain-job transitions
 are exposed through bounded queries. Measurement control commands remain small
 JSON documents;
 measurement ingest and the live latest-point response use schema-driven Arrow

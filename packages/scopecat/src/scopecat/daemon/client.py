@@ -165,9 +165,9 @@ from scopecat.daemon.wire import (
     RunCancellationReceipt,
     RunCoverageAdvanceCommand,
     RunCoverageState,
-    RunDomainJobCheckpointCommand,
-    RunDomainJobCheckpointPage,
-    RunDomainJobCheckpointView,
+    RunDomainJobTransitionCommand,
+    RunDomainJobTransitionPage,
+    RunDomainJobTransitionView,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -1462,31 +1462,31 @@ class DaemonClient:
             RunCoverageState,
         )
 
-    def get_run_domain_job_checkpoints(
+    def get_run_domain_job_transitions(
         self,
         run_id: str,
         *,
         limit: int = 64,
         before: int | None = None,
-    ) -> RunDomainJobCheckpointPage:
+    ) -> RunDomainJobTransitionPage:
         params: dict[str, str | int] = {"limit": limit}
         if before is not None:
             params["before"] = before
         return self._get_model(
-            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/domain-jobs/checkpoints",
-            RunDomainJobCheckpointPage,
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/domain-jobs/transitions",
+            RunDomainJobTransitionPage,
             params=params,
         )
 
-    def commit_run_domain_job_checkpoint(
+    def commit_run_domain_job_transition(
         self,
         run_id: str,
-        command: RunDomainJobCheckpointCommand,
-    ) -> RunDomainJobCheckpointView:
+        command: RunDomainJobTransitionCommand,
+    ) -> RunDomainJobTransitionView:
         return self._post_idempotent_model(
-            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/domain-jobs/checkpoints",
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/domain-jobs/transitions",
             command,
-            RunDomainJobCheckpointView,
+            RunDomainJobTransitionView,
         )
 
     def get_run_point_plan(self, run_id: str) -> RunPointPlanView:

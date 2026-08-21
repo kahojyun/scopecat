@@ -61,7 +61,7 @@ from scopecat.records.config import (
     InstrumentBindingSpec,
 )
 from scopecat.records.content import ContentEntry, Sha256ContentHash
-from scopecat.records.execution import DomainJobCheckpoint
+from scopecat.records.execution import DomainJobTransitionRecord
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
@@ -765,38 +765,38 @@ class RunCoverageAdvanceCommand(_FencedCommand):
     point_count: int = Field(gt=0)
 
 
-class RunDomainJobCheckpointCommand(_FencedCommand):
-    """Commit one correlated target-job checkpoint before its next resume."""
+class RunDomainJobTransitionCommand(_FencedCommand):
+    """Commit one correlated target-job transition at its durable boundary."""
 
     logical_compute_node_id: NonEmptyText
     point_ordinals: tuple[int, ...] = Field(min_length=1)
-    checkpoint: DomainJobCheckpoint
+    transition: DomainJobTransitionRecord
 
     @field_validator("point_ordinals")
     @classmethod
     def validate_point_ordinals(cls, value: tuple[int, ...]) -> tuple[int, ...]:
         if any(ordinal < 0 for ordinal in value):
             raise ValueError("domain job point ordinals must be non-negative")
-        if tuple(sorted(set(value))) != value:
-            raise ValueError("domain job point ordinals must be sorted and unique")
+        if len(value) != len(set(value)):
+            raise ValueError("domain job point ordinals must be unique")
         return value
 
 
-class RunDomainJobCheckpointView(_WireModel):
-    """One durable checkpoint accepted under a fenced executor lease."""
+class RunDomainJobTransitionView(_WireModel):
+    """One durable transition accepted under a fenced executor lease."""
 
     sequence: int = Field(ge=1)
     run_id: NonEmptyText
     logical_compute_node_id: NonEmptyText
     point_ordinals: tuple[int, ...] = Field(min_length=1)
-    checkpoint: DomainJobCheckpoint
+    transition: DomainJobTransitionRecord
 
 
-class RunDomainJobCheckpointPage(_WireModel):
-    """A bounded ascending slice of durable target-job checkpoints."""
+class RunDomainJobTransitionPage(_WireModel):
+    """A bounded ascending slice of durable target-job transitions."""
 
     run_id: NonEmptyText
-    items: tuple[RunDomainJobCheckpointView, ...] = ()
+    items: tuple[RunDomainJobTransitionView, ...] = ()
     next_cursor: int | None = Field(default=None, ge=1)
 
 
@@ -1149,9 +1149,9 @@ __all__ = [
     "RunCancellationReceipt",
     "RunCoverageAdvanceCommand",
     "RunCoverageState",
-    "RunDomainJobCheckpointCommand",
-    "RunDomainJobCheckpointPage",
-    "RunDomainJobCheckpointView",
+    "RunDomainJobTransitionCommand",
+    "RunDomainJobTransitionPage",
+    "RunDomainJobTransitionView",
     "RunInstrumentProvisionCommand",
     "RunInstrumentProvisionReceipt",
     "RunSubmission",

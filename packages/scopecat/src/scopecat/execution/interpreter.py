@@ -577,7 +577,7 @@ def _execute_instrument_effects(
             else program.host.payload_codecs
         ),
         cancellation_requested=session.cancellation_requested,
-        domain_job_checkpoints=session.domain_job_checkpoints,
+        domain_job_transitions=session.domain_job_transitions,
     )
 
     def commit_durable_progress() -> None:

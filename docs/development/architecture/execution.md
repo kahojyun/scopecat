@@ -231,22 +231,31 @@ resume token, and inspectable progress, then implement `resume` until it returns
 a terminal result or negative receipt. Core rejects transitions that change the
 execution key or job identity, or replay a stale revision.
 
-For a daemon-backed execution, every valid checkpoint is synchronously committed
-under the current executor fence before core calls `resume`. The write is
-idempotent by run, execution key, and revision; it rejects changed job, node, or
-point identity. If the commit is unavailable, the pending provider job is not
-advanced and the run becomes indeterminate. A cancellation observed during the
-write likewise retains the checkpoint and stops before the next transition.
-The complete observed sequence is also retained with normal terminal attempt
-evidence.
+For a daemon-backed execution, checkpoint and terminal outcomes form one durable
+transition ledger. Every valid checkpoint is synchronously committed under the
+current executor fence before core calls `resume`. Every terminal receipt,
+including a synchronous target's receipt, is committed before result
+realization or provider failure escapes the domain effect. Checkpoint writes are
+idempotent by run, execution key, and revision; the one terminal write is
+idempotent by run and execution key. The ledger rejects changed job, node, or
+point identity and any transition after terminal state.
 
-These durable checkpoints make interrupted provider state inspectable after
+If checkpoint persistence is unavailable, the pending provider job is not
+advanced and the run becomes indeterminate. A cancellation observed during the
+write likewise retains the checkpoint and stops before the next transition. If
+terminal persistence is unavailable, the provider receipt remains attached to
+the local attempt and determines provider certainty, but realization does not
+start. Thus a durable terminal transition distinguishes "the provider finished"
+from "the last observed provider state was pending" even if the executor is
+lost before the run-level terminal commit.
+
+These durable transitions make interrupted provider state inspectable after
 executor or daemon loss, but do not by themselves authorize continuing the run.
 Daemon restart fences the instrument session, process-local measurement writer,
 and original effect program. Reattaching those three owners safely is separate
-from storing a resume token. Partial target results also remain a later result
-partitioning change; synchronous targets still return terminal evidence without
-emulating an asynchronous provider.
+from storing a resume token or terminal receipt. Partial target results also
+remain a later result partitioning change; synchronous targets still return
+terminal evidence without emulating an asynchronous provider.
 
 Outside that domain-job sequence, execution does not maintain a durable
 transition ledger for normal per-effect progress. Measurement prefixes,
