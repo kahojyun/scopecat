@@ -254,8 +254,10 @@ The first-party adapter intentionally supports a small, explicit matrix:
 Annotated rows enter the same bounded preview projector during publication, but
 dataset publication is not constrained by the preview row limit. Because the
 dataclass already owns its field semantics, a second `fields=` mapping is
-rejected. Authors publish the rows once and let tables or figures refer to that
-durable dataset by output ID.
+rejected. The annotated Python scalar type also fixes the Arrow physical type,
+including for an optional column whose current rows are all null. Authors
+publish the rows once and let tables or figures refer to that durable dataset
+by output ID.
 
 `DerivedDataset.to_pandas()` defaults to familiar pandas/NumPy dtypes. Use
 `dtype_backend="pyarrow"` when nullable integer and other exact Arrow dtype

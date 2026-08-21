@@ -44,6 +44,14 @@ class _OtherFitRow:
     score: Annotated[float, sc.AnalysisField(label="Score")]
 
 
+@dataclass(frozen=True, slots=True)
+class _NullableFitRow:
+    score: Annotated[
+        float | None,
+        sc.AnalysisField(label="Fit score", unit="ratio"),
+    ]
+
+
 def test_derived_dataset_round_trips_exact_arrow_and_semantic_schema() -> None:
     source = pa.table(
         {
@@ -195,6 +203,17 @@ def test_derived_dataset_projects_annotated_rows_with_table_semantics() -> None:
     assert dataset.schema.fields[0].unit == "mV"
     assert dataset.schema.fields[0].label == "Bias"
     assert dataset.to_analysis_table() == AnalysisTable.from_objects(rows)
+
+
+def test_annotated_rows_keep_the_declared_type_for_an_all_null_column() -> None:
+    rows = (_NullableFitRow(None), _NullableFitRow(None))
+
+    dataset = sc.derived_dataset(rows)
+
+    assert dataset.table.schema.field("score").type == pa.float64()
+    assert dataset.table["score"].to_pylist() == [None, None]
+    assert dataset.schema.fields[0].unit == "ratio"
+    assert dataset.to_analysis_table().rows[0].cells == [None]
 
 
 def test_derived_dataset_annotated_rows_are_unbounded_and_own_their_fields() -> None:
