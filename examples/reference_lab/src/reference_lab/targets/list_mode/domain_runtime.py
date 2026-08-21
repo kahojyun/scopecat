@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import cast
 
 from scopecat.kernel.json_types import JsonValue
@@ -42,7 +42,7 @@ def list_mode_measurement_invocation_spec(
     mapped_target: MappedListModeTarget,
     *,
     invocation_id: str,
-    response_intent: object | None = None,
+    response_intent: Mapping[str, JsonValue] | None = None,
 ) -> ListModeMeasurementInvocationSpec:
     """Declare target identity, realization, and response-affecting intent.
 
@@ -201,14 +201,19 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
     )
 
 
-def _result_address_intent(address: QuantumTargetResultAddress) -> object:
-    return {
-        "entry_id": address.entry_id.value,
-        "acquisitions": [
-            acquisition_slot_identity_payload(acquisition.slot_id)
-            for acquisition in address.acquisitions
-        ],
-    }
+def _result_address_intent(
+    address: QuantumTargetResultAddress,
+) -> dict[str, JsonValue]:
+    return cast(
+        "dict[str, JsonValue]",
+        {
+            "entry_id": address.entry_id.value,
+            "acquisitions": [
+                acquisition_slot_identity_payload(acquisition.slot_id)
+                for acquisition in address.acquisitions
+            ],
+        },
+    )
 
 
 class ListModeDomainRuntime:

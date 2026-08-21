@@ -15,7 +15,7 @@ from typing import cast
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
+from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
@@ -69,7 +69,7 @@ class DomainInvocationIntent(BaseModel):
     artifact_id: str
     artifact_fingerprint: str
     result_contract_fingerprint: str
-    target_intent_fingerprint: str
+    target_intent: dict[str, JsonValue]
     execution_summary: dict[str, JsonValue]
     intent_fingerprint: str
 
@@ -81,7 +81,6 @@ class DomainInvocationIntent(BaseModel):
         "artifact_id",
         "artifact_fingerprint",
         "result_contract_fingerprint",
-        "target_intent_fingerprint",
         "intent_fingerprint",
     )
     @classmethod
@@ -101,7 +100,7 @@ class DomainInvocationIntent(BaseModel):
             artifact_id=self.artifact_id,
             artifact_fingerprint=self.artifact_fingerprint,
             result_contract_fingerprint=self.result_contract_fingerprint,
-            target_intent_fingerprint=self.target_intent_fingerprint,
+            target_intent=self.target_intent,
             execution_summary=self.execution_summary,
         )
         if self.intent_fingerprint != expected:
@@ -148,20 +147,13 @@ def close_domain_invocation[
     artifact_id: str,
     artifact_fingerprint: str,
     execution_summary: Mapping[str, JsonValue],
-    target_intent: object,
+    target_intent: Mapping[str, JsonValue],
     payload: PayloadT,
 ) -> ClosedDomainInvocation[ResultAddressT, PayloadT]:
     """Close stable target and output facts around an opaque target payload."""
 
     result_contract_fingerprint = result_mapping.contract_fingerprint
-    target_intent_fingerprint = stable_content_hash(
-        content_fingerprint(
-            {
-                "schema": "scopecat.domain_target_intent.v1",
-                "value": target_intent,
-            }
-        )
-    )
+    selected_target_intent = dict(target_intent)
     intent_fingerprint = _domain_invocation_intent_fingerprint(
         invocation_id=invocation_id,
         target_id=target_id,
@@ -170,7 +162,7 @@ def close_domain_invocation[
         artifact_id=artifact_id,
         artifact_fingerprint=artifact_fingerprint,
         result_contract_fingerprint=result_contract_fingerprint,
-        target_intent_fingerprint=target_intent_fingerprint,
+        target_intent=selected_target_intent,
         execution_summary=execution_summary,
     )
     intent = DomainInvocationIntent(
@@ -181,7 +173,7 @@ def close_domain_invocation[
         artifact_id=artifact_id,
         artifact_fingerprint=artifact_fingerprint,
         result_contract_fingerprint=result_contract_fingerprint,
-        target_intent_fingerprint=target_intent_fingerprint,
+        target_intent=selected_target_intent,
         execution_summary=dict(execution_summary),
         intent_fingerprint=intent_fingerprint,
     )
@@ -323,12 +315,12 @@ def _domain_invocation_intent_fingerprint(
     artifact_id: str,
     artifact_fingerprint: str,
     result_contract_fingerprint: str,
-    target_intent_fingerprint: str,
+    target_intent: Mapping[str, JsonValue],
     execution_summary: Mapping[str, JsonValue],
 ) -> str:
     return stable_content_hash(
         {
-            "schema": "scopecat.sdk.domain.invocation_intent_identity.v2",
+            "schema": "scopecat.sdk.domain.invocation_intent_identity.v3",
             "invocation_id": invocation_id,
             "target_id": target_id,
             "compiler_id": compiler_id,
@@ -336,7 +328,7 @@ def _domain_invocation_intent_fingerprint(
             "artifact_id": artifact_id,
             "artifact_fingerprint": artifact_fingerprint,
             "result_contract_fingerprint": result_contract_fingerprint,
-            "target_intent_fingerprint": target_intent_fingerprint,
+            "target_intent": target_intent,
             "execution_summary": execution_summary,
         }
     )

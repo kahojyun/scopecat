@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -9,6 +10,7 @@ from scopecat.inspection import (
     CompiledArtifactInspection,
     CompiledProgramInspectionQuery,
 )
+from scopecat.kernel.json_types import JsonValue
 from scopecat.sdk.domain import (
     DomainBatchInputs,
     DomainBatchRequest,
@@ -110,7 +112,7 @@ class QuantumRuntimeSelection:
     """Runtime plus stable response intent selected by a lab composition."""
 
     runtime: ListModeDomainRuntime
-    response_intent: object | None = None
+    response_intent: Mapping[str, JsonValue] | None = None
 
 
 class QuantumRuntimeSelector(Protocol):

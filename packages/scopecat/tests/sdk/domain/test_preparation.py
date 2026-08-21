@@ -423,6 +423,7 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
 
     assert isinstance(prepared, PreparedDomainExecution)
     assert prepared.instrument_ids == ("instrument-a", "instrument-b")
+    assert prepared.invocation.intent.target_intent == {"mode": "test"}
     assert prepared.state_requirements == (
         DomainStateRequirement(
             address=guard_enabled,
