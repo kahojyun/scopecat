@@ -28,6 +28,7 @@ from scopecat.sdk.domain.execution import (
     DomainResidencyRequirement,
     DomainStateAddress,
     DomainStateRequirement,
+    DomainTransitionDurability,
     ErasedDomainInvocation,
     ErasedDomainJobRuntime,
     ErasedDomainRealizer,
@@ -305,6 +306,56 @@ def test_external_host_requirement_preserves_target_residency() -> None:
     assert cache.contents == {residency.address: residency.content_fingerprint}
 
 
+def test_transition_flush_failure_marks_run_indeterminate() -> None:
+    class FailingWriter:
+        def invocation(
+            self,
+            *,
+            logical_compute_node_id: str,
+            point_ordinals: tuple[int, ...],
+            execution_id: DomainExecutionId,
+            durability: DomainTransitionDurability,
+        ) -> None:
+            del logical_compute_node_id, point_ordinals, execution_id, durability
+            raise AssertionError("empty run has no invocation")
+
+        def checkpoint(
+            self,
+            *,
+            logical_compute_node_id: str,
+            point_ordinals: tuple[int, ...],
+            checkpoint: DomainJobCheckpoint,
+        ) -> None:
+            del logical_compute_node_id, point_ordinals, checkpoint
+            raise AssertionError("empty run has no checkpoint")
+
+        def terminal(
+            self,
+            *,
+            logical_compute_node_id: str,
+            point_ordinals: tuple[int, ...],
+            receipt: DomainExecutionReceipt,
+            durability: DomainTransitionDurability,
+        ) -> None:
+            del logical_compute_node_id, point_ordinals, receipt, durability
+            raise AssertionError("empty run has no terminal")
+
+        def flush(self) -> None:
+            raise RuntimeError("transition storage unavailable")
+
+    result = RunEffectInterpreter(
+        run_id="transition-flush-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost(),
+        domain_job_transitions=FailingWriter(),
+    ).run((), points=())
+
+    assert result.indeterminate
+    assert [item.code for item in result.problems] == [
+        "domain_job_transition_flush_unknown"
+    ]
+
+
 def test_known_setup_rejection_returns_not_executed() -> None:
     setup = _Setup(OperationFailure((_failure(),)))
     realtime = _Realtime()
@@ -412,10 +463,12 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
             logical_compute_node_id: str,
             point_ordinals: tuple[int, ...],
             execution_id: DomainExecutionId,
+            durability: DomainTransitionDurability,
         ) -> None:
             assert logical_compute_node_id == "test-node"
             assert point_ordinals == (0,)
             assert execution_id.logical_compute_node_id == logical_compute_node_id
+            assert durability == "write_ahead"
             transition_events.append(("invocation", 0))
 
         def checkpoint(
@@ -435,11 +488,16 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
             logical_compute_node_id: str,
             point_ordinals: tuple[int, ...],
             receipt: DomainExecutionReceipt,
+            durability: DomainTransitionDurability,
         ) -> None:
             assert logical_compute_node_id == "test-node"
             assert point_ordinals == (0,)
             assert receipt.status == "unknown"
+            assert durability == "write_ahead"
             transition_events.append(("terminal", 0))
+
+        def flush(self) -> None:
+            return None
 
     class RaisingRuntime:
         def start(
@@ -726,12 +784,14 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
             logical_compute_node_id: str,
             point_ordinals: tuple[int, ...],
             execution_id: DomainExecutionId,
+            durability: DomainTransitionDurability,
         ) -> None:
             nonlocal invocation_cancellation_requested
             super().invocation(
                 logical_compute_node_id=logical_compute_node_id,
                 point_ordinals=point_ordinals,
                 execution_id=execution_id,
+                durability=durability,
             )
             invocation_cancellation_requested = True
 

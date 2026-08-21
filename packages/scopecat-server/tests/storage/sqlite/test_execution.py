@@ -20,7 +20,7 @@ from scopecat.daemon.points import (
     RunPointCoordinateValue,
     RunPointPlanCloseCommand,
 )
-from scopecat.daemon.wire import RunDomainJobTransitionCommand
+from scopecat.daemon.wire import RunDomainJobTransitionItem
 from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements import recording_arrow
@@ -208,8 +208,7 @@ def test_domain_job_transitions_commit_monotonic_state_through_terminal(
         resume_token={"cursor": "poll-1"},
         progress={"status": "submitted"},
     )
-    first_command = RunDomainJobTransitionCommand(
-        lease_id="lease-1",
+    first_command = RunDomainJobTransitionItem(
         logical_compute_node_id="domain.batch-0",
         point_ordinals=(0, 1),
         transition=DomainJobCheckpointTransition(checkpoint=first_checkpoint),
@@ -402,8 +401,7 @@ def test_domain_job_current_states_page_by_latest_transition(
             )
             ledger.commit_in_transaction(
                 connection,
-                RunDomainJobTransitionCommand(
-                    lease_id="lease-1",
+                RunDomainJobTransitionItem(
                     logical_compute_node_id=execution_id.logical_compute_node_id,
                     point_ordinals=(index,),
                     transition=DomainJobInvocationTransition(execution_id=execution_id),

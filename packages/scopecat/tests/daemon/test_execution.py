@@ -38,7 +38,8 @@ from scopecat.daemon.wire import (
     RunCoverageState,
     RunDomainJobStatePage,
     RunDomainJobStateView,
-    RunDomainJobTransitionCommand,
+    RunDomainJobTransitionBatchCommand,
+    RunDomainJobTransitionBatchReceipt,
     RunDomainJobTransitionView,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
@@ -47,6 +48,7 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.execution.services import RunDomainJobTransitionWriter
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
 from scopecat.kernel.quantity import Quantity
@@ -144,6 +146,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     hardware_sequences: list[int] = []
     coverage_ranges: list[tuple[int, int]] = []
     domain_job_transitions: list[str] = []
+    domain_job_transition_batch_sizes: list[int] = []
     domain_job_transition_views: list[RunDomainJobTransitionView] = []
     measurement_ingest_ranges: list[tuple[int, int]] = []
 
@@ -188,26 +191,39 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                 )
             )
         if path.endswith("/domain-jobs/transitions"):
-            command = RunDomainJobTransitionCommand.model_validate_json(request.content)
-            _remember_fence(fences, "run-1", command)
-            transition = command.transition
-            if isinstance(transition, DomainJobCheckpointTransition):
-                domain_job_transitions.append(
-                    f"checkpoint:{transition.checkpoint.revision}"
-                )
-            elif isinstance(transition, DomainJobInvocationTransition):
-                domain_job_transitions.append("invocation")
-            else:
-                domain_job_transitions.append(f"terminal:{transition.receipt.status}")
-            view = RunDomainJobTransitionView(
-                sequence=len(domain_job_transition_views) + 1,
-                run_id="run-1",
-                logical_compute_node_id=command.logical_compute_node_id,
-                point_ordinals=command.point_ordinals,
-                transition=transition,
+            command = RunDomainJobTransitionBatchCommand.model_validate_json(
+                request.content
             )
-            domain_job_transition_views.append(view)
-            return _model(view)
+            _remember_fence(fences, "run-1", command)
+            domain_job_transition_batch_sizes.append(len(command.items))
+            committed: list[RunDomainJobTransitionView] = []
+            for item in command.items:
+                transition = item.transition
+                if isinstance(transition, DomainJobCheckpointTransition):
+                    domain_job_transitions.append(
+                        f"checkpoint:{transition.checkpoint.revision}"
+                    )
+                elif isinstance(transition, DomainJobInvocationTransition):
+                    domain_job_transitions.append("invocation")
+                else:
+                    domain_job_transitions.append(
+                        f"terminal:{transition.receipt.status}"
+                    )
+                view = RunDomainJobTransitionView(
+                    sequence=len(domain_job_transition_views) + 1,
+                    run_id="run-1",
+                    logical_compute_node_id=item.logical_compute_node_id,
+                    point_ordinals=item.point_ordinals,
+                    transition=transition,
+                )
+                domain_job_transition_views.append(view)
+                committed.append(view)
+            return _model(
+                RunDomainJobTransitionBatchReceipt(
+                    run_id="run-1",
+                    items=tuple(committed),
+                )
+            )
         if path.endswith("/domain-jobs") and request.method == "GET":
             invocation = domain_job_transition_views[0].transition
             assert isinstance(invocation, DomainJobInvocationTransition)
@@ -384,6 +400,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
         logical_compute_node_id=execution_id.logical_compute_node_id,
         point_ordinals=(0, 1),
         execution_id=execution_id,
+        durability="batched",
     )
     domain_job_transition_writer.checkpoint(
         logical_compute_node_id="domain.batch-0",
@@ -404,10 +421,36 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
             result_fingerprint="results-v1",
             result_count=2,
         ),
+        durability="batched",
     )
+    domain_job_transition_writer.flush()
     [domain_job_state] = client.get_run_domain_jobs("run-1").items
     assert domain_job_state.state == "terminal"
     assert domain_job_state.transition_count == 3
+    strict_execution_id = DomainExecutionId(
+        run_id="run-1",
+        logical_compute_node_id="domain.batch-1",
+        invocation_id="invocation-2",
+        intent_fingerprint="intent-v2",
+    )
+    domain_job_transition_writer.invocation(
+        logical_compute_node_id=strict_execution_id.logical_compute_node_id,
+        point_ordinals=(2,),
+        execution_id=strict_execution_id,
+        durability="write_ahead",
+    )
+    domain_job_transition_writer.terminal(
+        logical_compute_node_id=strict_execution_id.logical_compute_node_id,
+        point_ordinals=(2,),
+        receipt=DomainExecutionReceipt(
+            execution_key=strict_execution_id.execution_key,
+            status="completed",
+            result_fingerprint="results-v2",
+            result_count=1,
+        ),
+        durability="write_ahead",
+    )
+    _stage_buffered_domain_jobs(domain_job_transition_writer, count=32)
     proposal = DomainProposalAttempt(
         ResolvedDomainFragment.points(({"frequency": Quantity(5.2, "GHz")},)),
         region_ids=("region-0",),
@@ -496,11 +539,15 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     ]
     assert hardware_sequences == [0]
     assert coverage_ranges == [(0, 1), (1, 2)]
-    assert domain_job_transitions == [
+    assert domain_job_transitions[:5] == [
         "invocation",
         "checkpoint:1",
         "terminal:completed",
+        "invocation",
+        "terminal:completed",
     ]
+    assert len(domain_job_transitions) == 69
+    assert domain_job_transition_batch_sizes == [2, 1, 1, 1, 64]
 
 
 def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> None:
@@ -615,6 +662,37 @@ def _client(
 
 class _Fenced(Protocol):
     lease_id: str
+
+
+def _stage_buffered_domain_jobs(
+    writer: RunDomainJobTransitionWriter,
+    *,
+    count: int,
+) -> None:
+    for index in range(count):
+        execution_id = DomainExecutionId(
+            run_id="run-1",
+            logical_compute_node_id=f"domain.buffered-{index}",
+            invocation_id=f"buffered-invocation-{index}",
+            intent_fingerprint=f"buffered-intent-{index}",
+        )
+        writer.invocation(
+            logical_compute_node_id=execution_id.logical_compute_node_id,
+            point_ordinals=(index,),
+            execution_id=execution_id,
+            durability="batched",
+        )
+        writer.terminal(
+            logical_compute_node_id=execution_id.logical_compute_node_id,
+            point_ordinals=(index,),
+            receipt=DomainExecutionReceipt(
+                execution_key=execution_id.execution_key,
+                status="completed",
+                result_fingerprint=f"buffered-results-{index}",
+                result_count=1,
+            ),
+            durability="batched",
+        )
 
 
 def _remember_fence(

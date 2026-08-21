@@ -145,7 +145,7 @@ class DomainJobCheckpointTransition(BaseModel):
 
 
 class DomainJobInvocationTransition(BaseModel):
-    """Write-ahead intent durable before domain setup or provider ``start``."""
+    """One observed intent, persisted before start or in a bounded batch."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -158,7 +158,7 @@ class DomainJobInvocationTransition(BaseModel):
 
 
 class DomainJobTerminalTransition(BaseModel):
-    """One terminal provider outcome durable before result realization."""
+    """One terminal provider outcome observed before result realization."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

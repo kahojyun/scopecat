@@ -27,7 +27,8 @@ from scopecat.daemon.points import (
 from scopecat.daemon.wire import (
     RunDomainJobStatePage,
     RunDomainJobStateView,
-    RunDomainJobTransitionCommand,
+    RunDomainJobTransitionBatchCommand,
+    RunDomainJobTransitionItem,
     RunDomainJobTransitionPage,
     RunDomainJobTransitionView,
 )
@@ -232,7 +233,7 @@ class SQLiteDomainJobTransitions:
     def commit_in_transaction(
         self,
         connection: sqlite3.Connection,
-        command: RunDomainJobTransitionCommand,
+        command: RunDomainJobTransitionItem,
     ) -> tuple[RunDomainJobTransitionView, bool]:
         transition = command.transition
         if isinstance(transition, DomainJobInvocationTransition) and (
@@ -381,6 +382,15 @@ class SQLiteDomainJobTransitions:
                 transition=transition,
             ),
             True,
+        )
+
+    def commit_batch_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        command: RunDomainJobTransitionBatchCommand,
+    ) -> tuple[RunDomainJobTransitionView, ...]:
+        return tuple(
+            self.commit_in_transaction(connection, item)[0] for item in command.items
         )
 
 

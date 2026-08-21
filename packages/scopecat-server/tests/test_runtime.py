@@ -92,7 +92,8 @@ from scopecat.daemon.wire import (
     RunAttachmentCommand,
     RunCancellationReceipt,
     RunCoverageAdvanceCommand,
-    RunDomainJobTransitionCommand,
+    RunDomainJobTransitionBatchCommand,
+    RunDomainJobTransitionItem,
     RunSubmission,
     TerminalRunCommitCommand,
 )
@@ -2731,29 +2732,50 @@ def test_domain_job_transitions_are_fenced_retryable_and_survive_restart(
             resume_token={"cursor": "poll-1"},
             progress={"status": "submitted"},
         )
-        first_command = RunDomainJobTransitionCommand(
-            lease_id=lease.lease_id,
+        first_item = RunDomainJobTransitionItem(
             logical_compute_node_id="domain.batch-0",
             point_ordinals=(0, 1),
             transition=DomainJobCheckpointTransition(checkpoint=first_checkpoint),
         )
+
+        def commit(item: RunDomainJobTransitionItem):
+            receipt = executor.commit_domain_job_transitions(
+                run_id,
+                RunDomainJobTransitionBatchCommand(
+                    lease_id=lease.lease_id,
+                    items=(item,),
+                ),
+            )
+            return receipt.items[0]
+
         with pytest.raises(BackendConflict, match="durable run state"):
-            executor.commit_domain_job_transition(run_id, first_command)
-        invocation_command = first_command.model_copy(
+            commit(first_item)
+        invocation_item = first_item.model_copy(
             update={
                 "transition": DomainJobInvocationTransition(execution_id=execution_id)
             }
         )
-        invocation = executor.commit_domain_job_transition(
-            run_id,
-            invocation_command,
+        with pytest.raises(BackendConflict, match="durable run state"):
+            executor.commit_domain_job_transitions(
+                run_id,
+                RunDomainJobTransitionBatchCommand(
+                    lease_id=lease.lease_id,
+                    items=(
+                        invocation_item,
+                        first_item.model_copy(update={"point_ordinals": (1,)}),
+                    ),
+                ),
+            )
+        initial_command = RunDomainJobTransitionBatchCommand(
+            lease_id=lease.lease_id,
+            items=(invocation_item, first_item),
         )
+        initial = executor.commit_domain_job_transitions(run_id, initial_command)
         assert (
-            executor.commit_domain_job_transition(run_id, invocation_command)
-            == invocation
+            executor.commit_domain_job_transitions(run_id, initial_command) == initial
         )
-        first = executor.commit_domain_job_transition(run_id, first_command)
-        retry = executor.commit_domain_job_transition(run_id, first_command)
+        invocation, first = initial.items
+        retry = commit(first_item)
         second_checkpoint = first_checkpoint.model_copy(
             update={
                 "revision": 2,
@@ -2761,15 +2783,14 @@ def test_domain_job_transitions_are_fenced_retryable_and_survive_restart(
                 "progress": {"status": "results_ready"},
             }
         )
-        second = executor.commit_domain_job_transition(
-            run_id,
-            first_command.model_copy(
+        second = commit(
+            first_item.model_copy(
                 update={
                     "transition": DomainJobCheckpointTransition(
                         checkpoint=second_checkpoint
                     )
                 }
-            ),
+            )
         )
 
         assert retry == first
@@ -2780,9 +2801,8 @@ def test_domain_job_transitions_are_fenced_retryable_and_survive_restart(
             for item in executor.domain_job_transitions(run_id).items
         ] == ["invocation", "checkpoint", "checkpoint"]
         with pytest.raises(BackendConflict, match="durable run state"):
-            executor.commit_domain_job_transition(
-                run_id,
-                first_command.model_copy(
+            commit(
+                first_item.model_copy(
                     update={
                         "transition": DomainJobCheckpointTransition(
                             checkpoint=second_checkpoint.model_copy(
@@ -2792,7 +2812,7 @@ def test_domain_job_transitions_are_fenced_retryable_and_survive_restart(
                     }
                 ),
             )
-        terminal_command = first_command.model_copy(
+        terminal_item = first_item.model_copy(
             update={
                 "transition": DomainJobTerminalTransition(
                     receipt=DomainExecutionReceipt(
@@ -2804,16 +2824,12 @@ def test_domain_job_transitions_are_fenced_retryable_and_survive_restart(
                 )
             }
         )
-        terminal = executor.commit_domain_job_transition(run_id, terminal_command)
-        terminal_retry = executor.commit_domain_job_transition(
-            run_id,
-            terminal_command,
-        )
+        terminal = commit(terminal_item)
+        terminal_retry = commit(terminal_item)
         assert terminal_retry == terminal
         with pytest.raises(BackendConflict, match="durable run state"):
-            executor.commit_domain_job_transition(
-                run_id,
-                first_command.model_copy(
+            commit(
+                first_item.model_copy(
                     update={
                         "transition": DomainJobCheckpointTransition(
                             checkpoint=second_checkpoint.model_copy(
@@ -2864,15 +2880,21 @@ def test_domain_job_invocation_without_outcome_survives_restart(
             invocation_id="invocation-1",
             intent_fingerprint="intent-v1",
         )
-        committed = runtime.application.executor.commit_domain_job_transition(
+        [committed] = runtime.application.executor.commit_domain_job_transitions(
             run_id,
-            RunDomainJobTransitionCommand(
+            RunDomainJobTransitionBatchCommand(
                 lease_id=lease.lease_id,
-                logical_compute_node_id=execution_id.logical_compute_node_id,
-                point_ordinals=(0,),
-                transition=DomainJobInvocationTransition(execution_id=execution_id),
+                items=(
+                    RunDomainJobTransitionItem(
+                        logical_compute_node_id=execution_id.logical_compute_node_id,
+                        point_ordinals=(0,),
+                        transition=DomainJobInvocationTransition(
+                            execution_id=execution_id
+                        ),
+                    ),
+                ),
             ),
-        )
+        ).items
         assert committed.transition.kind == "invocation"
 
     with LocalDaemonRuntime(tmp_path) as restarted:

@@ -55,7 +55,9 @@ from scopecat.daemon.wire import (
     RunCoverageState,
     RunDomainJobStatePage,
     RunDomainJobStateView,
-    RunDomainJobTransitionCommand,
+    RunDomainJobTransitionBatchCommand,
+    RunDomainJobTransitionBatchReceipt,
+    RunDomainJobTransitionItem,
     RunDomainJobTransitionPage,
     RunDomainJobTransitionView,
     RunHardwareBatchCommand,
@@ -771,31 +773,34 @@ def test_domain_job_transition_wire_models_retain_provider_state() -> None:
         progress={"completed_shots": 128},
     )
     checkpoint_transition = DomainJobCheckpointTransition(checkpoint=checkpoint)
-    command = RunDomainJobTransitionCommand(
-        lease_id="lease-1",
+    item = RunDomainJobTransitionItem(
         logical_compute_node_id="domain.batch-0",
         point_ordinals=(2, 3),
         transition=checkpoint_transition,
     )
+    command = RunDomainJobTransitionBatchCommand(
+        lease_id="lease-1",
+        items=(item,),
+    )
     invocation_view = RunDomainJobTransitionView(
         sequence=1,
         run_id="run-1",
-        logical_compute_node_id=command.logical_compute_node_id,
-        point_ordinals=command.point_ordinals,
+        logical_compute_node_id=item.logical_compute_node_id,
+        point_ordinals=item.point_ordinals,
         transition=DomainJobInvocationTransition(execution_id=execution_id),
     )
     checkpoint_view = RunDomainJobTransitionView(
         sequence=2,
         run_id="run-1",
-        logical_compute_node_id=command.logical_compute_node_id,
-        point_ordinals=command.point_ordinals,
+        logical_compute_node_id=item.logical_compute_node_id,
+        point_ordinals=item.point_ordinals,
         transition=checkpoint_transition,
     )
     terminal_view = RunDomainJobTransitionView(
         sequence=3,
         run_id="run-1",
-        logical_compute_node_id=command.logical_compute_node_id,
-        point_ordinals=command.point_ordinals,
+        logical_compute_node_id=item.logical_compute_node_id,
+        point_ordinals=item.point_ordinals,
         transition=DomainJobTerminalTransition(
             receipt=DomainExecutionReceipt(
                 execution_key=checkpoint.execution_key,
@@ -812,7 +817,7 @@ def test_domain_job_transition_wire_models_retain_provider_state() -> None:
     state_view = RunDomainJobStateView(
         run_id="run-1",
         execution_id=execution_id,
-        point_ordinals=command.point_ordinals,
+        point_ordinals=item.point_ordinals,
         state="terminal",
         invocation_sequence=invocation_view.sequence,
         latest_sequence=terminal_view.sequence,
@@ -822,8 +827,20 @@ def test_domain_job_transition_wire_models_retain_provider_state() -> None:
     state_page = RunDomainJobStatePage(run_id="run-1", items=(state_view,))
 
     assert (
-        RunDomainJobTransitionCommand.model_validate_json(command.model_dump_json())
+        RunDomainJobTransitionBatchCommand.model_validate_json(
+            command.model_dump_json()
+        )
         == command
+    )
+    batch_receipt = RunDomainJobTransitionBatchReceipt(
+        run_id="run-1",
+        items=(checkpoint_view,),
+    )
+    assert (
+        RunDomainJobTransitionBatchReceipt.model_validate_json(
+            batch_receipt.model_dump_json()
+        )
+        == batch_receipt
     )
     assert (
         RunDomainJobTransitionPage.model_validate_json(page.model_dump_json()) == page
@@ -836,16 +853,14 @@ def test_domain_job_transition_wire_models_retain_provider_state() -> None:
         RunDomainJobStateView.model_validate(
             {**state_view.model_dump(), "state": "pending"}
         )
-    reordered = RunDomainJobTransitionCommand(
-        lease_id="lease-1",
+    reordered = RunDomainJobTransitionItem(
         logical_compute_node_id="domain.batch-0",
         point_ordinals=(3, 2),
         transition=checkpoint_transition,
     )
     assert reordered.point_ordinals == (3, 2)
     with pytest.raises(ValidationError, match="unique"):
-        RunDomainJobTransitionCommand(
-            lease_id="lease-1",
+        RunDomainJobTransitionItem(
             logical_compute_node_id="domain.batch-0",
             point_ordinals=(3, 2, 3),
             transition=checkpoint_transition,

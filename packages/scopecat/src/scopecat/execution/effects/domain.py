@@ -68,10 +68,11 @@ def execute_domain_job_values(
 ) -> None:
     """Execute one closed domain job into the execution-owned coverage sink.
 
-    The invocation identity is committed before domain setup or provider
-    ``start``. Every terminal provider receipt is committed before adapter-owned
-    result realization or failure propagation. The attempt retains the same
-    receipt even when that durable commit fails.
+    Invocation and terminal callbacks run at their semantic boundaries, before
+    domain setup/provider ``start`` and result realization respectively. The
+    selected transition writer may persist them write-ahead or stage them for a
+    bounded append. Checkpoint callbacks remain durable before resume. The
+    attempt retains the same receipt when a boundary callback fails.
     """
 
     invocation = prepared.invocation

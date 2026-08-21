@@ -17,6 +17,7 @@ from scopecat.records.execution import (
 )
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
+from scopecat.sdk.domain.execution import DomainTransitionDurability
 from scopecat.sdk.instruments.execution import RunInstrumentHost
 
 
@@ -37,7 +38,7 @@ class RunCoverageWriter(Protocol):
 
 
 class RunDomainJobTransitionWriter(Protocol):
-    """Commit each correlated target transition at its semantic boundary."""
+    """Stage correlated target transitions and flush bounded durable batches."""
 
     def invocation(
         self,
@@ -45,6 +46,7 @@ class RunDomainJobTransitionWriter(Protocol):
         logical_compute_node_id: str,
         point_ordinals: tuple[int, ...],
         execution_id: DomainExecutionId,
+        durability: DomainTransitionDurability,
     ) -> None: ...
 
     def checkpoint(
@@ -61,7 +63,10 @@ class RunDomainJobTransitionWriter(Protocol):
         logical_compute_node_id: str,
         point_ordinals: tuple[int, ...],
         receipt: DomainExecutionReceipt,
+        durability: DomainTransitionDurability,
     ) -> None: ...
+
+    def flush(self) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)

@@ -27,7 +27,8 @@ from scopecat.daemon.wire import (
     MeasurementSealCommand,
     RunAdmission,
     RunCoverageAdvanceCommand,
-    RunDomainJobTransitionCommand,
+    RunDomainJobTransitionBatchCommand,
+    RunDomainJobTransitionItem,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -66,6 +67,7 @@ from scopecat.records.measurement_recording import (
 )
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
+from scopecat.sdk.domain.execution import DomainTransitionDurability
 from scopecat.sdk.instruments.execution import (
     RunHardwareBatch,
     RunHardwareBatchReceipt,
@@ -79,6 +81,7 @@ _MEASUREMENT_TRANSPORT_VALUE_BYTE_LIMIT = 8 * 1024 * 1024
 _MEASUREMENT_TRANSPORT_LATENCY_SECONDS = 0.1
 _COVERAGE_TRANSPORT_POINT_LIMIT = 256
 _COVERAGE_TRANSPORT_LATENCY_SECONDS = 0.1
+_DOMAIN_TRANSITION_TRANSPORT_ITEM_LIMIT = 64
 
 
 class ExecutorLeaseLostError(RuntimeError):
@@ -288,10 +291,11 @@ class _DaemonRunCoverage:
 
 
 class _DaemonRunDomainJobTransitions:
-    """Synchronously fence and persist each target-job transition."""
+    """Coalesce eligible target transitions into bounded durable appends."""
 
     def __init__(self, authority: _LeaseAuthority) -> None:
         self._authority = authority
+        self._pending: list[RunDomainJobTransitionItem] = []
 
     def invocation(
         self,
@@ -299,11 +303,13 @@ class _DaemonRunDomainJobTransitions:
         logical_compute_node_id: str,
         point_ordinals: tuple[int, ...],
         execution_id: DomainExecutionId,
+        durability: DomainTransitionDurability,
     ) -> None:
-        self._commit(
+        self._stage(
             logical_compute_node_id=logical_compute_node_id,
             point_ordinals=point_ordinals,
             transition=DomainJobInvocationTransition(execution_id=execution_id),
+            write_ahead=durability == "write_ahead",
         )
 
     def checkpoint(
@@ -313,10 +319,11 @@ class _DaemonRunDomainJobTransitions:
         point_ordinals: tuple[int, ...],
         checkpoint: DomainJobCheckpoint,
     ) -> None:
-        self._commit(
+        self._stage(
             logical_compute_node_id=logical_compute_node_id,
             point_ordinals=point_ordinals,
             transition=DomainJobCheckpointTransition(checkpoint=checkpoint),
+            write_ahead=True,
         )
 
     def terminal(
@@ -325,36 +332,63 @@ class _DaemonRunDomainJobTransitions:
         logical_compute_node_id: str,
         point_ordinals: tuple[int, ...],
         receipt: DomainExecutionReceipt,
+        durability: DomainTransitionDurability,
     ) -> None:
-        self._commit(
+        self._stage(
             logical_compute_node_id=logical_compute_node_id,
             point_ordinals=point_ordinals,
             transition=DomainJobTerminalTransition(receipt=receipt),
+            write_ahead=durability == "write_ahead",
         )
 
-    def _commit(
+    def flush(self) -> None:
+        self._send_pending()
+
+    def _stage(
         self,
         *,
         logical_compute_node_id: str,
         point_ordinals: tuple[int, ...],
         transition: DomainJobTransitionRecord,
+        write_ahead: bool,
     ) -> None:
-        committed = self._authority.client.commit_run_domain_job_transition(
-            self._authority.run_id,
-            RunDomainJobTransitionCommand(
-                lease_id=self._authority.fence(),
+        self._pending.append(
+            RunDomainJobTransitionItem(
                 logical_compute_node_id=logical_compute_node_id,
                 point_ordinals=point_ordinals,
                 transition=transition,
+            )
+        )
+        if write_ahead or len(self._pending) >= _DOMAIN_TRANSITION_TRANSPORT_ITEM_LIMIT:
+            self._send_pending()
+
+    def _send_pending(self) -> None:
+        items = tuple(self._pending)
+        if not items:
+            return
+        receipt = self._authority.client.commit_run_domain_job_transitions(
+            self._authority.run_id,
+            RunDomainJobTransitionBatchCommand(
+                lease_id=self._authority.fence(),
+                items=items,
             ),
         )
         if (
-            committed.run_id != self._authority.run_id
-            or committed.logical_compute_node_id != logical_compute_node_id
-            or committed.point_ordinals != point_ordinals
-            or committed.transition != transition
+            receipt.run_id != self._authority.run_id
+            or len(receipt.items) != len(items)
+            or any(
+                committed.run_id != self._authority.run_id
+                or committed.logical_compute_node_id
+                != requested.logical_compute_node_id
+                or committed.point_ordinals != requested.point_ordinals
+                or committed.transition != requested.transition
+                for committed, requested in zip(receipt.items, items, strict=True)
+            )
         ):
-            raise ValueError("domain job transition receipt does not match its request")
+            raise ValueError(
+                "domain job transition batch receipt does not match its request"
+            )
+        self._pending.clear()
 
 
 class _DaemonRunDomainProposals:

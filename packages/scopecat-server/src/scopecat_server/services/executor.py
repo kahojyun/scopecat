@@ -36,9 +36,9 @@ from scopecat.daemon.wire import (
     RunCoverageAdvanceCommand,
     RunCoverageState,
     RunDomainJobStatePage,
-    RunDomainJobTransitionCommand,
+    RunDomainJobTransitionBatchCommand,
+    RunDomainJobTransitionBatchReceipt,
     RunDomainJobTransitionPage,
-    RunDomainJobTransitionView,
     TerminalRunCommitCommand,
 )
 from scopecat.kernel.errors import NotFound
@@ -194,26 +194,30 @@ class ExecutorService:
             before=before,
         )
 
-    def commit_domain_job_transition(
+    def commit_domain_job_transitions(
         self,
         run_id: str,
-        command: RunDomainJobTransitionCommand,
-    ) -> RunDomainJobTransitionView:
+        command: RunDomainJobTransitionBatchCommand,
+    ) -> RunDomainJobTransitionBatchReceipt:
         transitions = SQLiteDomainJobTransitions(self._runs, run_id=run_id)
         with self.fenced_write(run_id, token=command.lease_id) as connection:
             run = self._control.get_run_in_transaction(connection, run_id)
             if any(
                 ordinal >= run.admission.plan.point_limit
-                for ordinal in command.point_ordinals
+                for item in command.items
+                for ordinal in item.point_ordinals
             ):
                 raise ExecutionStateConflict(
                     "domain job transition references a point outside the admitted run"
                 )
-            committed, _inserted = transitions.commit_in_transaction(
+            committed = transitions.commit_batch_in_transaction(
                 connection,
                 command,
             )
-        return committed
+        return RunDomainJobTransitionBatchReceipt(
+            run_id=run_id,
+            items=committed,
+        )
 
     def append_run_domain_decision(
         self,

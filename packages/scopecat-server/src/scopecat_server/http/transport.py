@@ -180,9 +180,9 @@ from scopecat.daemon.wire import (
     RunCoverageAdvanceCommand,
     RunCoverageState,
     RunDomainJobStatePage,
-    RunDomainJobTransitionCommand,
+    RunDomainJobTransitionBatchCommand,
+    RunDomainJobTransitionBatchReceipt,
     RunDomainJobTransitionPage,
-    RunDomainJobTransitionView,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -1298,11 +1298,11 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         )
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/domain-jobs/transitions")
-    def commit_run_domain_job_transition(
+    def commit_run_domain_job_transitions(
         run_id: str,
-        command: RunDomainJobTransitionCommand,
-    ) -> RunDomainJobTransitionView:
-        return application.executor.commit_domain_job_transition(run_id, command)
+        command: RunDomainJobTransitionBatchCommand,
+    ) -> RunDomainJobTransitionBatchReceipt:
+        return application.executor.commit_domain_job_transitions(run_id, command)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan")
     def get_run_point_plan(run_id: str) -> RunPointPlanView:

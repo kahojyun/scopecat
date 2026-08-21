@@ -34,6 +34,7 @@ if TYPE_CHECKING:
         DomainResidencyRequirement,
         DomainStateAddress,
         DomainStateRequirement,
+        DomainTransitionDurability,
         PreparedDomainExecution,
     )
     from scopecat.sdk.domain.job import (
@@ -78,6 +79,7 @@ _EXECUTION_EXPORTS = (
     "DomainResidencyRequirement",
     "DomainStateAddress",
     "DomainStateRequirement",
+    "DomainTransitionDurability",
     "PreparedDomainExecution",
 )
 _EVIDENCE_EXPORTS = (
@@ -206,6 +208,7 @@ __all__ = [
     "DomainSetup",
     "DomainStateAddress",
     "DomainStateRequirement",
+    "DomainTransitionDurability",
     "PreparedDomainExecution",
     "ResumableDomainJobRuntime",
 ]

@@ -765,8 +765,8 @@ class RunCoverageAdvanceCommand(_FencedCommand):
     point_count: int = Field(gt=0)
 
 
-class RunDomainJobTransitionCommand(_FencedCommand):
-    """Commit one correlated target-job transition at its durable boundary."""
+class RunDomainJobTransitionItem(_WireModel):
+    """One correlated target-job transition inside a durable append batch."""
 
     logical_compute_node_id: NonEmptyText
     point_ordinals: tuple[int, ...] = Field(min_length=1)
@@ -782,6 +782,15 @@ class RunDomainJobTransitionCommand(_FencedCommand):
         return value
 
 
+class RunDomainJobTransitionBatchCommand(_FencedCommand):
+    """Commit one bounded ordered transition batch in a single transaction."""
+
+    items: tuple[RunDomainJobTransitionItem, ...] = Field(
+        min_length=1,
+        max_length=256,
+    )
+
+
 class RunDomainJobTransitionView(_WireModel):
     """One durable transition accepted under a fenced executor lease."""
 
@@ -790,6 +799,19 @@ class RunDomainJobTransitionView(_WireModel):
     logical_compute_node_id: NonEmptyText
     point_ordinals: tuple[int, ...] = Field(min_length=1)
     transition: DomainJobTransitionRecord
+
+
+class RunDomainJobTransitionBatchReceipt(_WireModel):
+    """Ordered durable views corresponding to one transition append batch."""
+
+    run_id: NonEmptyText
+    items: tuple[RunDomainJobTransitionView, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_run(self) -> RunDomainJobTransitionBatchReceipt:
+        if any(item.run_id != self.run_id for item in self.items):
+            raise ValueError("domain job transition batch spans multiple runs")
+        return self
 
 
 class RunDomainJobTransitionPage(_WireModel):
@@ -1193,7 +1215,9 @@ __all__ = [
     "RunCoverageState",
     "RunDomainJobStatePage",
     "RunDomainJobStateView",
-    "RunDomainJobTransitionCommand",
+    "RunDomainJobTransitionBatchCommand",
+    "RunDomainJobTransitionBatchReceipt",
+    "RunDomainJobTransitionItem",
     "RunDomainJobTransitionPage",
     "RunDomainJobTransitionView",
     "RunInstrumentProvisionCommand",

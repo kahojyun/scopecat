@@ -185,6 +185,7 @@ class RunEffectInterpreter:
                 self._complete_coverage(
                     tuple(sorted(self._active_point_indices)),
                 )
+            self._flush_domain_job_transitions()
             try:
                 finished = self._instruments.finish(
                     operation_id="hardware.finish",
@@ -394,6 +395,7 @@ class RunEffectInterpreter:
                 logical_compute_node_id=job.id,
                 point_ordinals=job.point_ordinals,
                 execution_id=execution_id,
+                durability=job.execution.transition_durability,
             )
         if self._cancellation_requested():
             raise DomainExecutionCancellationRequested
@@ -424,6 +426,24 @@ class RunEffectInterpreter:
                 logical_compute_node_id=job.id,
                 point_ordinals=job.point_ordinals,
                 receipt=receipt,
+                durability=job.execution.transition_durability,
+            )
+
+    def _flush_domain_job_transitions(self) -> None:
+        writer = self._domain_job_transitions
+        if writer is None:
+            return
+        try:
+            writer.flush()
+        except Exception as error:
+            self._boundary.indeterminate = True
+            self._boundary.problems.append(
+                self._boundary.problem_from_exception(
+                    "domain_job_transition_flush_unknown",
+                    "buffered domain job transitions could not be flushed",
+                    error,
+                    operation_id="domain.transitions.flush",
+                )
             )
 
     def _record_domain_attempt(

@@ -71,7 +71,7 @@ from reference_lab.targets.list_mode import (
     realize_executed_measurements,
 )
 
-_QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId("reference-lab.list-mode-target.v1")
+_QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId("reference-lab.list-mode-target.v2")
 _INITIAL_BATCH_SIZE = 1
 
 
@@ -324,6 +324,7 @@ class QuantumLabCompiler:
                 artifact.target_artifact
             ),
             realtime_state_invalidations=(),
+            transition_durability="batched",
             next_batch_max_points=(
                 artifact.target_artifact.compilation_budget.next_batch_max_points
             ),

@@ -53,3 +53,31 @@ Residency is not an instrument interface property, device readback, or durable
 resume proof. Losing the connection loses the knowledge. The driver remains the
 authority that performs an idempotent ensure and invalidates any lower-level
 cache when its device session is reset.
+
+## Choose transition durability by recovery value
+
+Prepared executions use write-ahead transition persistence by default. Their
+invocation is durable before setup or realtime start, and their terminal
+receipt is durable before result realization. Externally managed jobs for which
+the latest submitted identity must survive an executor loss should retain this
+mode.
+
+A synchronous target may instead amortize transition transport and SQLite
+transactions when losing the latest small progress window is inexpensive:
+
+```python
+return preparation.build(
+    ...,
+    transition_durability="batched",
+)
+```
+
+Batched transitions retain their order and are appended in count-bounded atomic
+groups; elapsed point time does not turn a slow hardware sweep back into one
+storage transaction per point. A pending checkpoint always forces the
+invocation and checkpoint to be durable before the target is resumed, and the
+final pending group is flushed before instruments are released. A hard executor
+loss can omit the latest unflushed group; a normally terminated run still
+records its complete domain attempt evidence. This setting changes evidence
+durability, not hardware ordering, target batching, or ownership of an
+independently routed LO.
