@@ -12,7 +12,7 @@ from scopecat.records.measurement import MeasurementAcquisitionValue
 
 @dataclass(frozen=True, slots=True)
 class TemperatureSampleObservation:
-    """Measurement-valued sample observation."""
+    """Measurement-valued acquisition observation."""
 
     temperature: MeasurementAcquisitionValue
     resistance: MeasurementAcquisitionValue
@@ -21,7 +21,7 @@ class TemperatureSampleObservation:
 
 @dataclass(frozen=True, slots=True)
 class DCMonitorCurrentObservation:
-    """Measurement-valued measure_current observation."""
+    """Measurement-valued acquisition observation."""
 
     current: MeasurementAcquisitionValue
     evidence: dict[str, JsonValue] = field(default_factory=dict)
@@ -29,7 +29,7 @@ class DCMonitorCurrentObservation:
 
 @dataclass(frozen=True, slots=True)
 class DCMonitorVoltageObservation:
-    """Measurement-valued measure_voltage observation."""
+    """Measurement-valued acquisition observation."""
 
     voltage: MeasurementAcquisitionValue
     evidence: dict[str, JsonValue] = field(default_factory=dict)
@@ -37,7 +37,7 @@ class DCMonitorVoltageObservation:
 
 @dataclass(frozen=True, slots=True)
 class NetworkSweepObservation:
-    """Measurement-valued sweep observation."""
+    """Measurement-valued acquisition observation."""
 
     frequency: MeasurementAcquisitionValue
     s_parameter: MeasurementAcquisitionValue

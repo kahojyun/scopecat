@@ -95,6 +95,15 @@ class CompositeAcquisitionRightInterface(Protocol):
     def sample(self) -> CompositeSampleResults: ...
 
 
+@instrument_interface("test.generated_shared_acquisition_result/v1")
+class SharedAcquisitionResultInterface(Protocol):
+    @acquisition()
+    def sample_left(self) -> CompositeSampleResults: ...
+
+    @acquisition()
+    def sample_right(self) -> CompositeSampleResults: ...
+
+
 @instrument_interface("test.generated_payload_operation/v1")
 class PayloadOperationInterface(Protocol):
     @operation()
@@ -200,6 +209,7 @@ __all__ = [
     "LiteralOperationInterface",
     "PayloadOperationInterface",
     "ScalarOperationInterface",
+    "SharedAcquisitionResultInterface",
     "SharedPropertyFirstInterface",
     "SharedPropertySecondInterface",
 ]

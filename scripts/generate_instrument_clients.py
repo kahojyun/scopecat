@@ -237,6 +237,7 @@ class _FixtureDeclarations(Protocol):
     LiteralOperationInterface: type[object]
     PayloadOperationInterface: type[object]
     ScalarOperationInterface: type[object]
+    SharedAcquisitionResultInterface: type[object]
     SharedPropertyFirstInterface: type[object]
     SharedPropertySecondInterface: type[object]
 
@@ -326,6 +327,7 @@ def _fixture_catalog_target() -> CatalogTarget:
         members_module=f"{FIXTURE_MODULE}.generated_members",
         interface_types=(
             declarations.CatalogProjectionInterface,
+            declarations.SharedAcquisitionResultInterface,
             declarations.SharedPropertyFirstInterface,
             declarations.SharedPropertySecondInterface,
             *_surface_interface_types(catalog_surfaces),
@@ -929,7 +931,7 @@ def _render_driver_observations_module(
                 "\n\n"
                 "@dataclass(frozen=True, slots=True)\n"
                 f"class {name}:\n"
-                f'    """Measurement-valued {acquisition.method_name} observation."""\n'
+                '    """Measurement-valued acquisition observation."""\n'
                 "\n"
                 f"{fields_source}"
                 "    evidence: dict[str, JsonValue] = field(default_factory=dict)\n"
@@ -992,6 +994,14 @@ def _append_scope_member_identities(
     scope_name: str,
     owner_prefix: str,
 ) -> None:
+    result_names = [
+        f"{_join_constant_name(scope_name, result_field.python_name)}_RESULT"
+        for acquisition in scope.acquisitions
+        for result_field in acquisition.result_fields
+    ]
+    ambiguous_result_names = {
+        name for name in result_names if result_names.count(name) > 1
+    }
     for property_spec in scope.spec.properties:
         name = _join_constant_name(scope_name, property_spec.id)
         projections.append(
@@ -1061,6 +1071,11 @@ def _append_scope_member_identities(
             result_name = (
                 f"{_join_constant_name(scope_name, result_field.python_name)}_RESULT"
             )
+            if result_name in ambiguous_result_names:
+                result_name = (
+                    f"{_join_constant_name(acquisition_name, result_field.python_name)}"
+                    "_RESULT"
+                )
             projections.append(
                 _MemberIdentity(
                     name=result_name,
@@ -2191,6 +2206,7 @@ def _validate_generated_symbols(
     models: tuple[_InterfaceModel, ...],
 ) -> None:
     owners_by_symbol: dict[str, list[str]] = {}
+    shared_result_types: set[tuple[str, str, tuple[tuple[str, str], ...]]] = set()
 
     def register(symbol: str, owner: str) -> None:
         owners = owners_by_symbol.setdefault(symbol, [])
@@ -2242,6 +2258,14 @@ def _validate_generated_symbols(
         register(scope.symbolic_client_name, f"{declaration} symbolic client")
         register(scope.symbolic_group_name, f"{declaration} symbolic group")
         for acquisition in scope.acquisitions:
+            result_identity = (
+                acquisition.readback_name,
+                acquisition.products_name,
+                acquisition.result_field_signature,
+            )
+            if result_identity in shared_result_types:
+                continue
+            shared_result_types.add(result_identity)
             result_owner = (
                 f"{acquisition.descriptor_name} results {acquisition.result_type_name}"
             )
@@ -2823,16 +2847,14 @@ def _render_result_types(
             "\n\n"
             "@dataclass(frozen=True, slots=True)\n"
             f"class {item.readback_name}:\n"
-            f'    """Named {item.method_name} results plus their effect '
-            'receipt."""\n'
+            '    """Named acquisition values plus their effect receipt."""\n'
             "\n"
             f"{readback_fields}"
             "    receipt: CollectReceipt = field(repr=False)\n"
             "\n\n"
             "@dataclass(frozen=True, slots=True)\n"
             f"class {item.products_name}(ProductBundle):\n"
-            f'    """Typed logical products produced by '
-            f'{item.method_name}."""\n'
+            '    """Typed logical acquisition products."""\n'
             "\n"
             f"{product_fields}"
         )
@@ -3312,11 +3334,32 @@ def _render_group_operation(operation: _OperationModel) -> str:
         effect_id=True,
         per_entity=True,
     )
-    body = [
-        f"        _{argument.python_name}_by_entity = "
-        f"self._align({argument.python_name})\n"
-        for argument in operation.arguments
-    ]
+    body: list[str] = []
+    for argument in operation.arguments:
+        aligned_name = f"_{argument.python_name}_by_entity"
+        assignment = (
+            f"        {aligned_name}: PerEntity[{argument.symbolic_annotation}] = "
+        )
+        call = f"self._align({argument.python_name})"
+        compact = f"{assignment}{call}\n"
+        if len(compact.rstrip("\n")) <= 88:
+            body.append(compact)
+        elif len(f"{assignment}self._align(") <= 88:
+            body.extend(
+                (
+                    f"{assignment}self._align(\n",
+                    f"            {argument.python_name}\n",
+                    "        )\n",
+                )
+            )
+        else:
+            body.extend(
+                (
+                    f"{assignment}(\n",
+                    f"            {call}\n",
+                    "        )\n",
+                )
+            )
     body.append("        for entity in self._entities:\n")
     call_arguments: list[str] = []
     for argument in operation.arguments:
@@ -3337,14 +3380,24 @@ def _render_group_operation(operation: _OperationModel) -> str:
 
 
 def _render_group_acquisition(acquisition: _AcquisitionModel) -> str:
-    return (
+    signature = (
         f"    def {acquisition.method_name}(\n"
         "        self,\n"
         "        *,\n"
         "        id: str | None = None,\n"
         f"    ) -> PerEntity[{acquisition.products_name}]:\n"
+    )
+    compact = (
         "        return self._clients.map("
         f"lambda client: client.{acquisition.method_name}(id=id))\n"
+    )
+    if len(compact.rstrip("\n")) <= 88:
+        return signature + compact
+    return (
+        signature
+        + "        return self._clients.map(\n"
+        + f"            lambda client: client.{acquisition.method_name}(id=id)\n"
+        + "        )\n"
     )
 
 
@@ -3363,10 +3416,21 @@ def _render_operation_signature(
             lines.append("        *,\n")
         rendered_annotation = cast("str", getattr(argument, annotation))
         if per_entity:
-            rendered_annotation = (
+            per_entity_annotation = (
                 f"{rendered_annotation} | PerEntity[{rendered_annotation}]"
             )
-        lines.append(f"        {argument.python_name}: {rendered_annotation},\n")
+            compact = f"        {argument.python_name}: {per_entity_annotation},\n"
+            if len(compact.rstrip("\n")) <= 88:
+                lines.append(compact)
+            else:
+                lines.extend(
+                    (
+                        f"        {argument.python_name}: {rendered_annotation}\n",
+                        f"        | PerEntity[{rendered_annotation}],\n",
+                    )
+                )
+        else:
+            lines.append(f"        {argument.python_name}: {rendered_annotation},\n")
         if argument.kind == "POSITIONAL_ONLY" and (
             index == len(operation.arguments) - 1
             or operation.arguments[index + 1].kind != "POSITIONAL_ONLY"

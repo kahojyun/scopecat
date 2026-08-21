@@ -11,6 +11,10 @@ from scopecat_testkit.instrument_codegen_fixtures.declarations import (
     CompositeMethodLeftInterface,
     DriverSourceInterface,
 )
+from scopecat_testkit.instrument_codegen_fixtures.generated_members import (
+    SHARED_ACQUISITION_RESULT_SAMPLE_LEFT_VALUE_RESULT,
+    SHARED_ACQUISITION_RESULT_SAMPLE_RIGHT_VALUE_RESULT,
+)
 
 import scopecat_instruments.driver_observations as driver_observations
 from scopecat_instruments.driver_observations import (
@@ -393,13 +397,13 @@ def test_codegen_imports_literal_for_resolved_declared_annotations() -> None:
     completed = _render_surface("LiteralOperationInterface")
 
     assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-literal-operation>", "exec")
     assert "from typing import Literal" in completed.stdout
     assert 'mode: Literal["left", "right"],' in completed.stdout
     assert 'mode: Symbolic[Literal["left", "right"]],' in completed.stdout
-    assert (
-        'mode: Symbolic[Literal["left", "right"]] | '
-        'PerEntity[Symbolic[Literal["left", "right"]]],'
-    ) in completed.stdout
+    assert '| PerEntity[Symbolic[Literal["left", "right"]]],' in completed.stdout
+    assert "_mode_by_entity: PerEntity[" in completed.stdout
+    assert "] = self._align(" in completed.stdout
 
 
 def test_codegen_types_products_by_native_point_value() -> None:
@@ -425,6 +429,28 @@ def test_codegen_types_products_by_native_point_value() -> None:
     )
     assert "    response: ProductRef[MeasurementArrayData]" in array.stdout
     assert "RecordRef" not in array.stdout
+
+
+def test_codegen_reuses_one_result_carrier_across_acquisitions() -> None:
+    completed = _render_surface("SharedAcquisitionResultInterface")
+
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-shared-acquisition-result>", "exec")
+    assert completed.stdout.count("class CompositeSampleReadback:") == 1
+    assert completed.stdout.count("class CompositeSampleProducts(ProductBundle):") == 1
+    assert completed.stdout.count("-> CompositeSampleReadback:") == 2
+    assert completed.stdout.count("-> CompositeSampleProducts:") == 2
+
+
+def test_codegen_scopes_ambiguous_result_constants_by_acquisition() -> None:
+    assert (
+        SHARED_ACQUISITION_RESULT_SAMPLE_LEFT_VALUE_RESULT.acquisition_id
+        == "sample_left"
+    )
+    assert (
+        SHARED_ACQUISITION_RESULT_SAMPLE_RIGHT_VALUE_RESULT.acquisition_id
+        == "sample_right"
+    )
 
 
 def test_codegen_names_single_acquisition_carriers_by_declaration() -> None:
@@ -568,7 +594,7 @@ def test_codegen_aliases_colliding_operations_across_all_client_time_models() ->
     )
 
 
-def test_codegen_requires_explicit_names_for_colliding_acquisition_carriers() -> None:
+def test_codegen_reuses_shared_carriers_in_a_composite() -> None:
     completed = _render_surface(
         "CompositeAcquisitionLeftInterface",
         "CompositeAcquisitionRightInterface",
@@ -579,10 +605,12 @@ def test_codegen_requires_explicit_names_for_colliding_acquisition_carriers() ->
         ),
     )
 
-    assert completed.returncode != 0
-    assert "generated symbol collisions" in completed.stderr
-    assert "CompositeSampleReadback" in completed.stderr
-    assert "CompositeSampleProducts" in completed.stderr
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-shared-acquisition-composite>", "exec")
+    assert completed.stdout.count("class CompositeSampleReadback:") == 1
+    assert completed.stdout.count("class CompositeSampleProducts(ProductBundle):") == 1
+    assert completed.stdout.count("    def sample_left(") == 3
+    assert completed.stdout.count("    def sample_right(") == 3
 
 
 def test_codegen_names_colliding_acquisition_carriers_by_declaration() -> None:

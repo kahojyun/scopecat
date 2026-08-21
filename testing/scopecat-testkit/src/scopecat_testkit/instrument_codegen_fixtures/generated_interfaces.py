@@ -25,6 +25,28 @@ def catalog_projection_interface() -> InterfaceSpec:
     return InterfaceSpec.model_validate_json(_CATALOG_PROJECTION_SPEC_JSON)
 
 
+_SHARED_ACQUISITION_RESULT_SPEC_JSON = (
+    '{"id":"test.generated_shared_acquisition'
+    '_result/v1","label":null,"description":n'
+    'ull,"properties":[],"operations":[],"acq'
+    'uisitions":[{"id":"sample_left","label":'
+    'null,"description":null,"preconditions":'
+    '[],"results":[{"id":"value","label":null'
+    ',"description":null,"role":"observable",'
+    '"dtype":"float64","unit":null,"axes":[]}'
+    ']},{"id":"sample_right","label":null,"de'
+    'scription":null,"preconditions":[],"resu'
+    'lts":[{"id":"value","label":null,"descri'
+    'ption":null,"role":"observable","dtype":'
+    '"float64","unit":null,"axes":[]}]}],"com'
+    'ponents":[]}'
+)
+
+
+def shared_acquisition_result_interface() -> InterfaceSpec:
+    return InterfaceSpec.model_validate_json(_SHARED_ACQUISITION_RESULT_SPEC_JSON)
+
+
 _SHARED_PROPERTY_FIRST_SPEC_JSON = (
     '{"id":"test.generated_shared_property_fi'
     'rst/v1","label":null,"description":null,'
@@ -183,6 +205,7 @@ __all__ = [
     "literal_operation_interface",
     "payload_operation_interface",
     "scalar_operation_interface",
+    "shared_acquisition_result_interface",
     "shared_property_first_interface",
     "shared_property_second_interface",
 ]

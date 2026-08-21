@@ -203,7 +203,7 @@ _NETWORK_SWEEP_SWEEP_DECLARATION = ClientAcquisition(
 
 @dataclass(frozen=True, slots=True)
 class TemperatureReadback:
-    """Named sample results plus their effect receipt."""
+    """Named acquisition values plus their effect receipt."""
 
     temperature: MeasurementAcquisitionValue
     resistance: MeasurementAcquisitionValue
@@ -212,7 +212,7 @@ class TemperatureReadback:
 
 @dataclass(frozen=True, slots=True)
 class TemperatureSampleProducts(ProductBundle):
-    """Typed logical products produced by sample."""
+    """Typed logical acquisition products."""
 
     temperature: ProductRef[float]
     resistance: ProductRef[float]
@@ -898,7 +898,7 @@ rf_source: InstrumentFamily[
 
 @dataclass(frozen=True, slots=True)
 class DCBiasReadbackReadback:
-    """Named readback results plus their effect receipt."""
+    """Named acquisition values plus their effect receipt."""
 
     actual_voltage: MeasurementAcquisitionValue
     settled: MeasurementAcquisitionValue
@@ -907,7 +907,7 @@ class DCBiasReadbackReadback:
 
 @dataclass(frozen=True, slots=True)
 class DCBiasReadbackProducts(ProductBundle):
-    """Typed logical products produced by readback."""
+    """Typed logical acquisition products."""
 
     actual_voltage: ProductRef[float]
     settled: ProductRef[bool]
@@ -1409,8 +1409,8 @@ class SymbolicDCSourceGroup(
         level: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]],
         effect_id: str | None = None,
     ) -> None:
-        _range_by_entity = self._align(range)
-        _level_by_entity = self._align(level)
+        _range_by_entity: PerEntity[Symbolic[Quantity]] = self._align(range)
+        _level_by_entity: PerEntity[Symbolic[Quantity]] = self._align(level)
         for entity in self._entities:
             self._clients[entity].source_voltage(
                 range=_range_by_entity[entity],
@@ -1425,8 +1425,8 @@ class SymbolicDCSourceGroup(
         level: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]],
         effect_id: str | None = None,
     ) -> None:
-        _range_by_entity = self._align(range)
-        _level_by_entity = self._align(level)
+        _range_by_entity: PerEntity[Symbolic[Quantity]] = self._align(range)
+        _level_by_entity: PerEntity[Symbolic[Quantity]] = self._align(level)
         for entity in self._entities:
             self._clients[entity].source_current(
                 range=_range_by_entity[entity],
@@ -1450,7 +1450,7 @@ dc_source: InstrumentFamily[
 
 @dataclass(frozen=True, slots=True)
 class DCMonitorCurrentReadback:
-    """Named measure_current results plus their effect receipt."""
+    """Named acquisition values plus their effect receipt."""
 
     current: MeasurementAcquisitionValue
     receipt: CollectReceipt = field(repr=False)
@@ -1458,14 +1458,14 @@ class DCMonitorCurrentReadback:
 
 @dataclass(frozen=True, slots=True)
 class DCMonitorCurrentProducts(ProductBundle):
-    """Typed logical products produced by measure_current."""
+    """Typed logical acquisition products."""
 
     current: ProductRef[float]
 
 
 @dataclass(frozen=True, slots=True)
 class DCMonitorVoltageReadback:
-    """Named measure_voltage results plus their effect receipt."""
+    """Named acquisition values plus their effect receipt."""
 
     voltage: MeasurementAcquisitionValue
     receipt: CollectReceipt = field(repr=False)
@@ -1473,7 +1473,7 @@ class DCMonitorVoltageReadback:
 
 @dataclass(frozen=True, slots=True)
 class DCMonitorVoltageProducts(ProductBundle):
-    """Typed logical products produced by measure_voltage."""
+    """Typed logical acquisition products."""
 
     voltage: ProductRef[float]
 
@@ -2058,8 +2058,8 @@ class SymbolicDCSourceMonitorGroup(
         level: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]],
         effect_id: str | None = None,
     ) -> None:
-        _range_by_entity = self._align(range)
-        _level_by_entity = self._align(level)
+        _range_by_entity: PerEntity[Symbolic[Quantity]] = self._align(range)
+        _level_by_entity: PerEntity[Symbolic[Quantity]] = self._align(level)
         for entity in self._entities:
             self._clients[entity].source_voltage(
                 range=_range_by_entity[entity],
@@ -2074,8 +2074,8 @@ class SymbolicDCSourceMonitorGroup(
         level: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]],
         effect_id: str | None = None,
     ) -> None:
-        _range_by_entity = self._align(range)
-        _level_by_entity = self._align(level)
+        _range_by_entity: PerEntity[Symbolic[Quantity]] = self._align(range)
+        _level_by_entity: PerEntity[Symbolic[Quantity]] = self._align(level)
         for entity in self._entities:
             self._clients[entity].source_current(
                 range=_range_by_entity[entity],
@@ -2113,7 +2113,7 @@ dc_source_monitor: InstrumentFamily[
 
 @dataclass(frozen=True, slots=True)
 class NetworkSweepReadback:
-    """Named sweep results plus their effect receipt."""
+    """Named acquisition values plus their effect receipt."""
 
     frequency: MeasurementAcquisitionValue
     s_parameter: MeasurementAcquisitionValue
@@ -2122,7 +2122,7 @@ class NetworkSweepReadback:
 
 @dataclass(frozen=True, slots=True)
 class NetworkSweepProducts(ProductBundle):
-    """Typed logical products produced by sweep."""
+    """Typed logical acquisition products."""
 
     frequency: ProductRef[MeasurementArrayData]
     s_parameter: ProductRef[MeasurementArrayData]
