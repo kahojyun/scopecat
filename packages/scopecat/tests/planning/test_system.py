@@ -169,9 +169,11 @@ class _DomainCompiler:
     realtime_state_invalidations: tuple[DomainStateAddress, ...] = ()
     batch_size: int = 100
     initial_size: int | None = None
+    compatible_sizes: tuple[int, ...] | None = None
     next_batch_capacities: tuple[int, ...] | None = None
     runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
     initial_batch_requests: list[int] = field(default_factory=list)
+    compatibility_requests: list[DomainBatchRequest] = field(default_factory=list)
     compile_calls: int = 0
     compile_requests: list[DomainBatchRequest] = field(default_factory=list)
     prepared_inputs: list[tuple[object, ...]] = field(default_factory=list)
@@ -184,13 +186,20 @@ class _DomainCompiler:
     def target_kind(self) -> str:
         return "tests.domain"
 
-    def initial_batch_size(self, point_count: int) -> int:
+    def initial_batch_max_points(self, point_count: int) -> int:
         self.initial_batch_requests.append(point_count)
         return (
             min(point_count, self.batch_size)
             if self.initial_size is None
             else self.initial_size
         )
+
+    def compatible_batch_size(self, request: DomainBatchRequest) -> int:
+        index = len(self.compatibility_requests)
+        self.compatibility_requests.append(request)
+        if self.compatible_sizes is None:
+            return len(request.points)
+        return self.compatible_sizes[min(index, len(self.compatible_sizes) - 1)]
 
     def compile_batch(
         self,
@@ -1097,6 +1106,59 @@ def test_domain_target_adapts_followup_batches_from_compiler_feedback() -> None:
     )
 
 
+def test_domain_target_uses_the_largest_compatible_candidate_prefix() -> None:
+    bound = _bound_program(point_count=10)
+    compiler = _DomainCompiler(
+        "tests.compatible-prefix",
+        batch_size=5,
+        initial_size=5,
+        compatible_sizes=(2, 3, 5),
+    )
+
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(bound)
+
+    jobs = tuple(
+        operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
+    )
+    assert [request.point_ordinals for request in compiler.compatibility_requests] == [
+        (0, 1, 2, 3, 4),
+        (2, 3, 4, 5, 6),
+        (5, 6, 7, 8, 9),
+    ]
+    assert [request.point_ordinals for request in compiler.compile_requests] == [
+        (0, 1),
+        (2, 3, 4),
+        (5, 6, 7, 8, 9),
+    ]
+    assert [job.point_ordinals for job in jobs] == [
+        (0, 1),
+        (2, 3, 4),
+        (5, 6, 7, 8, 9),
+    ]
+
+
+@pytest.mark.parametrize("compatible_size", (0, 3))
+def test_domain_target_rejects_an_invalid_compatible_prefix(
+    compatible_size: int,
+) -> None:
+    bound = _bound_program(point_count=2)
+    compiler = _DomainCompiler(
+        "tests.invalid-compatible-prefix",
+        initial_size=2,
+        compatible_sizes=(compatible_size,),
+    )
+
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(bound)
+    with pytest.raises(ValueError, match="positive candidate prefix length"):
+        tuple(plan.coverage)
+
+
 def test_local_effect_materialization_reuses_the_bounded_initial_probe(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1752,6 +1814,45 @@ def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() 
     assert plan.resource_requirements == ()
     assert compiler.compile_calls == 2
     _assert_no_domain_effects(compiler)
+
+
+def test_ordered_domain_calls_negotiate_one_common_compatible_prefix() -> None:
+    bound = _bound_program(
+        product_count=2,
+        domain_product_count=2,
+        domain_call_count=2,
+    )
+    compiler = _DomainCompiler(
+        "tests.multi-call-prefix",
+        compatible_sizes=(2, 1, 1, 1),
+    )
+
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(bound)
+
+    jobs = tuple(
+        operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
+    )
+    assert [request.point_ordinals for request in compiler.compatibility_requests] == [
+        (0, 1),
+        (0, 1),
+        (1,),
+        (1,),
+    ]
+    assert [request.point_ordinals for request in compiler.compile_requests] == [
+        (0,),
+        (0,),
+        (1,),
+        (1,),
+    ]
+    assert [job.point_ordinals for job in jobs] == [
+        (0,),
+        (0,),
+        (1,),
+        (1,),
+    ]
 
 
 def test_system_rejects_a_compiler_for_a_different_target() -> None:

@@ -177,7 +177,7 @@ class QuantumLabCompiler:
             )
         )
 
-    def initial_batch_size(self, point_count: int) -> int:
+    def initial_batch_max_points(self, point_count: int) -> int:
         """Bound the first preparation without materializing program inputs."""
 
         return min(
@@ -185,6 +185,11 @@ class QuantumLabCompiler:
             _INITIAL_BATCH_SIZE,
             self._target.max_list_entries,
         )
+
+    def compatible_batch_size(self, request: DomainBatchRequest) -> int:
+        """The statically bounded list-mode candidate is already compatible."""
+
+        return len(request.points)
 
     def _compile_target_artifact(
         self,

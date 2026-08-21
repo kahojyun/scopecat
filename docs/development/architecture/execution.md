@@ -140,15 +140,19 @@ inputs. Planning interacts with it through one `compile_batch` boundary and
 receives prepared executions containing the closed target artifact, exact
 point/product mapping, physical authority, and runtime invocation.
 
-Planning asks the domain compiler for a small initial window before any concrete
-artifact exists. Every prepared execution then reports a maximum point count
-for the following window. The compiler may derive that feedback from aggregate
+Planning asks the domain compiler for a small initial candidate maximum before
+any point-local inputs are resolved. For each candidate, the compiler inspects
+the complete request and returns the length of its largest compatible prefix;
+core may shorten that prefix to align host-state regions or another domain call,
+then calls `compile_batch` with the exact final points. Every prepared execution
+reports the maximum candidate point count for the following window. The
+compiler may derive compatibility and continuation feedback from aggregate
 payload bytes, channels, samples, shots, device entries, or another target-owned
-limit; core still schedules contiguous logical points and uses the minimum
-feedback when a window contains multiple domain jobs. This keeps launch
-preparation bounded while allowing concrete artifact shape to control later
-batches. A local-only run uses a small initial window and bounded follow-up
-windows.
+limit. Core still schedules contiguous logical points and uses the minimum
+prefix or feedback when a window contains multiple domain jobs. This keeps
+launch preparation bounded without forcing a target to reserve one worst-case
+resource unit for every point. A local-only run uses a small initial window and
+bounded follow-up windows.
 
 Each target batch is one bounded coverage window. Host lowering forms stable
 regions inside the window from adjacent points with equal, statically known

@@ -83,9 +83,10 @@ class PreparedDomainExecution:
     only after that boundary. Write footprints declare target authority and an
     unknown postcondition; invalidations only withdraw planner knowledge and may
     name physically coupled properties outside the target footprint. The
-    continuation capacity is compiler feedback from this concrete artifact; it
-    bounds the next contiguous batch after payload shape and device limits are
-    known without making those resource dimensions part of core semantics.
+    continuation maximum is compiler feedback from this concrete artifact; it
+    bounds the next candidate after payload shape and device limits are known.
+    The compiler still selects the candidate's compatible prefix, without
+    making those resource dimensions part of core semantics.
     """
 
     instrument_ids: tuple[str, ...]
@@ -112,7 +113,7 @@ class PreparedDomainExecution:
 
     def __post_init__(self) -> None:
         if self.next_batch_max_points <= 0:
-            raise ValueError("next domain batch capacity must be positive")
+            raise ValueError("next domain batch maximum must be positive")
         if any(not instrument_id for instrument_id in self.instrument_ids):
             raise ValueError("prepared domain instrument ids must be non-empty")
         if len(self.instrument_ids) != len(set(self.instrument_ids)):

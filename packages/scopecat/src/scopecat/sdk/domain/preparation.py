@@ -133,9 +133,11 @@ class DomainPreparationBuilder:
         runtime authority with an unknown postcondition;
         ``realtime_state_invalidations`` withdraw knowledge about other
         physically coupled properties after the complete job.
-        ``next_batch_max_points`` reports the capacity learned from this
-        concrete artifact and may account for bytes, samples, shots, channels,
-        device entries, or another domain-owned resource budget.
+        ``next_batch_max_points`` bounds the next candidate using information
+        learned from this concrete artifact. It may account for bytes, samples,
+        shots, channels, device entries, or another domain-owned resource
+        budget; ``compatible_batch_size`` still selects that candidate's exact
+        prefix after its point-local inputs are available.
         """
 
         if mapping.context is not self._context:

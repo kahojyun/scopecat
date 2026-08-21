@@ -103,8 +103,11 @@ class _RejectingDomainCompiler:
     def instrument_ids(self) -> tuple[str, ...]:
         return ()
 
-    def initial_batch_size(self, point_count: int) -> int:
+    def initial_batch_max_points(self, point_count: int) -> int:
         return point_count
+
+    def compatible_batch_size(self, request: DomainBatchRequest) -> int:
+        return len(request.points)
 
     def compile_batch(
         self,

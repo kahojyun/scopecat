@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class DomainCompiler(Protocol):
-    """Compile complete bounded batches for one configured domain target."""
+    """Negotiate and compile bounded batches for one configured domain target."""
 
     @property
     def target_id(self) -> str: ...
@@ -24,8 +24,19 @@ class DomainCompiler(Protocol):
         """Return the physical footprint reserved before batch compilation."""
         ...
 
-    def initial_batch_size(self, point_count: int) -> int:
-        """Choose the bounded probe compiled before continuation feedback exists."""
+    def initial_batch_max_points(self, point_count: int) -> int:
+        """Bound the first candidate without resolving its point-local inputs."""
+        ...
+
+    def compatible_batch_size(self, request: DomainBatchRequest) -> int:
+        """Return the largest compatible prefix length of one candidate batch.
+
+        The compiler may inspect or lower every candidate point, but must not
+        perform external effects. Every non-empty contiguous subrange of the
+        accepted prefix must be independently compilable. Core may shorten or
+        split that prefix to align host-state regions or another domain call
+        before invoking ``compile_batch`` with each exact final batch.
+        """
         ...
 
     def compile_batch(
