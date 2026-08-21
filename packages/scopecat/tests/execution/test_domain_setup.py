@@ -15,7 +15,6 @@ from scopecat.execution.effects.domain import (
     _PreparedDomainJobRuntime,
     execute_domain_job_values,
 )
-from scopecat.execution.evidence import build_domain_execution_evidence
 from scopecat.execution.program import RunDomainJob
 from scopecat.kernel.errors import DomainExecutionFailed, OperationFailure
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
@@ -35,7 +34,10 @@ from scopecat.sdk.domain.execution import (
     ErasedDomainSetup,
     PreparedDomainExecution,
 )
-from scopecat.sdk.domain.invocation import close_domain_invocation
+from scopecat.sdk.domain.invocation import (
+    DomainInvocationIntent,
+    close_domain_invocation,
+)
 from scopecat.sdk.domain.result_mapping import DomainResultMapping
 from scopecat.sdk.domain.runtime import (
     DomainExecutionCancellationRequested,
@@ -314,9 +316,16 @@ def test_transition_flush_failure_marks_run_indeterminate() -> None:
             logical_compute_node_id: str,
             point_ordinals: tuple[int, ...],
             execution_id: DomainExecutionId,
+            intent: DomainInvocationIntent,
             durability: DomainTransitionDurability,
         ) -> None:
-            del logical_compute_node_id, point_ordinals, execution_id, durability
+            del (
+                logical_compute_node_id,
+                point_ordinals,
+                execution_id,
+                intent,
+                durability,
+            )
             raise AssertionError("empty run has no invocation")
 
         def checkpoint(
@@ -376,6 +385,8 @@ def test_known_setup_rejection_returns_not_executed() -> None:
 
 def test_attempt_is_observed_before_result_realization_or_failure() -> None:
     transition_events: list[tuple[str, int]] = []
+    committed_intents: list[DomainInvocationIntent] = []
+    committed_checkpoints: list[DomainJobCheckpoint] = []
 
     @dataclass(frozen=True, slots=True)
     class ResultContract:
@@ -463,11 +474,14 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
             logical_compute_node_id: str,
             point_ordinals: tuple[int, ...],
             execution_id: DomainExecutionId,
+            intent: DomainInvocationIntent,
             durability: DomainTransitionDurability,
         ) -> None:
             assert logical_compute_node_id == "test-node"
             assert point_ordinals == (0,)
             assert execution_id.logical_compute_node_id == logical_compute_node_id
+            assert execution_id.invocation_id == intent.invocation_id
+            committed_intents.append(intent)
             assert durability == "write_ahead"
             transition_events.append(("invocation", 0))
 
@@ -480,6 +494,7 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
         ) -> None:
             assert logical_compute_node_id == "test-node"
             assert point_ordinals == (0,)
+            committed_checkpoints.append(checkpoint)
             transition_events.append(("checkpoint", checkpoint.revision))
 
         def terminal(
@@ -623,14 +638,16 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
         ),
         points=(point,),
     )
-    evidence = build_domain_execution_evidence("test-run", effect_result)
+    evidence = effect_result.domain_execution
     assert evidence is not None
-    [attempt] = evidence.attempts
-    assert attempt.receipt is not None
-    assert attempt.receipt.status == "unknown"
-    assert attempt.execution_key == attempt.receipt.execution_key
-    assert [checkpoint.revision for checkpoint in attempt.checkpoints] == [1, 2]
-    assert [checkpoint.progress["status"] for checkpoint in attempt.checkpoints] == [
+    assert evidence.attempt_count == 1
+    assert evidence.checkpoint_count == 2
+    assert evidence.receipt_count == 1
+    assert evidence.unknown_count == 1
+    assert evidence.target_ids == ("test-target",)
+    assert committed_intents == [invocation.intent]
+    assert [checkpoint.revision for checkpoint in committed_checkpoints] == [1, 2]
+    assert [checkpoint.progress["status"] for checkpoint in committed_checkpoints] == [
         "submitted",
         "hardware_unknown",
     ]
@@ -784,6 +801,7 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
             logical_compute_node_id: str,
             point_ordinals: tuple[int, ...],
             execution_id: DomainExecutionId,
+            intent: DomainInvocationIntent,
             durability: DomainTransitionDurability,
         ) -> None:
             nonlocal invocation_cancellation_requested
@@ -791,6 +809,7 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
                 logical_compute_node_id=logical_compute_node_id,
                 point_ordinals=point_ordinals,
                 execution_id=execution_id,
+                intent=intent,
                 durability=durability,
             )
             invocation_cancellation_requested = True
@@ -868,14 +887,11 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
         ("start", 0),
         ("checkpoint", 1),
     ]
-    cancelled_evidence = build_domain_execution_evidence(
-        "test-run",
-        cancelled_effect_result,
-    )
+    cancelled_evidence = cancelled_effect_result.domain_execution
     assert cancelled_evidence is not None
-    [cancelled_attempt] = cancelled_evidence.attempts
-    assert [checkpoint.revision for checkpoint in cancelled_attempt.checkpoints] == [1]
-    assert cancelled_attempt.receipt is None
+    assert cancelled_evidence.attempt_count == 1
+    assert cancelled_evidence.checkpoint_count == 1
+    assert cancelled_evidence.receipt_count == 0
 
     missing_observed: list[
         tuple[
@@ -901,6 +917,157 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
     [(_execution_id, missing_checkpoints, missing_receipt)] = missing_observed
     assert missing_checkpoints == ()
     assert missing_receipt is None
+
+
+def test_dense_domain_sweep_keeps_terminal_evidence_bounded() -> None:
+    @dataclass(frozen=True, slots=True)
+    class ResultContract:
+        contract_fingerprint: str = "test-result-contract"
+
+    class Runtime:
+        def start(
+            self,
+            execution_key: str,
+            payload: object,
+            *,
+            instruments: object,
+        ) -> DomainExecutionResult[object]:
+            del payload, instruments
+            return DomainExecutionResult(
+                DomainExecutionReceipt(
+                    execution_key=execution_key,
+                    status="completed",
+                    result_fingerprint="empty-result",
+                    result_count=0,
+                ),
+                object(),
+            )
+
+    class CountingTransitionWriter:
+        def __init__(self) -> None:
+            self.invocation_count = 0
+            self.terminal_count = 0
+
+        def invocation(
+            self,
+            *,
+            logical_compute_node_id: str,
+            point_ordinals: tuple[int, ...],
+            execution_id: DomainExecutionId,
+            intent: DomainInvocationIntent,
+            durability: DomainTransitionDurability,
+        ) -> None:
+            del point_ordinals, durability
+            assert execution_id.logical_compute_node_id == logical_compute_node_id
+            assert execution_id.intent_fingerprint == intent.intent_fingerprint
+            self.invocation_count += 1
+
+        def checkpoint(
+            self,
+            *,
+            logical_compute_node_id: str,
+            point_ordinals: tuple[int, ...],
+            checkpoint: DomainJobCheckpoint,
+        ) -> None:
+            del logical_compute_node_id, point_ordinals, checkpoint
+            raise AssertionError("synchronous sweep has no checkpoints")
+
+        def terminal(
+            self,
+            *,
+            logical_compute_node_id: str,
+            point_ordinals: tuple[int, ...],
+            receipt: DomainExecutionReceipt,
+            durability: DomainTransitionDurability,
+        ) -> None:
+            del logical_compute_node_id, point_ordinals, durability
+            assert receipt.status == "completed"
+            self.terminal_count += 1
+
+        def flush(self) -> None:
+            return None
+
+    invocation = close_domain_invocation(
+        cast(
+            "DomainResultMapping[str]",
+            cast("object", ResultContract()),
+        ),
+        invocation_id="dense-sweep-invocation",
+        target_id="dense-sweep-target",
+        compiler_id="test-compiler",
+        capability_fingerprint="test-capability",
+        artifact_id="shared-program",
+        artifact_fingerprint="shared-program-fingerprint",
+        execution_summary={"program_reused": True},
+        target_intent={"sweep_axis": "lo_frequency"},
+        payload=object(),
+    )
+
+    def discard_result(
+        _result: DomainExecutionResult[object],
+        _accept: object,
+    ) -> None:
+        return None
+
+    prepared = PreparedDomainExecution(
+        instrument_ids=(),
+        setup_write_footprint=(),
+        setup_state_invalidations=(),
+        state_requirements=(),
+        realtime_write_footprint=(),
+        realtime_state_invalidations=(),
+        next_batch_max_points=1,
+        invocation=cast("ErasedDomainInvocation", invocation),
+        setup=None,
+        job_runtime=cast("ErasedDomainJobRuntime", Runtime()),
+        realize_into=cast("ErasedDomainRealizer", discard_result),
+        transition_durability="batched",
+    )
+    point_count = 512
+    points = tuple(
+        AcceptedRunPoint(
+            LogicalPointId(PointDomainId("dense-sweep", "root"), ordinal),
+            {},
+        )
+        for ordinal in range(point_count)
+    )
+    jobs = tuple(
+        RunDomainJob(f"dense-sweep-{ordinal}", (ordinal,), prepared)
+        for ordinal in range(point_count)
+    )
+    transitions = CountingTransitionWriter()
+
+    result = RunEffectInterpreter(
+        run_id="dense-sweep-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost(),
+        domain_job_transitions=transitions,
+    ).run(jobs, points=points)
+
+    assert result.problems == ()
+    assert result.domain_execution is not None
+    assert result.domain_execution.attempt_count == point_count
+    assert result.domain_execution.receipt_count == point_count
+    assert result.domain_execution.completed_count == point_count
+    assert result.domain_execution.target_ids == ("dense-sweep-target",)
+    assert len(result.domain_execution.model_dump_json()) < 512
+    assert transitions.invocation_count == point_count
+    assert transitions.terminal_count == point_count
+
+    class FailingFlushWriter(CountingTransitionWriter):
+        @override
+        def flush(self) -> None:
+            raise RuntimeError("transition ledger unavailable")
+
+    incomplete = RunEffectInterpreter(
+        run_id="incomplete-detail-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost(),
+        domain_job_transitions=FailingFlushWriter(),
+    ).run(jobs[:1], points=points[:1])
+    assert incomplete.indeterminate
+    assert incomplete.domain_execution is not None
+    assert not incomplete.domain_execution.detail_complete
 
 
 def test_domain_instrument_batches_stop_at_the_next_cancellation_boundary() -> None:

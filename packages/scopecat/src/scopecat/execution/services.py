@@ -18,6 +18,7 @@ from scopecat.records.execution import (
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.domain.execution import DomainTransitionDurability
+from scopecat.sdk.domain.invocation import DomainInvocationIntent
 from scopecat.sdk.instruments.execution import RunInstrumentHost
 
 
@@ -46,6 +47,7 @@ class RunDomainJobTransitionWriter(Protocol):
         logical_compute_node_id: str,
         point_ordinals: tuple[int, ...],
         execution_id: DomainExecutionId,
+        intent: DomainInvocationIntent,
         durability: DomainTransitionDurability,
     ) -> None: ...
 

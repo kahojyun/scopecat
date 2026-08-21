@@ -638,7 +638,9 @@ The present architecture provides a direct end-to-end baseline:
   completed receipt is still interpreted first, so cancellation cannot turn
   known hardware evidence into a fabricated indeterminate failure. The maximum
   cooperative cancellation delay is therefore one active driver call or one
-  configured result chunk;
+  configured result chunk. Complete invocation intent, checkpoints, and
+  receipts live only in the paged transition ledger; the run terminal retains
+  aggregate counts and target ids instead of an O(job-count) attempt array;
 - admission uses the domain compiler's static instrument footprint and all
   structurally compatible local route candidates. Point-local routing narrows
   the operations actually emitted, so a run may conservatively reserve an

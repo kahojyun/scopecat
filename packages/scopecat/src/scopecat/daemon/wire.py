@@ -61,7 +61,10 @@ from scopecat.records.config import (
     InstrumentBindingSpec,
 )
 from scopecat.records.content import ContentEntry, Sha256ContentHash
-from scopecat.records.execution import DomainExecutionId, DomainJobTransitionRecord
+from scopecat.records.execution import (
+    DomainJobInvocationTransition,
+    DomainJobTransitionRecord,
+)
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
@@ -830,7 +833,7 @@ class RunDomainJobStateView(_WireModel):
     """
 
     run_id: NonEmptyText
-    execution_id: DomainExecutionId
+    invocation: DomainJobInvocationTransition
     point_ordinals: tuple[int, ...] = Field(min_length=1)
     state: Literal["invocation_unknown", "pending", "terminal"]
     invocation_sequence: int = Field(ge=1)
@@ -840,9 +843,10 @@ class RunDomainJobStateView(_WireModel):
 
     @model_validator(mode="after")
     def validate_projection(self) -> RunDomainJobStateView:
-        if self.execution_id.run_id != self.run_id:
+        execution_id = self.invocation.execution_id
+        if execution_id.run_id != self.run_id:
             raise ValueError("domain job state execution belongs to another run")
-        if self.latest_transition.execution_key != self.execution_id.execution_key:
+        if self.latest_transition.execution_key != execution_id.execution_key:
             raise ValueError("domain job state transition belongs to another execution")
         if self.latest_sequence < self.invocation_sequence:
             raise ValueError("domain job latest transition predates its invocation")

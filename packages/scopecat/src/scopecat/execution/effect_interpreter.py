@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass, field
 
 import scopecat.execution.effect_result as effect_result
 from scopecat.execution.effects.boundary import EffectBoundary
@@ -30,7 +31,7 @@ from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.sdk.domain.evidence import DomainExecutionAttemptEvidence
+from scopecat.sdk.domain.evidence import DomainExecutionEvidence
 from scopecat.sdk.domain.runtime import (
     DomainExecutionCancellationRequested,
     DomainExecutionId,
@@ -78,6 +79,54 @@ def _never_cancel() -> bool:
     return False
 
 
+@dataclass(slots=True)
+class _DomainExecutionEvidenceBuilder:
+    attempt_count: int = 0
+    checkpoint_count: int = 0
+    receipt_count: int = 0
+    completed_count: int = 0
+    not_executed_count: int = 0
+    unknown_count: int = 0
+    detail_complete: bool = True
+    target_ids: set[str] = field(default_factory=set)
+
+    def observe(
+        self,
+        *,
+        target_id: str,
+        checkpoints: tuple[DomainJobCheckpoint, ...],
+        receipt: DomainExecutionReceipt | None,
+    ) -> None:
+        self.attempt_count += 1
+        self.checkpoint_count += len(checkpoints)
+        self.target_ids.add(target_id)
+        if receipt is None:
+            return
+        self.receipt_count += 1
+        match receipt.status:
+            case "completed":
+                self.completed_count += 1
+            case "not_executed":
+                self.not_executed_count += 1
+            case "unknown":
+                self.unknown_count += 1
+
+    def build(self, *, run_id: str) -> DomainExecutionEvidence | None:
+        if self.attempt_count == 0:
+            return None
+        return DomainExecutionEvidence(
+            run_id=run_id,
+            detail_complete=self.detail_complete,
+            attempt_count=self.attempt_count,
+            checkpoint_count=self.checkpoint_count,
+            receipt_count=self.receipt_count,
+            completed_count=self.completed_count,
+            not_executed_count=self.not_executed_count,
+            unknown_count=self.unknown_count,
+            target_ids=tuple(sorted(self.target_ids)),
+        )
+
+
 class RunEffectInterpreter:
     """Execute provisioned host operations in exact program order.
 
@@ -104,7 +153,7 @@ class RunEffectInterpreter:
         self.observed_state = list(instruments.observed_state)
         self.baseline_state = list(instruments.baseline_state)
         self.final_state: list[InstrumentStateSnapshot] = []
-        self.domain_execution_attempts: list[DomainExecutionAttemptEvidence] = []
+        self._domain_execution = _DomainExecutionEvidenceBuilder()
         self.domain_failure: tuple[RunDomainJob, BaseException] | None = None
         self.coverage_failure: BaseException | None = None
         self.cancelled = False
@@ -337,6 +386,8 @@ class RunEffectInterpreter:
         )
 
     def _execute_domain_job(self, job: RunDomainJob) -> None:
+        if self._domain_job_transitions is None:
+            raise RuntimeError("domain job execution requires a transition ledger")
         for point_index in job.point_ordinals:
             if point_index in self._terminal_point_indices:
                 raise AssertionError("domain job follows point completion")
@@ -391,12 +442,17 @@ class RunEffectInterpreter:
     ) -> None:
         writer = self._domain_job_transitions
         if writer is not None:
-            writer.invocation(
-                logical_compute_node_id=job.id,
-                point_ordinals=job.point_ordinals,
-                execution_id=execution_id,
-                durability=job.execution.transition_durability,
-            )
+            try:
+                writer.invocation(
+                    logical_compute_node_id=job.id,
+                    point_ordinals=job.point_ordinals,
+                    execution_id=execution_id,
+                    intent=job.execution.invocation.intent,
+                    durability=job.execution.transition_durability,
+                )
+            except Exception:
+                self._domain_execution.detail_complete = False
+                raise
         if self._cancellation_requested():
             raise DomainExecutionCancellationRequested
 
@@ -407,11 +463,15 @@ class RunEffectInterpreter:
     ) -> None:
         writer = self._domain_job_transitions
         if writer is not None:
-            writer.checkpoint(
-                logical_compute_node_id=job.id,
-                point_ordinals=job.point_ordinals,
-                checkpoint=checkpoint,
-            )
+            try:
+                writer.checkpoint(
+                    logical_compute_node_id=job.id,
+                    point_ordinals=job.point_ordinals,
+                    checkpoint=checkpoint,
+                )
+            except Exception:
+                self._domain_execution.detail_complete = False
+                raise
         if self._cancellation_requested():
             raise DomainExecutionCancellationRequested
 
@@ -422,12 +482,16 @@ class RunEffectInterpreter:
     ) -> None:
         writer = self._domain_job_transitions
         if writer is not None:
-            writer.terminal(
-                logical_compute_node_id=job.id,
-                point_ordinals=job.point_ordinals,
-                receipt=receipt,
-                durability=job.execution.transition_durability,
-            )
+            try:
+                writer.terminal(
+                    logical_compute_node_id=job.id,
+                    point_ordinals=job.point_ordinals,
+                    receipt=receipt,
+                    durability=job.execution.transition_durability,
+                )
+            except Exception:
+                self._domain_execution.detail_complete = False
+                raise
 
     def _flush_domain_job_transitions(self) -> None:
         writer = self._domain_job_transitions
@@ -436,6 +500,7 @@ class RunEffectInterpreter:
         try:
             writer.flush()
         except Exception as error:
+            self._domain_execution.detail_complete = False
             self._boundary.indeterminate = True
             self._boundary.problems.append(
                 self._boundary.problem_from_exception(
@@ -453,15 +518,11 @@ class RunEffectInterpreter:
         checkpoints: tuple[DomainJobCheckpoint, ...],
         receipt: DomainExecutionReceipt | None,
     ) -> None:
-        self.domain_execution_attempts.append(
-            DomainExecutionAttemptEvidence(
-                logical_compute_node_id=job.id,
-                point_ordinals=job.point_ordinals,
-                execution_key=execution_id.execution_key,
-                intent=job.execution.invocation.intent,
-                checkpoints=checkpoints,
-                receipt=receipt,
-            )
+        del execution_id
+        self._domain_execution.observe(
+            target_id=job.execution.invocation.intent.target_id,
+            checkpoints=checkpoints,
+            receipt=receipt,
         )
 
     def _point_state(self, point_index: int) -> PointEffectState:
@@ -527,7 +588,7 @@ class RunEffectInterpreter:
             observed_state=tuple(self.observed_state),
             baseline_state=tuple(self.baseline_state),
             final_state=tuple(self.final_state),
-            domain_execution_attempts=tuple(self.domain_execution_attempts),
+            domain_execution=self._domain_execution.build(run_id=self.run_id),
             indeterminate=self._boundary.indeterminate,
             cancelled=self.cancelled,
             domain_failure=self.domain_failure,

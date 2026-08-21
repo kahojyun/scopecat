@@ -1762,7 +1762,7 @@ def _domain_job_state_view(row: sqlite3.Row) -> RunDomainJobStateView:
     )
     return RunDomainJobStateView(
         run_id=_text(row, "run_id"),
-        execution_id=invocation.execution_id,
+        invocation=invocation,
         point_ordinals=tuple(
             cast("list[int]", json.loads(_text(row, "point_ordinals_json")))
         ),

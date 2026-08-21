@@ -25,10 +25,7 @@ if TYPE_CHECKING:
         DomainBatchRequest,
     )
     from scopecat.sdk.domain.compiler import DomainCompiler
-    from scopecat.sdk.domain.evidence import (
-        DomainExecutionAttemptEvidence,
-        DomainExecutionEvidence,
-    )
+    from scopecat.sdk.domain.evidence import DomainExecutionEvidence
     from scopecat.sdk.domain.execution import (
         DomainResidencyAddress,
         DomainResidencyRequirement,
@@ -82,10 +79,7 @@ _EXECUTION_EXPORTS = (
     "DomainTransitionDurability",
     "PreparedDomainExecution",
 )
-_EVIDENCE_EXPORTS = (
-    "DomainExecutionAttemptEvidence",
-    "DomainExecutionEvidence",
-)
+_EVIDENCE_EXPORTS = ("DomainExecutionEvidence",)
 _JOB_EXPORTS = (
     "DomainInvocationSpec",
     "DomainResultValue",
@@ -180,7 +174,6 @@ __all__ = [
     "DomainBatchRequest",
     "DomainCallView",
     "DomainCompiler",
-    "DomainExecutionAttemptEvidence",
     "DomainExecutionEvidence",
     "DomainExecutionId",
     "DomainExecutionReceipt",

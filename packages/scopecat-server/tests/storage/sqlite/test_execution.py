@@ -25,7 +25,6 @@ from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements import recording_arrow
 from scopecat.records.execution import (
-    DomainExecutionId,
     DomainExecutionReceipt,
     DomainJobCheckpoint,
     DomainJobCheckpointTransition,
@@ -47,6 +46,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
 )
+from scopecat_testkit.domain import domain_execution_identity
 
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.execution import (
@@ -195,11 +195,11 @@ def test_domain_job_transitions_commit_monotonic_state_through_terminal(
     runs = _runs(tmp_path)
     run_id = "domain-job-transition-run"
     ledger = SQLiteDomainJobTransitions(runs, run_id=run_id)
-    execution_id = DomainExecutionId(
+    intent, execution_id = domain_execution_identity(
         run_id=run_id,
         logical_compute_node_id="domain.batch-0",
         invocation_id="invocation-1",
-        intent_fingerprint="intent-v1",
+        target_intent={"provider_profile": "fast-readout"},
     )
     first_checkpoint = DomainJobCheckpoint(
         execution_key=execution_id.execution_key,
@@ -214,7 +214,12 @@ def test_domain_job_transitions_commit_monotonic_state_through_terminal(
         transition=DomainJobCheckpointTransition(checkpoint=first_checkpoint),
     )
     invocation_command = first_command.model_copy(
-        update={"transition": DomainJobInvocationTransition(execution_id=execution_id)}
+        update={
+            "transition": DomainJobInvocationTransition(
+                execution_id=execution_id,
+                intent=intent,
+            )
+        }
     )
     second_checkpoint = first_checkpoint.model_copy(
         update={
@@ -260,7 +265,8 @@ def test_domain_job_transitions_commit_monotonic_state_through_terminal(
                         "transition": DomainJobInvocationTransition(
                             execution_id=execution_id.model_copy(
                                 update={"run_id": "another-run"}
-                            )
+                            ),
+                            intent=intent,
                         )
                     }
                 ),
@@ -298,6 +304,9 @@ def test_domain_job_transitions_commit_monotonic_state_through_terminal(
         ).items
         assert pending_state.state == "pending"
         assert pending_state.transition_count == 3
+        assert pending_state.invocation.intent.target_intent == {
+            "provider_profile": "fast-readout"
+        }
         assert pending_state.latest_transition == second_command.transition
         with pytest.raises(ExecutionStateConflict, match="conflicts"):
             ledger.commit_in_transaction(
@@ -393,29 +402,31 @@ def test_domain_job_current_states_page_by_latest_transition(
             ("domain-job-state-page", run_id, datetime.now(UTC).isoformat()),
         )
         for index in range(3):
-            execution_id = DomainExecutionId(
+            intent, execution_id = domain_execution_identity(
                 run_id=run_id,
                 logical_compute_node_id=f"domain.batch-{index}",
                 invocation_id=f"invocation-{index}",
-                intent_fingerprint=f"intent-{index}",
             )
             ledger.commit_in_transaction(
                 connection,
                 RunDomainJobTransitionItem(
                     logical_compute_node_id=execution_id.logical_compute_node_id,
                     point_ordinals=(index,),
-                    transition=DomainJobInvocationTransition(execution_id=execution_id),
+                    transition=DomainJobInvocationTransition(
+                        execution_id=execution_id,
+                        intent=intent,
+                    ),
                 ),
             )
 
     latest = ledger.read_current(limit=2)
-    assert [item.execution_id.invocation_id for item in latest.items] == [
+    assert [item.invocation.execution_id.invocation_id for item in latest.items] == [
         "invocation-1",
         "invocation-2",
     ]
     assert latest.next_cursor == latest.items[0].invocation_sequence
     previous = ledger.read_current(limit=2, before=latest.next_cursor)
-    assert [item.execution_id.invocation_id for item in previous.items] == [
+    assert [item.invocation.execution_id.invocation_id for item in previous.items] == [
         "invocation-0"
     ]
     assert previous.next_cursor is None

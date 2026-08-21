@@ -406,17 +406,11 @@ def test_quantum_target_executes_through_reserved_bare_instruments(
         DomainExecutionEvidence,
     )
     assert domain_evidence.run_id == run.id
-    assert all(attempt.receipt is not None for attempt in domain_evidence.attempts)
-    assert {
-        cast("str", attempt.receipt.execution_evidence["schema"])
-        for attempt in domain_evidence.attempts
-        if attempt.receipt is not None
-    } == {"reference_lab.list_mode_execution_evidence.v1"}
-    assert sorted(
-        point_ordinal
-        for attempt in domain_evidence.attempts
-        for point_ordinal in attempt.point_ordinals
-    ) == list(range(15))
+    assert domain_evidence.detail_complete
+    assert domain_evidence.attempt_count >= 1
+    assert domain_evidence.receipt_count == domain_evidence.attempt_count
+    assert domain_evidence.completed_count == domain_evidence.attempt_count
+    assert domain_evidence.checkpoint_count == 0
 
 
 def test_quantum_preview_inspects_only_the_selected_point_without_device_effects(

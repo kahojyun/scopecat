@@ -13,9 +13,6 @@ from collections.abc import Callable, Hashable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import cast
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
-
-from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
@@ -28,6 +25,7 @@ from scopecat.measurements.products import ProductDef
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
 )
+from scopecat.records.execution import DomainInvocationIntent
 from scopecat.records.measurement import MeasurementAcquisitionValue
 from scopecat.sdk.domain.result_mapping import (
     DomainMappedResult,
@@ -52,61 +50,6 @@ class DomainOutputValue[ResultAddressT: Hashable]:
 
     result_address: ResultAddressT
     value: MeasurementAcquisitionValue
-
-
-class DomainInvocationIntent(BaseModel):
-    """Durable, payload-free identity of one executable domain invocation."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-    )
-
-    invocation_id: str
-    target_id: str
-    compiler_id: str
-    capability_fingerprint: str
-    artifact_id: str
-    artifact_fingerprint: str
-    result_contract_fingerprint: str
-    target_intent: dict[str, JsonValue]
-    execution_summary: dict[str, JsonValue]
-    intent_fingerprint: str
-
-    @field_validator(
-        "invocation_id",
-        "target_id",
-        "compiler_id",
-        "capability_fingerprint",
-        "artifact_id",
-        "artifact_fingerprint",
-        "result_contract_fingerprint",
-        "intent_fingerprint",
-    )
-    @classmethod
-    def validate_required_text(cls, value: str) -> str:
-        if not value:
-            msg = "domain invocation identity fields must be non-empty"
-            raise ValueError(msg)
-        return value
-
-    @model_validator(mode="after")
-    def validate_intent_fingerprint(self) -> DomainInvocationIntent:
-        expected = _domain_invocation_intent_fingerprint(
-            invocation_id=self.invocation_id,
-            target_id=self.target_id,
-            compiler_id=self.compiler_id,
-            capability_fingerprint=self.capability_fingerprint,
-            artifact_id=self.artifact_id,
-            artifact_fingerprint=self.artifact_fingerprint,
-            result_contract_fingerprint=self.result_contract_fingerprint,
-            target_intent=self.target_intent,
-            execution_summary=self.execution_summary,
-        )
-        if self.intent_fingerprint != expected:
-            msg = "domain invocation fingerprint does not cover its complete intent"
-            raise ValueError(msg)
-        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,8 +96,7 @@ def close_domain_invocation[
     """Close stable target and output facts around an opaque target payload."""
 
     result_contract_fingerprint = result_mapping.contract_fingerprint
-    selected_target_intent = dict(target_intent)
-    intent_fingerprint = _domain_invocation_intent_fingerprint(
+    intent = DomainInvocationIntent.create(
         invocation_id=invocation_id,
         target_id=target_id,
         compiler_id=compiler_id,
@@ -162,20 +104,8 @@ def close_domain_invocation[
         artifact_id=artifact_id,
         artifact_fingerprint=artifact_fingerprint,
         result_contract_fingerprint=result_contract_fingerprint,
-        target_intent=selected_target_intent,
+        target_intent=target_intent,
         execution_summary=execution_summary,
-    )
-    intent = DomainInvocationIntent(
-        invocation_id=invocation_id,
-        target_id=target_id,
-        compiler_id=compiler_id,
-        capability_fingerprint=capability_fingerprint,
-        artifact_id=artifact_id,
-        artifact_fingerprint=artifact_fingerprint,
-        result_contract_fingerprint=result_contract_fingerprint,
-        target_intent=selected_target_intent,
-        execution_summary=dict(execution_summary),
-        intent_fingerprint=intent_fingerprint,
     )
     return ClosedDomainInvocation(
         intent,
@@ -304,34 +234,6 @@ def stream_domain_output_values[
                     value,
                 )
             )
-
-
-def _domain_invocation_intent_fingerprint(
-    *,
-    invocation_id: str,
-    target_id: str,
-    compiler_id: str,
-    capability_fingerprint: str,
-    artifact_id: str,
-    artifact_fingerprint: str,
-    result_contract_fingerprint: str,
-    target_intent: Mapping[str, JsonValue],
-    execution_summary: Mapping[str, JsonValue],
-) -> str:
-    return stable_content_hash(
-        {
-            "schema": "scopecat.sdk.domain.invocation_intent_identity.v3",
-            "invocation_id": invocation_id,
-            "target_id": target_id,
-            "compiler_id": compiler_id,
-            "capability_fingerprint": capability_fingerprint,
-            "artifact_id": artifact_id,
-            "artifact_fingerprint": artifact_fingerprint,
-            "result_contract_fingerprint": result_contract_fingerprint,
-            "target_intent": target_intent,
-            "execution_summary": execution_summary,
-        }
-    )
 
 
 def _domain_output_identity_details[

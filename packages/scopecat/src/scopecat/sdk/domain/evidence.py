@@ -1,67 +1,47 @@
-"""Durable evidence for domain target execution attempts."""
+"""Bounded terminal evidence for domain target execution."""
 
 from __future__ import annotations
 
-from itertools import pairwise
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scopecat.sdk.domain.invocation import DomainInvocationIntent
-from scopecat.sdk.domain.runtime import DomainExecutionReceipt, DomainJobCheckpoint
 
+class DomainExecutionEvidence(BaseModel):
+    """Compact terminal index of the run's target-job transition ledger.
 
-class DomainExecutionAttemptEvidence(BaseModel):
-    """One host-started target job and the transitions it produced.
-
-    Checkpoints retain valid correlated pending transitions observed while the
-    job was advanced. A missing receipt means the runtime raised, cancellation
-    interrupted it, or its returned evidence was invalid. The run outcome
-    retains the correlated problem; no provider status is inferred here.
+    Per-job intent, checkpoints, and receipts remain in the ordered transition
+    ledger. The terminal record stays bounded by target diversity instead of
+    duplicating every job into one large JSON object.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    logical_compute_node_id: str
-    point_ordinals: tuple[int, ...]
-    execution_key: str
-    intent: DomainInvocationIntent
-    checkpoints: tuple[DomainJobCheckpoint, ...] = ()
-    receipt: DomainExecutionReceipt | None = None
+    run_id: str
+    detail_source: Literal["run_domain_job_transitions"] = "run_domain_job_transitions"
+    detail_complete: bool = True
+    attempt_count: int = Field(ge=1)
+    checkpoint_count: int = Field(ge=0)
+    receipt_count: int = Field(ge=0)
+    completed_count: int = Field(ge=0)
+    not_executed_count: int = Field(ge=0)
+    unknown_count: int = Field(ge=0)
+    target_ids: tuple[str, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_correlated_receipt(self) -> DomainExecutionAttemptEvidence:
-        if any(
-            checkpoint.execution_key != self.execution_key
-            for checkpoint in self.checkpoints
-        ):
-            raise ValueError("domain attempt checkpoint belongs to another execution")
-        if self.checkpoints:
-            job_ids = {checkpoint.job_id for checkpoint in self.checkpoints}
-            revisions = tuple(checkpoint.revision for checkpoint in self.checkpoints)
-            if len(job_ids) != 1:
-                raise ValueError("domain attempt checkpoints changed job identity")
-            if any(later <= earlier for earlier, later in pairwise(revisions)):
-                raise ValueError(
-                    "domain attempt checkpoint revisions must strictly increase"
-                )
+    def validate_summary(self) -> DomainExecutionEvidence:
+        if self.receipt_count > self.attempt_count:
+            raise ValueError("domain receipts cannot outnumber attempts")
         if (
-            self.receipt is not None
-            and self.receipt.execution_key != self.execution_key
+            self.completed_count + self.not_executed_count + self.unknown_count
+            != self.receipt_count
         ):
-            raise ValueError("domain attempt receipt belongs to another execution")
+            raise ValueError("domain receipt status counts must cover every receipt")
+        if tuple(sorted(set(self.target_ids))) != self.target_ids:
+            raise ValueError("domain target ids must be sorted and unique")
         return self
 
 
-class DomainExecutionEvidence(BaseModel):
-    """Durable target attempts, separate from host instrument state."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    run_id: str
-    attempts: list[DomainExecutionAttemptEvidence] = Field(min_length=1)
-
-
 __all__ = [
-    "DomainExecutionAttemptEvidence",
     "DomainExecutionEvidence",
 ]

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from collections.abc import Mapping
+from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -53,6 +54,97 @@ class DomainExecutionId(BaseModel):
     @property
     def operation_id(self) -> str:
         return f"domain:{self.execution_key}:execute"
+
+
+class DomainInvocationIntent(BaseModel):
+    """Durable, payload-free identity of one executable domain invocation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    invocation_id: str
+    target_id: str
+    compiler_id: str
+    capability_fingerprint: str
+    artifact_id: str
+    artifact_fingerprint: str
+    result_contract_fingerprint: str
+    target_intent: dict[str, JsonValue]
+    execution_summary: dict[str, JsonValue]
+    intent_fingerprint: str
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        invocation_id: str,
+        target_id: str,
+        compiler_id: str,
+        capability_fingerprint: str,
+        artifact_id: str,
+        artifact_fingerprint: str,
+        result_contract_fingerprint: str,
+        target_intent: Mapping[str, JsonValue],
+        execution_summary: Mapping[str, JsonValue],
+    ) -> Self:
+        selected_target_intent = dict(target_intent)
+        selected_execution_summary = dict(execution_summary)
+        return cls(
+            invocation_id=invocation_id,
+            target_id=target_id,
+            compiler_id=compiler_id,
+            capability_fingerprint=capability_fingerprint,
+            artifact_id=artifact_id,
+            artifact_fingerprint=artifact_fingerprint,
+            result_contract_fingerprint=result_contract_fingerprint,
+            target_intent=selected_target_intent,
+            execution_summary=selected_execution_summary,
+            intent_fingerprint=_domain_invocation_intent_fingerprint(
+                invocation_id=invocation_id,
+                target_id=target_id,
+                compiler_id=compiler_id,
+                capability_fingerprint=capability_fingerprint,
+                artifact_id=artifact_id,
+                artifact_fingerprint=artifact_fingerprint,
+                result_contract_fingerprint=result_contract_fingerprint,
+                target_intent=selected_target_intent,
+                execution_summary=selected_execution_summary,
+            ),
+        )
+
+    @field_validator(
+        "invocation_id",
+        "target_id",
+        "compiler_id",
+        "capability_fingerprint",
+        "artifact_id",
+        "artifact_fingerprint",
+        "result_contract_fingerprint",
+        "intent_fingerprint",
+    )
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        if not value:
+            raise ValueError("domain invocation identity fields must be non-empty")
+        return value
+
+    @model_validator(mode="after")
+    def validate_intent_fingerprint(self) -> DomainInvocationIntent:
+        expected = _domain_invocation_intent_fingerprint(
+            invocation_id=self.invocation_id,
+            target_id=self.target_id,
+            compiler_id=self.compiler_id,
+            capability_fingerprint=self.capability_fingerprint,
+            artifact_id=self.artifact_id,
+            artifact_fingerprint=self.artifact_fingerprint,
+            result_contract_fingerprint=self.result_contract_fingerprint,
+            target_intent=self.target_intent,
+            execution_summary=self.execution_summary,
+        )
+        if self.intent_fingerprint != expected:
+            raise ValueError(
+                "domain invocation fingerprint does not cover its complete intent"
+            )
+        return self
 
 
 class DomainJobCheckpoint(BaseModel):
@@ -145,12 +237,22 @@ class DomainJobCheckpointTransition(BaseModel):
 
 
 class DomainJobInvocationTransition(BaseModel):
-    """One observed intent, persisted before start or in a bounded batch."""
+    """One complete observed intent, persisted before start or in a batch."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["invocation"] = "invocation"
     execution_id: DomainExecutionId
+    intent: DomainInvocationIntent
+
+    @model_validator(mode="after")
+    def validate_intent(self) -> DomainJobInvocationTransition:
+        if (
+            self.execution_id.invocation_id != self.intent.invocation_id
+            or self.execution_id.intent_fingerprint != self.intent.intent_fingerprint
+        ):
+            raise ValueError("domain execution identity does not match its intent")
+        return self
 
     @property
     def execution_key(self) -> str:
@@ -293,3 +395,31 @@ def _state_property_values(
     return {
         state_member_identity(item.target): item.value for item in state.observations
     }
+
+
+def _domain_invocation_intent_fingerprint(
+    *,
+    invocation_id: str,
+    target_id: str,
+    compiler_id: str,
+    capability_fingerprint: str,
+    artifact_id: str,
+    artifact_fingerprint: str,
+    result_contract_fingerprint: str,
+    target_intent: Mapping[str, JsonValue],
+    execution_summary: Mapping[str, JsonValue],
+) -> str:
+    return stable_content_hash(
+        {
+            "schema": "scopecat.sdk.domain.invocation_intent_identity.v3",
+            "invocation_id": invocation_id,
+            "target_id": target_id,
+            "compiler_id": compiler_id,
+            "capability_fingerprint": capability_fingerprint,
+            "artifact_id": artifact_id,
+            "artifact_fingerprint": artifact_fingerprint,
+            "result_contract_fingerprint": result_contract_fingerprint,
+            "target_intent": target_intent,
+            "execution_summary": execution_summary,
+        }
+    )

@@ -19,7 +19,6 @@ from scopecat.execution.effects.domain import (
     measurement_recording_terminal_problem,
 )
 from scopecat.execution.evidence import (
-    build_domain_execution_evidence,
     build_instrument_state_evidence,
     build_terminal_contents,
     domain_execution_evidence_ref,
@@ -324,7 +323,7 @@ def _execute_run(
     instrument_state = (
         None if host is None else build_instrument_state_evidence(run_id, effect_result)
     )
-    domain_execution = build_domain_execution_evidence(run_id, effect_result)
+    domain_execution = effect_result.domain_execution
     contents = build_terminal_contents(
         outcome=outcome,
         measurement_count=(recorded_measurement_count if seal_receipt else 0),

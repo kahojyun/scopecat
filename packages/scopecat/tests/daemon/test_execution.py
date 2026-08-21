@@ -7,6 +7,7 @@ from typing import Protocol
 import httpx2
 import pytest
 from pydantic import BaseModel
+from scopecat_testkit.domain import domain_execution_identity
 from scopecat_testkit.workflow_fixtures import load_config
 
 import scopecat.daemon.execution as daemon_execution
@@ -58,7 +59,6 @@ from scopecat.measurements.recording_arrow import decode_measurement_append
 from scopecat.optimization import DomainProposalDecision, DomainProposalSummary
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution import (
-    DomainExecutionId,
     DomainExecutionReceipt,
     DomainJobCheckpoint,
     DomainJobCheckpointTransition,
@@ -234,7 +234,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                     items=(
                         RunDomainJobStateView(
                             run_id="run-1",
-                            execution_id=invocation.execution_id,
+                            invocation=invocation,
                             point_ordinals=latest.point_ordinals,
                             state="terminal",
                             invocation_sequence=domain_job_transition_views[0].sequence,
@@ -390,16 +390,17 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     coverage.advance(start_index=0, point_count=1)
     coverage.advance(start_index=1, point_count=2)
     coverage.flush()
-    execution_id = DomainExecutionId(
+    intent, execution_id = domain_execution_identity(
         run_id="run-1",
         logical_compute_node_id="domain.batch-0",
         invocation_id="invocation-1",
-        intent_fingerprint="intent-v1",
+        target_intent={"selected_channel": "a"},
     )
     domain_job_transition_writer.invocation(
         logical_compute_node_id=execution_id.logical_compute_node_id,
         point_ordinals=(0, 1),
         execution_id=execution_id,
+        intent=intent,
         durability="batched",
     )
     domain_job_transition_writer.checkpoint(
@@ -427,16 +428,17 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     [domain_job_state] = client.get_run_domain_jobs("run-1").items
     assert domain_job_state.state == "terminal"
     assert domain_job_state.transition_count == 3
-    strict_execution_id = DomainExecutionId(
+    assert domain_job_state.invocation.intent.target_intent == {"selected_channel": "a"}
+    strict_intent, strict_execution_id = domain_execution_identity(
         run_id="run-1",
         logical_compute_node_id="domain.batch-1",
         invocation_id="invocation-2",
-        intent_fingerprint="intent-v2",
     )
     domain_job_transition_writer.invocation(
         logical_compute_node_id=strict_execution_id.logical_compute_node_id,
         point_ordinals=(2,),
         execution_id=strict_execution_id,
+        intent=strict_intent,
         durability="write_ahead",
     )
     domain_job_transition_writer.terminal(
@@ -670,16 +672,16 @@ def _stage_buffered_domain_jobs(
     count: int,
 ) -> None:
     for index in range(count):
-        execution_id = DomainExecutionId(
+        intent, execution_id = domain_execution_identity(
             run_id="run-1",
             logical_compute_node_id=f"domain.buffered-{index}",
             invocation_id=f"buffered-invocation-{index}",
-            intent_fingerprint=f"buffered-intent-{index}",
         )
         writer.invocation(
             logical_compute_node_id=execution_id.logical_compute_node_id,
             point_ordinals=(index,),
             execution_id=execution_id,
+            intent=intent,
             durability="batched",
         )
         writer.terminal(

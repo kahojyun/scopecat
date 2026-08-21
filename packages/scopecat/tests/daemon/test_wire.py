@@ -8,6 +8,7 @@ from typing import Literal
 import pyarrow as pa
 import pytest
 from pydantic import ValidationError
+from scopecat_testkit.domain import domain_execution_identity
 from scopecat_testkit.workflow_fixtures import load_config
 
 from scopecat.analysis.datasets import DerivedDataset
@@ -85,7 +86,6 @@ from scopecat.records.analysis import (
 )
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution import (
-    DomainExecutionId,
     DomainExecutionReceipt,
     DomainJobCheckpoint,
     DomainJobCheckpointTransition,
@@ -759,11 +759,11 @@ def test_run_coverage_wire_models_require_a_nonempty_prefix() -> None:
 
 
 def test_domain_job_transition_wire_models_retain_provider_state() -> None:
-    execution_id = DomainExecutionId(
+    intent, execution_id = domain_execution_identity(
         run_id="run-1",
         logical_compute_node_id="domain.batch-0",
         invocation_id="invocation-1",
-        intent_fingerprint="intent-v1",
+        target_intent={"lo_frequency_hz": 5_000_000_000},
     )
     checkpoint = DomainJobCheckpoint(
         execution_key=execution_id.execution_key,
@@ -782,12 +782,16 @@ def test_domain_job_transition_wire_models_retain_provider_state() -> None:
         lease_id="lease-1",
         items=(item,),
     )
+    invocation_transition = DomainJobInvocationTransition(
+        execution_id=execution_id,
+        intent=intent,
+    )
     invocation_view = RunDomainJobTransitionView(
         sequence=1,
         run_id="run-1",
         logical_compute_node_id=item.logical_compute_node_id,
         point_ordinals=item.point_ordinals,
-        transition=DomainJobInvocationTransition(execution_id=execution_id),
+        transition=invocation_transition,
     )
     checkpoint_view = RunDomainJobTransitionView(
         sequence=2,
@@ -816,7 +820,7 @@ def test_domain_job_transition_wire_models_retain_provider_state() -> None:
     )
     state_view = RunDomainJobStateView(
         run_id="run-1",
-        execution_id=execution_id,
+        invocation=invocation_transition,
         point_ordinals=item.point_ordinals,
         state="terminal",
         invocation_sequence=invocation_view.sequence,
@@ -845,6 +849,9 @@ def test_domain_job_transition_wire_models_retain_provider_state() -> None:
     assert (
         RunDomainJobTransitionPage.model_validate_json(page.model_dump_json()) == page
     )
+    assert invocation_transition.intent.target_intent == {
+        "lo_frequency_hz": 5_000_000_000
+    }
     assert (
         RunDomainJobStatePage.model_validate_json(state_page.model_dump_json())
         == state_page

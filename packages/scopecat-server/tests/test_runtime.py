@@ -153,6 +153,7 @@ from scopecat.records.parameter_change import (
 from scopecat.records.run import ConfigRegistryRunConfigSource, RunSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.refs import dataset_content_ref, record_content_ref
+from scopecat_testkit.domain import domain_execution_identity
 from scopecat_testkit.server.runtime import list_test_runs
 
 import scopecat_server.services.leases as lease_supervisor_services
@@ -2719,11 +2720,11 @@ def test_domain_job_transitions_are_fenced_retryable_and_survive_restart(
             ExecutorStartRequest(executor_id="notebook-1"),
         )
         executor = runtime.application.executor
-        execution_id = DomainExecutionId(
+        intent, execution_id = domain_execution_identity(
             run_id=run_id,
             logical_compute_node_id="domain.batch-0",
             invocation_id="invocation-1",
-            intent_fingerprint="intent-v1",
+            target_intent={"provider_profile": "fast-readout"},
         )
         first_checkpoint = DomainJobCheckpoint(
             execution_key=execution_id.execution_key,
@@ -2752,7 +2753,10 @@ def test_domain_job_transitions_are_fenced_retryable_and_survive_restart(
             commit(first_item)
         invocation_item = first_item.model_copy(
             update={
-                "transition": DomainJobInvocationTransition(execution_id=execution_id)
+                "transition": DomainJobInvocationTransition(
+                    execution_id=execution_id,
+                    intent=intent,
+                )
             }
         )
         with pytest.raises(BackendConflict, match="durable run state"):
@@ -2857,6 +2861,9 @@ def test_domain_job_transitions_are_fenced_retryable_and_survive_restart(
         [state] = restarted.application.executor.domain_jobs(run_id).items
         assert state.state == "terminal"
         assert state.transition_count == 4
+        assert state.invocation.intent.target_intent == {
+            "provider_profile": "fast-readout"
+        }
         assert state.latest_transition == terminal_transition
 
 
@@ -2874,11 +2881,10 @@ def test_domain_job_invocation_without_outcome_survives_restart(
             run_id,
             ExecutorStartRequest(executor_id="notebook-1"),
         )
-        execution_id = DomainExecutionId(
+        intent, execution_id = domain_execution_identity(
             run_id=run_id,
             logical_compute_node_id="domain.batch-0",
             invocation_id="invocation-1",
-            intent_fingerprint="intent-v1",
         )
         [committed] = runtime.application.executor.commit_domain_job_transitions(
             run_id,
@@ -2889,7 +2895,8 @@ def test_domain_job_invocation_without_outcome_survives_restart(
                         logical_compute_node_id=execution_id.logical_compute_node_id,
                         point_ordinals=(0,),
                         transition=DomainJobInvocationTransition(
-                            execution_id=execution_id
+                            execution_id=execution_id,
+                            intent=intent,
                         ),
                     ),
                 ),
@@ -2905,6 +2912,7 @@ def test_domain_job_invocation_without_outcome_survives_restart(
         [state] = restarted.application.executor.domain_jobs(run_id).items
         assert state.state == "invocation_unknown"
         assert state.transition_count == 1
+        assert state.invocation.intent == intent
         assert state.latest_transition == persisted.transition
 
 

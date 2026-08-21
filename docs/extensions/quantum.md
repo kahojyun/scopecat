@@ -78,6 +78,8 @@ storage transaction per point. A pending checkpoint always forces the
 invocation and checkpoint to be durable before the target is resumed, and the
 final pending group is flushed before instruments are released. A hard executor
 loss can omit the latest unflushed group; a normally terminated run still
-records its complete domain attempt evidence. This setting changes evidence
-durability, not hardware ordering, target batching, or ownership of an
-independently routed LO.
+flushes its complete transition ledger. The run terminal records only a compact
+summary and whether those details are complete, so a dense synchronous sweep
+does not duplicate every target attempt into one large JSON object. This setting
+changes evidence durability, not hardware ordering, target batching, or
+ownership of an independently routed LO.

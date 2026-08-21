@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pydantic import JsonValue
-
 from scopecat.execution.effect_result import RunEffectResult
 from scopecat.kernel.content_identity import model_wire_content_hash
 from scopecat.kernel.run_outcome import RunOutcome
@@ -101,14 +99,6 @@ def build_terminal_contents(
             )
         )
     if domain_execution is not None:
-        target_ids = list[JsonValue](
-            sorted({attempt.intent.target_id for attempt in domain_execution.attempts})
-        )
-        receipts = tuple(
-            attempt.receipt
-            for attempt in domain_execution.attempts
-            if attempt.receipt is not None
-        )
         records.append(
             ContentEntry(
                 role="record",
@@ -117,12 +107,11 @@ def build_terminal_contents(
                 media_type="application/json",
                 content_hash=model_wire_content_hash(domain_execution),
                 metadata={
-                    "attempt_count": len(domain_execution.attempts),
-                    "receipt_count": len(receipts),
-                    "completed_count": sum(
-                        receipt.status == "completed" for receipt in receipts
-                    ),
-                    "target_ids": target_ids,
+                    "detail_complete": domain_execution.detail_complete,
+                    "attempt_count": domain_execution.attempt_count,
+                    "receipt_count": domain_execution.receipt_count,
+                    "completed_count": domain_execution.completed_count,
+                    "target_ids": list(domain_execution.target_ids),
                 },
             )
         )
@@ -138,16 +127,4 @@ def build_instrument_state_evidence(
         observed_state=list(result.observed_state),
         baseline_state=list(result.baseline_state),
         final_state=list(result.final_state),
-    )
-
-
-def build_domain_execution_evidence(
-    run_id: str,
-    result: RunEffectResult,
-) -> DomainExecutionEvidence | None:
-    if not result.domain_execution_attempts:
-        return None
-    return DomainExecutionEvidence(
-        run_id=run_id,
-        attempts=list(result.domain_execution_attempts),
     )

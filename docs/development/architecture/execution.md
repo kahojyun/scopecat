@@ -233,23 +233,27 @@ execution key or job identity, or replay a stale revision.
 
 For a daemon-backed execution, invocation, checkpoint, and terminal outcomes
 form one durable transition ledger. A write-ahead invocation transition records
-the complete deterministic execution identity before domain setup, state
-reconciliation, or provider `start` can perform effects. Every valid checkpoint
-is then synchronously committed under the current executor fence before core
-calls `resume`. Every terminal receipt, including a synchronous target's
-receipt, is committed before result realization or provider failure escapes the
-domain effect. Invocation and terminal writes are each idempotent by run and
-execution key; checkpoint writes also include the revision. The ledger requires
-invocation to be first and rejects changed job, node, or point identity and any
-transition after terminal state.
+the complete `DomainInvocationIntent` together with its deterministic execution
+identity before domain setup, state reconciliation, or provider `start` can
+perform effects. Target intent, compiler and capability fingerprints, artifact
+identity, and execution summary therefore remain available without consulting
+the transient compiler object. Every valid checkpoint is then synchronously
+committed under the current executor fence before core calls `resume`. Every
+terminal receipt, including a synchronous target's receipt, is committed before
+result realization or provider failure escapes the domain effect. Invocation
+and terminal writes are each idempotent by run and execution key; checkpoint
+writes also include the revision. The ledger requires invocation to be first
+and rejects changed job, node, or point identity and any transition after
+terminal state.
 
 If invocation persistence is unavailable, no domain setup or provider call
 starts and the failure is known. If checkpoint persistence is unavailable, the
 pending provider job is not advanced and the run becomes indeterminate. A
 cancellation observed during the write likewise retains the checkpoint and
 stops before the next transition. If terminal persistence is unavailable, the
-provider receipt remains attached to the local attempt and determines provider
-certainty, but realization does not start.
+observed receipt still determines provider certainty and realization does not
+start, but the terminal summary marks its detail ledger incomplete rather than
+claiming that the exact receipt became durable.
 
 An invocation without a later transition means setup or the provider call may
 have been interrupted; it does not prove that `start` reached the provider. A
@@ -266,6 +270,14 @@ does not prove that the client-owned program contains no domain job. Safe
 continuation still requires an exact program position, an owned instrument
 session, a reconstructed measurement sink, and any result payload needed after
 a terminal receipt.
+
+The run-level `DomainExecutionEvidence` is only a compact terminal index: target
+ids and aggregate attempt, checkpoint, receipt, and status counts plus a
+`detail_complete` flag. It does not copy every intent, checkpoint, and receipt
+into a second terminal JSON document. Detailed diagnosis pages the transition
+ledger, and the current-state projection carries the complete invocation beside
+the latest transition. Consequently a dense sweep grows the ledger by job while
+the run terminal model remains bounded by target diversity.
 
 These durable transitions make interrupted provider state inspectable after
 executor or daemon loss, but do not by themselves authorize continuing the run.
