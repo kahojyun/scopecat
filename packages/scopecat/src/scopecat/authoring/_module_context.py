@@ -102,6 +102,7 @@ from scopecat.program.products import (
     ProductRef,
     ProductRefs,
     ProductValueSpec,
+    inherit_product_axis_dimension_internal,
 )
 from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
@@ -305,12 +306,16 @@ def _compute_contract_assignable(actual: DataType, expected: DataType) -> bool:
 def _measurement_compute_output_spec(
     value_type: DataType,
     *,
-    axes_from: ProductValueSpec | None = None,
+    axes_from: ProductRef | None = None,
 ) -> tuple[MeasurementDType, str | None, tuple[ProductAxis, ...]]:
     if isinstance(value_type, Array):
-        inherited_axes = {
-            axis.id: axis for axis in (axes_from.axes if axes_from is not None else ())
-        }
+        if axes_from is None:
+            inherited_axes: dict[str, ProductAxis] = {}
+        else:
+            inherited_axes = {
+                axis.id: inherit_product_axis_dimension_internal(axes_from, axis)
+                for axis in axes_from.value_spec.axes
+            }
         return (
             value_type.dtype,
             value_type.unit,
@@ -1419,7 +1424,7 @@ class ModuleContext:
         for name, value_type in output_types.items():
             dtype, unit, axes = _measurement_compute_output_spec(
                 value_type,
-                axes_from=axes_from.value_spec if axes_from is not None else None,
+                axes_from=axes_from,
             )
             outputs[name] = self._product(
                 name if structured else id,

@@ -20,7 +20,12 @@ from scopecat.measurements.results import (
     MeasurementValue,
 )
 from scopecat.program.domain import domain_program
-from scopecat.program.products import ProductAxis, entity_axis, shot_axis
+from scopecat.program.products import (
+    ProductAxis,
+    entity_axis,
+    product_axis_dimension_id,
+    shot_axis,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,9 +205,50 @@ def test_compute_can_preserve_semantic_axes_from_a_measured_input() -> None:
 
     source, derived = compose_module(module.definition).product_declarations
 
-    assert derived.value_spec.axes == source.value_spec.axes
+    assert [axis.id for axis in derived.value_spec.axes] == ["entity", "shot"]
+    assert [
+        product_axis_dimension_id(derived, axis) for axis in derived.value_spec.axes
+    ] == [product_axis_dimension_id(source, axis) for axis in source.value_spec.axes]
     assert derived.value_spec.axes[0].entity_values
     assert derived.value_spec.axes[0].shared_as == "targets"
+
+
+def test_compute_preserves_axes_from_a_nested_product_scope() -> None:
+    def classify(*, values: object) -> NDArray[np.bool_]:
+        array = np.asarray(values, dtype=np.complex128)
+        return np.asarray(array.real >= 0.0, dtype=np.bool_)
+
+    @sc.module(id="test.measurement-compute-nested-axis-source")
+    def source_module(context: sc.ModuleContext) -> sc.ProductRef:
+        return context._product(
+            "iq_shots",
+            dtype="complex128",
+            axes=(shot_axis(4, shared_as="shot"),),
+        )
+
+    source_call = source_module.instantiate("source")
+
+    @sc.module(id="test.measurement-compute-nested-axes")
+    def module(context: sc.ModuleContext) -> sc.ProductRef:
+        context.use(source_call)
+        result = context.compute(
+            "bit_shots",
+            fn=classify,
+            values=source_call.result,
+            axes_from=source_call.result,
+            output_type=sc.ArrayType(
+                dtype="bool",
+                dimensions=(sc.ArrayDimension("shot", 4),),
+            ),
+        )
+        assert isinstance(result, sc.ProductRef)
+        return result
+
+    source, derived = compose_module(module.definition).product_declarations
+
+    assert product_axis_dimension_id(derived, derived.axes[0]) == (
+        product_axis_dimension_id(source, source.axes[0])
+    )
 
 
 def test_compute_joins_measured_products_with_earlier_compute_values() -> None:
