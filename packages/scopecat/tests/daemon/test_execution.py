@@ -54,9 +54,11 @@ from scopecat.measurements.recording_arrow import decode_measurement_append
 from scopecat.optimization import DomainProposalDecision, DomainProposalSummary
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution import (
+    DomainExecutionId,
     DomainExecutionReceipt,
     DomainJobCheckpoint,
     DomainJobCheckpointTransition,
+    DomainJobInvocationTransition,
 )
 from scopecat.records.instrument import InstrumentStateSnapshot, state_member_target
 from scopecat.records.measurement import (
@@ -190,6 +192,8 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                 domain_job_transitions.append(
                     f"checkpoint:{transition.checkpoint.revision}"
                 )
+            elif isinstance(transition, DomainJobInvocationTransition):
+                domain_job_transitions.append("invocation")
             else:
                 domain_job_transitions.append(f"terminal:{transition.receipt.status}")
             return _model(
@@ -346,11 +350,22 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     coverage.advance(start_index=0, point_count=1)
     coverage.advance(start_index=1, point_count=2)
     coverage.flush()
+    execution_id = DomainExecutionId(
+        run_id="run-1",
+        logical_compute_node_id="domain.batch-0",
+        invocation_id="invocation-1",
+        intent_fingerprint="intent-v1",
+    )
+    domain_job_transition_writer.invocation(
+        logical_compute_node_id=execution_id.logical_compute_node_id,
+        point_ordinals=(0, 1),
+        execution_id=execution_id,
+    )
     domain_job_transition_writer.checkpoint(
         logical_compute_node_id="domain.batch-0",
         point_ordinals=(0, 1),
         checkpoint=DomainJobCheckpoint(
-            execution_key="domain-execution",
+            execution_key=execution_id.execution_key,
             job_id="provider-job",
             revision=1,
             resume_token={"cursor": "poll-1"},
@@ -360,7 +375,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
         logical_compute_node_id="domain.batch-0",
         point_ordinals=(0, 1),
         receipt=DomainExecutionReceipt(
-            execution_key="domain-execution",
+            execution_key=execution_id.execution_key,
             status="completed",
             result_fingerprint="results-v1",
             result_count=2,
@@ -454,7 +469,11 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     ]
     assert hardware_sequences == [0]
     assert coverage_ranges == [(0, 1), (1, 2)]
-    assert domain_job_transitions == ["checkpoint:1", "terminal:completed"]
+    assert domain_job_transitions == [
+        "invocation",
+        "checkpoint:1",
+        "terminal:completed",
+    ]
 
 
 def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> None:

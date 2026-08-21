@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS execution_domain_job_transitions (
     logical_compute_node_id TEXT NOT NULL,
     execution_key TEXT NOT NULL,
     transition_kind TEXT NOT NULL CHECK (
-        transition_kind IN ('checkpoint', 'terminal')
+        transition_kind IN ('invocation', 'checkpoint', 'terminal')
     ),
     job_id TEXT,
     revision INTEGER,
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS execution_domain_job_transitions (
             AND revision IS NOT NULL
             AND revision >= 1
         ) OR (
-            transition_kind = 'terminal'
+            transition_kind IN ('invocation', 'terminal')
             AND job_id IS NULL
             AND revision IS NULL
         )
@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS execution_domain_job_transitions (
 CREATE UNIQUE INDEX IF NOT EXISTS execution_domain_job_checkpoint_identity
 ON execution_domain_job_transitions(run_id, execution_key, revision)
 WHERE transition_kind = 'checkpoint';
+
+CREATE UNIQUE INDEX IF NOT EXISTS execution_domain_job_invocation_identity
+ON execution_domain_job_transitions(run_id, execution_key)
+WHERE transition_kind = 'invocation';
 
 CREATE UNIQUE INDEX IF NOT EXISTS execution_domain_job_terminal_identity
 ON execution_domain_job_transitions(run_id, execution_key)

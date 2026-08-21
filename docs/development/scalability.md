@@ -631,7 +631,8 @@ The present architecture provides a direct end-to-end baseline:
   then owns bounded pending Arrow chunks until durable ingest acceptance rather
   than retaining a second complete candidate tuple;
 - cancellation fences every hardware batch submitted from a domain job runtime,
-  including each bounded shot chunk. Each checkpoint is durable before its next
+  including each bounded shot chunk. The invocation identity is durable before
+  domain setup or provider start, each checkpoint is durable before its next
   `resume`, and the terminal receipt is durable before result realization. A
   request arriving during a driver call is honored before the next batch; the
   completed receipt is still interpreted first, so cancellation cannot turn

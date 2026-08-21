@@ -10,7 +10,11 @@ from scopecat.adaptive_domains import DomainProposalAttempt, OperatorDomainReque
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.optimization import DomainProposalDecision
-from scopecat.records.execution import DomainExecutionReceipt, DomainJobCheckpoint
+from scopecat.records.execution import (
+    DomainExecutionId,
+    DomainExecutionReceipt,
+    DomainJobCheckpoint,
+)
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments.execution import RunInstrumentHost
@@ -34,6 +38,14 @@ class RunCoverageWriter(Protocol):
 
 class RunDomainJobTransitionWriter(Protocol):
     """Commit each correlated target transition at its semantic boundary."""
+
+    def invocation(
+        self,
+        *,
+        logical_compute_node_id: str,
+        point_ordinals: tuple[int, ...],
+        execution_id: DomainExecutionId,
+    ) -> None: ...
 
     def checkpoint(
         self,

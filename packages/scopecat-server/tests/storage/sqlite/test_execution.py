@@ -25,9 +25,11 @@ from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements import recording_arrow
 from scopecat.records.execution import (
+    DomainExecutionId,
     DomainExecutionReceipt,
     DomainJobCheckpoint,
     DomainJobCheckpointTransition,
+    DomainJobInvocationTransition,
     DomainJobTerminalTransition,
 )
 from scopecat.records.measurement import (
@@ -193,8 +195,14 @@ def test_domain_job_transitions_commit_monotonic_state_through_terminal(
     runs = _runs(tmp_path)
     run_id = "domain-job-transition-run"
     ledger = SQLiteDomainJobTransitions(runs, run_id=run_id)
+    execution_id = DomainExecutionId(
+        run_id=run_id,
+        logical_compute_node_id="domain.batch-0",
+        invocation_id="invocation-1",
+        intent_fingerprint="intent-v1",
+    )
     first_checkpoint = DomainJobCheckpoint(
-        execution_key="execution-key",
+        execution_key=execution_id.execution_key,
         job_id="provider-job",
         revision=1,
         resume_token={"cursor": "poll-1"},
@@ -205,6 +213,9 @@ def test_domain_job_transitions_commit_monotonic_state_through_terminal(
         logical_compute_node_id="domain.batch-0",
         point_ordinals=(0, 1),
         transition=DomainJobCheckpointTransition(checkpoint=first_checkpoint),
+    )
+    invocation_command = first_command.model_copy(
+        update={"transition": DomainJobInvocationTransition(execution_id=execution_id)}
     )
     second_checkpoint = first_checkpoint.model_copy(
         update={
@@ -239,6 +250,29 @@ def test_domain_job_transitions_commit_monotonic_state_through_terminal(
             VALUES (?, ?, 'leased', ?, '{}')
             """,
             ("domain-job-submission", run_id, datetime.now(UTC).isoformat()),
+        )
+        with pytest.raises(ExecutionStateConflict, match="durable invocation"):
+            ledger.commit_in_transaction(connection, first_command)
+        with pytest.raises(ExecutionStateConflict, match="run or node"):
+            ledger.commit_in_transaction(
+                connection,
+                invocation_command.model_copy(
+                    update={
+                        "transition": DomainJobInvocationTransition(
+                            execution_id=execution_id.model_copy(
+                                update={"run_id": "another-run"}
+                            )
+                        )
+                    }
+                ),
+            )
+        invocation, invocation_inserted = ledger.commit_in_transaction(
+            connection,
+            invocation_command,
+        )
+        invocation_retry, invocation_retry_inserted = ledger.commit_in_transaction(
+            connection,
+            invocation_command,
         )
         first, inserted = ledger.commit_in_transaction(connection, first_command)
         retried, retry_inserted = ledger.commit_in_transaction(
@@ -297,10 +331,13 @@ def test_domain_job_transitions_commit_monotonic_state_through_terminal(
                 ),
             )
 
-    assert inserted and second_inserted and terminal_inserted
+    assert invocation_inserted and inserted and second_inserted and terminal_inserted
+    assert not invocation_retry_inserted
     assert not retry_inserted and not terminal_retry_inserted
+    assert invocation_retry == invocation
     assert retried == first
     assert terminal_retry == terminal
+    assert first.sequence > invocation.sequence
     assert second.sequence > first.sequence
     assert terminal.sequence > second.sequence
     latest = ledger.read(limit=1)

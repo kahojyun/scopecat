@@ -81,9 +81,11 @@ from scopecat.records.analysis import (
 )
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution import (
+    DomainExecutionId,
     DomainExecutionReceipt,
     DomainJobCheckpoint,
     DomainJobCheckpointTransition,
+    DomainJobInvocationTransition,
     DomainJobTerminalTransition,
 )
 from scopecat.records.instrument import InstrumentStateSnapshot, state_member_target
@@ -753,8 +755,14 @@ def test_run_coverage_wire_models_require_a_nonempty_prefix() -> None:
 
 
 def test_domain_job_transition_wire_models_retain_provider_state() -> None:
+    execution_id = DomainExecutionId(
+        run_id="run-1",
+        logical_compute_node_id="domain.batch-0",
+        invocation_id="invocation-1",
+        intent_fingerprint="intent-v1",
+    )
     checkpoint = DomainJobCheckpoint(
-        execution_key="execution-key",
+        execution_key=execution_id.execution_key,
         job_id="provider-job",
         revision=2,
         resume_token={"cursor": "result-page-2"},
@@ -767,15 +775,22 @@ def test_domain_job_transition_wire_models_retain_provider_state() -> None:
         point_ordinals=(2, 3),
         transition=checkpoint_transition,
     )
-    checkpoint_view = RunDomainJobTransitionView(
+    invocation_view = RunDomainJobTransitionView(
         sequence=1,
+        run_id="run-1",
+        logical_compute_node_id=command.logical_compute_node_id,
+        point_ordinals=command.point_ordinals,
+        transition=DomainJobInvocationTransition(execution_id=execution_id),
+    )
+    checkpoint_view = RunDomainJobTransitionView(
+        sequence=2,
         run_id="run-1",
         logical_compute_node_id=command.logical_compute_node_id,
         point_ordinals=command.point_ordinals,
         transition=checkpoint_transition,
     )
     terminal_view = RunDomainJobTransitionView(
-        sequence=2,
+        sequence=3,
         run_id="run-1",
         logical_compute_node_id=command.logical_compute_node_id,
         point_ordinals=command.point_ordinals,
@@ -790,7 +805,7 @@ def test_domain_job_transition_wire_models_retain_provider_state() -> None:
     )
     page = RunDomainJobTransitionPage(
         run_id="run-1",
-        items=(checkpoint_view, terminal_view),
+        items=(invocation_view, checkpoint_view, terminal_view),
     )
 
     assert (

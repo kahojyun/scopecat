@@ -6,17 +6,14 @@ from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    field_validator,
-)
-
-from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import (
     DomainExecutionFailed,
 )
-from scopecat.records.execution import DomainExecutionReceipt, DomainJobCheckpoint
+from scopecat.records.execution import (
+    DomainExecutionId,
+    DomainExecutionReceipt,
+    DomainJobCheckpoint,
+)
 from scopecat.sdk.domain.invocation import (
     ClosedDomainInvocation,
     DomainInvocationIntent,
@@ -33,45 +30,6 @@ if TYPE_CHECKING:
         RunHardwareBatch,
         RunHardwareBatchReceipt,
     )
-
-
-class DomainExecutionId(BaseModel):
-    """Deterministic identity for one domain job execution."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    run_id: str
-    logical_compute_node_id: str
-    invocation_id: str
-    intent_fingerprint: str
-
-    @field_validator(
-        "run_id",
-        "logical_compute_node_id",
-        "invocation_id",
-        "intent_fingerprint",
-    )
-    @classmethod
-    def validate_required_text(cls, value: str) -> str:
-        if not value:
-            raise ValueError("domain execution identity fields must be non-empty")
-        return value
-
-    @property
-    def execution_key(self) -> str:
-        return stable_content_hash(
-            {
-                "schema": "scopecat.domain_execution_key.v1",
-                "run_id": self.run_id,
-                "logical_compute_node_id": self.logical_compute_node_id,
-                "invocation_id": self.invocation_id,
-                "intent_fingerprint": self.intent_fingerprint,
-            }
-        )
-
-    @property
-    def operation_id(self) -> str:
-        return f"domain:{self.execution_key}:execute"
 
 
 @dataclass(frozen=True, slots=True)

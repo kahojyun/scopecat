@@ -231,23 +231,32 @@ resume token, and inspectable progress, then implement `resume` until it returns
 a terminal result or negative receipt. Core rejects transitions that change the
 execution key or job identity, or replay a stale revision.
 
-For a daemon-backed execution, checkpoint and terminal outcomes form one durable
-transition ledger. Every valid checkpoint is synchronously committed under the
-current executor fence before core calls `resume`. Every terminal receipt,
-including a synchronous target's receipt, is committed before result
-realization or provider failure escapes the domain effect. Checkpoint writes are
-idempotent by run, execution key, and revision; the one terminal write is
-idempotent by run and execution key. The ledger rejects changed job, node, or
-point identity and any transition after terminal state.
+For a daemon-backed execution, invocation, checkpoint, and terminal outcomes
+form one durable transition ledger. A write-ahead invocation transition records
+the complete deterministic execution identity before domain setup, state
+reconciliation, or provider `start` can perform effects. Every valid checkpoint
+is then synchronously committed under the current executor fence before core
+calls `resume`. Every terminal receipt, including a synchronous target's
+receipt, is committed before result realization or provider failure escapes the
+domain effect. Invocation and terminal writes are each idempotent by run and
+execution key; checkpoint writes also include the revision. The ledger requires
+invocation to be first and rejects changed job, node, or point identity and any
+transition after terminal state.
 
-If checkpoint persistence is unavailable, the pending provider job is not
-advanced and the run becomes indeterminate. A cancellation observed during the
-write likewise retains the checkpoint and stops before the next transition. If
-terminal persistence is unavailable, the provider receipt remains attached to
-the local attempt and determines provider certainty, but realization does not
-start. Thus a durable terminal transition distinguishes "the provider finished"
-from "the last observed provider state was pending" even if the executor is
-lost before the run-level terminal commit.
+If invocation persistence is unavailable, no domain setup or provider call
+starts and the failure is known. If checkpoint persistence is unavailable, the
+pending provider job is not advanced and the run becomes indeterminate. A
+cancellation observed during the write likewise retains the checkpoint and
+stops before the next transition. If terminal persistence is unavailable, the
+provider receipt remains attached to the local attempt and determines provider
+certainty, but realization does not start.
+
+An invocation without a later transition means setup or the provider call may
+have been interrupted; it does not prove that `start` reached the provider. A
+checkpoint proves the last observed state was pending, while a terminal
+transition proves the provider outcome was known to the executor. These facts
+survive loss before the run-level terminal commit, but none alone grants replay
+authority.
 
 These durable transitions make interrupted provider state inspectable after
 executor or daemon loss, but do not by themselves authorize continuing the run.

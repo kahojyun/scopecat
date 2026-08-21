@@ -43,9 +43,11 @@ from scopecat.kernel.problems import Problem
 from scopecat.optimization import DomainProposalDecision
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution import (
+    DomainExecutionId,
     DomainExecutionReceipt,
     DomainJobCheckpoint,
     DomainJobCheckpointTransition,
+    DomainJobInvocationTransition,
     DomainJobTerminalTransition,
     DomainJobTransitionRecord,
 )
@@ -290,6 +292,19 @@ class _DaemonRunDomainJobTransitions:
 
     def __init__(self, authority: _LeaseAuthority) -> None:
         self._authority = authority
+
+    def invocation(
+        self,
+        *,
+        logical_compute_node_id: str,
+        point_ordinals: tuple[int, ...],
+        execution_id: DomainExecutionId,
+    ) -> None:
+        self._commit(
+            logical_compute_node_id=logical_compute_node_id,
+            point_ordinals=point_ordinals,
+            transition=DomainJobInvocationTransition(execution_id=execution_id),
+        )
 
     def checkpoint(
         self,

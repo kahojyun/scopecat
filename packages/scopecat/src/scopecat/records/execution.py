@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import Problem
 from scopecat.records.instrument import (
@@ -13,6 +14,45 @@ from scopecat.records.instrument import (
     StateMemberIdentity,
     state_member_identity,
 )
+
+
+class DomainExecutionId(BaseModel):
+    """Deterministic identity for one domain job execution."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    run_id: str
+    logical_compute_node_id: str
+    invocation_id: str
+    intent_fingerprint: str
+
+    @field_validator(
+        "run_id",
+        "logical_compute_node_id",
+        "invocation_id",
+        "intent_fingerprint",
+    )
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        if not value:
+            raise ValueError("domain execution identity fields must be non-empty")
+        return value
+
+    @property
+    def execution_key(self) -> str:
+        return stable_content_hash(
+            {
+                "schema": "scopecat.domain_execution_key.v1",
+                "run_id": self.run_id,
+                "logical_compute_node_id": self.logical_compute_node_id,
+                "invocation_id": self.invocation_id,
+                "intent_fingerprint": self.intent_fingerprint,
+            }
+        )
+
+    @property
+    def operation_id(self) -> str:
+        return f"domain:{self.execution_key}:execute"
 
 
 class DomainJobCheckpoint(BaseModel):
@@ -104,6 +144,19 @@ class DomainJobCheckpointTransition(BaseModel):
         return self.checkpoint.execution_key
 
 
+class DomainJobInvocationTransition(BaseModel):
+    """Write-ahead intent durable before domain setup or provider ``start``."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["invocation"] = "invocation"
+    execution_id: DomainExecutionId
+
+    @property
+    def execution_key(self) -> str:
+        return self.execution_id.execution_key
+
+
 class DomainJobTerminalTransition(BaseModel):
     """One terminal provider outcome durable before result realization."""
 
@@ -118,7 +171,9 @@ class DomainJobTerminalTransition(BaseModel):
 
 
 type DomainJobTransitionRecord = Annotated[
-    DomainJobCheckpointTransition | DomainJobTerminalTransition,
+    DomainJobInvocationTransition
+    | DomainJobCheckpointTransition
+    | DomainJobTerminalTransition,
     Field(discriminator="kind"),
 ]
 

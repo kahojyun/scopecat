@@ -31,6 +31,7 @@ from scopecat.daemon.wire import (
 )
 from scopecat.records.execution import (
     DomainJobCheckpointTransition,
+    DomainJobInvocationTransition,
     DomainJobTerminalTransition,
     DomainJobTransitionRecord,
 )
@@ -128,7 +129,7 @@ _DOMAIN_JOB_TRANSITION: TypeAdapter[DomainJobTransitionRecord] = TypeAdapter(
 
 
 class SQLiteDomainJobTransitions:
-    """Persist pending and terminal target transitions in execution order."""
+    """Persist invocation, pending, and terminal transitions in execution order."""
 
     def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
         self._runs = runs
@@ -169,6 +170,14 @@ class SQLiteDomainJobTransitions:
         command: RunDomainJobTransitionCommand,
     ) -> tuple[RunDomainJobTransitionView, bool]:
         transition = command.transition
+        if isinstance(transition, DomainJobInvocationTransition) and (
+            transition.execution_id.run_id != self._run_id
+            or transition.execution_id.logical_compute_node_id
+            != command.logical_compute_node_id
+        ):
+            raise ExecutionStateConflict(
+                "domain job invocation identity does not match its run or node"
+            )
         if isinstance(transition, DomainJobCheckpointTransition):
             existing = _one(
                 connection.execute(
@@ -184,6 +193,19 @@ class SQLiteDomainJobTransitions:
                         transition.execution_key,
                         transition.checkpoint.revision,
                     ),
+                )
+            )
+        elif isinstance(transition, DomainJobInvocationTransition):
+            existing = _one(
+                connection.execute(
+                    """
+                    SELECT sequence, run_id, logical_compute_node_id,
+                           point_ordinals_json, transition_json
+                    FROM execution_domain_job_transitions
+                    WHERE run_id = ? AND execution_key = ?
+                      AND transition_kind = 'invocation'
+                    """,
+                    (self._run_id, transition.execution_key),
                 )
             )
         else:
@@ -224,7 +246,12 @@ class SQLiteDomainJobTransitions:
                 (self._run_id, transition.execution_key),
             )
         )
-        if latest is not None:
+        if latest is None:
+            if not isinstance(transition, DomainJobInvocationTransition):
+                raise ExecutionStateConflict(
+                    "domain job transition requires a durable invocation"
+                )
+        else:
             previous = _domain_job_transition_view(latest)
             if (
                 previous.logical_compute_node_id != command.logical_compute_node_id
@@ -237,7 +264,13 @@ class SQLiteDomainJobTransitions:
                 raise ExecutionStateConflict(
                     "domain job transition follows its terminal receipt"
                 )
-            if isinstance(transition, DomainJobCheckpointTransition):
+            if isinstance(transition, DomainJobInvocationTransition):
+                raise ExecutionStateConflict(
+                    "domain job invocation is not the first transition"
+                )
+            if isinstance(transition, DomainJobCheckpointTransition) and isinstance(
+                previous.transition, DomainJobCheckpointTransition
+            ):
                 previous_checkpoint = previous.transition.checkpoint
                 checkpoint = transition.checkpoint
                 if checkpoint.job_id != previous_checkpoint.job_id:

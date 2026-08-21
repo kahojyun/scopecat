@@ -55,6 +55,7 @@ def execute_domain_job_values(
         ],
         None,
     ],
+    commit_invocation: Callable[[DomainExecutionId], None] | None = None,
     commit_checkpoint: Callable[[DomainExecutionId, DomainJobCheckpoint], None]
     | None = None,
     commit_terminal: Callable[[DomainExecutionId, DomainExecutionReceipt], None]
@@ -62,9 +63,10 @@ def execute_domain_job_values(
 ) -> None:
     """Execute one closed domain job into the execution-owned coverage sink.
 
-    Every terminal provider receipt is committed before adapter-owned result
-    realization or failure propagation. The attempt retains the same receipt
-    even when that durable commit fails.
+    The invocation identity is committed before domain setup or provider
+    ``start``. Every terminal provider receipt is committed before adapter-owned
+    result realization or failure propagation. The attempt retains the same
+    receipt even when that durable commit fails.
     """
 
     invocation = prepared.invocation
@@ -75,6 +77,34 @@ def execute_domain_job_values(
         logical_compute_node_id=logical_compute_node_id,
     )
     checkpoints: list[DomainJobCheckpoint] = []
+
+    def commit_invocation_intent() -> None:
+        if commit_invocation is None:
+            return
+        try:
+            commit_invocation(execution_id)
+        except DomainExecutionCancellationRequested:
+            raise
+        except Exception as error:
+            operation_id = f"{execution_id.operation_id}:invocation"
+            raise DomainExecutionFailed(
+                (
+                    problem_from_exception(
+                        "domain_job_invocation_commit_failed",
+                        "domain job invocation could not be committed before start",
+                        run_id=run_id,
+                        operation_id=operation_id,
+                        phase=ProblemPhase.PERSISTENCE,
+                        error=error,
+                    ),
+                ),
+                run_id=run_id,
+                operation_id=operation_id,
+                invocation_id=invocation.intent.invocation_id,
+                execution_key=execution_id.execution_key,
+                certainty="known",
+                receipt=None,
+            ) from error
 
     def observe_checkpoint(checkpoint: DomainJobCheckpoint) -> None:
         checkpoints.append(checkpoint)
@@ -136,6 +166,12 @@ def execute_domain_job_values(
                 certainty=certainty,
                 receipt=receipt,
             ) from error
+
+    try:
+        commit_invocation_intent()
+    except BaseException:
+        observe_attempt(execution_id, tuple(checkpoints), None)
+        raise
 
     try:
         result = run_domain_invocation(

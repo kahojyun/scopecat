@@ -338,6 +338,9 @@ class RunEffectInterpreter:
                         receipt,
                     )
                 ),
+                commit_invocation=lambda execution_id: (
+                    self._commit_domain_job_invocation(job, execution_id)
+                ),
                 commit_checkpoint=lambda _execution_id, checkpoint: (
                     self._commit_domain_job_checkpoint(
                         job,
@@ -359,6 +362,21 @@ class RunEffectInterpreter:
             if pending:
                 self._complete_coverage(pending)
             raise _CapturedDomainEffectFailure(job.id) from error
+
+    def _commit_domain_job_invocation(
+        self,
+        job: RunDomainJob,
+        execution_id: DomainExecutionId,
+    ) -> None:
+        writer = self._domain_job_transitions
+        if writer is not None:
+            writer.invocation(
+                logical_compute_node_id=job.id,
+                point_ordinals=job.point_ordinals,
+                execution_id=execution_id,
+            )
+        if self._cancellation_requested():
+            raise DomainExecutionCancellationRequested
 
     def _commit_domain_job_checkpoint(
         self,

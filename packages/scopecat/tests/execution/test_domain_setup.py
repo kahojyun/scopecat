@@ -240,6 +240,18 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
             )
 
     class CheckpointWriter:
+        def invocation(
+            self,
+            *,
+            logical_compute_node_id: str,
+            point_ordinals: tuple[int, ...],
+            execution_id: DomainExecutionId,
+        ) -> None:
+            assert logical_compute_node_id == "test-node"
+            assert point_ordinals == (0,)
+            assert execution_id.logical_compute_node_id == logical_compute_node_id
+            transition_events.append(("invocation", 0))
+
         def checkpoint(
             self,
             *,
@@ -399,6 +411,7 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
         "hardware_unknown",
     ]
     assert transition_events == [
+        ("invocation", 0),
         ("start", 0),
         ("checkpoint", 1),
         ("resume", 1),
@@ -406,6 +419,50 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
         ("resume", 2),
         ("terminal", 0),
     ]
+
+    transition_events.clear()
+    invocation_failure_observed: list[
+        tuple[
+            DomainExecutionId,
+            tuple[DomainJobCheckpoint, ...],
+            DomainExecutionReceipt | None,
+        ]
+    ] = []
+
+    def fail_invocation_commit(_execution_id: DomainExecutionId) -> None:
+        raise RuntimeError("invocation storage unavailable")
+
+    with pytest.raises(DomainExecutionFailed) as invocation_failure:
+        execute_domain_job_values(
+            replace(
+                prepared,
+                job_runtime=cast(
+                    "ErasedDomainJobRuntime",
+                    CheckpointThenNegativeRuntime(),
+                ),
+            ),
+            logical_compute_node_id="test-node",
+            run_id="test-run",
+            instruments=_Executor(RunHardwareBatchReceipt(operation_id="unused")),
+            accept=lambda _candidate: None,
+            observe_attempt=lambda execution_id, checkpoints, attempt_receipt: (
+                invocation_failure_observed.append(
+                    (execution_id, checkpoints, attempt_receipt)
+                )
+            ),
+            commit_invocation=fail_invocation_commit,
+        )
+
+    assert [item.code for item in invocation_failure.value.problems] == [
+        "domain_job_invocation_commit_failed"
+    ]
+    assert invocation_failure.value.certainty == "known"
+    assert transition_events == []
+    [(_execution_id, invocation_checkpoints, invocation_receipt)] = (
+        invocation_failure_observed
+    )
+    assert invocation_checkpoints == ()
+    assert invocation_receipt is None
 
     transition_events.clear()
     commit_failure_observed: list[
@@ -493,6 +550,51 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
     assert terminal_receipt.status == "completed"
 
     transition_events.clear()
+    invocation_cancellation_requested = False
+
+    class CancellingInvocationWriter(CheckpointWriter):
+        @override
+        def invocation(
+            self,
+            *,
+            logical_compute_node_id: str,
+            point_ordinals: tuple[int, ...],
+            execution_id: DomainExecutionId,
+        ) -> None:
+            nonlocal invocation_cancellation_requested
+            super().invocation(
+                logical_compute_node_id=logical_compute_node_id,
+                point_ordinals=point_ordinals,
+                execution_id=execution_id,
+            )
+            invocation_cancellation_requested = True
+
+    invocation_cancelled = RunEffectInterpreter(
+        run_id="test-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost(),
+        cancellation_requested=lambda: invocation_cancellation_requested,
+        domain_job_transitions=CancellingInvocationWriter(),
+    ).run(
+        (
+            RunDomainJob(
+                "test-node",
+                (0,),
+                replace(
+                    prepared,
+                    job_runtime=cast(
+                        "ErasedDomainJobRuntime",
+                        CheckpointThenNegativeRuntime(),
+                    ),
+                ),
+            ),
+        ),
+        points=(point,),
+    )
+    assert invocation_cancelled.cancelled
+    assert transition_events == [("invocation", 0)]
+
+    transition_events.clear()
     cancellation_requested = False
 
     class CancellingCheckpointWriter(CheckpointWriter):
@@ -535,7 +637,11 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
         points=(point,),
     )
     assert cancelled_effect_result.cancelled
-    assert transition_events == [("start", 0), ("checkpoint", 1)]
+    assert transition_events == [
+        ("invocation", 0),
+        ("start", 0),
+        ("checkpoint", 1),
+    ]
     cancelled_evidence = build_domain_execution_evidence(
         "test-run",
         cancelled_effect_result,
