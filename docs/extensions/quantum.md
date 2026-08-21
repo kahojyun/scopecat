@@ -54,6 +54,16 @@ resume proof. Losing the connection loses the knowledge. The driver remains the
 authority that performs an idempotent ensure and invalidates any lower-level
 cache when its device session is reset.
 
+Residency also does not imply archival. Scopecat does not automatically publish
+compiled programs, waveform payloads, or a run-level catalog of their
+fingerprints. Many useful workloads intentionally create large or random
+one-off sequences, and a cache identity is not evidence that users need the
+content after the connection closes. When reproducibility requires a random
+logical sequence, authors should make its seed or selected logical sequence an
+experiment input and record that value with the results. A canonical pulse,
+compiled artifact, or inspection is retained only through an explicit artifact
+publication chosen by the workflow that will consume it.
+
 ## Choose transition evidence by recovery value
 
 Prepared executions use write-ahead transition persistence by default. Their
