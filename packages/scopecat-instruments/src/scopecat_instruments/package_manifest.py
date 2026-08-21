@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 from pydantic import BaseModel
 from scopecat.sdk.instruments.declarations import Member, MemberObservation
@@ -27,6 +27,9 @@ from scopecat_instruments.interface_declarations import (
     TemperatureReadoutInterface,
 )
 
+if TYPE_CHECKING:
+    from scopecat.sdk.instruments import InstrumentDescription, InstrumentDriver
+
 
 @dataclass(frozen=True, slots=True)
 class PythonSymbol:
@@ -40,6 +43,29 @@ class PythonSymbol:
         for segment in self.qualname.split("."):
             selected = cast("object", getattr(selected, segment))
         return selected
+
+
+class DriverManagedFactory(Protocol):
+    """Side-effect-free description and owned physical-driver construction.
+
+    ``connect`` owns every resource it constructs. The returned driver's
+    ``disconnect`` method must release those resources; if construction fails,
+    the factory must clean up before propagating the error.
+    """
+
+    def describe(
+        self,
+        instrument_id: str,
+        /,
+        **options: object,
+    ) -> InstrumentDescription: ...
+
+    def connect(
+        self,
+        instrument_id: str,
+        /,
+        **options: object,
+    ) -> InstrumentDriver: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +103,12 @@ class DriverRegistration:
     id: str
     implementation_version: str
     implementation: PythonSymbol
-    connection_kind: Literal["tcpip_socket", "serial", "virtual"]
+    connection_kind: Literal[
+        "tcpip_socket",
+        "serial",
+        "virtual",
+        "driver_managed",
+    ]
     options_type: type[BaseModel]
     label: str
     manufacturer: str | None = None
@@ -265,6 +296,7 @@ __all__ = [
     "CompositeMemberNameOverride",
     "CompositeMethodNameOverride",
     "CompositeSurfaceRegistration",
+    "DriverManagedFactory",
     "DriverRegistration",
     "InstrumentPackageManifest",
     "InterfaceSurfaceRegistration",

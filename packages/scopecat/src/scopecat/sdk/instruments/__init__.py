@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from scopecat.kernel.state import StateValue
     from scopecat.records.config import (
+        DriverManagedInstrumentConnection,
         InstrumentBindingSpec,
         InstrumentConnection,
         SerialInstrumentConnection,
@@ -236,6 +237,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "DriverMemberConstraint": (
         "scopecat.sdk.instruments.object_driver",
         "DriverMemberConstraint",
+    ),
+    "DriverManagedInstrumentConnection": (
+        "scopecat.records.config",
+        "DriverManagedInstrumentConnection",
     ),
     "DriverOperation": ("scopecat.sdk.instruments.authoring", "DriverOperation"),
     "DriverOutcome": ("scopecat.sdk.instruments.authoring", "DriverOutcome"),

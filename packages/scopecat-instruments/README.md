@@ -8,6 +8,8 @@ exclusive claims, interface validation, operation receipts, and audit trail.
 The configured connection kinds are:
 
 - `virtual`, for a deterministic simulated device selected by `driver_id`;
+- `driver_managed`, for a physical vendor SDK or composite connection whose
+  lazy factory owns construction, probing, and cleanup;
 - `tcpip_socket`, for a configured host, port, and timeout;
 - `serial`, for a named port with explicit baud rate, timeout, framing, and flow
   control.
@@ -422,6 +424,28 @@ Binary serial instrument:
 }
 ```
 
+Driver-managed SDK:
+
+```json
+{
+  "id": "composite-controller",
+  "exclusivity_key": "composite-controller",
+  "driver_id": "example.composite_controller",
+  "connection": {
+    "kind": "driver_managed",
+    "options": {
+      "controllers": {
+        "primary": "192.0.2.10",
+        "secondary": "192.0.2.11"
+      }
+    }
+  },
+  "run_start": "preserve",
+  "success_action": "release",
+  "failure_action": "abort_and_release"
+}
+```
+
 Every run first synchronizes the device. `preserve` retains that observed
 state; `apply_default_state` then applies the saved partial public state.
 Unspecified and private driver settings remain untouched. After authored
@@ -513,12 +537,21 @@ provider = ConfiguredInstrumentProvider(
 
 Each `DriverRegistration` supplies one lazy `PythonSymbol`, implementation
 version, connection kind, strict Pydantic options model, and catalog metadata.
-The shared provider derives schemas, creates description-only drivers, opens
-TCP or serial transports, probes hardware, closes failed connections, and maps
-provider problems. Identity-capable drivers use the default `probe="identify"`;
-devices with no safe identity query may declare `probe="connect"`, which proves
-only that the configured port can open. A project registration's constructor
-receives `instrument_id`, its transport, and validated option fields.
+For `tcpip_socket` and `serial`, the shared provider derives schemas, creates
+description-only drivers, opens transports, probes hardware, closes failed
+connections, and maps provider problems. Identity-capable drivers use the
+default `probe="identify"`; devices with no safe identity query may declare
+`probe="connect"`, which proves only that the configured port can open. Their
+constructors receive `instrument_id`, the transport, and validated option
+fields.
+
+A `driver_managed` registration instead resolves a lazy factory type with two
+methods. `describe(instrument_id, **options)` must be side-effect-free;
+`connect(instrument_id, **options)` constructs and probes all physical resources.
+The returned driver's `disconnect` releases those resources, and the factory
+cleans up partial construction before raising. This is for vendor SDKs and
+composite controllers, not a generic bypass for ordinary socket or serial
+devices.
 
 Transport generations are never reopened or retried inside a driver. A
 `TransportError` records the failed operation, whether the command may have

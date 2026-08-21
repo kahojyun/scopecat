@@ -6,7 +6,12 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
-type InstrumentConnectionKind = Literal["virtual", "tcpip_socket", "serial"]
+type InstrumentConnectionKind = Literal[
+    "virtual",
+    "driver_managed",
+    "tcpip_socket",
+    "serial",
+]
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
 

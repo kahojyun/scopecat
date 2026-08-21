@@ -117,6 +117,12 @@ class VirtualInstrumentConnection(_InstrumentConnection):
     kind: Literal["virtual"] = "virtual"
 
 
+class DriverManagedInstrumentConnection(_InstrumentConnection):
+    """Physical connection whose resources are owned by its driver factory."""
+
+    kind: Literal["driver_managed"] = "driver_managed"
+
+
 class TcpipSocketInstrumentConnection(_InstrumentConnection):
     kind: Literal["tcpip_socket"] = "tcpip_socket"
     host: Annotated[str, Field(min_length=1)]
@@ -150,6 +156,7 @@ class SerialInstrumentConnection(_InstrumentConnection):
 type InstrumentConnection = Annotated[
     (
         VirtualInstrumentConnection
+        | DriverManagedInstrumentConnection
         | TcpipSocketInstrumentConnection
         | SerialInstrumentConnection
     ),

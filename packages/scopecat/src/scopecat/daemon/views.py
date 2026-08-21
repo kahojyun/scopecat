@@ -114,6 +114,10 @@ class VirtualInstrumentConnectionSummary(_ViewModel):
     kind: Literal["virtual"] = "virtual"
 
 
+class DriverManagedInstrumentConnectionSummary(_ViewModel):
+    kind: Literal["driver_managed"] = "driver_managed"
+
+
 class TcpipSocketInstrumentConnectionSummary(_ViewModel):
     kind: Literal["tcpip_socket"] = "tcpip_socket"
     host: str
@@ -129,6 +133,7 @@ class SerialInstrumentConnectionSummary(_ViewModel):
 type InstrumentConnectionSummary = Annotated[
     (
         VirtualInstrumentConnectionSummary
+        | DriverManagedInstrumentConnectionSummary
         | TcpipSocketInstrumentConnectionSummary
         | SerialInstrumentConnectionSummary
     ),
@@ -724,6 +729,7 @@ __all__ = [
     "ConfigEntryView",
     "ConfigRegistryPage",
     "DaemonHealth",
+    "DriverManagedInstrumentConnectionSummary",
     "InstrumentConnectionSummary",
     "InstrumentListView",
     "InstrumentView",

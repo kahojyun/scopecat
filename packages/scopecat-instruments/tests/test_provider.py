@@ -4,13 +4,14 @@ import socket
 import subprocess
 import sys
 from threading import Thread
-from typing import cast
+from typing import ClassVar, cast, final
 
 import pytest
 from pydantic import BaseModel, ConfigDict
 from scopecat.kernel.entity import EntityRef
 from scopecat.records.config import (
     ConfigProfileSnapshot,
+    DriverManagedInstrumentConnection,
     InstrumentBindingSpec,
     InstrumentConnection,
     InstrumentRegistry,
@@ -25,6 +26,7 @@ from scopecat.records.parameter import ParameterCatalog, ParameterSnapshot
 from scopecat.sdk.instruments import (
     DriverFault,
     InstrumentConnectionContext,
+    InstrumentDescription,
     InstrumentProviderContext,
     InstrumentProviderDescription,
 )
@@ -56,6 +58,30 @@ class _ConfiguredVirtualOptions(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     channel_count: int
+
+
+@final
+class _ConfiguredDriverManagedFactory:
+    described: ClassVar[list[tuple[str, int]]] = []
+    connected: ClassVar[list[tuple[str, int]]] = []
+
+    @staticmethod
+    def describe(
+        instrument_id: str,
+        *,
+        channel_count: int,
+    ) -> InstrumentDescription:
+        _ConfiguredDriverManagedFactory.described.append((instrument_id, channel_count))
+        return VirtualDcSource(instrument_id, VirtualLabWorld(seed=0)).describe()
+
+    @staticmethod
+    def connect(
+        instrument_id: str,
+        *,
+        channel_count: int,
+    ) -> VirtualDcSource:
+        _ConfiguredDriverManagedFactory.connected.append((instrument_id, channel_count))
+        return VirtualDcSource(instrument_id, VirtualLabWorld(seed=channel_count))
 
 
 def test_package_manifest_does_not_import_driver_implementations() -> None:
@@ -194,6 +220,72 @@ def test_provider_passes_validated_options_to_virtual_factory(
 
     assert isinstance(driver, VirtualDcSource)
     assert received == [4]
+
+
+def test_provider_separates_driver_managed_description_and_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _ConfiguredDriverManagedFactory.described.clear()
+    _ConfiguredDriverManagedFactory.connected.clear()
+    registration = DriverRegistration(
+        id="test.driver_managed",
+        implementation_version="v1",
+        implementation=PythonSymbol("unused", "managed_factory"),
+        connection_kind="driver_managed",
+        options_type=_ConfiguredVirtualOptions,
+        label="Driver-managed test device",
+    )
+    original_resolve = PythonSymbol.resolve
+
+    def resolve(symbol: PythonSymbol) -> object:
+        if symbol.module == "unused":
+            return _ConfiguredDriverManagedFactory
+        return original_resolve(symbol)
+
+    monkeypatch.setattr(PythonSymbol, "resolve", resolve)
+    provider = ConfiguredInstrumentProvider(registrations=(registration,))
+    binding = InstrumentBindingSpec(
+        id="managed",
+        driver_id=registration.id,
+        connection=DriverManagedInstrumentConnection(options={"channel_count": 4}),
+    )
+
+    description = provider.describe(InstrumentProviderContext(bindings=(binding,)))
+
+    assert not description.problems
+    assert [item.instrument_id for item in description.instruments] == ["managed"]
+    assert _ConfiguredDriverManagedFactory.described == [("managed", 4)]
+    assert _ConfiguredDriverManagedFactory.connected == []
+    [connection] = provider.driver_catalog.drivers[0].connections
+    assert connection.kind == "driver_managed"
+    assert connection.options_schema["required"] == ["channel_count"]
+
+    driver = provider.connect(InstrumentConnectionContext(binding=binding))
+
+    assert _ConfiguredDriverManagedFactory.connected == [("managed", 4)]
+    driver.disconnect()
+
+
+def test_provider_rejects_non_managed_binding_for_driver_managed_factory() -> None:
+    registration = DriverRegistration(
+        id="test.driver_managed",
+        implementation_version="v1",
+        implementation=PythonSymbol("unused", "managed_factory"),
+        connection_kind="driver_managed",
+        options_type=_ConfiguredVirtualOptions,
+        label="Driver-managed test device",
+    )
+    provider = ConfiguredInstrumentProvider(registrations=(registration,))
+    binding = InstrumentBindingSpec(
+        id="managed",
+        driver_id=registration.id,
+        connection=VirtualInstrumentConnection(options={"channel_count": 4}),
+    )
+
+    description = provider.describe(InstrumentProviderContext(bindings=(binding,)))
+
+    assert not description.instruments
+    assert description.problems[0].code == "instrument_driver_configuration_invalid"
 
 
 class _IdnServer:

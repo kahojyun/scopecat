@@ -6,6 +6,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from contextlib import suppress
 
 from scopecat.daemon.views import (
+    DriverManagedInstrumentConnectionSummary,
     InstrumentConnectionSummary,
     SerialInstrumentConnectionSummary,
     TcpipSocketInstrumentConnectionSummary,
@@ -19,6 +20,7 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.records.config import (
+    DriverManagedInstrumentConnection,
     InstrumentConnection,
     InstrumentSpec,
     SerialInstrumentConnection,
@@ -69,6 +71,8 @@ type _BackendHardwareRequest = (
 def instrument_connection_summary(
     connection: InstrumentConnection,
 ) -> InstrumentConnectionSummary:
+    if isinstance(connection, DriverManagedInstrumentConnection):
+        return DriverManagedInstrumentConnectionSummary()
     if isinstance(connection, VirtualInstrumentConnection):
         return VirtualInstrumentConnectionSummary()
     if isinstance(connection, SerialInstrumentConnection):

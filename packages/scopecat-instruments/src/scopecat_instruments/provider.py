@@ -11,6 +11,7 @@ from scopecat.sdk.instruments import (
     DriverCatalog,
     DriverConnectionSpec,
     DriverFault,
+    DriverManagedInstrumentConnection,
     DriverSpec,
     InstrumentBindingSpec,
     InstrumentConnectionContext,
@@ -36,6 +37,7 @@ from scopecat_instruments.package_manifest import (
     VIRTUAL_TEMPERATURE_MONITOR,
     VIRTUAL_VNA,
     YOKOGAWA_GS200,
+    DriverManagedFactory,
     DriverRegistration,
     PythonSymbol,
 )
@@ -101,8 +103,9 @@ def compose_driver_registrations(
 class ConfiguredInstrumentProvider:
     """Instantiate exactly the drivers declared by configured bindings.
 
-    Real registrations explicitly choose identity probing or connection-only
-    probing before a driver is returned.
+    Transport registrations explicitly choose identity probing or
+    connection-only probing before a driver is returned. Driver-managed
+    factories own construction, probing, and cleanup of their physical SDKs.
     Virtual driver instances share the provider's world, so device state survives
     connection retirement and recreation.
     """
@@ -201,6 +204,13 @@ def _describe_driver(
     registrations: dict[str, DriverRegistration],
 ) -> InstrumentDescription:
     registration = _driver_registration(binding.driver_id, registrations)
+    if registration.connection_kind == "driver_managed":
+        connection = _require_driver_managed_connection(registration, binding)
+        return _describe_driver_managed(
+            registration,
+            binding.id,
+            connection.options,
+        )
     if registration.connection_kind == "virtual":
         if world is None:
             raise RuntimeError("virtual driver registration requires a virtual world")
@@ -220,6 +230,13 @@ def _connect_driver(
     registrations: dict[str, DriverRegistration],
 ) -> InstrumentDriver:
     registration = _driver_registration(binding.driver_id, registrations)
+    if registration.connection_kind == "driver_managed":
+        connection = _require_driver_managed_connection(registration, binding)
+        return _connect_driver_managed(
+            registration,
+            binding.id,
+            connection.options,
+        )
     if registration.connection_kind == "virtual":
         if world is None:
             raise RuntimeError("virtual driver registration requires a virtual world")
@@ -282,6 +299,40 @@ def _create_real_driver(
     )
 
 
+def _describe_driver_managed(
+    registration: DriverRegistration,
+    instrument_id: str,
+    raw_options: dict[str, JsonValue],
+    /,
+) -> InstrumentDescription:
+    factory = cast(
+        "DriverManagedFactory",
+        registration.implementation.resolve(),
+    )
+    options = registration.options_type.model_validate(raw_options)
+    return factory.describe(
+        instrument_id,
+        **cast("dict[str, object]", options.model_dump()),
+    )
+
+
+def _connect_driver_managed(
+    registration: DriverRegistration,
+    instrument_id: str,
+    raw_options: dict[str, JsonValue],
+    /,
+) -> InstrumentDriver:
+    factory = cast(
+        "DriverManagedFactory",
+        registration.implementation.resolve(),
+    )
+    options = registration.options_type.model_validate(raw_options)
+    return factory.connect(
+        instrument_id,
+        **cast("dict[str, object]", options.model_dump()),
+    )
+
+
 def _create_virtual_driver(
     registration: DriverRegistration,
     binding: InstrumentBindingSpec,
@@ -324,6 +375,16 @@ def _require_real_connection(
     raise ValueError(
         f"{registration.id} supports only {registration.connection_kind} connections"
     )
+
+
+def _require_driver_managed_connection(
+    registration: DriverRegistration,
+    binding: InstrumentBindingSpec,
+) -> DriverManagedInstrumentConnection:
+    connection = binding.connection
+    if isinstance(connection, DriverManagedInstrumentConnection):
+        return connection
+    raise ValueError(f"{registration.id} supports only driver_managed connections")
 
 
 def _configuration_problem(

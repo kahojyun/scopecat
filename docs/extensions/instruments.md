@@ -93,11 +93,15 @@ depend on several independently queryable members.
 
 Configured providers distinguish physical connection from device protocol.
 `tcpip_socket` supplies a line-oriented SCPI transport; `serial` supplies a
-binary transport with explicit framing. Drivers use `send` when the protocol
-has no acknowledgement and exact-size `exchange` when it does. A registration
-also chooses identity or connection-only probing. Transport failures retire
-that generation: never retry an unconfirmed write in a driver, because the
-command may already have reached hardware.
+binary transport with explicit framing. `driver_managed` delegates construction
+to a lazy factory only when a vendor SDK or composite controller owns multiple
+physical resources: its `describe` path is side-effect-free, while `connect`
+owns probing, partial-failure cleanup, and the returned driver's disconnect
+lifecycle. Drivers use `send` when the protocol has no acknowledgement and
+exact-size `exchange` when it does. A transport registration also chooses
+identity or connection-only probing. Transport failures retire that generation:
+never retry an unconfirmed write in a driver, because the command may already
+have reached hardware.
 
 Use the package's source-adjacent guides for the exact extension workflow:
 
