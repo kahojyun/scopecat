@@ -19,7 +19,10 @@ from scopecat.authoring.entity_selection import PerEntity
 from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.value_type_compatibility import require_assignable
+from scopecat.kernel.value_type_compatibility import (
+    literal_scalar_type,
+    require_assignable,
+)
 from scopecat.kernel.value_validation import coerce_literal
 from scopecat.program.domain import (
     DomainCall,
@@ -98,7 +101,7 @@ class QuantumProgramCall:
             key=self.domain_call.key,
         )
 
-    def with_compiler_inputs(self, **inputs: ValueRef) -> QuantumProgramCall:
+    def with_compiler_inputs(self, **inputs: ComputeInput) -> QuantumProgramCall:
         """Bind typed lowering-only values without changing the Program ABI."""
 
         compiler_inputs = dict(inputs)
@@ -292,7 +295,7 @@ def _program_call(
     /,
     *,
     inputs: Mapping[str, object],
-    compiler_inputs: Mapping[str, ValueRef],
+    compiler_inputs: Mapping[str, ComputeInput],
     shots: ComputeInput,
     key: DomainCallKey | None = None,
 ) -> QuantumProgramCall:
@@ -310,10 +313,14 @@ def _program_call(
             details.append("unknown " + ", ".join(repr(item) for item in unknown))
         raise ValueError("invalid quantum program call inputs: " + "; ".join(details))
 
+    normalized_compiler_inputs = {
+        name: _normalize_compiler_input(name, value)
+        for name, value in compiler_inputs.items()
+    }
     domain = _domain_program(
         program,
         compiler_inputs={
-            name: value.value_type for name, value in compiler_inputs.items()
+            name: value.value_type for name, value in normalized_compiler_inputs.items()
         },
     )
     normalized_shots = _normalize_shots(shots)
@@ -325,7 +332,7 @@ def _program_call(
         domain,
         id=instance_id,
         inputs=normalized_inputs,
-        compiler_inputs=compiler_inputs,
+        compiler_inputs=normalized_compiler_inputs,
         result_products={
             result.id: ModuleProductDecl(
                 id=result.id,
@@ -362,8 +369,19 @@ def _program_call(
         program=program,
         domain_call=call,
         arguments=tuple(inputs.items()),
-        compiler_arguments=tuple(compiler_inputs.items()),
+        compiler_arguments=tuple(normalized_compiler_inputs.items()),
         shots=shots,
+    )
+
+
+def _normalize_compiler_input(name: str, value: ComputeInput) -> ValueRef:
+    if isinstance(value, ValueRef):
+        return value
+    value_type = literal_scalar_type(value)
+    return internal_literal_value_ref(
+        value,
+        value_type,
+        path=("compiler_inputs", name),
     )
 
 
