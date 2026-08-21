@@ -167,33 +167,8 @@ class MeasurementRecordingError(StorageError):
         super().__init__(problems)
 
 
-class DomainRuntimeFailure(OperationFailure):
-    """Expected failure at one host-visible domain-runtime boundary."""
-
-    def __init__(
-        self,
-        problems: Sequence[Problem],
-        *,
-        run_id: str,
-        operation_id: str,
-        invocation_id: str,
-        execution_key: str,
-        certainty: RunCertainty,
-    ) -> None:
-        if not run_id or not operation_id or not invocation_id or not execution_key:
-            msg = "domain runtime failure identity fields must be non-empty"
-            raise ValueError(msg)
-        self.run_id = run_id
-        self.operation_id = operation_id
-        self.invocation_id = invocation_id
-        self.execution_key = execution_key
-        self.phase: Literal["execute"] = "execute"
-        self.certainty = certainty
-        super().__init__(problems)
-
-
-class DomainExecutionFailed(DomainRuntimeFailure):
-    """One synchronous domain execution failed or has an unknown outcome."""
+class DomainExecutionFailed(OperationFailure):
+    """One domain job failed or reached an indeterminate outcome."""
 
     def __init__(
         self,
@@ -206,12 +181,14 @@ class DomainExecutionFailed(DomainRuntimeFailure):
         certainty: RunCertainty,
         receipt: DomainExecutionReceiptEvidence | None,
     ) -> None:
+        if not run_id or not operation_id or not invocation_id or not execution_key:
+            msg = "domain execution failure identity fields must be non-empty"
+            raise ValueError(msg)
+        self.run_id = run_id
+        self.operation_id = operation_id
+        self.invocation_id = invocation_id
+        self.execution_key = execution_key
+        self.phase: Literal["execute"] = "execute"
+        self.certainty = certainty
         self.receipt = receipt
-        super().__init__(
-            problems,
-            run_id=run_id,
-            operation_id=operation_id,
-            invocation_id=invocation_id,
-            execution_key=execution_key,
-            certainty=certainty,
-        )
+        super().__init__(problems)

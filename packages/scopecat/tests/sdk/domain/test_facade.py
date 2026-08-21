@@ -13,6 +13,8 @@ _DOMAIN_ADAPTER_CONTRACTS = {
     "DomainExecutionReceipt",
     "DomainExecutionResult",
     "DomainInvocationSpec",
+    "DomainJobCheckpoint",
+    "DomainJobRuntime",
     "DomainMappedResult",
     "DomainResultValue",
 }

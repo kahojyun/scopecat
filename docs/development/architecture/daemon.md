@@ -46,7 +46,8 @@ Interface, entity, channel, component, and property addresses remain exact
 command data, while instrument claims provide exclusion against other runs and
 direct sessions.
 
-Host orchestration and domain runtime may use the same provisioned instrument.
+Host orchestration and a domain job runtime may use the same provisioned
+instrument.
 Property-level write authority, state requirements, and invalidations are
 verified during planning; the daemon schedules only the resulting instrument
 claims. The [execution semantics](execution.md#physical-authority-and-shared-state)

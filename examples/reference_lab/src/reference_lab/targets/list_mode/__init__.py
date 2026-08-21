@@ -9,12 +9,6 @@ from reference_lab.targets.list_mode.device_execution import (
     list_mode_setup_state_invalidations,
     list_mode_state_requirements,
 )
-from reference_lab.targets.list_mode.domain_runtime import (
-    ListModeDomainRuntime,
-    MappedListModeTarget,
-    list_mode_measurement_invocation_spec,
-    realize_executed_measurements,
-)
 from reference_lab.targets.list_mode.execution_model import (
     AcquisitionResponse,
     ListModeRun,
@@ -24,6 +18,12 @@ from reference_lab.targets.list_mode.inspection import (
     ListModeArtifactInspectionSnapshot,
     build_list_mode_artifact_inspection_snapshot,
     point_realization_fingerprint,
+)
+from reference_lab.targets.list_mode.job_runtime import (
+    ListModeDomainJobRuntime,
+    MappedListModeTarget,
+    list_mode_measurement_invocation_spec,
+    realize_executed_measurements,
 )
 from reference_lab.targets.list_mode.model import (
     ListModeArtifact,
@@ -63,7 +63,7 @@ __all__ = [
     "ListModeCompilationStageCacheInfo",
     "ListModeCompilationTrace",
     "ListModeDeviceSnapshot",
-    "ListModeDomainRuntime",
+    "ListModeDomainJobRuntime",
     "ListModePhysicalFootprint",
     "ListModePlacementCandidate",
     "ListModePlacementConstraint",

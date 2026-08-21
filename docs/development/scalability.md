@@ -630,8 +630,8 @@ The present architecture provides a direct end-to-end baseline:
   canonical values one at a time into the execution coverage sink; the daemon
   then owns bounded pending Arrow chunks until durable ingest acceptance rather
   than retaining a second complete candidate tuple;
-- cancellation fences every hardware batch submitted from a synchronous domain
-  runtime, including each bounded shot chunk. A request arriving during a
+- cancellation fences every hardware batch submitted from a domain job runtime,
+  including each bounded shot chunk. A request arriving during a
   driver call is honored before the next batch; the completed receipt is still
   interpreted first, so cancellation cannot turn known hardware evidence into
   a fabricated indeterminate failure. The maximum cooperative cancellation

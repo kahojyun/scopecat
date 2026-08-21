@@ -64,7 +64,7 @@ from reference_lab.quantum_runner import (
     quantum_capture,
 )
 from reference_lab.targets.list_mode import configured_list_mode_target
-from reference_lab.virtual_lab.execution import virtual_quantum_runtime
+from reference_lab.virtual_lab.execution import virtual_quantum_job_runtime
 from reference_lab.workflows.drag_beta_calibration import drag_beta_program
 from scopecat.api.lab import LabClient
 from scopecat.api.run import RunHandle
@@ -640,7 +640,7 @@ def run_scopecat_core(
         provider=provider,
         domain_compiler=QuantumLabCompiler(
             target=target,
-            runtime_selector=virtual_quantum_runtime,
+            job_runtime_selector=virtual_quantum_job_runtime,
         ),
         payload_codecs=reference_lab_payload_codecs(),
     )
@@ -729,7 +729,7 @@ def run_scopecat(
             instrument_catalog=catalog,
             domain_compiler=QuantumLabCompiler(
                 target=target,
-                runtime_selector=virtual_quantum_runtime,
+                job_runtime_selector=virtual_quantum_job_runtime,
             ),
             payload_codecs=reference_lab_payload_codecs(),
         )

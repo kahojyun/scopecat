@@ -48,7 +48,7 @@ type _ResultBinding = DomainResultBinding[str]
 
 
 class _NoEffectsRuntime:
-    def execute(
+    def start(
         self,
         execution_key: str,
         payload: dict[str, str],
@@ -417,7 +417,7 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
         next_batch_max_points=32,
         mapping=mapping,
         invocation=invocation,
-        runtime=_NoEffectsRuntime(),
+        job_runtime=_NoEffectsRuntime(),
         realize=reject_realization,
     )
 
@@ -475,7 +475,7 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
             next_batch_max_points=32,
             mapping=mapping,
             invocation=invocation,
-            runtime=_NoEffectsRuntime(),
+            job_runtime=_NoEffectsRuntime(),
             realize=reject_realization,
         )
     assert prepared.realtime_state_invalidations == (

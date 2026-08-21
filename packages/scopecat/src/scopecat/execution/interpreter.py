@@ -15,7 +15,7 @@ from scopecat.execution.effect_result import (
     RunEffectResult,
 )
 from scopecat.execution.effects.domain import (
-    domain_runtime_terminal_problem,
+    domain_job_terminal_problem,
     measurement_recording_terminal_problem,
 )
 from scopecat.execution.evidence import (
@@ -51,7 +51,7 @@ from scopecat.execution.services import (
 )
 from scopecat.kernel.errors import (
     CheckFailed,
-    DomainRuntimeFailure,
+    DomainExecutionFailed,
     MeasurementRecordingError,
     ProblemFailure,
     RunCancelled,
@@ -729,7 +729,7 @@ def _domain_failure_problems(
     *,
     run_id: str,
 ) -> tuple[list[Problem], bool, BaseException | None]:
-    if isinstance(error, DomainRuntimeFailure):
+    if isinstance(error, DomainExecutionFailed):
         problems = list(
             contextualize_problems(
                 error.problems,
@@ -737,7 +737,7 @@ def _domain_failure_problems(
                 operation_id=error.operation_id,
             )
         )
-        problems.append(domain_runtime_terminal_problem(error, run_id=run_id))
+        problems.append(domain_job_terminal_problem(error, run_id=run_id))
         uncertain = error.certainty == "indeterminate"
         return problems, uncertain, None
     if isinstance(error, ProblemFailure):

@@ -2,11 +2,9 @@
 
 Domain compilers consume the target-neutral bound program and close target,
 result, and value decisions before a bounded batch enters domain effects.
-Scopecat retains ownership of runtime execution, correlation, recording, and
-terminal run evidence.
-
-The runtime boundary is synchronous: one execute returns the complete result
-while receipts preserve known and indeterminate outcomes.
+Scopecat retains ownership of job advancement, correlation, recording, and
+terminal run evidence. Synchronous targets finish from ``start``; externally
+resumable targets may expose one or more correlated checkpoint transitions.
 """
 
 from __future__ import annotations
@@ -24,12 +22,12 @@ from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.sdk.domain.invocation import ClosedDomainInvocation
 from scopecat.sdk.domain.runtime import (
     DomainExecutionResult,
-    DomainRuntime,
+    DomainJobRuntime,
     DomainSetup,
 )
 
 type ErasedDomainInvocation = ClosedDomainInvocation[Hashable, object]
-type ErasedDomainRuntime = DomainRuntime[object, object]
+type ErasedDomainJobRuntime = DomainJobRuntime[object, object]
 type ErasedDomainSetup = DomainSetup[object]
 type ErasedDomainResultSink = Callable[[MeasurementValueCandidate], None]
 type ErasedDomainRealizer = Callable[
@@ -98,7 +96,7 @@ class PreparedDomainExecution:
     next_batch_max_points: int
     invocation: ErasedDomainInvocation = field(repr=False)
     setup: ErasedDomainSetup | None = field(repr=False, compare=False)
-    runtime: ErasedDomainRuntime = field(repr=False, compare=False)
+    job_runtime: ErasedDomainJobRuntime = field(repr=False, compare=False)
     realize_into: ErasedDomainRealizer = field(repr=False, compare=False)
     inspection: CompiledArtifactInspection | None = field(
         default=None,

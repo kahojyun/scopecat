@@ -31,6 +31,7 @@ from scopecat.sdk.domain.runtime import (
     DomainExecutionCancellationRequested,
     DomainExecutionId,
     DomainExecutionReceipt,
+    DomainJobCheckpoint,
 )
 from scopecat.sdk.instruments.execution import (
     RunHardwareBatch,
@@ -326,8 +327,13 @@ class RunEffectInterpreter:
                 run_id=self.run_id,
                 instruments=self._domain_instruments,
                 accept=self._hardware.values.append,
-                observe_attempt=lambda execution_id, receipt: (
-                    self._record_domain_attempt(job, execution_id, receipt)
+                observe_attempt=lambda execution_id, checkpoints, receipt: (
+                    self._record_domain_attempt(
+                        job,
+                        execution_id,
+                        checkpoints,
+                        receipt,
+                    )
                 ),
             )
         except DomainExecutionCancellationRequested:
@@ -346,6 +352,7 @@ class RunEffectInterpreter:
         self,
         job: RunDomainJob,
         execution_id: DomainExecutionId,
+        checkpoints: tuple[DomainJobCheckpoint, ...],
         receipt: DomainExecutionReceipt | None,
     ) -> None:
         self.domain_execution_attempts.append(
@@ -354,6 +361,7 @@ class RunEffectInterpreter:
                 point_ordinals=job.point_ordinals,
                 execution_key=execution_id.execution_key,
                 intent=job.execution.invocation.intent,
+                checkpoints=checkpoints,
                 receipt=receipt,
             )
         )

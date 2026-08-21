@@ -46,13 +46,13 @@ from reference_lab.quantum_runner import (
 from reference_lab.targets.list_mode import (
     ConfiguredRoutePlacementProvider,
     ListModeDeviceSnapshot,
-    ListModeDomainRuntime,
+    ListModeDomainJobRuntime,
     ListModePlacementDecision,
     MappedListModeTarget,
     configured_list_mode_target,
     point_realization_fingerprint,
 )
-from reference_lab.virtual_lab.execution import virtual_quantum_runtime
+from reference_lab.virtual_lab.execution import virtual_quantum_job_runtime
 from reference_lab.workflows.drag_beta_calibration import (
     drag_beta_program,
     drag_readout_pulse,
@@ -276,7 +276,7 @@ def _logical_measurement_values(
         provider=provider,
         domain_compiler=QuantumLabCompiler(
             target=_configured_target(config, provider),
-            runtime_selector=virtual_quantum_runtime,
+            job_runtime_selector=virtual_quantum_job_runtime,
         ),
         payload_codecs=reference_lab_payload_codecs(),
     )
@@ -368,7 +368,7 @@ def test_quantum_target_executes_through_reserved_bare_instruments(
         provider=provider,
         domain_compiler=QuantumLabCompiler(
             target=_configured_target(config, provider),
-            runtime_selector=virtual_quantum_runtime,
+            job_runtime_selector=virtual_quantum_job_runtime,
         ),
         payload_codecs=reference_lab_payload_codecs(),
     )
@@ -430,7 +430,7 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
         provider=provider,
         domain_compiler=QuantumLabCompiler(
             target=_configured_target(config, provider),
-            runtime_selector=virtual_quantum_runtime,
+            job_runtime_selector=virtual_quantum_job_runtime,
             placement_provider=placement_provider,
         ),
         payload_codecs=reference_lab_payload_codecs(),
@@ -678,7 +678,9 @@ def test_reviewed_los_prepare_once_without_fragmenting_quantum_batches() -> None
     jobs = tuple(
         operation for operation in coverage if isinstance(operation, RunDomainJob)
     )
-    assert all(type(job.execution.runtime) is ListModeDomainRuntime for job in jobs)
+    assert all(
+        type(job.execution.job_runtime) is ListModeDomainJobRuntime for job in jobs
+    )
     assert [effect.instrument_id for effect in state_effects] == [
         "drive-awg",
         "readout-awg",

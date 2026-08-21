@@ -49,8 +49,11 @@ if TYPE_CHECKING:
         DomainExecutionReceipt,
         DomainExecutionResult,
         DomainInstrumentExecutor,
-        DomainRuntime,
+        DomainJobCheckpoint,
+        DomainJobRuntime,
+        DomainJobTransition,
         DomainSetup,
+        ResumableDomainJobRuntime,
     )
     from scopecat.sdk.domain.view import (
         DomainCallView,
@@ -104,8 +107,11 @@ _RUNTIME_EXPORTS = (
     "DomainExecutionReceipt",
     "DomainExecutionResult",
     "DomainInstrumentExecutor",
-    "DomainRuntime",
+    "DomainJobCheckpoint",
+    "DomainJobRuntime",
+    "DomainJobTransition",
     "DomainSetup",
+    "ResumableDomainJobRuntime",
 )
 _VIEW_EXPORTS = (
     "DomainCallView",
@@ -176,6 +182,9 @@ __all__ = [
     "DomainInputPortView",
     "DomainInstrumentExecutor",
     "DomainInvocationSpec",
+    "DomainJobCheckpoint",
+    "DomainJobRuntime",
+    "DomainJobTransition",
     "DomainMappedResult",
     "DomainPointRef",
     "DomainPreparationBuilder",
@@ -188,9 +197,9 @@ __all__ = [
     "DomainResultMapping",
     "DomainResultPortView",
     "DomainResultValue",
-    "DomainRuntime",
     "DomainSetup",
     "DomainStateAddress",
     "DomainStateRequirement",
     "PreparedDomainExecution",
+    "ResumableDomainJobRuntime",
 ]

@@ -57,7 +57,7 @@ from reference_lab.targets.list_mode import (
     ConfiguredRoutePlacementProvider,
     ListModeArtifact,
     ListModeCompilationTrace,
-    ListModeDomainRuntime,
+    ListModeDomainJobRuntime,
     ListModePlacementProvider,
     ListModeRun,
     ListModeTarget,
@@ -98,7 +98,7 @@ class _CompiledQuantumPoint:
 
 
 @dataclass(frozen=True, slots=True)
-class QuantumRuntimeContext:
+class QuantumJobRuntimeContext:
     """Compiled logical context available to an optional execution adapter."""
 
     program: quantum.Program = field(repr=False)
@@ -108,17 +108,20 @@ class QuantumRuntimeContext:
 
 
 @dataclass(frozen=True, slots=True)
-class QuantumRuntimeSelection:
-    """Runtime plus stable response intent selected by a lab composition."""
+class QuantumJobRuntimeSelection:
+    """Job runtime plus stable response intent selected by a lab composition."""
 
-    runtime: ListModeDomainRuntime
+    job_runtime: ListModeDomainJobRuntime
     response_intent: Mapping[str, JsonValue] | None = None
 
 
-class QuantumRuntimeSelector(Protocol):
+class QuantumJobRuntimeSelector(Protocol):
     """Select execution behavior without changing target compilation."""
 
-    def __call__(self, context: QuantumRuntimeContext) -> QuantumRuntimeSelection: ...
+    def __call__(
+        self,
+        context: QuantumJobRuntimeContext,
+    ) -> QuantumJobRuntimeSelection: ...
 
 
 class QuantumLabCompiler:
@@ -133,12 +136,12 @@ class QuantumLabCompiler:
         self,
         *,
         target: ListModeTarget,
-        runtime_selector: QuantumRuntimeSelector | None = None,
+        job_runtime_selector: QuantumJobRuntimeSelector | None = None,
         placement_provider: ListModePlacementProvider | None = None,
     ) -> None:
         self._target = target
-        self._runtime = ListModeDomainRuntime()
-        self._runtime_selector = runtime_selector
+        self._job_runtime = ListModeDomainJobRuntime()
+        self._job_runtime_selector = job_runtime_selector
         selected_placement_provider = (
             ConfiguredRoutePlacementProvider()
             if placement_provider is None
@@ -272,15 +275,15 @@ class QuantumLabCompiler:
             artifact.target_artifact,
             mapping,
         )
-        selection = self._select_runtime(
-            QuantumRuntimeContext(
+        selection = self._select_job_runtime(
+            QuantumJobRuntimeContext(
                 program=artifact.program,
                 points=artifact.points,
                 entries=entries,
                 repetitions=batch.request.repetitions,
             )
         )
-        runtime = selection.runtime
+        job_runtime = selection.job_runtime
         invocation = list_mode_measurement_invocation_spec(
             mapped_target,
             invocation_id=(
@@ -312,7 +315,7 @@ class QuantumLabCompiler:
 
         return preparation.build(
             instrument_ids=artifact.target_artifact.instrument_ids,
-            setup=runtime,
+            setup=job_runtime,
             setup_state_invalidations=list_mode_setup_state_invalidations(
                 artifact.target_artifact
             ),
@@ -334,17 +337,17 @@ class QuantumLabCompiler:
             ),
             mapping=mapping,
             invocation=invocation,
-            runtime=runtime,
+            job_runtime=job_runtime,
             realize=lambda fetched: _realize(mapped_target, fetched),
         )
 
-    def _select_runtime(
+    def _select_job_runtime(
         self,
-        context: QuantumRuntimeContext,
-    ) -> QuantumRuntimeSelection:
-        if self._runtime_selector is None:
-            return QuantumRuntimeSelection(self._runtime)
-        return self._runtime_selector(context)
+        context: QuantumJobRuntimeContext,
+    ) -> QuantumJobRuntimeSelection:
+        if self._job_runtime_selector is None:
+            return QuantumJobRuntimeSelection(self._job_runtime)
+        return self._job_runtime_selector(context)
 
 
 def _quantum_program(call: DomainCallView) -> quantum.Program:
@@ -466,8 +469,8 @@ def _realize(
 
 
 __all__ = [
+    "QuantumJobRuntimeContext",
+    "QuantumJobRuntimeSelection",
+    "QuantumJobRuntimeSelector",
     "QuantumLabCompiler",
-    "QuantumRuntimeContext",
-    "QuantumRuntimeSelection",
-    "QuantumRuntimeSelector",
 ]

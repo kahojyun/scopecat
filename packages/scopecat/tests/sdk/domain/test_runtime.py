@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Literal, cast
+from typing import Literal, cast, override
 
 import pytest
 from pydantic import ValidationError
@@ -21,8 +21,10 @@ from scopecat.sdk.domain.runtime import (
     DomainExecutionId,
     DomainExecutionReceipt,
     DomainExecutionResult,
-    execute_domain_invocation,
+    DomainJobCheckpoint,
+    DomainJobRuntime,
     plan_domain_execution,
+    run_domain_invocation,
 )
 from scopecat.sdk.instruments.execution import (
     RunHardwareBatch,
@@ -171,10 +173,10 @@ class _Runtime:
     status: Literal["completed", "not_executed", "unknown"] = "completed"
     error: Exception | None = None
     forge_key: bool = False
-    execute_calls: int = 0
+    start_calls: int = 0
     execution_keys: list[str] = field(default_factory=list)
 
-    def execute(
+    def start(
         self,
         execution_key: str,
         payload: dict[str, str],
@@ -182,7 +184,7 @@ class _Runtime:
         instruments: object,
     ) -> DomainExecutionReceipt | DomainExecutionResult[str]:
         del payload, instruments
-        self.execute_calls += 1
+        self.start_calls += 1
         self.execution_keys.append(execution_key)
         if self.error is not None:
             raise self.error
@@ -204,11 +206,11 @@ class _Runtime:
         )
 
 
-def _execute(
-    runtime: _Runtime,
+def _run(
+    runtime: DomainJobRuntime[dict[str, str], str],
     invocation: _Invocation,
 ) -> DomainExecutionResult[str]:
-    return execute_domain_invocation(
+    return run_domain_invocation(
         runtime,
         invocation,
         _execution_id(invocation),
@@ -220,7 +222,7 @@ def test_synchronous_execution_returns_correlated_result() -> None:
     invocation = _closed_invocation()
     runtime = _Runtime()
 
-    result = _execute(runtime, invocation)
+    result = _run(runtime, invocation)
 
     assert result.result == "payload"
     assert runtime.execution_keys == [_execution_id(invocation).execution_key]
@@ -240,7 +242,7 @@ def test_negative_outcomes_preserve_certainty(
     invocation = _closed_invocation()
     runtime = _Runtime(status=status)
     with pytest.raises(DomainExecutionFailed) as caught:
-        _execute(runtime, invocation)
+        _run(runtime, invocation)
 
     assert caught.value.certainty == certainty
     receipt = caught.value.receipt
@@ -252,7 +254,7 @@ def test_runtime_exception_and_forged_receipt_are_indeterminate() -> None:
     invocation = _closed_invocation()
     for runtime in (_Runtime(error=RuntimeError("lost")), _Runtime(forge_key=True)):
         with pytest.raises(DomainExecutionFailed) as caught:
-            _execute(runtime, invocation)
+            _run(runtime, invocation)
         assert caught.value.certainty == "indeterminate"
         assert caught.value.receipt is None
 
@@ -262,6 +264,100 @@ def test_cancellation_control_flow_is_not_normalized_as_domain_failure() -> None
     cancellation = DomainExecutionCancellationRequested()
 
     with pytest.raises(DomainExecutionCancellationRequested) as caught:
-        _execute(_Runtime(error=cancellation), invocation)
+        _run(_Runtime(error=cancellation), invocation)
 
     assert caught.value is cancellation
+
+
+@dataclass
+class _ResumableRuntime:
+    execution_keys: list[str] = field(default_factory=list)
+    revisions: list[int] = field(default_factory=list)
+
+    def start(
+        self,
+        execution_key: str,
+        payload: dict[str, str],
+        *,
+        instruments: object,
+    ) -> DomainJobCheckpoint:
+        del payload, instruments
+        self.execution_keys.append(execution_key)
+        return DomainJobCheckpoint(
+            execution_key=execution_key,
+            job_id="provider-job",
+            revision=1,
+            resume_token={"provider_job_id": "provider-job"},
+            progress={"status": "submitted"},
+        )
+
+    def resume(
+        self,
+        checkpoint: DomainJobCheckpoint,
+        *,
+        instruments: object,
+    ) -> DomainJobCheckpoint | DomainExecutionResult[str]:
+        del instruments
+        self.revisions.append(checkpoint.revision)
+        if checkpoint.revision == 1:
+            return checkpoint.model_copy(
+                update={
+                    "revision": 2,
+                    "progress": {"status": "results_ready"},
+                }
+            )
+        return DomainExecutionResult(
+            DomainExecutionReceipt(
+                execution_key=checkpoint.execution_key,
+                status="completed",
+                result_fingerprint="result",
+                result_count=1,
+            ),
+            "payload",
+        )
+
+
+def test_resumable_job_reports_ordered_correlated_checkpoints() -> None:
+    invocation = _closed_invocation()
+    runtime = _ResumableRuntime()
+    observed: list[DomainJobCheckpoint] = []
+
+    result = run_domain_invocation(
+        runtime,
+        invocation,
+        _execution_id(invocation),
+        instruments=_NoopInstrumentExecutor(),
+        observe_checkpoint=observed.append,
+    )
+
+    assert result.result == "payload"
+    assert [checkpoint.revision for checkpoint in observed] == [1, 2]
+    assert runtime.revisions == [1, 2]
+
+
+@pytest.mark.parametrize("violation", ["execution_key", "job_id", "revision"])
+def test_resumable_job_rejects_uncorrelated_or_stale_checkpoint(
+    violation: str,
+) -> None:
+    class InvalidRuntime(_ResumableRuntime):
+        @override
+        def resume(
+            self,
+            checkpoint: DomainJobCheckpoint,
+            *,
+            instruments: object,
+        ) -> DomainJobCheckpoint:
+            del instruments
+            update: dict[str, object] = {"revision": 2}
+            if violation == "execution_key":
+                update["execution_key"] = "another-execution"
+            elif violation == "job_id":
+                update["job_id"] = "another-job"
+            else:
+                update["revision"] = checkpoint.revision
+            return checkpoint.model_copy(update=update)
+
+    with pytest.raises(DomainExecutionFailed) as caught:
+        _ = _run(InvalidRuntime(), _closed_invocation())
+
+    assert caught.value.certainty == "indeterminate"

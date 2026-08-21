@@ -8,7 +8,6 @@ from typing import cast
 
 from scopecat.kernel.errors import (
     DomainExecutionFailed,
-    DomainRuntimeFailure,
     MeasurementRecordingError,
     OperationFailure,
 )
@@ -27,8 +26,10 @@ from scopecat.sdk.domain.runtime import (
     DomainExecutionReceipt,
     DomainExecutionResult,
     DomainInstrumentExecutor,
-    execute_domain_invocation,
+    DomainJobCheckpoint,
+    ResumableDomainJobRuntime,
     plan_domain_execution,
+    run_domain_invocation,
 )
 from scopecat.sdk.instruments.commands import InstrumentStateAssignment
 from scopecat.sdk.instruments.execution import RunHardwareApply, RunHardwareBatch
@@ -45,7 +46,11 @@ def execute_domain_job_values(
     instruments: DomainInstrumentExecutor,
     accept: Callable[[MeasurementValueCandidate], None],
     observe_attempt: Callable[
-        [DomainExecutionId, DomainExecutionReceipt | None],
+        [
+            DomainExecutionId,
+            tuple[DomainJobCheckpoint, ...],
+            DomainExecutionReceipt | None,
+        ],
         None,
     ],
 ) -> None:
@@ -56,44 +61,47 @@ def execute_domain_job_values(
     """
 
     invocation = prepared.invocation
-    runtime = _RequirementReconciledRuntime(prepared)
+    runtime = _PreparedDomainJobRuntime(prepared)
     execution_id = plan_domain_execution(
         invocation,
         run_id=run_id,
         logical_compute_node_id=logical_compute_node_id,
     )
+    checkpoints: list[DomainJobCheckpoint] = []
     try:
-        result = execute_domain_invocation(
+        result = run_domain_invocation(
             runtime,
             invocation,
             execution_id,
             instruments=instruments,
+            observe_checkpoint=checkpoints.append,
         )
     except DomainExecutionFailed as error:
         observe_attempt(
             execution_id,
+            tuple(checkpoints),
             cast("DomainExecutionReceipt | None", error.receipt),
         )
         raise
     except BaseException:
-        observe_attempt(execution_id, None)
+        observe_attempt(execution_id, tuple(checkpoints), None)
         raise
-    observe_attempt(execution_id, result.receipt)
+    observe_attempt(execution_id, tuple(checkpoints), result.receipt)
     prepared.realize_into(result, accept)
 
 
 @dataclass(frozen=True, slots=True)
-class _RequirementReconciledRuntime:
+class _PreparedDomainJobRuntime:
     prepared: PreparedDomainExecution
 
-    def execute(
+    def start(
         self,
         execution_key: str,
         payload: object,
         /,
         *,
         instruments: DomainInstrumentExecutor,
-    ) -> DomainExecutionReceipt | DomainExecutionResult[object]:
+    ) -> DomainJobCheckpoint | DomainExecutionReceipt | DomainExecutionResult[object]:
         try:
             setup = self.prepared.setup
             if setup is not None:
@@ -109,11 +117,29 @@ class _RequirementReconciledRuntime:
                 status="not_executed",
                 problems=error.problems,
             )
-        return self.prepared.runtime.execute(
+        return self.prepared.job_runtime.start(
             execution_key,
             payload,
             instruments=instruments,
         )
+
+    def resume(
+        self,
+        checkpoint: DomainJobCheckpoint,
+        /,
+        *,
+        instruments: DomainInstrumentExecutor,
+    ) -> DomainJobCheckpoint | DomainExecutionReceipt | DomainExecutionResult[object]:
+        if not hasattr(self.prepared.job_runtime, "resume"):
+            raise TypeError(
+                "a job runtime that returns a pending domain checkpoint must "
+                "implement resume"
+            )
+        resumable = cast(
+            "ResumableDomainJobRuntime[object]",
+            cast("object", self.prepared.job_runtime),
+        )
+        return resumable.resume(checkpoint, instruments=instruments)
 
 
 def _reconcile_domain_state_requirements(
@@ -164,8 +190,8 @@ def _reconcile_domain_state_requirements(
         raise OperationFailure(receipt.problems)
 
 
-def domain_runtime_terminal_problem(
-    error: DomainRuntimeFailure,
+def domain_job_terminal_problem(
+    error: DomainExecutionFailed,
     *,
     run_id: str,
 ) -> Problem:
@@ -178,8 +204,8 @@ def domain_runtime_terminal_problem(
         "execution_key": error.execution_key,
     }
     return runtime_problem(
-        "domain_runtime_terminalized",
-        "the unified run was terminalized with domain target correlation retained",
+        "domain_job_terminalized",
+        "the unified run was terminalized with domain job correlation retained",
         run_id=run_id,
         operation_id=error.operation_id,
         details=details,

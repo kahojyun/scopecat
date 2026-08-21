@@ -11,7 +11,7 @@ from scopecat.execution.effect_interpreter import (
     _CancellationAwareDomainInstruments,
 )
 from scopecat.execution.effects.domain import (
-    _RequirementReconciledRuntime,
+    _PreparedDomainJobRuntime,
     execute_domain_job_values,
 )
 from scopecat.execution.evidence import build_domain_execution_evidence
@@ -26,8 +26,8 @@ from scopecat.sdk.domain.execution import (
     DomainStateAddress,
     DomainStateRequirement,
     ErasedDomainInvocation,
+    ErasedDomainJobRuntime,
     ErasedDomainRealizer,
-    ErasedDomainRuntime,
     ErasedDomainSetup,
     PreparedDomainExecution,
 )
@@ -38,6 +38,7 @@ from scopecat.sdk.domain.runtime import (
     DomainExecutionId,
     DomainExecutionReceipt,
     DomainExecutionResult,
+    DomainJobCheckpoint,
 )
 from scopecat.sdk.instruments.execution import (
     RunHardwareBatch,
@@ -77,7 +78,7 @@ class _Setup:
 class _Realtime:
     calls: int = 0
 
-    def execute(
+    def start(
         self,
         execution_key: str,
         payload: object,
@@ -121,7 +122,7 @@ def _prepared(
         next_batch_max_points=1,
         invocation=cast("ErasedDomainInvocation", object()),
         setup=cast("ErasedDomainSetup", setup),
-        runtime=cast("ErasedDomainRuntime", realtime),
+        job_runtime=cast("ErasedDomainJobRuntime", realtime),
         realize_into=cast("ErasedDomainRealizer", realize_into),
     )
 
@@ -141,9 +142,9 @@ def _requirement() -> DomainStateRequirement:
 def test_known_setup_rejection_returns_not_executed() -> None:
     setup = _Setup(OperationFailure((_failure(),)))
     realtime = _Realtime()
-    runtime = _RequirementReconciledRuntime(_prepared(setup=setup, realtime=realtime))
+    runtime = _PreparedDomainJobRuntime(_prepared(setup=setup, realtime=realtime))
 
-    receipt = runtime.execute(
+    receipt = runtime.start(
         "execution-key",
         object(),
         instruments=_Executor(RunHardwareBatchReceipt(operation_id="unused")),
@@ -162,7 +163,7 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
         contract_fingerprint: str = "test-result-contract"
 
     class Runtime:
-        def execute(
+        def start(
             self,
             execution_key: str,
             payload: object,
@@ -182,7 +183,7 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
             )
 
     class NegativeRuntime:
-        def execute(
+        def start(
             self,
             execution_key: str,
             payload: object,
@@ -197,8 +198,45 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
                 problems=(_failure(),),
             )
 
+    class CheckpointThenNegativeRuntime:
+        def start(
+            self,
+            execution_key: str,
+            payload: object,
+            *,
+            instruments: object,
+        ) -> DomainJobCheckpoint:
+            del payload, instruments
+            return DomainJobCheckpoint(
+                execution_key=execution_key,
+                job_id="provider-job",
+                revision=1,
+                resume_token={"provider_job_id": "provider-job"},
+                progress={"status": "submitted"},
+            )
+
+        def resume(
+            self,
+            checkpoint: DomainJobCheckpoint,
+            *,
+            instruments: object,
+        ) -> DomainJobCheckpoint | DomainExecutionReceipt:
+            del instruments
+            if checkpoint.revision == 1:
+                return checkpoint.model_copy(
+                    update={
+                        "revision": 2,
+                        "progress": {"status": "hardware_unknown"},
+                    }
+                )
+            return DomainExecutionReceipt(
+                execution_key=checkpoint.execution_key,
+                status="unknown",
+                problems=(_failure(),),
+            )
+
     class RaisingRuntime:
-        def execute(
+        def start(
             self,
             execution_key: str,
             payload: object,
@@ -240,10 +278,16 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
         next_batch_max_points=1,
         invocation=cast("ErasedDomainInvocation", invocation),
         setup=None,
-        runtime=cast("ErasedDomainRuntime", Runtime()),
+        job_runtime=cast("ErasedDomainJobRuntime", Runtime()),
         realize_into=cast("ErasedDomainRealizer", fail_realization),
     )
-    observed: list[tuple[DomainExecutionId, DomainExecutionReceipt | None]] = []
+    observed: list[
+        tuple[
+            DomainExecutionId,
+            tuple[DomainJobCheckpoint, ...],
+            DomainExecutionReceipt | None,
+        ]
+    ] = []
 
     with pytest.raises(RuntimeError, match="result realization failed"):
         execute_domain_job_values(
@@ -252,35 +296,41 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
             run_id="test-run",
             instruments=_Executor(RunHardwareBatchReceipt(operation_id="unused")),
             accept=lambda _candidate: None,
-            observe_attempt=lambda execution_id, receipt: observed.append(
-                (execution_id, receipt)
+            observe_attempt=lambda execution_id, checkpoints, receipt: observed.append(
+                (execution_id, checkpoints, receipt)
             ),
         )
 
     assert len(observed) == 1
-    execution_id, receipt = observed[0]
+    execution_id, checkpoints, receipt = observed[0]
     assert execution_id.logical_compute_node_id == "test-node"
+    assert checkpoints == ()
     assert receipt is not None
     assert receipt.execution_evidence == {"selected_channel": "a"}
 
     negative_observed: list[
-        tuple[DomainExecutionId, DomainExecutionReceipt | None]
+        tuple[
+            DomainExecutionId,
+            tuple[DomainJobCheckpoint, ...],
+            DomainExecutionReceipt | None,
+        ]
     ] = []
     with pytest.raises(DomainExecutionFailed):
         execute_domain_job_values(
             replace(
                 prepared,
-                runtime=cast("ErasedDomainRuntime", NegativeRuntime()),
+                job_runtime=cast("ErasedDomainJobRuntime", NegativeRuntime()),
             ),
             logical_compute_node_id="test-node",
             run_id="test-run",
             instruments=_Executor(RunHardwareBatchReceipt(operation_id="unused")),
             accept=lambda _candidate: None,
-            observe_attempt=lambda execution_id, attempt_receipt: (
-                negative_observed.append((execution_id, attempt_receipt))
+            observe_attempt=lambda execution_id, checkpoints, attempt_receipt: (
+                negative_observed.append((execution_id, checkpoints, attempt_receipt))
             ),
         )
-    [(_execution_id, negative_receipt)] = negative_observed
+    [(_execution_id, negative_checkpoints, negative_receipt)] = negative_observed
+    assert negative_checkpoints == ()
     assert negative_receipt is not None
     assert negative_receipt.status == "unknown"
 
@@ -299,7 +349,10 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
                 (0,),
                 replace(
                     prepared,
-                    runtime=cast("ErasedDomainRuntime", NegativeRuntime()),
+                    job_runtime=cast(
+                        "ErasedDomainJobRuntime",
+                        CheckpointThenNegativeRuntime(),
+                    ),
                 ),
             ),
         ),
@@ -311,23 +364,35 @@ def test_attempt_is_observed_before_result_realization_or_failure() -> None:
     assert attempt.receipt is not None
     assert attempt.receipt.status == "unknown"
     assert attempt.execution_key == attempt.receipt.execution_key
+    assert [checkpoint.revision for checkpoint in attempt.checkpoints] == [1, 2]
+    assert [checkpoint.progress["status"] for checkpoint in attempt.checkpoints] == [
+        "submitted",
+        "hardware_unknown",
+    ]
 
-    missing_observed: list[tuple[DomainExecutionId, DomainExecutionReceipt | None]] = []
+    missing_observed: list[
+        tuple[
+            DomainExecutionId,
+            tuple[DomainJobCheckpoint, ...],
+            DomainExecutionReceipt | None,
+        ]
+    ] = []
     with pytest.raises(DomainExecutionFailed):
         execute_domain_job_values(
             replace(
                 prepared,
-                runtime=cast("ErasedDomainRuntime", RaisingRuntime()),
+                job_runtime=cast("ErasedDomainJobRuntime", RaisingRuntime()),
             ),
             logical_compute_node_id="test-node",
             run_id="test-run",
             instruments=_Executor(RunHardwareBatchReceipt(operation_id="unused")),
             accept=lambda _candidate: None,
-            observe_attempt=lambda execution_id, attempt_receipt: (
-                missing_observed.append((execution_id, attempt_receipt))
+            observe_attempt=lambda execution_id, checkpoints, attempt_receipt: (
+                missing_observed.append((execution_id, checkpoints, attempt_receipt))
             ),
         )
-    [(_execution_id, missing_receipt)] = missing_observed
+    [(_execution_id, missing_checkpoints, missing_receipt)] = missing_observed
+    assert missing_checkpoints == ()
     assert missing_receipt is None
 
 
@@ -370,7 +435,7 @@ def test_setup_success_then_requirement_rejection_skips_realtime() -> None:
             problems=(_failure(),),
         )
     )
-    runtime = _RequirementReconciledRuntime(
+    runtime = _PreparedDomainJobRuntime(
         _prepared(
             setup=setup,
             realtime=realtime,
@@ -378,7 +443,7 @@ def test_setup_success_then_requirement_rejection_skips_realtime() -> None:
         )
     )
 
-    receipt = runtime.execute("execution-key", object(), instruments=instruments)
+    receipt = runtime.start("execution-key", object(), instruments=instruments)
 
     assert isinstance(receipt, DomainExecutionReceipt)
     assert receipt.status == "not_executed"
@@ -402,7 +467,7 @@ def test_uncertain_reconciliation_is_not_retried(
     setup = _Setup()
     realtime = _Realtime()
     instruments = _Executor(receipt)
-    runtime = _RequirementReconciledRuntime(
+    runtime = _PreparedDomainJobRuntime(
         _prepared(
             setup=setup,
             realtime=realtime,
@@ -411,7 +476,7 @@ def test_uncertain_reconciliation_is_not_retried(
     )
 
     with pytest.raises(RuntimeError):
-        runtime.execute("execution-key", object(), instruments=instruments)
+        runtime.start("execution-key", object(), instruments=instruments)
 
     assert setup.calls == 1
     assert realtime.calls == 0

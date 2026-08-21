@@ -21,7 +21,7 @@ BoundPlan               logical proof plus transient bound facts
     | materialize host effects and prepared target executions
     v
 RunProgram              closed residual effect program
-    | execute once through fenced effects and coarse checkpoints
+    | execute once through fenced effects and correlated job transitions
     v
 logical measurements and durable run records
 ```
@@ -138,7 +138,7 @@ One `ExperimentSystem` owns one domain compiler. The compiler may internally
 route supported dialects or invoke a lower-level target compiler after resolving
 inputs. Planning interacts with it through one `compile_batch` boundary and
 receives prepared executions containing the closed target artifact, exact
-point/product mapping, physical authority, and runtime invocation.
+point/product mapping, physical authority, and target job invocation.
 
 Planning asks the domain compiler for a small initial candidate maximum before
 any point-local inputs are resolved. For each candidate, the compiler inspects
@@ -222,10 +222,27 @@ part of the reproducible plan.
 
 ## Completion, failure, and evidence
 
-Execution validates typed receipts for each consequential external invocation.
-It does not maintain a durable transition ledger for normal per-effect progress;
-measurement prefixes, coverage checkpoints, hardware-unknown outcomes, and the
-terminal result are the recovery boundaries. Effects have three semantic outcomes:
+Execution validates typed transitions for each consequential external
+invocation. A domain job starts with its deterministic execution key. A
+synchronous target returns terminal receipt/result evidence directly. A target
+backed by an external job may instead return a JSON-serializable checkpoint
+containing the provider job identity, a strictly increasing revision, an opaque
+resume token, and inspectable progress, then implement `resume` until it returns
+a terminal result or negative receipt. Core rejects transitions that change the
+execution key or job identity, or replay a stale revision.
+
+Observed domain checkpoints are retained with the execution attempt even when
+the attempt later fails. The current interpreter still advances the job in one
+process-local effect call: it does not commit each checkpoint before calling
+`resume`, reload an interrupted job after daemon restart, or stream partial
+target results into point coverage. Those are separate persistence and result
+partitioning changes; the lifecycle ABI now gives them an explicit boundary
+without making every synchronous target emulate an asynchronous provider.
+
+Outside that domain-job sequence, execution does not maintain a durable
+transition ledger for normal per-effect progress. Measurement prefixes,
+coverage checkpoints, hardware-unknown outcomes, and the terminal result remain
+the recovery boundaries. Effects have three semantic outcomes:
 
 - **completed**: validated evidence proves the effect completed;
 - **rejected**: evidence proves the effect did not occur; and
@@ -233,7 +250,7 @@ terminal result are the recovery boundaries. Effects have three semantic outcome
 
 Unknown effects stop dependent execution and are never silently retried. Stable
 operation identities provide correlation and duplicate detection; they do not
-authorize retrying an unknown write. A synchronous domain receipt refines this
+authorize retrying an unknown write. A terminal domain receipt refines this
 boundary with `completed`, `not_executed`, and `unknown`; its exact evidence
 requirements live on `DomainExecutionReceipt`.
 
@@ -244,10 +261,11 @@ the instrument and may apply its configured safe-state patch while it remains
 commandable. The `InstrumentSpec` docstring owns the precise lifecycle order.
 
 Operator cancellation is durable daemon control. Queued work can stop
-immediately; executing work observes cancellation at effect and coverage
-boundaries. The current synchronous domain ABI can stop before or after a target
-call but cannot interrupt it in the middle. Cancellation, terminal commit, and
-resource quarantine are described in the [lab daemon model](daemon.md).
+immediately; executing work observes cancellation at effect, coverage, job
+transition, and target-owned hardware-batch boundaries. It still cannot
+interrupt a blocking provider call in the middle. Cancellation, terminal
+commit, and resource quarantine are described in the
+[lab daemon model](daemon.md).
 
 Instrument state snapshots, measurement prefixes, point-plan decisions, and
 terminal outcomes are durable run evidence. Individual normal hardware calls

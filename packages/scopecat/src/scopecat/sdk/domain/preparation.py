@@ -23,8 +23,8 @@ from scopecat.sdk.domain.execution import (
     DomainStateAddress,
     DomainStateRequirement,
     ErasedDomainInvocation,
+    ErasedDomainJobRuntime,
     ErasedDomainRealizer,
-    ErasedDomainRuntime,
     ErasedDomainSetup,
     PreparedDomainExecution,
 )
@@ -44,7 +44,7 @@ from scopecat.sdk.domain.result_mapping import (
 )
 from scopecat.sdk.domain.runtime import (
     DomainExecutionResult,
-    DomainRuntime,
+    DomainJobRuntime,
     DomainSetup,
 )
 
@@ -120,7 +120,7 @@ class DomainPreparationBuilder:
         ) = None,
         mapping: DomainResultMapping[ResultAddressT],
         invocation: DomainInvocationSpec[PayloadT],
-        runtime: DomainRuntime[PayloadT, ResultT],
+        job_runtime: DomainJobRuntime[PayloadT, ResultT],
         realize: Callable[
             [DomainExecutionResult[ResultT]],
             Iterable[DomainResultValue[ResultAddressT]],
@@ -188,7 +188,7 @@ class DomainPreparationBuilder:
             inspection_projector=inspection_projector,
             invocation=cast("ErasedDomainInvocation", native_invocation),
             setup=cast("ErasedDomainSetup | None", setup),
-            runtime=cast("ErasedDomainRuntime", runtime),
+            job_runtime=cast("ErasedDomainJobRuntime", job_runtime),
             realize_into=cast("ErasedDomainRealizer", close_realized_values),
         )
 

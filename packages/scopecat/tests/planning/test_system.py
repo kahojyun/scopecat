@@ -145,9 +145,9 @@ class _CompleteOptimizer:
 
 class _EffectProbeRuntime:
     def __init__(self) -> None:
-        self.execute_calls = 0
+        self.start_calls = 0
 
-    def execute(
+    def start(
         self,
         execution_key: str,
         payload: dict[str, str],
@@ -155,7 +155,7 @@ class _EffectProbeRuntime:
         instruments: object,
     ) -> DomainExecutionReceipt | DomainExecutionResult[dict[str, str]]:
         del execution_key, payload, instruments
-        self.execute_calls += 1
+        self.start_calls += 1
         raise AssertionError("planning must not execute a domain invocation")
 
 
@@ -171,7 +171,7 @@ class _DomainCompiler:
     initial_size: int | None = None
     compatible_sizes: tuple[int, ...] | None = None
     next_batch_capacities: tuple[int, ...] | None = None
-    runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
+    job_runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
     initial_batch_requests: list[int] = field(default_factory=list)
     compatibility_requests: list[DomainBatchRequest] = field(default_factory=list)
     compile_calls: int = 0
@@ -274,7 +274,7 @@ class _DomainCompiler:
             ),
             mapping=mapping,
             invocation=invocation,
-            runtime=self.runtime,
+            job_runtime=self.job_runtime,
             realize=_reject_realization,
         )
 
@@ -649,7 +649,7 @@ def _config_with_domain_resources(
 
 
 def _assert_no_domain_effects(*compilers: _DomainCompiler) -> None:
-    assert all(compiler.runtime.execute_calls == 0 for compiler in compilers)
+    assert all(compiler.job_runtime.start_calls == 0 for compiler in compilers)
 
 
 def _catalog(

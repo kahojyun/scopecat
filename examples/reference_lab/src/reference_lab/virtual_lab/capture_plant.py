@@ -25,7 +25,6 @@ from scopecat.sdk.instruments.execution import RunHardwareBatch, RunHardwareInvo
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from reference_lab.payloads import reference_lab_payload_codecs
-from reference_lab.targets.list_mode.domain_runtime import ListModeDomainRuntime
 from reference_lab.targets.list_mode.execution_model import (
     AcquisitionResponse,
     DigitizerResultBatch,
@@ -35,6 +34,7 @@ from reference_lab.targets.list_mode.execution_model import (
     digitizer_addresses,
     run_fingerprint,
 )
+from reference_lab.targets.list_mode.job_runtime import ListModeDomainJobRuntime
 from reference_lab.targets.list_mode.model import (
     DigitizerAcquisitionWindow,
     DigitizerInputId,
@@ -73,7 +73,7 @@ def virtual_capture_source_interface() -> InterfaceSpec:
     )
 
 
-class VirtualListModeDomainRuntime(ListModeDomainRuntime):
+class VirtualListModeDomainJobRuntime(ListModeDomainJobRuntime):
     """Program the worker-owned virtual plant before normal target execution."""
 
     def __init__(self, response: AcquisitionResponse) -> None:
@@ -286,6 +286,6 @@ __all__ = [
     "VIRTUAL_CAPTURE_LOAD",
     "VIRTUAL_CAPTURE_QUEUE",
     "VIRTUAL_CAPTURE_SOURCE",
-    "VirtualListModeDomainRuntime",
+    "VirtualListModeDomainJobRuntime",
     "virtual_capture_source_interface",
 ]

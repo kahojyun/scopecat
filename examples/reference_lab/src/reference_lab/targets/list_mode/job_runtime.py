@@ -1,4 +1,4 @@
-"""Host-visible synchronous invocation adapter for the list-mode target."""
+"""Host-visible job adapter for the list-mode target."""
 
 from __future__ import annotations
 
@@ -216,8 +216,8 @@ def _result_address_intent(
     )
 
 
-class ListModeDomainRuntime:
-    """Execute one list-mode invocation completely through its worker devices."""
+class ListModeDomainJobRuntime:
+    """Start one list-mode job through its worker devices."""
 
     def __init__(self) -> None:
         self._device = InstrumentListModeRuntime()
@@ -235,7 +235,7 @@ class ListModeDomainRuntime:
             instruments=instruments,
         )
 
-    def execute(
+    def start(
         self,
         execution_key: str,
         mapped_target: MappedListModeTarget,
@@ -298,7 +298,7 @@ def realize_executed_measurements(
 
 
 __all__ = [
-    "ListModeDomainRuntime",
+    "ListModeDomainJobRuntime",
     "ListModeMeasurementInvocationSpec",
     "MappedListModeTarget",
     "list_mode_measurement_invocation_spec",
