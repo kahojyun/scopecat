@@ -2036,6 +2036,7 @@ def test_admission_canonicalizes_domain_only_instrument_claims(
     public_control = public.control.model_dump(mode="json")
     assert set(public_control["admission"]) == {
         "run_id",
+        "run_contract_fingerprint",
         "plan",
         "display_name",
         "tags",

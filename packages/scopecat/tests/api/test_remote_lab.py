@@ -63,15 +63,19 @@ from scopecat.daemon.views import (
     ConfigActivationPage,
     ConfigDraftPreview,
     ConfigRegistryPage,
+    MeasurementPreview,
     RunAdmissionView,
     RunConfigView,
     RunControlView,
     RunDetail,
     RunPlanView,
+    RunRequestView,
     RunSummary,
     RunSummaryPage,
 )
 from scopecat.daemon.wire import (
+    AttentionResolutionCommand,
+    AttentionResolutionReceipt,
     CandidateConfigRevisionSource,
     ConfigActivationReceipt,
     ConfigEntryActivationCommand,
@@ -229,6 +233,7 @@ def test_lab_runs_preserves_bounded_page_navigation() -> None:
             sequence=12,
             admission=RunAdmissionView(
                 run_id=snapshot.run_id,
+                run_contract_fingerprint="a" * 64,
                 plan=RunPlanView(
                     experiment_id="page-test",
                     experiment_kind="test",
@@ -290,6 +295,7 @@ def test_remote_run_uses_full_dataset_batches_and_projected_arrow_pages() -> Non
             sequence=1,
             admission=RunAdmissionView(
                 run_id=snapshot.run_id,
+                run_contract_fingerprint="a" * 64,
                 plan=RunPlanView(
                     experiment_id="remote-batches",
                     experiment_kind="test",
@@ -621,6 +627,184 @@ def test_execute_replays_terminal_success_after_submission_response_loss(
     assert replayed.status == "completed"
     assert submissions == [prepared, prepared]
     assert requests == ["/api/v1/runs", "/api/v1/runs"]
+
+
+def test_lab_resume_replans_and_authorizes_a_new_execution_segment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    planned = _planned()
+    submission, _ = runner_module._prepare_run_submission(
+        planned,
+        submission_id="original-submission",
+    )
+    snapshot = _admission(submission).snapshot
+    summary = submission.plan
+    detail = RunDetail(
+        control=RunControlView(
+            sequence=1,
+            admission=RunAdmissionView(
+                run_id=snapshot.run_id,
+                run_contract_fingerprint=submission.intent_content_hash,
+                plan=RunPlanView(
+                    experiment_id=summary.experiment_id,
+                    experiment_kind=summary.experiment_kind,
+                    point_count=summary.point_count,
+                    initial_point_count=summary.initial_point_count,
+                    point_limit=summary.point_limit,
+                    coordinates=summary.coordinates,
+                    sampled_points=summary.sampled_points,
+                    record_ids=summary.record_ids,
+                    run_resource_requirements=summary.run_resource_requirements,
+                ),
+                admitted_at=_NOW,
+            ),
+            state="attention_required",
+            updated_at=_NOW,
+            attention_reason="executor_disconnected",
+            completed_point_count=1,
+            point_plan=RunPointPlanView(
+                run_id=snapshot.run_id,
+                initial_point_count=summary.initial_point_count,
+                accepted_point_count=summary.initial_point_count,
+                point_limit=summary.point_limit,
+                decision_count=0,
+                optimizer_attempt_count=0,
+                operator_request_count=0,
+                plan_closed=True,
+                stop_reason="static point plan",
+            ),
+        ),
+        snapshot=snapshot,
+    )
+    incompatible_detail = detail.model_copy(
+        update={
+            "control": detail.control.model_copy(
+                update={
+                    "admission": detail.control.admission.model_copy(
+                        update={"run_contract_fingerprint": "b" * 64}
+                    )
+                }
+            )
+        }
+    )
+    with pytest.raises(ValueError, match="accepted run contract"):
+        runner_module._validate_resumed_plan(
+            planned,
+            detail=incompatible_detail,
+            request=planned.request,
+        )
+    segment_page = RunExecutionSegmentPage(
+        items=(
+            RunExecutionSegment(
+                sequence=1,
+                segment_id="segment-0",
+                run_id=snapshot.run_id,
+                ordinal=0,
+                executor_id="lost-notebook",
+                run_contract_fingerprint=submission.intent_content_hash,
+                started_at=_NOW,
+                start_point_count=0,
+                ended_at=_NOW + timedelta(seconds=1),
+                end_point_count=1,
+                result="interrupted",
+                certainty="indeterminate",
+                reason="executor_disconnected",
+            ),
+        )
+    )
+    planned_schema = planned.program.measurements.schema
+    assert planned_schema is not None
+    preview_schema = planned_schema.model_copy(
+        update={"dataset_id": "incompatible-measurements"}
+    )
+    requests: list[str] = []
+
+    def handler(http_request: httpx2.Request) -> httpx2.Response:
+        path = http_request.url.path
+        requests.append(path)
+        if path == "/api/v1/runs/run-1":
+            return _model(detail)
+        if path.endswith("/config"):
+            return _model(
+                RunConfigView(
+                    run_id=snapshot.run_id,
+                    config_content_hash=snapshot.config_content_hash,
+                    config=planned.config,
+                )
+            )
+        if path.endswith("/request"):
+            return _model(
+                RunRequestView(run_id=snapshot.run_id, request=planned.request)
+            )
+        if path == "/api/v1/instrument-contracts/resolve":
+            return _model(_instrument_catalog(planned.config))
+        if path.endswith("/measurements/preview"):
+            assert dict(http_request.url.params) == {"limit": "1"}
+            return _model(
+                MeasurementPreview(
+                    dataset_schema=preview_schema,
+                )
+            )
+        if path.endswith("/execution-segments"):
+            assert dict(http_request.url.params) == {"limit": "1"}
+            return _model(segment_page)
+        if path.endswith("/attention"):
+            command = AttentionResolutionCommand.model_validate_json(
+                http_request.content
+            )
+            assert command == AttentionResolutionCommand.continue_run(
+                run_contract_fingerprint=submission.intent_content_hash
+            )
+            return _model(
+                AttentionResolutionReceipt(
+                    run_id=snapshot.run_id,
+                    disposition="continue",
+                    state="queued",
+                    released_resource_count=1,
+                )
+            )
+        raise AssertionError(f"unexpected request: {http_request.method} {path}")
+
+    captured: dict[str, object] = {}
+
+    def execute(
+        *,
+        program: RunProgram,
+        session: ExecutionSession,
+    ) -> RunSnapshot:
+        captured["program"] = program
+        captured["session"] = session
+        assert session.has_prior_execution_segment()
+        return _terminal_manifest(session.accepted)
+
+    monkeypatch.setattr(runner_module, "execute_admitted_run", execute)
+    lab = LabClient(_client(handler))
+
+    with pytest.raises(ValueError, match="durable dataset"):
+        lab.resume("run-1", load_invocation(), executor_id="notebook-2")
+    assert "/api/v1/runs/run-1/attention" not in requests
+
+    preview_schema = planned_schema
+    requests.clear()
+    resumed = lab.resume("run-1", load_invocation(), executor_id="notebook-2")
+
+    assert resumed.id == snapshot.run_id
+    resumed_program = captured["program"]
+    assert isinstance(resumed_program, RunProgram)
+    assert resumed_program.config_content_hash == planned.program.config_content_hash
+    assert resumed_program.resource_requirements == (
+        planned.program.resource_requirements
+    )
+    assert resumed_program.points.contract == planned.program.points.contract
+    assert requests == [
+        "/api/v1/runs/run-1",
+        "/api/v1/runs/run-1/config",
+        "/api/v1/runs/run-1/request",
+        "/api/v1/instrument-contracts/resolve",
+        "/api/v1/runs/run-1/measurements/preview",
+        "/api/v1/runs/run-1/execution-segments",
+        "/api/v1/runs/run-1/attention",
+    ]
 
 
 @pytest.mark.parametrize(

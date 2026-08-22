@@ -40,10 +40,11 @@ import { analysisOutput } from "../analyses/analysis-model";
 
 type RunResourceRequirement =
   RunControlView["admission"]["plan"]["run_resource_requirements"][number];
-export async function resolveAttention(runId: string): Promise<void> {
+export async function closeAttentionRun(runId: string): Promise<void> {
   await apiData(
     apiClient.POST("/api/v1/runs/{run_id}/attention", {
       params: { path: { run_id: runId } },
+      body: { disposition: "close" },
     }),
   );
 }

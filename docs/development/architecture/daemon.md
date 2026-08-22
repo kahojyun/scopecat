@@ -171,6 +171,11 @@ pending/live measurement state as soon as the lease supervisor fences it. Any
 already durable measurement prefix, coverage watermark, execution segment, and
 domain-job transition ledger remain inspectable, but none alone authorizes
 replaying those external effects.
+The high-level `lab.resume(...)` path reconstructs and validates the accepted
+run contract before it submits the `continue` attention disposition. Calling it
+therefore serves as the operator's explicit confirmation that external hardware
+has already been reconciled; a contract mismatch leaves the run quarantined.
+
 Diagnosis can distinguish an invocation with no observed outcome, a pending
 provider checkpoint, and a terminal provider receipt. Invocation-only state
 deliberately does not claim that the provider received `start`, and none of the

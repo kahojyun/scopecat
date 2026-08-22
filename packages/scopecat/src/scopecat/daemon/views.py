@@ -206,6 +206,7 @@ class RunPlanView(_ViewModel):
 
 class RunAdmissionView(_ViewModel):
     run_id: str = Field(min_length=1)
+    run_contract_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     plan: RunPlanView
     display_name: str | None = Field(default=None, min_length=1)
     tags: tuple[str, ...] = ()

@@ -31,8 +31,11 @@ from scopecat.daemon.execution import (
     ExecutorLeaseLostError,
     LeaseSupervisor,
     daemon_execution_session,
+    daemon_resumption_session,
 )
+from scopecat.daemon.views import RunDetail
 from scopecat.daemon.wire import (
+    AttentionResolutionCommand,
     ExecutorLease,
     RunSubmission,
 )
@@ -55,6 +58,7 @@ from scopecat.records.run import (
     RunConfigSource,
     RunSnapshot,
 )
+from scopecat.records.run_request import RunRequest
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +127,75 @@ class _DaemonRunner:
             executor_id=executor_id,
             submission_id=submission_id,
         )
+
+    def resume(
+        self,
+        experiment: ExperimentInvocation,
+        *,
+        run_id: str,
+        executor_id: str = "notebook",
+    ) -> RunSnapshot:
+        """Rebuild local code and continue one compatible existing run."""
+
+        detail = self.client.get_run(run_id)
+        if detail.snapshot.outcome is not None:
+            return _resolve_terminal_snapshot(detail.snapshot)
+        if detail.control.state not in ("queued", "attention_required"):
+            raise ValueError(
+                f"run {run_id!r} cannot resume from state {detail.control.state!r}"
+            )
+        config = self.client.run_config(run_id).config
+        request = self.client.run_request(run_id).request
+        planned = self._plan(
+            experiment,
+            config=config,
+            config_source=detail.snapshot.config_source,
+            name=request.display_name,
+            tags=request.tags,
+            description=request.description,
+            metadata=cast("Mapping[str, MetadataValue]", request.metadata),
+            operator=request.operator,
+        )
+        _validate_resumed_plan(planned, detail=detail, request=request)
+        preview = self.client.measurement_preview(run_id, limit=1)
+        if (
+            preview.dataset_schema is not None
+            and preview.dataset_schema != planned.program.measurements.schema
+        ):
+            raise ValueError(
+                "resumed measurement schema does not match the durable dataset"
+            )
+        segments = self.client.get_run_execution_segments(run_id, limit=1)
+        has_prior_execution_segment = bool(segments.items)
+        if has_prior_execution_segment:
+            _validate_resumable_program(planned)
+        if detail.control.state == "attention_required":
+            receipt = self.client.resolve_attention(
+                run_id,
+                AttentionResolutionCommand.continue_run(
+                    run_contract_fingerprint=(
+                        detail.control.admission.run_contract_fingerprint
+                    )
+                ),
+            )
+            if receipt.run_id != run_id or receipt.state != "queued":
+                raise ValueError("attention resolution did not queue the resumed run")
+
+        heartbeat = _LeaseHeartbeat()
+        session = daemon_resumption_session(
+            self.client,
+            detail.snapshot,
+            executor_id=executor_id,
+            has_prior_execution_segment=has_prior_execution_segment,
+            lease_supervisor=heartbeat,
+        )
+        try:
+            return execute_admitted_run(
+                program=planned.program,
+                session=session,
+            )
+        finally:
+            heartbeat.close()
 
     def preview(
         self,
@@ -412,6 +485,32 @@ def _prepare_run_submission(
         plan=_run_plan_summary(planned),
     )
     return submission, f"sha256:{submission.intent_content_hash}"
+
+
+def _validate_resumed_plan(
+    planned: PlannedRun,
+    *,
+    detail: RunDetail,
+    request: RunRequest,
+) -> None:
+    if planned.request != request:
+        raise ValueError("resumed invocation does not reproduce the accepted request")
+    submission, _ = _prepare_run_submission(
+        planned,
+        submission_id="resume-contract-validation",
+    )
+    if (
+        submission.intent_content_hash
+        != detail.control.admission.run_contract_fingerprint
+    ):
+        raise ValueError("resumed program does not match the accepted run contract")
+
+
+def _validate_resumable_program(planned: PlannedRun) -> None:
+    if planned.program.adaptive_domain_plan is not None:
+        raise ValueError("adaptive runs do not yet support interpreter continuation")
+    if planned.program.domain_target_requirement is not None:
+        raise ValueError("domain-target runs do not yet support suffix continuation")
 
 
 def _resolve_terminal_snapshot(snapshot: RunSnapshot) -> RunSnapshot:

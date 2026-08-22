@@ -292,6 +292,29 @@ class LabClient:
         self._control.run_detail(run_id)
         return RunHandle(session=self, id=run_id)
 
+    def resume(
+        self,
+        run: RunSelector | RunHandle,
+        experiment: ExperimentSpec,
+        *,
+        executor_id: str = "notebook",
+    ) -> RunHandle:
+        """Continue an existing run after externally reconciling its hardware.
+
+        The invocation is planned again against the run's accepted config and
+        must reproduce its durable request and run contract. Calling this on an
+        attention-required run explicitly authorizes a new execution segment;
+        no Git workspace or Python-environment equality is assumed.
+        """
+
+        run_id = run_handle_id(run)
+        snapshot = self._runner.resume(
+            _experiment_invocation(experiment),
+            run_id=run_id,
+            executor_id=executor_id,
+        )
+        return RunHandle(session=self, id=snapshot.run_id)
+
     def resolve_config(
         self,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,

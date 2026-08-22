@@ -1531,16 +1531,34 @@ export interface components {
              */
             status: "applied" | "not_applied" | "unknown";
         };
+        /**
+         * AttentionResolutionCommand
+         * @description Choose the run disposition after external state was reconciled.
+         */
+        AttentionResolutionCommand: {
+            /**
+             * Disposition
+             * @enum {string}
+             */
+            disposition: "close" | "continue";
+            /** Run Contract Fingerprint */
+            run_contract_fingerprint?: string | null;
+        };
         /** AttentionResolutionReceipt */
         AttentionResolutionReceipt: {
+            /**
+             * Disposition
+             * @enum {string}
+             */
+            disposition: "close" | "continue";
             /** Released Resource Count */
             released_resource_count: number;
             run_id: components["schemas"]["NonEmptyText"];
             /**
              * State
-             * @constant
+             * @enum {string}
              */
-            state: "closed";
+            state: "queued" | "closed";
         };
         /**
          * BlobPayloadBody
@@ -4537,6 +4555,8 @@ export interface components {
             /** Display Name */
             display_name?: string | null;
             plan: components["schemas"]["RunPlanView"];
+            /** Run Contract Fingerprint */
+            run_contract_fingerprint: string;
             /** Run Id */
             run_id: string;
             /**
@@ -6730,7 +6750,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttentionResolutionCommand"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

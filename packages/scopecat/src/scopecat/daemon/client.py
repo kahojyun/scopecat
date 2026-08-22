@@ -114,6 +114,7 @@ from scopecat.daemon.views import (
     InstrumentListView,
     InstrumentView,
     MeasurementArrowQuery,
+    MeasurementPreview,
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
     ParameterProposalPage,
@@ -1388,6 +1389,18 @@ class DaemonClient:
         if encoded_snapshot_size is None:
             raise ValueError("measurement Arrow response has no snapshot size")
         return table, next_offset, int(encoded_snapshot_size)
+
+    def measurement_preview(
+        self,
+        run_id: str,
+        *,
+        limit: int = 1,
+    ) -> MeasurementPreview:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/measurements/preview",
+            MeasurementPreview,
+            params={"limit": limit},
+        )
 
     def measurement_trace_preview(
         self,

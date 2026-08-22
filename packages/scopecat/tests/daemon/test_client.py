@@ -826,6 +826,7 @@ def _control_run() -> RunControlView:
         sequence=1,
         admission=RunAdmissionView(
             run_id="run-1",
+            run_contract_fingerprint="a" * 64,
             plan=RunPlanView(
                 experiment_id="scratch",
                 experiment_kind="scratch",

@@ -23,7 +23,7 @@ import {
   getRunDomainDecisions,
   getRunEvents,
   getRuns,
-  resolveAttention,
+  closeAttentionRun,
 } from "./run-api";
 import { errorMessage, formatRelative, shorten, titleCase } from "../../lib/presentation";
 import type {
@@ -190,7 +190,7 @@ export function RunsWorkspace({
     enabled: selectedRunId !== undefined,
   });
   const attentionMutation = useMutation({
-    mutationFn: (runId: string) => resolveAttention(runId),
+    mutationFn: (runId: string) => closeAttentionRun(runId),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["runs"] }),

@@ -109,7 +109,18 @@ def execute_admitted_run(
         msg = "run program config does not match the admitted snapshot"
         raise ValueError(msg)
     start_point_count = session.durable_completed_point_count()
-    _validate_static_continuation(program, start_point_count=start_point_count)
+    requires_segment_history = (
+        program.adaptive_domain_plan is not None
+        or program.domain_target_requirement is not None
+    )
+    has_prior_execution_segment = start_point_count > 0 or (
+        requires_segment_history and session.has_prior_execution_segment()
+    )
+    _validate_static_continuation(
+        program,
+        start_point_count=start_point_count,
+        has_prior_execution_segment=has_prior_execution_segment,
+    )
     session.begin()
     return _execute_run(
         program=program,
@@ -727,13 +738,14 @@ def _validate_static_continuation(
     program: RunProgram,
     *,
     start_point_count: int,
+    has_prior_execution_segment: bool,
 ) -> None:
     if start_point_count < 0:
         raise ValueError("durable coverage must be non-negative")
     point_count = len(program.points.points)
     if start_point_count > point_count:
         raise ValueError("durable coverage exceeds the compiled static point domain")
-    if start_point_count == 0:
+    if not has_prior_execution_segment:
         return
     if program.adaptive_domain_plan is not None:
         raise ValueError("adaptive runs do not yet support interpreter continuation")

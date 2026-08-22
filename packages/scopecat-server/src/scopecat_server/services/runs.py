@@ -235,6 +235,7 @@ def _run_control_view(
         sequence=control.sequence,
         admission=RunAdmissionView(
             run_id=control.run_id,
+            run_contract_fingerprint=control.admission.submission_content_hash,
             admitted_at=control.admission.admitted_at,
             display_name=control.admission.display_name,
             tags=control.admission.tags,

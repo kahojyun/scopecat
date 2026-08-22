@@ -288,7 +288,8 @@ def test_non_static_continuation_fails_before_acquiring_instruments(
                         ),
                     ),
                     begin=unexpected_begin,
-                    durable_completed_point_count=lambda: 1,
+                    durable_completed_point_count=lambda: 0,
+                    has_prior_execution_segment=lambda: True,
                 ),
             )
         assert services.runs.read_snapshot(accepted.run_id) == accepted

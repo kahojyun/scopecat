@@ -262,6 +262,13 @@ instrument acquisition because their exact program position also depends on a
 durable proposal or external-job transition. They require a future resumable
 program-position contract rather than guessing from measurement row count.
 
+`lab.resume(run, invocation)` is the user-facing re-entry boundary. It replans
+against the accepted config, requires the reconstructed request and plan summary
+to reproduce the accepted run-contract fingerprint, and compares any initialized
+measurement schema before it resolves an attention-required run or acquires a
+new executor lease. The check is a durable shape and authority check, not a Git
+or environment reproducibility claim.
+
 Execution validates typed transitions for each consequential external
 invocation. A domain job starts with its deterministic execution key. A
 synchronous target returns terminal receipt/result evidence directly. A target
