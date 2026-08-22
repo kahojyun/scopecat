@@ -596,6 +596,63 @@ def test_expired_leased_executor_quarantines_resources(tmp_path: Path) -> None:
     assert store.get_run("lost").state == "attention_required"
 
 
+def test_reconciled_attention_can_open_a_new_execution_segment(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    shared = ResourceKey(kind="instrument", id="scope")
+    _admit(store, _admission("run-1", shared))
+    first = _start(store, "run-1", executor_id="kernel-1", at=NOW)
+    store.mark_executor_unknown(
+        "run-1",
+        token=first.token,
+        reason="executor_disconnected",
+        at=NOW + timedelta(seconds=1),
+    )
+
+    with (
+        pytest.raises(ControlPlaneConflict, match="contract"),
+        store.write_transaction() as connection,
+    ):
+        store.continue_run_after_attention_in_transaction(
+            connection,
+            "run-1",
+            run_contract_fingerprint="0" * 64,
+            at=NOW + timedelta(seconds=2),
+        )
+    assert store.get_run("run-1").state == "attention_required"
+    [quarantined] = _resource_claims(store)
+    assert quarantined.status == "quarantined"
+
+    with store.write_transaction() as connection:
+        continued, released = store.continue_run_after_attention_in_transaction(
+            connection,
+            "run-1",
+            run_contract_fingerprint=SUBMISSION_HASH,
+            at=NOW + timedelta(seconds=2),
+        )
+
+    assert continued.state == "queued"
+    assert continued.attention_reason is None
+    assert released == 1
+    assert _resource_claims(store) == ()
+    second = _start(
+        store,
+        "run-1",
+        executor_id="kernel-2",
+        at=NOW + timedelta(seconds=3),
+    )
+    segments = store.list_run_execution_segments("run-1").items
+    assert [segment.ordinal for segment in segments] == [1, 0]
+    assert segments[0].segment_id == second.segment_id
+    assert segments[0].result is None
+    assert segments[1].segment_id == first.segment_id
+    assert segments[1].result == "interrupted"
+    assert segments[1].reason == "executor_disconnected"
+    event_kinds = {event.kind for event in store.list_events(run_id="run-1").items}
+    assert "run_continuation_authorized" in event_kinds
+
+
 def test_expire_executor_leases_skips_writer_without_candidates(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

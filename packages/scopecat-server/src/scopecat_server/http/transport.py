@@ -148,6 +148,7 @@ from scopecat.daemon.views import (
 from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
+    AttentionResolutionCommand,
     AttentionResolutionReceipt,
     CalibrationPublicationCommand,
     CalibrationPublicationReceipt,
@@ -1130,8 +1131,9 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/attention")
     def resolve_attention(
         run_id: str,
+        command: AttentionResolutionCommand,
     ) -> AttentionResolutionReceipt:
-        return application.resolve_attention(run_id)
+        return application.resolve_attention(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/arrow")
     def measurement_arrow(

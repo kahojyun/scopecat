@@ -233,11 +233,18 @@ accepted run-contract fingerprint and the global coverage interval, so later
 continuation work has an immutable ownership boundary without adding a field to
 every measurement record.
 
-Execution segments are currently evidence, not continuation authority. The
-measurement writer and dataset seal remain run-owned, and attention resolution
-still closes an interrupted run. A later continuation change will create a new
-segment and measurement fragment rather than reopening the previous process
-owner.
+Execution segments are immutable evidence rather than transparent process
+resume. After hardware reconciliation, explicit continuation can return an
+attention-required run to the queue; the next executor lease creates a new
+segment at the durable global coverage watermark instead of reopening the
+previous process owner. The accepted run contract is checked, but Scopecat does
+not claim that the Python workspace or environment is unchanged.
+
+The measurement writer and dataset seal are still run-owned, so the general
+interpreter cannot yet append the remaining suffix. That later change must give
+each segment its own measurement fragment and validate the suffix against the
+already durable prefix. Until then, control-plane continuation is available for
+explicit orchestration and testing, not exposed as automatic execution resume.
 
 Execution validates typed transitions for each consequential external
 invocation. A domain job starts with its deterministic execution key. A

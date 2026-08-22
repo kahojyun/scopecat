@@ -20,6 +20,7 @@ from scopecat.control.models import (
     RunPlanSummary,
 )
 from scopecat.daemon.wire import (
+    AttentionResolutionCommand,
     AttentionResolutionReceipt,
     RunAdmission,
     RunSubmission,
@@ -296,10 +297,33 @@ class AdmissionService:
     def resolve_attention(
         self,
         run_id: str,
+        command: AttentionResolutionCommand,
     ) -> AttentionResolutionReceipt:
         run = self._control_run(run_id)
         if run.state != "attention_required":
             raise BackendConflict("run does not require operator attention")
+        if command.disposition == "continue":
+            fingerprint = command.run_contract_fingerprint
+            if fingerprint is None:
+                raise AssertionError("continuation command requires a run contract")
+            try:
+                with self._control.write_transaction() as connection:
+                    continued, released = (
+                        self._control.continue_run_after_attention_in_transaction(
+                            connection,
+                            run_id,
+                            run_contract_fingerprint=fingerprint,
+                        )
+                    )
+            except ControlPlaneConflict as error:
+                raise BackendConflict(str(error)) from error
+            assert continued.state == "queued"
+            return AttentionResolutionReceipt(
+                run_id=run_id,
+                disposition="continue",
+                state="queued",
+                released_resource_count=released,
+            )
         outcome = RunOutcome(
             run_id=run_id,
             result="failed",
@@ -339,6 +363,7 @@ class AdmissionService:
             raise BackendConflict(str(error)) from error
         return AttentionResolutionReceipt(
             run_id=run_id,
+            disposition="close",
             state="closed",
             released_resource_count=released,
         )

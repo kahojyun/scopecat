@@ -72,6 +72,7 @@ from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
     AnalysisTableOutputPayload,
+    AttentionResolutionCommand,
     CandidateConfigRevisionSource,
     ConfigActivationReceipt,
     ConfigDraftCommand,
@@ -4241,7 +4242,45 @@ def test_restart_quarantines_executor_until_operator_reconciles(
                 ExecutorStartRequest(executor_id="notebook-2"),
             )
 
-        resolved = reopened.application.resolve_attention(run_id)
+        with pytest.raises(BackendConflict, match="contract"):
+            reopened.application.resolve_attention(
+                run_id,
+                AttentionResolutionCommand.continue_run(
+                    run_contract_fingerprint="0" * 64,
+                ),
+            )
+        continued = reopened.application.resolve_attention(
+            run_id,
+            AttentionResolutionCommand.continue_run(
+                run_contract_fingerprint=submission.intent_content_hash,
+            ),
+        )
+        assert continued.disposition == "continue"
+        assert continued.state == "queued"
+        assert continued.released_resource_count == 1
+        assert _snapshot(reopened, run_id).outcome is None
+        continuing_lease = reopened.application.executor.start_executor(
+            run_id,
+            ExecutorStartRequest(executor_id="notebook-2"),
+        )
+        segments = reopened.application.executor.execution_segments(run_id).items
+        assert [segment.ordinal for segment in segments] == [1, 0]
+        assert segments[0].segment_id == continuing_lease.segment_id
+        assert segments[0].start_point_count == 1
+        assert segments[0].result is None
+        assert segments[1].result == "interrupted"
+        assert segments[1].reason == "daemon_restarted"
+        reopened.application.executor._control.mark_executor_unknown(
+            run_id,
+            token=continuing_lease.lease_id,
+            reason="continuation_reconciled_for_close",
+        )
+
+        resolved = reopened.application.resolve_attention(
+            run_id,
+            AttentionResolutionCommand.close_run(),
+        )
+        assert resolved.disposition == "close"
         assert resolved.state == "closed"
         assert resolved.released_resource_count == 1
         control = _control_run(reopened, run_id)

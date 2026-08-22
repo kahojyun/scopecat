@@ -14,6 +14,7 @@ from scopecat.daemon.views import (
     RunSummaryPage,
 )
 from scopecat.daemon.wire import (
+    AttentionResolutionCommand,
     AttentionResolutionReceipt,
     RunCancellationReceipt,
 )
@@ -74,8 +75,9 @@ class LabControlOperations:
     def resolve_attention(
         self,
         run_id: str,
+        command: AttentionResolutionCommand,
     ) -> AttentionResolutionReceipt:
-        return self.client.resolve_attention(run_id)
+        return self.client.resolve_attention(run_id, command)
 
 
 __all__ = ["LabControlOperations"]

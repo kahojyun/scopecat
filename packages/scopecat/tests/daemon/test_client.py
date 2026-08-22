@@ -39,6 +39,8 @@ from scopecat.daemon.views import (
 from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
+    AttentionResolutionCommand,
+    AttentionResolutionReceipt,
     ConfigActivationReceipt,
     ConfigEntryActivationCommand,
     ConfigPublishCommand,
@@ -208,6 +210,34 @@ def test_cancel_run_posts_to_the_idempotent_operator_endpoint() -> None:
     [request] = requests
     assert request.method == "POST"
     assert request.url.path == "/api/v1/runs/run-1/cancel"
+
+
+def test_resolve_attention_posts_an_explicit_disposition() -> None:
+    requests: list[httpx2.Request] = []
+    command = AttentionResolutionCommand.continue_run(
+        run_contract_fingerprint="a" * 64,
+    )
+    receipt = AttentionResolutionReceipt(
+        run_id="run-1",
+        disposition="continue",
+        state="queued",
+        released_resource_count=1,
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(receipt)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.resolve_attention("run-1", command) == receipt
+    [request] = requests
+    assert request.method == "POST"
+    assert request.url.path == "/api/v1/runs/run-1/attention"
+    assert AttentionResolutionCommand.model_validate_json(request.content) == command
 
 
 def test_resolve_instrument_contracts_posts_the_exact_config_snapshot() -> None:

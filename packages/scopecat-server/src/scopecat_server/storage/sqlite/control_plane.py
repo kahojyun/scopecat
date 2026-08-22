@@ -1476,6 +1476,51 @@ class SQLiteControlPlane:
             )
         return cursor.rowcount
 
+    def continue_run_after_attention_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+        *,
+        run_contract_fingerprint: str,
+        at: datetime | None = None,
+    ) -> tuple[ControlRun, int]:
+        """Release reconciled resources and return an interrupted run to queue."""
+
+        continued_at = at or datetime.now(tz=UTC)
+        current = _run(self._require_run(connection, run_id))
+        if current.state != "attention_required":
+            raise ControlPlaneConflict("only an attention-required run can continue")
+        if current.cancellation_requested_at is not None:
+            raise ControlPlaneConflict(
+                "a cancelled attention-required run cannot continue"
+            )
+        if run_contract_fingerprint != current.admission.submission_content_hash:
+            raise ControlPlaneConflict(
+                "continuation run contract does not match its admission"
+            )
+        released = self.release_run_resources_in_transaction(
+            connection,
+            run_id,
+        )
+        continued = self._update_scheduler_state_in_transaction(
+            connection,
+            current,
+            state="queued",
+            at=continued_at,
+        )
+        self._insert_event(
+            connection,
+            DurableEventInput(
+                run_id=run_id,
+                kind="run_continuation_authorized",
+                payload={
+                    "run_contract_fingerprint": run_contract_fingerprint,
+                },
+                occurred_at=continued_at,
+            ),
+        )
+        return continued, released
+
     def expire_executor_leases(
         self,
         *,

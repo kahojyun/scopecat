@@ -134,6 +134,7 @@ from scopecat.daemon.views import (
 from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
+    AttentionResolutionCommand,
     AttentionResolutionReceipt,
     CalibrationPublicationCommand,
     CalibrationPublicationReceipt,
@@ -1362,12 +1363,13 @@ class DaemonClient:
     def resolve_attention(
         self,
         run_id: str,
+        command: AttentionResolutionCommand,
     ) -> AttentionResolutionReceipt:
-        response = self._request(
-            "POST",
+        return self._post_model(
             f"{_API_PREFIX}/runs/{run_id}/attention",
+            command,
+            AttentionResolutionReceipt,
         )
-        return AttentionResolutionReceipt.model_validate_json(response.content)
 
     def measurement_arrow(
         self,
