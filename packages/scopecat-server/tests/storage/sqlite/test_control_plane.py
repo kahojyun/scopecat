@@ -127,6 +127,15 @@ def _close(
     at: datetime,
 ) -> ControlRun:
     with store.write_transaction() as connection:
+        if executor_token is not None:
+            store.finish_execution_segment_in_transaction(
+                connection,
+                run_id,
+                token=executor_token,
+                result="succeeded",
+                certainty="known",
+                at=at,
+            )
         return store.close_run_in_transaction(
             connection,
             run_id,
@@ -251,6 +260,11 @@ def test_executor_resources_and_scheduler_close_commit_together(
     )
     assert store.get_run("run-1").state == "leased"
     assert len(_resource_claims(store)) == 2
+    [active_segment] = store.list_run_execution_segments("run-1").items
+    assert active_segment.segment_id == executor.segment_id
+    assert active_segment.ordinal == 0
+    assert active_segment.start_point_count == 0
+    assert active_segment.result is None
 
     finished_at = NOW + timedelta(seconds=2)
     closed = _close(
@@ -261,6 +275,11 @@ def test_executor_resources_and_scheduler_close_commit_together(
     )
     assert closed.state == "closed"
     assert _resource_claims(store) == ()
+    [finished_segment] = store.list_run_execution_segments("run-1").items
+    assert finished_segment.segment_id == executor.segment_id
+    assert finished_segment.result == "succeeded"
+    assert finished_segment.certainty == "known"
+    assert finished_segment.end_point_count == 0
     with pytest.raises(ExecutorLeaseNotHeld):
         _append_event(
             store,
@@ -544,6 +563,10 @@ def test_expired_leased_executor_quarantines_resources(tmp_path: Path) -> None:
     run = store.get_run("lost")
     assert run.state == "attention_required"
     assert run.attention_reason == "executor_lease_expired"
+    [segment] = store.list_run_execution_segments("lost").items
+    assert segment.result == "interrupted"
+    assert segment.certainty == "indeterminate"
+    assert segment.reason == "executor_lease_expired"
     event_kinds = {event.kind for event in store.list_events(run_id="lost").items}
     assert {
         "executor_lease_granted",

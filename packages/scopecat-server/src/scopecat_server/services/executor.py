@@ -13,6 +13,7 @@ from pydantic import JsonValue, RootModel
 from scopecat.control.models import (
     ControlRun,
     DurableEventInput,
+    RunExecutionSegmentPage,
 )
 from scopecat.control.models import (
     ExecutorLease as ControlExecutorLease,
@@ -144,6 +145,24 @@ class ExecutorService:
             run_id=run_id,
             completed_point_count=completed,
         )
+
+    def execution_segments(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunExecutionSegmentPage:
+        """List immutable executor-ownership intervals for one run."""
+
+        try:
+            return self._control.list_run_execution_segments(
+                run_id,
+                limit=limit,
+                before=before,
+            )
+        except ControlPlaneNotFound as error:
+            raise BackendNotFound(str(error)) from error
 
     def advance_run_coverage(
         self,
@@ -677,6 +696,7 @@ class ExecutorService:
     ) -> ExecutorLease:
         return ExecutorLease(
             lease_id=lease.token,
+            segment_id=lease.segment_id,
             run_id=lease.run_id,
             executor_id=lease.executor_id,
             issued_at=lease.acquired_at,
@@ -731,6 +751,14 @@ class ExecutorService:
             snapshot = self._runs.commit_prepared_terminal_in_transaction(
                 connection,
                 prepared,
+            )
+            self._control.finish_execution_segment_in_transaction(
+                connection,
+                run_id,
+                token=token,
+                result=commit.outcome.result,
+                certainty=commit.outcome.certainty,
+                at=commit.outcome.finished_at,
             )
             self._control.close_run_in_transaction(
                 connection,

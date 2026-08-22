@@ -46,7 +46,11 @@ from scopecat.config.registry.records import (
     ManualConfigDraftRegistrySource,
 )
 from scopecat.config.resolution import config_revision_entry_id
-from scopecat.control.models import RunResourceRequirement
+from scopecat.control.models import (
+    RunExecutionSegment,
+    RunExecutionSegmentPage,
+    RunResourceRequirement,
+)
 from scopecat.daemon.client import (
     DaemonClient,
     DaemonConflictError,
@@ -162,10 +166,27 @@ def test_run_handle_exposes_bounded_domain_job_diagnostics() -> None:
         items=(transition,),
         next_cursor=9,
     )
+    segment_page = RunExecutionSegmentPage(
+        items=(
+            RunExecutionSegment(
+                sequence=3,
+                segment_id="segment-1",
+                run_id=execution_id.run_id,
+                ordinal=0,
+                executor_id="notebook-1",
+                run_contract_fingerprint="a" * 64,
+                started_at=_NOW,
+                start_point_count=0,
+            ),
+        ),
+        next_cursor=2,
+    )
     requests: list[httpx2.Request] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
+        if request.url.path.endswith("/execution-segments"):
+            return httpx2.Response(200, content=segment_page.model_dump_json())
         if request.url.path.endswith("/domain-jobs"):
             return httpx2.Response(200, content=state_page.model_dump_json())
         if request.url.path.endswith("/domain-jobs/transitions"):
@@ -177,9 +198,14 @@ def test_run_handle_exposes_bounded_domain_job_diagnostics() -> None:
         id=execution_id.run_id,
     )
 
+    assert run.execution_segments(limit=3, before=4) == segment_page
     assert run.domain_jobs(limit=7, before=12) == state_page
     assert run.domain_job_transitions(limit=5, before=10) == transition_page
     assert [(request.url.path, dict(request.url.params)) for request in requests] == [
+        (
+            "/api/v1/runs/run-domain-diagnostics/execution-segments",
+            {"limit": "3", "before": "4"},
+        ),
         (
             "/api/v1/runs/run-domain-diagnostics/domain-jobs",
             {"limit": "7", "before": "12"},
@@ -1757,6 +1783,7 @@ def _lease(*, heartbeat_interval: float) -> ExecutorLease:
     issued_at = datetime.now(UTC)
     return ExecutorLease(
         lease_id="lease-1",
+        segment_id="segment-1",
         run_id="run-1",
         executor_id="notebook-1",
         issued_at=issued_at,

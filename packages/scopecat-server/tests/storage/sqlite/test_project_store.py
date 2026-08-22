@@ -21,7 +21,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
     store.bootstrap()
     store.bootstrap()
 
-    assert store.schema_version() == 52
+    assert store.schema_version() == 53
     with sqlite3.connect(database) as connection:
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
         tables = {
@@ -36,6 +36,13 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         }
         scheduler_run_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(scheduler_runs)")
+        }
+        execution_segment_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(run_execution_segments)")
+        }
+        executor_lease_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(executor_leases)")
         }
         analysis_publication_columns = {
             row[1]
@@ -107,6 +114,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         "project_schema",
         "scheduler_runs",
         "durable_events",
+        "run_execution_segments",
         "execution_domain_job_transitions",
         "runs",
         "run_outcomes",
@@ -130,6 +138,16 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
     } <= tables
     assert {"renewed_at", "expires_at"} <= instrument_session_columns
     assert "cancellation_requested_at" in scheduler_run_columns
+    assert {
+        "segment_id",
+        "ordinal",
+        "run_contract_fingerprint",
+        "start_point_count",
+        "end_point_count",
+        "result",
+        "certainty",
+    } <= execution_segment_columns
+    assert "segment_id" in executor_lease_columns
     assert "record_entry_json" in analysis_publication_columns
     assert "published_at" in analysis_publication_columns
     assert "manifest_json" not in analysis_publication_columns
@@ -403,7 +421,7 @@ def test_bootstrap_refuses_v47_with_duplicate_calibration_query_projections(
         store.bootstrap()
 
 
-def test_bootstrap_refuses_v51_without_domain_job_invocation_transitions(
+def test_bootstrap_refuses_v52_without_execution_segments(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "control.sqlite3"
@@ -417,13 +435,13 @@ def test_bootstrap_refuses_v51_without_domain_job_invocation_transitions(
             """
         )
         connection.execute(
-            "INSERT INTO project_schema(singleton, version) VALUES (1, 51)"
+            "INSERT INTO project_schema(singleton, version) VALUES (1, 52)"
         )
 
     store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
     with pytest.raises(
         SchemaVersionError,
-        match="version: 51; expected 52; rebuild it explicitly",
+        match="version: 52; expected 53; rebuild it explicitly",
     ):
         store.bootstrap()
 

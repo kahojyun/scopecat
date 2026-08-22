@@ -80,6 +80,7 @@ from scopecat.automation.calibration_wire import (
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
+    RunExecutionSegmentPage,
 )
 from scopecat.daemon.endpoint import (
     DAEMON_SHUTDOWN_PATH,
@@ -1265,6 +1266,18 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/coverage")
     def get_run_coverage(run_id: str) -> RunCoverageState:
         return application.executor.run_coverage(run_id)
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/execution-segments")
+    def get_run_execution_segments(
+        run_id: str,
+        limit: Annotated[int, Query(ge=1, le=100)] = 64,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> RunExecutionSegmentPage:
+        return application.executor.execution_segments(
+            run_id,
+            limit=limit,
+            before=before,
+        )
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/coverage/advance")
     def advance_run_coverage(

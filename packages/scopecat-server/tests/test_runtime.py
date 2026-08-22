@@ -2605,6 +2605,7 @@ def test_executor_start_is_atomic_idempotent_and_quiet_when_resources_busy(
 
         started = runtime.application.executor.start_executor(first.run_id, request)
         retry = runtime.application.executor.start_executor(first.run_id, request)
+        [segment] = runtime.application.executor.execution_segments(first.run_id).items
         events_before_heartbeat = _events(runtime, run_id=first.run_id).items
         renewed = runtime.application.executor.heartbeat_executor(
             first.run_id,
@@ -2614,6 +2615,10 @@ def test_executor_start_is_atomic_idempotent_and_quiet_when_resources_busy(
         )
 
         assert retry == started
+        assert segment.segment_id == started.segment_id
+        assert segment.ordinal == 0
+        assert segment.start_point_count == 0
+        assert segment.result is None
         assert renewed.expires_at > started.expires_at
         assert _events(runtime, run_id=first.run_id).items == events_before_heartbeat
         assert (
@@ -3527,6 +3532,13 @@ def test_leased_run_cancellation_reaches_heartbeat_and_preserves_terminal_histor
         )
         assert _control_run(runtime, admission.run_id).state == "closed"
         assert _resource_claims(tmp_path) == ()
+        [segment] = runtime.application.executor.execution_segments(
+            admission.run_id
+        ).items
+        assert segment.segment_id == lease.segment_id
+        assert segment.result == "cancelled"
+        assert segment.certainty == "known"
+        assert segment.end_point_count == 0
 
         racing = runtime.application.submit_run(_submission("cancel-terminal-race"))
         racing_lease = runtime.application.executor.start_executor(

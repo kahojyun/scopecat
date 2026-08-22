@@ -516,6 +516,7 @@ def _submission(submission_id: str) -> dict[str, object]:
 def _executor_lease() -> ExecutorLease:
     return ExecutorLease(
         lease_id="lease-1",
+        segment_id="segment-1",
         run_id="run-1",
         executor_id="notebook-1",
         issued_at=_NOW,

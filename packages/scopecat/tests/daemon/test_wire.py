@@ -651,6 +651,7 @@ def test_executor_lease_is_expiring_and_fenced() -> None:
     now = datetime.now(UTC)
     lease = ExecutorLease(
         lease_id="lease-1",
+        segment_id="segment-1",
         run_id="run-1",
         executor_id="notebook-kernel-1",
         issued_at=now,

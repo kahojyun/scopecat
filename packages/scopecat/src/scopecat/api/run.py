@@ -23,6 +23,7 @@ from scopecat.api.analysis import (
     AnalysisStep,
 )
 from scopecat.api.published_analysis import PublishedAnalysis
+from scopecat.control.models import RunExecutionSegmentPage
 from scopecat.daemon.views import (
     MeasurementArrowColumn,
     MeasurementArrowQuery,
@@ -71,6 +72,14 @@ class RunOperations(Protocol):
     def load_config(self, run_id: str) -> ConfigProfileSnapshot: ...
 
     def load_request(self, run_id: str) -> RunRequest: ...
+
+    def execution_segments(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> RunExecutionSegmentPage: ...
 
     def domain_jobs(
         self,
@@ -229,6 +238,20 @@ class RunHandle:
         """Load the operator request accepted with this run."""
 
         return self.session.run_operations.load_request(self.id)
+
+    def execution_segments(
+        self,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunExecutionSegmentPage:
+        """List newest continuous executor-ownership intervals for this run."""
+
+        return self.session.run_operations.execution_segments(
+            self.id,
+            limit=limit,
+            before=before,
+        )
 
     def domain_jobs(
         self,

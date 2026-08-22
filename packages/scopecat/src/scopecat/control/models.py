@@ -46,6 +46,13 @@ type InventoryMigrationBlockerState = Literal[
 type InstrumentSessionState = Literal["active", "attention_required", "closed"]
 type InstrumentOperationKind = Literal["apply", "invoke", "collect"]
 type InstrumentSessionEndStatus = Literal["closed", "aborted"]
+type RunExecutionSegmentResult = Literal[
+    "succeeded",
+    "failed",
+    "cancelled",
+    "interrupted",
+]
+type RunExecutionSegmentCertainty = Literal["known", "indeterminate"]
 
 
 def utc_now() -> datetime:
@@ -358,6 +365,7 @@ class EventPage(_ControlModel):
 class ExecutorLease(_ControlModel):
     """Renewable fencing token for the process executing one run."""
 
+    segment_id: str = Field(min_length=1)
     run_id: str
     executor_id: str
     token: str
@@ -371,6 +379,57 @@ class ExecutorLease(_ControlModel):
             msg = "executor lease must expire after its renewal time"
             raise ValueError(msg)
         return self
+
+
+class RunExecutionSegment(_ControlModel):
+    """One immutable interval of continuous executor ownership within a run."""
+
+    sequence: int = Field(ge=1)
+    segment_id: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    ordinal: int = Field(ge=0)
+    executor_id: str = Field(min_length=1)
+    run_contract_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    started_at: datetime
+    start_point_count: int = Field(ge=0)
+    ended_at: datetime | None = None
+    end_point_count: int | None = Field(default=None, ge=0)
+    result: RunExecutionSegmentResult | None = None
+    certainty: RunExecutionSegmentCertainty | None = None
+    reason: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def validate_lifecycle(self) -> RunExecutionSegment:
+        terminal = (
+            self.ended_at,
+            self.end_point_count,
+            self.result,
+            self.certainty,
+        )
+        if any(item is None for item in terminal) and not all(
+            item is None for item in terminal
+        ):
+            raise ValueError("execution segment terminal fields must appear together")
+        if self.ended_at is None:
+            if self.reason is not None:
+                raise ValueError("active execution segment cannot have an end reason")
+            return self
+        if self.ended_at < self.started_at:
+            raise ValueError("execution segment cannot end before it starts")
+        if self.end_point_count is None:
+            raise AssertionError("terminal execution segment requires end coverage")
+        if self.end_point_count < self.start_point_count:
+            raise ValueError("execution segment coverage cannot move backwards")
+        if self.result == "interrupted" and self.reason is None:
+            raise ValueError("interrupted execution segment requires a reason")
+        return self
+
+
+class RunExecutionSegmentPage(_ControlModel):
+    """Newest-first page of execution ownership intervals for one run."""
+
+    items: tuple[RunExecutionSegment, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
 
 
 class ResourceClaim(_ControlModel):

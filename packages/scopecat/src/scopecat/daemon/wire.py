@@ -723,6 +723,7 @@ class ExecutorLease(_WireModel):
     """Renewable authority to report effects for one run."""
 
     lease_id: NonEmptyText
+    segment_id: NonEmptyText
     run_id: NonEmptyText
     executor_id: NonEmptyText
     issued_at: datetime

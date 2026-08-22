@@ -224,6 +224,21 @@ part of the reproducible plan.
 
 ## Completion, failure, and evidence
 
+Every executor lease owns one durable execution segment. The initial execution
+creates ordinal zero; an idempotent retry of the same live executor start returns
+the same segment. A terminal run commit closes the segment with the run result
+and its completed logical-point count. Lease loss closes it as an indeterminate
+interruption before the executor token is fenced. Segment records retain the
+accepted run-contract fingerprint and the global coverage interval, so later
+continuation work has an immutable ownership boundary without adding a field to
+every measurement record.
+
+Execution segments are currently evidence, not continuation authority. The
+measurement writer and dataset seal remain run-owned, and attention resolution
+still closes an interrupted run. A later continuation change will create a new
+segment and measurement fragment rather than reopening the previous process
+owner.
+
 Execution validates typed transitions for each consequential external
 invocation. A domain job starts with its deterministic execution key. A
 synchronous target returns terminal receipt/result evidence directly. A target

@@ -15,7 +15,11 @@ from scopecat.config.registry.records import (
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
 )
-from scopecat.control.models import RunPlanSummary
+from scopecat.control.models import (
+    RunExecutionSegment,
+    RunExecutionSegmentPage,
+    RunPlanSummary,
+)
 from scopecat.daemon.client import (
     DaemonClient,
     DaemonConflictError,
@@ -147,6 +151,40 @@ def test_executor_start_rejects_receipt_for_another_run() -> None:
                 executor_id="notebook-1",
             ),
         )
+
+
+def test_execution_segments_use_bounded_run_subresource() -> None:
+    requests: list[httpx2.Request] = []
+    page = RunExecutionSegmentPage(
+        items=(
+            RunExecutionSegment(
+                sequence=2,
+                segment_id="segment-2",
+                run_id="run-1",
+                ordinal=1,
+                executor_id="notebook-2",
+                run_contract_fingerprint="a" * 64,
+                started_at=_NOW,
+                start_point_count=4,
+            ),
+        ),
+        next_cursor=1,
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(page)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.get_run_execution_segments("run-1", limit=1, before=3) == page
+    [request] = requests
+    assert request.method == "GET"
+    assert request.url.path == "/api/v1/runs/run-1/execution-segments"
+    assert dict(request.url.params) == {"limit": "1", "before": "3"}
 
 
 def test_cancel_run_posts_to_the_idempotent_operator_endpoint() -> None:
@@ -809,6 +847,7 @@ def _submission(submission_id: str = "submission-1") -> RunSubmission:
 def _lease() -> ExecutorLease:
     return ExecutorLease(
         lease_id="lease-1",
+        segment_id="segment-1",
         run_id="run-1",
         executor_id="notebook-1",
         issued_at=_NOW,

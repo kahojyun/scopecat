@@ -153,15 +153,17 @@ If an executor disappears, its run enters `attention_required` and its resources
 stay quarantined. After externally reconciling hardware, an operator resolves
 attention through the GUI or `lab.control.resolve_attention(run_id)`. Resolution
 closes the run with an indeterminate failed outcome and releases the claims. The
-original program is not resumed because general effect replay is unsafe; another
-attempt is a new run. The daemon discards that executor's pending/live measurement
-state as soon as the lease supervisor fences it. Any already durable measurement
-prefix, coverage watermark, and domain-job transition ledger remain inspectable,
-but none authorizes appending to or resuming the failed attempt. Diagnosis can
-distinguish an invocation with no observed outcome, a pending provider
-checkpoint, and a terminal provider receipt. Invocation-only state deliberately
-does not claim that the provider received `start`, and none of the three states
-is replay authority.
+lost lease's execution segment is closed as an indeterminate interruption with
+its durable coverage interval before the token is fenced. The original program
+is not yet resumed because general effect replay is unsafe; another attempt is a
+new run. The daemon discards that executor's pending/live measurement state as
+soon as the lease supervisor fences it. Any already durable measurement prefix,
+coverage watermark, execution segment, and domain-job transition ledger remain
+inspectable, but none authorizes appending to or resuming the failed attempt.
+Diagnosis can distinguish an invocation with no observed outcome, a pending
+provider checkpoint, and a terminal provider receipt. Invocation-only state
+deliberately does not claim that the provider received `start`, and none of the
+three states is replay authority.
 
 A daemon restart immediately fences executors from the previous process rather
 than trusting their remaining lease time. Process-local measurement state is not

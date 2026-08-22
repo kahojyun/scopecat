@@ -712,6 +712,7 @@ def _model(model: BaseModel) -> httpx2.Response:
 def _lease() -> ExecutorLease:
     return ExecutorLease(
         lease_id="lease-1",
+        segment_id="segment-1",
         run_id="run-1",
         executor_id="notebook-1",
         issued_at=_NOW,

@@ -76,6 +76,7 @@ from scopecat.automation.calibration_wire import (
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
+    RunExecutionSegmentPage,
 )
 from scopecat.daemon.hardware_receipt_wire import (
     decode_collect_receipt,
@@ -1450,6 +1451,22 @@ class DaemonClient:
         return self._get_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/coverage",
             RunCoverageState,
+        )
+
+    def get_run_execution_segments(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunExecutionSegmentPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/execution-segments",
+            RunExecutionSegmentPage,
+            params=params,
         )
 
     def advance_run_coverage(

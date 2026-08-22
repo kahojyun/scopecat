@@ -23,6 +23,10 @@ from scopecat.control.models import (
     ResourceClaim,
     ResourceKey,
     RunAdmissionRecord,
+    RunExecutionSegment,
+    RunExecutionSegmentCertainty,
+    RunExecutionSegmentPage,
+    RunExecutionSegmentResult,
     RunPage,
 )
 
@@ -249,6 +253,46 @@ class SQLiteControlPlane:
         next_cursor = None if len(rows) <= limit else items[-1].sequence
         return RunPage(items=items, next_cursor=next_cursor)
 
+    def list_run_execution_segments(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunExecutionSegmentPage:
+        """Return newest execution ownership intervals for one run."""
+
+        _page_size(limit)
+        with self.sqlite.read_connection() as connection:
+            self._require_run(connection, run_id)
+            if before is None:
+                rows = _all(
+                    connection.execute(
+                        """
+                        SELECT * FROM run_execution_segments
+                        WHERE run_id = ?
+                        ORDER BY sequence DESC
+                        LIMIT ?
+                        """,
+                        (run_id, limit + 1),
+                    )
+                )
+            else:
+                rows = _all(
+                    connection.execute(
+                        """
+                        SELECT * FROM run_execution_segments
+                        WHERE run_id = ? AND sequence < ?
+                        ORDER BY sequence DESC
+                        LIMIT ?
+                        """,
+                        (run_id, before, limit + 1),
+                    )
+                )
+        items = tuple(_execution_segment(row) for row in rows[:limit])
+        next_cursor = None if len(rows) <= limit else items[-1].sequence
+        return RunExecutionSegmentPage(items=items, next_cursor=next_cursor)
+
     def close_run_in_transaction(
         self,
         connection: sqlite3.Connection,
@@ -266,12 +310,17 @@ class SQLiteControlPlane:
                 raise ExecutorLeaseNotHeld(
                     "closing a leased run requires its executor token"
                 )
-            self._live_executor(
+            lease = self._live_executor(
                 connection,
                 executor_token,
                 at=closed_at,
                 run_id=run_id,
             )
+            segment = self._execution_segment(connection, lease.segment_id)
+            if segment.ended_at is None:
+                raise ControlPlaneConflict(
+                    "closing a leased run requires its execution segment to end"
+                )
         elif current.state == "attention_required":
             if executor_token is not None:
                 raise ControlPlaneConflict(
@@ -502,17 +551,51 @@ class SQLiteControlPlane:
             if row is not None:
                 raise ControlPlaneConflict("run resources are busy")
 
+        segment_id = f"segment-{uuid4().hex}"
+        ordinal_row = _one(
+            connection.execute(
+                """
+                SELECT COALESCE(MAX(ordinal), -1) + 1 AS ordinal
+                FROM run_execution_segments
+                WHERE run_id = ?
+                """,
+                (run_id,),
+            )
+        )
+        assert ordinal_row is not None
+        ordinal = _integer(ordinal_row, "ordinal")
+        start_point_count = self._completed_point_count(connection, run_id)
+        connection.execute(
+            """
+            INSERT INTO run_execution_segments(
+                segment_id, run_id, ordinal, executor_id,
+                run_contract_fingerprint, started_at, start_point_count
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                segment_id,
+                run_id,
+                ordinal,
+                executor_id,
+                run.admission.submission_content_hash,
+                _timestamp(started_at),
+                start_point_count,
+            ),
+        )
         token = uuid4().hex
         expires_at = started_at + ttl
         connection.execute(
             """
             INSERT INTO executor_leases(
-                run_id, executor_id, token, acquired_at, renewed_at, expires_at
+                run_id, segment_id, executor_id, token,
+                acquired_at, renewed_at, expires_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
+                segment_id,
                 executor_id,
                 token,
                 _timestamp(started_at),
@@ -539,6 +622,7 @@ class SQLiteControlPlane:
             ],
         )
         lease = ExecutorLease(
+            segment_id=segment_id,
             run_id=run_id,
             executor_id=executor_id,
             token=token,
@@ -552,6 +636,7 @@ class SQLiteControlPlane:
                 run_id=run_id,
                 kind="executor_lease_granted",
                 payload={
+                    "segment_id": segment_id,
                     "executor_id": executor_id,
                     "expires_at": _timestamp(expires_at),
                 },
@@ -574,6 +659,35 @@ class SQLiteControlPlane:
             at=started_at,
         )
         return lease
+
+    def finish_execution_segment_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+        *,
+        token: str,
+        result: RunExecutionSegmentResult,
+        certainty: RunExecutionSegmentCertainty,
+        reason: str | None = None,
+        at: datetime | None = None,
+    ) -> RunExecutionSegment:
+        """Close the exact segment still owned by one live executor lease."""
+
+        ended_at = at or datetime.now(tz=UTC)
+        lease = self._live_executor(
+            connection,
+            token,
+            at=ended_at,
+            run_id=run_id,
+        )
+        return self._finish_execution_segment(
+            connection,
+            lease,
+            result=result,
+            certainty=certainty,
+            reason=reason,
+            at=ended_at,
+        )
 
     def renew_executor_lease(
         self,
@@ -1512,6 +1626,14 @@ class SQLiteControlPlane:
         active = run.state == "leased"
         if active:
             quarantined = self._quarantine_run_resources(connection, run_id)
+            self._finish_execution_segment(
+                connection,
+                lease,
+                result="interrupted",
+                certainty="indeterminate",
+                reason=attention_reason,
+                at=at,
+            )
             self._update_scheduler_state_in_transaction(
                 connection,
                 run,
@@ -1555,6 +1677,7 @@ class SQLiteControlPlane:
                 run_id=run_id,
                 kind="executor_lease_lost",
                 payload={
+                    "segment_id": lease.segment_id,
                     "executor_id": lease.executor_id,
                     "reason": attention_reason,
                 },
@@ -1562,6 +1685,94 @@ class SQLiteControlPlane:
             ),
         )
         return active
+
+    def _finish_execution_segment(
+        self,
+        connection: sqlite3.Connection,
+        lease: ExecutorLease,
+        *,
+        result: RunExecutionSegmentResult,
+        certainty: RunExecutionSegmentCertainty,
+        reason: str | None,
+        at: datetime,
+    ) -> RunExecutionSegment:
+        segment = self._execution_segment(connection, lease.segment_id)
+        if segment.ended_at is not None:
+            if (segment.result, segment.certainty, segment.reason) != (
+                result,
+                certainty,
+                reason,
+            ):
+                raise ControlPlaneConflict(
+                    "execution segment already ended with a different outcome"
+                )
+            return segment
+        if result == "interrupted" and not reason:
+            raise ValueError("interrupted execution segment requires a reason")
+        end_point_count = self._completed_point_count(connection, lease.run_id)
+        connection.execute(
+            """
+            UPDATE run_execution_segments SET
+                ended_at = ?, end_point_count = ?, result = ?,
+                certainty = ?, reason = ?
+            WHERE segment_id = ?
+            """,
+            (
+                _timestamp(at),
+                end_point_count,
+                result,
+                certainty,
+                reason,
+                segment.segment_id,
+            ),
+        )
+        self._insert_event(
+            connection,
+            DurableEventInput(
+                run_id=lease.run_id,
+                kind="execution_segment_ended",
+                payload={
+                    "segment_id": segment.segment_id,
+                    "result": result,
+                    "certainty": certainty,
+                    "end_point_count": end_point_count,
+                },
+                occurred_at=at,
+            ),
+        )
+        return self._execution_segment(connection, segment.segment_id)
+
+    @staticmethod
+    def _completed_point_count(
+        connection: sqlite3.Connection,
+        run_id: str,
+    ) -> int:
+        row = _one(
+            connection.execute(
+                """
+                SELECT completed_point_count
+                FROM execution_coverage
+                WHERE run_id = ?
+                """,
+                (run_id,),
+            )
+        )
+        return 0 if row is None else _integer(row, "completed_point_count")
+
+    @staticmethod
+    def _execution_segment(
+        connection: sqlite3.Connection,
+        segment_id: str,
+    ) -> RunExecutionSegment:
+        row = _one(
+            connection.execute(
+                "SELECT * FROM run_execution_segments WHERE segment_id = ?",
+                (segment_id,),
+            )
+        )
+        if row is None:
+            raise ControlPlaneConflict("executor lease has no execution segment")
+        return _execution_segment(row)
 
     @staticmethod
     def _quarantine_run_resources(
@@ -1839,12 +2050,37 @@ def _event(row: sqlite3.Row) -> DurableEvent:
 
 def _executor(row: sqlite3.Row) -> ExecutorLease:
     return ExecutorLease(
+        segment_id=_text(row, "segment_id"),
         run_id=_text(row, "run_id"),
         executor_id=_text(row, "executor_id"),
         token=_text(row, "token"),
         acquired_at=_datetime(_text(row, "acquired_at")),
         renewed_at=_datetime(_text(row, "renewed_at")),
         expires_at=_datetime(_text(row, "expires_at")),
+    )
+
+
+def _execution_segment(row: sqlite3.Row) -> RunExecutionSegment:
+    ended_at = _optional_text(row, "ended_at")
+    return RunExecutionSegment.model_validate(
+        {
+            "sequence": _integer(row, "sequence"),
+            "segment_id": _text(row, "segment_id"),
+            "run_id": _text(row, "run_id"),
+            "ordinal": _integer(row, "ordinal"),
+            "executor_id": _text(row, "executor_id"),
+            "run_contract_fingerprint": _text(
+                row,
+                "run_contract_fingerprint",
+            ),
+            "started_at": _datetime(_text(row, "started_at")),
+            "start_point_count": _integer(row, "start_point_count"),
+            "ended_at": None if ended_at is None else _datetime(ended_at),
+            "end_point_count": cast("int | None", row["end_point_count"]),
+            "result": _optional_text(row, "result"),
+            "certainty": _optional_text(row, "certainty"),
+            "reason": _optional_text(row, "reason"),
+        }
     )
 
 
